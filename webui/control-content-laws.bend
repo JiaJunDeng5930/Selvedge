@@ -60,7 +60,7 @@ def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alig
     case Controls.SingleLineFace{text} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
     case Controls.IconTextFace{icon, text} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
     case Controls.PickerFace{leading, text} Controls.Geometry{width, height, icon_size, radius, slot}: {==}
-    case Controls.ChoiceFace{text, checked} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
+    case Controls.ChoiceFace{text, description, checked} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
     case Controls.DisclosureFace{text, expanded} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
     case Controls.PermissionFace{filesystem, network, approval} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
 
@@ -83,16 +83,18 @@ type Requirements is Type:
       {Render.attr(Doc.element_attributes(Render.icon(key, Controls.ArrowUp{})), "fill") == "currentColor" : String},
     unstroked_arrow: @+key:String ->
       {Render.attr(Doc.element_attributes(Render.icon(key, Controls.ArrowUp{})), "stroke") == "none" : String},
-    picker_production: @+key:String -> @+leading:Maybe<&2, Controls.Icon> -> @label:String ->
-      {Render.face(key, Controls.PickerFace{leading, label}) == List.append(&2, Doc.Node, Render.optional_icon(key ++ "/leading", leading), [Render.face_label(key, label), Render.icon(key ++ "/disclosure", Controls.ChevronDown{})]) : +List<Doc.Node>},
+    picker_production: @+typography:T.Presentation -> @geometry:Controls.Geometry -> @+key:String -> @+leading:Maybe<&2, Controls.Icon> -> @label:String ->
+      {Render.face(key, Controls.PickerFace{leading, label}, typography, geometry) == List.append(&2, Doc.Node, Render.optional_icon(key ++ "/leading", leading), [Render.face_label(key, label), Render.icon(key ++ "/disclosure", Controls.ChevronDown{})]) : +List<Doc.Node>},
     check_frame_reserved: @+key:String ->
       {Doc.element_styles(Render.check_slot(key, True{})) == Doc.element_styles(Render.check_slot(key, False{})) : +List<Doc.Property>},
-    selected_check_svg: @+key:String ->
-      {Render.face(key, Controls.ChoiceFace{"", True{}}) == [Doc.Element{key ++ "/check-slot", "span", [Render.property("aria-hidden", "true")], [Render.property("width", "var(--native-leading-slot,20px)"), Render.property("height", "var(--native-icon-size,16px)"), Render.property("flex-shrink", "0"), Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center")], Nil{}, [Render.icon(key ++ "/check", Controls.Check{})]}, Render.face_label(key, "")] : +List<Doc.Node>},
-    unselected_check_empty: @+key:String ->
-      {Render.face(key, Controls.ChoiceFace{"", False{}}) == [Doc.Element{key ++ "/check-slot", "span", [Render.property("aria-hidden", "true")], [Render.property("width", "var(--native-leading-slot,20px)"), Render.property("height", "var(--native-icon-size,16px)"), Render.property("flex-shrink", "0"), Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center")], Nil{}, Nil{}}, Render.face_label(key, "")] : +List<Doc.Node>},
-    permission_icons: @+key:String -> @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
-      {Render.face(key, Controls.PermissionFace{filesystem, network, approval}) == [Render.icon(key ++ "/filesystem", filesystem), Render.icon(key ++ "/network", network), Render.icon(key ++ "/approval", approval)] : +List<Doc.Node>},
+    selected_check_svg: @+typography:T.Presentation -> @+key:String -> @label:String -> @+description:Maybe<&2, String> -> @width:Nat -> @height:Nat -> @icon:Nat -> @radius:Nat -> @slot:Nat ->
+      {Render.face(key, Controls.ChoiceFace{label, description, True{}}, typography, Controls.Geometry{width, height, icon, radius, slot}) ==
+        [Render.choice_text_content(key, label, description, 2n, typography), Doc.Element{key ++ "/check-slot", "span", [Render.property("aria-hidden", "true")], [Render.property("width", Render.px(slot)), Render.property("height", Render.px(icon)), Render.property("flex-shrink", "0"), Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center")], Nil{}, [Render.icon(key ++ "/check", Controls.Check{})]}] : +List<Doc.Node>},
+    unselected_check_empty: @+typography:T.Presentation -> @+key:String -> @label:String -> @+description:Maybe<&2, String> -> @width:Nat -> @height:Nat -> @icon:Nat -> @radius:Nat -> @slot:Nat ->
+      {Render.face(key, Controls.ChoiceFace{label, description, False{}}, typography, Controls.Geometry{width, height, icon, radius, slot}) ==
+        [Render.choice_text_content(key, label, description, 2n, typography), Doc.Element{key ++ "/check-slot", "span", [Render.property("aria-hidden", "true")], [Render.property("width", Render.px(slot)), Render.property("height", Render.px(icon)), Render.property("flex-shrink", "0"), Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center")], Nil{}, Nil{}}] : +List<Doc.Node>},
+    permission_icons: @+typography:T.Presentation -> @geometry:Controls.Geometry -> @+key:String -> @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
+      {Render.face(key, Controls.PermissionFace{filesystem, network, approval}, typography, geometry) == [Render.icon(key ++ "/filesystem", filesystem), Render.icon(key ++ "/network", network), Render.icon(key ++ "/approval", approval)] : +List<Doc.Node>},
     centered_icon_geometry: @icon:Controls.Icon -> @width:Nat -> @height:Nat -> @size:Nat -> @radius:Nat -> @slot:Nat ->
       {Render.content_geometry(Controls.IconFace{icon}, Controls.Geometry{width, height, size, radius, slot}) == [Render.property("width", Render.px(Render.square_extent(width, height))), Render.property("height", Render.px(Render.square_extent(width, height))), Render.property("flex-shrink", "0"), Render.property("box-sizing", "border-box")] : +List<Doc.Property>} &
       {Render.flow(Appearance.action_flow(Controls.IconFace{icon}, Controls.content_layout(Controls.IconFace{icon}))) == [Render.property("display", "inline-flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("justify-content", "center")] : +List<Doc.Property>},
@@ -102,4 +104,4 @@ type Requirements is Type:
       {insets(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size)) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}}
 
 def evidence() -> Requirements:
-  Requirements{+key => +icon => {==}, filesystem => network => approval => {==}, icon => {==}, +leading => label => {==}, +key => {==}, +key => {==}, +key => +leading => label => {==}, +key => {==}, +key => {==}, +key => {==}, +key => filesystem => network => approval => {==}, icon => width => height => size => radius => slot => ({==}, {==}), +key => +visual => input => availability => name => +face => behavior => +size => placement => help => feedback => {==}, appearance_consumes_layout}
+  Requirements{+key => +icon => {==}, filesystem => network => approval => {==}, icon => {==}, +leading => label => {==}, +key => {==}, +key => {==}, +typography => geometry => +key => +leading => label => {==}, +key => {==}, +typography => +key => label => +description => width => height => icon => radius => slot => {==}, +typography => +key => label => +description => width => height => icon => radius => slot => {==}, +typography => geometry => +key => filesystem => network => approval => {==}, icon => width => height => size => radius => slot => ({==}, {==}), +key => +visual => input => availability => name => +face => behavior => +size => placement => help => feedback => {==}, appearance_consumes_layout}

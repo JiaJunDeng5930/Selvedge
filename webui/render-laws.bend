@@ -470,23 +470,6 @@ def realized_faults_imply_valid(+faults: +List<Rendered.Violation>, +surface: UI
           Rendered.accepted(faults, generation, frame),
           Rendered.Realized{generation, frame}, realized))
 
-def realized_sound(+current: Nat, +received: Nat, +surface: UI.Surface, +frame: Rendered.Frame,
-  +previous: Rendered.State,
-  owned: {Nat.is_eq(current, received) == True{} : Bool},
-  realized: {Rendered.observe(current, received, surface, frame, previous) == Rendered.Realized{current, frame} : Rendered.State}) ->
-  {Spec.valid(surface, frame) == True{} : Bool}:
-  observed_owner = Equal.cong(Bool, Rendered.State,
-    (ownership => Rendered.receive(ownership, current, surface, frame, previous)),
-    Nat.is_eq(current, received), True{}, owned)
-  accepted_realized = Equal.trans(Rendered.State,
-    Rendered.receive(True{}, current, surface, frame, previous),
-    Rendered.receive(Nat.is_eq(current, received), current, surface, frame, previous),
-    Rendered.Realized{current, frame},
-    Equal.sym(Rendered.State,
-      Rendered.receive(Nat.is_eq(current, received), current, surface, frame, previous),
-      Rendered.receive(True{}, current, surface, frame, previous), observed_owner),
-    realized)
-  realized_faults_imply_valid(Rendered.violations(surface, frame), surface, frame, current, {==}, accepted_realized)
 
 type Requirements is Type:
   Requirements{
@@ -500,4 +483,17 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{reflected, realized_sound}
+  Requirements{reflected, +current => +received => +surface => +frame => +previous => owned => realized =>
+      observed_owner = Equal.cong(Bool, Rendered.State,
+        (ownership => Rendered.receive(ownership, current, surface, frame, previous)),
+        Nat.is_eq(current, received), True{}, owned)
+      accepted_realized = Equal.trans(Rendered.State,
+        Rendered.receive(True{}, current, surface, frame, previous),
+        Rendered.receive(Nat.is_eq(current, received), current, surface, frame, previous),
+        Rendered.Realized{current, frame},
+        Equal.sym(Rendered.State,
+          Rendered.receive(Nat.is_eq(current, received), current, surface, frame, previous),
+          Rendered.receive(True{}, current, surface, frame, previous), observed_owner),
+        realized)
+      realized_faults_imply_valid(Rendered.violations(surface, frame), surface, frame, current, {==}, accepted_realized)
+    }

@@ -182,9 +182,22 @@ def widget_field_style(widget: Controls.Widget, entry: Forms.Entry, +typography:
     case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}, typography), Enclosure.ambient(8n, 6n))
     case _: ordinary_field_style(entry, typography)
 
-def field_values(value: Design.Style, border: Nat, minimum: Nat, radius: Nat) -> Design.Style:
-  Design.Style{text, Design.Chrome{foreground, background, border_paint, old_border, old_radius, shadow}, alignment, flow, overflow, frame, old_minimum, maximum, states} = value
-  Design.Style{text, Design.Chrome{foreground, background, border_paint, border, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}
+def resolved_line_height(value: T.TextStyle) -> Nat:
+  T.TextStyle{font, size, line_height, weight} = value
+  line_height
+def text_line_height(value: T.Presentation) -> Nat:
+  resolved_line_height(T.resolved(value))
+def extent_height(value: Enclosure.Extent) -> Nat:
+  Enclosure.Extent{width, height} = value
+  height
+def frame_content_area(value: Enclosure.Frame) -> Enclosure.ContentArea:
+  Enclosure.Frame{area, arrangement} = value
+  area
+
+def field_values(value: Design.Style, +border: Nat, minimum: Nat, radius: Nat) -> Design.Style:
+  Design.Style{+text, Design.Chrome{foreground, background, border_paint, old_border, old_radius, shadow}, alignment, flow, overflow, +frame, old_minimum, maximum, states} = value
+  required = extent_height(Enclosure.required_extent(0n, text_line_height(text), border, frame_content_area(frame)))
+  Design.Style{text, Design.Chrome{foreground, background, border_paint, border, radius, shadow}, alignment, flow, overflow, frame, Nat.max(minimum, required), maximum, states}
 
 def work_title_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
@@ -321,6 +334,10 @@ def rounded_chrome(value: Design.Chrome, radius: Nat) -> Design.Chrome:
   Design.Chrome{foreground, background, border, width, old_radius, shadow} = value
   Design.Chrome{foreground, background, border, width, radius, shadow}
 
+def layout_content_area(value: Controls.ContentLayout) -> Enclosure.ContentArea:
+  Controls.ContentLayout{alignment, area, gap} = value
+  area
+
 def layout_inline_inset(layout: Controls.ContentLayout) -> Nat:
   Controls.ContentLayout{alignment, content_area, gap} = layout
   Enclosure.inline(content_area)
@@ -328,36 +345,65 @@ def layout_inline_inset(layout: Controls.ContentLayout) -> Nat:
 def face_padding(face: Controls.Face) -> Nat:
   layout_inline_inset(Controls.content_layout(face))
 
-def resolved_line_height(value: T.TextStyle) -> Nat:
-  T.TextStyle{font, size, line_height, weight} = value
-  line_height
 
-def text_line_height(value: T.Presentation) -> Nat:
-  resolved_line_height(T.resolved(value))
 
 def chrome_border_width(value: Design.Chrome) -> Nat:
   Design.Chrome{foreground, background, border, border_width, radius, shadow} = value
   border_width
 
-def extent_height(value: Enclosure.Extent) -> Nat:
-  Enclosure.Extent{width, height} = value
+
+
+def style_minimum_height(value: Design.Style) -> Nat:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  minimum
+
+def style_content_area(value: Design.Style) -> Enclosure.ContentArea:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  frame_content_area(frame)
+
+def style_border_width(value: Design.Style) -> Nat:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  chrome_border_width(chrome)
+
+def geometry_minimum_height(value: Controls.Geometry) -> Nat:
+  Controls.Geometry{width, height, icon, radius, leading} = value
   height
 
-def action_style_insets(value: Design.Style, geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat) -> Design.Style:
+def geometry_icon_size(value: Controls.Geometry) -> Nat:
+  Controls.Geometry{width, height, icon, radius, leading} = value
+  icon
+
+def choice_intrinsic_height(description: Maybe<&2, String>, +text: T.Presentation, layout: Controls.ChoiceContentLayout) -> Nat:
+  match description layout:
+    case None{} Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}: Nat.max(mark_icon_extent, text_line_height(text))
+    case Some{description} Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}: Nat.max(mark_icon_extent, (text_line_height(text) + text_gap + text_line_height(T.with_emphasis(T.with_tier(text, T.Support{}), T.Regular{})) : Nat))
+
+def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geometry: Controls.Geometry) -> Nat:
+  match face:
+    case Controls.IconFace{icon}: geometry_icon_size(geometry)
+    case Controls.PermissionFace{filesystem, network, approval}: geometry_icon_size(geometry)
+    case Controls.TextFace{label}: text_line_height(text)
+    case Controls.SingleLineFace{label}: text_line_height(text)
+    case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
+    case Controls.PickerFace{leading, label}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
+    case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
+    case Controls.ChoiceFace{label, description, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
+
+def action_style_insets(value: Design.Style, geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat, content_height: Nat) -> Design.Style:
   Design.Style{+text, +style_chrome, alignment, flow, overflow, +content_frame, old_height, maximum_width_percent, states} = value
   Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
-  required_height = extent_height(Enclosure.required_extent(0n, text_line_height(text),
+  required_height = extent_height(Enclosure.required_extent(0n, content_height,
     chrome_border_width(style_chrome), content_area))
   Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, states}
 
-def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry) -> Design.Style:
+def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry, content_height: Nat) -> Design.Style:
   Controls.ContentLayout{content_alignment, content_area, content_gap} = layout
-  action_style_insets(value, geometry, content_area, content_gap)
+  action_style_insets(value, geometry, content_area, content_gap, content_height)
 
 def action_flow(face: Controls.Face, layout: Controls.ContentLayout) -> Design.Flow:
   match face layout:
     case Controls.SingleLineFace{text} _: Design.BlockFlow{}
-    case Controls.ChoiceFace{text, checked} _: Design.ChoiceFlow{}
+    case Controls.ChoiceFace{text, description, checked} _: Design.ChoiceFlow{}
     case _ Controls.ContentLayout{alignment, content_area, gap}: Design.InlineControlFlow{alignment}
 
 def with_flow(value: Design.Style, flow: Design.Flow) -> Design.Style:
@@ -368,9 +414,9 @@ def with_flow(value: Design.Style, flow: Design.Flow) -> Design.Style:
 
 
 
-def action_style(value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) -> Design.Style:
+def action_style(+value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) -> Design.Style:
   +layout = Controls.content_layout(face)
-  with_flow(action_content_style(value, layout, geometry), action_flow(face, layout))
+  with_flow(action_content_style(value, layout, geometry, intrinsic_content_height(face, style_text(value), geometry)), action_flow(face, layout))
 
 def selection_style(value: Design.Style, behavior: Controls.Behavior, +typography: T.Presentation) -> Design.Style:
   match behavior:

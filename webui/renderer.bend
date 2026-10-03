@@ -391,6 +391,7 @@ def icon_content_extent(size: Controls.Geometry) -> +List<Doc.Property>:
 def content_extent(face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Property>:
   match face:
     case Controls.IconFace{icon}: icon_content_extent(size)
+    case Controls.ChoiceFace{text, description, checked}: [property("width", "100%"), property("min-width", "0"), property("height", "auto"), property("flex-shrink", "0")]
     case Controls.SingleLineFace{text}: [property("flex", "1 1 0"), property("width", "auto"), property("text-align", "start")]
     case _: [property("min-width", "0"), property("max-width", "100%"), property("text-align", "left")]
 
@@ -466,7 +467,7 @@ def input_style(value: Controls.Widget) -> +List<Doc.Property>:
 
 def input_style_for(meaning: UI.Meaning, widget: Controls.Widget) -> +List<Doc.Property>:
   match meaning:
-    case UI.BoardSearch{filter}: [property("height", "32px")]
+    case UI.BoardSearch{filter}: Nil{}
     case _: input_style(widget)
 
 
@@ -1197,14 +1198,27 @@ def disclosure_icon(expanded: Bool) -> Controls.Icon:
     case True{}: Controls.ChevronDown{}
     case False{}: Controls.ChevronRight{}
 
-def face(+key: String, value: Controls.Face) -> +List<Doc.Node>:
+def choice_text_content(+key: String, label: String, description: Maybe<&2, String>, text_gap: Nat, +typography: T.Presentation) -> Doc.Node:
+  match description:
+    case None{}:
+      Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start")], Nil{}, [Doc.Text{label}]}
+    case Some{description}:
+      Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start"), property("gap", px(text_gap))], Nil{},
+        [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
+          List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("white-space", "normal")]), Nil{}, [Doc.Text{description}]}]}
+
+def choice_content_layout(+key: String, label: String, description: Maybe<&2, String>, selected: Bool, layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> +List<Doc.Node>:
+  Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent} = layout
+  [choice_text_content(key, label, description, text_gap, typography), choice_mark(key, selected, mark_extent, mark_icon_extent)]
+
+def face(+key: String, value: Controls.Face, +typography: T.Presentation, geometry: Controls.Geometry) -> +List<Doc.Node>:
   match value:
     case Controls.IconFace{value}: [icon(key, value)]
     case Controls.TextFace{text}: [face_label(key, text)]
     case Controls.SingleLineFace{text}: [Doc.Text{text}]
     case Controls.IconTextFace{value, text}: [icon(key ++ "/leading", value), face_label(key, text)]
     case Controls.PickerFace{leading, text}: List.append(&2, Doc.Node, optional_icon(key ++ "/leading", leading), [face_label(key, text), icon(key ++ "/disclosure", Controls.ChevronDown{})])
-    case Controls.ChoiceFace{text, checked}: [check_slot(key, checked), face_label(key, text)]
+    case Controls.ChoiceFace{text, description, checked}: choice_content_layout(key, text, description, checked, Controls.choice_content_layout(geometry), typography)
     case Controls.DisclosureFace{text, expanded}: [icon(key ++ "/disclosure", disclosure_icon(expanded)), face_label(key, text)]
     case Controls.PermissionFace{filesystem, network, approval}: [icon(key ++ "/filesystem", filesystem), icon(key ++ "/network", network), icon(key ++ "/approval", approval)]
 
@@ -1278,7 +1292,7 @@ def action(+key: String, +visual: Design.Style, value: Controls.Representation) 
     case Controls.Action{input, availability, name, +face_value, response, +size, placement, hint, feedback}:
       Doc.Element{key, "button", List.append(&2, Doc.Property, [property("type", "button"), property("class", "native-control"), property("aria-label", name), property("data-native-key", key)],
         List.append(&2, Doc.Property, unavailable(availability), List.append(&2, Doc.Property, behavior(response), help(hint)))),
-        pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, action_geometry(size, visual), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size)))))), [Doc.Activate{key}], face(key, face_value)}
+        pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, action_geometry(size, visual), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size)))))), [Doc.Activate{key}], face(key, face_value, Appearance.style_text(visual), size)}
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
 
@@ -1793,30 +1807,6 @@ def choice_group_node(+key: String, +label: String, visual: Design.Style, childr
     List.append(&2, Doc.Property, style(visual), [property("flex-shrink", "0"), property("height", "auto")]), Nil{},
     Doc.Element{key ++ "/label", "div", Nil{}, List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("padding-inline", px(Appearance.popup_content_inset()))]), Nil{}, [Doc.Text{label}]} <> children}
 
-def choice_content_layout(+key: String, label: String, description: String, selected: Bool, layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> +List<Doc.Node>:
-  Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent} = layout
-  [Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"),
-    property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start"), property("gap", px(text_gap))], Nil{},
-    [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
-      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"),
-       property("white-space", "normal")]), Nil{}, [Doc.Text{description}]}]},
-   choice_mark(key, selected, mark_extent, mark_icon_extent)]
-
-
-def choice_face_layout(value: Doc.Node, label: String, description: String, selected: Bool, +layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> Doc.Node:
-  match value layout:
-    case Doc.Element{+key, tag, attrs, styles, events, children} Controls.ChoiceContentLayout{+text_gap, +mark_extent, +mark_icon_extent}:
-      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
-        [property("width", "100%"), property("min-width", "0"),
-         property("height", "auto"), property("flex-shrink", "0")]), events,
-        choice_content_layout(key, label, description, selected, Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}, typography)}
-    case other _: other
-
-
-def choice_node(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
-  +representation: Controls.Representation, visual_children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
-  choice_face_layout(action(key, visual, representation), label, description, selected, Controls.choice_layout(representation), typography)
-
 def project_header_node(node: Doc.Node) -> Doc.Node:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}:
@@ -1895,7 +1885,7 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
     case UI.PanelToggle{expanded, input_value, availability}: action(key, visual, representation)
     case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children, Appearance.style_text(visual))
     case UI.Activate{input_value, availability}: action(key, visual, representation)
-    case UI.Choice{selected, description, input, availability}: choice_node(key, label, selected, description, visual, representation, children, Appearance.style_text(visual))
+    case UI.Choice{selected, description, input, availability}: action(key, visual, representation)
     case UI.ProjectGroup{project, selected, expanded}: project_group_node(key, project, selected, expanded, visual, children)
     case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, children, Appearance.style_text(visual))
     case UI.ProjectChooser{selected}: project_chooser_node(key, selected, visual, children)

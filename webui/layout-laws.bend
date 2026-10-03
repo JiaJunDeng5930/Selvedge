@@ -211,8 +211,8 @@ def conversation_has_approval_only_dock(frame: Design.MainFrame) -> Bool:
 
 def input_metrics_law(+parameters: Design.LayoutParameters, -canvas: Design.Box) -> Type:
   {Layout.input_metrics(parameters, canvas) == Design.InputMetrics{
-      Nat.min(Layout.input_minimum_height(parameters), Nat.min(Layout.input_maximum_height(parameters), Nat.div(Layout.box_height(canvas), 3n))),
-      Nat.min(Layout.input_maximum_height(parameters), Nat.div(Layout.box_height(canvas), 3n)), Layout.input_line_height(parameters), Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}
+      Layout.input_minimum_height(parameters),
+      Nat.max(Layout.input_minimum_height(parameters), Nat.min(Layout.input_maximum_height(parameters), Nat.div(Layout.box_height(canvas), 3n))), Layout.input_line_height(parameters), Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}
 
 def input_metrics_follow_consistent_bounds(+parameters: Design.LayoutParameters, canvas: Design.Box) -> input_metrics_law(parameters, canvas):
   match canvas:
@@ -356,8 +356,28 @@ def details_capacity_feasible(+parameters: Design.LayoutParameters, +viewport: D
     ViewportSpace.regular_slots(parameters, ViewportSpace.placement(viewport, parameters, intent), True{}), 0n), Layout.viewport_width(viewport)) : Bool}:
   ViewportSpaceLaws.details_feasibility(viewport, parameters, intent)
 
+def metrics_minimum(value: Design.InputMetrics) -> Nat:
+  Design.InputMetrics{minimum, maximum, line, inset, padding, gap} = value
+  minimum
+
+def metrics_maximum(value: Design.InputMetrics) -> Nat:
+  Design.InputMetrics{minimum, maximum, line, inset, padding, gap} = value
+  maximum
+
+def input_minimum_retained(+parameters: Design.LayoutParameters, canvas: Design.Box) ->
+  {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Layout.input_minimum_height(parameters) : Nat}:
+  match canvas:
+    case Design.Box{left, top, width, height}: {==}
+
+def input_maximum_fits_minimum(+parameters: Design.LayoutParameters, canvas: Design.Box) ->
+  {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Layout.input_minimum_height(parameters)) == True{} : Bool}:
+  match canvas:
+    case Design.Box{left, top, width, height}: Nat.max_ge_l(Layout.input_minimum_height(parameters), Nat.min(Layout.input_maximum_height(parameters), Nat.div(height, 3n)))
+
 type Requirements is Type:
   Requirements{
+    input_minimum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Layout.input_minimum_height(parameters) : Nat},
+    input_maximum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Layout.input_minimum_height(parameters)) == True{} : Bool},
     settings_beside: @+parameters:Design.LayoutParameters -> @+box:Design.Box -> @main:Design.Box ->
       {Layout.settings_bounds(parameters, Design.BesideNavigation{box}, main) == Layout.settings_in_navigation(parameters, box) : Design.Box},
     settings_overlay: @+parameters:Design.LayoutParameters -> @+box:Design.Box -> @main:Design.Box ->
@@ -444,7 +464,7 @@ type Requirements is Type:
 
 
 def evidence() -> Requirements:
-  Requirements{
+  Requirements{input_minimum_retained, input_maximum_fits_minimum,
     +parameters => +box => main => {==},
     +parameters => +box => main => {==},
     +parameters => +main => {==},

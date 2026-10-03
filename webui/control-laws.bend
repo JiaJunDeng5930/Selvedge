@@ -74,9 +74,9 @@ def panel_toggle_retains_binding(+key: String, expanded: Bool, +input: Core.Inpu
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
-def choice_retains_binding(+key: String, selected: Bool, +input: Core.Input, +availability: View.Availability,
+def choice_retains_binding(+key: String, selected: Bool, description: String, +input: Core.Input, +availability: View.Availability,
   label: String, role: UI.Role, context: Controls.Context) ->
-  {binding(Controls.make_choice(key, selected, input, availability, label, role, context)) ==
+  {binding(Controls.make_choice(key, selected, description, input, availability, label, role, context)) ==
     UI.Activate{input, availability} : UI.Meaning}:
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
@@ -119,7 +119,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
-    case UI.Choice{selected, description, input, availability}: choice_retains_binding(key, selected, input, availability, label, role, context)
+    case UI.Choice{selected, description, input, availability}: choice_retains_binding(key, selected, description, input, availability, label, role, context)
     case UI.ProjectGroup{project, selected, expanded}: {==}
     case UI.TaskRow{task, status, selected}: {==}
     case UI.ProjectChooser{selected}: {==}
@@ -292,7 +292,7 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
     case Controls.SingleLineFace{text}: Some{text}
     case Controls.IconTextFace{icon, text}: Some{text}
     case Controls.PickerFace{icon, text}: Some{text}
-    case Controls.ChoiceFace{text, checked}: Some{text}
+    case Controls.ChoiceFace{text, description, checked}: Some{text}
     case Controls.DisclosureFace{text, expanded}: Some{text}
     case Controls.PermissionFace{filesystem, network, approval}: None{}
 
@@ -459,7 +459,7 @@ type Requirements is Type:
       {Controls.geometry_for(Controls.CopyCode{state}, Controls.face_for(Controls.CopyCode{state}, "Copy code", Controls.CodeArea{}), Controls.CodeArea{}) ==
         Controls.Geometry{32n, 32n, 16n, 8n, 0n} : Controls.Geometry},
     radio_reserves_check: @label:String -> @checked:Bool ->
-      {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, checked}, Controls.MenuArea{}) ==
+      {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, None{}, checked}, Controls.MenuArea{}) ==
         Controls.Geometry{0n, 28n, 16n, 6n, 20n} : Controls.Geometry},
     model_option_marks_current: @+key:String -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
       @+current:String -> @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> ->
@@ -467,14 +467,14 @@ type Requirements is Type:
       {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
           User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
           Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
-          Some{Choice{Controls.ChoiceFace{label, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
+          Some{Choice{Controls.ChoiceFace{label, None{}, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
     delivery_option_marks_current: @+key:String -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
           User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
           Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
-          Some{Choice{Controls.ChoiceFace{label, Controls.same_delivery(delivery, current)},
+          Some{Choice{Controls.ChoiceFace{label, None{}, Controls.same_delivery(delivery, current)},
             Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
     approval_keeps_label: @key:String -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
       @availability:View.Availability -> @+label:String -> @role:UI.Role -> @selection:Controls.Selection ->

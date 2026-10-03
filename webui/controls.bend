@@ -97,7 +97,7 @@ type Face is Data:
   # Render the value and a trailing chevron, with room reserved for both.
   PickerFace{leading: Maybe<&2, Icon>, text: String}
   # Every option reserves the check column, including unselected options.
-  ChoiceFace{text: String, checked: Bool}
+  ChoiceFace{text: String, description: Maybe<&2, String>, checked: Bool}
   DisclosureFace{text: String, expanded: Bool}
   PermissionFace{filesystem: Icon, network: Icon, approval: Icon}
 
@@ -125,7 +125,7 @@ def content_layout(face: Face) -> ContentLayout:
   match face:
     case IconFace{icon}: ContentLayout{CenterContents{}, Enclosure.area(Enclosure.IconControl{}), 0n}
     case SingleLineFace{text}: ContentLayout{LeadingContents{}, Enclosure.ambient(0n, 0n), 0n}
-    case ChoiceFace{text, checked}: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
+    case ChoiceFace{text, description, checked}: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
     case _: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
 
 type IconPaint is Data:
@@ -568,14 +568,14 @@ def contextual_face(+purpose: Purpose, label: String, +area: Area) -> Face:
     case EditItem{} CardArea{}: TextFace{label}
     case ChooseValue{expanded} _: PickerFace{None{}, label}
     case WorkspacePicker{expanded} _: PickerFace{Some{Folder{}}, label}
-    case SelectedOption{checked} _: ChoiceFace{label, checked}
+    case SelectedOption{checked} _: ChoiceFace{label, None{}, checked}
     case ShowActivity{expanded} _: DisclosureFace{label, expanded}
     case _ _: named_face(purpose_icon(purpose), label, icon_only(purpose, area))
 
 def menu_face(purpose: Purpose, label: String) -> Face:
   match purpose:
     case Dismiss{}: IconFace{CloseCross{}}
-    case SelectedOption{checked}: ChoiceFace{label, checked}
+    case SelectedOption{checked}: ChoiceFace{label, None{}, checked}
     case ChooseValue{expanded}: PickerFace{None{}, label}
     case ShowActivity{expanded}: DisclosureFace{label, expanded}
     case _: named_face(purpose_icon(purpose), label, False{})
@@ -681,7 +681,7 @@ def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
 
 def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match face:
-    case ChoiceFace{text, checked}: Geometry{0n, 28n, 16n, 6n, 20n}
+    case ChoiceFace{text, description, checked}: Geometry{0n, 28n, 16n, 6n, 20n}
     case other: geometry_nonchoice(purpose, other, area)
 
 
@@ -791,18 +791,26 @@ def make_composer_action(key: String, subject: View.ComposerSubject, input: Core
   Context{area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
   composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
 
-def choice_action(+selected: Bool, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
+def choice_description_for(empty: Bool, value: String) -> Maybe<&2, String>:
+  match empty:
+    case True{}: None{}
+    case False{}: Some{value}
+
+def choice_description(+value: String) -> Maybe<&2, String>:
+  choice_description_for(String.eq(value, ""), value)
+
+def choice_action(+selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
   match value:
     case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
-      +actual_face: Face = ChoiceFace{name, selected}
+      +actual_face: Face = ChoiceFace{name, description, selected}
       Action{input, availability, name, actual_face, ChoiceRadio{selected}, geometry_for(purpose, actual_face, area), placement, help, feedback}
     case other: other
 
-def make_choice(+key: String, selected: Bool, +input: Core.Input, availability: View.Availability,
+def make_choice(+key: String, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
   label: String, role: UI.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-  choice_action(selected, intent, area, action_for_purpose(intent, area, input, availability, label, role))
+  choice_action(selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
 
 type ChoiceContentLayout is Data:
   ChoiceContentLayout{text_gap: Nat, mark_extent: Nat, mark_icon_extent: Nat}
@@ -973,7 +981,7 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
     case UI.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
-    case UI.Choice{selected, description, input, availability}: make_choice(key, selected, input, availability, label, role, context)
+    case UI.Choice{selected, description, input, availability}: make_choice(key, selected, description, input, availability, label, role, context)
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
     case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
     case UI.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))

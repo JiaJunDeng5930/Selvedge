@@ -186,8 +186,45 @@ def regular_heading_role(inherited: T.Presentation, text: String, in_main: Bool)
     case True{}: {==}
     case False{}: {==}
 
+def action_minimum_formula(+value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) ->
+  {Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)) == Nat.max(Appearance.geometry_minimum_height(geometry), Appearance.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Appearance.style_text(value), geometry), Appearance.style_border_width(value), Appearance.layout_content_area(Controls.content_layout(face))))) : Nat}:
+  match value face geometry:
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.IconFace{glyph} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.TextFace{label} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.SingleLineFace{label} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.IconTextFace{glyph, label} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.PickerFace{glyph, label} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.DisclosureFace{label, expanded} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.ChoiceFace{label, description, checked} Controls.Geometry{width, height, icon, radius, leading}: {==}
+    case Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} Controls.PermissionFace{filesystem, network, approval} Controls.Geometry{width, height, icon, radius, leading}: {==}
+
+def action_minimum_retains_geometry(+value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) ->
+  {Nat.is_ge(Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Appearance.geometry_minimum_height(geometry)) == True{} : Bool}:
+  +required = Appearance.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Appearance.style_text(value), geometry), Appearance.style_border_width(value), Appearance.layout_content_area(Controls.content_layout(face))))
+  Equal.trans(Bool, Nat.is_ge(Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Appearance.geometry_minimum_height(geometry)), Nat.is_ge(Nat.max(Appearance.geometry_minimum_height(geometry), required), Appearance.geometry_minimum_height(geometry)), True{},
+    Equal.cong(Nat, Bool, (height => Nat.is_ge(height, Appearance.geometry_minimum_height(geometry))), Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Nat.max(Appearance.geometry_minimum_height(geometry), required), action_minimum_formula(value, face, geometry)), Nat.max_ge_l(Appearance.geometry_minimum_height(geometry), required))
+
+def action_minimum_fits_content(+value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) ->
+  {Nat.is_ge(Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Appearance.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Appearance.style_text(value), geometry), Appearance.style_border_width(value), Appearance.layout_content_area(Controls.content_layout(face))))) == True{} : Bool}:
+  +required = Appearance.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Appearance.style_text(value), geometry), Appearance.style_border_width(value), Appearance.layout_content_area(Controls.content_layout(face))))
+  Equal.trans(Bool, Nat.is_ge(Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), required), Nat.is_ge(Nat.max(Appearance.geometry_minimum_height(geometry), required), required), True{},
+    Equal.cong(Nat, Bool, (height => Nat.is_ge(height, required)), Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Nat.max(Appearance.geometry_minimum_height(geometry), required), action_minimum_formula(value, face, geometry)), Nat.max_ge_r(Appearance.geometry_minimum_height(geometry), required))
+
+def field_minimum_fits_content(+value: Design.Style, +border: Nat, minimum: Nat, radius: Nat) ->
+  {Nat.is_ge(Appearance.style_minimum_height(Appearance.field_values(value, border, minimum, radius)),
+    Appearance.extent_height(Enclosure.required_extent(0n, Appearance.text_line_height(Appearance.style_text(value)), border, Appearance.style_content_area(value)))) == True{} : Bool}:
+  match value:
+    case Design.Style{+text, Design.Chrome{foreground, background, paint, old_border, old_radius, shadow}, alignment, flow, overflow, +frame, old_minimum, maximum, states}:
+      Nat.max_ge_r(minimum, Appearance.extent_height(Enclosure.required_extent(0n, Appearance.text_line_height(text), border, Appearance.frame_content_area(frame))))
+
 type Requirements is Type:
   Requirements{
+    action_geometry_minimum: @+value:Design.Style -> @+face:Controls.Face -> @+geometry:Controls.Geometry ->
+      {Nat.is_ge(Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Appearance.geometry_minimum_height(geometry)) == True{} : Bool},
+    action_content_minimum: @+value:Design.Style -> @+face:Controls.Face -> @+geometry:Controls.Geometry ->
+      {Nat.is_ge(Appearance.style_minimum_height(Appearance.action_style(value, face, geometry)), Appearance.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Appearance.style_text(value), geometry), Appearance.style_border_width(value), Appearance.layout_content_area(Controls.content_layout(face))))) == True{} : Bool},
+    field_content_minimum: @+value:Design.Style -> @+border:Nat -> @minimum:Nat -> @radius:Nat ->
+      {Nat.is_ge(Appearance.style_minimum_height(Appearance.field_values(value, border, minimum, radius)), Appearance.extent_height(Enclosure.required_extent(0n, Appearance.text_line_height(Appearance.style_text(value)), border, Appearance.style_content_area(value)))) == True{} : Bool},
     actual_information_assignment: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+context:Controls.Context -> @+inherited:T.Presentation -> @+in_main:Bool -> @+start:Bool ->
       {first_text(Appearance.nodes_at([UI.Node{key,semantic,label,role,meaning,Nil{}}], context, inherited, in_main, start)) ==
         Some{Appearance.style_text(Appearance.prepared_style(key,semantic,role,meaning,Controls.enter(key,role,meaning,context),
@@ -234,7 +271,7 @@ type Requirements is Type:
     main_omits_outer_border: @+typography:T.Presentation -> @meaning:UI.Meaning -> {style_border(Appearance.style(UI.Main{}, meaning, typography)) == 0n : Nat}}
 
 def evidence() -> Requirements:
-  Requirements{
+  Requirements{action_minimum_retains_geometry, action_minimum_fits_content, field_minimum_fits_content,
     +key => +semantic => +label => +role => +meaning => +context => +inherited => +in_main => +start => {==},
     inherited => text => {==}, inherited => text => in_main => regular_heading_role(inherited,text,in_main), inherited => text => in_main => start => {==},
     +typography => +in_main => +start => values => context => nodes_preserve_semantics_at(values, context, typography, in_main, start),

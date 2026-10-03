@@ -129,12 +129,6 @@ def viewport_of(environment: Design.Environment) -> Design.Viewport:
   Design.Environment{viewport, system_dark, root} = environment
   viewport
 
-def environment_observed_preserves_core(+environment: Design.Environment, current_environment: Design.Environment,
-  +application: Platform.State, +generation: Nat, realization: Rendered.State, font: F.State) ->
-  {Model.product(Model.step(Model.EnvironmentObserved{environment}, Model.State{application, generation, realization, current_environment, font})) ==
-    Platform.unchanged(original_core(application)) : Core.Decision}:
-  Model.realization_preserves_product(Platform.Decision{Platform.unchanged(original_core(application)), original_platform(application), Nil{}},
-    (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
 
 def environment_observed_stores_environment(+environment: Design.Environment, current_environment: Design.Environment,
   +application: Platform.State, +generation: Nat, realization: Rendered.State, font: F.State) ->
@@ -256,6 +250,9 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{observes_semantic_surface, observes_layout, awaiting_scene, failed_scene,
-    environment_observed_preserves_core, environment_observed_stores_environment,
+    +environment => current_environment => +application => +generation => realization => font =>
+      Model.realization_preserves_product(Platform.Decision{Platform.unchanged(original_core(application)), original_platform(application), Nil{}},
+        (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
+    , environment_observed_stores_environment,
     frame_preserves_environment, element_preserves_environment, Model.frame_emits_no_effects,
     reflow_sets_capacity, invalidation_sets_capacity, environment_observed_sets_capacity, legacy_capacity_uses_layout}

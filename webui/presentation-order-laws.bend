@@ -553,11 +553,6 @@ def ordered_surface_preserves_content_scope(surface: UI.Surface) ->
   match surface:
     case UI.Surface{content, base, overlays, active_scope}: {==}
 
-def observes_ordered_surface(environment: Design.Environment, +application: Platform.State,
-  generation: Nat, realization: Rendered.State, font: F.State) ->
-  PresentationLaws.SemanticClaim(Model.observe(Model.State{application, generation, realization, environment, font}),
-    Order.ordered_surface(Model.surface(application))):
-  PresentationLaws.observes_semantic_surface(Model.State{application, generation, realization, environment, font})
 
 def FrameProjectionClaim(outcome: Model.SceneOutcome, projected: Maybe<&2, UI.Surface>) -> Type:
   match outcome:
@@ -754,5 +749,7 @@ def evidence() -> Requirements:
     values => context => dialog_order_idempotent(values, context),
     value => children => node_with_children_preserves_payload(value, children),
     surface => ordered_surface_preserves_content_scope(surface),
-    environment => +application => generation => realization => font => observes_ordered_surface(environment, application, generation, realization, font),
+    environment => +application => generation => realization => font =>
+      PresentationLaws.observes_semantic_surface(Model.State{application, generation, realization, environment, font})
+    ,
     +state => +surface => frame_surface_uses_ordered_projection(state, surface)}

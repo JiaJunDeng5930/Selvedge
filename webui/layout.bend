@@ -192,8 +192,8 @@ def composer_content_inset() -> Nat:
 def input_metrics(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Design.InputMetrics:
   Design.Box{+left, +top, +width, height} = canvas
   # The remaining line and spacing values follow the imported Desktop component tokens.
-  +maximum = Nat.min(input_maximum_height(parameters), Nat.div(height, 3n))
-  Design.InputMetrics{Nat.min(input_minimum_height(parameters), maximum), maximum, input_line_height(parameters), composer_content_inset(), 4n, 8n}
+  +maximum = Nat.max(input_minimum_height(parameters), Nat.min(input_maximum_height(parameters), Nat.div(height, 3n)))
+  Design.InputMetrics{input_minimum_height(parameters), maximum, input_line_height(parameters), composer_content_inset(), 4n, 8n}
 
 def centered_input(+parameters: Design.LayoutParameters, composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
   match composer:

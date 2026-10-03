@@ -186,7 +186,7 @@ def excluded_extent(+mode: AttributeMode, +face: C.Face, +size: C.Geometry) -> E
     case RawBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case RawBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case RawBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case RawBackground{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
     case RawBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case RawBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
@@ -194,7 +194,7 @@ def excluded_extent(+mode: AttributeMode, +face: C.Face, +size: C.Geometry) -> E
     case PointerBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
     case PointerBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
 
@@ -378,8 +378,8 @@ def same_string(+text: String) -> {String.eq(text, text) == True{} : Bool}:
   Equal.cong((String & String) & Cmp, Bool, (compared => String.eq.fin(compared)), String.cmp(text, text), ((text, text), EQ{}), same_comparison(text))
 
 def option_production(+key: String, +label: String, +selected: Bool, description: String, +geometry: C.Geometry, input: Core.Input, +typography: T.Presentation) -> Doc.Node:
-  +representation: C.Representation = C.Action{input, View.Available{}, label, C.ChoiceFace{label, selected}, C.ChoiceRadio{selected}, geometry, C.InFlow{}, C.NoHelp{}, C.Quiet{}}
-  R.choice_node(key, label, selected, description, A.control_style(A.ordinary_button(typography), representation, typography), representation, Nil{}, typography)
+  +representation: C.Representation = C.Action{input, View.Available{}, label, C.ChoiceFace{label, C.choice_description(description), selected}, C.ChoiceRadio{selected}, geometry, C.InFlow{}, C.NoHelp{}, C.Quiet{}}
+  R.action(key, A.control_style(A.ordinary_button(typography), representation, typography), representation)
 
 def title_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) -> Doc.Node:
   +meaning: UI.Meaning = UI.Edit{editor, Forms.CardTitle{}, Forms.SingleLine{}, Forms.TextValue{text}, choices}
@@ -713,7 +713,7 @@ def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +si
     case False{} FrameGap{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} FrameGap{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} FrameGap{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} FrameGap{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} FrameGap{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} MinimumHeight{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
@@ -721,7 +721,7 @@ def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +si
     case False{} MinimumHeight{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} MinimumHeight{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} MinimumHeight{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} MinimumHeight{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} MinimumHeight{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} BorderRadius{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
@@ -729,7 +729,7 @@ def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +si
     case False{} BorderRadius{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} BorderRadius{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} BorderRadius{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} BorderRadius{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case False{} BorderRadius{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} FrameGap{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
@@ -737,7 +737,7 @@ def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +si
     case True{} FrameGap{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} FrameGap{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} FrameGap{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} FrameGap{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} FrameGap{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} MinimumHeight{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
@@ -745,7 +745,7 @@ def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +si
     case True{} MinimumHeight{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} MinimumHeight{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} MinimumHeight{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} MinimumHeight{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} MinimumHeight{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} BorderRadius{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
@@ -753,7 +753,7 @@ def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +si
     case True{} BorderRadius{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} BorderRadius{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} BorderRadius{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.ChoiceFace{text, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} BorderRadius{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
     case True{} BorderRadius{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
 

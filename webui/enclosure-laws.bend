@@ -59,16 +59,16 @@ def positive(+profile: E.Profile) ->
 
 
 
-def action_insets(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
-  {area(A.action_style_insets(value, geometry, space, gap)) == space : E.ContentArea}:
+def action_insets(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat, content_height: Nat) ->
+  {area(A.action_style_insets(value, geometry, space, gap, content_height)) == space : E.ContentArea}:
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   C.Geometry{width, height, icon, radius, leading} = geometry
   {==}
 
-def layout_copied(+value: D.Style, +layout: C.ContentLayout, +geometry: C.Geometry) ->
-  {area(A.action_content_style(value, layout, geometry)) == layout_area(layout) : E.ContentArea}:
+def layout_copied(+value: D.Style, +layout: C.ContentLayout, +geometry: C.Geometry, content_height: Nat) ->
+  {area(A.action_content_style(value, layout, geometry, content_height)) == layout_area(layout) : E.ContentArea}:
   C.ContentLayout{alignment, space, gap} = layout
-  action_insets(value, geometry, space, gap)
+  action_insets(value, geometry, space, gap, content_height)
 
 def flow_preserves_area(+value: D.Style, flow: D.Flow) ->
   {area(A.with_flow(value, flow)) == area(value) : E.ContentArea}:
@@ -77,8 +77,8 @@ def flow_preserves_area(+value: D.Style, flow: D.Flow) ->
 
 
 
-def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
-  {minimum(A.action_style_insets(value, geometry, space, gap)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, A.text_line_height(style_typography(value)), A.chrome_border_width(chrome(value)), space))) : Nat}:
+def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat, +content_height: Nat) ->
+  {minimum(A.action_style_insets(value, geometry, space, gap, content_height)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, content_height, A.chrome_border_width(chrome(value)), space))) : Nat}:
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   C.Geometry{width, height, icon, radius, leading} = geometry
   {==}
@@ -135,10 +135,10 @@ type Requirements is Type:
   Requirements{positive: @+profile:E.Profile -> {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, 1n) : (Nat & Nat)},
     extent: @+width:Nat -> @+height:Nat -> @+border:Nat -> @+space:E.ContentArea -> {E.required_extent(width, height, border, space) == E.Extent{Nat.add(width, Nat.mul(2n, Nat.add(border, E.inline(space)))), Nat.add(height, Nat.mul(2n, Nat.add(border, E.block(space))))} : E.Extent},
     borderless: @+width:Nat -> @+height:Nat -> @+profile:E.Profile -> {E.required_extent(width, height, 0n, E.area(profile)) == E.Extent{Nat.add(width, Nat.mul(2n, E.inline(E.area(profile)))), Nat.add(height, Nat.mul(2n, E.block(E.area(profile))))} : E.Extent},
-    action_insets: @+value:D.Style -> @+geometry:C.Geometry -> @+space:E.ContentArea -> @+gap:Nat -> {area(A.action_style_insets(value, geometry, space, gap)) == space : E.ContentArea},
-    layout_copied: @+value:D.Style -> @+layout:C.ContentLayout -> @+geometry:C.Geometry -> {area(A.action_content_style(value, layout, geometry)) == layout_area(layout) : E.ContentArea},
+    action_insets: @+value:D.Style -> @+geometry:C.Geometry -> @+space:E.ContentArea -> @+gap:Nat -> @content_height:Nat -> {area(A.action_style_insets(value, geometry, space, gap, content_height)) == space : E.ContentArea},
+    layout_copied: @+value:D.Style -> @+layout:C.ContentLayout -> @+geometry:C.Geometry -> @content_height:Nat -> {area(A.action_content_style(value, layout, geometry, content_height)) == layout_area(layout) : E.ContentArea},
     action_copied: @+value:D.Style -> @+face:C.Face -> @+geometry:C.Geometry -> {area(A.action_style(value, face, geometry)) == layout_area(C.content_layout(face)) : E.ContentArea},
-    minimum_extent: @+typography:T.Presentation -> @+value:D.Style -> @+geometry:C.Geometry -> @+space:E.ContentArea -> @+gap:Nat -> {minimum(A.action_style_insets(value, geometry, space, gap)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, A.text_line_height(style_typography(value)), A.chrome_border_width(chrome(value)), space))) : Nat},
+    minimum_extent: @+typography:T.Presentation -> @+value:D.Style -> @+geometry:C.Geometry -> @+space:E.ContentArea -> @+gap:Nat -> @+content_height:Nat -> {minimum(A.action_style_insets(value, geometry, space, gap, content_height)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, content_height, A.chrome_border_width(chrome(value)), space))) : Nat},
     choice_area: @+typography:T.Presentation -> {area(A.choice_button(True{}, typography)) == area(A.choice_button(False{}, typography)) : E.ContentArea},
     choice_text: @+typography:T.Presentation -> {style_typography(A.choice_button(True{}, typography)) == style_typography(A.choice_button(False{}, typography)) : T.Presentation},
     role_navigation: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Navigation{}, meaning, typography)) == E.area(E.Navigation{}) : E.ContentArea},
@@ -158,15 +158,15 @@ type Requirements is Type:
     state_allocation: @+value:D.Style -> @+space:E.ContentArea -> {interaction(A.with_content_area(value, space)) == interaction(value) : D.ControlStates},
     icon_layout: @+icon:C.Icon -> {layout_area(C.content_layout(C.IconFace{icon})) == E.area(E.IconControl{}) : E.ContentArea},
     text_layout: @+text:String -> {layout_area(C.content_layout(C.TextFace{text})) == E.area(E.TextControl{}) : E.ContentArea},
-    option_layout: @+text:String -> @+selected:Bool -> {layout_area(C.content_layout(C.ChoiceFace{text, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
+    option_layout: @+text:String -> @+selected:Bool -> {layout_area(C.content_layout(C.ChoiceFace{text, None{}, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
     embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.ambient(8n, 6n) : E.ContentArea}}
 
 def evidence() -> Requirements:
   Requirements{positive, +width => +height => +border => +space => {==}, +width => +height => +profile => {==}, action_insets, layout_copied, +value => +face => +geometry =>
       Equal.trans(E.ContentArea, area(A.action_style(value, face, geometry)),
-        area(A.action_content_style(value, C.content_layout(face), geometry)), layout_area(C.content_layout(face)),
-        flow_preserves_area(A.action_content_style(value, C.content_layout(face), geometry), A.action_flow(face, C.content_layout(face))),
-        layout_copied(value, C.content_layout(face), geometry))
+        area(A.action_content_style(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, A.style_text(value), geometry))), layout_area(C.content_layout(face)),
+        flow_preserves_area(A.action_content_style(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, A.style_text(value), geometry)), A.action_flow(face, C.content_layout(face))),
+        layout_copied(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, A.style_text(value), geometry)))
     ,
     +typography => minimum_extent,
     +typography => {==},

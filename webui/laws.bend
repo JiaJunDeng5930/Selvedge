@@ -638,13 +638,6 @@ def invalidated_font(+decision: Platform.Decision, +generation: Nat, +environmen
   {font_state(Model.invalidate(decision, generation, environment, font)) == F.retag(font, generation) : F.State}:
   realized_font(Model.calibrated(decision, environment, F.retag(font, generation)), generation, environment, F.retag(font, generation))
 
-def environment_resets_font(+application: Platform.State, +generation: Nat, realization: Rendered.State,
-  previous_environment: Design.Environment, font: F.State, +environment: Design.Environment) ->
-  {font_state(Model.step(Model.EnvironmentObserved{environment},
-    Model.State{application, generation, realization, previous_environment, font})) ==
-    F.begin((generation + 1n : Nat), Model.environment_root(environment)) : F.State}:
-  invalidated_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
-    (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
 
 def reflow_product(decision: Platform.Decision, capacity: View.Capacity) ->
   {Model.platform_product(Platform.reflow_capacity(decision, capacity)) == Model.platform_product(decision) : Core.Decision}:
@@ -746,15 +739,6 @@ def failed_frame(+application: Platform.State, +generation: Nat, +previous: Rend
       Equal.cong(Bool, Rendered.State, (current => Model.observed_frame(current, None{}, generation, received, frame, previous)),
         Nat.is_eq(generation, received), True{}, owned)
 
-def scene_uses_measurement(+application: Platform.State, +generation: Nat, +realization: Rendered.State,
-  +viewport: Design.Viewport, +dark: Bool, root: Nat, font_generation: Nat, +scale: T.Scale, +metric: T.Metric,
-  +surface: Interface.Surface, +layout: Design.Layout,
-  allocated: {Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface) == Layout.LayoutReady{layout} : Layout.Outcome}) ->
-  {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric}}, surface) ==
-    Model.ReadyScene{Model.Scene{Appearance.present(surface, dark, scale), Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome}:
-  Equal.cong(Layout.Outcome, Model.SceneOutcome,
-    (outcome => Model.allocated_scene(outcome, application, generation, realization, surface, dark, scale)),
-    Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface), Layout.LayoutReady{layout}, allocated)
 
 def capacity_booleans(+a: Bool, +b: Bool, +c: Bool, +d: Bool,
   same: {Platform.same_capacity(View.Capacity{a, b}, View.Capacity{c, d}) == True{} : Bool}) ->
@@ -829,14 +813,6 @@ def reflow_capacity_fields(+decision: Platform.Decision, +capacity: View.Capacit
   retained_capacity_fields(Platform.same_capacity(old_capacity, capacity),
     Platform.Decision{product, Platform.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity, {==})
 
-def stale_typography(+application: Platform.State, +generation: Nat, +realization: Rendered.State,
-  +environment: Design.Environment, +font: F.State, +received: Nat, +metrics: +List<T.Metric>,
-  stale: {Nat.is_eq(F.generation(font), received) == False{} : Bool}) ->
-  {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, Model.State{application, generation, realization, environment, font}) ==
-    Model.idle(application, generation, realization, environment, font) : Model.Decision}:
-  Equal.cong(Bool, Model.Decision,
-    (owned => Model.receipt_owned_state(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
-    Nat.is_eq(F.generation(font), received), False{}, stale)
 
 def ready_receipt(owned: Bool, application: Platform.State, generation: Nat, realization: Rendered.State,
   environment: Design.Environment, font_generation: Nat, scale: T.Scale, metric: T.Metric, observation: F.Observation) ->
@@ -985,7 +961,18 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{reflow_same, stale_typography, ready_receipt, failed_receipt, reflow_capacity_fields, invalidated_font, environment_resets_font, reflow_product, typography_product, pending_scene, failed_scene, pending_frame, failed_frame, scene_uses_measurement,
+  Requirements{reflow_same, +application => +generation => +realization => +environment => +font => +received => +metrics => stale =>
+      Equal.cong(Bool, Model.Decision,
+        (owned => Model.receipt_owned_state(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
+        Nat.is_eq(F.generation(font), received), False{}, stale)
+    , ready_receipt, failed_receipt, reflow_capacity_fields, invalidated_font, +application => +generation => realization => previous_environment => font => +environment =>
+      invalidated_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
+        (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
+    , reflow_product, typography_product, pending_scene, failed_scene, pending_frame, failed_frame, +application => +generation => +realization => +viewport => +dark => root => font_generation => +scale => +metric => +surface => +layout => allocated =>
+      Equal.cong(Layout.Outcome, Model.SceneOutcome,
+        (outcome => Model.allocated_scene(outcome, application, generation, realization, surface, dark, scale)),
+        Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface), Layout.LayoutReady{layout}, allocated)
+    ,
     input => core => platform => environment => font => generation => realization =>
       product_refinement(input, core, platform, generation, realization, environment, font),
     key => gesture => core => platform => environment => font => generation => realization =>

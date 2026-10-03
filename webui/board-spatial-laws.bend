@@ -36,7 +36,7 @@ def search_projection(+key: String, +filter: Board.Filter, +name: String, +visua
      (Doc.element_styles(node), Doc.element_events(node))))
 
 def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, Render.style(visual), [Doc.Property{"height", "32px"}])
+  List.append(&2, Doc.Property, Render.style(visual), Nil{})
 
 
 
@@ -75,6 +75,8 @@ def title_inset(typography: T.Presentation) ->
 
 type Requirements is Type:
   Requirements{
+    search_intrinsic_minimum: @+typography:T.Presentation -> @+key:String -> @+filter:Board.Filter -> @+name:String ->
+      {(Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "min-height"), Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "height")) == (Render.px(Appearance.style_minimum_height(Appearance.field_style(UI.BoardSearch{filter}, typography))), "") : (String & String)},
     title_action: @+typography:T.Presentation -> @+title:String -> @+key:String -> @+attrs:+List<Doc.Property> -> @+original_styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @original_children:+List<Doc.Node> ->
       {Render.card_title_control(title, Doc.Element{key, "button", attrs, original_styles, events, original_children}, typography) == Doc.Element{key, "button", attrs, List.append(&2, Doc.Property, original_styles, Render.card_title_styles(typography)), events, [Doc.Text{title}]} : Doc.Node},
     title_inset: @+typography:T.Presentation -> {(Render.attr(title_production_styles(typography), "padding-inline"),
@@ -95,7 +97,7 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{
+  Requirements{+typography => +key => +filter => +name => {==},
     +typography => +title => +key => +attrs => +original_styles => +events => original_children => {==},
     +typography => title_inset(typography),
     +typography => +owner => +title => +node => +rest => {==},
