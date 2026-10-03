@@ -1,4 +1,6 @@
 import Base
+import ../core/field-options.bend as FieldOptions
+import ../core/user-conversation.bend as Conversation
 import ../core/composition.bend as Composition
 import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
@@ -110,7 +112,7 @@ def first(nodes: +List<Doc.Node>) -> Doc.Node:
     case _: Doc.Text{""}
 
 def overview_main_partition(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Design.Band, +organization: Composition.Body) ->
-  {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))}:
+  {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))}:
   Design.Box{left, top, width, height} = canvas
   Design.Band{band_left, band_width} = band
   {==}
@@ -120,7 +122,7 @@ def group_flow(+nodes: +List<Doc.Node>) -> ((String & String) & (String & (Strin
     (Render.attr(Doc.element_styles(second(nodes)), "flex"), (Render.attr(Doc.element_styles(second(nodes)), "min-height"), Render.attr(Doc.element_styles(second(nodes)), "overflow"))))
 
 def overview_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Design.Band, +organization: Composition.Body) ->
-  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) ==
+  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) ==
     (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))}:
   Design.Box{left, top, width, height} = canvas
   Design.Band{band_left, band_width} = band
@@ -134,7 +136,7 @@ def overview_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Desi
     case Composition.UnavailableNotice{}: {==}
 
 def board_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset})))) ==
+  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{})))) ==
     (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))}:
   Design.Box{left, top, canvas_width, height} = canvas
   {==}
@@ -312,7 +314,7 @@ def receipt_partition(parts: (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Nod
   (receipts(heading), (receipts(body), receipts(dock)))
 
 def board_region_preservation(+nodes: +List<Doc.Node>, +canvas: Design.Box, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) ==
+  {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{}))))) ==
     receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))}:
   Design.Box{left, top, canvas_width, height} = canvas
   Equal.cong(+List<RegionReceipt>, (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>)),
@@ -322,12 +324,12 @@ def board_region_preservation(+nodes: +List<Doc.Node>, +canvas: Design.Box, +wid
 
 def creation_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box,
   +band: Design.Band, +input: Maybe<&2, Design.InputMetrics>, +flow: Design.CreationFlow) ->
-  {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}))) == nodes : +List<Doc.Node>}:
+  {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}, None{}))) == nodes : +List<Doc.Node>}:
   Design.Box{left, top, width, height} = canvas
   ShellSpatial.creation_group_order(nodes, band, flow)
 
 def unavailable_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box, +band: Design.Band) ->
-  {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>}:
+  {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}, None{}))) == nodes : +List<Doc.Node>}:
   Design.Box{left, top, width, height} = canvas
   {==}
 
@@ -424,14 +426,14 @@ def specified_fact(+owner: String, part: String, label: String, value: String) -
 # node contributes to the generated identity.
 def specified_task_facts(+owner: String, value: View.TaskDetails) -> +List<FactObservation>:
   View.TaskDetails{Context.EffectiveContext{task, Domain.TaskContext{Domain.Workspace{roots, primary}, Domain.Sandbox{mode, network}, approval, project}, guidance, access}, Domain.Model{Domain.Profile{id, provider, name, policy}, reasoning, model_guidance}, tools, lineage, queued, status, phase} = value
-  [specified_fact(owner, "workspace", "Working directories", Render.joined(roots)),
-    specified_fact(owner, "primary", "Primary directory", Render.optional_text(primary)),
+  [specified_fact(owner, "workspace", "Working directories", FieldOptions.joined(roots)),
+    specified_fact(owner, "primary", "Primary directory", FieldOptions.optional_text(primary)),
     specified_fact(owner, "sandbox", "Filesystem access", Domain.sandbox_mode_name(mode)),
-    specified_fact(owner, "network", "Network access", Render.boolean(network)),
+    specified_fact(owner, "network", "Network access", FieldOptions.boolean(network)),
     specified_fact(owner, "approval", "Approval policy", Domain.approval_name(approval)),
     specified_fact(owner, "model", "Model", name),
     specified_fact(owner, "reasoning", "Reasoning", reasoning),
-    specified_fact(owner, "messages", "Queued messages", Render.joined(queued))]
+    specified_fact(owner, "messages", "Queued messages", FieldOptions.joined(queued))]
 
 def task_facts_owner(+owner: String, semantic: String, +details: View.TaskDetails, label: String, role: UI.Role,
   +source_children: +List<Render.Child>, visual: Design.Style,
@@ -475,22 +477,22 @@ type Requirements is Type:
     rendered_child_order: @+key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @region:Composition.Region -> @position:Composition.Position -> @+nodes:+List<Design.Node> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {Doc.element_children(first(Render.render_nodes([Design.Node{key, semantic, label, role, UI.PageRegion{region, position}, visual, representation, nodes}]))) == Render.render_nodes(nodes) : +List<Doc.Node>},
     board_regions: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
-      {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
+      {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
     creation_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band -> @+input:Maybe<&2, Design.InputMetrics> -> @+flow:Design.CreationFlow ->
-      {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}))) == nodes : +List<Doc.Node>},
+      {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}, None{}))) == nodes : +List<Doc.Node>},
     unavailable_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band ->
-      {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>},
+      {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}, None{}))) == nodes : +List<Doc.Node>},
     overview_main: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->
-      {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
+      {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
 
     overview_flow: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->
-      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))},
+      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) == (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))},
     board_flow: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
-      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset})))) == (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))},
+      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{})))) == (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))},
     reading_identity: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
-      {(node_key(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})),
-          (Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-task"),
-           Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-generation"))) ==
+      {(node_key(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Conversation.Identity{task, generation}})),
+          (Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Conversation.Identity{task, generation}})), "data-reading-task"),
+           Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Conversation.Identity{task, generation}})), "data-reading-generation"))) ==
           ("conversation/" ++ Nat.show(task) ++ "/body", (Nat.show(task), Nat.show(generation))) : (String & (String & String))},
     region_partition: @+key:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+values:+List<Doc.Node> -> @+rest:+List<Doc.Node> ->
       {partition(Render.page_region(key, region, position, values) <> rest) == prescribed_cons(position, Render.page_region(key, region, position, values), rest) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
@@ -508,7 +510,7 @@ type Requirements is Type:
     conversation_heading_preservation: @+nodes:+List<Doc.Node> ->
       {receipts(Render.conversation_heading_nodes(nodes)) == receipts(Render.page_nodes(nodes, "heading")) : +List<RegionReceipt>},
     conversation_partition: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+viewport:Design.Box -> @+reading:Design.Band -> @+dock:Maybe<&2, Design.Dock> ->
-      {groups(Render.main_children(nodes, Design.ConversationFrame{heading, viewport, reading, dock})) == conversation_parts(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
+      {groups(Render.main_children(nodes, Design.ConversationFrame{heading, viewport, reading, dock}, None{})) == conversation_parts(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
 
 
     header: {(Render.attr(Render.intrinsic_heading_styles(), "flex"), Render.attr(Render.intrinsic_heading_styles(), "flex-wrap")) == ("none", "wrap") : (String & String)},
@@ -518,10 +520,10 @@ type Requirements is Type:
     organization: @+nodes:+List<Doc.Node> -> @+organization:Composition.Body ->
       {Render.attr(Doc.element_attributes(second(Render.overview_children(nodes, organization))), "data-overview-organization") == specified_organization(organization) : String},
     timeline: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
-      {Render.attr(Doc.element_attributes(Render.reading_element("timeline", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-scroll") == "" : String},
+      {Render.attr(Doc.element_attributes(Render.reading_element("timeline", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Conversation.Identity{task, generation}})), "data-reading-scroll") == "" : String},
     reading_body: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
       {Doc.element_children(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values,
-          Some{Render.ReadingIdentity{task, generation}})) ==
+          Some{Conversation.Identity{task, generation}})) ==
           [Doc.Element{("conversation/" ++ Nat.show(task) ++ "/body") ++ "/reading-content", "div",
             [Doc.Property{"data-reading-content", ""}, Doc.Property{"data-reading-task", Nat.show(task)}],
             [Doc.Property{"display", "flex"}, Doc.Property{"flex-direction", "column"}, Doc.Property{"gap", "16px"}], Nil{}, values}] : +List<Doc.Node>}

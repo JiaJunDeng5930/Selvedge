@@ -4,6 +4,7 @@ import ./appearance.bend as Appearance
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./renderer.bend as Render
+import ../core/field-options.bend as Options
 import ./design.bend as Design
 import ./surfaces.bend as Surfaces
 import ./controls.bend as Controls
@@ -177,7 +178,7 @@ def chooser_reference(+key: String, +role: UI.Role, +context: Controls.Context, 
 type Requirements is Type:
   Requirements{
     group_production: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+children:+List<Design.Node> -> @+visual:Design.Style -> @+representation:Controls.Representation -> {Render.match_node(Design.Node{key, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, visual, representation, children}, Render.render_children(children)) ==
-        Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-project", Nat.show(project)), Render.property("data-expanded", Render.boolean(expanded))], Render.style(visual), Nil{}, Render.project_group_children(key, Render.render_children(children), selected, expanded)} : Doc.Node},
+        Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-project", Nat.show(project)), Render.property("data-expanded", Options.boolean(expanded))], Render.style(visual), Nil{}, Render.project_group_children(key, Render.render_children(children), selected, expanded)} : Doc.Node},
     header_production: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children:+List<Doc.Node> -> {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}) ==
         Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [Render.property("class", "native-surface")]), Render.pointer_styles(styles), events, children} : Doc.Node},
     disclosure_typed: @+project:Nat -> {Controls.project_control_input(Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{project}}}}) == Controls.ProjectDisclosure{} : Controls.ProjectControl},

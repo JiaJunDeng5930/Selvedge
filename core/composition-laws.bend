@@ -40,6 +40,10 @@ type Requirements is Type:
       {first_speech_projection(Interface.groups([Conversation.VisibleSpeech{id, speaker, text, source}], task, parent, state)) ==
         Some{SpeechProjection{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message",
           expected_speaker_role(speaker), Interface.ReadOnly{text}}} : Maybe<&2, SpeechProjection>},
+    activity_payload: @+id:Nat -> @attention:Maybe<&2, Nat> -> @+expanded:Bool -> @summary:String -> @audit:+List<Conversation.AuditFace> -> @expand:U.Input -> @collapse:U.Input -> @+task:Nat -> @+parent:String -> @+state:Core.State ->
+      {Interface.groups([Conversation.VisibleActivity{id, attention, expanded, summary, audit, expand, collapse}], task, parent, state) ==
+        [Interface.Node{parent ++ "/activity/" ++ Nat.show(id), "activity/" ++ Nat.show(id), summary, Interface.Activity{}, Interface.ActivityContent{expanded, audit},
+          [Interface.user_action(parent ++ "/activity/" ++ Nat.show(id), "disclosure", Interface.disclosure_label(expanded), Interface.disclosure_input(expanded, expand, collapse), True{}, state)]}] : +List<Interface.Node>},
     composer_tree: @view:Maybe<&2, View.ComposerScene> -> @+parent:String -> @+state:Core.State ->
       {Interface.composer(view, parent, state) == Interface.expected_composer(view, parent, state) : +List<Interface.Node>},
     structure_order: @recipe:Composition.Recipe ->
@@ -262,6 +266,7 @@ def evidence() -> Requirements:
     message => {==},
     parent => control => action_evidence(parent, control),
     id => speaker => text => source => task => parent => state => visible_speaker_evidence(id, speaker, text, source, task, parent, state),
+    +id => attention => +expanded => summary => audit => expand => collapse => +task => +parent => +state => {==},
     view => parent => state => Interface.composer_tree_agreement(view, parent, state),
     recipe => structure_evidence(recipe),
     composer => {==},

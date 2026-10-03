@@ -12,6 +12,7 @@ import ./editor-layout.bend as EditorLayout
 import ../core/interface.bend as UI
 import ../core/composition.bend as Composition
 import ../core/form-fields.bend as Forms
+import ../core/field-options.bend as FieldOptions
 import ../core/ui-world.bend as View
 import ../core/code-block.bend as Code
 import ../core/user-context.bend as Context
@@ -39,8 +40,6 @@ def sources(values: +List<Child>) -> +List<Design.Node>:
     case Nil{}: Nil{}
     case Con{Child{source, document}, rest}: source <> sources(rest)
 
-type ReadingIdentity is Data:
-  ReadingIdentity{task: Nat, generation: Nat}
 
 type DialogParts is Data:
   DialogParts{header: +List<Doc.Node>, body: +List<Doc.Node>, layouts: +List<EditorLayout.SectionKind>}
@@ -51,14 +50,8 @@ def property(name: String, value: String) -> Doc.Property:
   Doc.Property{name, value}
 
 
-
-
-
 def px(value: Nat) -> String:
   Nat.show(value) ++ "px"
-
-
-
 
 
 def surface_color(value: Surfaces.Color) -> String:
@@ -83,9 +76,6 @@ def font(value: Design.Font) -> String:
   match value:
     case Design.InterfaceFont{}: "var(--font-sans, system-ui)"
     case Design.MonospaceFont{}: "var(--font-mono, monospace)"
-
-
-
 
 
 def icon_path(value: Controls.Icon) -> String:
@@ -136,46 +126,6 @@ def icon_path(value: Controls.Icon) -> String:
     case Controls.Check{}: "m4 10 4 4 8-8"
 
 
-
-
-
-def boolean(value: Bool) -> String:
-  match value:
-    case True{}: "true"
-    case False{}: "false"
-
-
-
-
-
-def joined(values: +List<String>) -> String:
-  match values:
-    case Nil{}: ""
-    case Con{value, Nil{}}: value
-    case Con{value, rest}: value ++ "\n" ++ joined(rest)
-
-
-
-
-
-def optional_text(value: Maybe<&2, String>) -> String:
-  match value:
-    case None{}: ""
-    case Some{text}: text
-
-
-
-
-
-def optional_nat(value: Maybe<&2, Nat>) -> String:
-  match value:
-    case None{}: ""
-    case Some{number}: Nat.show(number)
-
-
-
-
-
 def widget_tag(value: Controls.Widget) -> String:
   match value:
     case Controls.MessageInput{}: "textarea"
@@ -187,9 +137,6 @@ def widget_tag(value: Controls.Widget) -> String:
     case _: "input"
 
 
-
-
-
 def input_events(+key: String, widget: Controls.Widget) -> +List<Doc.Event>:
   match widget:
     case Controls.PlainValue{}: Nil{}
@@ -198,9 +145,6 @@ def input_events(+key: String, widget: Controls.Widget) -> +List<Doc.Event>:
     case Controls.FileChooser{face}: [Doc.SelectFiles{key}]
     case Controls.AttachmentList{}: [Doc.SelectFiles{key}]
     case _: [Doc.EditText{key}]
-
-
-
 
 
 def tag(role: UI.Role) -> String:
@@ -217,16 +161,10 @@ def tag(role: UI.Role) -> String:
     case _: "div"
 
 
-
-
-
 def replace_styles(node: Doc.Node, extra: +List<Doc.Property>) -> Doc.Node:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}: Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, extra), events, children}
     case other: other
-
-
-
 
 
 def node_role(value: Design.Node) -> UI.Role:
@@ -234,16 +172,10 @@ def node_role(value: Design.Node) -> UI.Role:
   role
 
 
-
-
-
 def code_wrap(value: Bool) -> String:
   match value:
     case True{}: "pre-wrap"
     case False{}: "pre"
-
-
-
 
 
 def role_name(value: UI.Role) -> String:
@@ -263,26 +195,15 @@ def role_name(value: UI.Role) -> String:
     case _: "content"
 
 
-
-
-
 def attr_found(found: Bool, value: String, fallback: String) -> String:
   match found:
     case True{}: value
     case False{}: fallback
 
 
-
-
-
-
-
 def box_left(value: Design.Box) -> Nat:
   Design.Box{left, top, width, height} = value
   left
-
-
-
 
 
 def markdown_source(values: +List<Child>) -> Maybe<&2, Code.Source>:
@@ -292,42 +213,9 @@ def markdown_source(values: +List<Child>) -> Maybe<&2, Code.Source>:
     case Con{other, rest}: markdown_source(rest)
 
 
-
-
-
-def delivery_name(value: User.Delivery) -> String:
-  match value:
-    case User.Send{}: "send"
-    case User.Steer{}: "steer"
-
-
-
-
-
 def filter_search(value: Board.Filter) -> String:
   match value:
     case Board.Filter{view, search, status, priority, date, assignee, creator, project, label}: search
-
-
-
-
-
-def workspace_roots(value: Context.WorkspaceValue) -> +List<String>:
-  match value:
-    case Context.InheritedWorkspace{Domain.Workspace{roots, primary}}: roots
-    case Context.EnteredWorkspace{Domain.Workspace{roots, primary}}: roots
-
-
-
-
-
-def sandbox_text(value: Context.SandboxValue) -> String:
-  match value:
-    case Context.InheritedSandbox{Domain.Sandbox{mode, network}}: Domain.sandbox_mode_name(mode)
-    case Context.ChosenSandbox{Domain.Sandbox{mode, network}}: Domain.sandbox_mode_name(mode)
-
-
-
 
 
 def origin_text(value: Context.Origin) -> String:
@@ -338,24 +226,8 @@ def origin_text(value: Context.Origin) -> String:
     case Context.ProjectForParent{task, project}: "project-for-parent/" ++ Nat.show(task) ++ "/" ++ Nat.show(project)
 
 
-
-
-
 def approval_text(value: Context.ApprovalValue) -> String:
   Context.approval_option(Context.observed_approval(value))
-
-
-
-
-
-def reading_identity(value: Core.Scene) -> Maybe<&2, ReadingIdentity>:
-  Core.Scene{View.Scene{navigation, page, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = value
-  match page:
-    case View.TaskPage{View.TaskScene{task, title, status, context, Conversation.Timeline{id, generation, groups, operations, decisions, reading, latest}, previews, composer, details, actions}}: Some{ReadingIdentity{task, generation}}
-    case _: None{}
-
-
-
 
 
 def frame_input(value: Design.MainFrame) -> Maybe<&2, Design.InputMetrics>:
@@ -365,16 +237,10 @@ def frame_input(value: Design.MainFrame) -> Maybe<&2, Design.InputMetrics>:
     case _: None{}
 
 
-
-
-
 def keep_section(keep: Bool, value: Doc.Node) -> +List<Doc.Node>:
   match keep:
     case True{}: [value]
     case False{}: Nil{}
-
-
-
 
 
 def css_characters(value: String) -> String:
@@ -383,50 +249,10 @@ def css_characters(value: String) -> String:
     case SCon{head, rest}: "-" ++ U32.show(Char.to_u32(head)) ++ css_characters(rest)
 
 
-
-
-
-
-
-def content_groups(value: View.LayerContent) -> +List<View.InputGroup>:
-  match value:
-    case View.ObjectEditor{Some{View.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}: groups
-    case View.WorkspaceSettings{editor, groups}: groups
-    case View.PermissionSettings{editor, groups}: groups
-    case View.ModelSelection{editor, query, groups}: groups
-    case View.DeliverySelection{editor, groups}: groups
-    case _: Nil{}
-
-
-
-
-
-def prefer_options(first: +List<Doc.Node>, second: +List<Doc.Node>) -> +List<Doc.Node>:
-  match first:
-    case Nil{}: second
-    case Con{value, rest}: value <> rest
-
-
-
-
-
-def scene_activities(value: Core.Scene) -> +List<Conversation.VisibleGroup>:
-  Core.Scene{View.Scene{navigation, page, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = value
-  match page:
-    case View.TaskPage{View.TaskScene{task, title, status, context, Conversation.Timeline{id, generation, groups, operations, decisions, reading, latest}, previews, composer, details, actions}}: groups
-    case _: Nil{}
-
-
-
-
-
 def rendered_json(value: Result<&2, &2, String, String>) -> String:
   match value:
     case Done{text}: text
     case Fail{reason}: reason
-
-
-
 
 
 def theme_name(value: Design.Theme) -> String:
@@ -440,17 +266,10 @@ def theme_class(value: Design.Theme) -> String:
     case Design.Dark{}: "native-application dark"
 
 
-
-
-
 def first_node(values: +List<Doc.Node>) -> Doc.Node:
   match values:
     case Nil{}: Doc.Text{""}
     case Con{value, rest}: value
-
-
-
-
 
 
 def generated_identity(owner: String, part: String) -> String:
@@ -473,9 +292,6 @@ def bounds(box: Design.Box) -> +List<Doc.Property>:
    property("width", px(width)), property("height", px(height)), property("box-sizing", "border-box")]
 
 
-
-
-
 def content_alignment(value: Controls.ContentAlignment) -> String:
   match value:
     case Controls.CenterContents{}: "center"
@@ -492,18 +308,12 @@ def flow(value: Design.Flow) -> +List<Doc.Property>:
     case Design.ChoiceFlow{}: [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("justify-content", "space-between")]
 
 
-
-
-
 def overflow_style(value: Design.Overflow) -> +List<Doc.Property>:
   match value:
     case Design.SingleLineOverflow{}: [property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap")]
     case Design.ContentFlow{}: Nil{}
     case Design.ScrollFlow{}: [property("overflow", "auto")]
     case Design.CodeOverflow{}: [property("overflow", "auto")]
-
-
-
 
 
 def icon_paint_properties(value: Controls.IconPaint) -> +List<Doc.Property>:
@@ -525,39 +335,27 @@ def unavailable(value: View.Availability) -> +List<Doc.Property>:
     case View.Unavailable{reason}: [property("disabled", ""), property("title", reason), property("aria-disabled", "true")]
 
 
-
-
-
 def help(value: Controls.Help) -> +List<Doc.Property>:
   match value:
     case Controls.NoHelp{}: Nil{}
     case Controls.Tooltip{text, delay, pointer, keyboard, focus}: [property("title", text)]
 
 
-
-
-
 def behavior(value: Controls.Behavior) -> +List<Doc.Property>:
   match value:
     case Controls.Push{}: Nil{}
-    case Controls.Toggle{pressed}: [property("aria-pressed", boolean(pressed))]
-    case Controls.Radio{checked}: [property("role", "menuitemradio"), property("aria-checked", boolean(checked))]
-    case Controls.ChoiceRadio{checked}: [property("role", "radio"), property("aria-checked", boolean(checked))]
-    case Controls.Disclosure{expanded}: [property("aria-expanded", boolean(expanded))]
-    case Controls.Popup{menu, expanded}: [property("aria-haspopup", "true"), property("aria-expanded", boolean(expanded))]
-    case Controls.Destination{current}: [property("aria-current", boolean(current))]
-
-
-
+    case Controls.Toggle{pressed}: [property("aria-pressed", FieldOptions.boolean(pressed))]
+    case Controls.Radio{checked}: [property("role", "menuitemradio"), property("aria-checked", FieldOptions.boolean(checked))]
+    case Controls.ChoiceRadio{checked}: [property("role", "radio"), property("aria-checked", FieldOptions.boolean(checked))]
+    case Controls.Disclosure{expanded}: [property("aria-expanded", FieldOptions.boolean(expanded))]
+    case Controls.Popup{menu, expanded}: [property("aria-haspopup", "true"), property("aria-expanded", FieldOptions.boolean(expanded))]
+    case Controls.Destination{current}: [property("aria-current", FieldOptions.boolean(current))]
 
 
 def geometry(value: Controls.Geometry) -> +List<Doc.Property>:
   Controls.Geometry{width, height, icon_size, radius, leading} = value
   [property("min-width", px(width)), property("min-height", px(height)), property("border-radius", px(radius)),
    property("display", "inline-flex"), property("align-items", "center"), property("--native-icon-size", px(icon_size)), property("--native-leading-slot", px(leading))]
-
-
-
 
 
 def action_geometry(size: Controls.Geometry, visual: Design.Style) -> +List<Doc.Property>:
@@ -601,9 +399,6 @@ def widget_properties(value: Controls.Widget) -> +List<Doc.Property>:
     case _: Nil{}
 
 
-
-
-
 def section_label(owner: String, empty: Bool, text: String) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
@@ -619,9 +414,6 @@ def region_label(owner: String, role: UI.Role, +text: String) -> +List<Doc.Node>
     case UI.Dialog{}: [Doc.Element{generated_identity(owner, "title"), "h2", Nil{}, Nil{}, Nil{}, [Doc.Text{text}]}]
     case UI.Activity{}: [Doc.Element{generated_identity(owner, "summary"), "summary", Nil{}, Nil{}, Nil{}, [Doc.Text{text}]}]
     case _: Nil{}
-
-
-
 
 
 def region_styles(value: String) -> +List<Doc.Property>:
@@ -641,9 +433,6 @@ def attr(values: +List<Doc.Property>, name: String) -> String:
   attr_last(values, name, "")
 
 
-
-
-
 def composer_styles(value: Design.MainFrame) -> +List<Doc.Property>:
   match value:
     case Design.CreationFrame{heading, canvas, band, input, flow}:
@@ -651,9 +440,6 @@ def composer_styles(value: Design.MainFrame) -> +List<Doc.Property>:
     case Design.ConversationFrame{heading, viewport, reading, Some{Design.Dock{Design.Band{left, width}, bottom, maximum, regions, input, reservation}}}:
       [property("position", "relative"), property("width", "100%"), property("max-height", px(maximum)), property("min-width", "0")]
     case _: Nil{}
-
-
-
 
 
 def input_style(value: Controls.Widget) -> +List<Doc.Property>:
@@ -669,57 +455,27 @@ def input_style_for(meaning: UI.Meaning, widget: Controls.Widget) -> +List<Doc.P
     case UI.BoardSearch{filter}: [property("height", "32px")]
     case _: input_style(widget)
 
-def workspace_text(value: Context.WorkspaceValue) -> String:
-  match value:
-    case Context.InheritedWorkspace{Domain.Workspace{roots, primary}}: joined(roots)
-    case Context.EnteredWorkspace{Domain.Workspace{roots, primary}}: joined(roots)
-
-
-
-
 
 def workspace_primary(value: Context.WorkspaceValue) -> String:
   match value:
-    case Context.InheritedWorkspace{Domain.Workspace{roots, primary}}: optional_text(primary)
-    case Context.EnteredWorkspace{Domain.Workspace{roots, primary}}: optional_text(primary)
-
-
-
+    case Context.InheritedWorkspace{Domain.Workspace{roots, primary}}: FieldOptions.optional_text(primary)
+    case Context.EnteredWorkspace{Domain.Workspace{roots, primary}}: FieldOptions.optional_text(primary)
 
 
 def network_text(value: Context.SandboxValue) -> String:
   match value:
-    case Context.InheritedSandbox{Domain.Sandbox{mode, network}}: boolean(network)
-    case Context.ChosenSandbox{Domain.Sandbox{mode, network}}: boolean(network)
-
-
-
+    case Context.InheritedSandbox{Domain.Sandbox{mode, network}}: FieldOptions.boolean(network)
+    case Context.ChosenSandbox{Domain.Sandbox{mode, network}}: FieldOptions.boolean(network)
 
 
 def workspace_field_text(field: Forms.Field, roots: +List<String>, primary: Maybe<&2, String>) -> String:
   match field:
-    case Forms.WorkspacePrimary{}: optional_text(primary)
-    case _: joined(roots)
-
-
-
+    case Forms.WorkspacePrimary{}: FieldOptions.optional_text(primary)
+    case _: FieldOptions.joined(roots)
 
 
 def option(+key: String, +value: String, label: String) -> Doc.Node:
   Doc.Element{key ++ "/option/" ++ value, "option", [property("value", value)], Nil{}, Nil{}, [Doc.Text{label}]}
-
-
-
-
-
-def primary_choices(value: Forms.Observed) -> +List<String>:
-  match value:
-    case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: roots
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: workspace_roots(workspace)
-    case _: Nil{}
-
-
-
 
 
 def fact_content_styles() -> +List<Doc.Property>:
@@ -735,16 +491,10 @@ def fact(+key: String, label: String, value: String) -> Doc.Node:
      Doc.Element{key ++ "/value", "span", Nil{}, fact_content_styles(), Nil{}, [Doc.Text{value}]}]}
 
 
-
-
-
 def editor_properties(key: String, widget: Controls.Widget) -> +List<Doc.Property>:
   match widget:
     case Controls.MessageInput{}: [property("data-native-editor-key", key)]
     case _: Nil{}
-
-
-
 
 
 def reading_anchor(role: String, key: String) -> +List<Doc.Property>:
@@ -755,21 +505,15 @@ def reading_anchor(role: String, key: String) -> +List<Doc.Property>:
     case _: Nil{}
 
 
-
-
-
-def reading_element(region: String, +key: String, tag: String, attrs: +List<Doc.Property>, styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, identity: Maybe<&2, ReadingIdentity>) -> Doc.Node:
+def reading_element(region: String, +key: String, tag: String, attrs: +List<Doc.Property>, styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, identity: Maybe<&2, Conversation.Identity>) -> Doc.Node:
   match region identity:
-    case "conversation-body" Some{ReadingIdentity{+task, generation}}:
+    case "conversation-body" Some{Conversation.Identity{+task, generation}}:
       +body_key = "conversation/" ++ Nat.show(task) ++ "/body"
       Doc.Element{body_key, tag, List.append(&2, Doc.Property, attrs, [property("data-reading-scroll", ""), property("data-reading-task", Nat.show(task)), property("data-reading-generation", Nat.show(generation))]), styles, events,
         [Doc.Element{body_key ++ "/reading-content", "div", [property("data-reading-content", ""), property("data-reading-task", Nat.show(task))], [property("display", "flex"), property("flex-direction", "column"), property("gap", "16px")], Nil{}, children}]}
-    case "dock" Some{ReadingIdentity{task, generation}}:
+    case "dock" Some{Conversation.Identity{task, generation}}:
       Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [property("data-reading-dock", ""), property("data-reading-task", Nat.show(task))]), styles, events, children}
     case _ _: Doc.Element{key, tag, attrs, styles, events, children}
-
-
-
 
 
 def label_input(placement: Controls.LabelPlacement, +key: String, +name: String, input: Doc.Node) -> Doc.Node:
@@ -779,27 +523,16 @@ def label_input(placement: Controls.LabelPlacement, +key: String, +name: String,
     case Controls.BesideInput{}: Doc.Element{key ++ "/field", "label", Nil{}, [property("display", "flex"), property("min-width", "0"), property("max-width", "100%"), property("align-items", "center"), property("gap", "8px"), property("min-height", "32px")], Nil{}, [input, Doc.Text{name}]}
 
 
-
-
-
 def checked_property(value: Bool) -> +List<Doc.Property>:
   match value:
     case True{}: [property("checked", "")]
     case False{}: Nil{}
 
 
-
-
-
 def measured_input_present(present: Bool, metrics: Maybe<&2, Design.InputMetrics>) -> +List<Doc.Property>:
   match present metrics:
     case True{} Some{Design.InputMetrics{minimum, maximum, line_height, inline, gap, footer}}: [property("min-height", px(minimum)), property("max-height", px(maximum)), property("line-height", px(line_height)), property("padding-inline", px(inline))]
     case _ _: Nil{}
-
-
-
-
-
 
 
 def board_columns(values: +List<Doc.Node>, +width: Nat) -> +List<Doc.Node>:
@@ -1135,9 +868,6 @@ def css_anchor(key: String) -> String:
   "--native" ++ css_characters(key)
 
 
-
-
-
 def background_properties(active: Maybe<&2, String>) -> +List<Doc.Property>:
   match active:
     case Some{current}: [property("inert", "true"), property("aria-hidden", "true")]
@@ -1159,20 +889,8 @@ def base_scope(active: Maybe<&2, String>, children: +List<Doc.Node>) -> Doc.Node
 
 def meaning_properties(value: UI.Meaning) -> +List<Doc.Property>:
   match value:
-    case UI.Edit{editor, field, entry, observed_value}: [property("data-field", Forms.key(field))]
+    case UI.Edit{editor, field, entry, observed_value, choices}: [property("data-field", Forms.key(field))]
     case _: Nil{}
-
-
-
-
-
-def layer_groups(values: +List<View.Layer>) -> +List<View.InputGroup>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{View.Layer{kind, content, initial, return_attention, close}, rest}: List.append(&2, View.InputGroup, content_groups(content), layer_groups(rest))
-
-
-
 
 
 def opened(value: Bool) -> +List<Doc.Property>:
@@ -1181,14 +899,8 @@ def opened(value: Bool) -> +List<Doc.Property>:
     case False{}: Nil{}
 
 
-
-
-
 def json_text(value: Json.Json) -> String:
   rendered_json(Json.show(value))
-
-
-
 
 
 def shadow_style(value: Bool) -> +List<Doc.Property>:
@@ -1197,18 +909,12 @@ def shadow_style(value: Bool) -> +List<Doc.Property>:
     case False{}: Nil{}
 
 
-
-
-
 def alignment_style(value: Design.Alignment) -> +List<Doc.Property>:
   match value:
     case Design.Stretch{}: [property("align-self", "stretch")]
     case Design.Leading{}: [property("align-self", "flex-start")]
     case Design.Trailing{}: [property("align-self", "flex-end")]
     case Design.Centered{}: [property("align-self", "center"), property("text-align", "center")]
-
-
-
 
 
 def states_style(value: Design.ControlStates) -> +List<Doc.Property>:
@@ -1221,9 +927,6 @@ def states_style(value: Design.ControlStates) -> +List<Doc.Property>:
        property("--native-disabled-opacity", Nat.show(opacity) ++ "%"), property("--native-focus-ring", paint(ring)), property("--native-focus-width", px(width)), property("--native-focus-offset", px(offset))]
 
 
-
-
-
 def placement_styles(value: Controls.Placement) -> +List<Doc.Property>:
   match value:
     case Controls.ComposerEnd{}: [property("margin-left", "auto")]
@@ -1232,25 +935,10 @@ def placement_styles(value: Controls.Placement) -> +List<Doc.Property>:
     case _: Nil{}
 
 
-
-
-
 def optional_icon(key: String, value: Maybe<&2, Controls.Icon>) -> +List<Doc.Node>:
   match value:
     case None{}: Nil{}
     case Some{value}: [icon(key, value)]
-
-
-
-
-
-def context_text(value: Context.Preview) -> String:
-  match value:
-    case Context.ContextUnavailable{reason}: reason
-    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: workspace_text(workspace) ++ "\n" ++ sandbox_text(sandbox)
-
-
-
 
 
 def navigation_styles(value: Design.Navigation) -> +List<Doc.Property>:
@@ -1258,9 +946,6 @@ def navigation_styles(value: Design.Navigation) -> +List<Doc.Property>:
     case Design.HiddenNavigation{}: [property("display", "none")]
     case Design.BesideNavigation{box}: List.append(&2, Doc.Property, bounds(box), [property("padding-bottom", "56px"), property("box-sizing", "border-box")])
     case Design.OverlayNavigation{box}: List.append(&2, Doc.Property, bounds(box), [property("z-index", "30"), property("padding-bottom", "56px"), property("box-sizing", "border-box")])
-
-
-
 
 
 def overlay_styles(value: Design.OverlayPlacement) -> +List<Doc.Property>:
@@ -1277,18 +962,12 @@ def overlay_styles(value: Design.OverlayPlacement) -> +List<Doc.Property>:
     case Design.NavigationDrawer{box}: bounds(box)
 
 
-
-
-
 def decorate(+role: String, semantic: String, node: Doc.Node) -> Doc.Node:
   match node:
     case Doc.Element{+key, tag, attrs, styles, events, children}:
       Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, List.append(&2, Doc.Property, [property("data-region", role), property("data-semantic", semantic)], reading_anchor(role, key))),
         List.append(&2, Doc.Property, styles, region_styles(role)), events, children}
     case other: other
-
-
-
 
 
 def timeline_styles(value: Design.MainFrame) -> +List<Doc.Property>:
@@ -1298,113 +977,47 @@ def timeline_styles(value: Design.MainFrame) -> +List<Doc.Property>:
     case _: Nil{}
 
 
-
-
-
 def context_field_text(field: Forms.Field, origin: Context.Origin, workspace: Context.WorkspaceValue, sandbox: Context.SandboxValue, approval: Context.ApprovalValue) -> String:
   match field:
     case Forms.ContextOrigin{}: origin_text(origin)
-    case Forms.WorkspaceDirectories{}: workspace_text(workspace)
+    case Forms.WorkspaceDirectories{}: FieldOptions.workspace_text(workspace)
     case Forms.WorkspacePrimary{}: workspace_primary(workspace)
-    case Forms.SandboxMode{}: sandbox_text(sandbox)
+    case Forms.SandboxMode{}: FieldOptions.sandbox_text(sandbox)
     case Forms.NetworkAccess{}: network_text(sandbox)
     case Forms.ApprovalPolicy{}: approval_text(approval)
     case _: ""
 
 
-
-
-
-def options(values: +List<String>, +key: String) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{+value, rest}: option(key, value, value) <> options(rest, key)
-
-
-
-
-
-def profile_options(values: +List<Domain.Profile>, +key: String) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy}, rest}: option(key, id, name) <> profile_options(rest, key)
-
-
-
-
-
 def task_details(+owner: String, value: View.TaskDetails) -> +List<Doc.Node>:
   View.TaskDetails{Context.EffectiveContext{task, Domain.TaskContext{Domain.Workspace{roots, primary}, Domain.Sandbox{mode, network}, approval, project}, guidance, access}, Domain.Model{Domain.Profile{id, provider, name, policy}, reasoning, model_guidance}, tools, lineage, queued, status, phase} = value
   [Doc.Element{generated_identity(owner, "facts"), "div", Nil{}, fact_frame_styles(Design.facts_frame()), Nil{},
-  [fact(generated_identity(owner, "workspace"), "Working directories", joined(roots)), fact(generated_identity(owner, "primary"), "Primary directory", optional_text(primary)),
-   fact(generated_identity(owner, "sandbox"), "Filesystem access", Domain.sandbox_mode_name(mode)), fact(generated_identity(owner, "network"), "Network access", boolean(network)),
+  [fact(generated_identity(owner, "workspace"), "Working directories", FieldOptions.joined(roots)), fact(generated_identity(owner, "primary"), "Primary directory", FieldOptions.optional_text(primary)),
+   fact(generated_identity(owner, "sandbox"), "Filesystem access", Domain.sandbox_mode_name(mode)), fact(generated_identity(owner, "network"), "Network access", FieldOptions.boolean(network)),
    fact(generated_identity(owner, "approval"), "Approval policy", Domain.approval_name(approval)), fact(generated_identity(owner, "model"), "Model", name), fact(generated_identity(owner, "reasoning"), "Reasoning", reasoning),
-   fact(generated_identity(owner, "messages"), "Queued messages", joined(queued))]}]
-
-
-
-
-
-def reading_nodes(values: +List<Doc.Node>, +identity: Maybe<&2, ReadingIdentity>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{Doc.Element{+key, tag, +attrs, styles, events, children}, rest}:
-      reading_element(attr(attrs, "data-region"), key, tag, attrs, styles, events, reading_nodes(children, identity), identity) <> reading_nodes(rest, identity)
-    case Con{other, rest}: other <> reading_nodes(rest, identity)
-
-
-
-
-
-def origin_option_values(+key: String, origin: Context.Origin) -> +List<Doc.Node>:
-  match origin:
-    case Context.EnvironmentDefaults{}: [option(key, "environment", "Environment defaults")]
-    case Context.ProjectDefaults{project}: [option(key, "environment", "Environment defaults"), option(key, "project/" ++ Nat.show(project), "Project defaults")]
-    case Context.ParentTask{task}: [option(key, "environment", "Environment defaults"), option(key, "parent/" ++ Nat.show(task), "Parent task")]
-    case Context.ProjectForParent{+task, project}: [option(key, "environment", "Environment defaults"), option(key, "parent/" ++ Nat.show(task), "Parent task"), option(key, "project-for-parent/" ++ Nat.show(task) ++ "/" ++ Nat.show(project), "Project defaults")]
-
-
-
+   fact(generated_identity(owner, "messages"), "Queued messages", FieldOptions.joined(queued))]}]
 
 
 def field_hint(value: UI.Meaning) -> +List<Doc.Property>:
   match value:
     case UI.BoardSearch{filter}: [property("placeholder", "搜索任务")]
-    case UI.Edit{editor, Forms.CardLabels{}, entry, observed}: [property("placeholder", "每行一个标签")]
+    case UI.Edit{editor, Forms.CardLabels{}, entry, observed, choices}: [property("placeholder", "每行一个标签")]
     case _: Nil{}
 
 def checked_properties(value: UI.Meaning) -> +List<Doc.Property>:
   match value:
-    case UI.Edit{editor, field, entry, Forms.ToggleValue{enabled}}: checked_property(enabled)
-    case UI.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}}: checked_property(enabled)
-    case UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}}: checked_property(enabled)
-    case UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}}: checked_property(enabled)
+    case UI.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: checked_property(enabled)
+    case UI.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: checked_property(enabled)
+    case UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: checked_property(enabled)
+    case UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: checked_property(enabled)
     case _: Nil{}
-
-
-
 
 
 def measured_input_styles(key: String, frame: Design.MainFrame) -> +List<Doc.Property>:
   measured_input_present(Bool.not(String.is_empty(key)), frame_input(frame))
 
 
-
-
-
-
-
 def frame_region(key: String, +region: String, box: Design.Box, children: +List<Doc.Node>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-region", region)], bounds(box), Nil{}, children}
-
-
-
-
-
-
-
-
-
 
 
 def modal_scope(+key: String, active: Maybe<&2, String>, value: Doc.Node) -> Doc.Node:
@@ -1414,78 +1027,11 @@ def modal_scope(+key: String, active: Maybe<&2, String>, value: Doc.Node) -> Doc
     case other: other
 
 
-
-
-
-
-
-def scene_groups(value: Core.Scene) -> +List<View.InputGroup>:
-  Core.Scene{View.Scene{navigation, page, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = value
-  layer_groups(layers)
-
-
-
-
-
-def project_origin_options(+key: String, values: +List<View.ProjectChoice>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{View.ProjectChoice{id, name, workspace}, rest}: option(key, "project/" ++ Nat.show(id), name) <> project_origin_options(key, rest)
-
-
-
-
-
-def reviewer_options(+key: String, values: +List<Domain.Profile>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy}, rest}: option(key, "automatic/" ++ id, "Automatic review: " ++ name) <> reviewer_options(key, rest)
-
-
-
-
-
-def project_options(+key: String, values: +List<View.ProjectChoice>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{View.ProjectChoice{id, name, workspace}, rest}: option(key, Nat.show(id), name) <> project_options(key, rest)
-
-
-
-
-
-def owner_options(+key: String, values: +List<Board.Owner>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{+value, rest}: option(key, Board.owner_name(value), Board.owner_name(value)) <> owner_options(key, rest)
-
-
-
-
-
-def RenderField(attrs: +List<Doc.Property>) -> String:
-  attr(attrs, "data-field")
-
-
-
-
-
 def audit_text(value: Domain.Message) -> String:
   Conversation.audit_detail(value)
 
 def style_details(shadow: Bool, alignment: Design.Alignment, states: Design.ControlStates) -> +List<Doc.Property>:
   List.append(&2, Doc.Property, shadow_style(shadow), List.append(&2, Doc.Property, alignment_style(alignment), states_style(states)))
-
-
-
-
-
-
-
-
-
-
-
 
 
 def region_children(owner: String, role: UI.Role, label: String, children: +List<Doc.Node>) -> +List<Doc.Node>:
@@ -1635,7 +1181,7 @@ def layer_region_properties(+key: String, outside: Bool, value: Doc.Node) -> Doc
   match value:
     case Doc.Element{identity, tag, attrs, styles, events, children}:
       Doc.Element{identity, tag, List.append(&2, Doc.Property, attrs,
-        [property("data-layer-key", key), property("data-layer-outside", boolean(outside)), property("tabindex", "-1")]), styles, events, children}
+        [property("data-layer-key", key), property("data-layer-outside", FieldOptions.boolean(outside)), property("tabindex", "-1")]), styles, events, children}
     case other: other
 
 def layer_region_node(+key: String, label: String, role: UI.Role, +outside: Bool, visual: Design.Style,
@@ -1676,29 +1222,6 @@ def face(+key: String, value: Controls.Face) -> +List<Doc.Node>:
     case Controls.PermissionFace{filesystem, network, approval}: [icon(key ++ "/filesystem", filesystem), icon(key ++ "/network", network), icon(key ++ "/approval", approval)]
 
 
-def observed(value: Forms.Observed) -> String:
-  match value:
-    case Forms.TextValue{text}: text
-    case Forms.CountValue{count}: Nat.show(count)
-    case Forms.TextsValue{values}: joined(values)
-    case Forms.ToggleValue{enabled}: boolean(enabled)
-    case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: joined(roots)
-    case Forms.ContextValue{preview}: context_text(preview)
-    case Forms.ModelValue{profile, reasoning}: profile
-    case Forms.DeliveryValue{delivery}: delivery_name(delivery)
-    case Forms.StageValue{stage}: Board.stage_name(stage)
-    case Forms.PriorityValue{priority}: Board.priority_name(priority)
-    case Forms.OwnerValue{owner}: Board.owner_name(owner)
-    case Forms.ProjectValue{project}: optional_nat(project)
-    case Forms.AttachmentsValue{files}: ""
-    case Forms.AssistanceValue{enabled, profile}: profile
-    case Forms.OptionalTextValue{text}: optional_text(text)
-    case Forms.NotApplicable{}: ""
-
-
-
-
-
 def render_base_role(role: UI.Role, value: Doc.Node, navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> Doc.Node:
   match role:
     case UI.Navigation{}: replace_styles(value, navigation_styles(navigation))
@@ -1723,52 +1246,10 @@ def render_base(role: UI.Role, meaning: UI.Meaning, value: Doc.Node,
     case _: render_base_role(role, value, navigation, main, details)
 
 
-
-
-
-
 def frame_styles(region: String, +frame: Design.MainFrame) -> +List<Doc.Property>:
   match region:
     case "composer": composer_styles(frame)
     case _: Nil{}
-
-def origin_options(+key: String, value: Forms.Observed) -> +List<Doc.Node>:
-  match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: origin_option_values(key, origin)
-    case _: [option(key, "environment", "Environment defaults")]
-
-
-
-
-
-
-
-def policy_options(+key: String, policy: Reasoning.Policy) -> +List<Doc.Node>:
-  match policy:
-    case Reasoning.Fixed{}: options(["low", "medium", "high", "xhigh", "max"], key)
-    case Reasoning.Adaptive{evaluator, efforts, baseline, transport, maximum}: [option(key, "auto", "Automatic")]
-
-
-
-
-
-def assistance_options(+key: String, field: String, profiles: +List<Domain.Profile>) -> +List<Doc.Node>:
-  match field:
-    case "assistance-profile": option(key, "", "使用看板默认模型") <> profile_options(profiles, key)
-    case _: Nil{}
-
-
-
-
-
-def card_options(+key: String, field: String, projects: +List<View.ProjectChoice>, owners: +List<Board.Owner>) -> +List<Doc.Node>:
-  match field:
-    case "card-project": option(key, "", "No project") <> project_options(key, projects)
-    case "card-owner": owner_options(key, owners)
-    case _: Nil{}
-
-
-
 
 
 def audit_nodes(+key: String, values: +List<Conversation.AuditFace>) -> +List<Doc.Node>:
@@ -1777,9 +1258,6 @@ def audit_nodes(+key: String, values: +List<Conversation.AuditFace>) -> +List<Do
     case Con{Conversation.AuditFace{+id, kind, title, source}, rest}:
       Doc.Element{key ++ "/audit/" ++ Nat.show(id), "section", Nil{}, [property("padding", "8px 12px"), property("border-left", "1px solid var(--color-token-border-default)")], Nil{},
         [Doc.Element{key ++ "/audit-title/" ++ Nat.show(id), "strong", Nil{}, Nil{}, Nil{}, [Doc.Text{title}]}, Doc.Markdown{key ++ "/audit-body/" ++ Nat.show(id), None{}, audit_text(source)}]} <> audit_nodes(key, rest)
-
-
-
 
 
 def card_archive_node(+key: String, label: String, count: Nat, children: +List<Doc.Node>) -> Doc.Node:
@@ -1795,10 +1273,6 @@ def card_node(+key: String, +face: View.CardFace, destinations: +List<UI.Placeme
     property("data-card-title", title), property("aria-label", title), property("draggable", "true")],
     style(visual),
     [Doc.DragCard{key}, Doc.DropCard{key}], card_children(key, face, source)}
-
-
-
-
 
 
 def pointer_property(name: String, value: String) -> Doc.Property:
@@ -1834,50 +1308,16 @@ def action(+key: String, +visual: Design.Style, value: Controls.Representation) 
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
 
-
-
-
 def render_shell(role: UI.Role, meaning: UI.Meaning, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
   Design.Shell{navigation, main, details} = shell
   render_base(role, meaning, value, navigation, main, details)
-
-
-
 
 
 def field_text(field: Forms.Field, value: Forms.Observed) -> String:
   match value:
     case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: context_field_text(field, origin, workspace, sandbox, approval)
     case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: workspace_field_text(field, roots, primary)
-    case other: observed(other)
-
-
-
-
-
-def stage_options(+key: String, values: +List<Board.Stage>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{+value, rest}: option(key, Board.stage_name(value), Board.stage_label(value)) <> stage_options(key, rest)
-
-def priority_options(+key: String, values: +List<Board.Priority>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{+value, rest}: option(key, Board.priority_name(value), Board.priority_label(value)) <> priority_options(key, rest)
-
-def field_options(+key: String, field: Forms.Field, value: Forms.Observed) -> +List<Doc.Node>:
-  match field:
-    case Forms.SandboxMode{}: [option(key, "workspace-write", "Workspace write"), option(key, "read-only", "Read only")]
-    case Forms.ContextOrigin{}: origin_options(key, value)
-    case Forms.ApprovalPolicy{}: [option(key, "ask", "Ask for approval"), option(key, "full-access", "Full access"), option(key, "automatic", "Automatic review")]
-    case Forms.WorkspacePrimary{}: options(primary_choices(value), key)
-    case Forms.CardStage{}: stage_options(key, Board.stages())
-    case Forms.CardPriority{}: priority_options(key, [Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}])
-    case Forms.DeliveryIntent{}: [option(key, "send", "Send"), option(key, "steer", "Steer")]
-    case _: [option(key, observed(value), "Current value")]
-
-
-
+    case other: FieldOptions.observed(other)
 
 
 type CreationParts is Data:
@@ -2167,58 +1607,31 @@ def conversation_dock_region(node: Doc.Node) -> Doc.Node:
 def conversation_dock_regions(children: +List<Doc.Node>) -> +List<Doc.Node>:
   Std.map(~Doc.Node, ~Doc.Node, ~conversation_dock_region, children)
 
-def conversation_children(+children: +List<Doc.Node>, +heading: Design.Box, +viewport: Design.Box, +reading: Design.Band, +dock: Maybe<&2, Design.Dock>) -> +List<Doc.Node>:
+def conversation_children(+children: +List<Doc.Node>, +heading: Design.Box, +viewport: Design.Box, +reading: Design.Band, +dock: Maybe<&2, Design.Dock>, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
   [page_group("conversation-heading", "heading", conversation_heading_styles(heading), conversation_heading_nodes(children)),
-    Doc.Element{"conversation-body", "div", [property("data-region", "conversation-body"), property("data-page-group", "body")],
-      timeline_styles(Design.ConversationFrame{heading, viewport, reading, dock}), Nil{}, page_nodes(children, "body")},
-    Doc.Element{"conversation-dock", "div", [property("data-region", "dock"), property("data-page-group", "dock")],
-      conversation_dock_styles(dock), Nil{}, conversation_dock_regions(page_nodes(children, "dock"))}]
+    reading_element("conversation-body", "conversation-body", "div", [property("data-region", "conversation-body"), property("data-page-group", "body")],
+      timeline_styles(Design.ConversationFrame{heading, viewport, reading, dock}), Nil{}, page_nodes(children, "body"), identity),
+    reading_element("dock", "conversation-dock", "div", [property("data-region", "dock"), property("data-page-group", "dock")],
+      conversation_dock_styles(dock), Nil{}, conversation_dock_regions(page_nodes(children, "dock")), identity)]
 
 
-def main_children(+children: +List<Doc.Node>, frame: Design.MainFrame) -> +List<Doc.Node>:
+def main_children(+children: +List<Doc.Node>, frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
   match frame:
     case Design.CreationFrame{heading, canvas, band, input, flow}:
       creation_canvas_nodes(canvas, band, flow, children)
     case Design.UnavailableFrame{heading, canvas, band}:
       [frame_region("unavailable-canvas", "unavailable", canvas, children)]
     case Design.ConversationFrame{heading, viewport, reading, dock}:
-      conversation_children(children, heading, viewport, reading, dock)
+      conversation_children(children, heading, viewport, reading, dock, identity)
     case Design.OverviewFrame{canvas, band, organization}:
       [overview_shell(canvas, band, organization, children)]
     case Design.BoardFrame{canvas, width, gap, inset}:
       [board_shell(canvas, width, gap, inset, children)]
 
-def selected_reasoning(found: Bool, key: String, policy: Reasoning.Policy, fallback: +List<Doc.Node>) -> +List<Doc.Node>:
-  match found:
-    case True{}: policy_options(key, policy)
-    case False{}: fallback
-
-
-
-
-
-def execution_options(+key: String, field: String, configuration: Context.Configuration, preview: Context.Preview, projects: +List<View.ProjectChoice>, reviewers: +List<Domain.Profile>) -> +List<Doc.Node>:
-  match field:
-    case "context-origin": List.append(&2, Doc.Node, origin_options(key, Forms.ContextValue{preview}), project_origin_options(key, projects))
-    case "approval-policy": List.append(&2, Doc.Node, [option(key, "ask", "Ask for approval"), option(key, "full-access", "Full access")], reviewer_options(key, reviewers))
-    case _: Nil{}
-
-
-
-
-
-def activity_found(found: Bool, +key: String, attrs: +List<Doc.Property>, styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, expanded: Bool, audit: +List<Conversation.AuditFace>, fallback: Doc.Node) -> Doc.Node:
-  match found:
-    case True{}: Doc.Element{key, "details", List.append(&2, Doc.Property, attrs, opened(expanded)), styles, events, List.append(&2, Doc.Node, children, audit_nodes(key, audit))}
-    case False{}: fallback
-
-
-
-
 
 def node_value(value: UI.Meaning) -> String:
   match value:
-    case UI.Edit{editor, field, entry, observed_value}: field_text(field, observed_value)
+    case UI.Edit{editor, field, entry, observed_value, choices}: field_text(field, observed_value)
     case UI.BoardSearch{filter}: filter_search(filter)
     case UI.SearchChoices{query}: query
     case UI.EnterDirectory{editor, text}: text
@@ -2227,17 +1640,16 @@ def node_value(value: UI.Meaning) -> String:
     case _: ""
 
 
-
-
+def field_options(+key: String, values: +List<Forms.ChoiceValue>) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Forms.ChoiceValue{value, label}, rest}: option(key, value, label) <> field_options(key, rest)
 
 def choice_options(+key: String, meaning: UI.Meaning) -> +List<Doc.Node>:
   match meaning:
-    case UI.BoardProfile{automatic, selected, choices, enabled}: profile_options(choices, key)
-    case UI.Edit{editor, field, entry, value}: field_options(key, field, value)
+    case UI.BoardProfile{automatic, selected, choices, enabled}: field_options(key, FieldOptions.profile_options(choices))
+    case UI.Edit{editor, field, entry, value, choices}: field_options(key, choices)
     case _: Nil{}
-
-
-
 
 
 def action_leading(values: +List<Doc.Node>) -> +List<Doc.Node>:
@@ -2295,45 +1707,19 @@ def positioned_page_children_found(found: Bool, children: +List<Doc.Node>) -> +L
 def positioned_page_children(region: String, children: +List<Doc.Node>) -> +List<Doc.Node>:
   positioned_page_children_found(String.eq(region, Composition.region_name(Composition.BoardControls{})), children)
 
-def positioned_children(key: String, region: String, children: +List<Doc.Node>, frame: Design.MainFrame) -> +List<Doc.Node>:
+def positioned_children(key: String, region: String, children: +List<Doc.Node>, frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
   match region:
-    case "main": main_children(children, frame)
+    case "main": main_children(children, frame, identity)
     case "composer-actions": composer_action_groups(key, children)
     case _: children
 
 
-
-
-
-def reasoning_options(+key: String, +profile: String, values: +List<Domain.Profile>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy}, rest}: selected_reasoning(String.eq(id, profile), key, policy, reasoning_options(key, profile, rest))
-
-
-
-
-
-def enriched_activity(+key: String, +attrs: +List<Doc.Property>, +styles: +List<Doc.Property>, +events: +List<Doc.Event>, +children: +List<Doc.Node>, values: +List<Conversation.VisibleGroup>) -> Doc.Node:
-  match values:
-    case Nil{}: Doc.Element{key, "details", attrs, styles, events, children}
-    case Con{Conversation.VisibleActivity{id, attention, expanded, summary, audit, expand, collapse}, rest}:
-      activity_found(String.eq(attr(attrs, "data-semantic"), "activity/" ++ Nat.show(id)), key, attrs, styles, events, children, expanded, audit, enriched_activity(key, attrs, styles, events, children, rest))
-    case Con{other, rest}: enriched_activity(key, attrs, styles, events, children, rest)
-
-
-
-
-
-def position_main(values: +List<Doc.Node>, +frame: Design.MainFrame) -> +List<Doc.Node>:
+def position_main(values: +List<Doc.Node>, +frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Doc.Element{+key, tag, +attrs, styles, events, children}, rest}:
-      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, List.append(&2, Doc.Property, frame_styles(attr(attrs, "data-region"), frame), measured_input_styles(attr(attrs, "data-native-editor-key"), frame))), events, positioned_page_children(attr(attrs, "data-page-region"), positioned_children(key, attr(attrs, "data-region"), position_main(children, frame), frame))} <> position_main(rest, frame)
-    case Con{other, rest}: other <> position_main(rest, frame)
-
-
-
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, List.append(&2, Doc.Property, frame_styles(attr(attrs, "data-region"), frame), measured_input_styles(attr(attrs, "data-native-editor-key"), frame))), events, positioned_page_children(attr(attrs, "data-page-region"), positioned_children(key, attr(attrs, "data-region"), position_main(children, frame, identity), frame, identity))} <> position_main(rest, frame, identity)
+    case Con{other, rest}: other <> position_main(rest, frame, identity)
 
 
 def input_children(+key: String, meaning: UI.Meaning, widget: Controls.Widget) -> +List<Doc.Node>:
@@ -2342,19 +1728,6 @@ def input_children(+key: String, meaning: UI.Meaning, widget: Controls.Widget) -
     case Controls.MultiSelectInput{}: choice_options(key, meaning)
     case Controls.PlainValue{}: [Doc.Text{node_value(meaning)}]
     case _: Nil{}
-
-
-
-
-
-def model_group_options(+key: String, field: String, profile: String, choices: +List<Domain.Profile>) -> +List<Doc.Node>:
-  match field:
-    case "model-profile": profile_options(choices, key)
-    case "reasoning-effort": reasoning_options(key, profile, choices)
-    case _: Nil{}
-
-
-
 
 
 def editor_placeholder(kind: EditorLayout.FieldKind, name: String) -> +List<Doc.Property>:
@@ -2401,21 +1774,6 @@ def input(+key: String, +meaning: UI.Meaning, representation: Controls.Represent
     case _: Doc.Element{key, "output", Nil{}, style(visual), Nil{}, [Doc.Text{node_value(meaning)}]}
 
 
-
-
-
-def group_options(+key: String, field: String, value: View.InputGroup) -> +List<Doc.Node>:
-  match value:
-    case View.ModelInput{profile, reasoning, choices}: model_group_options(key, field, profile, choices)
-    case View.CardAssistanceInput{enabled, profile, choices}: assistance_options(key, field, choices)
-    case View.ExecutionInput{configuration, preview, workspace, projects, reviewers}: execution_options(key, field, configuration, preview, projects, reviewers)
-    case View.CardContentInput{value, projects, agents, stages, priorities, owners}: card_options(key, field, projects, owners)
-    case _: Nil{}
-
-
-
-
-
 def compound_field(+key: String, label: String, field: Forms.Field,
   visual: Design.Style, children: +List<Doc.Node>) -> Doc.Node:
   Doc.Element{key, "section", [property("data-native-key", key), property("aria-label", label),
@@ -2429,7 +1787,7 @@ def directory_path_node(+key: String, +path: String) -> Doc.Node:
 def directory_row_node(+key: String, +path: String, primary: Bool, visual: Design.Style,
   children: +List<Doc.Node>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("aria-label", path),
-    property("data-primary", boolean(primary))], List.append(&2, Doc.Property, style(visual),
+    property("data-primary", FieldOptions.boolean(primary))], List.append(&2, Doc.Property, style(visual),
     [property("flex", "0 0 auto")]), Nil{},
     [directory_path_node(key, path), Doc.Element{key ++ "/controls", "div", Nil{},
       [property("display", "flex"), property("flex", "none"), property("width", "100%"), property("min-width", "0"), property("align-items", "center"),
@@ -2508,7 +1866,7 @@ def project_group_children(+owner: String, values: +List<Child>, +selected: Bool
       project_child(String.eq(key, owner ++ "/actions"), document) <> project_group_children(owner, rest, selected, expanded)
 
 def project_group_node(+key: String, project: Nat, selected: Bool, +expanded: Bool, visual: Design.Style, children: +List<Child>) -> Doc.Node:
-  Doc.Element{key, "div", [property("data-native-key", key), property("data-project", Nat.show(project)), property("data-expanded", boolean(expanded))],
+  Doc.Element{key, "div", [property("data-native-key", key), property("data-project", Nat.show(project)), property("data-expanded", FieldOptions.boolean(expanded))],
     style(visual), Nil{}, project_group_children(key, children, selected, expanded)}
 
 def task_status_tone(status: String) -> String:
@@ -2556,11 +1914,15 @@ def read_only_node(+key: String, role: UI.Role, label: String, text: String, vis
     case +other:
       Doc.Element{key, tag(other), [property("data-native-key", key)], style(visual), Nil{}, Doc.Markdown{key ++ "/markdown", markdown_source(source), text} <> documents(source)}
 
+def activity_node(+key: String, +label: String, visual: Design.Style, children: +List<Child>, expanded: Bool, audit: +List<Conversation.AuditFace>) -> Doc.Node:
+  Doc.Element{key, "details", List.append(&2, Doc.Property, [property("aria-label", label), property("data-native-key", key)], opened(expanded)),
+    style(visual), Nil{}, List.append(&2, Doc.Node, activity_summary(key, label, documents(children)), audit_nodes(key, audit))}
+
 def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
   Design.Node{+key, semantic, +label, +role, meaning, +visual, +representation, nested} = value
   match meaning:
-    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: compound_field(key, label, field, visual, documents(children))
-    case UI.Edit{editor, field, Forms.FileCollection{}, value}: compound_field(key, label, field, visual, documents(children))
+    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound_field(key, label, field, visual, documents(children))
+    case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound_field(key, label, field, visual, documents(children))
     case UI.ComposerAction{subject, input_value, availability}: action(key, visual, representation)
     case UI.PanelToggle{expanded, input_value, availability}: action(key, visual, representation)
     case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children)
@@ -2575,6 +1937,8 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
     case UI.PageRegion{region, position}: page_region(key, region, position, documents(children))
     case UI.BoardGroup{grouping}: board_group_node(key, grouping, documents(children))
     case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children)
+    case UI.PageContext{conversation}: region_node(key, label, role, visual, children)
+    case UI.ActivityContent{expanded, audit}: activity_node(key, label, visual, children, expanded, audit)
     case UI.Region{}: region_node(key, label, role, visual, children)
     case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children)
     case UI.CodeFacts{Code.Scene{+identity, literal, wrap, copy, enabled, controls}}:
@@ -2588,18 +1952,6 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
     case other: input(key, other, representation, visual)
 
 
-
-
-
-def enriched_options(+key: String, +field: String, values: +List<View.InputGroup>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: prefer_options(group_options(key, field, value), enriched_options(key, field, rest))
-
-
-
-
-
 def render_children(values: +List<Design.Node>) -> +List<Child>:
   match values:
     case Nil{}: Nil{}
@@ -2610,32 +1962,13 @@ def render_children(values: +List<Design.Node>) -> +List<Child>:
 def render_nodes(values: +List<Design.Node>) -> +List<Doc.Node>:
   documents(render_children(values))
 
-def enriched_element(+key: String, tag: String, +attrs: +List<Doc.Property>, styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, groups: +List<View.InputGroup>, activities: +List<Conversation.VisibleGroup>) -> Doc.Node:
-  match tag:
-    case "select": Doc.Element{key, "select", attrs, styles, events, prefer_options(enriched_options(key, RenderField(attrs), groups), children)}
-    case "details": enriched_activity(key, attrs, styles, events, children, activities)
-    case other: Doc.Element{key, other, attrs, styles, events, children}
-
-
-
-
 
 def render_node(+value: Design.Node) -> Doc.Node:
   Design.Node{key, semantic, label, role, meaning, style, control, children} = value
   match_node(value, render_children(children))
 
-def enrich_nodes(values: +List<Doc.Node>, +groups: +List<View.InputGroup>, +activities: +List<Conversation.VisibleGroup>) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{Doc.Element{+key, +tag, +attrs, styles, events, children}, rest}:
-      enriched_element(key, tag, attrs, styles, events, enrich_nodes(children, groups, activities), groups, activities) <> enrich_nodes(rest, groups, activities)
-    case Con{other, rest}: other <> enrich_nodes(rest, groups, activities)
 
-
-
-
-
-def render_base_node(+value: Design.Node, +shell: Design.Shell) -> Doc.Node:
+def render_base_shell_node(+value: Design.Node, +shell: Design.Shell) -> Doc.Node:
   Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
   match semantic:
     case "settings/open":
@@ -2644,10 +1977,23 @@ def render_base_node(+value: Design.Node, +shell: Design.Shell) -> Doc.Node:
         bounds(Layout.settings_bounds(navigation, main)), [property("z-index", "6")]))
     case _: render_shell(role, meaning, render_node(value), shell)
 
-def base_nodes(values: +List<Design.Node>, +shell: Design.Shell) -> +List<Doc.Node>:
+def positioned_root(value: Doc.Node, +frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> Doc.Node:
+  match value:
+    case Doc.Element{+key, tag, +attrs, styles, events, children}:
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, List.append(&2, Doc.Property, frame_styles(attr(attrs, "data-region"), frame), measured_input_styles(attr(attrs, "data-native-editor-key"), frame))), events,
+        positioned_page_children(attr(attrs, "data-page-region"), positioned_children(key, attr(attrs, "data-region"), position_main(children, frame, identity), frame, identity))}
+    case other: other
+
+def render_base_node(+value: Design.Node, shell: Design.Shell, main: Design.MainFrame) -> Doc.Node:
+  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
+  match meaning:
+    case UI.PageContext{conversation}: positioned_root(render_base_shell_node(value, shell), main, conversation)
+    case _: positioned_root(render_base_shell_node(value, shell), main, None{})
+
+def base_nodes(values: +List<Design.Node>, +shell: Design.Shell, +main: Design.MainFrame) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{value, rest}: render_base_node(value, shell) <> base_nodes(rest, shell)
+    case Con{value, rest}: render_base_node(value, shell, main) <> base_nodes(rest, shell, main)
 
 def overlays(values: +List<Design.Node>, placements: +List<Design.Overlay>, +active: Maybe<&2, String>) -> +List<Doc.Node>:
   match values placements:
@@ -2665,4 +2011,4 @@ def render(scene: Web.Scene) -> Doc.Document:
     Design.Layout{Design.Viewport{width, height}, shell, main, placements}} = scene
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
     [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", "var(--color-token-text-primary)")], Nil{},
-    document_theme(theme) <> enrich_nodes(List.append(&2, Doc.Node, [base_scope(active, reading_nodes(position_main(base_nodes(base, shell), main), reading_identity(content)))], overlays(overlays_value, placements, active)), scene_groups(content), scene_activities(content))}, "Selvedge"}
+    document_theme(theme) <> List.append(&2, Doc.Node, [base_scope(active, base_nodes(base, shell, main))], overlays(overlays_value, placements, active))}, "Selvedge"}

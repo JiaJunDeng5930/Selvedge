@@ -14,3 +14,7 @@ Single-use proof declarations and proposition aliases created additional places 
 maintain the same guarantee. Their witnesses now live in the owning requirement
 fields when Bend permits it. Recursive proofs and proofs requiring named parameter
 matching remain named; their complete propositions and production coverage remain.
+
+The semantic scene previously omitted selectable values, activity disclosure data and timeline ownership. The renderer recovered these by searching the raw scene after constructing the document. A field-name search across editors could bind a selector to another editor’s values, and the same activity and conversation were interpreted twice.
+
+These values now travel in the owning semantic node before platform preparation. Finite choices are projected only from the owning editor’s input groups; open input remains open. The renderer constructs the final document from that complete node and uses one canonical choice-data projection. Full source provenance remains available for erasure and geometry laws, without becoming a second rendering authority.

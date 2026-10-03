@@ -1,5 +1,6 @@
 import Base
 import ../core/form-fields.bend as Forms
+import ../core/field-options.bend as Options
 import ../core/interface.bend as UI
 import ../core/user-input.bend as User
 import ../core/user-context.bend as Context
@@ -85,28 +86,28 @@ type Requirements is Type:
     labels_edit: @values:+List<String> ->
       {Forms.edit(Forms.CardLabels{}, Forms.Strings{values}) ==
     Some{User.WriteCard{Board.Patch{None{}, None{}, None{}, None{}, None{}, None{}, Some{values}, None{}}}} : Maybe<&2, User.Edit>},
-    labels_representation: @key:String -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}}, label, role, context) ==
-          Controls.Input{UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}}, label,
+    labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label, role, context) ==
+          Controls.Input{UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
             Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})} : Controls.Representation},
     labels_observation: @values:+List<String> ->
-      {Renderer.observed(Forms.TextsValue{values}) == Renderer.joined(values) : String},
-    assistance_representation: @key:String -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}}, label, role, context) ==
-          Controls.Input{UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}}, label,
+      {Options.observed(Forms.TextsValue{values}) == Options.joined(values) : String},
+    assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
+          Controls.Input{UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_profile_representation: @key:String -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}}, label, role, context) ==
-          Controls.Input{UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}}, label,
+    assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
+          Controls.Input{UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_checked: @editor:User.Editor -> @enabled:Bool -> @profile:String ->
-      {Renderer.checked_properties(UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}}) ==
+    assistance_checked: @choices:+List<Forms.ChoiceValue> -> @editor:User.Editor -> @enabled:Bool -> @profile:String ->
+      {Renderer.checked_properties(UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}) ==
     Renderer.checked_property(enabled) : +List<Doc.Property>},
     assistance_event: @key:String ->
       {Renderer.input_events(key, Controls.ToggleInput{}) == [Doc.EditToggle{key}] : +List<Doc.Event>},
-    assistance_gesture: @key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<UI.Node> -> @enabled:Bool ->
+    assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<UI.Node> -> @enabled:Bool ->
       {Browser.toggle_gesture(Some{UI.Node{key, semantic, label, role,
-          UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}}, children}}, enabled) ==
+          UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==
           Some{UI.Change{Forms.Assistance{enabled, profile}}} : Maybe<&2, UI.Gesture>},
     assistance_preserves_profile: @enabled:Bool -> @selected:String -> @previous:Bool -> @profile:String ->
       {Forms.card_edit(Forms.AssistedCapture{}, Forms.Assistance{enabled, selected}, previous, profile) ==
@@ -114,17 +115,28 @@ type Requirements is Type:
     profile_preserves_assistance: @enabled:Bool -> @selected:String -> @previous:Bool -> @profile:String ->
       {Forms.card_edit(Forms.AssistanceProfile{}, Forms.Assistance{enabled, selected}, previous, profile) ==
     Some{User.ConfigureCardAssistance{previous, selected}} : Maybe<&2, User.Edit>},
+    stage_choices: @stage:Board.Stage -> @rest:+List<Board.Stage> ->
+      {Options.stage_options(Con{stage, rest}) ==
+        Forms.ChoiceValue{Board.stage_name(stage), Board.stage_label(stage)} <> Options.stage_options(rest) : +List<Forms.ChoiceValue>},
+    priority_choices: @priority:Board.Priority -> @rest:+List<Board.Priority> ->
+      {Options.priority_options(Con{priority, rest}) ==
+        Forms.ChoiceValue{Board.priority_name(priority), Board.priority_label(priority)} <> Options.priority_options(rest) : +List<Forms.ChoiceValue>},
+    stage_choices_binding: @value:Forms.Observed ->
+      {Options.field_options(Forms.CardStage{}, value) == Options.stage_options(Board.stages()) : +List<Forms.ChoiceValue>},
+    priority_choices_binding: @value:Forms.Observed ->
+      {Options.field_options(Forms.CardPriority{}, value) ==
+        Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}]) : +List<Forms.ChoiceValue>},
     stage_option: @key:String -> @stage:Board.Stage -> @rest:+List<Board.Stage> ->
-      {Renderer.stage_options(key, Con{stage, rest}) ==
-    Renderer.option(key, Board.stage_name(stage), Board.stage_label(stage)) <> Renderer.stage_options(key, rest) : +List<Doc.Node>},
+      {Renderer.field_options(key, Options.stage_options(Con{stage, rest})) ==
+    Renderer.option(key, Board.stage_name(stage), Board.stage_label(stage)) <> Renderer.field_options(key, Options.stage_options(rest)) : +List<Doc.Node>},
     priority_option: @key:String -> @priority:Board.Priority -> @rest:+List<Board.Priority> ->
-      {Renderer.priority_options(key, Con{priority, rest}) ==
-    Renderer.option(key, Board.priority_name(priority), Board.priority_label(priority)) <> Renderer.priority_options(key, rest) : +List<Doc.Node>},
+      {Renderer.field_options(key, Options.priority_options(Con{priority, rest})) ==
+    Renderer.option(key, Board.priority_name(priority), Board.priority_label(priority)) <> Renderer.field_options(key, Options.priority_options(rest)) : +List<Doc.Node>},
     stage_options_binding: @key:String -> @value:Forms.Observed ->
-      {Renderer.field_options(key, Forms.CardStage{}, value) == Renderer.stage_options(key, Board.stages()) : +List<Doc.Node>},
+      {Renderer.field_options(key, Options.field_options(Forms.CardStage{}, value)) == Renderer.field_options(key, Options.stage_options(Board.stages())) : +List<Doc.Node>},
     priority_options_binding: @key:String -> @value:Forms.Observed ->
-      {Renderer.field_options(key, Forms.CardPriority{}, value) ==
-    Renderer.priority_options(key, [Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}]) : +List<Doc.Node>}}
+      {Renderer.field_options(key, Options.field_options(Forms.CardPriority{}, value)) ==
+    Renderer.field_options(key, Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}])) : +List<Doc.Node>}}
 
 def evidence() -> Requirements:
   Requirements{
@@ -132,15 +144,19 @@ def evidence() -> Requirements:
     editor => value => +text => state => {==},
     values => title => description => stage => priority => owner => project => previous => attachments => {==},
     values => {==},
-    key => editor => values => label => role => context => {==},
+    choices => key => editor => values => label => role => context => {==},
     values => {==},
-    key => editor => enabled => profile => label => role => context => {==},
-    key => editor => enabled => profile => label => role => context => {==},
-    editor => enabled => profile => {==},
+    choices => key => editor => enabled => profile => label => role => context => {==},
+    choices => key => editor => enabled => profile => label => role => context => {==},
+    choices => editor => enabled => profile => {==},
     key => {==},
-    key => semantic => label => role => editor => previous => profile => children => enabled => {==},
+    choices => key => semantic => label => role => editor => previous => profile => children => enabled => {==},
     enabled => selected => previous => profile => {==},
     enabled => selected => previous => profile => {==},
+    stage => rest => {==},
+    priority => rest => {==},
+    value => {==},
+    value => {==},
     key => stage => rest => {==},
     key => priority => rest => {==},
     key => value => {==},

@@ -1,4 +1,5 @@
 import Base
+import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
 import ../core/user-context.bend as Context
 import ../core/ui-world.bend as View
@@ -64,7 +65,7 @@ type Requirements is Type:
     Render.directory_row_node(key, path, primary, visual, Render.documents(Render.render_children(source))) : Doc.Node},
     directory_identity: @+key: String -> @+path: String -> @+primary: Bool -> @+visual: Design.Style -> @+children: +List<Doc.Node> ->
       {Render.directory_row_node(key, path, primary, visual, children) ==
-          Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", path), Render.property("data-primary", Render.boolean(primary))],
+          Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", path), Render.property("data-primary", FieldOptions.boolean(primary))],
             List.append(&2, Doc.Property, Render.style(visual),
               [Render.property("flex", "0 0 auto")]), Nil{},
             [Render.directory_path_node(key, path), Doc.Element{key ++ "/controls", "div", Nil{},

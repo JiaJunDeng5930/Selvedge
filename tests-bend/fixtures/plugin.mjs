@@ -39,7 +39,6 @@ async function respond(request) {
       if (mode === 'missing_name') delete result.tools[0].name;
       if (mode === 'null_name') result.tools[0].name = null;
       if (mode === 'boolean_name') result.tools[0].name = true;
-      if (mode === 'before_crash') setTimeout(() => process.exit(17), 80);
       break;
     }
     case 'beforeTool': {
@@ -60,7 +59,7 @@ async function respond(request) {
       const { context, arguments: args } = request.params;
       committed('tool', context.operation_id, context.task_id);
       log({ method: request.method, ...request.params });
-      result = mode === 'bad_tool_result' ? { value: 'bad', error: 'false' } : { value: { text: args.text, status: 'running' }, error: false };
+      result = { value: { text: args.text, status: 'running' }, error: false };
       if (process.env.PLUGIN_TOOL_SECRET) result.value = { secret: process.env.PLUGIN_TOOL_SECRET };
       if (process.env.PLUGIN_TOOL_ERROR === 'true') result.error = true;
       break;
@@ -73,7 +72,6 @@ async function respond(request) {
       const decision = process.env.PLUGIN_AFTER_MODE ?? 'allow';
       if (decision === 'hang') return;
       if (decision === 'crash') process.exit(19);
-      if (process.env.PLUGIN_AFTER_DELAY) await new Promise(resolve => setTimeout(resolve, Number(process.env.PLUGIN_AFTER_DELAY)));
       if (process.env.PLUGIN_AFTER_GATE && request.params.call.id === 'held-result') {
         while (!existsSync(process.env.PLUGIN_AFTER_GATE)) await new Promise(resolve => setTimeout(resolve, 10));
       }

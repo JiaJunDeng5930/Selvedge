@@ -47,6 +47,13 @@ type Timeline is Data:
     decisions: +List<DecisionRequest>, reading: U.ReadingIntent,
     return_to_latest: Maybe<&2, U.Input>}
 
+type Identity is Data:
+  Identity{task: Nat, generation: Nat}
+
+def identity(timeline: Timeline) -> Identity:
+  Timeline{task, generation, groups, operations, decisions, reading, return_to_latest} = timeline
+  Identity{task, generation}
+
 def failure_occurrence(failed: Bool, index: Nat) -> Maybe<&2, Nat>:
   match failed:
     case True{}: Some{index}

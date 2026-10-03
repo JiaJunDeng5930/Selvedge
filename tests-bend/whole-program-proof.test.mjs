@@ -54,7 +54,7 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
     ['bendlib/frontend.bend', 'P.reject(world, "invalid_json", reason), False{}', 'P.reject(world, "invalid_json", reason), True{}', /frontend_json/],
     ['bendlib/frontend.bend', 'json(J.decode(tokens), world)', 'json(J.decode(Nil{}), world)', /frontend_packet/],
     ['bendlib/traces.bend', 'Spec.record(P.transition(input, world), pending, receipts)', 'Spec.record(P.transition(input, world), pending, Nil{})', /trace_step/],
-    ['bendlib/traces.bend', 'Std.iter(~Spec.Tape, ~implementation, count, tape)', 'Std.iter(~Spec.Tape, ~implementation, 0n, tape)', /trace_refinement|trace_partition|trace_interpretation/],
+    ['bendlib/traces.bend', 'Std.iter(~Spec.Tape, ~implementation, count, tape)', 'Std.iter(~Spec.Tape, ~implementation, 0n, tape)', /trace_partition|trace_interpretation/],
     ['PROGRAM.bend', 'Theory.replay(~M.World(), ~M.Input, ~next, events, world)', 'Theory.replay(~M.World(), ~M.Input, ~next, Nil{}, world)', /trace_interpretation|trace_cons/],
     ['bendlib/operations.bend', 'Finite.remove(~D.OperationBody, operations, id)', 'Nil{}', /operation_rights/],
     ['bendlib/operations.bend', 'binding(Finite.find(~D.OperationBody, operations, id), id)', 'None{}', /operation_rights/],

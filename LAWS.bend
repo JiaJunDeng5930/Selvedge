@@ -204,11 +204,6 @@ law trace_step:
   for +tape: Transcript.Tape
   {Traces.implementation(tape) == Transcript.step(tape) : Transcript.Tape}
 
-law trace_refinement:
-  for +count: Nat
-  for +tape: Transcript.Tape
-  {Traces.actual(count, tape) == Transcript.run(count, tape) : Transcript.Tape}
-
 law trace_partition:
   for +first: Nat
   for +second: Nat

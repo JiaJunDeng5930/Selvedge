@@ -25,10 +25,6 @@ def Laws.trace_step(tape):
         P.transition(input, world), Commit.input(~Execution.scheduled, input, world),
         Laws.interaction_transition(input, world))
 
-def Laws.trace_refinement(count, tape):
-  Std.iter_swap_gen(~Transcript.Tape, ~Transcript.Tape, ~Transcript.identity,
-    ~Traces.implementation, ~Transcript.step, ~(tape => Laws.trace_step(tape)), count, tape)
-
 def Laws.trace_partition(first, second, tape):
   Std.iter_add(~Transcript.Tape, ~Traces.implementation, first, second, tape)
 

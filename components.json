@@ -102,6 +102,7 @@
       "core/client-services.bend",
       "core/code-block.bend",
       "core/composition.bend",
+      "core/field-options.bend",
       "core/form-fields.bend",
       "core/laws.bend",
       "core/live-output.bend",
@@ -591,6 +592,7 @@
       "core/SYSTEM.bend",
       "core/code-block.bend",
       "core/composition.bend",
+      "core/field-options.bend",
       "core/form-fields.bend",
       "core/interface.bend",
       "core/ui-world.bend",
@@ -615,6 +617,7 @@
       "core/form-fields.bend",
       "core/interface.bend",
       "core/ui-world.bend",
+      "core/user-conversation.bend",
       "core/user-input.bend",
       "webui/appearance.bend",
       "webui/controls.bend",
@@ -636,9 +639,11 @@
       "bendlib/domain.bend",
       "bendlib/stdlib.bend",
       "core/composition.bend",
+      "core/field-options.bend",
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
+      "core/user-conversation.bend",
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
@@ -743,6 +748,7 @@
     "webui/form-input-laws.bend": [
       "BOARD.bend",
       "MODEL.bend",
+      "core/field-options.bend",
       "core/form-fields.bend",
       "core/interface.bend",
       "core/user-context.bend",
@@ -767,6 +773,7 @@
     "webui/dialog-spatial-laws.bend": [
       "bendlib/domain.bend",
       "bendlib/stdlib.bend",
+      "core/field-options.bend",
       "core/form-fields.bend",
       "core/interface.bend",
       "core/ui-world.bend",
@@ -844,6 +851,7 @@
     "webui/context-control-laws.bend": [
       "bendlib/domain.bend",
       "core/SYSTEM.bend",
+      "core/field-options.bend",
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
@@ -861,6 +869,7 @@
       "core/client-services.bend",
       "core/code-block.bend",
       "core/composition.bend",
+      "core/field-options.bend",
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
@@ -892,6 +901,7 @@
     ],
     "webui/execution-presentation-laws.bend": [
       "bendlib/domain.bend",
+      "core/field-options.bend",
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
@@ -928,6 +938,7 @@
     "core/submission-feedback-laws.bend": [
       "bendlib/json.bend",
       "core/SYSTEM.bend",
+      "core/field-options.bend",
       "core/form-fields.bend",
       "core/interface.bend",
       "core/ui-world.bend",
@@ -1101,12 +1112,22 @@
     ],
     "webui/fact-content-laws.bend": [
       "bendlib/domain.bend",
+      "core/field-options.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
       "webui/design.bend",
       "webui/document.bend",
       "webui/enclosure.bend",
       "webui/renderer.bend"
+    ],
+    "core/field-options.bend": [
+      "BOARD.bend",
+      "REASONING.bend",
+      "bendlib/domain.bend",
+      "core/form-fields.bend",
+      "core/ui-world.bend",
+      "core/user-context.bend",
+      "core/user-input.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

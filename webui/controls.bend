@@ -978,9 +978,9 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
     case UI.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
     case UI.Choice{selected, description, input, availability}: make_choice(key, selected, input, availability, label, role, context)
-    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: NoControl{}
-    case UI.Edit{editor, field, Forms.FileCollection{}, value}: NoControl{}
-    case UI.Edit{editor, field, +entry, value}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
+    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
+    case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
+    case UI.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
     case UI.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
     case UI.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
     case UI.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})

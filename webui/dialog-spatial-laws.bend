@@ -1,4 +1,5 @@
 import Base
+import ../core/field-options.bend as FieldOptions
 import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
@@ -168,18 +169,18 @@ def toggle_geometry(+properties: +List<Doc.Property>) ->
 
 
 
-def toggle_value_and_events_law(-key: String, -name: String, -enabled: Bool) -> Type:
+def toggle_value_and_events_law(-key: String, -name: String, -enabled: Bool, -choices: +List<Forms.ChoiceValue>) -> Type:
   {(Render.attr(Doc.element_attributes(first(Doc.element_children(Render.input(key,
-        UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-        Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+        UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
+        Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
           name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field())))), "value"),
       Doc.element_events(first(Doc.element_children(Render.input(key,
-        UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-        Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+        UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
+        Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
           name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field()))))) ==
-     (Render.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)}
+     (FieldOptions.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)}
 
-def toggle_value_and_events(+key: String, +name: String, +enabled: Bool) -> toggle_value_and_events_law(key, name, enabled):
+def toggle_value_and_events(+key: String, +name: String, +enabled: Bool, choices: +List<Forms.ChoiceValue>) -> toggle_value_and_events_law(key, name, enabled, choices):
   match enabled:
     case False{}: {==}
     case True{}: {==}
@@ -202,27 +203,30 @@ def toggle_value_and_events(+key: String, +name: String, +enabled: Bool) -> togg
 
 type Requirements is Type:
   Requirements{
-    assistance_default_option: @+key:String -> @+profiles:+List<Domain.Profile> ->   {(node_key(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))),
-          (Render.attr(Doc.element_attributes(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))), "value"),
-           Doc.direct_text(first(Doc.element_children(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))))))) ==
+    assistance_default_option: @+key:String -> @+profiles:+List<Domain.Profile> ->   {(node_key(first(Render.field_options(key, FieldOptions.assistance_options(Forms.key(Forms.AssistanceProfile{}), profiles)))),
+          (Render.attr(Doc.element_attributes(first(Render.field_options(key, FieldOptions.assistance_options(Forms.key(Forms.AssistanceProfile{}), profiles)))), "value"),
+           Doc.direct_text(first(Doc.element_children(first(Render.field_options(key, FieldOptions.assistance_options(Forms.key(Forms.AssistanceProfile{}), profiles)))))))) ==
          (key ++ "/option/", ("", "使用看板默认模型")) : (String & (String & String))},
-    assistance_remaining_profiles: @+key:String -> @+profiles:+List<Domain.Profile> ->   {rest(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles)) ==
-    Render.profile_options(profiles, key) : +List<Doc.Node>},
-    assistance_field_options: @+key:String -> @+enabled:Bool -> @+selected:String -> @+profiles:+List<Domain.Profile> ->   {Doc.element_children(Render.enriched_element(key, "select",
-            [Doc.Property{"data-field", Forms.key(Forms.AssistanceProfile{})}, Doc.Property{"value", selected}],
-            Nil{}, Nil{}, Nil{}, [View.CardAssistanceInput{enabled, selected, profiles}], Nil{})) ==
-          Render.option(key, "", "使用看板默认模型") <> Render.profile_options(profiles, key) : +List<Doc.Node>},
+    assistance_remaining_profiles: @+key:String -> @+profiles:+List<Domain.Profile> ->   {rest(Render.field_options(key, FieldOptions.assistance_options(Forms.key(Forms.AssistanceProfile{}), profiles))) ==
+    Render.field_options(key, FieldOptions.profile_options(profiles)) : +List<Doc.Node>},
+    assistance_field_options: @+key:String -> @+enabled:Bool -> @+selected:String -> @+profiles:+List<Domain.Profile> ->
+      {Render.input_children(key,
+          UI.Edit{User.CardEditor{None{}}, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.TextValue{selected},
+            FieldOptions.assistance_options(Forms.key(Forms.AssistanceProfile{}), profiles)}, Controls.SelectInput{}) ==
+        Render.option(key, "", "使用看板默认模型") <> Render.field_options(key, FieldOptions.profile_options(profiles)) : +List<Doc.Node>},
     field_style_widget_binding: @editor:User.Editor -> @+field:Forms.Field -> @+entry:Forms.Entry -> @+value:Forms.Observed ->
+      @choices:+List<Forms.ChoiceValue> ->
       @toggle:{Controls.widget_for(entry, field, value) == Controls.ToggleInput{} : Controls.Widget} ->
-      {Appearance.field_style(UI.Edit{editor, field, entry, value}) == Appearance.toggle_field() : Design.Style},
-    rendered_toggle_geometry: @+key:String -> @+name:String -> @+enabled:Bool ->   {toggle_geometry(Doc.element_styles(first(Doc.element_children(Render.input(key,
-          UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-          Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+      {Appearance.field_style(UI.Edit{editor, field, entry, value, choices}) == Appearance.toggle_field() : Design.Style},
+    rendered_toggle_geometry: @+key:String -> @+name:String -> @+enabled:Bool ->   @choices:+List<Forms.ChoiceValue> ->
+      {toggle_geometry(Doc.element_styles(first(Doc.element_children(Render.input(key,
+          UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
+          Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
             name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}},
-          Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}})))))) ==
+          Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices})))))) ==
          ("16px", ("16px", ("16px", ("0px", ("0px", ("center", ("0", "none"))))))) :
          (String & (String & (String & (String & (String & (String & (String & String)))))))},
-    toggle_value_and_events: @+key:String -> @+name:String -> @+enabled:Bool ->   toggle_value_and_events_law(key, name, enabled),
+    toggle_value_and_events: @+key:String -> @+name:String -> @+enabled:Bool -> @choices:+List<Forms.ChoiceValue> -> toggle_value_and_events_law(key, name, enabled, choices),
     capture_toggle_target: @+key:String -> @+name:String -> @input:Doc.Node ->   {(Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "min-height"),
           Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "flex")) ==
          ("32px", "1 1 200px") : (String & String)},
@@ -242,7 +246,8 @@ type Requirements is Type:
       {original_children(Render.dialog_region_parts(key, label, visual, parts)) ==
         Render.dialog_body_projection(parts) : +List<Doc.Node>},
     field_layout_binding: @card:Maybe<&2, Nat> -> @field:Forms.Field -> @entry:Forms.Entry -> @value:Forms.Observed ->
-      {EditorLayout.field_kind(UI.Edit{User.CardEditor{card}, field, entry, value}) ==
+      @choices:+List<Forms.ChoiceValue> ->
+      {EditorLayout.field_kind(UI.Edit{User.CardEditor{card}, field, entry, value, choices}) ==
         EditorLayout.card_field(field) : EditorLayout.FieldKind},
     title_identity: @key:String -> @tag:String -> @attributes:+List<Doc.Property> -> @styles:+List<Doc.Property> ->
       @events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @name:String ->
@@ -288,20 +293,20 @@ def evidence() -> Requirements:
     +key => +profiles => {==},
     +key => +profiles => {==},
     +key => +enabled => +selected => +profiles => {==},
-    editor => +field => +entry => +value => toggle =>
+    editor => +field => +entry => +value => choices => toggle =>
       Equal.cong(Controls.Widget, Design.Style,
-        (widget => Appearance.normalize_field(EditorLayout.field_kind(UI.Edit{editor, field, entry, value}),
+        (widget => Appearance.normalize_field(EditorLayout.field_kind(UI.Edit{editor, field, entry, value, choices}),
           widget, Appearance.widget_field_style(widget, entry))),
         Controls.widget_for(entry, field, value), Controls.ToggleInput{}, toggle)
     ,
-    +key => +name => +enabled => {==},
+    +key => +name => +enabled => choices => {==},
     toggle_value_and_events,
     +key => +name => input => {==},
     {==},
     {==},
     nodes => kinds => split_recombines(nodes, kinds),
     key => label => visual => parts => region_original_children(key, label, visual, parts),
-    +card => +field => +entry => +value => {==},
+    +card => +field => +entry => +value => choices => {==},
     +key => +tag => +attributes => +styles => +events => +children => +name => {==},
     +key => +tag => +attributes => +styles => +events => +children => +name => {==},
     {==}, {==},

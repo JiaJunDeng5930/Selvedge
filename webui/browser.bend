@@ -353,9 +353,9 @@ def network_gesture(sandbox: D.Sandbox, enabled: Bool) -> Maybe<&2, UI.Gesture>:
 
 def toggle_gesture(found: Maybe<&2, UI.Node>, enabled: Bool) -> Maybe<&2, UI.Gesture>:
   match found:
-    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{previous, profile}}, children}}: Some{UI.Change{Forms.Assistance{enabled, profile}}}
-    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}, children}}: network_gesture(sandbox_value(sandbox), enabled)
-    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, field, entry, Forms.ToggleValue{previous}}, children}}: Some{UI.Change{Forms.Toggle{enabled}}}
+    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{previous, profile}, choices}, children}}: Some{UI.Change{Forms.Assistance{enabled, profile}}}
+    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, choices}, children}}: network_gesture(sandbox_value(sandbox), enabled)
+    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, field, entry, Forms.ToggleValue{previous}, choices}, children}}: Some{UI.Change{Forms.Toggle{enabled}}}
     case _: None{}
 def pending_of(state: State) -> +List<Pending>:
   State{web, sequence, next, pending} = state
@@ -546,7 +546,7 @@ def entered_connect(decision: Decision) -> Decision:
 
 def editor_found(found: Maybe<&2, UI.Node>, event: Editor.Event, state: State) -> Decision:
   match found:
-    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.MessageText{}, entry, value}, children}}:
+    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.MessageText{}, entry, value, choices}, children}}:
       native(Web.PlatformInput{Platform.EditorInput{editor, event}}, state)
     case _: Decision{state, Nil{}}
 def editor_event(+key: String, event: Editor.Event, +state: State) -> Decision:
@@ -659,7 +659,7 @@ def gesture_text(meaning: UI.Meaning, text: String, state: State) -> Maybe<&2, U
     case UI.DirectoryBrowserLocation{value}: Some{UI.Directory{text}}
     case UI.BoardProfile{automatic, selected, choices, enabled}: Some{UI.SelectBoardProfile{text}}
     case UI.BoardSearch{filter}: Some{UI.Filter{search_filter(filter, text)}}
-    case UI.Edit{editor, field, entry, value}: field_text(editor, field, entry, value, text, state)
+    case UI.Edit{editor, field, entry, value, choices}: field_text(editor, field, entry, value, text, state)
     case _: None{}
 def edit_gesture(found: Maybe<&2, UI.Node>, text: String, state: State) -> Maybe<&2, UI.Gesture>:
   match found:

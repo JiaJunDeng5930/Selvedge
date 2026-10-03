@@ -14,6 +14,7 @@ import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
 import ../core/form-fields.bend as Forms
 import ../core/user-input.bend as User
+import ../core/user-conversation.bend as Conversation
 import ../BOARD.bend as Board
 
 # These observations read the actual browser primitives, independently of the
@@ -119,13 +120,13 @@ def second_node(values: +List<Doc.Node>) -> Doc.Node:
 
 def creation_canvas(+children: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box,
   +band: Design.Band, +input: Maybe<&2, Design.InputMetrics>, +flow: Design.CreationFlow) ->
-  {observed_box(first_node(Render.main_children(children, Design.CreationFrame{heading, canvas, band, input, flow}))) ==
+  {observed_box(first_node(Render.main_children(children, Design.CreationFrame{heading, canvas, band, input, flow}, None{}))) ==
     specified_box(canvas) : (String & (String & (String & String)))}:
   match canvas:
     case Design.Box{left, top, width, height}: {==}
 
 def unavailable_canvas(+children: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box, +band: Design.Band) ->
-  {observed_box(first_node(Render.main_children(children, Design.UnavailableFrame{heading, canvas, band}))) ==
+  {observed_box(first_node(Render.main_children(children, Design.UnavailableFrame{heading, canvas, band}, None{}))) ==
     specified_box(canvas) : (String & (String & (String & String)))}:
   match canvas:
     case Design.Box{left, top, width, height}: {==}
@@ -842,6 +843,43 @@ def anchored_popover_content_height(+anchor: String, +available: Design.Box,
 
 type Requirements is Type:
   Requirements{
+    field_options_empty: @key:String ->
+      {Render.field_options(key, Nil{}) == Nil{} : +List<Doc.Node>},
+    field_options_cons: @+key:String -> @+value:String -> @label:String -> @choices:+List<Forms.ChoiceValue> ->
+      {Render.field_options(key, Forms.ChoiceValue{value, label} <> choices) ==
+        Doc.Element{key ++ "/option/" ++ value, "option", [Doc.Property{"value", value}], Nil{}, Nil{}, [Doc.Text{label}]} <>
+          Render.field_options(key, choices) : +List<Doc.Node>},
+    activity_content_document: @+key:String -> @semantic:String -> @+label:String -> @role:Interface.Role ->
+      @expanded:Bool -> @audit:+List<Conversation.AuditFace> -> @+visual:Design.Style ->
+      @representation:Controls.Representation -> @+source:+List<Design.Node> ->
+      {Render.match_node(Design.Node{key, semantic, label, role, Interface.ActivityContent{expanded, audit}, visual, representation, source}, Render.render_children(source)) ==
+        Doc.Element{key, "details", List.append(&2, Doc.Property, [Doc.Property{"aria-label", label}, Doc.Property{"data-native-key", key}], Render.opened(expanded)),
+          Render.style(visual), Nil{}, List.append(&2, Doc.Node, Render.activity_summary(key, label, Render.render_nodes(source)), Render.audit_nodes(key, audit))} : Doc.Node},
+    conversation_body_identity: @+task:Nat -> @generation:Nat -> @key:String -> @tag:String ->
+      @attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @events:+List<Doc.Event> -> @children:+List<Doc.Node> ->
+      {Render.reading_element("conversation-body", key, tag, attrs, styles, events, children, Some{Conversation.Identity{task, generation}}) ==
+        Doc.Element{"conversation/" ++ Nat.show(task) ++ "/body", tag,
+          List.append(&2, Doc.Property, attrs, [Doc.Property{"data-reading-scroll", ""}, Doc.Property{"data-reading-task", Nat.show(task)}, Doc.Property{"data-reading-generation", Nat.show(generation)}]),
+          styles, events, [Doc.Element{("conversation/" ++ Nat.show(task) ++ "/body") ++ "/reading-content", "div",
+            [Doc.Property{"data-reading-content", ""}, Doc.Property{"data-reading-task", Nat.show(task)}],
+            [Doc.Property{"display", "flex"}, Doc.Property{"flex-direction", "column"}, Doc.Property{"gap", "16px"}], Nil{}, children}]} : Doc.Node},
+    conversation_dock_identity: @+task:Nat -> @generation:Nat -> @key:String -> @tag:String ->
+      @attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @events:+List<Doc.Event> -> @children:+List<Doc.Node> ->
+      {Render.reading_element("dock", key, tag, attrs, styles, events, children, Some{Conversation.Identity{task, generation}}) ==
+        Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [Doc.Property{"data-reading-dock", ""}, Doc.Property{"data-reading-task", Nat.show(task)}]), styles, events, children} : Doc.Node},
+    conversation_children_identity: @+children:+List<Doc.Node> -> @+heading:Design.Box -> @+viewport:Design.Box ->
+      @+reading:Design.Band -> @+dock:Maybe<&2, Design.Dock> -> @+identity:Maybe<&2, Conversation.Identity> ->
+      {Render.conversation_children(children, heading, viewport, reading, dock, identity) ==
+        [Render.page_group("conversation-heading", "heading", Render.conversation_heading_styles(heading), Render.conversation_heading_nodes(children)),
+          Render.reading_element("conversation-body", "conversation-body", "div", [Doc.Property{"data-region", "conversation-body"}, Doc.Property{"data-page-group", "body"}],
+            Render.timeline_styles(Design.ConversationFrame{heading, viewport, reading, dock}), Nil{}, Render.page_nodes(children, "body"), identity),
+          Render.reading_element("dock", "conversation-dock", "div", [Doc.Property{"data-region", "dock"}, Doc.Property{"data-page-group", "dock"}],
+            Render.conversation_dock_styles(dock), Nil{}, Render.conversation_dock_regions(Render.page_nodes(children, "dock")), identity)] : +List<Doc.Node>},
+    page_context_root_identity: @+key:String -> @+semantic:String -> @+label:String -> @+role:Interface.Role ->
+      @+identity:Maybe<&2, Conversation.Identity> -> @+visual:Design.Style -> @+representation:Controls.Representation ->
+      @+source:+List<Design.Node> -> @shell:Design.Shell -> @main:Design.MainFrame ->
+      {Render.render_base_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, shell, main) ==
+        Render.positioned_root(Render.render_base_shell_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, shell), main, identity) : Doc.Node},
     background_without_modal: {Render.background_properties(None{}) == Nil{} : +List<Doc.Property>},
     background_with_modal: @current:String ->
       {Render.background_properties(Some{current}) ==
@@ -873,10 +911,10 @@ type Requirements is Type:
     file_event: @+key:String -> @+face:Controls.Face ->
       {Render.input_events(key, Controls.FileChooser{face}) == [Doc.SelectFiles{key}] : +List<Doc.Event>},
     creation_canvas: @+children:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band -> @+input:Maybe<&2, Design.InputMetrics> -> @+flow:Design.CreationFlow ->
-      {observed_box(first_node(Render.main_children(children, Design.CreationFrame{heading, canvas, band, input, flow}))) ==
+      {observed_box(first_node(Render.main_children(children, Design.CreationFrame{heading, canvas, band, input, flow}, None{}))) ==
           specified_box(canvas) : (String & (String & (String & String)))},
     unavailable_canvas: @+children:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band ->
-      {observed_box(first_node(Render.main_children(children, Design.UnavailableFrame{heading, canvas, band}))) ==
+      {observed_box(first_node(Render.main_children(children, Design.UnavailableFrame{heading, canvas, band}, None{}))) ==
           specified_box(canvas) : (String & (String & (String & String)))},
     rendered_region_count: @+values:+List<Design.Node> ->
       {List.length(&2, Doc.Node, Render.render_nodes(values)) ==
@@ -906,11 +944,11 @@ type Requirements is Type:
     compound_field_is_not_tab_stop: @key:String -> @label:String -> @field:Forms.Field -> @visual:Design.Style -> @children:+List<Doc.Node> ->
       {Render.attr(Doc.element_attributes(Render.compound_field(key, label, field, visual, children)), "tabindex") == "-1" : String},
     directory_field_uses_compound: @+key:String -> @+semantic:String -> @+label:String -> @role:Interface.Role -> @owner:User.Editor -> @+field:Forms.Field ->
-      @value:Forms.Observed -> @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
-      {Render.match_node(Design.Node{key, semantic, label, role, Interface.Edit{owner, field, Forms.DirectoryCollection{}, value}, visual, representation, source}, Render.render_children(source)) == Render.compound_field(key, label, field, visual, Render.render_nodes(source)) : Doc.Node},
+      @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
+      {Render.match_node(Design.Node{key, semantic, label, role, Interface.Edit{owner, field, Forms.DirectoryCollection{}, value, choices}, visual, representation, source}, Render.render_children(source)) == Render.compound_field(key, label, field, visual, Render.render_nodes(source)) : Doc.Node},
     file_field_uses_compound: @+key:String -> @+semantic:String -> @+label:String -> @role:Interface.Role -> @owner:User.Editor -> @+field:Forms.Field ->
-      @value:Forms.Observed -> @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
-      {Render.match_node(Design.Node{key, semantic, label, role, Interface.Edit{owner, field, Forms.FileCollection{}, value}, visual, representation, source}, Render.render_children(source)) == Render.compound_field(key, label, field, visual, Render.render_nodes(source)) : Doc.Node},
+      @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
+      {Render.match_node(Design.Node{key, semantic, label, role, Interface.Edit{owner, field, Forms.FileCollection{}, value, choices}, visual, representation, source}, Render.render_children(source)) == Render.compound_field(key, label, field, visual, Render.render_nodes(source)) : Doc.Node},
     board_group_properties: @+key:String -> @+grouping:Interface.BoardGrouping -> @+children:+List<Doc.Node> ->
       {(Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children)), "data-native-key"),
           (Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children)), "data-board-group"),
@@ -1034,6 +1072,13 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
+    key => {==},
+    +key => +value => label => choices => {==},
+    +key => semantic => +label => role => expanded => audit => +visual => representation => +source => {==},
+    +task => generation => key => tag => attrs => styles => events => children => {==},
+    +task => generation => key => tag => attrs => styles => events => children => {==},
+    +children => +heading => +viewport => +reading => +dock => +identity => {==},
+    +key => +semantic => +label => +role => +identity => +visual => +representation => +source => shell => main => {==},
     {==},
     current => {==},
     key => {==},
@@ -1062,8 +1107,8 @@ def evidence() -> Requirements:
     +key => label => field => visual => +children => {==},
     key => label => field => visual => children => {==},
     key => label => field => visual => children => {==},
-    +key => +semantic => +label => role => owner => +field => value => source => +visual => representation => {==},
-    +key => +semantic => +label => role => owner => +field => value => source => +visual => representation =>
+    +key => +semantic => +label => role => owner => +field => value => choices => source => +visual => representation => {==},
+    +key => +semantic => +label => role => owner => +field => value => choices => source => +visual => representation =>
         {==}
 
       # These laws observe the document tree produced by the production renderer.

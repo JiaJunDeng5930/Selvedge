@@ -47,7 +47,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
     case UI.Activate{input, availability}: True{}
     case UI.PanelToggle{expanded, input, availability}: True{}
     case UI.Choice{selected, description, input, availability}: True{}
-    case UI.Edit{editor, field, entry, value}: field_control(entry)
+    case UI.Edit{editor, field, entry, value, choices}: field_control(entry)
     case UI.SearchChoices{query}: True{}
     case UI.EnterCredential{entered}: True{}
     case UI.BoardSearch{filter}: True{}

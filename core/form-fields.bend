@@ -5,6 +5,9 @@ import ../BOARD.bend as B
 import ./user-input.bend as U
 import ./user-context.bend as Context
 
+type ChoiceValue is Data:
+  ChoiceValue{value: String, label: String}
+
 type Field is Data:
   MessageText{}
   ProjectName{}

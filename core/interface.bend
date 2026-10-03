@@ -17,6 +17,7 @@ import ./ui-world.bend as V
 import ./composition.bend as Composition
 import ./user-conversation.bend as Conversation
 import ./form-fields.bend as Forms
+import ./field-options.bend as FieldOptions
 import ./client-services.bend as Services
 import ./code-block.bend as Code
 import ./live-output.bend as Live
@@ -67,6 +68,8 @@ type Meaning is Data:
   PanelToggle{expanded: Bool, input: Core.Input, availability: V.Availability}
   MovableCard{destinations: +List<Placement>, face: V.CardFace}
   Region{}
+  PageContext{conversation: Maybe<&2, Conversation.Identity>}
+  ActivityContent{expanded: Bool, audit: +List<Conversation.AuditFace>}
   ProjectGroup{project: Nat, selected: Bool, expanded: Bool}
   TaskRow{task: Nat, status: String, selected: Bool}
   ProjectChooser{selected: Maybe<&2, Nat>}
@@ -84,7 +87,7 @@ type Meaning is Data:
   CodeFacts{view: Code.Scene}
   Activate{input: Core.Input, availability: V.Availability}
   ComposerAction{subject: V.ComposerSubject, input: Core.Input, availability: V.Availability}
-  Edit{editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: Forms.Observed}
+  Edit{editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, choices: +List<Forms.ChoiceValue>}
   SearchChoices{query: String}
   EnterCredential{entered: Bool}
   ReceiveFile{editor: U.Editor, enabled: Bool}
@@ -417,10 +420,17 @@ def actual_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, 
   Core.State{E.Application{world, session}, services} = state
   field_entry(field, entry, value, world)
 
-def field_node(+field: Forms.FieldScene, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+def entry_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observed, groups: +List<V.InputGroup>) -> +List<Forms.ChoiceValue>:
+  match entry:
+    case Forms.Choice{}: FieldOptions.choices(field, value, groups)
+    case Forms.MultipleChoices{}: FieldOptions.choices(field, value, groups)
+    case _: Nil{}
+
+def field_node(+field: Forms.FieldScene, +editor: U.Editor, +parent: String, +state: Core.State, groups: +List<V.InputGroup>) -> Node:
   Forms.FieldScene{+field, label, entry} = field
   +observed = field_value(state, editor, field)
-  Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Field{}, Edit{editor, field, actual_entry(field, entry, observed, state), observed}, field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)}
+  +resolved_entry = actual_entry(field, entry, observed, state)
+  Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Field{}, Edit{editor, field, resolved_entry, observed, entry_choices(resolved_entry, field, observed, groups)}, field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)}
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
@@ -459,17 +469,17 @@ def field_resets(+field: Forms.FieldScene, +editor: U.Editor, parent: String, +s
   Forms.FieldScene{+field, label, entry} = field
   Core.State{E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
   configured_reset(draft_configuration(E.find_draft(drafts, editor)), editor, field, label, parent, state)
-def fields(values: +List<Forms.FieldScene>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def fields(values: +List<Forms.FieldScene>, +editor: U.Editor, +parent: String, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{+field, rest}: field_node(field, editor, parent, state) <> List.append(&2, Node, field_resets(field, editor, parent, state), fields(rest, editor, parent, state))
+    case Con{+field, rest}: field_node(field, editor, parent, state, groups) <> List.append(&2, Node, field_resets(field, editor, parent, state), fields(rest, editor, parent, state, groups))
 
-def sections(values: +List<Forms.Section>, +editor: U.Editor, +parent: String, +ordinal: Nat, +state: Core.State) -> +List<Node>:
+def sections(values: +List<Forms.Section>, +editor: U.Editor, +parent: String, +ordinal: Nat, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Forms.Section{title, entries}, rest}:
-      region(parent, "section/" ++ Nat.show(ordinal), title, Section{}, fields(entries, editor, parent ++ "/section/" ++ Nat.show(ordinal), state)) <>
-        sections(rest, editor, parent, (ordinal + 1n : Nat), state)
+      region(parent, "section/" ++ Nat.show(ordinal), title, Section{}, fields(entries, editor, parent ++ "/section/" ++ Nat.show(ordinal), state, groups)) <>
+        sections(rest, editor, parent, (ordinal + 1n : Nat), state, groups)
 
 def feedback_nodes(+parent: String, feedback: U.Feedback) -> +List<Node>:
   match feedback:
@@ -480,7 +490,7 @@ def editor(view: Maybe<&2, V.EditorScene>, +parent: String, +state: Core.State) 
   match view:
     case None{}: Nil{}
     case Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}:
-      List.append(&2, Node, sections(structure, identity, parent, 0n, state), List.append(&2, Node, feedback_nodes(parent, feedback), [declared(parent, submit, state)]))
+      List.append(&2, Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, Node, feedback_nodes(parent, feedback), [declared(parent, submit, state)]))
 
 def composer_control_resolved(subject: V.ComposerSubject, parent: String, control: Core.Control) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
@@ -521,7 +531,7 @@ def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state:
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
       +key = parent ++ "/composer/" ++ U.editor_key(identity)
       [Node{key, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{},
-        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state) <>
+        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
           List.append(&2, Node, feedback_nodes(key, feedback), [expected_composer_actions(footer, submit, key, state)])}]
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
@@ -530,7 +540,7 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.Sta
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
       +composer_key = parent ++ "/composer/" ++ U.editor_key(identity)
       [region(parent, "composer/" ++ U.editor_key(identity), "Message", Composer{},
-        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state) <>
+        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state, Nil{}) <>
           List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)]))]
 
 def composer_tree_present_agreement(+identity: U.Editor, revision: Nat, message: U.Text,
@@ -600,8 +610,8 @@ def groups(values: +List<Conversation.VisibleGroup>, +task: Nat, +parent: String
     case Con{Conversation.VisibleSpeech{+id, speaker, text, source}, rest}:
       Node{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message", speaker_role(speaker), ReadOnly{text}, code_nodes(Core.code_scenes(application(state)), Code.Message{task, id}, parent ++ "/message/" ++ Nat.show(id))} <> groups(rest, task, parent, state)
     case Con{Conversation.VisibleActivity{+id, attention, +expanded, summary, audit, expand, collapse}, rest}:
-      region(parent, "activity/" ++ Nat.show(id), summary, Activity{},
-        [user_action(parent ++ "/activity/" ++ Nat.show(id), "disclosure", disclosure_label(expanded), disclosure_input(expanded, expand, collapse), True{}, state)]) <> groups(rest, task, parent, state)
+      Node{parent ++ "/activity/" ++ Nat.show(id), "activity/" ++ Nat.show(id), summary, Activity{}, ActivityContent{expanded, audit},
+        [user_action(parent ++ "/activity/" ++ Nat.show(id), "disclosure", disclosure_label(expanded), disclosure_input(expanded, expand, collapse), True{}, state)]} <> groups(rest, task, parent, state)
 
 def latest(input: Maybe<&2, U.Input>, parent: String, state: Core.State) -> +List<Node>:
   match input:
@@ -931,8 +941,13 @@ def page_contents(view: V.Page, +parent: String, +state: Core.State) -> +List<No
     case V.MissingObject{message}:
       [page_region(parent, Composition.UnavailableMessage{}, Composition.BodyPosition{}, [Node{parent ++ "/missing", "missing", "Unavailable", Content{}, ReadOnly{message}, Nil{}}])]
 
-def page(view: V.Page, state: Core.State) -> Node:
-  region("", "main", "Content", Main{}, page_contents(view, "/main", state))
+def page_conversation(view: V.Page) -> Maybe<&2, Conversation.Identity>:
+  match view:
+    case V.TaskPage{V.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: Some{Conversation.identity(timeline)}
+    case _: None{}
+
+def page(+view: V.Page, state: Core.State) -> Node:
+  Node{"/main", "main", "Content", Main{}, PageContext{page_conversation(view)}, page_contents(view, "/main", state)}
 
 def selected_effort(same: Bool, effort: String, policy: Reasoning.Policy) -> String:
   match same:
@@ -1498,8 +1513,8 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case Activate{input, availability} Press{}: when_available(available(availability), input)
     case PanelToggle{expanded, input, availability} Press{}: when_available(available(availability), input)
     case Choice{selected, description, input, availability} Press{}: when_available(available(availability), input)
-    case Edit{+editor, +field, Forms.DisplayOnly{}, +value} Change{+next}: None{}
-    case Edit{+editor, +field, entry, +value} Change{+next}: Some{Core.EditField{editor, field, next}}
+    case Edit{+editor, +field, Forms.DisplayOnly{}, +value, choices} Change{+next}: None{}
+    case Edit{+editor, +field, entry, +value, choices} Change{+next}: Some{Core.EditField{editor, field, next}}
     case SearchChoices{query} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
     case EnterCredential{entered} Credential{+value}: Some{Core.ServiceInput{Services.EnterCredential{value}}}
     case BoardSearch{+filter} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
@@ -1622,10 +1637,10 @@ def focusable(meaning: Meaning) -> Bool:
     case PanelToggle{expanded, input, availability}: available(availability)
     case LayerRegion{dismiss, outside, escape}: True{}
     case Choice{selected, description, input, availability}: available(availability)
-    case Edit{editor, field, Forms.DisplayOnly{}, value}: False{}
-    case Edit{editor, field, Forms.FileCollection{}, value}: False{}
-    case Edit{editor, field, Forms.DirectoryCollection{}, value}: False{}
-    case Edit{editor, field, entry, value}: True{}
+    case Edit{editor, field, Forms.DisplayOnly{}, value, choices}: False{}
+    case Edit{editor, field, Forms.FileCollection{}, value, choices}: False{}
+    case Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: False{}
+    case Edit{editor, field, entry, value, choices}: True{}
     case SearchChoices{query}: True{}
     case EnterCredential{entered}: True{}
     case BoardSearch{filter}: True{}

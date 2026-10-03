@@ -38,8 +38,10 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
     case UI.ReadOnly{text}: UI.Region{}
     case UI.TaskFacts{details}: UI.Region{}
     case UI.CodeFacts{view}: UI.Region{}
-    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: UI.Region{}
-    case UI.Edit{editor, field, Forms.FileCollection{}, value}: UI.Region{}
+    case UI.ActivityContent{expanded, audit}: UI.Region{}
+    case UI.PageContext{conversation}: UI.Region{}
+    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: UI.Region{}
+    case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: UI.Region{}
     case _: meaning
 
 def binding(representation: Controls.Representation) -> UI.Meaning:
@@ -124,7 +126,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.ContextSummary{observation}: {==}
     case UI.ChoiceGroup{}: {==}
 
-    case UI.Edit{editor, field, entry, value}:
+    case UI.Edit{editor, field, entry, value, choices}:
       match entry:
         case Forms.DisplayOnly{}: {==}
         case Forms.SingleLine{}: {==}
@@ -151,6 +153,8 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.ReadOnly{text}: {==}
     case UI.TaskFacts{details}: {==}
     case UI.CodeFacts{view}: {==}
+    case UI.ActivityContent{expanded, audit}: {==}
+    case UI.PageContext{conversation}: {==}
 
 def source_nodes(values: +List<UI.Node>) -> +List<BoundNode>:
   match values:
@@ -485,10 +489,10 @@ type Requirements is Type:
       @primary:Maybe<&2, String> -> @state:Core.State -> @context:Controls.Context ->
       {workspace_removal_faces(View.workspace_controls(Domain.Workspace{[path], primary}, editor, None{}),
         parent, state, context) == [Some{Controls.IconFace{Controls.CloseCross{}}}] : +List<Maybe<&2, Controls.Face>>},
-    directory_parent_has_no_control: @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation},
-    file_parent_has_no_control: @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, field, Forms.FileCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation}
+    directory_parent_has_no_control: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}, label, role, context) == Controls.NoControl{} : Controls.Representation},
+    file_parent_has_no_control: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, field, Forms.FileCollection{}, value, choices}, label, role, context) == Controls.NoControl{} : Controls.Representation}
   }
 
 def evidence() -> Requirements:
@@ -510,6 +514,6 @@ def evidence() -> Requirements:
     expanded => label => {==},
     expanded => +label => {==},
     parent => editor => path => primary => state => context => directory_removal_uses_cross(parent, editor, path, primary, state, context),
-    key => editor => field => value => label => role => context => {==},
-    key => editor => field => value => label => role => context => {==}
+    choices => key => editor => field => value => label => role => context => {==},
+    choices => key => editor => field => value => label => role => context => {==}
   }

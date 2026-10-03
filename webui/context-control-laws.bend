@@ -1,4 +1,5 @@
 import Base
+import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
@@ -91,7 +92,7 @@ type Requirements is Type:
       choice_native_event_law(key, label, selected, description, visual, input, availability, name, face, behavior, geometry, placement, help, feedback, visual_children),
     choice_binding: @+key:String -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Binding.binding(Controls.represent(key, UI.Choice{selected, description, input, availability}, label, role, context)) == UI.Activate{input, availability} : UI.Meaning},
-    choice_radio: @+selected:Bool -> {Render.behavior(Controls.ChoiceRadio{selected}) == [Doc.Property{"role", "radio"}, Doc.Property{"aria-checked", Render.boolean(selected)}] : +List<Doc.Property>},
+    choice_radio: @+selected:Bool -> {Render.behavior(Controls.ChoiceRadio{selected}) == [Doc.Property{"role", "radio"}, Doc.Property{"aria-checked", FieldOptions.boolean(selected)}] : +List<Doc.Property>},
     choice_interactive: @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.interactive(UI.Choice{selected, description, input, availability}) == True{} : Bool},
     choice_enabled: @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.required_enabled(UI.Choice{selected, description, input, availability}) == Observed.enabled(availability) : Bool},
     choice_observed_tabs: @+key:String -> @semantic:String -> @+label:String -> @role:UI.Role -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> ->

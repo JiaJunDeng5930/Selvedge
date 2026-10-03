@@ -369,12 +369,12 @@ def option_production(+key: String, +label: String, +selected: Bool, description
   +representation: C.Representation = C.Action{input, View.Available{}, label, C.ChoiceFace{label, selected}, C.ChoiceRadio{selected}, geometry, C.InFlow{}, C.NoHelp{}, C.Quiet{}}
   R.choice_node(key, label, selected, description, A.control_style(A.ordinary_button(), representation), representation, Nil{})
 
-def title_production(+key: String, editor: User.Editor, +name: String, +text: String) -> Doc.Node:
-  +meaning: UI.Meaning = UI.Edit{editor, Forms.CardTitle{}, Forms.SingleLine{}, Forms.TextValue{text}}
+def title_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) -> Doc.Node:
+  +meaning: UI.Meaning = UI.Edit{editor, Forms.CardTitle{}, Forms.SingleLine{}, Forms.TextValue{text}, choices}
   R.input(key, meaning, C.Input{meaning, name, C.TextInput{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning))
 
-def description_production(+key: String, editor: User.Editor, +name: String, +text: String) -> Doc.Node:
-  +meaning: UI.Meaning = UI.Edit{editor, Forms.CardDescription{}, Forms.Multiline{}, Forms.TextValue{text}}
+def description_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) -> Doc.Node:
+  +meaning: UI.Meaning = UI.Edit{editor, Forms.CardDescription{}, Forms.Multiline{}, Forms.TextValue{text}, choices}
   R.input(key, meaning, C.Input{meaning, name, C.TextArea{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning))
 
 
@@ -787,8 +787,8 @@ def option_production_insets(+key: String, +label: String, +selected: Bool, +des
     case False{} C.Geometry{width, height, icon, radius, leading}: {==}
     case True{} C.Geometry{width, height, icon, radius, leading}: {==}
 
-def title_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String) ->
-  {(R.attr(Doc.element_styles(title_production(key, editor, name, text)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text)), "padding-block")) == ("8px", "6px") : (String & String)}:
+def title_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) ->
+  {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)}:
   match editor:
     case User.NewTaskEditor{}: {==}
     case User.MessageEditor{task}: {==}
@@ -798,8 +798,8 @@ def title_production_insets(+key: String, +editor: User.Editor, +name: String, +
     case User.ForkEditor{task}: {==}
     case User.CompactEditor{task}: {==}
 
-def description_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String) ->
-  {(R.attr(Doc.element_styles(description_production(key, editor, name, text)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text)), "padding-block")) == ("8px", "6px") : (String & String)}:
+def description_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) ->
+  {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)}:
   match editor:
     case User.NewTaskEditor{}: {==}
     case User.MessageEditor{task}: {==}
@@ -837,8 +837,8 @@ type Requirements is Type:
     dialog_footer: {(R.attr(R.dialog_footer_styles(), "padding-inline"), R.attr(R.dialog_footer_styles(), "padding-block")) == ("24px", "12px") : (String & String)},
     empty_overwrite: @+name:String -> @+old:String -> {R.attr([R.property(name, old), R.property(name, "")], name) == "" : String},
     option_production_insets: @+key:String -> @+label:String -> @+selected:Bool -> @+description:String -> @+geometry:C.Geometry -> @+input:Core.Input -> {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-block")) == ("8px", "8px") : (String & String)},
-    title_production_insets: @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> {(R.attr(Doc.element_styles(title_production(key, editor, name, text)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text)), "padding-block")) == ("8px", "6px") : (String & String)},
-    description_production_insets: @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> {(R.attr(Doc.element_styles(description_production(key, editor, name, text)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text)), "padding-block")) == ("8px", "6px") : (String & String)},
+    title_production_insets: @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)},
+    description_production_insets: @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)},
     dialog_outer: {(R.attr(R.style(A.style(UI.Dialog{}, UI.Region{})), "padding-inline"), R.attr(R.style(A.style(UI.Dialog{}, UI.Region{})), "padding-block")) == ("0px", "0px") : (String & String)},
     geometry_complete: @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+visual:D.Style -> geometry_complete_law(width, height, icon, radius, leading, visual)}
 

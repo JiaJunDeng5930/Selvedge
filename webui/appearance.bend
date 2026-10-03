@@ -220,7 +220,7 @@ def search_field_style() -> Design.Style:
 def field_style(meaning: UI.Meaning) -> Design.Style:
   match meaning:
     case UI.BoardSearch{filter}: search_field_style()
-    case UI.Edit{editor, +field, +entry, +value}:
+    case UI.Edit{editor, +field, +entry, +value, choices}:
       normalize_field(EditorLayout.field_kind(meaning), Controls.widget_for(entry, field, value), widget_field_style(Controls.widget_for(entry, field, value), entry))
     case _: editable_field()
 
@@ -478,6 +478,8 @@ def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamil
     case UI.DirectoryRow{path, primary}: modeled_container(value, Design.ColumnFlow{}, 8n)
     case UI.ChoiceGroup{}: choice_group_style(value)
     case UI.Region{}: source_header_style(key, family, value)
+    case UI.PageContext{conversation}: source_header_style(key, family, value)
+    case UI.ActivityContent{expanded, audit}: source_header_style(key, family, value)
     case _: source_control_style(family, representation, value)
 
 def final_style(key: String, meaning: UI.Meaning, context: Controls.Context, representation: Controls.Representation, value: Design.Style) -> Design.Style:

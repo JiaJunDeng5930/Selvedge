@@ -42,7 +42,7 @@ def card_field(field: Forms.Field) -> FieldKind:
 
 def field_kind(meaning: UI.Meaning) -> FieldKind:
   match meaning:
-    case UI.Edit{User.CardEditor{card}, field, entry, value}: card_field(field)
+    case UI.Edit{User.CardEditor{card}, field, entry, value, choices}: card_field(field)
     case _: Ordinary{}
 
 def field_section(kind: FieldKind) -> SectionKind:

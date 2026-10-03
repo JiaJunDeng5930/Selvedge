@@ -232,8 +232,26 @@ def collapsed_assembly(+content: Core.Scene, +state: Core.State,
           View.Arrangement{position}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
         placement, View.CollapsedNavigation{}, collapsed)
 
+def owned_page_context(page: View.Page) -> Maybe<&2, Conversation.Identity>:
+  match page:
+    case View.TaskPage{View.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: Some{Conversation.identity(timeline)}
+    case _: None{}
+
+def page_payload(+page: View.Page, +state: Core.State) ->
+  {Interface.page(page, state) == Interface.Node{"/main", "main", "Content", Interface.Main{}, Interface.PageContext{owned_page_context(page)}, Interface.page_contents(page, "/main", state)} : Interface.Node}:
+  match page:
+    case View.StartPage{composer}: {==}
+    case View.TaskPage{View.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: {==}
+    case View.ProjectPage{project}: {==}
+    case View.ProjectsPage{projects, create}: {==}
+    case View.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
+    case View.AgentsPage{agents, create}: {==}
+    case View.MissingObject{message}: {==}
+
 type Requirements is Type:
   Requirements{
+    page_payload: @+page:View.Page -> @+state:Core.State ->
+      {Interface.page(page, state) == Interface.Node{"/main", "main", "Content", Interface.Main{}, Interface.PageContext{owned_page_context(page)}, Interface.page_contents(page, "/main", state)} : Interface.Node},
     collapsed_navigation_single: @+toggle: View.ControlDeclaration -> @expanded: Bool -> @create: View.ControlDeclaration -> @destinations: +List<View.ControlDeclaration> -> @projects: +List<View.ProjectEntry> -> @tasks: +List<View.TaskEntry> -> @+state: Core.State -> {Interface.base_navigation_at(View.CollapsedNavigation{}, View.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
     [Interface.declared("/navigation", toggle, state)] : +List<Interface.Node>},
     collapsed_assembly: @+content: Core.Scene -> @+state: Core.State -> @collapsed: {content_navigation_placement(content) == View.CollapsedNavigation{} : View.NavigationPlacement} -> {navigation_head(surface_base(Interface.assemble(content, state))) ==
@@ -279,7 +297,7 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{+toggle => expanded => create => destinations => projects => tasks => +state => {==}, collapsed_assembly,
+  Requirements{page => state => page_payload(page, state), +toggle => expanded => create => destinations => projects => tasks => +state => {==}, collapsed_assembly,
     layer_title_evidence(),
     +kind => +content => +initial => +restore => +close => +state => {==},
     +kind => +content => +first => +second => +restore => +close => +state => {==},
