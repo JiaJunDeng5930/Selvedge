@@ -221,7 +221,7 @@ def model_request_direct(task: D.Task, world: M.World()) -> M.Decision():
   Reasoning.start(F.State(), F.Effect, task, world)
 
 def rendering_budget(world: M.World()) -> Nat:
-  Commit.render_budget(world)
+  D.state_render_budget(C.local(D.State, F.State(), world))
 
 def external_tool(tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{D.State{tasks, next_task, +next_ticket, environment, limits, projects}, +board} = world

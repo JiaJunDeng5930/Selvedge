@@ -1,4 +1,5 @@
 import Base
+import ./schema.bend as Schema
 import ./effects.bend as Effects
 import ./component.bend as C
 import ./domain.bend as D
@@ -11,11 +12,6 @@ def has_id(xs: +List<Nat>, +id: Nat) -> Bool:
   match xs:
     case Nil{}: False{}
     case Con{head, tail}: Nat.is_eq(head, id) || has_id(tail, id)
-
-def has_name(xs: +List<String>, +name: String) -> Bool:
-  match xs:
-    case Nil{}: False{}
-    case Con{head, tail}: String.eq(head, name) || has_name(tail, name)
 
 def choose_task(same: Bool, task: D.Task, rest: Maybe<&2, D.Task>) -> Maybe<&2, D.Task>:
   match same:
@@ -174,11 +170,6 @@ def messages_json(messages: +List<D.Message>) -> +List<J.Json>:
     case Nil{}: Nil{}
     case Con{message, rest}: message_json(message) <> messages_json(rest)
 
-def strings_json(strings: +List<String>) -> +List<J.Json>:
-  match strings:
-    case Nil{}: Nil{}
-    case Con{text, rest}: J.Text{text} <> strings_json(rest)
-
 def phase_name(phase: D.Phase) -> String:
   match phase:
     case D.HookPending{ticket, reference, call, pending, remaining}: "hook_pending"
@@ -266,7 +257,7 @@ def valid_calls(calls: +List<D.Call>, +allowed: +List<String>, +history: D.Histo
   match calls:
     case Nil{}: True{}
     case Con{D.Call{+id, +name, arguments}, +rest}:
-      D.nonempty(id) && D.nonempty(name) && has_name(allowed, name) && J.is_object(arguments) &&
+      D.nonempty(id) && D.nonempty(name) && Schema.contains(allowed, name) && J.is_object(arguments) &&
         Bool.not(has_call(rest, id)) && Bool.not(history_has_call(history, id)) && valid_calls(rest, allowed, history)
 
 def item_calls(items: +List<D.ModelItem>) -> +List<D.Call>:

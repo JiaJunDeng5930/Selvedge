@@ -1,4 +1,5 @@
 import Base
+import ../FEATURES.bend as F
 import ./component.bend as C
 import ./domain.bend as D
 import ../BOARD.bend as B
@@ -147,7 +148,7 @@ def modify(command: B.Command, +card: B.Card, +world: M.World()) -> Resolution:
     case B.Archive{id, revision, archived, now}: archive(id, card, archived, now)
     case B.Delete{id, revision}: remove(id, card, world)
     case B.Run{id, revision, now}: run(id, card, now, world)
-    case B.Link{id, revision, +task, now}: link_found(T.find(S.entries(world), task), id, card, task, now, world)
+    case B.Link{id, revision, +task, now}: link_found(T.find(D.state_tasks(C.local(D.State, F.State(), world)), task), id, card, task, now, world)
     case B.Regenerate{id, revision, profile, now}: regenerate(id, card, profile, now, world)
     case B.Pin{id, revision, pinned, now}:
       require(S.mutable(card, world), Mutate{StoreCard{id, B.with_pin(pinned, card, now), B.next_card(S.registry(world))}},

@@ -312,7 +312,7 @@ def identities(tasks: +List<D.Task>) -> +List<J.Json>:
 
 def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> D.Call:
   D.Call{"manual-fork-" ++ Nat.show(ticket), "fork_task",
-    J.Object{[J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{T.strings_json(messages)}}]}}
+    J.Object{[J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{J.text_items(messages)}}]}}
 
 def branch_commit(built: Children, +parent: D.Task, call_id: String, world: M.World()) -> M.Decision():
   Children{+spawned, end} = built

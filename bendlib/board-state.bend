@@ -22,10 +22,6 @@ def registry(world: M.World()) -> B.State:
 def store(board: B.State, world: M.World()) -> M.World():
   C.map_rest(D.State, F.State(), state => F.with_board(board, state), world)
 
-def entries(world: M.World()) -> +List<D.Task>:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-  tasks
-
 def profiles(world: M.World()) -> +List<D.Profile>:
   C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +board} = world
   profiles
@@ -44,7 +40,7 @@ def linked_task(id: Maybe<&2, Nat>, tasks: +List<D.Task>) -> Maybe<&2, D.Task>:
     case Some{id}: T.find(tasks, id)
 
 def task(+card: B.Card, world: M.World()) -> Maybe<&2, D.Task>:
-  linked_task(B.task(card), entries(world))
+  linked_task(B.task(card), D.state_tasks(C.local(D.State, F.State(), world)))
 
 def idle_phase(phase: D.Phase) -> Bool:
   match phase:
@@ -66,20 +62,15 @@ def mutable(+card: B.Card, +world: M.World()) -> Bool:
 def editing(+card: B.Card, world: M.World()) -> Bool:
   mutable(card, world) && B.unlinked(B.task(card))
 
-def owns(expected: Nat, actual: Maybe<&2, Nat>) -> Bool:
-  match actual:
-    case None{}: False{}
-    case Some{id}: Nat.is_eq(expected, id)
-
 def task_used(cards: +List<Finite.Entry(B.Card)>, +id: Nat) -> Bool:
   match cards:
     case Nil{}: False{}
-    case Con{(key, card), rest}: owns(id, B.task(card)) || task_used(rest, id)
+    case Con{(key, card), rest}: D.matches_optional_id(id, B.task(card)) || task_used(rest, id)
 
 def project_used(cards: +List<Finite.Entry(B.Card)>, +id: Nat) -> Bool:
   match cards:
     case Nil{}: False{}
-    case Con{(key, card), rest}: owns(id, B.project(B.draft(card))) || project_used(rest, id)
+    case Con{(key, card), rest}: D.matches_optional_id(id, B.project(B.draft(card))) || project_used(rest, id)
 
 def agent_owner(owner: B.Owner, id: Nat) -> Bool:
   match owner:
@@ -98,7 +89,7 @@ def present(~T: Data, value: Maybe<&2, T>) -> Bool:
 
 def owner_valid(owner: B.Owner, state: B.State) -> Bool:
   match owner:
-    case B.Profile{+key}: B.nonempty(key) && B.limited(key, 1024n)
+    case B.Profile{+key}: D.nonempty(key) && B.limited(key, 1024n)
     case B.Agent{id}: present(~B.AgentProfile, B.find_agent(state, id))
     case _: True{}
 
@@ -137,7 +128,7 @@ def valid_cards(cards: +List<Finite.Entry(B.Card)>, +next: Nat, +world: M.World(
     case Nil{}: True{}
     case Con{(+id, +card), +rest}:
       Nat.is_lt(id, next) && Bool.not(present(~B.Card, Finite.find(~B.Card, rest, id))) &&
-        draft_valid(B.draft(card), world) && B.limited(B.start_error(card), 4096n) && link_valid(B.task(card), entries(world), rest) &&
+        draft_valid(B.draft(card), world) && B.limited(B.start_error(card), 4096n) && link_valid(B.task(card), D.state_tasks(C.local(D.State, F.State(), world)), rest) &&
         pending_valid(B.enrichment(card), B.revision(card), ticket(world)) && exclusive_pending(B.enrichment(card), B.archived(card), rest) &&
         valid_cards(rest, next, world)
 
@@ -157,7 +148,7 @@ def valid(+world: M.World()) -> Bool:
 def retained_link(previous: Maybe<&2, Nat>, next: Maybe<&2, Nat>) -> Bool:
   match previous:
     case None{}: True{}
-    case Some{id}: owns(id, next)
+    case Some{id}: D.matches_optional_id(id, next)
 
 def retained_card(found: Maybe<&2, B.Card>, +previous: B.Card) -> Bool:
   match found:

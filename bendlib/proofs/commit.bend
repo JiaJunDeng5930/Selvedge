@@ -58,7 +58,7 @@ def rendered_semantics(+rendered: Result<&2, &2, String, String>, +decision: M.D
       sized_semantics(Nat.is_le(J.utf8_length(text), U32.to_nat(Commit.frame_bytes(previous))), decision, previous)
 
 def Laws.output_semantics(durable, decision, previous):
-  rendered_semantics(J.render(Commit.render_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous)
+  rendered_semantics(J.render(D.state_render_budget(C.local(D.State, Features.State(), previous)), J.One{View.envelope(durable, decision)}), decision, previous)
 
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:

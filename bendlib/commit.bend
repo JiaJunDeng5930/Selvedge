@@ -1,4 +1,5 @@
 import Base
+import ../FEATURES.bend as F
 import ./component.bend as C
 import ./domain.bend as D
 import ../MODEL.bend as M
@@ -20,10 +21,6 @@ def schedules(input: M.Input, decision: M.Decision()) -> Bool:
       C.Decision{world, reply, effects} = decision
       J.boolean(J.get(reply, "ok"))
     case other: M.schedules(other)
-
-def render_budget(world: M.World()) -> Nat:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, D.ExecutionLimits{steps, render, bytes}, projects}, +board} = world
-  render
 
 def frame_bytes(world: M.World()) -> U32:
   C.Frame{D.State{tasks, next_task, next_ticket, environment, D.ExecutionLimits{steps, render, bytes}, projects}, +board} = world
@@ -63,7 +60,7 @@ def rendered(result: Result<&2, &2, String, String>, decision: M.Decision(), +pr
     case Done{text}: sized(Nat.is_le(J.utf8_length(text), U32.to_nat(frame_bytes(previous))), decision, previous)
 
 def deliver(+durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  rendered(J.render(render_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous)
+  rendered(J.render(D.state_render_budget(C.local(D.State, F.State(), previous)), J.One{View.envelope(durable, decision)}), decision, previous)
 
 def finish(durable: Bool, decision: M.Decision(), +previous: M.World()) -> M.Decision():
   deliver(durable, checked(decision, previous), previous)

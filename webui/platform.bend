@@ -56,7 +56,7 @@ def bookmark(found: Maybe<&2, Reading.Bookmark>) -> Reading.Bookmark:
 
 def active_reader(application: E.Application, +task: Nat, generation: Nat) -> Bool:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  E.route_owns(route, task) && Nat.is_eq(E.reader_generation(E.reader(readers, task)), generation)
+  U.route_owns(route, task) && Nat.is_eq(E.reader_generation(E.reader(readers, task)), generation)
 
 def reading_intent(application: E.Application, task: Nat) -> U.ReadingIntent:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application

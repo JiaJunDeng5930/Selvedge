@@ -78,6 +78,68 @@ export async function bendSources(root = defaultRoot) {
   return result.sort();
 }
 
+async function sourceGraph(root, config) {
+  const filenames = await bendSources(root);
+  const sources = new Map(await Promise.all(filenames.map(async filename => [filename, await readFile(path.join(root, filename), 'utf8')])));
+  const graph = new Map();
+  const imports = new Map();
+  const foreignImports = new Map();
+  for (const [filename, source] of sources) {
+    const edges = [];
+    const bindings = [];
+    const foreignEdges = [];
+    for (const [index, line] of source.split('\n').entries()) {
+      if (!/^\s*import\b/.test(line)) continue;
+      const match = line.match(/^\s*import (?:"([^"]+)"|(\S+))(?: as (\w+))?\s*(?:#.*)?$/);
+      if (!match) throw new Error(`Unsupported import: ${filename}:${index + 1}`);
+      const [, foreign, target, alias] = match;
+      if (!foreign && !line.startsWith('import ')) throw new Error(`Module import must be top-level: ${filename}:${index + 1}`);
+      if (foreign) {
+        const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(filename), foreign));
+        if (config.foreign_sources[filename] !== resolved) throw new Error(`Undeclared foreign import: ${filename}:${index + 1}`);
+        foreignEdges.push(resolved);
+        const actual = await realpath(path.join(root, resolved));
+        if (!actual.startsWith(`${root}${path.sep}`)) throw new Error(`Foreign source escapes root: ${resolved}`);
+      } else if (target.startsWith('.')) {
+        if (!alias) throw new Error(`Local module imports require an explicit alias: ${filename}:${index + 1}`);
+        const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(filename), target));
+        if (!sources.has(resolved)) throw new Error(`Missing or out-of-root source: ${filename}:${index + 1} -> ${resolved}`);
+        edges.push(resolved);
+        bindings.push({ target: resolved, alias });
+      } else if (target !== 'Base') {
+        throw new Error(`Undeclared external module: ${filename}:${index + 1}: ${target}`);
+      }
+    }
+    graph.set(filename, edges);
+    imports.set(filename, bindings);
+    foreignImports.set(filename, foreignEdges);
+  }
+
+  return { filenames, sources, graph, imports, foreignImports };
+}
+
+function sourceClosure(graph, start) {
+  const seen = new Set();
+  const pending = [start];
+  while (pending.length) {
+    const filename = pending.pop();
+    if (seen.has(filename)) continue;
+    if (!graph.has(filename)) throw new Error(`Missing entry: ${filename}`);
+    seen.add(filename);
+    pending.push(...graph.get(filename));
+  }
+  return seen;
+}
+
+/** Exact local and foreign source inputs reachable from one compiler entry. */
+export async function entrySources(root, entry) {
+  root = await realpath(root);
+  const config = JSON.parse(await readFile(path.join(root, 'components.json'), 'utf8'));
+  const { graph, foreignImports } = await sourceGraph(root, config);
+  const closure = sourceClosure(graph, entry);
+  return [...new Set([...closure, ...[...closure].flatMap(filename => foreignImports.get(filename))])].sort();
+}
+
 /** This is a structural check, not a function-level dependency or semantic proof. */
 export async function auditComponents(root = defaultRoot) {
   root = await realpath(root);
@@ -99,38 +161,8 @@ export async function auditComponents(root = defaultRoot) {
       throw new Error(`Invalid application dependency boundary: ${filename}`);
     }
   }
-  const filenames = await bendSources(root);
-  const sources = new Map(await Promise.all(filenames.map(async filename => [filename, await readFile(path.join(root, filename), 'utf8')])));
-  const graph = new Map();
-  const imports = new Map();
+  const { filenames, sources, graph, imports } = await sourceGraph(root, config);
   const errors = [];
-  for (const [filename, source] of sources) {
-    const edges = [];
-    const bindings = [];
-    for (const [index, line] of source.split('\n').entries()) {
-      if (!/^\s*import\b/.test(line)) continue;
-      const match = line.match(/^\s*import (?:"([^"]+)"|(\S+))(?: as (\w+))?\s*(?:#.*)?$/);
-      if (!match) throw new Error(`Unsupported import: ${filename}:${index + 1}`);
-      const [, foreign, target, alias] = match;
-      if (!foreign && !line.startsWith('import ')) throw new Error(`Module import must be top-level: ${filename}:${index + 1}`);
-      if (foreign) {
-        const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(filename), foreign));
-        if (config.foreign_sources[filename] !== resolved) throw new Error(`Undeclared foreign import: ${filename}:${index + 1}`);
-        const actual = await realpath(path.join(root, resolved));
-        if (!actual.startsWith(`${root}${path.sep}`)) throw new Error(`Foreign source escapes root: ${resolved}`);
-      } else if (target.startsWith('.')) {
-        if (!alias) throw new Error(`Local module imports require an explicit alias: ${filename}:${index + 1}`);
-        const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(filename), target));
-        if (!sources.has(resolved)) throw new Error(`Missing or out-of-root source: ${filename}:${index + 1} -> ${resolved}`);
-        edges.push(resolved);
-        bindings.push({ target: resolved, alias });
-      } else if (target !== 'Base') {
-        throw new Error(`Undeclared external module: ${filename}:${index + 1}: ${target}`);
-      }
-    }
-    graph.set(filename, edges);
-    imports.set(filename, bindings);
-  }
 
   const core = new Set(config.core_modules);
   for (const filename of core) {
@@ -162,20 +194,8 @@ export async function auditComponents(root = defaultRoot) {
     }
   }
 
-  function closure(start) {
-    const seen = new Set();
-    const pending = [start];
-    while (pending.length) {
-      const filename = pending.pop();
-      if (seen.has(filename)) continue;
-      if (!graph.has(filename)) throw new Error(`Missing entry: ${filename}`);
-      seen.add(filename);
-      pending.push(...graph.get(filename));
-    }
-    return seen;
-  }
-  const proof = closure(config.proof_root);
-  const runtime = closure(config.runtime_root);
+  const proof = sourceClosure(graph, config.proof_root);
+  const runtime = sourceClosure(graph, config.runtime_root);
   for (const filename of runtime) {
     if (filename !== config.runtime_root && !proof.has(filename)) errors.push(`Pure production module outside proof closure: ${filename}`);
   }

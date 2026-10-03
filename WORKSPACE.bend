@@ -88,11 +88,6 @@ def default_workspace(guidance: D.ProjectContext) -> D.Workspace:
 def defaults(guidance: D.ProjectContext) -> D.TaskContext:
   D.TaskContext{default_workspace(guidance), D.Sandbox{D.WorkspaceWrite{}, False{}}, D.AskForApproval{}, None{}}
 
-def texts(values: +List<J.Json>) -> +List<String>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: J.text(value) <> texts(rest)
-
 def absent(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
@@ -107,13 +102,8 @@ def read_workspace(value: J.Json, fallback: D.Workspace) -> D.Workspace:
   match value:
     case J.Null{}: fallback
     case +value:
-      +roots = texts(J.items(J.get(value, "roots")))
+      +roots = J.text_values(J.items(J.get(value, "roots")))
       D.Workspace{roots, selected_primary(J.get(value, "primary_root"), roots)}
-
-def text_or(value: J.Json, fallback: String) -> String:
-  match value:
-    case J.Text{text}: text
-    case _: fallback
 
 def boolean_or(value: J.Json, fallback: Bool) -> Bool:
   match value:
@@ -131,7 +121,7 @@ def read_sandbox(value: J.Json, fallback: D.Sandbox) -> Result<&2, &2, String, D
     case J.Null{}: Done{fallback}
     case +value:
       D.Sandbox{mode, network} = fallback
-      selected_sandbox(text_or(J.get(value, "mode"), D.sandbox_mode_name(mode)),
+      selected_sandbox(J.text_or(J.get(value, "mode"), D.sandbox_mode_name(mode)),
         boolean_or(J.get(value, "network_access"), network))
 
 def ordinary_reviewer(automatic: Bool, profile: D.Profile) -> Result<&2, &2, String, D.ApprovalPolicy>:
@@ -157,7 +147,7 @@ def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
     case J.Null{}: Done{fallback}
     case +value:
       D.Profile{key, provider, name, reasoning} = profile
-      selected_approval(J.text(J.get(value, "mode")), text_or(J.get(value, "reviewer_profile"), key), profiles)
+      selected_approval(J.text(J.get(value, "mode")), J.text_or(J.get(value, "reviewer_profile"), key), profiles)
 
 def retained_guidance(same: Bool, guidance: D.ProjectContext) -> D.ProjectContext:
   match same:

@@ -1,4 +1,5 @@
 import Base
+import ./stdlib.bend as Std
 
 type Json is Data:
   Null{}
@@ -120,6 +121,22 @@ def text(value: Json) -> String:
       value
     case _:
       ""
+
+def text_items(values: +List<String>) -> +List<Json>:
+  Std.map(~String, ~Json, ~(text => Text{text}), values)
+
+def text_values(values: +List<Json>) -> +List<String>:
+  Std.map(~Json, ~String, ~text, values)
+
+def optional_text(value: Json) -> Maybe<&2, String>:
+  match value:
+    case Text{text}: Some{text}
+    case _: None{}
+
+def text_or(value: Json, fallback: String) -> String:
+  match value:
+    case Text{text}: text
+    case _: fallback
 
 def is_text(value: Json) -> Bool:
   match value:

@@ -8,7 +8,7 @@ import { checkBundle } from './import-stdlib.mjs';
 import { checkRelations } from './import-relations.mjs';
 import { checkMaps } from './import-maps.mjs';
 import { verifyProof } from './verify-proof.mjs';
-import { checkComponents, bendSources } from './check-components.mjs';
+import { checkComponents, bendSources, entrySources } from './check-components.mjs';
 import { compileJavaScript } from './compile-javascript.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -20,6 +20,30 @@ async function compileEntry(entry, output, force) {
   if (!names.length) throw new Error(`No public Bend wrappers in ${entry}`);
   if (force) await rm(path.join(root, `${output}.json`), { force: true });
   return compileJavaScript({ entry, exports: Object.fromEntries(names.map(name => [name, name])), output });
+}
+
+async function nativeIdentity(bend, compileArguments) {
+  const compilerPath = Bun.which(bend);
+  if (!compilerPath) throw new Error(`Cannot resolve native Bend compiler: ${bend}`);
+  const compilerBytes = await readFile(compilerPath);
+  const hash = createHash('sha256');
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const configuration = { entry: compileArguments[0], arguments: compileArguments,
+    platform: process.platform, architecture: process.arch, compilerVersion: expectedVersion };
+  // Length-tagged records keep arbitrary source bytes distinct from cache metadata.
+  function record(kind, name, bytes) {
+    hash.update(JSON.stringify([kind, name, bytes.length])).update('\0').update(bytes).update('\0');
+  }
+  record('configuration', '', Buffer.from(JSON.stringify(configuration)));
+  record('compiler', 'bend', compilerBytes);
+  const sources = [];
+  for (const filename of await entrySources(root, configuration.entry)) {
+    const bytes = await readFile(path.join(root, filename));
+    record('source', filename, bytes);
+    sources.push({ path: filename, sha256: digest(bytes) });
+  }
+  return { fingerprint: hash.digest('hex'), ...configuration,
+    compiler: { path: compilerPath, version: expectedVersion, sha256: digest(compilerBytes) }, sources };
 }
 
 export async function build({ native = false, force = false } = {}) {
@@ -54,17 +78,19 @@ export async function build({ native = false, force = false } = {}) {
   }, null, 2) + '\n');
 
   if (native) {
+    const compileArguments = ['MAIN.bend', '-o', '.build/selvedge-kernel'];
+    const identity = await nativeIdentity(bend, compileArguments);
     let previous;
     try { previous = JSON.parse(await readFile(path.join(directory, 'native.json'), 'utf8')); } catch {}
     let binaryExists = false;
     try { binaryExists = (await stat(path.join(directory, 'selvedge-kernel'))).isFile(); } catch {}
-    if (previous?.fingerprint !== fingerprint || !binaryExists || force) {
-      const result = spawnSync(bend, ['MAIN.bend', '-o', '.build/selvedge-kernel'], { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
+    if (previous?.fingerprint !== identity.fingerprint || !binaryExists || force) {
+      const result = spawnSync(bend, compileArguments, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
       if (result.error) throw result.error;
       if (result.status !== 0) throw new Error(`Native Bend compilation failed (${result.status})`);
-      await writeFile(path.join(directory, 'native.json'), JSON.stringify({ compiler: expectedVersion, fingerprint }, null, 2) + '\n');
-      console.log(`Built optional native Bend kernel ${fingerprint.slice(0, 12)}.`);
-    } else console.log(`Optional native Bend kernel is current (${fingerprint.slice(0, 12)}).`);
+      await writeFile(path.join(directory, 'native.json'), JSON.stringify(identity, null, 2) + '\n');
+      console.log(`Built optional native Bend kernel ${identity.fingerprint.slice(0, 12)}.`);
+    } else console.log(`Optional native Bend kernel is current (${identity.fingerprint.slice(0, 12)}).`);
   }
   return { kernel, browser, fingerprint };
 }

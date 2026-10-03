@@ -156,7 +156,7 @@ def visit_preserves_location(reader: E.Reader) ->
 
 def reading_owner(application: E.Application, +task: Nat, generation: Nat) -> Bool:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  E.route_owns(route, task) && Nat.is_eq(generation, E.reader_generation(E.reader(readers, task)))
+  U.route_owns(route, task) && Nat.is_eq(generation, E.reader_generation(E.reader(readers, task)))
 
 def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +application: E.Application,
   not_owner: {reading_owner(application, task, generation) == False{} : Bool}) ->

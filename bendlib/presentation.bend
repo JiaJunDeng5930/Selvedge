@@ -56,7 +56,7 @@ def effect(effect: M.Effect()) -> J.Json:
         J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"sampling", ReasoningContext.sampling(task_id, model, history)},
         J.Field{"history", J.Array{T.messages_json(D.history_messages(history, Nil{}))}},
-        J.Field{"tools", J.Array{D.tools_json(tools)}}, J.Field{"callable", J.Array{T.strings_json(callable)}}]}
+        J.Field{"tools", J.Array{D.tools_json(tools)}}, J.Field{"callable", J.Array{J.text_items(callable)}}]}
     case Effects.RequestReasoning{task_id, ticket, model, history}:
       J.Object{[J.Field{"kind", J.Text{"reasoning"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", model_json(model)}, J.Field{"history", J.Array{ReasoningContext.public_history(history, Nil{})}}]}

@@ -592,10 +592,6 @@ def editor(identity: U.Editor, session: E.Session, world: M.World()) -> Maybe<&2
   E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
   optional_editor(E.find_draft(drafts, identity), pending, now, world)
 
-def selected_task(route: U.Route, task: Nat) -> Bool:
-  match route:
-    case U.Conversation{id}: Nat.is_eq(id, task)
-    case _: False{}
 
 def registered_project(found: Maybe<&2, D.Project>, id: Nat) -> Maybe<&2, Nat>:
   match found:
@@ -640,7 +636,7 @@ def selected_project(selected: Maybe<&2, Nat>, project: Nat) -> Bool:
 
 def task_entry(+task: D.Task, route: U.Route) -> TaskEntry:
   +id = D.task_id(task)
-  TaskEntry{id, Conversation.title(task), Conversation.status(task), selected_task(route, id),
+  TaskEntry{id, Conversation.title(task), Conversation.status(task), U.route_owns(route, id),
     control("task/" ++ Nat.show(id), Conversation.title(task), U.Navigate{U.Conversation{id}})}
 
 def task_entries(tasks: +List<D.Task>, +route: U.Route) -> +List<TaskEntry>:

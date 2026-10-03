@@ -4,7 +4,6 @@ import ../FEATURES.bend as Features
 import ./domain.bend as D
 import ../MODEL.bend as M
 import ./json.bend as J
-import ./tasks.bend as T
 
 # The native command and event wire representation shared by all presentations.
 # No renderer recreates command shapes or endpoint-specific transitions.
@@ -35,7 +34,7 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{[J.Field{"op", J.Text{D.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
     case M.Fork{id, count, messages, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-        J.Field{"messages", J.Array{T.strings_json(messages)}}])}
+        J.Field{"messages", J.Array{J.text_items(messages)}}])}
     case M.Compact{id, summary}: compact_json(id, summary)
     case M.Observe{M.Read{id, after, limit}}:
       J.Object{[J.Field{"op", J.Text{"read"}}, J.Field{"task_id", J.nat(id)}, J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]}

@@ -181,11 +181,6 @@ type Invocation is Data:
 def number(+arguments: J.Json, name: String, fallback: Nat) -> Nat:
   J.natural_or(J.natural(J.get(arguments, name)), fallback)
 
-def messages(values: +List<J.Json>) -> +List<String>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: J.text(value) <> messages(rest)
-
 def delegated(allowed: Bool, count: Nat, messages: +List<String>, selection: Workspace.Selection) -> Invocation:
   match allowed:
     case True{}: Branch{count, messages, selection}
@@ -207,7 +202,7 @@ def invocation(tool: D.Builtin, +arguments: J.Json, +task: D.Task, +world: M.Wor
   match tool:
     case D.ForkTask{}:
       +count = number(arguments, "child_count", 0n)
-      +texts = messages(J.items(J.get(arguments, "messages")))
+      +texts = J.text_values(J.items(J.get(arguments, "messages")))
       branch(Commands.branch_fits(count, texts, task, world), count, texts,
         Commands.selected_settings(J.get(arguments, "settings"), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), D.task_context(task))
     case D.ReadTask{}:

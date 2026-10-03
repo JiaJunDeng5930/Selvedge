@@ -1,4 +1,5 @@
 import Base
+import ./domain.bend as D
 import ../BOARD.bend as B
 import ./json.bend as J
 import ./schema.bend as Schema
@@ -43,12 +44,8 @@ def boolean_schema() -> J.Json:
 def array_schema(items: J.Json) -> J.Json:
   J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", items}]}
 
-def object_schema(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
-  J.Object{[J.Field{"type", J.Text{"object"}}, J.Field{"properties", J.Object{properties}},
-    J.Field{"required", J.Array{required}}, J.Field{"additionalProperties", J.Boolean{False{}}}]}
-
 def file_schema() -> J.Json:
-  object_schema([J.Field{"id", text_schema()}, J.Field{"name", text_schema()}, J.Field{"mime", text_schema()},
+  Schema.object([J.Field{"id", text_schema()}, J.Field{"name", text_schema()}, J.Field{"mime", text_schema()},
     J.Field{"path", text_schema()}, J.Field{"bytes", text_schema()}], [J.Text{"id"}])
 
 def metadata_properties() -> +List<J.Field>:
@@ -60,7 +57,7 @@ def stamped(properties: +List<J.Field>) -> +List<J.Field>:
   J.Field{"observed_at", text_schema()} <> properties
 
 def command_schema(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
-  object_schema(J.Field{"op", text_schema()} <> properties, J.Text{"op"} <> required)
+  Schema.object(J.Field{"op", text_schema()} <> properties, J.Text{"op"} <> required)
 
 def identity_properties() -> +List<J.Field>:
   [J.Field{"card_id", integer_schema()}, J.Field{"revision", integer_schema()}]
@@ -114,11 +111,6 @@ def strings(values: +List<J.Json>) -> +List<String>:
     case Con{J.Text{text}, rest}: text <> strings(rest)
     case Con{other, rest}: strings(rest)
 
-def strings_json(values: +List<String>) -> +List<J.Json>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{text, rest}: J.Text{text} <> strings_json(rest)
-
 def optional_id(text: String) -> Maybe<&2, Nat>:
   Nat.read(text)
 
@@ -132,8 +124,8 @@ def valid_id(+text: String) -> Bool:
 
 def valid_owner(+name: String) -> Bool:
   String.eq(name, "none") || String.eq(name, "self") ||
-    (String.starts_with(name, "profile/") && B.nonempty(String.drop(name, 8n)) && B.limited(name, 1024n)) ||
-    (String.starts_with(name, "agent/") && B.nonempty(String.drop(name, 6n)) && valid_id(String.drop(name, 6n)))
+    (String.starts_with(name, "profile/") && D.nonempty(String.drop(name, 8n)) && B.limited(name, 1024n)) ||
+    (String.starts_with(name, "agent/") && D.nonempty(String.drop(name, 6n)) && valid_id(String.drop(name, 6n)))
 
 def optional_enum(value: J.Json, options: +List<String>) -> Bool:
   match value:
@@ -193,21 +185,16 @@ def files_json(files: +List<B.Attachment>) -> +List<J.Json>:
     case Nil{}: Nil{}
     case Con{file, rest}: file_json(file) <> files_json(rest)
 
-def optional_text(value: J.Json) -> Maybe<&2, String>:
-  match value:
-    case J.Text{text}: Some{text}
-    case _: None{}
-
 def draft(+body: J.Json) -> B.Draft:
   B.Draft{J.text(J.get(body, "title")), J.text(J.get(body, "description")), B.stage(J.text(J.get(body, "status"))),
-    B.priority(J.text(J.get(body, "priority"))), B.owner(B.retained(~String, optional_text(J.get(body, "assignee")), "none")),
+    B.priority(J.text(J.get(body, "priority"))), B.owner(B.retained(~String, J.optional_text(J.get(body, "assignee")), "none")),
     optional_id(J.text(J.get(body, "project"))), strings(J.items(J.get(body, "labels"))), files(J.items(J.get(body, "attachments")))}
 
 def draft_fields(draft: B.Draft) -> +List<J.Field>:
   B.Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
   [J.Field{"title", J.Text{title}}, J.Field{"description", J.Text{description}}, J.Field{"status", J.Text{B.stage_name(stage)}},
    J.Field{"priority", J.Text{B.priority_name(priority)}}, J.Field{"assignee", J.Text{B.owner_name(owner)}},
-   J.Field{"project", J.Text{id_text(project)}}, J.Field{"labels", J.Array{strings_json(labels)}}, J.Field{"attachments", J.Array{files_json(attachments)}}]
+   J.Field{"project", J.Text{id_text(project)}}, J.Field{"labels", J.Array{J.text_items(labels)}}, J.Field{"attachments", J.Array{files_json(attachments)}}]
 
 def draft_json(draft: B.Draft) -> J.Json:
   J.Object{draft_fields(draft)}
@@ -218,7 +205,7 @@ def optional(~T: Data, present: Bool, value: T) -> Maybe<&2, T>:
     case False{}: None{}
 
 def patch(+body: J.Json) -> B.Patch:
-  B.Patch{optional_text(J.get(body, "title")), optional_text(J.get(body, "description")),
+  B.Patch{J.optional_text(J.get(body, "title")), J.optional_text(J.get(body, "description")),
     optional(~B.Stage, present(body, "status"), B.stage(J.text(J.get(body, "status")))),
     optional(~B.Priority, present(body, "priority"), B.priority(J.text(J.get(body, "priority")))),
     optional(~B.Owner, present(body, "assignee"), B.owner(J.text(J.get(body, "assignee")))),
@@ -244,7 +231,7 @@ def patch_fields(patch: B.Patch) -> +List<J.Field>:
         optional_field(mapped(~B.Priority, (v => J.Text{B.priority_name(v)}), priority), "priority",
           optional_field(mapped(~B.Owner, (v => J.Text{B.owner_name(v)}), owner), "assignee",
             optional_field(mapped(~Maybe<&2, Nat>, (v => J.Text{id_text(v)}), project), "project",
-              optional_field(mapped(~+List<String>, (v => J.Array{strings_json(v)}), labels), "labels",
+              optional_field(mapped(~+List<String>, (v => J.Array{J.text_items(v)}), labels), "labels",
                 optional_field(mapped(~+List<B.Attachment>, (v => J.Array{files_json(v)}), attachments), "attachments", Nil{}))))))))
 
 def agent(+body: J.Json) -> B.AgentProfile:

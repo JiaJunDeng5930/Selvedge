@@ -7,7 +7,6 @@ import ../MODEL.bend as M
 import ./protocol.bend as Protocol
 import ./json.bend as J
 import ./schema.bend as Schema
-import ./tasks.bend as T
 import ./presentation.bend as View
 import ../INVARIANTS.bend as I
 import ../HOOKS.bend as Hooks
@@ -25,27 +24,17 @@ def find_spec(specs: +List<M.CommandSpec>, +name: String) -> Maybe<&2, M.Command
     case Con{M.CommandSpec{+key, +description, +kind, +schema}, rest}:
       choose_spec(String.eq(key, name), M.CommandSpec{key, description, kind, schema}, find_spec(rest, name))
 
-def text_or(value: J.Json, fallback: String) -> String:
-  match value:
-    case J.Text{text}: text
-    case _: fallback
-
-def optional_text(value: J.Json) -> Maybe<&2, String>:
-  match value:
-    case J.Text{text}: Some{text}
-    case _: None{}
-
 def approval_outcome(kind: String, +value: J.Json) -> D.ApprovalOutcome:
   match kind:
-    case "allow": D.ApprovalAllowed{text_or(J.get(value, "reason"), "")}
-    case "deny": D.ApprovalDenied{text_or(J.get(value, "reason"), "")}
-    case _: D.ApprovalFailed{text_or(J.get(value, "reason"), "The review did not return a valid decision")}
+    case "allow": D.ApprovalAllowed{J.text_or(J.get(value, "reason"), "")}
+    case "deny": D.ApprovalDenied{J.text_or(J.get(value, "reason"), "")}
+    case _: D.ApprovalFailed{J.text_or(J.get(value, "reason"), "The review did not return a valid decision")}
 
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
     case M.FeatureKind{kind}: FeatureCodec.construct(kind, body)
     case M.CreateCommand{}:
-      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
+      M.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
       M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
     case M.SteerCommand{}:
@@ -56,16 +45,16 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:
       M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
-        Protocol.messages(J.items(J.get(body, "messages"))), J.get(body, "settings")}
+        J.text_values(J.items(J.get(body, "messages"))), J.get(body, "settings")}
     case M.ReadCommand{}:
       M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
-    case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
+    case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), J.optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
     case M.CreateProjectCommand{}:
       M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
     case M.UpdateProjectCommand{}:
-      M.UpdateProject{Protocol.number(body, "project_id", 0n), optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
     case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
     case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
     case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}
@@ -196,7 +185,7 @@ def reasoning_policy(+value: J.Json) -> Reasoning.Policy:
   match value:
     case J.Null{}: Reasoning.Fixed{}
     case other:
-      Reasoning.Adaptive{J.text(J.get(value, "evaluator")), Protocol.messages(J.items(J.get(value, "efforts"))),
+      Reasoning.Adaptive{J.text(J.get(value, "evaluator")), J.text_values(J.items(J.get(value, "efforts"))),
         J.text(J.get(value, "baseline")), reasoning_transport(J.text(J.get(value, "transport"))), Protocol.number(value, "max_lease", 0n)}
 
 def valid_reasoning_policy(+value: J.Json) -> Bool:
@@ -221,7 +210,7 @@ def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Con{+value, rest}:
       +key = J.text(J.get(value, "key"))
       D.nonempty(key) && D.nonempty(J.text(J.get(value, "provider"))) && D.nonempty(J.text(J.get(value, "name"))) &&
-        valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(T.has_name(seen, key)) && valid_profiles(rest, key <> seen)
+        valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(Schema.contains(seen, key)) && valid_profiles(rest, key <> seen)
 
 def plugin_ref(+value: J.Json) -> D.PluginRef:
   D.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}
@@ -252,7 +241,7 @@ def valid_remote_tools(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Nil{}: True{}
     case Con{+value, rest}:
       +name = J.text(J.get(value, "name"))
-      D.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(T.has_name(seen, name)) &&
+      D.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(Schema.contains(seen, name)) &&
         D.nonempty(J.text(J.get(value, "description"))) && J.is_object(J.get(value, "schema")) &&
         D.nonempty(J.text(J.get(value, "remote"))) &&
         valid_remote_tools(rest, name <> seen)
@@ -278,7 +267,7 @@ def plugin_values(values: +List<J.Json>) -> +List<D.Plugin>:
 def string_values(values: +List<J.Json>) -> Bool:
   match values:
     case Nil{}: True{}
-    case Con{J.Text{value}, rest}: T.has_name(D.plugin_events(), value) && string_values(rest)
+    case Con{J.Text{value}, rest}: Schema.contains(D.plugin_events(), value) && string_values(rest)
     case _: False{}
 
 def valid_plugin_values(values: +List<J.Json>) -> Bool:

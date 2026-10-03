@@ -136,7 +136,7 @@ def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
 def description() -> J.Json:
   J.Object{[J.Field{"commands", J.Array{command_specs_json(commands())}}, J.Field{"limits", D.boundary_limits()},
     J.Field{"plugins", J.Object{[J.Field{"protocolVersion", J.Text{"selvedge-plugin-2"}}, J.Field{"max_plugins", J.nat(D.plugin_limit())},
-      J.Field{"events", J.Array{D.subscription_json(D.plugin_events())}}]}}]}
+      J.Field{"events", J.Array{J.text_items(D.plugin_events())}}]}}]}
 
 type Input is Data:
   UserCommand{command: Command}

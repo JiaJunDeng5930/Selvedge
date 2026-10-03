@@ -60,11 +60,6 @@ def tasks_bound(tasks: +List<D.Task>, +registry: D.Projects) -> Bool:
     case Nil{}: True{}
     case Con{task, rest}: reference_valid(W.project_id(D.task_context(task)), registry) && tasks_bound(rest, registry)
 
-def owns(expected: Nat, actual: Maybe<&2, Nat>) -> Bool:
-  match actual:
-    case None{}: False{}
-    case Some{id}: Nat.is_eq(expected, id)
-
 def counted(yes: Bool, rest: Nat) -> Nat:
   match yes:
     case True{}: 1n+rest
@@ -73,7 +68,7 @@ def counted(yes: Bool, rest: Nat) -> Nat:
 def task_count(tasks: +List<D.Task>, +id: Nat) -> Nat:
   match tasks:
     case Nil{}: 0n
-    case Con{task, rest}: counted(owns(id, W.project_id(D.task_context(task))), task_count(rest, id))
+    case Con{task, rest}: counted(D.matches_optional_id(id, W.project_id(D.task_context(task))), task_count(rest, id))
 
 def projected(+id: Nat, project: D.Project, tasks: +List<D.Task>) -> J.Json:
   D.Project{name, D.Workspace{roots, primary}, guidance} = project

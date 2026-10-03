@@ -290,13 +290,9 @@ def read_owned(owned: Bool, task: Nat, intent: U.ReadingIntent, application: App
     case True{}: read(task, intent, application)
     case False{}: unchanged(application)
 
-def route_owns(route: U.Route, task: Nat) -> Bool:
-  match route:
-    case U.Conversation{current}: Nat.is_eq(current, task)
-    case _: False{}
 def read_current(+task: Nat, generation: Nat, intent: U.ReadingIntent, +application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  read_owned(route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task))), task, intent, application)
+  read_owned(U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task))), task, intent, application)
 
 def ensure(found: Maybe<&2, U.Draft>, fallback: U.Body, session: Session) -> Session:
   match found:

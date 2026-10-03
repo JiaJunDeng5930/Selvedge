@@ -73,6 +73,11 @@ type Route is Data:
   TaskBoard{}
   AgentCollection{}
 
+def route_owns(route: Route, task: Nat) -> Bool:
+  match route:
+    case Conversation{current}: Nat.is_eq(current, task)
+    case _: False{}
+
 type Subject is Data:
   TaskSubject{id: Nat}
   ProjectSubject{id: Nat}

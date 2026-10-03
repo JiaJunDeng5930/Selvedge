@@ -13,7 +13,6 @@ import ../bendlib/json.bend as J
 import ../bendlib/domain.bend as D
 import ../bendlib/board-codec.bend as BoardCodec
 import ../bendlib/command-codec.bend as Codec
-import ../bendlib/tasks.bend as Tasks
 
 
 
@@ -132,7 +131,7 @@ type Requirements is Type:
       {Browser.request_payload(M.Fork{id, count, messages, J.Object{fields}}) ==
           J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
             J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-            J.Field{"messages", J.Array{Tasks.strings_json(messages)}}]} : J.Json},
+            J.Field{"messages", J.Array{J.text_items(messages)}}]} : J.Json},
     project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> ->
       {Browser.request_payload(M.CreateProject{name, workspace, J.Object{guidance}}) ==
         J.Object{[J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]} : J.Json},

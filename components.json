@@ -953,7 +953,9 @@
       "webui/document.bend",
       "webui/renderer.bend"
     ],
-    "bendlib/json.bend": [],
+    "bendlib/json.bend": [
+      "bendlib/stdlib.bend"
+    ],
     "bendlib/proofs/workspaces.bend": [
       "COMMANDS.bend",
       "FEATURES.bend",

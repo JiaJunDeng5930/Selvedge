@@ -1,4 +1,5 @@
 import Base
+import ./bendlib/schema.bend as Schema
 import ./bendlib/feature-state.bend as FeatureState
 import ./bendlib/effects.bend as Effects
 import ./FEATURES.bend as F
@@ -100,7 +101,7 @@ def callable(names: +List<String>, +tools: +List<D.Tool>) -> Bool:
   match names:
     case Nil{}: True{}
     case Con{+name, +rest}:
-      Bool.not(missing_tool(T.find_tool(tools, name))) && Bool.not(T.has_name(rest, name)) && callable(rest, tools)
+      Bool.not(missing_tool(T.find_tool(tools, name))) && Bool.not(Schema.contains(rest, name)) && callable(rest, tools)
 
 def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.Tool>, next_ticket: Nat) -> Bool:
   match status phase:

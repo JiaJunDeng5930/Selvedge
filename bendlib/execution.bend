@@ -38,10 +38,6 @@ def catalog(world: M.World()) -> +List<D.Tool>:
   C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{tools, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +board} = world
   tools
 
-def render_budget(world: M.World()) -> Nat:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, D.ExecutionLimits{steps, render, bytes}, projects}, +board} = world
-  render
-
 def context(+task: D.Task) -> J.Json:
   J.Object{[J.Field{"model", View.model_json(T.task_model(D.task_contract(task)))},
     J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}},
@@ -60,7 +56,7 @@ def model_with_operations(large: Bool, pending: Bool, task: D.Task) -> Action:
 
 def model(+task: D.Task, world: M.World()) -> Action:
   model_with_operations(D.compactable(D.context_history(D.task_history(task))) &&
-    oversized(J.render(render_budget(world), J.One{context(task)})), D.operations_pending(D.task_operations(task)), task)
+    oversized(J.render(D.state_render_budget(C.local(D.State, F.State(), world)), J.One{context(task)})), D.operations_pending(D.task_operations(task)), task)
 
 def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json) -> Bool:
   match source:
