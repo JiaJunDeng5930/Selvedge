@@ -1,15 +1,12 @@
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { open, readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { open, readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const vendor = path.join(root, 'host/public/vendor');
 const sha = value => createHash('sha256').update(value).digest('hex');
-const names = ['desktop-ui.mjs', 'desktop-scroll.mjs', 'desktop.css', 'desktop-tokens.css'];
-const scopedHeader = version => `/* Codex Desktop ${version}: original stylesheet scoped to transplanted components; font faces excluded. */\n@layer selvedge, properties, theme, base, components, utilities;\n`;
+const names = ['desktop-tokens.css'];
 const tokenHeader = version => `/* Codex Desktop ${version}: unchanged root/theme rules; no global element or Markdown rules. */\n@layer selvedge, properties, theme, base, components, utilities;\n`;
 
 function demand(condition, message) { if (!condition) throw new Error(message); }
@@ -72,47 +69,17 @@ function slice(sources, range, label, input = range.input) {
   return result;
 }
 
-export async function reproduceDesktop({ archive, esbuild, output }) {
+export async function reproduceDesktop({ archive, output }) {
   const manifest = JSON.parse(await readFile(path.join(vendor, 'desktop-source.json'), 'utf8'));
   const sources = await sourceMembers(archive, manifest);
-  const version = spawnSync(esbuild, ['--version'], { encoding: 'utf8' });
-  demand(!version.error && version.status === 0 && version.stdout.trim() === manifest.bundler.version, `esbuild ${manifest.bundler.version} is required`);
-  const work = await mkdtemp(path.join(tmpdir(), 'selvedge-desktop-import-'));
-  try {
-    for (const key of ['shared', 'runtime']) await writeFile(path.join(work, path.basename(manifest.inputs[key].member)), sources[key]);
-    await writeFile(path.join(work, 'shared-with-roots.js'), sources.shared + '\nexport { xe as desktopClient, ye as desktopDOM };\n');
-    await writeFile(path.join(work, 'entry.js'), await readFile(path.join(root, 'scripts/desktop/entry.mjs.in')));
-    const bundled = spawnSync(esbuild, ['entry.js', '--bundle', '--format=esm', '--platform=browser', '--minify', '--legal-comments=inline',
-      ...manifest.bundler.externalDuringLink.map(name => `--external:${name}`), '--metafile=meta.json', '--outfile=desktop-ui.mjs'],
-    { cwd: work, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 60_000 });
-    demand(!bundled.error && bundled.status === 0, `Desktop bundle failed: ${bundled.stderr || bundled.error}`);
-    const metadata = JSON.parse(await readFile(path.join(work, 'meta.json'), 'utf8'));
-    demand(Object.values(metadata.outputs).every(file => file.imports.length === 0), 'Desktop bundle retained an external import');
-
-    const template = await readFile(path.join(root, 'scripts/desktop/scroll.mjs.in'), 'utf8');
-    const consumed = new Set();
-    const scroll = template.replace(/\/\* @source\(([^)]+)\) \*\//g, (_, key) => {
-      demand(!consumed.has(key) && manifest.fragments[key], `Unknown or duplicate desktop source marker: ${key}`);
-      consumed.add(key); return slice(sources, manifest.fragments[key], key);
-    });
-    demand(consumed.size === Object.keys(manifest.fragments).length, 'Unused desktop callback source');
-    const faces = sources.css.match(/@font-face\{[^{}]*\}/g) ?? [];
-    demand(faces.length === manifest.css.fontFacesRemoved, 'Unexpected desktop font inventory');
-    const rules = sources.css.replace(/@font-face\{[^{}]*\}/g, '').replaceAll(':root', ':scope').replaceAll(':host', ':scope');
-    demand(!/@font-face|@import/.test(rules), 'Desktop CSS retained a font or stylesheet dependency');
-    const css = scopedHeader(manifest.application.version) + `@scope (${manifest.css.scope}) {\n${rules}\n}\n`;
-    const tokens = tokenHeader(manifest.application.version) + manifest.css.tokenRules.map((range, index) =>
-      range.parents.map(parent => `${parent}{`).join('') + slice(sources, range, `token rule ${index}`, 'css') + '}'.repeat(range.parents.length)).join('\n') + '\n';
-    const results = {
-      'desktop-ui.mjs': await readFile(path.join(work, 'desktop-ui.mjs')),
-      'desktop-scroll.mjs': Buffer.from(scroll), 'desktop.css': Buffer.from(css), 'desktop-tokens.css': Buffer.from(tokens),
-    };
-    for (const item of manifest.files) digest(results[item.file], item.sha256, `reproduced ${item.file}`);
-    await mkdir(output, { recursive: true });
-    for (const [name, bytes] of Object.entries(results)) await writeFile(path.join(output, name), bytes);
-    await writeFile(path.join(output, 'desktop-source.json'), JSON.stringify(manifest, null, 2) + '\n');
-    return `${Object.keys(results).length} desktop artifacts reproduced byte-for-byte.`;
-  } finally { await rm(work, { recursive: true, force: true }); }
+  const tokens = tokenHeader(manifest.application.version) + manifest.css.tokenRules.map((range, index) =>
+    range.parents.map(parent => `${parent}{`).join('') + slice(sources, range, `token rule ${index}`, 'css') + '}'.repeat(range.parents.length)).join('\n') + '\n';
+  const results = { 'desktop-tokens.css': Buffer.from(tokens) };
+  for (const item of manifest.files) digest(results[item.file], item.sha256, `reproduced ${item.file}`);
+  await mkdir(output, { recursive: true });
+  for (const [name, bytes] of Object.entries(results)) await writeFile(path.join(output, name), bytes);
+  await writeFile(path.join(output, 'desktop-source.json'), JSON.stringify(manifest, null, 2) + '\n');
+  return `${Object.keys(results).length} desktop artifacts reproduced byte-for-byte.`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -122,10 +89,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const options = {};
     while (args.length) {
       const name = args.shift(), value = args.shift();
-      demand(['--asar', '--esbuild', '--out'].includes(name) && value && !options[name], 'Use --asar PATH --esbuild PATH --out DIRECTORY');
+      demand(['--asar', '--out'].includes(name) && value && !options[name], 'Use --asar PATH --out DIRECTORY');
       options[name] = value;
     }
-    demand(options['--asar'] && options['--esbuild'] && options['--out'], 'Use --asar PATH --esbuild PATH --out DIRECTORY');
-    console.log(await reproduceDesktop({ archive: path.resolve(options['--asar']), esbuild: path.resolve(options['--esbuild']), output: path.resolve(options['--out']) }));
+    demand(options['--asar'] && options['--out'], 'Use --asar PATH --out DIRECTORY');
+    console.log(await reproduceDesktop({ archive: path.resolve(options['--asar']), output: path.resolve(options['--out']) }));
   }
 }

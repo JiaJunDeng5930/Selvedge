@@ -1829,8 +1829,6 @@ def choice_content_layout(+key: String, label: String, description: String, sele
        property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
    choice_mark(key, selected, mark_extent, mark_icon_extent)]
 
-def choice_content(+key: String, label: String, description: String, selected: Bool) -> +List<Doc.Node>:
-  choice_content_layout(key, label, description, selected, Controls.choice_content_layout(Controls.Geometry{0n, 28n, 16n, 6n, 20n}))
 
 def choice_face_layout(value: Doc.Node, label: String, description: String, selected: Bool, +layout: Controls.ChoiceContentLayout) -> Doc.Node:
   match value layout:
@@ -1841,8 +1839,6 @@ def choice_face_layout(value: Doc.Node, label: String, description: String, sele
         choice_content_layout(key, label, description, selected, Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent})}
     case other _: other
 
-def choice_face(value: Doc.Node, label: String, description: String, selected: Bool) -> Doc.Node:
-  choice_face_layout(value, label, description, selected, Controls.choice_content_layout(Controls.Geometry{0n, 28n, 16n, 6n, 20n}))
 
 def choice_node(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
   +representation: Controls.Representation, visual_children: +List<Child>) -> Doc.Node:

@@ -28,23 +28,26 @@ Dependency upgrades require a new manifest and the browser/security regressions.
 Of these Markdown dependencies, only the streaming parser loads with the page.
 Formatting libraries are lazy imports in a worker. Math uses native MathML.
 
-## Installed Codex Desktop source
+## Installed Codex Desktop theme tokens
 
 `desktop-source.json` separately records `openai-codex-electron` 26.917.71314.
-These files are not npm package copies. `desktop-ui.mjs` is the actual styled
-menu implementation and its React/ReactDOM dependencies, bundled from verified
-installed sources. It retains the upstream legal notices present in those
-bundles. This record does not assert an additional redistribution license for
+`desktop-tokens.css` contains selected original theme rules, without global
+Markdown rules or font files. It is reproduced from the pinned installed CSS
+member using recorded UTF-16 source ranges, parent rules and SHA-256 hashes.
+This source record does not assert an additional redistribution license for
 the desktop application.
 
-`desktop-scroll.mjs` contains unchanged source callback bodies and helpers in a
-small DOM-lifetime adapter. `desktop.css` scopes the original stylesheet to
-transplanted components and excludes every font face. `desktop-tokens.css`
-contains selected original theme rules, without global element/Markdown rules.
-No font files or complete application bundle are included.
+Ordinary checks verify the committed token hash without accessing an installed
+application. To reproduce into a temporary directory:
 
-`scripts/import-desktop.mjs` reproduces the four artifacts byte-for-byte using
-the pinned archive members and esbuild version. Source ranges, transformations,
-input/output hashes and instructions are in the source manifest and
-`scripts/desktop/README.md`. The normal vendor check validates both manifests;
-it requires neither an installed desktop application nor network access.
+```sh
+bun scripts/import-desktop.mjs \
+  --asar /Applications/ChatGPT.app/Contents/Resources/app.asar \
+  --out .workpad/reproduced-desktop
+```
+
+The archive package identity, CSS member hash, each source slice and output hash
+must match the pinned record. Source ranges are UTF-16 string offsets in decoded
+CSS, not byte offsets in the ASAR archive. The importer rejects a different
+source version. The normal vendor check validates both manifests without an
+installed desktop application or network access.

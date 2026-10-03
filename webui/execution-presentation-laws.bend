@@ -75,12 +75,6 @@ type Requirements is Type:
           Doc.Element{key ++ "/path", "span", [Render.property("title", path)],
             [Render.property("width", "100%"), Render.property("flex", "0 0 auto"), Render.property("min-width", "0"), Render.property("overflow", "hidden"),
              Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]} : Doc.Node},
-    choice_binding_retained: @+key: String -> @+tag: String -> @+attrs: +List<Doc.Property> -> @+styles: +List<Doc.Property> -> @+events: +List<Doc.Event> -> @children: +List<Doc.Node> -> @+label: String -> @+description: String -> @+selected: Bool ->
-      {Render.choice_face(Doc.Element{key, tag, attrs, styles, events, children}, label, description, selected) ==
-          Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
-            [Render.property("width", "100%"), Render.property("min-width", "0"),
-             Render.property("height", "auto"), Render.property("flex-shrink", "0")]), events,
-             Render.choice_content(key, label, description, selected)} : Doc.Node},
     choice_group_production: @+key: String -> @semantic: String -> @+label: String -> @role: UI.Role -> @+source: +List<Design.Node> -> @+visual: Design.Style -> @representation: Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, UI.ChoiceGroup{}, visual, representation, source}, Render.render_children(source)) ==
     Render.choice_group_node(key, label, visual, Render.documents(Render.render_children(source))) : Doc.Node},
@@ -101,20 +95,8 @@ type Requirements is Type:
     inherited_provenance: @origin: Context.Origin -> @project: Maybe<&2, Nat> -> @workspace: Domain.Workspace -> @sandbox: Domain.Sandbox -> @approval: Domain.ApprovalPolicy -> @guidance: Context.GuidancePreview ->
       {Render.context_observation_kind(Context.DraftExecution{Context.ProspectiveContext{origin, project,
     Context.InheritedWorkspace{workspace}, Context.InheritedSandbox{sandbox}, Context.InheritedApproval{approval}, guidance}}) == "inherited" : String},
-    workspace_label: @+label: String -> @expanded: Bool ->
-      {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    permissions_label: @+label: String -> @current: Controls.Face -> @+execution: Maybe<&2, Context.Observation> ->
-      {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face},
     approval_canonical: @+value: Context.ApprovalValue ->
       {Render.approval_text(value) == Context.approval_option(Context.observed_approval(value)) : String},
-    choice_content_projection: @+key: String -> @+label: String -> @+description: String -> @+selected: Bool ->
-      {Render.choice_content(key, label, description, selected) ==
-          [Doc.Element{key ++ "/content", "span", Nil{}, [Render.property("display", "flex"), Render.property("flex-direction", "column"),
-            Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("text-align", "start"), Render.property("gap", "2px")], Nil{},
-            [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
-              [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
-               Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-           Render.choice_mark(key, selected, 20n, 16n)] : +List<Doc.Node>},
     choice_group_native: @+key: String -> @+label: String -> @+visual: Design.Style -> @+children: +List<Doc.Node> ->
       {Render.choice_group_node(key, label, visual, children) ==
           Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],
@@ -125,4 +107,4 @@ type Requirements is Type:
       {Render.context_draft_kind(Context.EnteredWorkspace{workspace}, sandbox, approval) == "custom" : String}}
 
 def evidence() -> Requirements:
-  Requirements{+key => semantic => label => role => +path => +primary => +source => +visual => representation => {==}, +key => +path => +primary => +visual => +children => {==}, +key => +path => {==}, +key => +tag => +attrs => +styles => +events => children => +label => +description => +selected => {==}, +key => semantic => +label => role => +source => +visual => representation => {==}, +key => semantic => +label => +role => +observation => +source => +visual => representation => {==}, +key => +label => role => +observation => +visual => +children => {==}, context => {==}, reason => {==}, origin => project => workspace => sandbox => approval => guidance => {==}, +label => expanded => {==}, +label => current => +execution => {==}, +value => {==}, +key => +label => +description => +selected => {==}, +key => +label => +visual => +children => {==}, workspace => sandbox => approval => {==}}
+  Requirements{+key => semantic => label => role => +path => +primary => +source => +visual => representation => {==}, +key => +path => +primary => +visual => +children => {==}, +key => +path => {==}, +key => semantic => +label => role => +source => +visual => representation => {==}, +key => semantic => +label => +role => +observation => +source => +visual => representation => {==}, +key => +label => role => +observation => +visual => +children => {==}, context => {==}, reason => {==}, origin => project => workspace => sandbox => approval => guidance => {==}, +value => {==}, +key => +label => +visual => +children => {==}, workspace => sandbox => approval => {==}}
