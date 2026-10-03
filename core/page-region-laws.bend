@@ -79,13 +79,9 @@ def region_children(node: Interface.Node) -> +List<Interface.Node>:
   Interface.Node{key, semantic, label, role, meaning, children} = node
   children
 
-def region_keeps_children(+parent: String, +region: Composition.Region, +position: Composition.Position, +children: +List<Interface.Node>) ->
-  {region_children(Interface.page_region(parent, region, position, children)) == children : +List<Interface.Node>}:
-  {==}
 
-def region_has_key(+parent: String, +region: Composition.Region, +position: Composition.Position, +children: +List<Interface.Node>) ->
-  {Interface.node_key(Interface.page_region(parent, region, position, children)) == parent ++ "/region/" ++ Composition.region_name(region) : String}:
-  {==}
+
+
 
 def select_region(matches: Bool, children: +List<Interface.Node>, rest: Maybe<&2, +List<Interface.Node>>) -> Maybe<&2, +List<Interface.Node>>:
   match matches:
@@ -99,31 +95,15 @@ def find_region(nodes: +List<Interface.Node>, +region: Composition.Region) -> Ma
       select_region(String.eq(Composition.region_name(part), Composition.region_name(region)), children, find_region(rest, region))
     case Con{node, rest}: find_region(rest, region)
 
-def projects_title(+projects: +List<View.ProjectScene>, +create: View.ControlDeclaration, +parent: String, +state: Core.State) ->
-  {find_region(Interface.page_contents(View.ProjectsPage{projects, create}, parent, state), Composition.CollectionTitle{}) ==
-    Some{[Interface.region(parent, "heading", "Projects", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
-  {==}
 
-def agents_title(+agents: +List<View.AgentScene>, +create: View.ControlDeclaration, +parent: String, +state: Core.State) ->
-  {find_region(Interface.page_contents(View.AgentsPage{agents, create}, parent, state), Composition.CollectionTitle{}) ==
-    Some{[Interface.region(parent, "heading", "Agents", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
-  {==}
 
-def board_title(+filter: B.Filter, +columns: +List<View.BoardColumn>, +create: View.ControlDeclaration, working: Nat,
-  +settings: View.ControlDeclaration, +filters: View.ControlDeclaration, +archive: View.ControlDeclaration, +parent: String, +state: Core.State) ->
-  {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
-    Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
-  {==}
 
-def creation_title_law(-heading: String, -summary: String, -context: Maybe<&2, Context.Preview>,
-  -project: Maybe<&2, View.ProjectChoice>, -choose: View.ControlDeclaration, -parent: String,
-  -state: Core.State) -> Type:
-  {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
-    Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>}
 
-def creation_introduction_title(+heading: String, +summary: String, +context: Maybe<&2, Context.Preview>, +project: Maybe<&2, View.ProjectChoice>, +choose: View.ControlDeclaration, +parent: String, +state: Core.State) ->
-  creation_title_law(heading, summary, context, project, choose, parent, state):
-  {==}
+
+
+
+
+
 
 def task_title_text(value: View.TaskScene) -> String:
   View.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
@@ -149,9 +129,7 @@ def project_title(+value: View.ProjectScene, +parent: String, +state: Core.State
   match value:
     case View.ProjectScene{id, name, D.Workspace{roots, primary}, guidance, tasks, actions}: {==}
 
-def passive_region(region: Composition.Region, position: Composition.Position, gesture: Interface.Gesture) ->
-  {Interface.bind(Interface.PageRegion{region, position}, gesture) == None{} : Maybe<&2, Core.Input>}:
-  {==}
+
 
 def layer_label(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
   match nodes:
@@ -163,21 +141,11 @@ def layer_semantic(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
     case Nil{}: None{}
     case Con{Interface.Node{key, semantic, label, role, meaning, children}, rest}: Some{semantic}
 
-def single_layer_title(+kind: View.LayerKind, +content: View.LayerContent, +initial: String, +restore: String,
-  +close: View.Dismissal, +state: Core.State) ->
-  {layer_label(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{View.layer_title(content)} : Maybe<&2, String>}:
-  {==}
 
-def layer_title_ignores_attention(+kind: View.LayerKind, +content: View.LayerContent, +first: String, +second: String,
-  +restore: String, +close: View.Dismissal, +state: Core.State) ->
-  {layer_label(Interface.layers([View.Layer{kind, content, first, restore, close}], state)) ==
-    layer_label(Interface.layers([View.Layer{kind, content, second, restore, close}], state)) : Maybe<&2, String>}:
-  {==}
 
-def single_layer_semantic(+kind: View.LayerKind, +content: View.LayerContent, +initial: String, +restore: String,
-  +close: View.Dismissal, +state: Core.State) ->
-  {layer_semantic(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{initial} : Maybe<&2, String>}:
-  {==}
+
+
+
 
 type LayerTitleRequirements is Type:
   LayerTitleRequirements{
@@ -250,11 +218,7 @@ def content_navigation_placement(value: Core.Scene) -> View.NavigationPlacement:
   Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = value
   placement
 
-def collapsed_navigation_single(+toggle: View.ControlDeclaration, expanded: Bool, create: View.ControlDeclaration,
-  destinations: +List<View.ControlDeclaration>, projects: +List<View.ProjectEntry>, tasks: +List<View.TaskEntry>, +state: Core.State) ->
-  {Interface.base_navigation_at(View.CollapsedNavigation{}, View.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
-    [Interface.declared("/navigation", toggle, state)] : +List<Interface.Node>}:
-  {==}
+
 
 def collapsed_assembly(+content: Core.Scene, +state: Core.State,
   collapsed: {content_navigation_placement(content) == View.CollapsedNavigation{} : View.NavigationPlacement}) ->
@@ -298,7 +262,8 @@ type Requirements is Type:
       {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
         Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
     creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+choose:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
-      creation_title_law(heading, summary, context, project, choose, parent, state),
+      {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
+        Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>},
     task_title: @+value:View.TaskScene -> @+parent:String -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
         Some{[Interface.region(task_title_key(value, parent), "heading", task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
@@ -314,19 +279,19 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{collapsed_navigation_single, collapsed_assembly,
+  Requirements{+toggle => expanded => create => destinations => projects => tasks => +state => {==}, collapsed_assembly,
     layer_title_evidence(),
-    kind => content => initial => restore => close => state => single_layer_title(kind, content, initial, restore, close, state),
-    kind => content => first => second => restore => close => state => layer_title_ignores_attention(kind, content, first, second, restore, close, state),
-    kind => content => initial => restore => close => state => single_layer_semantic(kind, content, initial, restore, close, state),
+    +kind => +content => +initial => +restore => +close => +state => {==},
+    +kind => +content => +first => +second => +restore => +close => +state => {==},
+    +kind => +content => +initial => +restore => +close => +state => {==},
     page => parent => state => page_sequence(page, parent, state),
     page => parent => state => page_only_regions(page, parent, state),
-    projects => create => parent => state => projects_title(projects, create, parent, state),
-    agents => create => parent => state => agents_title(agents, create, parent, state),
-    filter => columns => create => working => settings => filters => archive => parent => state => board_title(filter, columns, create, working, settings, filters, archive, parent, state),
-    heading => summary => context => project => choose => parent => state => creation_introduction_title(heading, summary, context, project, choose, parent, state),
+    +projects => +create => +parent => +state => {==},
+    +agents => +create => +parent => +state => {==},
+    +filter => +columns => +create => working => +settings => +filters => +archive => +parent => +state => {==},
+    +heading => +summary => +context => +project => +choose => +parent => +state => {==},
     value => parent => state => task_title(value, parent, state),
     value => parent => state => project_title(value, parent, state),
-    region => position => gesture => passive_region(region, position, gesture),
-    parent => region => position => children => region_keeps_children(parent, region, position, children),
-    parent => region => position => children => region_has_key(parent, region, position, children)}
+    region => position => gesture => {==},
+    +parent => +region => +position => +children => {==},
+    +parent => +region => +position => +children => {==}}

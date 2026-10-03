@@ -25,20 +25,15 @@ def inline_canvas(+main: Design.Box, +body: Composition.Body) -> Design.Box:
   frame_canvas(Layout.main_frame(Composition.Recipe{Composition.ReadingMeasure{}, Composition.NoHeading{}, body,
     Composition.NoComposer{}, Composition.NoDecisions{}, Composition.NoLatest{}}, main))
 
-def creation_owns_main(main: Design.Box) -> {inline_canvas(main, Composition.CenteredCreation{}) == main : Design.Box}:
-  {==}
 
-def sections_own_main(main: Design.Box) -> {inline_canvas(main, Composition.ProjectSections{}) == main : Design.Box}:
-  {==}
 
-def projects_own_main(main: Design.Box) -> {inline_canvas(main, Composition.ProjectRows{}) == main : Design.Box}:
-  {==}
 
-def agents_own_main(main: Design.Box) -> {inline_canvas(main, Composition.AgentRows{}) == main : Design.Box}:
-  {==}
 
-def board_owns_main(main: Design.Box) -> {inline_canvas(main, Composition.StageColumns{}) == main : Design.Box}:
-  {==}
+
+
+
+
+
 
 def prepend_recombines(+child: Doc.Node, parts: Render.CreationParts) ->
   {Render.creation_recombine(Render.creation_prepend(child, parts)) == child <> Render.creation_recombine(parts) : +List<Doc.Node>}:
@@ -92,29 +87,13 @@ def node_key(node: Doc.Node) -> String:
     case Doc.TargetProperties{key, target, attrs, styles}: key
 
 
-def creation_keys_law(-children: +List<Doc.Node>, -band: Design.Band, -flow: Design.CreationFlow) -> Type:
-  {Std.map(~Doc.Node, ~String, ~node_key,
-      creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(children)))) ==
-      Std.map(~Doc.Node, ~String, ~node_key, children) : +List<String>}
 
-def creation_keys_keep_order(+children: +List<Doc.Node>, +band: Design.Band, +flow: Design.CreationFlow) -> creation_keys_law(children, band, flow):
-  Equal.cong(+List<Doc.Node>, +List<String>,
-    (values => Std.map(~Doc.Node, ~String, ~node_key, values)),
-    creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(children))), children,
-    creation_regions_keep_order(children, band, flow))
 
-def semantic_partition_law(-owner: String, -introduction: +List<Doc.Node>, -context: +List<Doc.Node>, -composer: +List<Doc.Node>) -> Type:
-  {Render.creation_partition([
-      Render.page_region(owner ++ "/intro", Composition.CreationIntroduction{}, Composition.BodyPosition{}, introduction),
-      Render.page_region(owner ++ "/context", Composition.CreationContext{}, Composition.BodyPosition{}, context),
-      Render.page_region(owner ++ "/input", Composition.ComposerInput{}, Composition.BodyPosition{}, composer)]) ==
-      Render.CreationParts{
-        [Render.page_region(owner ++ "/intro", Composition.CreationIntroduction{}, Composition.BodyPosition{}, introduction)],
-        [Render.page_region(owner ++ "/context", Composition.CreationContext{}, Composition.BodyPosition{}, context),
-         Render.page_region(owner ++ "/input", Composition.ComposerInput{}, Composition.BodyPosition{}, composer)]} : Render.CreationParts}
 
-def creation_semantic_split(+owner: String, introduction: +List<Doc.Node>, context: +List<Doc.Node>, composer: +List<Doc.Node>) -> semantic_partition_law(owner, introduction, context, composer):
-  {==}
+
+
+
+
 
 def input_inset(metrics: Design.InputMetrics) -> Nat:
   Design.InputMetrics{minimum, maximum, line_height, inline, gap, footer} = metrics
@@ -131,17 +110,11 @@ def title_node_identity(+key: String, +tag: String, +attrs: +List<Doc.Property>,
     Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, Render.conversation_title_styles()), events, children} : Doc.Node}:
   {==}
 
-def title_properties_law() -> Type:
-  {Render.conversation_title_styles() == [Doc.Property{"display", "block"}, Doc.Property{"min-height", "0"}, Doc.Property{"min-width", "0"}, Doc.Property{"width", "100%"},
-      Doc.Property{"overflow", "hidden"}, Doc.Property{"text-overflow", "ellipsis"}, Doc.Property{"white-space", "nowrap"}] : +List<Doc.Property>}
 
-def conversation_title_properties() -> title_properties_law():
-  {==}
 
-def conversation_title_remaining_width() ->
-  {Render.page_region_styles(Composition.ConversationTitle{}) == [Doc.Property{"display", "flex"},
-    Doc.Property{"flex-direction", "column"}, Doc.Property{"flex", "1"}, Doc.Property{"min-width", "0"}] : +List<Doc.Property>}:
-  {==}
+
+
+
 
 def creation_group_order(+values: +List<Doc.Node>, +band: Design.Band, +flow: Design.CreationFlow) ->
   {creation_region_children(Doc.element_children(Render.creation_group(band, flow, values))) == values : +List<Doc.Node>}:
@@ -199,25 +172,13 @@ def creation_canvas_geometry(+canvas: Design.Box, +band: Design.Band, +flow: Des
     case Design.Box{left, top, width, height} Design.Band{band_left, band_width} Design.Balanced{}: {==}
     case Design.Box{left, top, width, height} Design.Band{band_left, band_width} Design.Compact{}: {==}
 
-def navigation_toggle_geometry_law(-navigation: Design.Navigation, -left: Nat, -top: Nat, -width: Nat, -height: Nat, -details: Maybe<&2, Design.Box>) -> Type:
-  {Layout.navigation_toggle_bounds(Design.Shell{navigation, Design.Box{left, top, width, height}, details}) ==
-      Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-        Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-        Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}
 
-def navigation_toggle_geometry(+navigation: Design.Navigation, +left: Nat, +top: Nat, +width: Nat, +height: Nat,
-  +details: Maybe<&2, Design.Box>) -> navigation_toggle_geometry_law(navigation, left, top, width, height, details):
-  {==}
 
-def reopening_rendered_law(-role: UI.Role, -expanded: Bool, -availability: View.Availability, -node: Doc.Node, -main: Design.Box, -details: Maybe<&2, Design.Box>) -> Type:
-  {Render.render_base(role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
-      node, Design.HiddenNavigation{}, main, details) ==
-      Render.replace_styles(node, List.append(&2, Doc.Property,
-        Render.bounds(Layout.navigation_toggle_bounds(Design.Shell{Design.HiddenNavigation{}, main, details})), [Doc.Property{"z-index", "6"}])) : Doc.Node}
 
-def reopening_rendered(+role: UI.Role, expanded: Bool, availability: View.Availability,
-  +node: Doc.Node, +main: Design.Box, +details: Maybe<&2, Design.Box>) -> reopening_rendered_law(role, expanded, availability, node, main, details):
-  {==}
+
+
+
+
 
 
 
@@ -234,8 +195,14 @@ def reopening_events(role: UI.Role, expanded: Bool, availability: View.Availabil
 
 type Requirements is Type:
   Requirements{
-    navigation_toggle_geometry: @+navigation: Design.Navigation -> @+left: Nat -> @+top: Nat -> @+width: Nat -> @+height: Nat -> @+details: Maybe<&2, Design.Box> -> navigation_toggle_geometry_law(navigation, left, top, width, height, details),
-    reopening_rendered: @+role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @+main: Design.Box -> @+details: Maybe<&2, Design.Box> -> reopening_rendered_law(role, expanded, availability, node, main, details),
+    navigation_toggle_geometry: @+navigation: Design.Navigation -> @+left: Nat -> @+top: Nat -> @+width: Nat -> @+height: Nat -> @+details: Maybe<&2, Design.Box> -> {Layout.navigation_toggle_bounds(Design.Shell{navigation, Design.Box{left, top, width, height}, details}) ==
+          Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+            Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+            Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
+    reopening_rendered: @+role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @+main: Design.Box -> @+details: Maybe<&2, Design.Box> -> {Render.render_base(role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
+          node, Design.HiddenNavigation{}, main, details) ==
+          Render.replace_styles(node, List.append(&2, Doc.Property,
+            Render.bounds(Layout.navigation_toggle_bounds(Design.Shell{Design.HiddenNavigation{}, main, details})), [Doc.Property{"z-index", "6"}])) : Doc.Node},
     reopening_events: @role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @main: Design.Box -> @details: Maybe<&2, Design.Box> -> {Doc.element_events(Render.render_base(role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
     node, Design.HiddenNavigation{}, main, details)) == Doc.element_events(node) : +List<Doc.Event>},
     creation_canvas: @main:Design.Box -> {inline_canvas(main, Composition.CenteredCreation{}) == main : Design.Box},
@@ -246,14 +213,24 @@ type Requirements is Type:
     creation_order: @+values:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->
       {creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(values))) == values : +List<Doc.Node>},
     creation_keys: @+values:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->
-      creation_keys_law(values, band, flow),
+      {Std.map(~Doc.Node, ~String, ~node_key,
+          creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(values)))) ==
+          Std.map(~Doc.Node, ~String, ~node_key, values) : +List<String>},
     semantic_partition: @+owner:String -> @introduction:+List<Doc.Node> -> @context:+List<Doc.Node> -> @composer:+List<Doc.Node> ->
-      semantic_partition_law(owner, introduction, context, composer),
+      {Render.creation_partition([
+          Render.page_region(owner ++ "/intro", Composition.CreationIntroduction{}, Composition.BodyPosition{}, introduction),
+          Render.page_region(owner ++ "/context", Composition.CreationContext{}, Composition.BodyPosition{}, context),
+          Render.page_region(owner ++ "/input", Composition.ComposerInput{}, Composition.BodyPosition{}, composer)]) ==
+          Render.CreationParts{
+            [Render.page_region(owner ++ "/intro", Composition.CreationIntroduction{}, Composition.BodyPosition{}, introduction)],
+            [Render.page_region(owner ++ "/context", Composition.CreationContext{}, Composition.BodyPosition{}, context),
+             Render.page_region(owner ++ "/input", Composition.ComposerInput{}, Composition.BodyPosition{}, composer)]} : Render.CreationParts},
     shared_inset: @canvas:Design.Box -> {input_inset(Layout.input_metrics(canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat},
     title_identity: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+values:+List<Doc.Node> ->
       {Render.conversation_title_node(Doc.Element{key, tag, attrs, styles, events, values}) ==
         Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, Render.conversation_title_styles()), events, values} : Doc.Node},
-    title_properties: title_properties_law(),
+    title_properties: {Render.conversation_title_styles() == [Doc.Property{"display", "block"}, Doc.Property{"min-height", "0"}, Doc.Property{"min-width", "0"}, Doc.Property{"width", "100%"},
+          Doc.Property{"overflow", "hidden"}, Doc.Property{"text-overflow", "ellipsis"}, Doc.Property{"white-space", "nowrap"}] : +List<Doc.Property>},
     title_remaining_width: {Render.page_region_styles(Composition.ConversationTitle{}) == [Doc.Property{"display", "flex"},
       Doc.Property{"flex-direction", "column"}, Doc.Property{"flex", "1"}, Doc.Property{"min-width", "0"}] : +List<Doc.Property>},
     group_order: @+values:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->
@@ -268,14 +245,19 @@ type Requirements is Type:
       canvas_geometry_law(canvas, band, flow, values)}
 
 def evidence() -> Requirements:
-  Requirements{navigation_toggle_geometry, reopening_rendered, reopening_events, main => creation_owns_main(main), main => sections_own_main(main), main => projects_own_main(main),
-    main => agents_own_main(main), main => board_owns_main(main),
+  Requirements{+navigation => +left => +top => +width => +height => +details => {==}, +role => expanded => availability => +node => +main => +details => {==}, reopening_events, main => {==}, main => {==}, main => {==},
+    main => {==}, main => {==},
     values => band => flow => creation_regions_keep_order(values, band, flow),
-    values => band => flow => creation_keys_keep_order(values, band, flow),
-    owner => introduction => context => composer => creation_semantic_split(owner, introduction, context, composer),
+    +children => +band => +flow =>
+      Equal.cong(+List<Doc.Node>, +List<String>,
+        (values => Std.map(~Doc.Node, ~String, ~node_key, values)),
+        creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(children))), children,
+        creation_regions_keep_order(children, band, flow))
+    ,
+    +owner => introduction => context => composer => {==},
     canvas => shared_composer_inset(canvas),
     key => tag => attrs => styles => events => values => title_node_identity(key, tag, attrs, styles, events, values),
-    conversation_title_properties(), conversation_title_remaining_width(),
+    {==}, {==},
     values => band => flow => creation_group_order(values, band, flow),
     band => flow => parts => creation_intrinsic_regions(band, flow, parts),
     band => flow => creation_group_growth(band, flow), band => creation_center_owner(band),

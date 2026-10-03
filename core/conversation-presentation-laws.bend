@@ -47,27 +47,9 @@ def activity_presentation(values: +List<Actual.VisibleGroup>) -> Bool & String:
     case _: (False{}, "")
 
 # A deliberate collapse leaves the real failure title in the persistent summary.
-def collapsed_attention_law(-group: Nat, -seen: Nat, -attention: Maybe<&2, Nat>,
-  -entries: +List<Actual.Audit>, -task: Nat, -index: Nat, -message: D.Message,
-  -observed: {Actual.latest_failure(entries) == Some{Actual.Audit{index, message}} : Maybe<&2, Actual.Audit>}) -> Type:
-  {activity_presentation(Actual.visible([Actual.Activity{group, attention, entries}], task,
-    [E.Disclosure{group, seen, False{}}])) ==
-    (False{}, "Failure: " ++ Actual.audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Actual.Audit, entries)) ++ " events") : Bool & String}
 
-def collapsed_failure(+group: Nat, seen: Nat, +attention: Maybe<&2, Nat>,
-  +entries: +List<Actual.Audit>, task: Nat, +index: Nat, +message: D.Message,
-  observed: {Actual.latest_failure(entries) == Some{Actual.Audit{index, message}} : Maybe<&2, Actual.Audit>}) ->
-  collapsed_attention_law(group, seen, attention, entries, task, index, message, observed):
-  Equal.trans(Bool & String,
-    activity_presentation(Actual.visible([Actual.Activity{group, attention, entries}], task, [E.Disclosure{group, seen, False{}}])),
-    (False{}, Actual.activity_summary(entries)),
-    (False{}, "Failure: " ++ Actual.audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Actual.Audit, entries)) ++ " events"),
-    Equal.cong(Bool, Bool & String, expanded => (expanded, Actual.activity_summary(entries)),
-      Actual.expanded([E.Disclosure{group, seen, False{}}], group, attention), False{},
-      explicit_disclosure(group, seen, False{}, attention, Nil{})),
-    Equal.cong(String, Bool & String, summary => (False{}, summary), Actual.activity_summary(entries),
-      "Failure: " ++ Actual.audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Actual.Audit, entries)) ++ " events",
-      failure_summary(entries, index, message, observed)))
+
+
 
 def first_identity(values: +List<Actual.Group>) -> Maybe<&2, Nat>:
   match values:
@@ -83,21 +65,9 @@ def audit_identity(+index: Nat, failed: Bool, message: D.Message, tail: +List<Ac
     case Con{Actual.Activity{id, attention, entries}, rest}: {==}
 
 # The oldest audit occurrence owns the run even after its suffix grows.
-def identity_law(-index: Nat, -failed: Bool, -message: D.Message, -suffix: +List<D.Message>,
-  -more: +List<D.Message>) -> Type:
-  {first_identity(Actual.prepend_audit(index, failed, message,
-    Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat)))) ==
-    first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))) : Maybe<&2, Nat>}
 
-def appended_run_identity(+index: Nat, +failed: Bool, +message: D.Message,
-  +suffix: +List<D.Message>, more: +List<D.Message>) ->
-  identity_law(index, failed, message, suffix, more):
-  Equal.trans(Maybe<&2, Nat>,
-    first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat)))),
-    Some{index}, first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))),
-    audit_identity(index, failed, message, Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat))),
-    Equal.sym(Maybe<&2, Nat>, first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))),
-      Some{index}, audit_identity(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))))
+
+
 
 type Requirements is Type:
   Requirements{
@@ -105,11 +75,15 @@ type Requirements is Type:
       {Actual.expanded(E.Disclosure{group, seen, choice} <> rest, group, attention) == choice : Bool},
     collapsed_attention: @+group:Nat -> @seen:Nat -> @+attention:Maybe<&2, Nat> -> @+entries:+List<Actual.Audit> -> @task:Nat -> @+index:Nat -> @+message:D.Message ->
       @observed:{Actual.latest_failure(entries) == Some{Actual.Audit{index, message}} : Maybe<&2, Actual.Audit>} ->
-      collapsed_attention_law(group, seen, attention, entries, task, index, message, observed),
+      {activity_presentation(Actual.visible([Actual.Activity{group, attention, entries}], task,
+        [E.Disclosure{group, seen, False{}}])) ==
+        (False{}, "Failure: " ++ Actual.audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Actual.Audit, entries)) ++ " events") : Bool & String},
     newest_failure: @+entries:+List<Actual.Audit> -> @+index:Nat -> @+message:D.Message -> @+failed:{Actual.audit_failed(message) == True{} : Bool} ->
       {Actual.latest_failure(List.append(&2, Actual.Audit, entries, [Actual.Audit{index, message}])) == Some{Actual.Audit{index, message}} : Maybe<&2, Actual.Audit>},
     identity: @+index:Nat -> @+failed:Bool -> @+message:D.Message -> @+suffix:+List<D.Message> -> @more:+List<D.Message> ->
-      identity_law(index, failed, message, suffix, more),
+      {first_identity(Actual.prepend_audit(index, failed, message,
+        Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat)))) ==
+        first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))) : Maybe<&2, Nat>},
     history: @+messages:+List<D.Message> -> @+offset:Nat ->
       {Spec.sources(Actual.groups(messages, offset)) == messages : +List<D.Message>},
     visible_history: @+groups:+List<Actual.Group> -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->
@@ -121,9 +95,27 @@ type Requirements is Type:
 def evidence() -> Requirements:
   Requirements{
     group => seen => choice => attention => rest => explicit_disclosure(group, seen, choice, attention, rest),
-    group => seen => attention => entries => task => index => message => observed => collapsed_failure(group, seen, attention, entries, task, index, message, observed),
+    +group => seen => +attention => +entries => task => +index => +message => observed =>
+      Equal.trans(Bool & String,
+        activity_presentation(Actual.visible([Actual.Activity{group, attention, entries}], task, [E.Disclosure{group, seen, False{}}])),
+        (False{}, Actual.activity_summary(entries)),
+        (False{}, "Failure: " ++ Actual.audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Actual.Audit, entries)) ++ " events"),
+        Equal.cong(Bool, Bool & String, expanded => (expanded, Actual.activity_summary(entries)),
+          Actual.expanded([E.Disclosure{group, seen, False{}}], group, attention), False{},
+          explicit_disclosure(group, seen, False{}, attention, Nil{})),
+        Equal.cong(String, Bool & String, summary => (False{}, summary), Actual.activity_summary(entries),
+          "Failure: " ++ Actual.audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Actual.Audit, entries)) ++ " events",
+          failure_summary(entries, index, message, observed)))
+    ,
     entries => index => message => failed => last_failure(entries, index, message, failed),
-    index => failed => message => suffix => more => appended_run_identity(index, failed, message, suffix, more),
+    +index => +failed => +message => +suffix => more =>
+      Equal.trans(Maybe<&2, Nat>,
+        first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat)))),
+        Some{index}, first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))),
+        audit_identity(index, failed, message, Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat))),
+        Equal.sym(Maybe<&2, Nat>, first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))),
+          Some{index}, audit_identity(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))))
+    ,
     messages => offset => History.grouped_history(messages, offset),
     groups => task => disclosures => History.visible_history(groups, task, disclosures),
     messages => offset => task => disclosures => History.observed_text(messages, offset, task, disclosures)

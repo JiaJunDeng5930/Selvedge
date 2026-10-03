@@ -53,9 +53,7 @@ def face_updated(face: View.CardFace) -> String:
   match face:
     case View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}: updated
 
-def card_identity_is_preserved(+id: Nat, +card: B.Card, +now: U32, +world: M.World()) ->
-  {face_id(View.card_face(id, card, now, world)) == id : Nat}:
-  {==}
+
 
 def card_title_is_preserved(+id: Nat, +card: B.Card, +now: U32, +world: M.World()) ->
   {face_title(View.card_face(id, card, now, world)) == B.title(B.draft(card)) : String}:
@@ -93,40 +91,25 @@ def card_updated_uses_elapsed_clock(+id: Nat, +card: B.Card, +now: U32, +world: 
   {face_updated(View.card_face(id, card, now, world)) == View.elapsed_label(Filter.elapsed(now, B.updated(card))) : String}:
   {==}
 
-def project_none_is_empty(+world: M.World()) ->
-  {View.face_project(None{}, world) == "" : String}:
-  {==}
+
 
 def project_missing_name_is_identifiable(+id: Nat) ->
   {View.face_project_name(None{}, id) == "项目 #" ++ Nat.show(id) ++ " 不可用" : String}:
   {==}
 
-def project_reference_missing_is_identifiable(+id: Nat, +world: M.World(),
-  absent: {Projects.find(Projects.registry(F.State(), world), id) == None{} : Maybe<&2, D.Project>}) ->
-  {View.face_project(Some{id}, world) == "项目 #" ++ Nat.show(id) ++ " 不可用" : String}:
-  Equal.cong(Maybe<&2, D.Project>, String,
-    (found => View.face_project_name(found, id)),
-    Projects.find(Projects.registry(F.State(), world), id), None{}, absent)
+
 
 def profile_missing_name_is_identifiable(+key: String) ->
   {View.face_profile_name(None{}, key) == "配置 " ++ key ++ " 不可用" : String}:
   {==}
 
-def profile_reference_missing_is_identifiable(+key: String, +world: M.World(),
-  absent: {D.find_profile(Board.profiles(world), key) == None{} : Maybe<&2, D.Profile>}) ->
-  {View.face_owner(B.Profile{key}, world) == "配置 " ++ key ++ " 不可用" : String}:
-  Equal.cong(Maybe<&2, D.Profile>, String,
-    (found => View.face_profile_name(found, key)), D.find_profile(Board.profiles(world), key), None{}, absent)
+
 
 def agent_missing_name_is_identifiable(id: Nat) ->
   {View.face_agent_name(None{}, id) == "智能体 #" ++ Nat.show(id) ++ " 不可用" : String}:
   {==}
 
-def agent_reference_missing_is_identifiable(id: Nat, +world: M.World(),
-  absent: {B.find_agent(Board.registry(world), id) == None{} : Maybe<&2, B.AgentProfile>}) ->
-  {View.face_owner(B.Agent{id}, world) == "智能体 #" ++ Nat.show(id) ++ " 不可用" : String}:
-  Equal.cong(Maybe<&2, B.AgentProfile>, String,
-    (found => View.face_agent_name(found, id)), B.find_agent(Board.registry(world), id), None{}, absent)
+
 
 def action_stage(control: View.ControlDeclaration) -> Maybe<&2, B.Stage>:
   View.ControlDeclaration{identity, label, prominence, input, availability} = control
@@ -158,33 +141,19 @@ def first_lane_create_prominence(columns: +List<View.BoardColumn>) -> Maybe<&2, 
     case Nil{}: None{}
     case Con{View.BoardColumn{stage, cards, create}, rest}: Some{action_prominence(create)}
 
-def global_create_targets_todo(board: B.State, +filter: B.Filter, +route: U.Route, +now: U32, +world: M.World()) ->
-  {page_global_create_stage(View.board_page(board, filter, route, now, world)) == Some{B.Todo{}} : Maybe<&2, B.Stage>}:
-  {==}
 
-def global_create_is_primary(board: B.State, +filter: B.Filter, +route: U.Route, +now: U32, +world: M.World()) ->
-  {page_global_create_prominence(View.board_page(board, filter, route, now, world)) == Some{View.Primary{}} : Maybe<&2, View.Prominence>}:
-  {==}
 
-def lane_create_targets_requested_stage(stage: B.Stage, +route: U.Route, +now: U32, +world: M.World()) ->
-  {first_lane_create_stage(View.columns([stage], Nil{}, route, now, world)) == Some{stage} : Maybe<&2, B.Stage>}:
-  {==}
 
-def lane_create_is_secondary(stage: B.Stage, +route: U.Route, +now: U32, +world: M.World()) ->
-  {first_lane_create_prominence(View.columns([stage], Nil{}, route, now, world)) == Some{View.Secondary{}} : Maybe<&2, View.Prominence>}:
-  {==}
 
-def new_card_dispatches_to_stage_draft(stage: B.Stage, +application: E.Application) ->
-  {E.activate_selected(U.NewCard{stage}, application) == E.new_card(stage, application) : E.Decision}:
-  {==}
 
-def new_card_body_starts_in_requested_stage(stage: B.Stage) ->
-  {E.new_card_body(stage) == U.Card{None{}, 0n, B.Draft{"", "", stage, B.NoPriority{}, B.Unassigned{}, None{}, Nil{}, Nil{}}, False{}, "", False{}} : U.Body}:
-  {==}
 
-def edit_card_dispatches_to_saved_identity(id: Nat, +application: E.Application) ->
-  {E.activate_selected(U.EditCard{id}, application) == E.card_editor(id, application) : E.Decision}:
-  {==}
+
+
+
+
+
+
+
 
 def card_scene_ids(cards: +List<View.CardScene>) -> +List<Nat>:
   match cards:
@@ -252,11 +221,7 @@ def first_lane_child_count(nodes: +List<Interface.Node>) -> Maybe<&2, Nat>:
     case Nil{}: None{}
     case Con{Interface.Node{key, semantic, label, role, meaning, children}, rest}: Some{List.length(&2, Interface.Node, children)}
 
-def lane_count_is_visible_card_count(stage: B.Stage, +entries: +List<View.CardScene>, +create: View.ControlDeclaration,
-  +parent: String, +state: Core.State) ->
-  {first_lane_card_count(Interface.columns([View.BoardColumn{stage, entries, create}], parent, state)) ==
-    Some{List.length(&2, View.CardScene, entries)} : Maybe<&2, Nat>}:
-  {==}
+
 
 def lane_children_are_create_plus_cards(stage: B.Stage, +entries: +List<View.CardScene>, +create: View.ControlDeclaration,
   +parent: String, +state: Core.State) ->
@@ -402,18 +367,7 @@ def board_page_column_ids_match_display(+board: B.State, +filter: B.Filter, +rou
     case B.Completed{}: card_scenes_keep_ids(Filter.column(Filter.filtered(Board.display_cards(board), filter, now, world), B.stage_name(B.Completed{})), route, now, world)
     case B.Blocked{}: card_scenes_keep_ids(Filter.column(Filter.filtered(Board.display_cards(board), filter, now, world), B.stage_name(B.Blocked{})), route, now, world)
 
-def board_page_column_ids_match_partition(+board: B.State, +filter: B.Filter, +route: U.Route,
-  +now: U32, +world: M.World(), target: B.Stage) ->
-  {board_page_column_ids(View.board_page(board, filter, route, now, world), target) ==
-    board_entry_ids(Filter.column(Filter.filtered(pinned_partition(board), filter, now, world), B.stage_name(target))) : +List<Nat>}:
-  Equal.trans(+List<Nat>,
-    board_page_column_ids(View.board_page(board, filter, route, now, world), target),
-    board_entry_ids(Filter.column(Filter.filtered(Board.display_cards(board), filter, now, world), B.stage_name(target))),
-    board_entry_ids(Filter.column(Filter.filtered(pinned_partition(board), filter, now, world), B.stage_name(target))),
-    board_page_column_ids_match_display(board, filter, route, now, world, target),
-    Equal.cong(+List<Finite.Entry(B.Card)>, +List<Nat>,
-      (entries => board_entry_ids(Filter.column(Filter.filtered(entries, filter, now, world), B.stage_name(target)))),
-      Board.display_cards(board), pinned_partition(board), display_cards_are_pinned_partition(board)))
+
 
 def view_filter(view: String, +filter: B.Filter) -> B.Filter:
   B.Filter{old_view, search, status, priority, date, assignee, creator, project, label} = filter
@@ -603,9 +557,7 @@ def board_settings_preserve_state(+board: B.State, +world: M.World()) ->
   match board:
     case B.State{cards, next_card, agents, next_agent, automatic, draft_profile}: {==}
 
-def settings_layer_uses_registry(+session: E.Session, +world: M.World()) ->
-  {View.layer_content(U.BoardSettings{}, session, world) == View.board_settings(Board.registry(world), world) : View.LayerContent}:
-  {==}
+
 
 type Requirements is Type:
   Requirements{
@@ -713,7 +665,7 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
-    id => card => now => world => card_identity_is_preserved(id, card, now, world),
+    +id => +card => +now => +world => {==},
     id => card => now => world =>
       (card_title_is_preserved(id, card, now, world), card_description_is_preserved(id, card, now, world),
        card_priority_is_preserved(id, card, now, world), card_pin_is_preserved(id, card, now, world),
@@ -723,18 +675,37 @@ def evidence() -> Requirements:
        card_owner_is_resolved(id, card, now, world), card_updated_uses_elapsed_clock(id, card, now, world)),
     entries => route => now => world => card_scenes_keep_ids(entries, route, now, world),
     entries => parent => state => card_roots_keep_length(entries, parent, state),
-    stage => entries => create => parent => state => lane_count_is_visible_card_count(stage, entries, create, parent, state),
+    stage => +entries => +create => +parent => +state => {==},
     stage => entries => create => parent => state => lane_children_are_create_plus_cards(stage, entries, create, parent, state),
     filter => working => create => settings => filters => archive => parent => state =>
       board_toolbar_work_status_identity(filter, working, create, settings, filters, archive, parent, state),
     navigation => state => navigation_header_keeps_brand(navigation, state),
     navigation => state => navigation_header_contains_only_toggle(navigation, state),
     board => display_cards_are_pinned_partition(board),
-    board => filter => route => now => world => target => board_page_column_ids_match_partition(board, filter, route, now, world, target),
-    world => project_none_is_empty(world),
-    id => world => absent => project_reference_missing_is_identifiable(id, world, absent),
-    key => world => absent => profile_reference_missing_is_identifiable(key, world, absent),
-    id => world => absent => agent_reference_missing_is_identifiable(id, world, absent),
+    +board => +filter => +route => +now => +world => target =>
+      Equal.trans(+List<Nat>,
+        board_page_column_ids(View.board_page(board, filter, route, now, world), target),
+        board_entry_ids(Filter.column(Filter.filtered(Board.display_cards(board), filter, now, world), B.stage_name(target))),
+        board_entry_ids(Filter.column(Filter.filtered(pinned_partition(board), filter, now, world), B.stage_name(target))),
+        board_page_column_ids_match_display(board, filter, route, now, world, target),
+        Equal.cong(+List<Finite.Entry(B.Card)>, +List<Nat>,
+          (entries => board_entry_ids(Filter.column(Filter.filtered(entries, filter, now, world), B.stage_name(target)))),
+          Board.display_cards(board), pinned_partition(board), display_cards_are_pinned_partition(board)))
+    ,
+    +world => {==},
+    +id => +world => absent =>
+      Equal.cong(Maybe<&2, D.Project>, String,
+        (found => View.face_project_name(found, id)),
+        Projects.find(Projects.registry(F.State(), world), id), None{}, absent)
+    ,
+    +key => +world => absent =>
+      Equal.cong(Maybe<&2, D.Profile>, String,
+        (found => View.face_profile_name(found, key)), D.find_profile(Board.profiles(world), key), None{}, absent)
+    ,
+    id => +world => absent =>
+      Equal.cong(Maybe<&2, B.AgentProfile>, String,
+        (found => View.face_agent_name(found, id)), B.find_agent(Board.registry(world), id), None{}, absent)
+    ,
     view => filter => view_change_preserves_filter_facets(view, filter),
     search => filter => search_change_preserves_filter_facets(search, filter),
     value => filter => status_toggle_preserves_other_facets(value, filter),
@@ -744,10 +715,10 @@ def evidence() -> Requirements:
     value => filter => creator_toggle_preserves_other_facets(value, filter),
     value => filter => project_toggle_preserves_other_facets(value, filter),
     value => filter => label_toggle_preserves_other_facets(value, filter),
-    board => filter => route => now => world => global_create_targets_todo(board, filter, route, now, world),
-    board => filter => route => now => world => global_create_is_primary(board, filter, route, now, world),
-    stage => route => now => world => lane_create_targets_requested_stage(stage, route, now, world),
-    stage => route => now => world => lane_create_is_secondary(stage, route, now, world),
+    board => +filter => +route => +now => +world => {==},
+    board => +filter => +route => +now => +world => {==},
+    stage => +route => +now => +world => {==},
+    stage => +route => +now => +world => {==},
     world => session => board_route_selects_board_nav(world, session),
     world => session => projects_route_selects_projects_nav(world, session),
     world => session => agents_route_selects_agents_nav(world, session),
@@ -758,8 +729,8 @@ def evidence() -> Requirements:
     world => session => start_route_rejects_destination_nav(world, session),
     route => parent => declaration => state => selected_declaration_role_tracks_predicate(route, parent, declaration, state),
     board => world => board_settings_preserve_state(board, world),
-    session => world => settings_layer_uses_registry(session, world),
-    stage => application => new_card_dispatches_to_stage_draft(stage, application),
-    stage => new_card_body_starts_in_requested_stage(stage),
-    id => application => edit_card_dispatches_to_saved_identity(id, application)
+    +session => +world => {==},
+    stage => +application => {==},
+    stage => {==},
+    id => +application => {==}
   }

@@ -29,13 +29,9 @@ def hidden(content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI.Node>, 
   {project(UI.Surface{content, base, overlays, scope}, Design.Layout{viewport, Design.Shell{Design.HiddenNavigation{}, main, details}, frame, placements}) == UI.Surface{content, without_navigation(base), without_navigation(overlays), scope} : UI.Surface}:
   {==}
 
-def beside(surface: UI.Surface, viewport: Design.Viewport, bounds: Design.Box, main: Design.Box, details: Maybe<&2, Design.Box>, frame: Design.MainFrame, placements: +List<Design.Overlay>) ->
-  {project(surface, Design.Layout{viewport, Design.Shell{Design.BesideNavigation{bounds}, main, details}, frame, placements}) == surface : UI.Surface}:
-  {==}
 
-def overlay(surface: UI.Surface, viewport: Design.Viewport, bounds: Design.Box, main: Design.Box, details: Maybe<&2, Design.Box>, frame: Design.MainFrame, placements: +List<Design.Overlay>) ->
-  {project(surface, Design.Layout{viewport, Design.Shell{Design.OverlayNavigation{bounds}, main, details}, frame, placements}) == surface : UI.Surface}:
-  {==}
+
+
 
 type Requirements is Type:
   Requirements{
@@ -48,4 +44,4 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{hidden, beside, overlay}
+  Requirements{hidden, surface => viewport => bounds => main => details => frame => placements => {==}, surface => viewport => bounds => main => details => frame => placements => {==}}

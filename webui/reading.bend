@@ -54,10 +54,7 @@ def missing_history_anchor() ->
   {==}
 
 # The user takes ownership before the host can measure the new viewport.
-def begin_user_scroll(intent: U.ReadingIntent, bookmark: Bookmark, reduced: Bool) ->
-  {step(BeginUserScroll{}, intent, bookmark, reduced) ==
-    Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]} : Decision}:
-  {==}
+
 
 type ScrollOwnershipRequirements is Type:
   ScrollOwnershipRequirements{
@@ -67,4 +64,4 @@ type ScrollOwnershipRequirements is Type:
   }
 
 def scroll_ownership_evidence() -> ScrollOwnershipRequirements:
-  ScrollOwnershipRequirements{begin_user_scroll}
+  ScrollOwnershipRequirements{intent => bookmark => reduced => {==}}

@@ -83,10 +83,10 @@ def section_match(matches: Bool, remainder: SectionKind) -> SectionKind:
     case True{}: remainder
     case False{}: GenericSection{}
 
-def section_rest(+kind: SectionKind, children: +List<Design.Appearance>) -> SectionKind:
+def section_rest(+kind: SectionKind, children: +List<Design.Node>) -> SectionKind:
   match children:
     case Nil{}: kind
-    case Con{Design.Appearance{identity, visual, representation, nested}, rest}:
+    case Con{Design.Node{identity, semantic, label, role, meaning, visual, representation, nested}, rest}:
       section_match(same_section(kind, representation_kind(representation)), section_rest(kind, rest))
 
 def section_seed(kind: SectionKind) -> SectionKind:
@@ -96,14 +96,14 @@ def section_seed(kind: SectionKind) -> SectionKind:
     case CaptureSection{}: CaptureSection{}
     case _: GenericSection{}
 
-def section_kind(children: +List<Design.Appearance>) -> SectionKind:
+def section_kind(children: +List<Design.Node>) -> SectionKind:
   match children:
     case Nil{}: GenericSection{}
-    case Con{Design.Appearance{identity, visual, representation, nested}, rest}:
+    case Con{Design.Node{identity, semantic, label, role, meaning, visual, representation, nested}, rest}:
       section_rest(section_seed(representation_kind(representation)), rest)
 
-def appearance_kind(value: Design.Appearance) -> SectionKind:
-  Design.Appearance{identity, visual, representation, children} = value
+def appearance_kind(value: Design.Node) -> SectionKind:
+  Design.Node{identity, semantic, label, role, meaning, visual, representation, children} = value
   match representation:
     case Controls.NoControl{}: section_kind(children)
     case _: representation_kind(representation)

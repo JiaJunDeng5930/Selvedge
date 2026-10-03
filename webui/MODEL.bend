@@ -31,8 +31,8 @@ type Decision is Data:
   Decision{state: State, product: Core.Decision, effects: +List<Effect>}
 
 type Scene is Data:
-  Scene{surface: UI.Surface, platform: Platform.Scene, generation: Nat, realization: Rendered.State,
-    presentation: Design.Presentation}
+  Scene{surface: Design.Surface, platform: Platform.Scene, generation: Nat, realization: Rendered.State,
+    layout: Design.Layout}
 
 def initial(program: Program.World()) -> State:
   State{Platform.initial(program), 0n, Rendered.AwaitingFrame{0n},
@@ -59,10 +59,6 @@ def platform_effects(effects: +List<Platform.Effect>, +surface: UI.Surface) -> +
   match effects:
     case Nil{}: Nil{}
     case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
-
-def presentation(environment: Design.Environment, +surface: UI.Surface) -> Design.Presentation:
-  Design.Environment{viewport, system_dark} = environment
-  Design.Presentation{Layout.present(viewport, surface), Appearance.present(surface, system_dark)}
 
 def environment_viewport(environment: Design.Environment) -> Design.Viewport:
   Design.Environment{viewport, system_dark} = environment
@@ -121,12 +117,17 @@ def dispatch(state: State, input: Input) -> Decision:
     case FrameObserved{received, frame}:
       frame_result(received, frame, application, generation, realization, environment)
 
-def observe(state: State) -> Scene:
-  State{+application, generation, realization, environment} = state
-  +raw_surface = surface(application)
-  +current_surface = Order.ordered_surface(raw_surface)
-  Scene{current_surface, Platform.observe(application), generation, realization,
-    presentation(environment, current_surface)}
+def observed_surface(state: State) -> UI.Surface:
+  State{application, generation, realization, environment} = state
+  Order.ordered_surface(surface(application))
+
+def scene_for_surface(state: State, +surface: UI.Surface) -> Scene:
+  State{application, generation, realization, Design.Environment{viewport, system_dark}} = state
+  Scene{Appearance.present(surface, system_dark), Platform.observe(application), generation, realization,
+    Layout.present(viewport, surface)}
+
+def observe(+state: State) -> Scene:
+  scene_for_surface(state, observed_surface(state))
 
 def effects(decision: Decision) -> +List<Effect>:
   Decision{state, product, effects} = decision

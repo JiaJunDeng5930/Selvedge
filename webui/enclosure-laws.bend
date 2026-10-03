@@ -54,13 +54,9 @@ def positive(+profile: E.Profile) ->
     case E.Lane{}: {==}
     case E.ArchiveGroup{}: {==}
 
-def extent(+width: Nat, +height: Nat, +border: Nat, +space: E.ContentArea) ->
-  {E.required_extent(width, height, border, space) == E.Extent{Nat.add(width, Nat.mul(2n, Nat.add(border, E.inline(space)))), Nat.add(height, Nat.mul(2n, Nat.add(border, E.block(space))))} : E.Extent}:
-  {==}
 
-def borderless(+width: Nat, +height: Nat, +profile: E.Profile) ->
-  {E.required_extent(width, height, 0n, E.area(profile)) == E.Extent{Nat.add(width, Nat.mul(2n, E.inline(E.area(profile)))), Nat.add(height, Nat.mul(2n, E.block(E.area(profile))))} : E.Extent}:
-  {==}
+
+
 
 def action_insets(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
   {area(A.action_style_insets(value, geometry, space, gap)) == space : E.ContentArea}:
@@ -78,12 +74,7 @@ def flow_preserves_area(+value: D.Style, flow: D.Flow) ->
   D.Style{text, chrome, alignment, old_flow, overflow, frame, minimum, maximum, states} = value
   {==}
 
-def action_copied(+value: D.Style, +face: C.Face, +geometry: C.Geometry) ->
-  {area(A.action_style(value, face, geometry)) == layout_area(C.content_layout(face)) : E.ContentArea}:
-  Equal.trans(E.ContentArea, area(A.action_style(value, face, geometry)),
-    area(A.action_content_style(A.action_text(value, face, geometry), C.content_layout(face), geometry)), layout_area(C.content_layout(face)),
-    flow_preserves_area(A.action_content_style(A.action_text(value, face, geometry), C.content_layout(face), geometry), A.action_flow(face, C.content_layout(face))),
-    layout_copied(A.action_text(value, face, geometry), C.content_layout(face), geometry))
+
 
 def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
   {minimum(A.action_style_insets(value, geometry, space, gap)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, A.text_line_height(typography(value)), A.chrome_border_width(chrome(value)), space))) : Nat}:
@@ -91,69 +82,39 @@ def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea
   C.Geometry{width, height, icon, radius, leading} = geometry
   {==}
 
-def choice_area() ->
-  {area(A.choice_button(True{})) == area(A.choice_button(False{})) : E.ContentArea}:
-  {==}
 
-def choice_text() ->
-  {typography(A.choice_button(True{})) == typography(A.choice_button(False{})) : D.TextStyle}:
-  {==}
 
-def role_navigation(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Navigation{}, meaning)) == E.area(E.Navigation{}) : E.ContentArea}:
-  {==}
 
-def role_usermessage(+meaning: UI.Meaning) ->
-  {area(A.style(UI.UserMessage{}, meaning)) == E.area(E.UserMessage{}) : E.ContentArea}:
-  {==}
 
-def role_composer(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Composer{}, meaning)) == E.area(E.Composer{}) : E.ContentArea}:
-  {==}
 
-def role_approval(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Approval{}, meaning)) == E.area(E.Approval{}) : E.ContentArea}:
-  {==}
 
-def role_codeblock(+meaning: UI.Meaning) ->
-  {area(A.style(UI.CodeBlock{}, meaning)) == E.area(E.CodeBlock{}) : E.ContentArea}:
-  {==}
 
-def role_menu(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Menu{}, meaning)) == E.area(E.Menu{}) : E.ContentArea}:
-  {==}
 
-def role_details(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Details{}, meaning)) == E.area(E.Details{}) : E.ContentArea}:
-  {==}
 
-def role_card(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Card{}, meaning)) == E.area(E.Card{}) : E.ContentArea}:
-  {==}
 
-def role_dialog(+meaning: UI.Meaning) ->
-  {area(A.style(UI.Dialog{}, meaning)) == E.DialogPartitions{} : E.ContentArea}:
-  {==}
+
+
+
+
+
+
+
+
+
+
+
 
 def canvas(+meaning: UI.Meaning) ->
   {area(A.style(UI.Main{}, meaning)) == E.ambient(0n, 0n) : E.ContentArea}:
   {==}
 
-def field() ->
-  {area(A.editable_field()) == E.area(E.Field{}) : E.ContentArea}:
-  {==}
 
-def part_header() ->
-  {E.partition(E.Header{}) == E.ambient(24n, 14n) : E.ContentArea}:
-  {==}
 
-def part_body() ->
-  {E.partition(E.Body{}) == E.ambient(24n, 20n) : E.ContentArea}:
-  {==}
 
-def part_footer() ->
-  {E.partition(E.Footer{}) == E.ambient(24n, 12n) : E.ContentArea}:
-  {==}
+
+
+
+
 
 def state_allocation(+value: D.Style, +space: E.ContentArea) ->
   {interaction(A.with_content_area(value, space)) == interaction(value) : D.ControlStates}:
@@ -161,21 +122,13 @@ def state_allocation(+value: D.Style, +space: E.ContentArea) ->
   E.Frame{old_area, old_arrangement} = content_frame
   {==}
 
-def icon_layout(+icon: C.Icon) ->
-  {layout_area(C.content_layout(C.IconFace{icon})) == E.area(E.IconControl{}) : E.ContentArea}:
-  {==}
 
-def text_layout(+text: String) ->
-  {layout_area(C.content_layout(C.TextFace{text})) == E.area(E.TextControl{}) : E.ContentArea}:
-  {==}
 
-def option_layout(+text: String, +selected: Bool) ->
-  {layout_area(C.content_layout(C.ChoiceFace{text, selected})) == E.area(E.OptionControl{}) : E.ContentArea}:
-  {==}
 
-def embedded_input() ->
-  {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{})) == E.ambient(8n, 6n) : E.ContentArea}:
-  {==}
+
+
+
+
 
 type Requirements is Type:
   Requirements{positive: @+profile:E.Profile -> {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, 1n) : (Nat & Nat)},
@@ -208,4 +161,9 @@ type Requirements is Type:
     embedded_input: {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{})) == E.ambient(8n, 6n) : E.ContentArea}}
 
 def evidence() -> Requirements:
-  Requirements{positive, extent, borderless, action_insets, layout_copied, action_copied, minimum_extent, choice_area(), choice_text(), role_navigation, role_usermessage, role_composer, role_approval, role_codeblock, role_menu, role_details, role_card, role_dialog, canvas, field(), part_header(), part_body(), part_footer(), state_allocation, icon_layout, text_layout, option_layout, embedded_input()}
+  Requirements{positive, +width => +height => +border => +space => {==}, +width => +height => +profile => {==}, action_insets, layout_copied, +value => +face => +geometry =>
+      Equal.trans(E.ContentArea, area(A.action_style(value, face, geometry)),
+        area(A.action_content_style(A.action_text(value, face, geometry), C.content_layout(face), geometry)), layout_area(C.content_layout(face)),
+        flow_preserves_area(A.action_content_style(A.action_text(value, face, geometry), C.content_layout(face), geometry), A.action_flow(face, C.content_layout(face))),
+        layout_copied(A.action_text(value, face, geometry), C.content_layout(face), geometry))
+    , minimum_extent, {==}, {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, +meaning => {==}, canvas, {==}, {==}, {==}, {==}, state_allocation, +icon => {==}, +text => {==}, +text => +selected => {==}, {==}}

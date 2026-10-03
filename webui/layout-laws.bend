@@ -49,11 +49,7 @@ def explicit_main_frame(+recipe: Composition.Recipe, +main: Design.Box) ->
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}: {==}
 
-def conversation_band_uses_reading_band(main: Design.Box, composer: Composition.Composer,
-  decisions: Composition.Decisions, latest: Composition.Latest) ->
-  {Layout.main_frame(conversation_recipe(composer, decisions, latest), main) ==
-    expected_main_frame(conversation_recipe(composer, decisions, latest), main) : Design.MainFrame}:
-  explicit_main_frame(conversation_recipe(composer, decisions, latest), main)
+
 
 def expected_navigation_capacity(width: Nat) -> Bool:
   Bool.not(Nat.is_lt(width, Layout.narrow_threshold()))
@@ -69,34 +65,11 @@ def details_beside(capacity: V.Capacity) -> Bool:
   V.Capacity{navigation_beside_content, details_beside_timeline} = capacity
   details_beside_timeline
 
-def navigation_is_hidden_below_threshold(viewport: Design.Viewport,
-  below: {Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold()) == True{} : Bool}) ->
-  {navigation_beside(Layout.capacity(viewport)) == False{} : Bool}:
-  Equal.trans(Bool, navigation_beside(Layout.capacity(viewport)),
-    Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold())), False{},
-    Equal.cong(V.Capacity, Bool, measured => navigation_beside(measured),
-      Layout.capacity(viewport), V.Capacity{
-        Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold())),
-        Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()))}, {==}),
-    Equal.cong(Bool, Bool, value => Bool.not(value),
-      Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold()), True{}, below))
 
-def details_are_hidden_below_threshold(viewport: Design.Viewport,
-  below: {Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()) == True{} : Bool}) ->
-  {details_beside(Layout.capacity(viewport)) == False{} : Bool}:
-  Equal.trans(Bool, details_beside(Layout.capacity(viewport)),
-    Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width())), False{},
-    Equal.cong(V.Capacity, Bool, measured => details_beside(measured),
-      Layout.capacity(viewport), V.Capacity{
-        Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold())),
-        Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()))}, {==}),
-    Equal.cong(Bool, Bool, value => Bool.not(value),
-      Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()), True{}, below))
 
-def capacity_selects_named_thresholds(viewport: Design.Viewport) ->
-  {Layout.capacity(viewport) == V.Capacity{expected_navigation_capacity(Layout.viewport_width(viewport)),
-    expected_details_capacity(Layout.viewport_width(viewport))} : V.Capacity}:
-  {==}
+
+
+
 
 def surface_with_scope(surface: UI.Surface, scope: Maybe<&2, String>) -> UI.Surface:
   UI.Surface{content, +base, +overlays, previous_scope} = surface
@@ -178,15 +151,7 @@ def anchored_menu_prefers_block_space(+viewport: Design.Viewport, +origin: Strin
   match viewport:
     case Design.Viewport{width, height}: {==}
 
-def menu_uses_resolved_origin(viewport: Design.Viewport, initial_attention: String,
-  return_attention: String, content: V.LayerContent, close: V.Dismissal,
-  +surface: UI.Surface, origin: String,
-  matched: {Layout.anchor(surface, return_attention) == Some{origin} : Maybe<&2, String>}) ->
-  {Layout.menu_for_layer(viewport, Some{anchored_layer(initial_attention, return_attention, content, close)}, surface) ==
-    expected_anchored_menu(viewport, origin) : Design.OverlayPlacement}:
-  Equal.cong(Maybe<&2, String>, Design.OverlayPlacement,
-    resolved => Layout.anchored_menu_placement(viewport, resolved),
-    Layout.anchor(surface, return_attention), Some{origin}, matched)
+
 
 def collapsed_navigation_offset_law(-viewport: Design.Viewport) -> Type:
   {Layout.shell(viewport, V.CollapsedNavigation{}, False{}) ==
@@ -260,10 +225,7 @@ def conversation_has_no_dock(frame: Design.MainFrame) -> Bool:
     case Design.ConversationFrame{heading, viewport, reading, Some{dock}}: False{}
     case _: False{}
 
-def empty_conversation_omits_dock(main: Design.Box) ->
-  {conversation_has_no_dock(Layout.main_frame(conversation_recipe(
-    Composition.NoComposer{}, Composition.NoDecisions{}, Composition.NoLatest{}), main)) == True{} : Bool}:
-  {==}
+
 
 def only_pending_approval(regions: +List<Design.DockRegion>) -> Bool:
   match regions:
@@ -282,10 +244,7 @@ def conversation_has_approval_only_dock(frame: Design.MainFrame) -> Bool:
       only_pending_approval(regions) && no_dock_input(input)
     case _: False{}
 
-def approval_without_composer_retains_dock(main: Design.Box) ->
-  {conversation_has_approval_only_dock(Layout.main_frame(conversation_recipe(
-    Composition.NoComposer{}, Composition.BeforeComposer{}, Composition.NoLatest{}), main)) == True{} : Bool}:
-  {==}
+
 
 def input_metrics_law(-canvas: Design.Box) -> Type:
   {Layout.input_metrics(canvas) == Design.InputMetrics{
@@ -296,35 +255,19 @@ def input_metrics_follow_consistent_bounds(canvas: Design.Box) -> input_metrics_
   match canvas:
     case Design.Box{+left, +top, +width, height}: {==}
 
-def settings_beside(+box: Design.Box, main: Design.Box) ->
-  {Layout.settings_bounds(Design.BesideNavigation{box}, main) == Layout.settings_in_navigation(box) : Design.Box}:
-  {==}
 
-def settings_overlay(+box: Design.Box, main: Design.Box) ->
-  {Layout.settings_bounds(Design.OverlayNavigation{box}, main) == Layout.settings_in_navigation(box) : Design.Box}:
-  {==}
 
-def settings_hidden(+main: Design.Box) ->
-  {Layout.settings_bounds(Design.HiddenNavigation{}, main) == Layout.settings_in_heading(main) : Design.Box}:
-  {==}
 
-def settings_navigation_coordinates_law(-left: Nat, -top: Nat, -width: Nat, -height: Nat) -> Type:
-  {Layout.settings_in_navigation(Design.Box{left, top, width, height}) ==
-      Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-        Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-        Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}
 
-def settings_navigation_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) -> settings_navigation_coordinates_law(left, top, width, height):
-  {==}
 
-def settings_heading_coordinates_law(-left: Nat, -top: Nat, -width: Nat, -height: Nat) -> Type:
-  {Layout.settings_in_heading(Design.Box{left, top, width, height}) ==
-      Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-        Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-        Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}
 
-def settings_heading_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) -> settings_heading_coordinates_law(left, top, width, height):
-  {==}
+
+
+
+
+
+
+
 
 type Requirements is Type:
   Requirements{
@@ -335,9 +278,15 @@ type Requirements is Type:
     settings_hidden: @+main:Design.Box ->
       {Layout.settings_bounds(Design.HiddenNavigation{}, main) == Layout.settings_in_heading(main) : Design.Box},
     settings_navigation_coordinates: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      settings_navigation_coordinates_law(left, top, width, height),
+      {Layout.settings_in_navigation(Design.Box{left, top, width, height}) ==
+          Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+            Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+            Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
     settings_heading_coordinates: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      settings_heading_coordinates_law(left, top, width, height),
+      {Layout.settings_in_heading(Design.Box{left, top, width, height}) ==
+          Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+            Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+            Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
     explicit_main_frame: @recipe:Composition.Recipe -> @main:Design.Box ->
       {Layout.main_frame(recipe, main) == expected_main_frame(recipe, main) : Design.MainFrame},
     conversation_dock_band: @main:Design.Box -> @composer:Composition.Composer ->
@@ -396,39 +345,56 @@ type Requirements is Type:
       {Layout.creation_flow_for_height(height) == Design.Balanced{} : Design.CreationFlow}
   }
 
-def compact_creation(height: Nat, below: {Nat.is_lt(height, 420n) == True{} : Bool}) ->
-  {Layout.creation_flow_for_height(height) == Design.Compact{} : Design.CreationFlow}:
-  Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, 420n), True{}, below)
 
-def balanced_creation(height: Nat, enough: {Nat.is_lt(height, 420n) == False{} : Bool}) ->
-  {Layout.creation_flow_for_height(height) == Design.Balanced{} : Design.CreationFlow}:
-  Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, 420n), False{}, enough)
+
+
 
 def evidence() -> Requirements:
   Requirements{
-    box => main => settings_beside(box, main),
-    box => main => settings_overlay(box, main),
-    main => settings_hidden(main),
-    left => top => width => height => settings_navigation_coordinates(left, top, width, height),
-    left => top => width => height => settings_heading_coordinates(left, top, width, height),
+    +box => main => {==},
+    +box => main => {==},
+    +main => {==},
+    +left => +top => +width => +height => {==},
+    +left => +top => +width => +height => {==},
     recipe => main => explicit_main_frame(recipe, main),
-    main => composer => decisions => latest => conversation_band_uses_reading_band(main, composer, decisions, latest),
-    viewport => capacity_selects_named_thresholds(viewport),
-    viewport => below => navigation_is_hidden_below_threshold(viewport, below),
-    viewport => below => details_are_hidden_below_threshold(viewport, below),
+    main => composer => decisions => latest => explicit_main_frame(conversation_recipe(composer, decisions, latest), main),
+    viewport => {==},
+    viewport => below =>
+      Equal.trans(Bool, navigation_beside(Layout.capacity(viewport)),
+        Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold())), False{},
+        Equal.cong(V.Capacity, Bool, measured => navigation_beside(measured),
+          Layout.capacity(viewport), V.Capacity{
+            Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold())),
+            Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()))}, {==}),
+        Equal.cong(Bool, Bool, value => Bool.not(value),
+          Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold()), True{}, below))
+    ,
+    viewport => below =>
+      Equal.trans(Bool, details_beside(Layout.capacity(viewport)),
+        Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width())), False{},
+        Equal.cong(V.Capacity, Bool, measured => details_beside(measured),
+          Layout.capacity(viewport), V.Capacity{
+            Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.narrow_threshold())),
+            Bool.not(Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()))}, {==}),
+        Equal.cong(Bool, Bool, value => Bool.not(value),
+          Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()), True{}, below))
+    ,
     viewport => collapsed_navigation_uses_zero_main_offset(viewport),
     viewport => navigation => unrequested_details_are_absent(viewport, navigation),
     viewport => overlays => layers => surface => shell => navigation =>
       overlay_identity_projection(viewport, overlays, layers, surface, shell, navigation),
-    main => empty_conversation_omits_dock(main),
-    main => approval_without_composer_retains_dock(main),
+    main => {==},
+    main => {==},
     canvas => input_metrics_follow_consistent_bounds(canvas),
     surface => requested => scope => anchor_is_scope_independent(surface, requested, scope),
     surface => trigger => scope => found => exact_trigger_node_in_base(surface, trigger, scope, found),
     surface => requested => scope => empty_tree_anchor_is_absent(surface, requested, scope),
-    viewport => initial_attention => return_attention => content => close => surface => origin => matched =>
-      menu_uses_resolved_origin(viewport, initial_attention, return_attention, content, close, surface, origin, matched),
+    viewport => initial_attention => return_attention => content => close => +surface => origin => matched =>
+      Equal.cong(Maybe<&2, String>, Design.OverlayPlacement,
+        resolved => Layout.anchored_menu_placement(viewport, resolved),
+        Layout.anchor(surface, return_attention), Some{origin}, matched)
+    ,
     viewport => origin => anchored_menu_prefers_block_space(viewport, origin),
-    height => below => compact_creation(height, below),
-    height => enough => balanced_creation(height, enough)
+    height => below => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, 420n), True{}, below),
+    height => enough => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, 420n), False{}, enough)
   }

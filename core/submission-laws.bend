@@ -385,24 +385,9 @@ def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.Dire
     (found => E.observed_pending(found, result, application)),
     E.find_pending(pending_entries(application), ticket), None{}, absent)
 
-def preparation_snapshot_law(-program: M.World(), -route: U.Route, -drafts: +List<U.Draft>,
-  -readers: +List<Finite.Entry(E.Reader)>, -layers: +List<E.Layer>, -attention: String,
-  -navigation: E.NavigationState, -filter: B.Filter, -now: U32, -next: Nat,
-  -pending: +List<E.Pending>, -previews: +List<Live.Output>, -code_blocks: +List<Content.Block>,
-  -workspace: D.Workspace, -draft: U.Draft) -> Type:
-  {E.prepare(E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-      now, next, pending, previews, code_blocks}}, Some{workspace}, draft) ==
-    E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-      now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks}},
-      D.success(J.Null{}), Nil{}, [E.ObserveDirectories{next, workspace}], False{}} : E.Decision}
 
-def preparation_snapshot(+program: M.World(), route: U.Route, +drafts: +List<U.Draft>,
-  +readers: +List<Finite.Entry(E.Reader)>, +layers: +List<E.Layer>, attention: String,
-  navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
-  +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>,
-  +workspace: D.Workspace, +draft: U.Draft) ->
-  preparation_snapshot_law(program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, workspace, draft):
-  {==}
+
+
 
 type Requirements is Type:
   Requirements{
@@ -440,7 +425,11 @@ type Requirements is Type:
       @navigation:E.NavigationState -> @filter:B.Filter -> @now:U32 -> @next:Nat ->
       @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code_blocks:+List<Content.Block> ->
       @+workspace:D.Workspace -> @+draft:U.Draft ->
-      preparation_snapshot_law(program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, workspace, draft)
+      {E.prepare(E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
+          now, next, pending, previews, code_blocks}}, Some{workspace}, draft) ==
+        E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
+          now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks}},
+          D.success(J.Null{}), Nil{}, [E.ObserveDirectories{next, workspace}], False{}} : E.Decision}
   }
 
 def evidence() -> Requirements:
@@ -451,15 +440,11 @@ def evidence() -> Requirements:
     directory_entry => revision => task => message => delivery => feedback => program => result => effects => session => durable => lookup => current => accepted =>
       accepted_message(directory_entry, revision, task, message, delivery, feedback, program, result, effects, session, durable, lookup, current, accepted),
     ticket => result => application => absent => unowned_directory(ticket, result, application, absent),
-    program => route => drafts => readers => layers => attention => navigation => filter => now => next => pending => previews => code_blocks => workspace => draft =>
-      preparation_snapshot(program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, workspace, draft)
+    +program => route => +drafts => +readers => +layers => attention => navigation => filter => now => next => +pending => +previews => +code_blocks => +workspace => +draft => {==}
   }
 
 # Reopening is a new edit of the same work, never a reuse of an old revision.
-def reopen_accepted(directory_entry: String, previous: Nat, body: U.Body, submitted: Nat, reply: J.Json, fallback: U.Body, session: E.Session) ->
-  {E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}, directory_entry}}, fallback, session) ==
-    E.with_draft(session, U.Draft{(previous + 1n : Nat), fallback, U.Editing{}, ""}) : E.Session}:
-  {==}
+
 
 def reopened_older_ownership(directory_entry: String, old_entry: String, +previous: Nat, body: U.Body, submitted: Nat, reply: J.Json, +fallback: U.Body,
   +older: Nat, +old_body: U.Body, feedback: U.Feedback, session: E.Session,
@@ -493,4 +478,4 @@ type ReopenRequirements is Type:
   }
 
 def reopen_evidence() -> ReopenRequirements:
-  ReopenRequirements{reopen_accepted, reopened_older_ownership}
+  ReopenRequirements{directory_entry => previous => body => submitted => reply => fallback => session => {==}, reopened_older_ownership}

@@ -118,11 +118,7 @@ are validated against the frozen tool contract and live route after the whole
 chain succeeds. Exceptions, malformed replies, unavailable revisions and timeouts
 become native `HookFailure` records and do not dispatch the tool.
 
-The original function call remains immutable. The effective call is reconstructed
-from ordered `HookRecord` certificates, each bound to the owning task. Pending
-checked attempts and external operation rights must match that reconstruction.
-Inheriting a parent's history therefore does not inherit its permission to act.
-Denial is absorbing; subsequent records cannot revive a refused chain.
+See [HOOKS.bend](../HOOKS.bend) for the authoritative authorization-record semantics.
 
 A plugin only replies to the current committed ticket. Duplicate, stale,
 interrupted and post-archive replies have no authority. Freeze can retain a
@@ -179,18 +175,7 @@ there. This is not confidential erasure: authorized history reads, including
 `read_task`, can expose audit records. A confidentiality policy must also govern
 those reads and any external artifacts.
 
-An operation owns its result callback independently of model/control work, so a
-completion cannot replace an unrelated in-flight model request. Cancelling the
-operation addresses the live callback ticket, and late replies have no authority.
-Freeze suspends new task execution, not settlement of an already-owned result.
-An invocation that archives its own task may finish its own result callback, but
-cannot start new work. Older cancellation effects precede the new callback in
-that commit.
-
-After restart, interrupted result processing reports `after_hook_interrupted`:
-execution is known from the retained receipt, while the callback outcome is
-unknown. Neither the tool nor the callback is repeated. This differs from recovery
-of an external operation whose execution outcome itself was never committed.
+See [results.bend](../bendlib/results.bend) and [protocol.bend](../bendlib/protocol.bend) for the authoritative result-processing and completion-admission semantics.
 
 ## Post-commit observations
 

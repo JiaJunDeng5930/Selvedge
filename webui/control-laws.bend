@@ -158,10 +158,10 @@ def source_nodes(values: +List<UI.Node>) -> +List<BoundNode>:
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
       Con{BoundNode{key, source_binding(meaning), source_nodes(children)}, source_nodes(rest)}
 
-def presented_nodes(values: +List<Design.Appearance>) -> +List<BoundNode>:
+def presented_nodes(values: +List<Design.Node>) -> +List<BoundNode>:
   match values:
     case Nil{}: Nil{}
-    case Con{Design.Appearance{key, style, control, children}, rest}:
+    case Con{Design.Node{key, semantic, label, role, meaning, style, control, children}, rest}:
       Con{BoundNode{key, binding(control), presented_nodes(children)}, presented_nodes(rest)}
 
 def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context) ->
@@ -203,8 +203,8 @@ def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context) ->
           presented_nodes(Appearance.nodes_at(children, local))}, presented_nodes(Appearance.nodes_at(rest, context))},
         Con{BoundNode{key, source_binding(meaning), source_nodes(children)}, source_nodes(rest)}, {==}, steps)
 
-def visual_bindings(visuals: Design.Visuals) -> Bindings:
-  Design.Visuals{theme, base, overlays} = visuals
+def visual_bindings(visuals: Design.Surface) -> Bindings:
+  Design.Surface{content, theme, base, overlays, active_scope} = visuals
   Bindings{presented_nodes(base), presented_nodes(overlays)}
 
 def surface_bindings(surface: UI.Surface) -> Bindings:
@@ -212,8 +212,8 @@ def surface_bindings(surface: UI.Surface) -> Bindings:
   Bindings{source_nodes(base), source_nodes(overlays)}
 
 def fields_retain_bindings(content: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +context: Controls.Context, system_dark: Bool) ->
-  {visual_bindings(Appearance.present_fields(content, base, overlays, context, system_dark)) ==
+  +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>) ->
+  {visual_bindings(Appearance.present_fields(content, base, overlays, context, system_dark, active_scope)) ==
     Bindings{source_nodes(base), source_nodes(overlays)} : Bindings}:
   match content:
     case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
@@ -234,7 +234,7 @@ def present_retains_bindings(surface: UI.Surface, system_dark: Bool) ->
   {visual_bindings(Appearance.present(surface, system_dark)) == surface_bindings(surface) : Bindings}:
   match surface:
     case UI.Surface{+content, base, overlays, active_scope}:
-      fields_retain_bindings(content, base, overlays, Controls.initial(content), system_dark)
+      fields_retain_bindings(content, base, overlays, Controls.initial(content), system_dark, active_scope)
 
 def expected_icon_help(availability: View.Availability, label: String) -> Controls.Help:
   match availability:
@@ -345,10 +345,7 @@ def copy_keeps_space(state: Code.CopyState) ->
     case Code.CopySucceeded{}: {==}
     case Code.CopyFailed{}: {==}
 
-def radio_reserves_check(label: String, checked: Bool) ->
-  {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, checked}, Controls.MenuArea{}) ==
-    Controls.Geometry{0n, 28n, 16n, 6n, 20n} : Controls.Geometry}:
-  {==}
+
 
 type Choice is Data:
   Choice{face: Controls.Face, behavior: Controls.Behavior}
@@ -359,28 +356,13 @@ def choice(representation: Controls.Representation) -> Maybe<&2, Choice>:
       Some{Choice{face, behavior}}
     case _: None{}
 
-def model_option_marks_current_law(-key: String, -editor: User.Editor, -profile: String, -reasoning: String, -current: String, -label: String, -role: UI.Role, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
-  {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-      User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
-      Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
-      Some{Choice{Controls.ChoiceFace{label, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>}
 
-def model_option_marks_current(+key: String, editor: User.Editor, +profile: String,
-  reasoning: String, +current: String, +label: String, role: UI.Role, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> model_option_marks_current_law(key, editor, profile, reasoning, current, label, role, code, appearance, access, open, layers):
-  {==}
 
-def delivery_option_marks_current_law(-key: String, -task: Nat, -delivery: User.Delivery, -current: User.Delivery, -label: String, -role: UI.Role, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
-  {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-      User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
-      Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
-      Some{Choice{Controls.ChoiceFace{label, Controls.same_delivery(delivery, current)},
-        Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>}
 
-def delivery_option_marks_current(+key: String, task: Nat, +delivery: User.Delivery,
-  +current: User.Delivery, +label: String, role: UI.Role, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> delivery_option_marks_current_law(key, task, delivery, current, label, role, code, appearance, access, open, layers):
-  {==}
+
+
+
+
 
 def action_text(representation: Controls.Representation) -> Maybe<&2, String>:
   match representation:
@@ -438,35 +420,17 @@ def help_access(help: Controls.Help) -> HelpAccess:
     case Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}:
       HelpAccess{pointer, keyboard, takes_focus}
 
-def icon_help_supports_focus(icon: Controls.Icon, availability: View.Availability,
-  feedback: Controls.Feedback, label: String) ->
-  {help_access(Controls.help_for(Controls.IconFace{icon}, availability, feedback, label)) ==
-    HelpAccess{True{}, True{}, False{}} : HelpAccess}:
-  {==}
 
-def input_label_is_accessible_only(value: Forms.Observed) ->
-  {Controls.label_placement(Controls.widget_for(Forms.Multiline{}, Forms.MessageText{}, value)) ==
-    Controls.AccessibleOnly{} : Controls.LabelPlacement}:
-  {==}
 
-def settings_uses_gear(expanded: Bool, label: String) ->
-  {Controls.face_for(Controls.OpenPanel{Controls.Settings{}, False{}, expanded}, label, Controls.PageArea{}) == Controls.IconFace{Controls.Settings{}} : Controls.Face}:
-  {==}
 
-def introduction_uses_context_label(expanded: Bool, +label: String) ->
-  {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) ==
-    Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face}:
-  {==}
 
-def directory_parent_has_no_control(key: String, editor: User.Editor, field: Forms.Field,
-  value: Forms.Observed, label: String, role: UI.Role, context: Controls.Context) ->
-  {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation}:
-  {==}
 
-def file_parent_has_no_control(key: String, editor: User.Editor, field: Forms.Field,
-  value: Forms.Observed, label: String, role: UI.Role, context: Controls.Context) ->
-  {Controls.represent(key, UI.Edit{editor, field, Forms.FileCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation}:
-  {==}
+
+
+
+
+
+
 
 type Requirements is Type:
   Requirements{
@@ -491,11 +455,18 @@ type Requirements is Type:
     model_option_marks_current: @+key:String -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
       @+current:String -> @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> ->
       @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      model_option_marks_current_law(key, editor, profile, reasoning, current, label, role, code, appearance, access, open, layers),
+      {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
+          User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
+          Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+          Some{Choice{Controls.ChoiceFace{label, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
     delivery_option_marks_current: @+key:String -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      delivery_option_marks_current_law(key, task, delivery, current, label, role, code, appearance, access, open, layers),
+      {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
+          User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
+          Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+          Some{Choice{Controls.ChoiceFace{label, Controls.same_delivery(delivery, current)},
+            Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
     approval_keeps_label: @key:String -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
       @availability:View.Availability -> @+label:String -> @role:UI.Role -> @selection:Controls.Selection ->
       @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
@@ -529,18 +500,16 @@ def evidence() -> Requirements:
       creation_uses_arrow(key, availability, label, role, selection, code, appearance, access, open, layers),
     purpose => label => menu_preserves_labels(purpose, label),
     state => copy_keeps_space(state),
-    label => checked => radio_reserves_check(label, checked),
-    key => editor => profile => reasoning => current => label => role => code => appearance => access => open => layers =>
-      model_option_marks_current(key, editor, profile, reasoning, current, label, role, code, appearance, access, open, layers),
-    key => task => delivery => current => label => role => code => appearance => access => open => layers =>
-      delivery_option_marks_current(key, task, delivery, current, label, role, code, appearance, access, open, layers),
+    label => checked => {==},
+    +key => editor => +profile => reasoning => +current => +label => role => code => appearance => access => open => layers => {==},
+    +key => task => +delivery => +current => +label => role => code => appearance => access => open => layers => {==},
     key => task => operation => allow => reason => availability => label => role => selection => code => appearance => access => open => layers =>
       approval_keeps_label(key, task, operation, allow, reason, availability, label, role, selection, code, appearance, access, open, layers),
-    icon => availability => feedback => label => icon_help_supports_focus(icon, availability, feedback, label),
-    value => input_label_is_accessible_only(value),
-    expanded => label => settings_uses_gear(expanded, label),
-    expanded => label => introduction_uses_context_label(expanded, label),
+    icon => availability => feedback => label => {==},
+    value => {==},
+    expanded => label => {==},
+    expanded => +label => {==},
     parent => editor => path => primary => state => context => directory_removal_uses_cross(parent, editor, path, primary, state, context),
-    key => editor => field => value => label => role => context => directory_parent_has_no_control(key, editor, field, value, label, role, context),
-    key => editor => field => value => label => role => context => file_parent_has_no_control(key, editor, field, value, label, role, context)
+    key => editor => field => value => label => role => context => {==},
+    key => editor => field => value => label => role => context => {==}
   }

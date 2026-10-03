@@ -10,14 +10,9 @@ import ./renderer.bend as Render
 
 # Physical extent is measured by the host from the viewport bottom to dock top.
 # The pure transition clamps that observation without changing reading intent.
-def measured_extent_law(-extent: F32, -viewport: F32, -intent: U.ReadingIntent, -bookmark: Reading.Bookmark, -reduced: Bool) -> Type:
-  {Reading.step(Reading.LayoutChanged{extent, viewport}, intent, bookmark, reduced) ==
-      Reading.Decision{bookmark, None{},
-        [Reading.ReserveComposer{Reading.reserve(extent, viewport)}, Reading.layout(intent, bookmark)]} : Reading.Decision}
 
-def observed_extent(extent: F32, viewport: F32, +intent: U.ReadingIntent,
-  +bookmark: Reading.Bookmark, reduced: Bool) -> measured_extent_law(extent, viewport, intent, bookmark, reduced):
-  {==}
+
+
 
 def dock_overflow(band: Design.Band, bottom: Nat, maximum: Nat,
   regions: +List<Design.DockRegion>, input: Maybe<&2, Design.InputMetrics>, reservation: Design.Reservation) ->
@@ -25,14 +20,9 @@ def dock_overflow(band: Design.Band, bottom: Nat, maximum: Nat,
   Design.Band{left, width} = band
   {==}
 
-def intrinsic_input_law(-key: String, -children: +List<Doc.Node>) -> Type:
-  {Render.conversation_dock_region(Render.page_region(key, Composition.ComposerInput{}, Composition.DockPosition{}, children)) ==
-      Render.dock_region_element(False{}, key, "div",
-        Render.page_region_attributes(key, Composition.ComposerInput{}, Composition.DockPosition{}),
-        Render.page_region_styles(Composition.ComposerInput{}), Nil{}, children) : Doc.Node}
 
-def intrinsic_composer(+key: String, +children: +List<Doc.Node>) -> intrinsic_input_law(key, children):
-  {==}
+
+
 
 def intrinsic_latest(+key: String, +children: +List<Doc.Node>) ->
   {Render.conversation_dock_region(Render.page_region(key, Composition.LatestAction{}, Composition.DockPosition{}, children)) ==
@@ -41,26 +31,12 @@ def intrinsic_latest(+key: String, +children: +List<Doc.Node>) ->
       Render.page_region_styles(Composition.LatestAction{}), Nil{}, children) : Doc.Node}:
   {==}
 
-def approval_owner_law(-key: String, -children: +List<Doc.Node>) -> Type:
-  {Render.conversation_dock_region(Render.page_region(key, Composition.ApprovalDecisions{}, Composition.DockPosition{}, children)) ==
-      Render.dock_region_element(True{}, key, "div",
-        Render.page_region_attributes(key, Composition.ApprovalDecisions{}, Composition.DockPosition{}),
-        Render.page_region_styles(Composition.ApprovalDecisions{}), Nil{}, children) : Doc.Node}
 
-def approval_scroll_owner(+key: String, +children: +List<Doc.Node>) -> approval_owner_law(key, children):
-  {==}
 
-# The existing queue's key, attributes and events remain on the scroll viewport.
-def queue_viewport_law(-key: String, -tag: String, -attrs: +List<Doc.Property>, -styles: +List<Doc.Property>, -events: +List<Doc.Event>, -children: +List<Doc.Node>) -> Type:
-  {Render.dock_approval_queue(Doc.Element{key, tag, attrs, styles, events, children}) ==
-      Doc.Element{key, tag, attrs,
-        List.append(&2, Doc.Property, styles,
-          [Render.property("flex", "1 1 auto"), Render.property("min-height", "0"), Render.property("overflow", "auto")]),
-        events, [Render.dock_approval_content(key, children)]} : Doc.Node}
 
-def queue_identity(+key: String, +tag: String, +attrs: +List<Doc.Property>,
-  +styles: +List<Doc.Property>, +events: +List<Doc.Event>, +children: +List<Doc.Node>) -> queue_viewport_law(key, tag, attrs, styles, events, children):
-  {==}
+
+
+
 
 def composer_nonshrinking() ->
   {Render.dock_region_styles(False{}) == [Render.property("flex", "0 0 auto")] : +List<Doc.Property>}:
@@ -112,26 +88,11 @@ def subtree(node: Doc.Node) -> (String & (String & (+List<Doc.Property> & (+List
     case Doc.Element{key, tag, attrs, styles, events, children}: (key, (tag, (attrs, (events, children))))
     case _: ("", ("", (Nil{}, (Nil{}, Nil{}))))
 
-def nonapproval_subtree(+key: String, +tag: String, +attrs: +List<Doc.Property>, +styles: +List<Doc.Property>,
-  +events: +List<Doc.Event>, +children: +List<Doc.Node>,
-  not_approval: {String.eq(Render.attr(attrs, "data-page-region"), Composition.region_name(Composition.ApprovalDecisions{})) == False{} : Bool}) ->
-  {subtree(Render.conversation_dock_region(Doc.Element{key, tag, attrs, styles, events, children})) ==
-    (key, (tag, (attrs, (events, children)))) : (String & (String & (+List<Doc.Property> & (+List<Doc.Event> & +List<Doc.Node>))))}:
-  Equal.cong(Bool, (String & (String & (+List<Doc.Property> & (+List<Doc.Event> & +List<Doc.Node>)))),
-    (approval => subtree(Render.dock_region_element(approval, key, tag, attrs, styles, events, children))),
-    String.eq(Render.attr(attrs, "data-page-region"), Composition.region_name(Composition.ApprovalDecisions{})), False{}, not_approval)
 
-def wrapped_payload_law(-key: String, -tag: String, -attrs: +List<Doc.Property>, -styles: +List<Doc.Property>, -events: +List<Doc.Event>, -children: +List<Doc.Node>) -> Type:
-  {subtree(Render.dock_approval_queue(Doc.Element{key, tag, attrs, styles, events, children})) ==
-      (key, (tag, (attrs, (events,
-        [Doc.Element{Render.generated_identity(key, "intrinsic-content"), "div", Nil{},
-          [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "8px"),
-            Render.property("flex", "0 0 auto"), Render.property("min-height", "min-content")], Nil{}, children}])))) :
-        (String & (String & (+List<Doc.Property> & (+List<Doc.Event> & +List<Doc.Node>))))}
 
-def queue_payload(+key: String, +tag: String, +attrs: +List<Doc.Property>, +styles: +List<Doc.Property>,
-  +events: +List<Doc.Event>, +children: +List<Doc.Node>) -> wrapped_payload_law(key, tag, attrs, styles, events, children):
-  {==}
+
+
+
 
 type Requirements is Type:
   Requirements{
@@ -146,20 +107,45 @@ type Requirements is Type:
         (key, (tag, (attrs, (events, children)))) : (String & (String & (+List<Doc.Property> & (+List<Doc.Event> & +List<Doc.Node>))))},
     wrapped_payload: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> ->
       @+events:+List<Doc.Event> -> @+children:+List<Doc.Node> ->
-      wrapped_payload_law(key, tag, attrs, styles, events, children),
+      {subtree(Render.dock_approval_queue(Doc.Element{key, tag, attrs, styles, events, children})) ==
+          (key, (tag, (attrs, (events,
+            [Doc.Element{Render.generated_identity(key, "intrinsic-content"), "div", Nil{},
+              [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "8px"),
+                Render.property("flex", "0 0 auto"), Render.property("min-height", "min-content")], Nil{}, children}])))) :
+            (String & (String & (+List<Doc.Property> & (+List<Doc.Event> & +List<Doc.Node>))))},
     measured_extent: @extent:F32 -> @viewport:F32 -> @+intent:U.ReadingIntent -> @+bookmark:Reading.Bookmark -> @reduced:Bool ->
-      measured_extent_law(extent, viewport, intent, bookmark, reduced),
+      {Reading.step(Reading.LayoutChanged{extent, viewport}, intent, bookmark, reduced) ==
+          Reading.Decision{bookmark, None{},
+            [Reading.ReserveComposer{Reading.reserve(extent, viewport)}, Reading.layout(intent, bookmark)]} : Reading.Decision},
     bounded_dock: @band:Design.Band -> @bottom:Nat -> @maximum:Nat -> @regions:+List<Design.DockRegion> ->
       @input:Maybe<&2,Design.InputMetrics> -> @reservation:Design.Reservation ->
       {Render.attr(Render.conversation_dock_styles(Some{Design.Dock{band, bottom, maximum, regions, input, reservation}}), "overflow") == "hidden" : String},
     intrinsic_input: @+key:String -> @+children:+List<Doc.Node> ->
-      intrinsic_input_law(key, children),
+      {Render.conversation_dock_region(Render.page_region(key, Composition.ComposerInput{}, Composition.DockPosition{}, children)) ==
+          Render.dock_region_element(False{}, key, "div",
+            Render.page_region_attributes(key, Composition.ComposerInput{}, Composition.DockPosition{}),
+            Render.page_region_styles(Composition.ComposerInput{}), Nil{}, children) : Doc.Node},
     approval_owner: @+key:String -> @+children:+List<Doc.Node> ->
-      approval_owner_law(key, children),
+      {Render.conversation_dock_region(Render.page_region(key, Composition.ApprovalDecisions{}, Composition.DockPosition{}, children)) ==
+          Render.dock_region_element(True{}, key, "div",
+            Render.page_region_attributes(key, Composition.ApprovalDecisions{}, Composition.DockPosition{}),
+            Render.page_region_styles(Composition.ApprovalDecisions{}), Nil{}, children) : Doc.Node},
     queue_viewport: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> ->
       @+events:+List<Doc.Event> -> @+children:+List<Doc.Node> ->
-      queue_viewport_law(key, tag, attrs, styles, events, children)
+      {Render.dock_approval_queue(Doc.Element{key, tag, attrs, styles, events, children}) ==
+          Doc.Element{key, tag, attrs,
+            List.append(&2, Doc.Property, styles,
+              [Render.property("flex", "1 1 auto"), Render.property("min-height", "0"), Render.property("overflow", "auto")]),
+            events, [Render.dock_approval_content(key, children)]} : Doc.Node}
   }
 
 def evidence() -> Requirements:
-  Requirements{region_key_order, region_count, nonapproval_subtree, queue_payload, observed_extent, dock_overflow, intrinsic_composer, approval_scroll_owner, queue_identity}
+  Requirements{region_key_order, region_count, +key => +tag => +attrs => +styles => +events => +children => not_approval =>
+      Equal.cong(Bool, (String & (String & (+List<Doc.Property> & (+List<Doc.Event> & +List<Doc.Node>)))),
+        (approval => subtree(Render.dock_region_element(approval, key, tag, attrs, styles, events, children))),
+        String.eq(Render.attr(attrs, "data-page-region"), Composition.region_name(Composition.ApprovalDecisions{})), False{}, not_approval)
+    , +key => +tag => +attrs => +styles => +events => +children => {==}, extent => viewport => +intent => +bookmark => reduced => {==}, dock_overflow, +key => +children => {==}, +key => +children =>
+        {==}
+
+      # The existing queue's key, attributes and events remain on the scroll viewport.
+    , +key => +tag => +attrs => +styles => +events => +children => {==}}

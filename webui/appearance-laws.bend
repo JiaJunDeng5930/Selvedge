@@ -17,10 +17,10 @@ def source_keys(values: +List<UI.Node>) -> +List<Keyed>:
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
       Con{Keyed{key, source_keys(children)}, source_keys(rest)}
 
-def appearance_keys(values: +List<Design.Appearance>) -> +List<Keyed>:
+def appearance_keys(values: +List<Design.Node>) -> +List<Keyed>:
   match values:
     case Nil{}: Nil{}
-    case Con{Design.Appearance{key, style, control, children}, rest}:
+    case Con{Design.Node{key, semantic, label, role, meaning, style, control, children}, rest}:
       Con{Keyed{key, appearance_keys(children)}, appearance_keys(rest)}
 
 def nodes_preserve_keys_at(values: +List<UI.Node>, +context: Controls.Context) ->
@@ -49,6 +49,53 @@ def nodes_preserve_keys_at(values: +List<UI.Node>, +context: Controls.Context) -
           appearance_keys(Appearance.nodes_at(rest, context))},
         Con{Keyed{key, source_keys(children)}, source_keys(rest)}, {==}, components)
 
+def nodes_preserve_semantics_at(values: +List<UI.Node>, +context: Controls.Context) ->
+  {Design.semantic_nodes(Appearance.nodes_at(values, context)) == values : +List<UI.Node>}:
+  match values:
+    case Nil{}: {==}
+    case Con{UI.Node{+key, +semantic, +label, +role, +meaning, +children}, +rest}:
+      +local = Controls.enter(key, role, meaning, context)
+      +children_step = Equal.cong(+List<UI.Node>, +List<UI.Node>,
+        (prepared_children => Con{UI.Node{key, semantic, label, role, meaning, prepared_children},
+          Design.semantic_nodes(Appearance.nodes_at(rest, context))}),
+        Design.semantic_nodes(Appearance.nodes_at(children, local)), children,
+        nodes_preserve_semantics_at(children, local))
+      +rest_step = Equal.cong(+List<UI.Node>, +List<UI.Node>,
+        (prepared_rest => Con{UI.Node{key, semantic, label, role, meaning, children}, prepared_rest}),
+        Design.semantic_nodes(Appearance.nodes_at(rest, context)), rest,
+        nodes_preserve_semantics_at(rest, context))
+      Equal.trans(+List<UI.Node>,
+        Con{UI.Node{key, semantic, label, role, meaning,
+          Design.semantic_nodes(Appearance.nodes_at(children, local))},
+          Design.semantic_nodes(Appearance.nodes_at(rest, context))},
+        Con{UI.Node{key, semantic, label, role, meaning, children},
+          Design.semantic_nodes(Appearance.nodes_at(rest, context))},
+        Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, children_step, rest_step)
+
+def present_preserves_semantics(+surface: UI.Surface, system_dark: Bool) ->
+  {Design.semantic_surface(Appearance.present(surface, system_dark)) == surface : UI.Surface}:
+  match surface:
+    case UI.Surface{+content, +base, +overlays, +active_scope}:
+      match content:
+        case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
+          match settings:
+            case Core.Settings{open, access, entered, appearance, open_action, close_action, connect}:
+              +context = Controls.initial(content)
+              +base_step = Equal.cong(+List<UI.Node>, UI.Surface,
+                (prepared_base => UI.Surface{content, prepared_base,
+                  Design.semantic_nodes(Appearance.nodes_at(overlays, context)), active_scope}),
+                Design.semantic_nodes(Appearance.nodes_at(base, context)), base,
+                nodes_preserve_semantics_at(base, context))
+              +overlays_step = Equal.cong(+List<UI.Node>, UI.Surface,
+                (prepared_overlays => UI.Surface{content, base, prepared_overlays, active_scope}),
+                Design.semantic_nodes(Appearance.nodes_at(overlays, context)), overlays,
+                nodes_preserve_semantics_at(overlays, context))
+              Equal.trans(UI.Surface,
+                UI.Surface{content, Design.semantic_nodes(Appearance.nodes_at(base, context)),
+                  Design.semantic_nodes(Appearance.nodes_at(overlays, context)), active_scope},
+                UI.Surface{content, base, Design.semantic_nodes(Appearance.nodes_at(overlays, context)), active_scope},
+                UI.Surface{content, base, overlays, active_scope}, base_step, overlays_step)
+
 def configured_appearance(surface: UI.Surface) -> Services.Appearance:
   UI.Surface{content, base, overlays, active_scope} = surface
   Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
@@ -56,8 +103,8 @@ def configured_appearance(surface: UI.Surface) -> Services.Appearance:
     close_action, connect_action} = settings
   appearance
 
-def theme_of_visuals(visuals: Design.Visuals) -> Design.Theme:
-  Design.Visuals{theme, base, overlays} = visuals
+def theme_of_visuals(visuals: Design.Surface) -> Design.Theme:
+  Design.Surface{content, theme, base, overlays, active_scope} = visuals
   theme
 
 def presented_theme(surface: UI.Surface, system_dark: Bool) -> Design.Theme:
@@ -97,26 +144,17 @@ def system_appearance_follows_os(system_dark: Bool) ->
     case True{}: {==}
     case False{}: {==}
 
-def user_message_style_is_exact_law(-meaning: UI.Meaning) -> Type:
-  {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-        Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style}
 
-def user_message_style_is_exact(meaning: UI.Meaning) -> user_message_style_is_exact_law(meaning):
-  {==}
 
-def assistant_message_style_is_exact_law(-meaning: UI.Meaning) -> Type:
-  {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-        Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style}
 
-def assistant_message_style_is_exact(meaning: UI.Meaning) -> assistant_message_style_is_exact_law(meaning):
-  {==}
 
-def composer_actions_style_is_exact_law(-meaning: UI.Meaning) -> Type:
-  {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-        Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style}
 
-def composer_actions_style_is_exact(meaning: UI.Meaning) -> composer_actions_style_is_exact_law(meaning):
-  {==}
+
+
+
+
+
+
 
 type ButtonMetrics is Data:
   ButtonMetrics{size: Nat, line_height: Nat, weight: Nat, minimum_height: Nat}
@@ -125,34 +163,15 @@ def button_metrics(style: Design.Style) -> ButtonMetrics:
   Design.Style{Design.TextStyle{font, size, line_height, weight}, chrome, alignment, flow, overflow, +content_frame, minimum_height, maximum_width_percent, states} = style
   ButtonMetrics{size, line_height, weight, minimum_height}
 
-def navigation_button_metrics(meaning: UI.Meaning) ->
-  {button_metrics(Appearance.style_in_context(UI.Button{}, meaning, True{})) ==
-    ButtonMetrics{12n, 18n, 400n, 29n} : ButtonMetrics}:
-  {==}
 
-def navigation_selected_button_metrics(meaning: UI.Meaning) ->
-  {button_metrics(Appearance.style_in_context(UI.SelectedButton{}, meaning, True{})) ==
-    ButtonMetrics{12n, 18n, 400n, 29n} : ButtonMetrics}:
-  {==}
 
-def ordinary_button_metrics(meaning: UI.Meaning) ->
-  {button_metrics(Appearance.style_in_context(UI.Button{}, meaning, False{})) ==
-    ButtonMetrics{13n, 20n, 400n, 32n} : ButtonMetrics}:
-  {==}
 
-def primary_button_keeps_interaction_states_law(-meaning: UI.Meaning) -> Type:
-  {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n}, Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
-        Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
-        Design.Transparent{}, 0n, 8n, False{}}, Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
-        Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
-          Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}}},
-        Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
-          Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}}},
-        40n, Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n
-      }} : Design.Style}
 
-def primary_button_keeps_interaction_states(meaning: UI.Meaning) -> primary_button_keeps_interaction_states_law(meaning):
-  {==}
+
+
+
+
+
 
 def style_text(value: Design.Style) -> Design.TextStyle:
   Design.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
@@ -162,22 +181,16 @@ def style_border(value: Design.Style) -> Nat:
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
   width
 
-def creation_title_metrics(fallback: Design.Style) ->
-  {style_text(Appearance.semantic_style("creation/title", fallback)) ==
-    Design.TextStyle{Design.InterfaceFont{}, 28n, 36n, 500n} : Design.TextStyle}:
-  {==}
 
-def creation_context_metrics(fallback: Design.Style) ->
-  {style_text(Appearance.semantic_style("creation/context", fallback)) ==
-    Design.TextStyle{Design.InterfaceFont{}, 12n, 18n, 400n} : Design.TextStyle}:
-  {==}
 
-def main_omits_outer_border(meaning: UI.Meaning) ->
-  {style_border(Appearance.style(UI.Main{}, meaning)) == 0n : Nat}:
-  {==}
+
+
+
 
 type Requirements is Type:
   Requirements{
+    nodes_preserve_semantics: @values:+List<UI.Node> -> @context:Controls.Context ->
+      {Design.semantic_nodes(Appearance.nodes_at(values, context)) == values : +List<UI.Node>},
     nodes_preserve_keys_at: @+values:+List<UI.Node> -> @+context:Controls.Context ->
       {appearance_keys(Appearance.nodes_at(values, context)) == source_keys(values) : +List<Keyed>},
     present_uses_configured_appearance: @surface:UI.Surface -> @system_dark:Bool ->
@@ -190,13 +203,24 @@ type Requirements is Type:
     system_appearance_follows_os: @system_dark:Bool ->
       {Appearance.theme(Services.SystemAppearance{}, system_dark) == system_theme(system_dark) : Design.Theme},
     user_message_style_is_exact: @meaning:UI.Meaning ->
-      user_message_style_is_exact_law(meaning),
+      {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+            Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style},
     assistant_message_style_is_exact: @meaning:UI.Meaning ->
-      assistant_message_style_is_exact_law(meaning),
+      {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+            Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style},
     composer_actions_style_is_exact: @meaning:UI.Meaning ->
-      composer_actions_style_is_exact_law(meaning),
+      {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+            Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style},
     primary_button_keeps_interaction_states: @meaning:UI.Meaning ->
-      primary_button_keeps_interaction_states_law(meaning),
+      {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n}, Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+            Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
+            Design.Transparent{}, 0n, 8n, False{}}, Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
+            Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+              Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}}},
+            Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+              Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}}},
+            40n, Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n
+          }} : Design.Style},
     navigation_button_metrics: @meaning:UI.Meaning ->
       {button_metrics(Appearance.style_in_context(UI.Button{}, meaning, True{})) ==
         ButtonMetrics{12n, 18n, 400n, 29n} : ButtonMetrics},
@@ -215,19 +239,20 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
+    values => context => nodes_preserve_semantics_at(values, context),
     values => context => nodes_preserve_keys_at(values, context),
     surface => system_dark => present_uses_configured_appearance(surface, system_dark),
     system_dark => light_appearance_wins(system_dark),
     system_dark => dark_appearance_wins(system_dark),
     system_dark => system_appearance_follows_os(system_dark),
-    meaning => user_message_style_is_exact(meaning),
-    meaning => assistant_message_style_is_exact(meaning),
-    meaning => composer_actions_style_is_exact(meaning),
-    meaning => primary_button_keeps_interaction_states(meaning),
-    meaning => navigation_button_metrics(meaning),
-    meaning => navigation_selected_button_metrics(meaning),
-    meaning => ordinary_button_metrics(meaning),
-    fallback => creation_title_metrics(fallback),
-    fallback => creation_context_metrics(fallback),
-    meaning => main_omits_outer_border(meaning)
+    meaning => {==},
+    meaning => {==},
+    meaning => {==},
+    meaning => {==},
+    meaning => {==},
+    meaning => {==},
+    meaning => {==},
+    fallback => {==},
+    fallback => {==},
+    meaning => {==}
   }

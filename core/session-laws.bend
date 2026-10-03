@@ -102,35 +102,16 @@ def close_residence(application: E.Application) ->
     case Nil{}: {==}
     case Con{E.Layer{panel, trigger, initial, query}, rest}: {==}
 
-def close_nonempty(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
-  panel: U.Panel, +trigger: String, initial: String, query: String, rest: +List<E.Layer>, old_attention: String,
-  navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
-  previews: +List<Live.Output>, code_blocks: +List<Content.Block>) ->
-  {E.close_panel(E.Application{program, E.Session{route, drafts, readers,
-      E.Layer{panel, trigger, initial, query} <> rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks}}) ==
-    E.Decision{E.Application{program, E.Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks}},
-      D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}:
-  {==}
 
-def close_empty(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
-  attention_value: String, navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
-  pending: +List<E.Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>) ->
-  {E.close_panel(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks}}) ==
-    E.unchanged(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks}}) : E.Decision}:
-  {==}
+
+
 
 def sequence_attention(application: E.Application, +panel: U.Panel, +trigger: String) ->
   {attention(post(E.close_panel(post(E.open_panel(panel, trigger, application))))) == trigger : String}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks}} = application
   {==}
 
-def sequence_residence(+application: E.Application, +panel: U.Panel, +trigger: String) ->
-  {residence(post(E.close_panel(post(E.open_panel(panel, trigger, application))))) == residence(application) : Residence}:
-  Equal.trans(Residence,
-    residence(post(E.close_panel(post(E.open_panel(panel, trigger, application))))),
-    residence(post(E.open_panel(panel, trigger, application))), residence(application),
-    close_residence(post(E.open_panel(panel, trigger, application))),
-    open_residence(application, panel, trigger))
+
 
 def native_without_submission_keeps_content(decision: M.Decision(), session: E.Session, durable: Bool) ->
   {session_content(post(E.native_result(decision, session, None{}, durable))) ==
@@ -282,12 +263,16 @@ def evidence() -> Requirements:
     application => panel => trigger => open_attention(application, panel, trigger),
     application => panel => trigger => open_effects(application, panel, trigger),
     application => close_residence(application),
-    program => route => drafts => readers => panel => trigger => initial => query => rest => old_attention => navigation => filter => now => next => pending => previews => code_blocks =>
-      close_nonempty(program, route, drafts, readers, panel, trigger, initial, query, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks),
-    program => route => drafts => readers => attention_value => navigation => filter => now => next => pending => previews => code_blocks =>
-      close_empty(program, route, drafts, readers, attention_value, navigation, filter, now, next, pending, previews, code_blocks),
+    program => route => drafts => readers => panel => +trigger => initial => query => rest => old_attention => navigation => filter => now => next => pending => previews => code_blocks => {==},
+    program => route => drafts => readers => attention_value => navigation => filter => now => next => pending => previews => code_blocks => {==},
     application => panel => trigger => sequence_attention(application, panel, trigger),
-    application => panel => trigger => sequence_residence(application, panel, trigger),
+    +application => +panel => +trigger =>
+      Equal.trans(Residence,
+        residence(post(E.close_panel(post(E.open_panel(panel, trigger, application))))),
+        residence(post(E.open_panel(panel, trigger, application))), residence(application),
+        close_residence(post(E.open_panel(panel, trigger, application))),
+        open_residence(application, panel, trigger))
+    ,
     input => application => runtime_keeps_content(input, application),
     decision => session => durable => native_without_submission_keeps_frame(decision, session, durable),
     decision => session => durable => native_without_submission_retains_previews(decision, session, durable),

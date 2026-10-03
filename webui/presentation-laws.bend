@@ -6,13 +6,18 @@ import ./MODEL.bend as Model
 import ./design.bend as Design
 import ./layout.bend as Layout
 import ./appearance.bend as Appearance
+import ./appearance-laws.bend as AppearanceLaws
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
 import ./presentation-order.bend as Order
 
-def scene_presentation(scene: Model.Scene) -> Design.Presentation:
-  Model.Scene{surface, platform, generation, realization, presentation} = scene
-  presentation
+def scene_layout(scene: Model.Scene) -> Design.Layout:
+  Model.Scene{surface, platform, generation, realization, layout} = scene
+  layout
+
+def scene_surface(scene: Model.Scene) -> UI.Surface:
+  Model.Scene{surface, platform, generation, realization, layout} = scene
+  Design.semantic_surface(surface)
 
 def decision_state(decision: Model.Decision) -> Model.State:
   Model.Decision{state, product, effects} = decision
@@ -50,17 +55,33 @@ def system_dark_of(environment: Design.Environment) -> Bool:
   Design.Environment{viewport, system_dark} = environment
   system_dark
 
-def observes_presentation_law(-environment: Design.Environment, -application: Platform.State, -generation: Nat, -realization: Rendered.State) -> Type:
-  {scene_presentation(Model.observe(Model.State{application, generation, realization, environment})) ==
-      Design.Presentation{
-        Layout.present(viewport_of(environment), Order.ordered_surface(Model.surface(application))),
-        Appearance.present(Order.ordered_surface(Model.surface(application)), system_dark_of(environment))
-      } : Design.Presentation}
+def observes_layout_law(-environment: Design.Environment, -application: Platform.State, -generation: Nat, -realization: Rendered.State) -> Type:
+  {scene_layout(Model.observe(Model.State{application, generation, realization, environment})) ==
+    Layout.present(viewport_of(environment), Order.ordered_surface(Model.surface(application))) : Design.Layout}
 
-def observes_presentation(environment: Design.Environment, application: Platform.State,
-  generation: Nat, realization: Rendered.State) -> observes_presentation_law(environment, application, generation, realization):
+def observes_layout(environment: Design.Environment, application: Platform.State,
+  generation: Nat, realization: Rendered.State) -> observes_layout_law(environment, application, generation, realization):
   match environment:
     case Design.Environment{viewport, system_dark}: {==}
+
+def observes_prepared_scene(environment: Design.Environment, application: Platform.State,
+  generation: Nat, realization: Rendered.State) ->
+  {Model.observe(Model.State{application, generation, realization, environment}) ==
+    Model.Scene{Appearance.present(Order.ordered_surface(Model.surface(application)), system_dark_of(environment)),
+      Platform.observe(application), generation, realization,
+      Layout.present(viewport_of(environment), Order.ordered_surface(Model.surface(application)))} : Model.Scene}:
+  match environment:
+    case Design.Environment{viewport, system_dark}: {==}
+
+def scene_for_surface_preserves_semantics(state: Model.State, surface: UI.Surface) ->
+  {scene_surface(Model.scene_for_surface(state, surface)) == surface : UI.Surface}:
+  match state:
+    case Model.State{application, generation, realization, Design.Environment{viewport, system_dark}}:
+      AppearanceLaws.present_preserves_semantics(surface, system_dark)
+
+def observes_semantic_surface(+state: Model.State) ->
+  {scene_surface(Model.observe(state)) == Model.observed_surface(state) : UI.Surface}:
+  scene_for_surface_preserves_semantics(state, Model.observed_surface(state))
 
 def environment_observed_preserves_core_law(-environment: Design.Environment, -current_environment: Design.Environment, -application: Platform.State, -generation: Nat, -realization: Rendered.State) -> Type:
   {Model.product(Model.step(Model.EnvironmentObserved{environment},
@@ -126,11 +147,7 @@ def element_preserves_environment(environment: Design.Environment, key: String, 
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}),
             (generation + 1n : Nat), environment)
 
-def frame_has_no_effects(environment: Design.Environment, received: Nat, frame: Rendered.Frame,
-  application: Platform.State, generation: Nat, realization: Rendered.State) ->
-  {Model.effects(Model.step(Model.FrameObserved{received, frame},
-    Model.State{application, generation, realization, environment})) == Nil{} : +List<Model.Effect>}:
-  Model.frame_emits_no_effects(received, frame, application, generation, realization, environment)
+
 
 def legacy_capacity_uses_layout_law(-supplied: View.Capacity, -environment: Design.Environment, -application: Platform.State, -generation: Nat, -realization: Rendered.State) -> Type:
   {decision_capacity(Model.step(Model.PlatformInput{Platform.CapacityObserved{supplied}},
@@ -148,9 +165,17 @@ def legacy_capacity_uses_layout(supplied: View.Capacity, environment: Design.Env
 
 type Requirements is Type:
   Requirements{
-    observes_presentation: @environment:Design.Environment -> @application:Platform.State ->
+    observes_prepared_scene: @environment:Design.Environment -> @application:Platform.State ->
       @generation:Nat -> @realization:Rendered.State ->
-      observes_presentation_law(environment, application, generation, realization),
+      {Model.observe(Model.State{application, generation, realization, environment}) ==
+        Model.Scene{Appearance.present(Order.ordered_surface(Model.surface(application)), system_dark_of(environment)),
+          Platform.observe(application), generation, realization,
+          Layout.present(viewport_of(environment), Order.ordered_surface(Model.surface(application)))} : Model.Scene},
+    observes_semantic_surface: @state:Model.State ->
+      {scene_surface(Model.observe(state)) == Model.observed_surface(state) : UI.Surface},
+    observes_layout: @environment:Design.Environment -> @application:Platform.State ->
+      @generation:Nat -> @realization:Rendered.State ->
+      observes_layout_law(environment, application, generation, realization),
     environment_observed_preserves_core: @environment:Design.Environment -> @current_environment:Design.Environment ->
       @application:Platform.State -> @generation:Nat -> @realization:Rendered.State ->
       environment_observed_preserves_core_law(environment, current_environment, application, generation, realization),
@@ -181,7 +206,10 @@ type Requirements is Type:
 def evidence() -> Requirements:
   Requirements{
     environment => application => generation => realization =>
-      observes_presentation(environment, application, generation, realization),
+      observes_prepared_scene(environment, application, generation, realization),
+    state => observes_semantic_surface(state),
+    environment => application => generation => realization =>
+      observes_layout(environment, application, generation, realization),
     environment => current_environment => application => generation => realization =>
       environment_observed_preserves_core(environment, current_environment, application, generation, realization),
     environment => current_environment => application => generation => realization =>
@@ -192,8 +220,7 @@ def evidence() -> Requirements:
       frame_preserves_environment(environment, received, frame, application, generation, realization),
     environment => key => gesture => application => generation => realization =>
       element_preserves_environment(environment, key, gesture, application, generation, realization),
-    environment => received => frame => application => generation => realization =>
-      frame_has_no_effects(environment, received, frame, application, generation, realization),
+    environment => received => frame => application => generation => realization => Model.frame_emits_no_effects(received, frame, application, generation, realization, environment),
     supplied => environment => application => generation => realization =>
       legacy_capacity_uses_layout(supplied, environment, application, generation, realization)
   }

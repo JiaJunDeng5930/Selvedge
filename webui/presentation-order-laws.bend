@@ -9,6 +9,7 @@ import ./visibility.bend as Visibility
 import ./presentation-order.bend as Order
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
+import ./presentation-laws.bend as PresentationLaws
 import ../bendlib/stdlib.bend as Std
 
 type NodePayload is Data:
@@ -551,16 +552,11 @@ def ordered_surface_preserves_content_scope(surface: UI.Surface) ->
   match surface:
     case UI.Surface{content, base, overlays, active_scope}: {==}
 
-def scene_surface(scene: Model.Scene) -> UI.Surface:
-  Model.Scene{surface, platform, generation, realization, presentation} = scene
-  surface
-
 def observes_ordered_surface(environment: Design.Environment, application: Platform.State,
   generation: Nat, realization: Rendered.State) ->
-  {scene_surface(Model.observe(Model.State{application, generation, realization, environment})) ==
+  {PresentationLaws.scene_surface(Model.observe(Model.State{application, generation, realization, environment})) ==
     Order.ordered_surface(Model.surface(application)) : UI.Surface}:
-  match environment:
-    case Design.Environment{viewport, system_dark}: {==}
+  PresentationLaws.observes_semantic_surface(Model.State{application, generation, realization, environment})
 
 def frame_surface_uses_ordered_projection(environment: Design.Environment, +surface: UI.Surface) ->
   {Model.frame_surface(environment, surface) == Visibility.project(
@@ -690,28 +686,9 @@ def count_all_is_length(values: +List<UI.Node>) ->
       Equal.cong(Nat, Nat, (count => Nat.add(1n, count)),
         count_by(CountAll{}, rest), List.length(&2, UI.Node, rest), count_all_is_length(rest))
 
-def dialog_partition_preserves_length(+values: +List<UI.Node>, +context: Controls.Context) ->
-  {List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
-    List.length(&2, UI.Node, values) : Nat}:
-  Equal.trans(Nat,
-    List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
-    count_by(CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
-    List.length(&2, UI.Node, values),
-    Equal.sym(Nat,
-      count_by(CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
-      List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
-      count_all_is_length(Order.ordered_dialog_children(Order.partition_dialog_children(values, context)))),
-    Equal.trans(Nat,
-      count_by(CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
-      count_by(CountAll{}, values), List.length(&2, UI.Node, values),
-      partition_count_preserved(CountAll{}, values, context), count_all_is_length(values)))
 
-def dialog_partition_preserves_occurrences(+target: UI.Node, +values: +List<UI.Node>,
-  +context: Controls.Context) ->
-  {count_by(CountKey{UI.node_key(target)},
-      Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
-    count_by(CountKey{UI.node_key(target)}, values) : Nat}:
-  partition_count_preserved(CountKey{UI.node_key(target)}, values, context)
+
+
 
 type Requirements is Type:
   Requirements{
@@ -737,7 +714,7 @@ type Requirements is Type:
       {surface_payload(Order.ordered_surface(surface)) == surface_payload(surface) : SurfacePayload},
     scene_uses_ordered_surface: @environment:Design.Environment -> @application:Platform.State ->
       @generation:Nat -> @realization:Rendered.State ->
-      {scene_surface(Model.observe(Model.State{application, generation, realization, environment})) ==
+      {PresentationLaws.scene_surface(Model.observe(Model.State{application, generation, realization, environment})) ==
         Order.ordered_surface(Model.surface(application)) : UI.Surface},
     frame_uses_ordered_projection: @environment:Design.Environment -> @surface:UI.Surface ->
       {Model.frame_surface(environment, surface) == Visibility.project(
@@ -749,8 +726,21 @@ def evidence() -> Requirements:
   Requirements{
     role => values => context => non_dialog_order(role, values, context),
     values => context => partition_matches_specification(values, context),
-    values => context => dialog_partition_preserves_length(values, context),
-    target => values => context => dialog_partition_preserves_occurrences(target, values, context),
+    +values => +context =>
+      Equal.trans(Nat,
+        List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
+        count_by(CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
+        List.length(&2, UI.Node, values),
+        Equal.sym(Nat,
+          count_by(CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
+          List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
+          count_all_is_length(Order.ordered_dialog_children(Order.partition_dialog_children(values, context)))),
+        Equal.trans(Nat,
+          count_by(CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
+          count_by(CountAll{}, values), List.length(&2, UI.Node, values),
+          partition_count_preserved(CountAll{}, values, context), count_all_is_length(values)))
+    ,
+    +target => +values => +context => partition_count_preserved(CountKey{UI.node_key(target)}, values, context),
     values => role => context => ordered_children_matches_specification(values, role, context),
     values => context => dialog_order_idempotent(values, context),
     value => children => node_with_children_preserves_payload(value, children),

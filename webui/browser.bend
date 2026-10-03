@@ -20,6 +20,7 @@ import ../bendlib/json.bend as J
 import ../bendlib/domain.bend as D
 import ../bendlib/command-codec.bend as Codec
 import ./MODEL.bend as Web
+import ./design.bend as Design
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
 import ./document.bend as Document
@@ -184,12 +185,9 @@ def entry_text(entry: Forms.Entry, text: String) -> Maybe<&2, UI.Gesture>:
     case Forms.FileCollection{}: None{}
     case Forms.DirectoryCollection{}: Some{UI.Directory{text}}
     case _: Some{UI.Change{Forms.Text{text}}}
-def mask_scene(scene: Web.Scene, pending: +List<Pending>) -> Web.Scene:
-  Web.Scene{surface, platform, generation, realization, presentation} = scene
-  Web.Scene{mask_surface(surface, pending), platform, generation, realization, presentation}
 def scene(state: State) -> Web.Scene:
-  State{web, sequence, next, +pending} = state
-  mask_scene(Web.observe(web), pending)
+  State{+web, sequence, next, pending} = state
+  Web.scene_for_surface(web, mask_surface(Web.observed_surface(web), pending))
 # Unknown receipt status is local browser feedback; it never enters task history.
 def unknown_notice(ticket: Nat, reason: String) -> Document.Node:
   Document.Element{"@browser/unknown/" ++ Nat.show(ticket), "p",
@@ -263,8 +261,8 @@ def collected_finish(decision: Decision, web: +List<Web.Effect>, services: +List
   Decision{state, requests} = decision
   Decision{state, List.append(&2, Effect, wrap_web(web), List.append(&2, Effect, requests, wrap_services(services)))}
 def scene_nodes(scene: Web.Scene) -> +List<UI.Node>:
-  Web.Scene{surface, platform, generation, realization, presentation} = scene
-  UI.active_nodes(surface)
+  Web.Scene{surface, platform, generation, realization, layout} = scene
+  UI.active_nodes(Design.semantic_surface(surface))
 def nodes(state: State) -> +List<UI.Node>:
   scene_nodes(scene(state))
 def found_node(+key: String, state: State) -> Maybe<&2, UI.Node>:
@@ -722,7 +720,7 @@ def active_focus_scope(state: State) -> Focus.Scope:
   scope
 
 def scene_layer_key(value: Web.Scene) -> Maybe<&2, String>:
-  Web.Scene{UI.Surface{content, base, overlays, scope}, platform, generation, realization, presentation} = value
+  Web.Scene{Design.Surface{content, theme, base, overlays, scope}, platform, generation, realization, layout} = value
   scope
 
 def outside_layer_owned(+identity: String, key: Maybe<&2, String>) -> Bool:

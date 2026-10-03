@@ -207,13 +207,13 @@ def excluded_geometry_tail(+mode: AttributeMode, +visual: D.Style, +face: C.Face
 
 def action_background_preserved(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability,
   +name: String, +face: C.Face, +behavior: C.Behavior, +geometry: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
-  {R.attr(Doc.element_styles(R.action(key, D.Appearance{key, visual, C.NoControl{}, Nil{}}, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background") == R.attr(R.style(visual), "background") : String}:
+  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background") == R.attr(R.style(visual), "background") : String}:
   D.Style{D.TextStyle{+font, +size, +line_height, +weight}, D.Chrome{+foreground, +background, +border, +border_width, +radius, +shadow}, +alignment, +flow, +overflow, +content_frame, +height, +maximum, +states} = visual
   +value: D.Style = D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, content_frame, height, maximum, states}
   +tail: +List<Doc.Property> = style_tail(flow, overflow, shadow, alignment, states)
   +extra: +List<Doc.Property> = geometry_tail(value, face, geometry, placement, key)
   Equal.trans(String,
-    R.attr(Doc.element_styles(R.action(key, D.Appearance{key, value, C.NoControl{}, Nil{}}, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background"),
+    R.attr(Doc.element_styles(R.action(key, value, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background"),
     R.paint(background), R.attr(R.style(value), "background"),
     preserved(PointerBackground{}, List.append(&2, Doc.Property, tail, extra), R.paint(background),
       excluded_append(PointerBackground{}, tail, extra, excluded_style_tail(PointerBackground{}, flow, overflow, shadow, alignment, states), excluded_geometry_tail(PointerBackground{}, value, face, geometry, placement, key))),
@@ -377,9 +377,7 @@ def description_production(+key: String, editor: User.Editor, +name: String, +te
   +meaning: UI.Meaning = UI.Edit{editor, Forms.CardDescription{}, Forms.Multiline{}, Forms.TextValue{text}}
   R.input(key, meaning, C.Input{meaning, name, C.TextArea{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning))
 
-def area_properties(+area: E.ContentArea) ->
-  {R.content_area_properties(area) == [R.property("padding-inline", R.px(E.inline(area))), R.property("padding-block", R.px(E.block(area))), R.property("box-sizing", "border-box")] : +List<Doc.Property>}:
-  {==}
+
 
 def style_allocation(+value: D.Style, +axis: Axis) ->
   {R.attr(R.style(value), axis_name(axis)) == R.px(axis_space(axis, Model.area(value))) : String}:
@@ -739,7 +737,7 @@ def parent_action_tail(+pointer: Bool, +property: ParentProperty, +visual: D.Sty
 
 def parent_action_law(-property: ParentProperty, -key: String, -visual: D.Style, -input: Core.Input, -availability: View.Availability, -name: String,
   -face: C.Face, -behavior: C.Behavior, -size: C.Geometry, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback) -> Type:
-  {R.attr(Doc.element_styles(R.action(key, D.Appearance{key, visual, C.NoControl{}, Nil{}}, C.Action{input, availability, name, face, behavior, size, placement, help, feedback})), parent_name(property)) == parent_value(visual, property) : String}
+  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, size, placement, help, feedback})), parent_name(property)) == parent_value(visual, property) : String}
 
 def parent_action(+property: ParentProperty, +key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability, +name: String,
   +face: C.Face, +behavior: C.Behavior, +size: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) -> parent_action_law(property, key, visual, input, availability, name, face, behavior, size, placement, help, feedback):
@@ -751,13 +749,7 @@ def parent_minimum(+value: D.Style) ->
   D.Style{text, D.Chrome{fg, bg, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
   {==}
 
-def geometry_height(+size: C.Geometry, +visual: D.Style) ->
-  {R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height") == R.px(Model.minimum(visual)) : String}:
-  Equal.trans(String, R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height"),
-    parent_value(visual, MinimumHeight{}), R.px(Model.minimum(visual)),
-    parent_append(False{}, MinimumHeight{}, R.style(visual), R.action_geometry(size, visual), "", parent_value(visual, MinimumHeight{}),
-      parent_style(False{}, MinimumHeight{}, visual), parent_geometry(False{}, MinimumHeight{}, size, visual, parent_value(visual, MinimumHeight{}))),
-    parent_minimum(visual))
+
 
 def navigation_header(+selected: Bool) ->
   {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-block")) == ("8px", "4px") : (String & String)}:
@@ -765,43 +757,29 @@ def navigation_header(+selected: Bool) ->
     case False{}: {==}
     case True{}: {==}
 
-def navigation_task(+selected: Bool, +key: String, +task: Nat, +status: String, +children: +List<Doc.Node>, +appearances: +List<D.Appearance>) ->
-  {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children, appearances)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children, appearances)), "padding-block")) == ("8px", "4px") : (String & String)}:
+def navigation_task(+selected: Bool, +key: String, +task: Nat, +status: String, +children: +List<R.Child>) ->
+  {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-block")) == ("8px", "4px") : (String & String)}:
   match selected:
     case False{}: {==}
     case True{}: {==}
 
-def embedded_name() ->
-  {(R.attr(R.style(A.project_label_style(A.ordinary_button())), "padding-inline"), R.attr(R.style(A.project_label_style(A.ordinary_button())), "padding-block")) == ("0px", "0px") : (String & String)}:
-  {==}
 
-def icon_control(+width: String) ->
-  {(R.attr(R.style(A.action_style(A.ordinary_button(), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-inline"), R.attr(R.style(A.action_style(A.ordinary_button(), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-block")) == ("4px", "4px") : (String & String)}:
-  {==}
 
-def card_title() ->
-  {(R.attr(BoardLaws.title_production_styles(), "padding-inline"), R.attr(BoardLaws.title_production_styles(), "padding-block")) == ("8px", "4px") : (String & String)}:
-  {==}
+
+
+
 
 def search(+filter: Board.Filter) ->
   {(R.attr(R.style(A.field_style(UI.BoardSearch{filter})), "padding-inline"), R.attr(R.style(A.field_style(UI.BoardSearch{filter})), "padding-block")) == ("8px", "4px") : (String & String)}:
   {==}
 
-def dialog_header() ->
-  {(R.attr(R.dialog_header_styles(), "padding-inline"), R.attr(R.dialog_header_styles(), "padding-block")) == ("24px", "14px") : (String & String)}:
-  {==}
 
-def dialog_body() ->
-  {(R.attr(R.dialog_body_styles(), "padding-inline"), R.attr(R.dialog_body_styles(), "padding-block")) == ("24px", "20px") : (String & String)}:
-  {==}
 
-def dialog_footer() ->
-  {(R.attr(R.dialog_footer_styles(), "padding-inline"), R.attr(R.dialog_footer_styles(), "padding-block")) == ("24px", "12px") : (String & String)}:
-  {==}
 
-def empty_overwrite(+name: String, +old: String) ->
-  {R.attr([R.property(name, old), R.property(name, "")], name) == "" : String}:
-  duplicate(name, old, "")
+
+
+
+
 
 def option_production_insets(+key: String, +label: String, +selected: Bool, +description: String, +geometry: C.Geometry, +input: Core.Input) ->
   {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-block")) == ("8px", "8px") : (String & String)}:
@@ -831,9 +809,7 @@ def description_production_insets(+key: String, +editor: User.Editor, +name: Str
     case User.ForkEditor{task}: {==}
     case User.CompactEditor{task}: {==}
 
-def dialog_outer() ->
-  {(R.attr(R.style(A.style(UI.Dialog{}, UI.Region{})), "padding-inline"), R.attr(R.style(A.style(UI.Dialog{}, UI.Region{})), "padding-block")) == ("0px", "0px") : (String & String)}:
-  {==}
+
 
 def geometry_complete_law(-width: Nat, -height: Nat, -icon: Nat, -radius: Nat, -leading: Nat, -visual: D.Style) -> Type:
   {R.action_geometry(C.Geometry{width, height, icon, radius, leading}, visual) == [R.property("min-width", R.px(width)), R.property("--native-icon-size", R.px(icon)), R.property("--native-leading-slot", R.px(leading))] : +List<Doc.Property>}
@@ -851,7 +827,7 @@ type Requirements is Type:
     duplicate: @+name:String -> @+old:String -> @+new:String -> {R.attr([R.property(name, old), R.property(name, new)], name) == new : String},
     geometry_height: @+size:C.Geometry -> @+visual:D.Style -> {R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height") == R.px(Model.minimum(visual)) : String},
     navigation_header: @+selected:Bool -> {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-block")) == ("8px", "4px") : (String & String)},
-    navigation_task: @+selected:Bool -> @+key:String -> @+task:Nat -> @+status:String -> @+children:+List<Doc.Node> -> @+appearances:+List<D.Appearance> -> {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children, appearances)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children, appearances)), "padding-block")) == ("8px", "4px") : (String & String)},
+    navigation_task: @+selected:Bool -> @+key:String -> @+task:Nat -> @+status:String -> @+children:+List<R.Child> -> {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-block")) == ("8px", "4px") : (String & String)},
     embedded_name: {(R.attr(R.style(A.project_label_style(A.ordinary_button())), "padding-inline"), R.attr(R.style(A.project_label_style(A.ordinary_button())), "padding-block")) == ("0px", "0px") : (String & String)},
     icon_control: @+width:String -> {(R.attr(R.style(A.action_style(A.ordinary_button(), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-inline"), R.attr(R.style(A.action_style(A.ordinary_button(), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-block")) == ("4px", "4px") : (String & String)},
     card_title: {(R.attr(BoardLaws.title_production_styles(), "padding-inline"), R.attr(BoardLaws.title_production_styles(), "padding-block")) == ("8px", "4px") : (String & String)},
@@ -867,4 +843,10 @@ type Requirements is Type:
     geometry_complete: @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+visual:D.Style -> geometry_complete_law(width, height, icon, radius, leading, visual)}
 
 def evidence() -> Requirements:
-  Requirements{parent_action, area_properties, style_allocation, duplicate, geometry_height, navigation_header, navigation_task, embedded_name(), icon_control, card_title(), search, dialog_header(), dialog_body(), dialog_footer(), empty_overwrite, option_production_insets, title_production_insets, description_production_insets, dialog_outer(), geometry_complete}
+  Requirements{parent_action, +area => {==}, style_allocation, duplicate, +size => +visual =>
+      Equal.trans(String, R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height"),
+        parent_value(visual, MinimumHeight{}), R.px(Model.minimum(visual)),
+        parent_append(False{}, MinimumHeight{}, R.style(visual), R.action_geometry(size, visual), "", parent_value(visual, MinimumHeight{}),
+          parent_style(False{}, MinimumHeight{}, visual), parent_geometry(False{}, MinimumHeight{}, size, visual, parent_value(visual, MinimumHeight{}))),
+        parent_minimum(visual))
+    , navigation_header, navigation_task, {==}, +width => {==}, {==}, search, {==}, {==}, {==}, +name => +old => duplicate(name, old, ""), option_production_insets, title_production_insets, description_production_insets, {==}, geometry_complete}

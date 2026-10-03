@@ -45,7 +45,9 @@ type Requirements is Type:
     structure_order: @recipe:Composition.Recipe ->
       {Composition.structure(recipe) == expected_structure(recipe) : Composition.Structure},
     creation_structure: @composer:Bool ->
-      creation_structure_law(composer),
+      {Composition.structure(Composition.recipe(Composition.Creation{composer})) ==
+        Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <>
+          Composition.centered_composer_region(Composition.centered_composer(composer)), Nil{}} : Composition.Structure},
     creation_project: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, View.ProjectChoice>},
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> ->
@@ -53,7 +55,10 @@ type Requirements is Type:
       {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
     creation_page: @+input:Maybe<&2, View.ComposerScene> -> @+parent:String -> @+world:M.World() ->
       @+session:Experience.Session -> @+services:Services.State ->
-      creation_page_law(input, parent, world, session, services),
+      {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
+        List.append(&2, Interface.Node,
+          Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
+          Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>},
     context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent:String -> @+state:Core.State ->
       {Interface.controls(declaration <> rest, parent, state) == Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->
@@ -198,14 +203,9 @@ def structure_evidence(recipe: Composition.Recipe)
     case Composition.Recipe{measure, heading, Composition.AgentRows{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.UnavailableNotice{}, composer, decisions, latest}: {==}
 
-def creation_structure_law(-composer: Bool) -> Type:
-  {Composition.structure(Composition.recipe(Composition.Creation{composer})) ==
-    Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <>
-      Composition.centered_composer_region(Composition.centered_composer(composer)), Nil{}} : Composition.Structure}
 
-def creation_structure_order(composer: Bool) ->
-  creation_structure_law(composer):
-  {==}
+
+
 
 def introduction_context(value: View.CreationIntroduction) -> Maybe<&2, Context.Preview>:
   View.CreationIntroduction{heading, summary, context, project, choose} = value
@@ -223,9 +223,7 @@ def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text
     case None{}: {==}
     case Some{preview}: {==}
 
-def current_composer_project(+context: Maybe<&2, Context.Preview>, +world: M.World()) ->
-  {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, View.ProjectChoice>}:
-  {==}
+
 
 def selected_project_registry(origin: Context.Origin, +id: Nat, workspace: Context.WorkspaceValue,
   sandbox: Context.SandboxValue, approval: Context.ApprovalValue, guidance: Context.GuidancePreview, +world: M.World()) ->
@@ -233,22 +231,11 @@ def selected_project_registry(origin: Context.Origin, +id: Nat, workspace: Conte
     View.creation_project(Projects.find(Projects.registry(Features.State(), world), id), id) : Maybe<&2, View.ProjectChoice>}:
   {==}
 
-def creation_page_law(-input: Maybe<&2, View.ComposerScene>, -parent: String, -world: M.World(),
-  -session: Experience.Session, -services: Services.State) -> Type:
-  {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
-    List.append(&2, Interface.Node,
-      Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
-      Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>}
 
-def creation_page_keeps_composer(+input: Maybe<&2, View.ComposerScene>, +parent: String,
-  +world: M.World(), +session: Experience.Session, +services: Services.State) ->
-  creation_page_law(input, parent, world, session, services):
-  {==}
 
-def context_action_admission(+declaration: View.ControlDeclaration, +rest: +List<View.ControlDeclaration>, +parent: String, +state: Core.State) ->
-  {Interface.controls(declaration <> rest, parent, state) ==
-    Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>}:
-  {==}
+
+
+
 
 def composer_footer(view: Maybe<&2, View.ComposerScene>) -> +List<View.ComposerControl>:
   match view:
@@ -264,9 +251,7 @@ def composer_has_context(+message: U.Text, +profile: String, reasoning: String, 
   View.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
   {==}
 
-def absent_model_label(fallback: String) ->
-  {View.profile_label(None{}, fallback) == "Choose model" : String}:
-  {==}
+
 
 def evidence() -> Requirements:
   Requirements{
@@ -279,10 +264,10 @@ def evidence() -> Requirements:
     id => speaker => text => source => task => parent => state => visible_speaker_evidence(id, speaker, text, source, task, parent, state),
     view => parent => state => Interface.composer_tree_agreement(view, parent, state),
     recipe => structure_evidence(recipe),
-    composer => creation_structure_order(composer),
-    context => world => current_composer_project(context, world),
+    composer => {==},
+    +context => +world => {==},
     identity => revision => message => footer => context => submit => feedback => pending => world => current_composer_context(identity, revision, message, footer, context, submit, feedback, pending, world),
-    input => parent => world => session => services => creation_page_keeps_composer(input, parent, world, session, services),
-    declaration => rest => parent => state => context_action_admission(declaration, rest, parent, state),
+    +input => +parent => +world => +session => +services => {==},
+    +declaration => +rest => +parent => +state => {==},
     message => profile => reasoning => context => scene => world => composer_has_context(message, profile, reasoning, context, scene, world),
-    fallback => absent_model_label(fallback)}
+    fallback => {==}}

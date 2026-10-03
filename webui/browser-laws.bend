@@ -6,6 +6,8 @@ import ./focus.bend as Focus
 import ./rendered.bend as Rendered
 import ./platform.bend as Platform
 import ./design.bend as Design
+import ./presentation-laws.bend as PresentationLaws
+import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../MODEL.bend as M
 import ../UI.bend as Product
@@ -51,15 +53,9 @@ def stale_snapshot(+received: Nat, +world: M.World(), +state: Browser.State,
   Equal.cong(Bool, Browser.Decision,
     (newer => Browser.snapshot_new(newer, received, world, Browser.State{web, current, next, pending})),
     Nat.is_lt(current, received), False{}, stale)
-def admitted_request_law(-command: J.Json, -completion: E.Completion, -origin: String, -web: Web.State, -sequence: Nat, -next: Nat, -pending: +List<Browser.Pending>) -> Type:
-  {Browser.request_ready(False{}, command, completion, origin, Browser.State{web, sequence, next, pending}) ==
-      Browser.Decision{Browser.State{web, sequence, (next + 1n : Nat),
-        List.append(&2, Browser.Pending, pending, [Browser.Pending{next, completion, command, origin, Browser.AwaitingReceipt{}}])},
-        [Browser.Command{next, command}]} : Browser.Decision}
 
-def admitted_request(command: J.Json, completion: E.Completion, origin: String,
-  web: Web.State, sequence: Nat, next: Nat, pending: +List<Browser.Pending>) -> admitted_request_law(command, completion, origin, web, sequence, next, pending):
-  {==}
+
+
 def duplicate_retains_state(command: J.Json, completion: E.Completion, origin: String,
   state: Browser.State) ->
   {Browser.request_ready(True{}, command, completion, origin, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
@@ -68,26 +64,13 @@ def unmatched_completion(received: Nat, world: M.World(), reply: J.Json, state: 
   {Browser.completed(None{}, received, world, reply, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
   {==}
 
-def stale_completion_law(-ticket: Nat, -received: Nat, -supplied: M.World(), -reply: J.Json, -completion: E.Completion, -web: Web.State, -current: Nat, -next: Nat, -pending: +List<Browser.Pending>) -> Type:
-  {Browser.complete_new(False{}, ticket, received, supplied, reply, completion,
-      Browser.State{web, current, next, pending}) ==
-      Browser.product_input(Product.CommandCompleted{
-        Browser.program(Browser.State{web, current, next, pending}), reply, completion},
-        Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}
 
-def stale_completion_uses_current(ticket: Nat, received: Nat, supplied: M.World(), reply: J.Json,
-  completion: E.Completion, web: Web.State, current: Nat, next: Nat,
-  pending: +List<Browser.Pending>) -> stale_completion_law(ticket, received, supplied, reply, completion, web, current, next, pending):
-  {==}
 
-def failed_transition(ticket: Nat, error: String, web: Web.State, sequence: Nat, next: Nat, requests: +List<Browser.Pending>) ->
-  {Browser.step(Browser.Failed{ticket, error}, Browser.State{web, sequence, next, requests}) ==
-    Browser.Decision{Browser.State{web, sequence, next, Browser.uncertain_pending(requests, ticket, error)}, Nil{}} : Browser.Decision}:
-  {==}
 
-def document_key(tab: Bool, escape: Bool, shift: Bool, realization: Rendered.State, state: Browser.State) ->
-  {Browser.key_scoped(Focus.Document{}, tab, escape, shift, realization, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
-  {==}
+
+
+
+
 
 def pending(decision: Browser.Decision) -> +List<Browser.Pending>:
   Browser.Decision{Browser.State{web, sequence, next, requests}, effects} = decision
@@ -97,9 +80,7 @@ def web_state(decision: Browser.Decision) -> Web.State:
   Browser.Decision{Browser.State{web, sequence, next, requests}, effects} = decision
   web
 
-def failed_preserves_web(ticket: Nat, error: String, web: Web.State, sequence: Nat, next: Nat, requests: +List<Browser.Pending>) ->
-  {web_state(Browser.step(Browser.Failed{ticket, error}, Browser.State{web, sequence, next, requests})) == web : Web.State}:
-  {==}
+
 
 def uncertain_entry_ticket(hit: Bool, entry: Browser.Pending, reason: String) ->
   {Browser.ticket_of(Browser.mark_uncertain(hit, entry, reason)) == Browser.ticket_of(entry) : Nat}:
@@ -130,10 +111,7 @@ def uncertain_retains_tickets(+requests: +List<Browser.Pending>, +ticket: Nat, +
           Browser.owns_ticket(Browser.uncertain_pending(rest, ticket, reason), observed), Browser.owns_ticket(rest, observed),
           uncertain_retains_tickets(rest, ticket, reason, observed)))
 
-def failed_retains_ticket(ticket: Nat, error: String, web: Web.State, sequence: Nat, next: Nat, requests: +List<Browser.Pending>, observed: Nat) ->
-  {Browser.owns_ticket(pending(Browser.step(Browser.Failed{ticket, error}, Browser.State{web, sequence, next, requests})), observed) ==
-    Browser.owns_ticket(requests, observed) : Bool}:
-  uncertain_retains_tickets(requests, ticket, error, observed)
+
 
 def document_state(core: Core.State, platform: Platform.Platform, generation: Nat, realization: Rendered.State, environment: Design.Environment,
   sequence: Nat, next: Nat, requests: +List<Browser.Pending>) -> Browser.State:
@@ -186,19 +164,11 @@ def without_root_layout(value: Doc.Node) -> Doc.Node:
     case Doc.Element{key, tag, attrs, styles, events, children}: Doc.Element{key, tag, attrs, Nil{}, events, children}
     case other: other
 
-def notice_root_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {node_identity(document_root(Browser.with_notices(notices, root, title))) ==
-    Some{RootIdentity{"@browser/interaction", "div"}} : Maybe<&2, RootIdentity>}:
-  {==}
 
-def notice_children(+notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {Doc.element_children(document_root(Browser.with_notices(notices, root, title))) ==
-    [Browser.notice_region(notices), Browser.application_for_notices(notices, root)] : +List<Doc.Node>}:
-  {==}
 
-def notice_title(notices: +List<Doc.Node>, root: Doc.Node, +title: String) ->
-  {document_title(Browser.with_notices(notices, root, title)) == title : String}:
-  {==}
+
+
+
 
 def application_identity(notices: +List<Doc.Node>, +root: Doc.Node, title: String) ->
   {node_identity(application_node(Browser.with_notices(notices, root, title))) == node_identity(root) : Maybe<&2, RootIdentity>}:
@@ -220,14 +190,9 @@ def application_content(notices: +List<Doc.Node>, +root: Doc.Node, title: String
     case Con{notice, rest} Doc.Portal{key, target, children}: {==}
     case Con{notice, rest} Doc.TargetProperties{key, target, attributes, styles}: {==}
 
-def empty_application_unchanged(+root: Doc.Node, title: String) ->
-  {application_node(Browser.with_notices(Nil{}, root, title)) == root : Doc.Node}:
-  {==}
 
-def empty_notice_hidden(root: Doc.Node, title: String) ->
-  {first_node(Doc.element_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
-    Doc.Element{"@browser/unknown-status", "aside", [Doc.Property{"hidden", ""}], [Doc.Property{"display", "none"}], Nil{}, Nil{}} : Doc.Node}:
-  {==}
+
+
 
 def notice_contents(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
   {Doc.element_children(first_node(Doc.element_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>}:
@@ -242,17 +207,23 @@ def notice_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
     case Nil{}: {==}
     case Con{notice, rest}: {==}
 
-def dismissal_allowed(+input: Core.Input, +state: Browser.State) ->
-  {Browser.dismiss_permitted(True{}, input, state) ==
-    Browser.product_input(Product.InterfaceInput{input}, state) : Browser.Decision}:
-  {==}
 
-def dismissal_refused(input: Core.Input, +state: Browser.State) ->
-  {Browser.dismiss_permitted(False{}, input, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
-  {==}
+
+
+
+def pending_scene_preserves_semantics(+web: Web.State, sequence: Nat, next: Nat,
+  +pending: +List<Browser.Pending>) ->
+  {PresentationLaws.scene_surface(Browser.scene(Browser.State{web, sequence, next, pending})) ==
+    Browser.mask_surface(Web.observed_surface(web), pending) : UI.Surface}:
+  PresentationLaws.scene_for_surface_preserves_semantics(web,
+    Browser.mask_surface(Web.observed_surface(web), pending))
 
 type Requirements is Type:
   Requirements{
+    pending_scene_preserves_semantics: @web:Web.State -> @sequence:Nat -> @next:Nat ->
+      @pending:+List<Browser.Pending> ->
+      {PresentationLaws.scene_surface(Browser.scene(Browser.State{web, sequence, next, pending})) ==
+        Browser.mask_surface(Web.observed_surface(web), pending) : UI.Surface},
     interface_bridge: Product.InterfaceRequirements,
     dismissal_allowed: @+input:Core.Input -> @+state:Browser.State ->
       {Browser.dismiss_permitted(True{}, input, state) ==
@@ -292,10 +263,17 @@ type Requirements is Type:
       {Browser.snapshot(received, world, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
     admitted_request: @command:J.Json -> @completion:E.Completion -> @origin:String ->
       @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      admitted_request_law(command, completion, origin, web, sequence, next, pending),
+      {Browser.request_ready(False{}, command, completion, origin, Browser.State{web, sequence, next, pending}) ==
+          Browser.Decision{Browser.State{web, sequence, (next + 1n : Nat),
+            List.append(&2, Browser.Pending, pending, [Browser.Pending{next, completion, command, origin, Browser.AwaitingReceipt{}}])},
+            [Browser.Command{next, command}]} : Browser.Decision},
     stale_completion: @ticket:Nat -> @received:Nat -> @supplied:M.World() -> @reply:J.Json ->
       @completion:E.Completion -> @web:Web.State -> @current:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      stale_completion_law(ticket, received, supplied, reply, completion, web, current, next, pending)
+      {Browser.complete_new(False{}, ticket, received, supplied, reply, completion,
+          Browser.State{web, current, next, pending}) ==
+          Browser.product_input(Product.CommandCompleted{
+            Browser.program(Browser.State{web, current, next, pending}), reply, completion},
+            Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}
   }
 def evidence() -> Requirements:
-  Requirements{Product.interface_evidence(), dismissal_allowed, dismissal_refused, notice_identity, notice_root_identity, notice_children, notice_title, application_identity, application_content, empty_application_unchanged, empty_notice_hidden, notice_contents, document_key_event, failed_transition, document_key, failed_preserves_web, failed_retains_ticket, consumed_ticket, stale_snapshot, admitted_request, stale_completion_uses_current}
+  Requirements{web => sequence => next => pending => pending_scene_preserves_semantics(web, sequence, next, pending), Product.interface_evidence(), +input => +state => {==}, input => +state => {==}, notice_identity, notices => root => title => {==}, +notices => root => title => {==}, notices => root => +title => {==}, application_identity, application_content, +root => title => {==}, root => title => {==}, notice_contents, document_key_event, ticket => error => web => sequence => next => requests => {==}, tab => escape => shift => realization => state => {==}, ticket => error => web => sequence => next => requests => {==}, ticket => error => web => sequence => next => requests => observed => uncertain_retains_tickets(requests, ticket, error, observed), consumed_ticket, stale_snapshot, command => completion => origin => web => sequence => next => pending => {==}, ticket => received => supplied => reply => completion => web => current => next => pending => {==}}

@@ -3,6 +3,8 @@ import ./enclosure.bend as Enclosure
 import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
 import ./controls.bend as Controls
+import ../core/interface.bend as UI
+import ../core/SYSTEM.bend as Core
 
 type FactContentLayout is Data:
   FactContentLayout{content: Enclosure.Frame, facts: Enclosure.Frame}
@@ -156,12 +158,21 @@ type Style is Data:
     overflow: Overflow, frame: Enclosure.Frame,
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
-type Appearance is Data:
-  Appearance{key: String, style: Style, control: Controls.Representation,
-    children: +List<Appearance>}
+type Node is Data:
+  Node{key: String, semantic: String, label: String, role: UI.Role,
+    meaning: UI.Meaning, style: Style, control: Controls.Representation,
+    children: +List<Node>}
 
-type Visuals is Data:
-  Visuals{theme: Theme, base: +List<Appearance>, overlays: +List<Appearance>}
+type Surface is Data:
+  Surface{content: Core.Scene, theme: Theme, base: +List<Node>,
+    overlays: +List<Node>, active_scope: Maybe<&2, String>}
 
-type Presentation is Data:
-  Presentation{layout: Layout, visuals: Visuals}
+def semantic_nodes(nodes: +List<Node>) -> +List<UI.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Node{key, semantic, label, role, meaning, style, control, children}, rest}:
+      UI.Node{key, semantic, label, role, meaning, semantic_nodes(children)} <> semantic_nodes(rest)
+
+def semantic_surface(surface: Surface) -> UI.Surface:
+  Surface{content, theme, base, overlays, active_scope} = surface
+  UI.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}

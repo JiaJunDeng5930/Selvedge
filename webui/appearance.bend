@@ -483,13 +483,13 @@ def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamil
 def final_style(key: String, meaning: UI.Meaning, context: Controls.Context, representation: Controls.Representation, value: Design.Style) -> Design.Style:
   family_style(key, meaning, Controls.source_reference(context), representation, value)
 
-def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design.Appearance>:
+def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{UI.Node{+key, semantic, label, +role, +meaning, children}, rest}:
+    case Con{UI.Node{+key, +semantic, +label, +role, +meaning, children}, rest}:
       +local = Controls.enter(key, role, meaning, context)
       +control = Controls.represent(key, meaning, label, role, local)
-      Con{Design.Appearance{key,
+      Con{Design.Node{key, semantic, label, role, meaning,
         final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local))), control)),
         control, nodes_at(children, local)}, nodes_at(rest, context)}
 
@@ -500,14 +500,14 @@ def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
     case Services.LightAppearance{} _: Design.Light{}
     case Services.DarkAppearance{} _: Design.Dark{}
 
-def present_fields(content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI.Node>,
-  +context: Controls.Context, system_dark: Bool) -> Design.Visuals:
+def present_fields(+content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI.Node>,
+  +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>) -> Design.Surface:
   Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
   Core.Settings{open, access, credential_entered, appearance, open_action,
     close_action, connect_action} = settings
-  Design.Visuals{theme(appearance, system_dark),
-    nodes_at(base, context), nodes_at(overlays, context)}
+  Design.Surface{content, theme(appearance, system_dark),
+    nodes_at(base, context), nodes_at(overlays, context), active_scope}
 
-def present(surface: UI.Surface, system_dark: Bool) -> Design.Visuals:
+def present(surface: UI.Surface, system_dark: Bool) -> Design.Surface:
   UI.Surface{+content, base, overlays, active_scope} = surface
-  present_fields(content, base, overlays, Controls.initial(content), system_dark)
+  present_fields(content, base, overlays, Controls.initial(content), system_dark, active_scope)

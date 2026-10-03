@@ -57,33 +57,18 @@ def message_composer_context(+task: Nat, message: U.Text, delivery: U.Delivery, 
   V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
   {==}
 
-def committed_lookup_source(+task: D.Task) ->
-  {V.committed_context(Some{task}) == Some{Context.effective(task)} : Maybe<&2, Context.EffectiveContext>}:
-  {==}
+
 
 def retained_summary(+value: Context.Observation, parent: String, state: Core.State) ->
   {node_context(UI.context_summary_node(value, parent, state)) == Some{value} : Maybe<&2, Context.Observation>}:
   Core.State{E.Application{world, session}, services} = state
   {==}
 
-def directory_label(+path: String, +primary: Bool, choose: V.ControlDeclaration, remove: V.ControlDeclaration, parent: String, state: Core.State) ->
-  {directory_fact(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)) ==
-    Some{DirectoryFact{path, path, primary}} : Maybe<&2, DirectoryFact>}:
-  {==}
 
-def directory_commands_law(-path: String, -rest: +List<String>, -primary: Maybe<&2, String>,
-  -editor: U.Editor) -> Type:
-  {V.root_controls(path <> rest, primary, editor) ==
-    V.WorkspaceRoot{path, V.is_primary(primary, path),
-      V.ControlDeclaration{"primary/" ++ U.editor_key(editor) ++ "/" ++ path, "Use as working directory", V.Secondary{},
-        U.EditDraft{editor, U.EditWorkspace{Context.ChoosePrimary{path}}}, V.Available{}},
-      V.ControlDeclaration{"remove-root/" ++ U.editor_key(editor) ++ "/" ++ path, "Remove directory", V.Secondary{},
-        U.EditDraft{editor, U.EditWorkspace{Context.RemoveRoot{path}}}, V.Available{}}} <>
-      V.root_controls(rest, primary, editor) : +List<V.WorkspaceRoot>}
 
-def directory_commands(+path: String, +rest: +List<String>, +primary: Maybe<&2, String>, +editor: U.Editor) ->
-  directory_commands_law(path, rest, primary, editor):
-  {==}
+
+
+
 
 def mode_input(+mode: D.SandboxMode, current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: String, state: Core.State) ->
   {choice_input(UI.sandbox_choice(mode, current, network, editor, parent, state)) ==
@@ -111,9 +96,7 @@ def approval_input(+choice: Context.ApprovalChoice, current: Context.ApprovalCho
   Core.State{application, services} = state
   {==}
 
-def normalized_approval(+policy: D.ApprovalPolicy) ->
-  {Context.observed_approval(Context.InheritedApproval{policy}) == Context.observed_approval(Context.ChosenApproval{Context.approval_choice(policy)}) : Context.ApprovalChoice}:
-  {==}
+
 
 def automatic_selection(+current: String, +next: String, reviewer: Maybe<&2, D.Profile>, editor: U.Editor, parent: String, state: Core.State) ->
   {choice_selection(UI.approval_choice_node(Context.AutomaticReview{next}, Context.AutomaticReview{current}, reviewer, editor, parent, state)) ==
@@ -121,34 +104,19 @@ def automatic_selection(+current: String, +next: String, reviewer: Maybe<&2, D.P
   Core.State{application, services} = state
   {==}
 
-def sandbox_edit_keeps_other_facets(+origin: Context.Origin, +workspace: Maybe<&2, D.Workspace>, old: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +next: D.Sandbox) ->
-  {Context.edit(Context.Configuration{origin, workspace, old, approval}, Context.SetSandbox{next}) ==
-    Context.Configuration{origin, workspace, Some{next}, approval} : Context.Configuration}:
-  {==}
 
-def restore_workspace(+origin: Context.Origin, old: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>) ->
-  {Context.edit(Context.Configuration{origin, old, sandbox, approval}, Context.UseDefaultWorkspace{}) == Context.Configuration{origin, None{}, sandbox, approval} : Context.Configuration}:
-  {==}
 
-def restore_sandbox(+origin: Context.Origin, +workspace: Maybe<&2, D.Workspace>, old: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>) ->
-  {Context.edit(Context.Configuration{origin, workspace, old, approval}, Context.UseDefaultSandbox{}) == Context.Configuration{origin, workspace, None{}, approval} : Context.Configuration}:
-  {==}
 
-def restore_approval(+origin: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, old: Maybe<&2, Context.ApprovalChoice>) ->
-  {Context.edit(Context.Configuration{origin, workspace, sandbox, old}, Context.UseDefaultApproval{}) == Context.Configuration{origin, workspace, sandbox, None{}} : Context.Configuration}:
-  {==}
 
-def inherited_workspace_has_no_reset(editor: U.Editor) ->
-  {V.workspace_inheritance(None{}, editor) == None{} : Maybe<&2, V.ControlDeclaration>}:
-  {==}
 
-def inherited_sandbox_has_no_reset(origin: Context.Origin, workspace: Maybe<&2, D.Workspace>, approval: Maybe<&2, Context.ApprovalChoice>) ->
-  {UI.reset_change(Context.Configuration{origin, workspace, None{}, approval}, Forms.SandboxMode{}) == None{} : Maybe<&2, Context.Change>}:
-  {==}
 
-def inherited_approval_has_no_reset(origin: Context.Origin, workspace: Maybe<&2, D.Workspace>, sandbox: Maybe<&2, D.Sandbox>) ->
-  {UI.reset_change(Context.Configuration{origin, workspace, sandbox, None{}}, Forms.ApprovalPolicy{}) == None{} : Maybe<&2, Context.Change>}:
-  {==}
+
+
+
+
+
+
+
 
 def no_duplicate_network_reset(config: Context.Configuration) ->
   {UI.reset_change(config, Forms.NetworkAccess{}) == None{} : Maybe<&2, Context.Change>}:
@@ -161,10 +129,7 @@ def unavailable_workspace(+reason: String, config: Context.Configuration, contro
   V.WorkspaceControls{identity, roots, inherit} = controls
   {==}
 
-def unavailable_permissions(+reason: String, config: Context.Configuration, controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, editor: U.Editor, +parent: String, state: Core.State) ->
-  {UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) ==
-    [UI.Node{parent ++ "/unavailable", "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>}:
-  {==}
+
 
 def tree_focusable(nodes: +List<UI.Node>) -> Bool:
   match nodes:
@@ -241,41 +206,19 @@ def permissions_menu_observation(+editor: U.Editor, config: Context.Configuratio
   Core.State{E.Application{world, session}, services} = state
   {==}
 
-def draft_footer_law(-editor: U.Editor, -observation: Context.Observation,
-  -profiles: +List<D.Profile>) -> Type:
-  {V.draft_context_footer(editor, observation, profiles) ==
-    [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/" ++ U.editor_key(editor), V.observation_workspace(observation), V.Secondary{},
-      U.Activate{U.OpenPanel{U.WorkspaceConfiguration{editor}, "composer/workspace/" ++ U.editor_key(editor)}}, V.Available{}}},
-     V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), V.observation_permissions(observation, profiles), V.Secondary{},
-      U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>}
 
-def draft_footer(+editor: U.Editor, +observation: Context.Observation, +profiles: +List<D.Profile>) ->
-  draft_footer_law(editor, observation, profiles):
-  {==}
 
-def committed_footer_law(-task: Nat, -observation: Context.Observation, -profiles: +List<D.Profile>) -> Type:
-  {V.committed_context_footer(task, Some{observation}, profiles) ==
-    [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/message/" ++ Nat.show(task), V.observation_workspace(observation), V.Secondary{},
-      U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/workspace/message/" ++ Nat.show(task)}}, V.Available{}}},
-     V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), V.observation_permissions(observation, profiles), V.Secondary{},
-      U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>}
 
-def committed_footer(+task: Nat, +observation: Context.Observation, +profiles: +List<D.Profile>) ->
-  committed_footer_law(task, observation, profiles):
-  {==}
 
-def overridden_workspace_reset(+workspace: D.Workspace, +editor: U.Editor) ->
-  {V.workspace_inheritance(Some{workspace}, editor) == Some{V.ControlDeclaration{"inherit-workspace/" ++ U.editor_key(editor), "Use inherited workspace", V.Secondary{},
-    U.EditDraft{editor, U.ConfigureContext{Context.UseDefaultWorkspace{}}}, V.Available{}}} : Maybe<&2, V.ControlDeclaration>}:
-  {==}
 
-def overridden_sandbox_reset(origin: Context.Origin, workspace: Maybe<&2, D.Workspace>, sandbox: D.Sandbox, approval: Maybe<&2, Context.ApprovalChoice>) ->
-  {UI.reset_change(Context.Configuration{origin, workspace, Some{sandbox}, approval}, Forms.SandboxMode{}) == Some{Context.UseDefaultSandbox{}} : Maybe<&2, Context.Change>}:
-  {==}
 
-def overridden_approval_reset(origin: Context.Origin, workspace: Maybe<&2, D.Workspace>, sandbox: Maybe<&2, D.Sandbox>, approval: Context.ApprovalChoice) ->
-  {UI.reset_change(Context.Configuration{origin, workspace, sandbox, Some{approval}}, Forms.ApprovalPolicy{}) == Some{Context.UseDefaultApproval{}} : Maybe<&2, Context.Change>}:
-  {==}
+
+
+
+
+
+
+
 
 def effective_task(value: Context.EffectiveContext) -> Nat:
   Context.EffectiveContext{task, context, guidance, access} = value
@@ -286,13 +229,9 @@ def admitted_task_identity(+task: D.Task) ->
   D.Task{id, lineage, D.Contract{model, tools, max_fork, max_descendants, plugins, context}, status, history, queued, phase, operations, notified} = task
   {==}
 
-def passive_directory(path: String, primary: Bool, gesture: UI.Gesture) ->
-  {UI.bind(UI.DirectoryRow{path, primary}, gesture) == None{} : Maybe<&2, Core.Input>}:
-  {==}
 
-def passive_summary(value: Context.Observation, gesture: UI.Gesture) ->
-  {UI.bind(UI.ContextSummary{value}, gesture) == None{} : Maybe<&2, Core.Input>}:
-  {==}
+
+
 
 type ChoiceCaption is Data:
   ChoiceCaption{label: String, description: String}
@@ -348,17 +287,11 @@ def automatic_caption(+key: String, provider: String, +name: String, reasoning: 
   Core.State{application, services} = state
   {==}
 
-def committed_project_node_world(+project: Maybe<&2, Nat>, +world: M.World(), session: E.Session, services: Services.State, parent: String) ->
-  {UI.node_label(UI.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == UI.committed_project_text(project, world) : String}:
-  {==}
 
-def committed_project_named(id: Nat, +name: String, workspace: D.Workspace, guidance: D.ProjectContext) ->
-  {UI.committed_project_name(Some{D.Project{name, workspace, guidance}}, id) == name : String}:
-  {==}
 
-def committed_project_lookup(+id: Nat, +world: M.World()) ->
-  {UI.committed_project_text(Some{id}, world) == UI.committed_project_name(Projects.find(Projects.registry(F.State(), world), id), id) : String}:
-  {==}
+
+
+
 
 type Requirements is Type:
   Requirements{
@@ -392,9 +325,17 @@ type Requirements is Type:
     available_choice: @selected:Bool -> @description:String -> @+input:Core.Input -> {UI.bind(UI.Choice{selected, description, input, V.Available{}}, UI.Press{}) == Some{input} : Maybe<&2, Core.Input>},
     unavailable_choice: @selected:Bool -> @description:String -> @input:Core.Input -> @reason:String -> {UI.bind(UI.Choice{selected, description, input, V.Unavailable{reason}}, UI.Press{}) == None{} : Maybe<&2, Core.Input>},
     draft_footer: @+editor:U.Editor -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
-      draft_footer_law(editor, observation, profiles),
+      {V.draft_context_footer(editor, observation, profiles) ==
+        [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/" ++ U.editor_key(editor), V.observation_workspace(observation), V.Secondary{},
+          U.Activate{U.OpenPanel{U.WorkspaceConfiguration{editor}, "composer/workspace/" ++ U.editor_key(editor)}}, V.Available{}}},
+         V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), V.observation_permissions(observation, profiles), V.Secondary{},
+          U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>},
     committed_footer: @+task:Nat -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
-      committed_footer_law(task, observation, profiles),
+      {V.committed_context_footer(task, Some{observation}, profiles) ==
+        [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/message/" ++ Nat.show(task), V.observation_workspace(observation), V.Secondary{},
+          U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/workspace/message/" ++ Nat.show(task)}}, V.Available{}}},
+         V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), V.observation_permissions(observation, profiles), V.Secondary{},
+          U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>},
     workspace_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent:String -> @state:Core.State ->
       workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     permissions_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent:String -> @state:Core.State ->
@@ -416,7 +357,13 @@ type Requirements is Type:
     directory_label: @+path:String -> @+primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @parent:String -> @state:Core.State ->
       {directory_fact(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)) == Some{DirectoryFact{path, path, primary}} : Maybe<&2, DirectoryFact>},
     directory_commands: @+path:String -> @+rest:+List<String> -> @+primary:Maybe<&2, String> -> @+editor:U.Editor ->
-      directory_commands_law(path, rest, primary, editor),
+      {V.root_controls(path <> rest, primary, editor) ==
+        V.WorkspaceRoot{path, V.is_primary(primary, path),
+          V.ControlDeclaration{"primary/" ++ U.editor_key(editor) ++ "/" ++ path, "Use as working directory", V.Secondary{},
+            U.EditDraft{editor, U.EditWorkspace{Context.ChoosePrimary{path}}}, V.Available{}},
+          V.ControlDeclaration{"remove-root/" ++ U.editor_key(editor) ++ "/" ++ path, "Remove directory", V.Secondary{},
+            U.EditDraft{editor, U.EditWorkspace{Context.RemoveRoot{path}}}, V.Available{}}} <>
+          V.root_controls(rest, primary, editor) : +List<V.WorkspaceRoot>},
     filesystem_preserves_network: @+mode:D.SandboxMode -> @current:D.SandboxMode -> @+network:Bool -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->
       {choice_input(UI.sandbox_choice(mode, current, network, editor, parent, state)) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}}}} : Maybe<&2, Core.Input>},
     network_preserves_filesystem: @+mode:D.SandboxMode -> @current:Bool -> @+target:Bool -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->
@@ -465,10 +412,10 @@ def automatic_codec(profile: D.Profile) ->
 
 def evidence() -> Requirements:
   Requirements{
-    project => world => session => services => parent => committed_project_node_world(project, world, session, services, parent),
+    +project => +world => session => services => parent => {==},
     task => context => guidance => access => world => {==},
-    id => name => workspace => guidance => committed_project_named(id, name, workspace, guidance),
-    id => {==}, id => world => committed_project_lookup(id, world), world => {==},
+    id => +name => workspace => guidance => {==},
+    id => {==}, +id => +world => {==}, world => {==},
     primary => parent => {==}, parent => {==},
     mode => network => editor => parent => state => network_group_selection(mode, network, editor, parent, state),
     current => network => editor => parent => state => filesystem_write_caption(current, network, editor, parent, state),
@@ -479,37 +426,37 @@ def evidence() -> Requirements:
     current => editor => parent => state => unrestricted_caption(current, editor, parent, state),
     key => provider => name => reasoning => current => editor => parent => state => automatic_caption(key, provider, name, reasoning, current, editor, parent, state),
     key => {==},
-    task => admitted_task_identity(task), path => primary => gesture => passive_directory(path, primary, gesture), value => gesture => passive_summary(value, gesture),
+    task => admitted_task_identity(task), path => primary => gesture => {==}, value => gesture => {==},
     selected => description => input => {==}, selected => description => input => reason => {==},
-    editor => observation => profiles => draft_footer(editor, observation, profiles),
-    task => observation => profiles => committed_footer(task, observation, profiles),
+    +editor => +observation => +profiles => {==},
+    +task => +observation => +profiles => {==},
     editor => config => origin => project => workspace => sandbox => approval => guidance => controls => projects => reviewers => parent => state => workspace_menu_observation(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     editor => config => origin => project => workspace => sandbox => approval => guidance => controls => projects => reviewers => parent => state => permissions_menu_observation(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     reason => config => controls => projects => reviewers => editor => parent => state => unavailable_workspace(reason, config, controls, projects, reviewers, editor, parent, state),
-    reason => config => controls => projects => reviewers => editor => parent => state => unavailable_permissions(reason, config, controls, projects, reviewers, editor, parent, state),
-    workspace => editor => overridden_workspace_reset(workspace, editor),
-    origin => workspace => sandbox => approval => overridden_sandbox_reset(origin, workspace, sandbox, approval),
-    origin => workspace => sandbox => approval => overridden_approval_reset(origin, workspace, sandbox, approval),
+    +reason => config => controls => projects => reviewers => editor => +parent => state => {==},
+    +workspace => +editor => {==},
+    origin => workspace => sandbox => approval => {==},
+    origin => workspace => sandbox => approval => {==},
     message => profile => reasoning => config => scene => world => draft_composer_context(message, profile, reasoning, config, scene, world),
     task => message => delivery => scene => world => message_composer_context(task, message, delivery, scene, world),
-    task => committed_lookup_source(task),
+    +task => {==},
     value => parent => state => retained_summary(value, parent, state),
-    path => primary => choose => remove => parent => state => directory_label(path, primary, choose, remove, parent, state),
-    path => rest => primary => editor => directory_commands(path, rest, primary, editor),
+    +path => +primary => choose => remove => parent => state => {==},
+    +path => +rest => +primary => +editor => {==},
     mode => current => network => editor => parent => state => mode_input(mode, current, network, editor, parent, state),
     mode => current => target => editor => parent => state => network_input(mode, current, target, editor, parent, state),
     mode => current => target => editor => parent => state => network_selection(mode, current, target, editor, parent, state),
     choice => current => reviewer => editor => parent => state => approval_input(choice, current, reviewer, editor, parent, state),
-    policy => normalized_approval(policy),
+    +policy => {==},
     current => next => reviewer => editor => parent => state => automatic_selection(current, next, reviewer, editor, parent, state),
     {==}, {==}, profile => automatic_codec(profile),
-    origin => workspace => old => approval => next => sandbox_edit_keeps_other_facets(origin, workspace, old, approval, next),
-    origin => old => sandbox => approval => restore_workspace(origin, old, sandbox, approval),
-    origin => workspace => old => approval => restore_sandbox(origin, workspace, old, approval),
-    origin => workspace => sandbox => old => restore_approval(origin, workspace, sandbox, old),
-    editor => inherited_workspace_has_no_reset(editor),
-    origin => workspace => approval => inherited_sandbox_has_no_reset(origin, workspace, approval),
-    origin => workspace => sandbox => inherited_approval_has_no_reset(origin, workspace, sandbox),
+    +origin => +workspace => old => +approval => +next => {==},
+    +origin => old => +sandbox => +approval => {==},
+    +origin => +workspace => old => +approval => {==},
+    +origin => +workspace => +sandbox => old => {==},
+    editor => {==},
+    origin => workspace => approval => {==},
+    origin => workspace => sandbox => {==},
     config => no_duplicate_network_reset(config),
     context => parent => state => committed_context_passive(context, parent, state),
     editor => session => world => {==}, editor => session => world => {==}, task => session => world => {==},

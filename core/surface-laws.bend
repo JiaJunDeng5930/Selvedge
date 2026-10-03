@@ -88,32 +88,11 @@ def element_without_resolution(+capacity: View.Capacity, +state: Core.State, +ke
       quiet_decision(state),
       {==}, absent_input_is_quiet(state)))
 
-def absent_element(+capacity: View.Capacity, +state: Core.State, +key: String, +gesture: Interface.Gesture,
-  absent: {Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) == None{} : Maybe<&2, Interface.Node>}) ->
-  {UI.step(UI.Element{capacity, key, gesture}, state) == quiet_decision(state) : Core.Decision}:
-  element_without_resolution(capacity, state, key, gesture,
-    resolve_absent(UI.observe(capacity, state), key, gesture, absent))
 
-def unavailable_element(+capacity: View.Capacity, +state: Core.State, +key: String, +input: Core.Input,
-  +reason: String, +node_key: String, +semantic: String, +label: String, +role: Interface.Role,
-  +children: +List<Interface.Node>,
-  found: {Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) ==
-    Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Unavailable{reason}}, children}} : Maybe<&2, Interface.Node>}) ->
-  {UI.step(UI.Element{capacity, key, Interface.Press{}}, state) == quiet_decision(state) : Core.Decision}:
-  element_without_resolution(capacity, state, key, Interface.Press{},
-    resolve_unavailable(UI.observe(capacity, state), key, input, reason, node_key, semantic, label, role, children, found))
 
-def absent_composer(+capacity: View.Capacity, +state: Core.State, +editor: U.Editor,
-  absent: {Interface.submission(Interface.active_nodes(UI.observe(capacity, state)), editor) == None{} : Maybe<&2, Interface.Node>}) ->
-  {UI.step(UI.SubmitComposer{capacity, editor}, state) == quiet_decision(state) : Core.Decision}:
-  Equal.trans(Core.Decision,
-    UI.step(UI.SubmitComposer{capacity, editor}, state),
-    Interface.submit_found(None{}, capacity, state),
-    quiet_decision(state),
-    Equal.cong(Maybe<&2, Interface.Node>, Core.Decision,
-      found => Interface.submit_found(found, capacity, state),
-      Interface.submission(Interface.active_nodes(UI.observe(capacity, state)), editor), None{}, absent),
-    absent_input_is_quiet(state))
+
+
+
 
 def receipt_source(+decision: Core.Decision, previous: +List<E.Layer>, origin: String) ->
   {receipt(Interface.source_decision(decision, previous, origin)) == receipt(decision) : Receipt}:
@@ -167,39 +146,11 @@ def element_receipt(+capacity: View.Capacity, +state: Core.State, +key: String,
     receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, gesture), state)) : Receipt}:
   receipt_perform(capacity, state, key, Interface.resolve(UI.observe(capacity, state), key, gesture))
 
-def available_element(+capacity: View.Capacity, +state: Core.State, +key: String, +input: Core.Input,
-  +node_key: String, +semantic: String, +label: String, +role: Interface.Role,
-  +children: +List<Interface.Node>,
-  found: {Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) ==
-    Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Available{}}, children}} : Maybe<&2, Interface.Node>}) ->
-  {receipt(UI.step(UI.Element{capacity, key, Interface.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt}:
-  Equal.trans(Receipt,
-    receipt(UI.step(UI.Element{capacity, key, Interface.Press{}}, state)),
-    receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), state)),
-    receipt(Core.step(input, state)),
-    element_receipt(capacity, state, key, Interface.Press{}),
-    Equal.cong(Maybe<&2, Core.Input>, Receipt,
-      resolved => receipt(Interface.apply_input(resolved, state)),
-      Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), Some{input},
-      resolve_available(UI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
 
-def existing_layer_trigger(+previous: +List<E.Layer>, origin: String, +panel: U.Panel,
-  trigger: String, initial_attention: String, query: String, +rest: +List<E.Layer>,
-  present: {Interface.layer_present(previous, E.panel_target(panel)) == True{} : Bool}) ->
-  {Interface.record_layer(E.Layer{panel, trigger, initial_attention, query} <> rest, previous, origin) ==
-    E.Layer{panel, trigger, initial_attention, query} <> rest : +List<E.Layer>}:
-  Equal.cong(Bool, +List<E.Layer>,
-    unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query} <> rest,
-    Interface.layer_present(previous, E.panel_target(panel)), True{}, present)
 
-def new_layer_trigger(+previous: +List<E.Layer>, origin: String, +panel: U.Panel,
-  trigger: String, initial_attention: String, query: String, +rest: +List<E.Layer>,
-  absent: {Interface.layer_present(previous, E.panel_target(panel)) == False{} : Bool}) ->
-  {Interface.record_layer(E.Layer{panel, trigger, initial_attention, query} <> rest, previous, origin) ==
-    E.Layer{panel, origin, initial_attention, query} <> rest : +List<E.Layer>}:
-  Equal.cong(Bool, +List<E.Layer>,
-    unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query} <> rest,
-    Interface.layer_present(previous, E.panel_target(panel)), False{}, absent)
+
+
+
 
 type Requirements is Type:
   Requirements{
@@ -235,14 +186,43 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
-    capacity => state => key => gesture => absent => absent_element(capacity, state, key, gesture, absent),
-    capacity => state => key => input => reason => node_key => semantic => label => role => children => found =>
-      unavailable_element(capacity, state, key, input, reason, node_key, semantic, label, role, children, found),
-    capacity => state => editor => absent => absent_composer(capacity, state, editor, absent),
+    +capacity => +state => +key => +gesture => absent =>
+      element_without_resolution(capacity, state, key, gesture,
+        resolve_absent(UI.observe(capacity, state), key, gesture, absent))
+    ,
+    +capacity => +state => +key => +input => +reason => +node_key => +semantic => +label => +role => +children => found =>
+      element_without_resolution(capacity, state, key, Interface.Press{},
+        resolve_unavailable(UI.observe(capacity, state), key, input, reason, node_key, semantic, label, role, children, found))
+    ,
+    +capacity => +state => +editor => absent =>
+      Equal.trans(Core.Decision,
+        UI.step(UI.SubmitComposer{capacity, editor}, state),
+        Interface.submit_found(None{}, capacity, state),
+        quiet_decision(state),
+        Equal.cong(Maybe<&2, Interface.Node>, Core.Decision,
+          found => Interface.submit_found(found, capacity, state),
+          Interface.submission(Interface.active_nodes(UI.observe(capacity, state)), editor), None{}, absent),
+        absent_input_is_quiet(state))
+    ,
     capacity => state => key => gesture => element_receipt(capacity, state, key, gesture),
-    capacity => state => key => input => node_key => semantic => label => role => children => found =>
-      available_element(capacity, state, key, input, node_key, semantic, label, role, children, found),
-    previous => origin => panel => trigger => initial_attention => query => rest => present =>
-      existing_layer_trigger(previous, origin, panel, trigger, initial_attention, query, rest, present),
-    previous => origin => panel => trigger => initial_attention => query => rest => absent =>
-      new_layer_trigger(previous, origin, panel, trigger, initial_attention, query, rest, absent)}
+    +capacity => +state => +key => +input => +node_key => +semantic => +label => +role => +children => found =>
+      Equal.trans(Receipt,
+        receipt(UI.step(UI.Element{capacity, key, Interface.Press{}}, state)),
+        receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), state)),
+        receipt(Core.step(input, state)),
+        element_receipt(capacity, state, key, Interface.Press{}),
+        Equal.cong(Maybe<&2, Core.Input>, Receipt,
+          resolved => receipt(Interface.apply_input(resolved, state)),
+          Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), Some{input},
+          resolve_available(UI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
+    ,
+    +previous => origin => +panel => trigger => initial_attention => query => +rest => present =>
+      Equal.cong(Bool, +List<E.Layer>,
+        unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query} <> rest,
+        Interface.layer_present(previous, E.panel_target(panel)), True{}, present)
+    ,
+    +previous => origin => +panel => trigger => initial_attention => query => +rest => absent =>
+      Equal.cong(Bool, +List<E.Layer>,
+        unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query} <> rest,
+        Interface.layer_present(previous, E.panel_target(panel)), False{}, absent)
+    }

@@ -24,6 +24,21 @@ import ../core/user-conversation.bend as Conversation
 import ../REASONING.bend as Reasoning
 import ../bendlib/json.bend as Json
 
+# NOTE: Bend requires layout helpers to be filled before structural lowering;
+# each child result carries its source metadata into those nonrecursive helpers.
+type Child is Data:
+  Child{source: Design.Node, document: Doc.Node}
+
+def documents(values: +List<Child>) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Child{source, document}, rest}: document <> documents(rest)
+
+def sources(values: +List<Child>) -> +List<Design.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Child{source, document}, rest}: source <> sources(rest)
+
 type ReadingIdentity is Data:
   ReadingIdentity{task: Nat, generation: Nat}
 
@@ -214,8 +229,8 @@ def replace_styles(node: Doc.Node, extra: +List<Doc.Property>) -> Doc.Node:
 
 
 
-def node_role(value: UI.Node) -> UI.Role:
-  UI.Node{key, semantic, label, role, meaning, children} = value
+def node_role(value: Design.Node) -> UI.Role:
+  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
   role
 
 
@@ -270,10 +285,10 @@ def box_left(value: Design.Box) -> Nat:
 
 
 
-def markdown_source(values: +List<UI.Node>) -> Maybe<&2, Code.Source>:
+def markdown_source(values: +List<Child>) -> Maybe<&2, Code.Source>:
   match values:
     case Nil{}: None{}
-    case Con{UI.Node{key, semantic, label, role, UI.CodeFacts{Code.Scene{Code.Identity{source, ordinal}, literal, wrap, copy, enabled, controls}}, children}, rest}: Some{source}
+    case Con{Child{Design.Node{key, semantic, label, role, UI.CodeFacts{Code.Scene{Code.Identity{source, ordinal}, literal, wrap, copy, enabled, controls}}, visual, representation, children}, document}, rest}: Some{source}
     case Con{other, rest}: markdown_source(rest)
 
 
@@ -894,11 +909,18 @@ def lane_child(selected: Bool, belongs: Bool, +node: Doc.Node, +tail: +List<Doc.
         case True{}: tail
         case False{}: node <> tail
 
-def lane_children(+selected: Bool, +stage: Board.Stage, +source: +List<UI.Node>, +rendered: +List<Doc.Node>) -> +List<Doc.Node>:
-  match source rendered:
-    case Con{UI.Node{key, semantic, label, role, meaning, children}, rest} Con{node, rendered_rest}:
-      lane_child(selected, lane_create_matches(stage, meaning), node, lane_children(selected, stage, rest, rendered_rest))
-    case _ _: Nil{}
+def lane_prepared_child(selected: Bool, belongs: Bool, +node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
+  match selected belongs:
+    case True{} True{}: node <> tail
+    case False{} False{}: node <> tail
+    case _ _: tail
+
+def lane_children(+selected: Bool, +stage: Board.Stage, source: +List<Child>) -> +List<Doc.Node>:
+  match source:
+    case Nil{}: Nil{}
+    case Con{Child{Design.Node{key, semantic, label, role, meaning, visual, representation, children}, document}, rest}:
+      lane_prepared_child(selected, lane_create_matches(stage, meaning), document, lane_children(selected, stage, rest))
+
 
 def empty_lane_when(is_empty: Bool, +owner: String) -> +List<Doc.Node>:
   match is_empty:
@@ -910,9 +932,9 @@ def empty_lane(count: Nat, owner: String) -> +List<Doc.Node>:
   empty_lane_when(Nat.is_eq(count, 0n), owner)
 
 def board_lane_node(+key: String, +label: String, +stage: Board.Stage, +count: Nat,
-  +source: +List<UI.Node>, +rendered: +List<Doc.Node>) -> Doc.Node:
-  +create = lane_children(True{}, stage, source, rendered)
-  +cards = lane_children(False{}, stage, source, rendered)
+  +source: +List<Child>) -> Doc.Node:
+  +create = lane_children(True{}, stage, source)
+  +cards = lane_children(False{}, stage, source)
   Doc.Element{key, "section", [property("data-native-key", key), property("data-board-stage", Board.stage_name(stage)),
     property("data-board-count", Nat.show(count)), property("aria-label", label)], board_lane_styles(stage),
     [Doc.DropCard{key}], List.append(&2, Doc.Node, [lane_heading_node(key, label, stage, count, create)],
@@ -993,12 +1015,17 @@ def card_action_node(want_more: Bool, include: Bool, +node: Doc.Node, +tail: +Li
         case True{}: node <> tail
         case False{}: tail
 
-def card_action_nodes(+want_more: Bool, +source: +List<UI.Node>, +rendered: +List<Doc.Node>) -> +List<Doc.Node>:
-  match source rendered:
-    case Con{UI.Node{key, semantic, label, role, meaning, children}, rest} Con{node, rendered_rest}:
-      card_action_node(want_more, card_action_selected(want_more, meaning), node,
-        card_action_nodes(want_more, rest, rendered_rest))
-    case _ _: Nil{}
+def card_prepared_action(include: Bool, node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
+  match include:
+    case True{}: node <> tail
+    case False{}: tail
+
+def card_action_nodes(+want_more: Bool, source: +List<Child>) -> +List<Doc.Node>:
+  match source:
+    case Nil{}: Nil{}
+    case Con{Child{Design.Node{key, semantic, label, role, meaning, visual, representation, children}, document}, rest}:
+      card_prepared_action(card_action_selected(want_more, meaning), document, card_action_nodes(want_more, rest))
+
 
 def card_title_actions(+title: String, actions: +List<Doc.Node>) -> +List<Doc.Node>:
   match actions:
@@ -1096,10 +1123,10 @@ def card_footer(+card_key: String, face: View.CardFace) -> +List<Doc.Node>:
     card_footer_item(card_key, "owner", "owner", card_owner),
     card_timestamp_items(card_footer_item(card_key, "updated", "updated", updated))))
 
-def card_children(+card_key: String, +face: View.CardFace, +source: +List<UI.Node>, +rendered: +List<Doc.Node>) -> +List<Doc.Node>:
+def card_children(+card_key: String, +face: View.CardFace, +source: +List<Child>) -> +List<Doc.Node>:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated} = face
-  +open = card_action_nodes(False{}, source, rendered)
-  +more = card_action_nodes(True{}, source, rendered)
+  +open = card_action_nodes(False{}, source)
+  +more = card_action_nodes(True{}, source)
   List.append(&2, Doc.Node, [card_metadata(card_key, face, String.is_empty(status)), card_action_row(card_key, title, open, more)],
     List.append(&2, Doc.Node, card_description(card_key, description),
       List.append(&2, Doc.Node, card_context_nodes(card_key, project, labels), card_footer(card_key, face))))
@@ -1491,22 +1518,22 @@ def persistent_details_header(representation: Controls.Representation) -> Bool:
       availability, name, face, Controls.Disclosure{True{}}, geometry, placement, help, feedback}: True{}
     case _: False{}
 
-def dialog_partition_child(+appearance: Design.Appearance, +child: Doc.Node,
+def dialog_partition_child(+appearance: Child,
   +header: +List<Doc.Node>, +body: +List<Doc.Node>, +layouts: +List<EditorLayout.SectionKind>) -> DialogParts:
-  Design.Appearance{identity, visual, representation, children} = appearance
-  dialog_partition_child_by_header(child, Controls.panel_header(representation) || persistent_details_header(representation), header, body, layouts,
-    EditorLayout.appearance_kind(appearance))
+  Child{+source, document} = appearance
+  Design.Node{identity, semantic, label, role, meaning, visual, representation, children} = source
+  dialog_partition_child_by_header(document, Controls.panel_header(representation) || persistent_details_header(representation), header, body, layouts,
+    EditorLayout.appearance_kind(source))
 
-def dialog_partition_prepend(appearance: Design.Appearance, +child: Doc.Node,
+def dialog_partition_prepend(appearance: Child,
   parts: DialogParts) -> DialogParts:
   DialogParts{+header, +body, +layouts} = parts
-  dialog_partition_child(appearance, child, header, body, layouts)
+  dialog_partition_child(appearance, header, body, layouts)
 
-def dialog_partition(children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> DialogParts:
-  match children appearances:
-    case Con{+child, rest} Con{+appearance, visual_rest}:
-      dialog_partition_prepend(appearance, child, dialog_partition(rest, visual_rest))
-    case _ _: DialogParts{Nil{}, Nil{}, Nil{}}
+def dialog_partition(children: +List<Child>) -> DialogParts:
+  match children:
+    case Nil{}: DialogParts{Nil{}, Nil{}, Nil{}}
+    case Con{child, rest}: dialog_partition_prepend(child, dialog_partition(rest))
 
 def dialog_header_projection(parts: DialogParts) -> +List<Doc.Node>:
   DialogParts{+header, +body, layouts} = parts
@@ -1516,11 +1543,11 @@ def dialog_body_projection(parts: DialogParts) -> +List<Doc.Node>:
   DialogParts{+header, +body, layouts} = parts
   body
 
-def dialog_header_children(children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> +List<Doc.Node>:
-  dialog_header_projection(dialog_partition(children, appearances))
+def dialog_header_children(children: +List<Child>) -> +List<Doc.Node>:
+  dialog_header_projection(dialog_partition(children))
 
-def dialog_body_children(children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> +List<Doc.Node>:
-  dialog_body_projection(dialog_partition(children, appearances))
+def dialog_body_children(children: +List<Child>) -> +List<Doc.Node>:
+  dialog_body_projection(dialog_partition(children))
 
 def dialog_header_styles() -> +List<Doc.Property>:
   List.append(&2, Doc.Property,
@@ -1579,8 +1606,8 @@ def dialog_region_parts(+key: String, +label: String, visual: Design.Style,
   dialog_region_suffix(key, label, visual, header, EditorLayout.split(body, layouts))
 
 def dialog_region(+key: String, +label: String, visual: Design.Style,
-  children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
-  dialog_region_parts(key, label, visual, dialog_partition(children, appearances))
+  children: +List<Child>) -> Doc.Node:
+  dialog_region_parts(key, label, visual, dialog_partition(children))
 
 def editor_section(+key: String, +label: String, visual: Design.Style,
   +children: +List<Doc.Node>, kind: EditorLayout.SectionKind) -> Doc.Node:
@@ -1596,12 +1623,12 @@ def editor_section(+key: String, +label: String, visual: Design.Style,
     case _: Doc.Element{key, "section", [property("aria-label", label), property("data-native-key", key)], style(visual), Nil{}, region_children(key, UI.Section{}, label, children)}
 
 def region_node(+key: String, +label: String, role: UI.Role, visual: Design.Style,
-  +children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+  +children: +List<Child>) -> Doc.Node:
   match role:
-    case UI.Dialog{}: dialog_region(key, label, visual, children, appearances)
-    case UI.Section{}: editor_section(key, label, visual, children, EditorLayout.section_kind(appearances))
+    case UI.Dialog{}: dialog_region(key, label, visual, children)
+    case UI.Section{}: editor_section(key, label, visual, documents(children), EditorLayout.section_kind(sources(children)))
     case +other: Doc.Element{key, tag(other), [property("aria-label", label), property("data-native-key", key)],
-      style(visual), Nil{}, region_children(key, other, label, children)}
+      style(visual), Nil{}, region_children(key, other, label, documents(children))}
 
 
 def layer_region_properties(+key: String, outside: Bool, value: Doc.Node) -> Doc.Node:
@@ -1612,8 +1639,8 @@ def layer_region_properties(+key: String, outside: Bool, value: Doc.Node) -> Doc
     case other: other
 
 def layer_region_node(+key: String, label: String, role: UI.Role, +outside: Bool, visual: Design.Style,
-  children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
-  layer_region_properties(key, outside, region_node(key, label, role, visual, children, appearances))
+  children: +List<Child>) -> Doc.Node:
+  layer_region_properties(key, outside, region_node(key, label, role, visual, children))
 
 def face_label(+key: String, text: String) -> Doc.Node:
   Doc.Element{key ++ "/label", "span", Nil{},
@@ -1762,12 +1789,12 @@ def card_archive_node(+key: String, label: String, count: Nat, children: +List<D
     [Doc.DropCard{key}], children}
 
 def card_node(+key: String, +face: View.CardFace, destinations: +List<UI.Placement>,
-  +source: +List<UI.Node>, +rendered: +List<Doc.Node>, visual: Design.Style) -> Doc.Node:
+  +source: +List<Child>, visual: Design.Style) -> Doc.Node:
   View.CardFace{id, +title, description, priority, pinned, status, project, labels, owner, updated} = face
   Doc.Element{key, "article", [property("data-native-key", key), property("data-card-id", Nat.show(id)),
     property("data-card-title", title), property("aria-label", title), property("draggable", "true")],
     style(visual),
-    [Doc.DragCard{key}, Doc.DropCard{key}], card_children(key, face, source, rendered)}
+    [Doc.DragCard{key}, Doc.DropCard{key}], card_children(key, face, source)}
 
 
 
@@ -1798,8 +1825,7 @@ def native_surface_properties(+role: Surfaces.Role) -> +List<Doc.Property>:
    property("--native-hover-color", paint(Design.ThemeToken{"--color-token-text-primary"})),
    property("--native-pressed-color", paint(Design.ThemeToken{"--color-token-text-primary"}))]
 
-def action(+key: String, +appearance: Design.Appearance, value: Controls.Representation) -> Doc.Node:
-  Design.Appearance{identity, +visual, representation, children} = appearance
+def action(+key: String, +visual: Design.Style, value: Controls.Representation) -> Doc.Node:
   match value:
     case Controls.Action{input, availability, name, +face_value, response, +size, placement, hint, feedback}:
       Doc.Element{key, "button", List.append(&2, Doc.Property, [property("type", "button"), property("class", "native-control"), property("aria-label", name), property("data-native-key", key)],
@@ -2423,12 +2449,12 @@ def context_observation_kind(observation: Context.Observation) -> String:
     case Context.CommittedExecution{context}: "committed"
 
 def context_summary_node(+key: String, +label: String, role: UI.Role, observation: Context.Observation,
-  visual: Design.Style, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+  visual: Design.Style, children: +List<Child>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("aria-label", label),
     property("data-context-kind", context_observation_kind(observation))], List.append(&2, Doc.Property, style(visual),
     [property("flex", "0 0 auto")]), Nil{},
     Doc.Element{key ++ "/provenance", "div", Nil{},
-      [property("font-size", "12px"), property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children}
+      [property("font-size", "12px"), property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> documents(children)}
 
 def choice_group_node(+key: String, +label: String, visual: Design.Style, children: +List<Doc.Node>) -> Doc.Node:
   Doc.Element{key, "section", [property("data-native-key", key), property("role", "radiogroup"), property("aria-label", label)],
@@ -2461,29 +2487,29 @@ def choice_face(value: Doc.Node, label: String, description: String, selected: B
   choice_face_layout(value, label, description, selected, Controls.choice_content_layout(Controls.Geometry{0n, 28n, 16n, 6n, 20n}))
 
 def choice_node(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
-  +representation: Controls.Representation, visual_children: +List<Design.Appearance>) -> Doc.Node:
-  choice_face_layout(action(key, Design.Appearance{key, visual, representation, visual_children}, representation), label, description, selected, Controls.choice_layout(representation))
+  +representation: Controls.Representation, visual_children: +List<Child>) -> Doc.Node:
+  choice_face_layout(action(key, visual, representation), label, description, selected, Controls.choice_layout(representation))
 
-def project_header_node(node: Doc.Node, appearances: +List<Design.Appearance>, selected: Bool, expanded: Bool) -> Doc.Node:
+def project_header_node(node: Doc.Node) -> Doc.Node:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}:
       Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [property("class", "native-surface")]), pointer_styles(styles), events, children}
     case other: other
 
-def project_child(header: Bool, node: Doc.Node, appearances: +List<Design.Appearance>, selected: Bool, expanded: Bool) -> Doc.Node:
+def project_child(header: Bool, node: Doc.Node) -> Doc.Node:
   match header:
-    case True{}: project_header_node(node, appearances, selected, expanded)
+    case True{}: project_header_node(node)
     case False{}: replace_styles(node, [property("margin-inline-start", "20px")])
 
-def project_group_children(+owner: String, values: +List<Doc.Node>, appearances: +List<Design.Appearance>, +selected: Bool, +expanded: Bool) -> +List<Doc.Node>:
-  match values appearances:
-    case Con{node, rest} Con{Design.Appearance{+key, visual, representation, +children}, visual_rest}:
-      project_child(String.eq(key, owner ++ "/actions"), node, children, selected, expanded) <> project_group_children(owner, rest, visual_rest, selected, expanded)
-    case _ _: values
+def project_group_children(+owner: String, values: +List<Child>, +selected: Bool, +expanded: Bool) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Child{Design.Node{+key, semantic, label, role, meaning, visual, representation, children}, document}, rest}:
+      project_child(String.eq(key, owner ++ "/actions"), document) <> project_group_children(owner, rest, selected, expanded)
 
-def project_group_node(+key: String, project: Nat, selected: Bool, +expanded: Bool, visual: Design.Style, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+def project_group_node(+key: String, project: Nat, selected: Bool, +expanded: Bool, visual: Design.Style, children: +List<Child>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("data-project", Nat.show(project)), property("data-expanded", boolean(expanded))],
-    style(visual), Nil{}, project_group_children(key, children, appearances, selected, expanded)}
+    style(visual), Nil{}, project_group_children(key, children, selected, expanded)}
 
 def task_status_tone(status: String) -> String:
   match status:
@@ -2505,59 +2531,60 @@ def task_row_control(node: Doc.Node, representation: Controls.Representation, st
     case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: node
     case _: task_status_node(node, status)
 
-def task_row_children(values: +List<Doc.Node>, appearances: +List<Design.Appearance>, +status: String) -> +List<Doc.Node>:
-  match values appearances:
-    case Con{node, rest} Con{Design.Appearance{key, visual, representation, children}, visual_rest}:
-      task_row_control(node, representation, status) <> task_row_children(rest, visual_rest, status)
-    case _ _: values
+def task_row_children(values: +List<Child>, +status: String) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Child{Design.Node{key, semantic, label, role, meaning, visual, representation, children}, document}, rest}:
+      task_row_control(document, representation, status) <> task_row_children(rest, status)
 
-def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, visual: Design.Style, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, visual: Design.Style, children: +List<Child>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("data-task", Nat.show(task)), property("data-status", status), property("class", "native-surface")],
-    pointer_styles(style(visual)), Nil{}, task_row_children(children, appearances, status)}
+    pointer_styles(style(visual)), Nil{}, task_row_children(children, status)}
 
-def project_chooser_node(+key: String, selected: Maybe<&2, Nat>, visual: Design.Style, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
-  Doc.Element{key, "div", [property("data-native-key", key)], style(visual), Nil{}, children}
+def project_chooser_node(+key: String, selected: Maybe<&2, Nat>, visual: Design.Style, children: +List<Child>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-native-key", key)], style(visual), Nil{}, documents(children)}
 
 def submission_alert_styles() -> +List<Doc.Property>:
   [property("color", "var(--color-text-danger)"), property("font-size", "13px"), property("line-height", "20px"),
    property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere"), property("min-width", "0"), property("flex", "0 0 auto")]
 
-def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, source: +List<UI.Node>, children: +List<Doc.Node>) -> Doc.Node:
+def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, +source: +List<Child>) -> Doc.Node:
   match role:
     case UI.Alert{}:
       Doc.Element{key, "div", [property("data-native-key", key), property("role", "alert"), property("aria-label", label)],
-        List.append(&2, Doc.Property, style(visual), submission_alert_styles()), Nil{}, Doc.Text{text} <> children}
+        List.append(&2, Doc.Property, style(visual), submission_alert_styles()), Nil{}, Doc.Text{text} <> documents(source)}
     case +other:
-      Doc.Element{key, tag(other), [property("data-native-key", key)], style(visual), Nil{}, Doc.Markdown{key ++ "/markdown", markdown_source(source), text} <> children}
+      Doc.Element{key, tag(other), [property("data-native-key", key)], style(visual), Nil{}, Doc.Markdown{key ++ "/markdown", markdown_source(source), text} <> documents(source)}
 
-def match_node(+key: String, +label: String, +role: UI.Role, meaning: UI.Meaning, +children: +List<UI.Node>, +rendered_children: +List<Doc.Node>, +visual: Design.Style, +representation: Controls.Representation, visual_children: +List<Design.Appearance>) -> Doc.Node:
+def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
+  Design.Node{+key, semantic, +label, +role, meaning, +visual, +representation, nested} = value
   match meaning:
-    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: compound_field(key, label, field, visual, rendered_children)
-    case UI.Edit{editor, field, Forms.FileCollection{}, value}: compound_field(key, label, field, visual, rendered_children)
-    case UI.ComposerAction{subject, input_value, availability}: action(key, Design.Appearance{key, visual, representation, visual_children}, representation)
-    case UI.PanelToggle{expanded, input_value, availability}: action(key, Design.Appearance{key, visual, representation, visual_children}, representation)
-    case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, rendered_children, visual_children)
-    case UI.Activate{input_value, availability}: action(key, Design.Appearance{key, visual, representation, visual_children}, representation)
-    case UI.Choice{selected, description, input, availability}: choice_node(key, label, selected, description, visual, representation, visual_children)
-    case UI.ProjectGroup{project, selected, expanded}: project_group_node(key, project, selected, expanded, visual, rendered_children, visual_children)
-    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, rendered_children, visual_children)
-    case UI.ProjectChooser{selected}: project_chooser_node(key, selected, visual, rendered_children, visual_children)
-    case UI.DirectoryRow{path, primary}: directory_row_node(key, path, primary, visual, rendered_children)
-    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, rendered_children, visual_children)
-    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, rendered_children)
-    case UI.PageRegion{region, position}: page_region(key, region, position, rendered_children)
-    case UI.BoardGroup{grouping}: board_group_node(key, grouping, rendered_children)
-    case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children, rendered_children)
-    case UI.Region{}: region_node(key, label, role, visual, rendered_children, visual_children)
-    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children, rendered_children)
+    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: compound_field(key, label, field, visual, documents(children))
+    case UI.Edit{editor, field, Forms.FileCollection{}, value}: compound_field(key, label, field, visual, documents(children))
+    case UI.ComposerAction{subject, input_value, availability}: action(key, visual, representation)
+    case UI.PanelToggle{expanded, input_value, availability}: action(key, visual, representation)
+    case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children)
+    case UI.Activate{input_value, availability}: action(key, visual, representation)
+    case UI.Choice{selected, description, input, availability}: choice_node(key, label, selected, description, visual, representation, children)
+    case UI.ProjectGroup{project, selected, expanded}: project_group_node(key, project, selected, expanded, visual, children)
+    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, children)
+    case UI.ProjectChooser{selected}: project_chooser_node(key, selected, visual, children)
+    case UI.DirectoryRow{path, primary}: directory_row_node(key, path, primary, visual, documents(children))
+    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, children)
+    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, documents(children))
+    case UI.PageRegion{region, position}: page_region(key, region, position, documents(children))
+    case UI.BoardGroup{grouping}: board_group_node(key, grouping, documents(children))
+    case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children)
+    case UI.Region{}: region_node(key, label, role, visual, children)
+    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children)
     case UI.CodeFacts{Code.Scene{+identity, literal, wrap, copy, enabled, controls}}:
       Doc.Element{key, "div", Nil{}, [property("display", "contents")], Nil{}, [
-        Doc.Portal{key ++ "/toolbar", Code.key(identity) ++ "/toolbar", rendered_children},
+        Doc.Portal{key ++ "/toolbar", Code.key(identity) ++ "/toolbar", documents(children)},
         Doc.TargetProperties{key ++ "/toolbar-observation", Code.key(identity) ++ "/toolbar", [property("data-native-key", key)], Nil{}},
         Doc.TargetProperties{key ++ "/wrap", Code.key(identity) ++ "/code", Nil{}, [property("white-space", code_wrap(wrap)), property("overflow-wrap", "anywhere")]}]}
     case UI.TaskFacts{details}: Doc.Element{key, "section", [property("data-native-key", key)], style(visual), Nil{}, task_details(key, details)}
-    case UI.CardArchive{count}: card_archive_node(key, label, count, rendered_children)
-    case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, rendered_children, visual)
+    case UI.CardArchive{count}: card_archive_node(key, label, count, documents(children))
+    case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, visual)
     case other: input(key, other, representation, visual)
 
 
@@ -2573,15 +2600,15 @@ def enriched_options(+key: String, +field: String, values: +List<View.InputGroup
 
 
 
-def render_nodes(values: +List<UI.Node>, appearances: +List<Design.Appearance>) -> +List<Doc.Node>:
-  match values appearances:
-    case Con{UI.Node{key, semantic, label, +role, meaning, +children}, rest} Con{Design.Appearance{identity, visual, representation, +visual_children}, tail}:
-      decorate(role_name(role), semantic, match_node(key, label, role, meaning, children, render_nodes(children, visual_children), visual, representation, visual_children)) <> render_nodes(rest, tail)
-    case _ _: Nil{}
+def render_children(values: +List<Design.Node>) -> +List<Child>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+value, rest}:
+      Design.Node{key, semantic, label, +role, meaning, visual, representation, children} = value
+      Child{value, decorate(role_name(role), semantic, match_node(value, render_children(children)))} <> render_children(rest)
 
-
-
-
+def render_nodes(values: +List<Design.Node>) -> +List<Doc.Node>:
+  documents(render_children(values))
 
 def enriched_element(+key: String, tag: String, +attrs: +List<Doc.Property>, styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, groups: +List<View.InputGroup>, activities: +List<Conversation.VisibleGroup>) -> Doc.Node:
   match tag:
@@ -2593,12 +2620,9 @@ def enriched_element(+key: String, tag: String, +attrs: +List<Doc.Property>, sty
 
 
 
-def render_node(value: UI.Node, appearance: Design.Appearance) -> Doc.Node:
-  first_node(render_nodes([value], [appearance]))
-
-
-
-
+def render_node(+value: Design.Node) -> Doc.Node:
+  Design.Node{key, semantic, label, role, meaning, style, control, children} = value
+  match_node(value, render_children(children))
 
 def enrich_nodes(values: +List<Doc.Node>, +groups: +List<View.InputGroup>, +activities: +List<Conversation.VisibleGroup>) -> +List<Doc.Node>:
   match values:
@@ -2611,46 +2635,34 @@ def enrich_nodes(values: +List<Doc.Node>, +groups: +List<View.InputGroup>, +acti
 
 
 
-def render_base_node(+value: UI.Node, appearance: Design.Appearance, +shell: Design.Shell) -> Doc.Node:
-  UI.Node{key, semantic, label, role, meaning, children} = value
+def render_base_node(+value: Design.Node, +shell: Design.Shell) -> Doc.Node:
+  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
   match semantic:
     case "settings/open":
       Design.Shell{navigation, main, details} = shell
-      replace_styles(render_node(value, appearance), List.append(&2, Doc.Property,
+      replace_styles(render_node(value), List.append(&2, Doc.Property,
         bounds(Layout.settings_bounds(navigation, main)), [property("z-index", "6")]))
-    case _: render_shell(role, meaning, render_node(value, appearance), shell)
+    case _: render_shell(role, meaning, render_node(value), shell)
 
-def base_nodes(values: +List<UI.Node>, appearances: +List<Design.Appearance>, +shell: Design.Shell) -> +List<Doc.Node>:
-  match values appearances:
-    case Con{+value, rest} Con{appearance, tail}:
-      render_base_node(value, appearance, shell) <> base_nodes(rest, tail, shell)
+def base_nodes(values: +List<Design.Node>, +shell: Design.Shell) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: render_base_node(value, shell) <> base_nodes(rest, shell)
+
+def overlays(values: +List<Design.Node>, placements: +List<Design.Overlay>, +active: Maybe<&2, String>) -> +List<Doc.Node>:
+  match values placements:
+    case Con{value, rest} Con{Design.Overlay{key, level, placement}, remaining}:
+      replace_styles(modal_scope(key, active, render_node(value)), List.append(&2, Doc.Property, overlay_styles(placement), [property("z-index", Nat.show(Nat.add(50n, level)))])) <>
+        overlays(rest, remaining, active)
     case _ _: Nil{}
 
-
-
-
-
-def overlays(values: +List<UI.Node>, appearances: +List<Design.Appearance>, placements: +List<Design.Overlay>, +active: Maybe<&2, String>) -> +List<Doc.Node>:
-  match values appearances placements:
-    case Con{value, rest} Con{appearance, tail} Con{Design.Overlay{key, level, placement}, remaining}:
-      replace_styles(modal_scope(key, active, render_node(value, appearance)), List.append(&2, Doc.Property, overlay_styles(placement), [property("z-index", Nat.show(Nat.add(50n, level)))])) <>
-        overlays(rest, tail, remaining, active)
-    case _ _ _: Nil{}
-
-
-
-
-
-# Semantic token aliases are computed at the document root. The host resolves
-# this physical target; the theme decision remains the Bend presentation value.
 def document_theme(+theme: Design.Theme) -> Doc.Node:
   Doc.TargetProperties{"document-theme", "@document/root",
     [property("data-theme", theme_name(theme))], [property("color-scheme", theme_name(theme))]}
 
 def render(scene: Web.Scene) -> Doc.Document:
-  Web.Scene{UI.Surface{+content, base, overlays_value, +active}, platform, generation, realization,
-    Design.Presentation{Design.Layout{Design.Viewport{width, height}, shell, main, placements},
-    Design.Visuals{+theme, base_appearance, overlay_appearance}}} = scene
+  Web.Scene{Design.Surface{+content, +theme, base, overlays_value, +active}, platform, generation, realization,
+    Design.Layout{Design.Viewport{width, height}, shell, main, placements}} = scene
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
     [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", "var(--color-token-text-primary)")], Nil{},
-    document_theme(theme) <> enrich_nodes(List.append(&2, Doc.Node, [base_scope(active, reading_nodes(position_main(base_nodes(base, base_appearance, shell), main), reading_identity(content)))], overlays(overlays_value, overlay_appearance, placements, active)), scene_groups(content), scene_activities(content))}, "Selvedge"}
+    document_theme(theme) <> enrich_nodes(List.append(&2, Doc.Node, [base_scope(active, reading_nodes(position_main(base_nodes(base, shell), main), reading_identity(content)))], overlays(overlays_value, placements, active)), scene_groups(content), scene_activities(content))}, "Selvedge"}

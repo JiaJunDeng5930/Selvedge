@@ -41,13 +41,8 @@ a 10 MiB per-file limit. Supported passive images can be previewed; other files
 are downloaded. Submission waits for uploads. Stored references are checked
 again at the service boundary; arbitrary local paths cannot substitute for uploads.
 
-Use `bun host/cli.mjs describe` for the live API fields. Board operations include
-`create_card`, `read_card`, `list_cards`, `update_card`, `move_card`, `pin_card`,
-`run_card`, `link_card`, `archive_card`, `restore_card`, `delete_card`,
-`regenerate_card_title`, `board_settings`, `save_board_agent`, `list_board_agents`
-and `delete_board_agent`. Existing-card mutations require the revision returned
-by `read_card`. `move_card` takes `status` and a `before_card` string; an empty
-string means the end of the destination group.
+Use `bun host/cli.mjs describe` for the live API fields. The authoritative board
+command definitions are in [board-codec.bend](../bendlib/board-codec.bend).
 
 `bun run test` runs the proof/host boundary suite.
 Architecture, reference attribution and proof bindings are in

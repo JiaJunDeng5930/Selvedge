@@ -58,25 +58,7 @@ def actual_relocation(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +Lis
   Equal.cong(Maybe<&2, UI.Node>, UI.Surface,
     (value => UI.relocate_found_trigger(value, target, scene, base, overlays)), UI.find_node(base, key), Some{node}, found)
 
-def assembled_relocation(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +trigger: String, +key: String, +node: UI.Node, +target: Nat,
-  persistent: {UI.persistent_details_trigger(overlays) == Some{UI.PersistentTrigger{target, trigger}} : Maybe<&2, UI.PersistentTrigger>},
-  resolved: {UI.matching_focus(base, trigger) == Some{key} : Maybe<&2, String>},
-  found: {UI.find_node(base, key) == Some{node} : Maybe<&2, UI.Node>}) ->
-  {UI.finish_reachable(scene, base, overlays) == UI.relocate_found_trigger(Some{node}, target, scene, base, overlays) : UI.Surface}:
-  Equal.trans(UI.Surface, UI.finish_reachable(scene, base, overlays),
-    UI.relocate_persistent_trigger(Some{UI.PersistentTrigger{target, trigger}}, scene, base, overlays),
-    UI.relocate_found_trigger(Some{node}, target, scene, base, overlays),
-    Equal.cong(Maybe<&2, UI.PersistentTrigger>, UI.Surface,
-      (value => UI.relocate_persistent_trigger(value, scene, base, overlays)),
-      UI.persistent_details_trigger(overlays), Some{UI.PersistentTrigger{target, trigger}}, persistent),
-    Equal.trans(UI.Surface, UI.relocate_persistent_trigger(Some{UI.PersistentTrigger{target, trigger}}, scene, base, overlays),
-      UI.relocate_trigger_key(Some{key}, target, scene, base, overlays),
-      UI.relocate_found_trigger(Some{node}, target, scene, base, overlays),
-      Equal.cong(Maybe<&2, String>, UI.Surface,
-        (value => UI.relocate_trigger_key(value, target, scene, base, overlays)),
-        UI.matching_focus(base, trigger), Some{key}, resolved),
-      actual_relocation(scene, base, overlays, key, node, target, found)))
+
 
 def surface_occurrences(surface: UI.Surface, +key: String) -> Nat:
   UI.Surface{content, base, overlays, scope} = surface
@@ -126,11 +108,7 @@ def wide_details_stay_in_base(+scene: Core.Scene, +base: +List<UI.Node>, +owner:
     UI.finish(scene, base, [UI.Node{owner, semantic, title, UI.Details{}, policy, children}]) : UI.Surface}:
   {==}
 
-def current_details_layer(+task: Nat, +trigger: String, +content: View.LayerContent,
-  +initial: String, +state: Core.State) ->
-  {UI.persistent_details_trigger(UI.layers([View.Layer{View.ModalDialog{}, content, initial, trigger,
-      View.layer_dismissal(U.TaskDetails{task}, trigger)}], state)) == Some{UI.PersistentTrigger{task, trigger}} : Maybe<&2, UI.PersistentTrigger>}:
-  {==}
+
 
 def header_action(task: Nat, trigger: String, availability: View.Availability, name: String,
   face: Controls.Face, geometry: Controls.Geometry, placement: Controls.Placement,
@@ -150,25 +128,7 @@ def accepted_same_node(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +Li
     (valid => UI.relocate_valid_trigger(valid, UI.Node{key, semantic, label, role, meaning, children}, scene, base, overlays)),
     UI.persistent_trigger_source(meaning, target), True{}, accepted)
 
-def exactly_once(+scene: Core.Scene, +base: +List<UI.Node>, +key: String, +semantic: String,
-  +label: String, +role: UI.Role, +meaning: UI.Meaning, +owner: String, +layer_semantic: String,
-  +title: String, +policy: UI.Meaning, +body: +List<UI.Node>, +rest: +List<UI.Node>, +target: Nat,
-  accepted: {UI.persistent_trigger_source(meaning, target) == True{} : Bool},
-  distinct: {String.eq(owner, key) == False{} : Bool},
-  fresh: {Nat.add(occurrences(body, key), occurrences(rest, key)) == 0n : Nat}) ->
-  {surface_occurrences(UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target,
-    scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key) == 1n : Nat}:
-  Equal.trans(Nat,
-    surface_occurrences(UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target,
-      scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key),
-    surface_occurrences(UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}},
-      scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key), 1n,
-    Equal.cong(UI.Surface, Nat, (surface => surface_occurrences(surface, key)),
-      UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target, scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest),
-      UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}}, scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest),
-      accepted_same_node(scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest,
-        key, semantic, label, role, meaning, Nil{}, target, accepted)),
-    valid_exactly_once(scene, base, key, semantic, label, role, meaning, owner, layer_semantic, title, policy, body, rest, distinct, fresh))
+
 
 def rejected_source_stays(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
   +key: String, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning,
@@ -180,33 +140,15 @@ def rejected_source_stays(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: 
     (valid => UI.relocate_valid_trigger(valid, UI.Node{key, semantic, label, role, meaning, children}, scene, base, overlays)),
     UI.persistent_trigger_source(meaning, target), False{}, rejected)
 
-def wrong_task_stays_law(-scene: Core.Scene, -base: +List<UI.Node>, -overlays: +List<UI.Node>, -key: String, -semantic: String, -label: String, -role: UI.Role, -expanded: Bool, -source: Nat, -trigger: String, -availability: View.Availability, -children: +List<UI.Node>, -target: Nat, -distinct: {Nat.is_eq(source, target) == False{} : Bool}) -> Type:
-  {UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role,
-        UI.PanelToggle{expanded, Core.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{U.TaskDetails{source}, trigger}}}}, availability}, children}},
-      target, scene, base, overlays) == UI.finish(scene, base, overlays) : UI.Surface}
 
-def wrong_task_stays(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +key: String, +semantic: String, +label: String, +role: UI.Role, +expanded: Bool,
-  +source: Nat, +trigger: String, +availability: View.Availability, +children: +List<UI.Node>, +target: Nat,
-  distinct: {Nat.is_eq(source, target) == False{} : Bool}) -> wrong_task_stays_law(scene, base, overlays, key, semantic, label, role, expanded, source, trigger, availability, children, target, distinct):
-  rejected_source_stays(scene, base, overlays, key, semantic, label, role,
-    UI.PanelToggle{expanded, Core.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{U.TaskDetails{source}, trigger}}}}, availability}, children, target, distinct)
 
-def wrong_input_stays_law(-scene: Core.Scene, -base: +List<UI.Node>, -overlays: +List<UI.Node>, -key: String, -semantic: String, -label: String, -role: UI.Role, -expanded: Bool, -service: Services.Input, -availability: View.Availability, -children: +List<UI.Node>, -target: Nat) -> Type:
-  {UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role,
-        UI.PanelToggle{expanded, Core.ServiceInput{service}, availability}, children}}, target, scene, base, overlays) ==
-      UI.finish(scene, base, overlays) : UI.Surface}
 
-def wrong_input_stays(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +key: String, +semantic: String, +label: String, +role: UI.Role, +expanded: Bool,
-  +service: Services.Input, +availability: View.Availability, +children: +List<UI.Node>, +target: Nat) -> wrong_input_stays_law(scene, base, overlays, key, semantic, label, role, expanded, service, availability, children, target):
-  {==}
 
-def navigation_kept(+scene: Core.Scene, +nav: +List<UI.Node>, +reachable: UI.Surface,
-  +settings: UI.Node, +scope: Maybe<&2, String>) ->
-  {UI.surface_base(UI.with_navigation(scene, nav, reachable, settings, scope)) ==
-    List.append(&2, UI.Node, nav, List.append(&2, UI.Node, UI.surface_base(reachable), [settings])) : +List<UI.Node>}:
-  {==}
+
+
+
+
+
 
 type Requirements is Type:
   Requirements{
@@ -227,9 +169,13 @@ type Requirements is Type:
       {UI.persistent_details_trigger(UI.layers([View.Layer{View.ModalDialog{}, content, initial, trigger,
         View.layer_dismissal(U.TaskDetails{task}, trigger)}], state)) == Some{UI.PersistentTrigger{task, trigger}} : Maybe<&2, UI.PersistentTrigger>},
     wrong_task_stays: @+scene: Core.Scene -> @+base: +List<UI.Node> -> @+overlays: +List<UI.Node> -> @+key: String -> @+semantic: String -> @+label: String -> @+role: UI.Role -> @+expanded: Bool -> @+source: Nat -> @+trigger: String -> @+availability: View.Availability -> @+children: +List<UI.Node> -> @+target: Nat -> @distinct: {Nat.is_eq(source, target) == False{} : Bool} ->
-    wrong_task_stays_law(scene, base, overlays, key, semantic, label, role, expanded, source, trigger, availability, children, target, distinct),
+    {UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role,
+            UI.PanelToggle{expanded, Core.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{U.TaskDetails{source}, trigger}}}}, availability}, children}},
+          target, scene, base, overlays) == UI.finish(scene, base, overlays) : UI.Surface},
     wrong_input_stays: @+scene: Core.Scene -> @+base: +List<UI.Node> -> @+overlays: +List<UI.Node> -> @+key: String -> @+semantic: String -> @+label: String -> @+role: UI.Role -> @+expanded: Bool -> @+service: Services.Input -> @+availability: View.Availability -> @+children: +List<UI.Node> -> @+target: Nat ->
-    wrong_input_stays_law(scene, base, overlays, key, semantic, label, role, expanded, service, availability, children, target),
+    {UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role,
+            UI.PanelToggle{expanded, Core.ServiceInput{service}, availability}, children}}, target, scene, base, overlays) ==
+          UI.finish(scene, base, overlays) : UI.Surface},
     navigation_kept: @+scene: Core.Scene -> @+nav: +List<UI.Node> -> @+reachable: UI.Surface -> @+settings: UI.Node -> @+scope: Maybe<&2, String> ->
     {UI.surface_base(UI.with_navigation(scene, nav, reachable, settings, scope)) ==
     List.append(&2, UI.Node, nav, List.append(&2, UI.Node, UI.surface_base(reachable), [settings])) : +List<UI.Node>},
@@ -241,4 +187,33 @@ type Requirements is Type:
     UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, children}, scene, base, overlays) : UI.Surface}}
 
 def evidence() -> Requirements:
-  Requirements{removed_occurrences, assembled_relocation, exactly_once, current_details_layer, wrong_task_stays, wrong_input_stays, navigation_kept, rejected_source_stays, accepted_same_node}
+  Requirements{removed_occurrences, +scene => +base => +overlays => +trigger => +key => +node => +target => persistent => resolved => found =>
+      Equal.trans(UI.Surface, UI.finish_reachable(scene, base, overlays),
+        UI.relocate_persistent_trigger(Some{UI.PersistentTrigger{target, trigger}}, scene, base, overlays),
+        UI.relocate_found_trigger(Some{node}, target, scene, base, overlays),
+        Equal.cong(Maybe<&2, UI.PersistentTrigger>, UI.Surface,
+          (value => UI.relocate_persistent_trigger(value, scene, base, overlays)),
+          UI.persistent_details_trigger(overlays), Some{UI.PersistentTrigger{target, trigger}}, persistent),
+        Equal.trans(UI.Surface, UI.relocate_persistent_trigger(Some{UI.PersistentTrigger{target, trigger}}, scene, base, overlays),
+          UI.relocate_trigger_key(Some{key}, target, scene, base, overlays),
+          UI.relocate_found_trigger(Some{node}, target, scene, base, overlays),
+          Equal.cong(Maybe<&2, String>, UI.Surface,
+            (value => UI.relocate_trigger_key(value, target, scene, base, overlays)),
+            UI.matching_focus(base, trigger), Some{key}, resolved),
+          actual_relocation(scene, base, overlays, key, node, target, found)))
+    , +scene => +base => +key => +semantic => +label => +role => +meaning => +owner => +layer_semantic => +title => +policy => +body => +rest => +target => accepted => distinct => fresh =>
+      Equal.trans(Nat,
+        surface_occurrences(UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target,
+          scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key),
+        surface_occurrences(UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}},
+          scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key), 1n,
+        Equal.cong(UI.Surface, Nat, (surface => surface_occurrences(surface, key)),
+          UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target, scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest),
+          UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}}, scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest),
+          accepted_same_node(scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest,
+            key, semantic, label, role, meaning, Nil{}, target, accepted)),
+        valid_exactly_once(scene, base, key, semantic, label, role, meaning, owner, layer_semantic, title, policy, body, rest, distinct, fresh))
+    , +task => +trigger => +content => +initial => +state => {==}, +scene => +base => +overlays => +key => +semantic => +label => +role => +expanded => +source => +trigger => +availability => +children => +target => distinct =>
+      rejected_source_stays(scene, base, overlays, key, semantic, label, role,
+        UI.PanelToggle{expanded, Core.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{U.TaskDetails{source}, trigger}}}}, availability}, children, target, distinct)
+    , +scene => +base => +overlays => +key => +semantic => +label => +role => +expanded => +service => +availability => +children => +target => {==}, +scene => +nav => +reachable => +settings => +scope => {==}, rejected_source_stays, accepted_same_node}

@@ -37,73 +37,41 @@ def search_projection(+key: String, +filter: Board.Filter, +name: String, +visua
 def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
   List.append(&2, Doc.Property, Render.style(visual), [Doc.Property{"height", "32px"}])
 
-def search_hint_boundary(+key: String, +filter: Board.Filter, +name: String, +visual: Design.Style) ->
-  {search_projection(key, filter, name, visual) == ("搜索任务", (name, (search_styles_expected(visual), [Doc.EditText{key}]))) :
-    (String & (String & (+List<Doc.Property> & +List<Doc.Event>)))}:
-  {==}
 
-# The actual title transform retains the complete accepted action boundary.
-def title_action(+title: String, +key: String, +attrs: +List<Doc.Property>,
-  +original_styles: +List<Doc.Property>, +events: +List<Doc.Event>, original_children: +List<Doc.Node>) ->
-  {Render.card_title_control(title, Doc.Element{key, "button", attrs, original_styles, events, original_children}) ==
-    Doc.Element{key, "button", attrs, List.append(&2, Doc.Property, original_styles, Render.card_title_styles()), events, [Doc.Text{title}]} : Doc.Node}:
-  {==}
+
 
 def title_production_styles() -> +List<Doc.Property>:
   Doc.element_styles(Render.card_title_control("title", Doc.Element{"title", "button", Nil{}, Render.style(Appearance.ordinary_button()), Nil{}, [Doc.Text{"title"}]}))
 
-def title_inset_law() -> Type:
-  {(Render.attr(title_production_styles(), "padding-inline"),
-      (Render.attr(title_production_styles(), "padding-block"),
-       (Render.attr(title_production_styles(), "font-weight"),
-        (Render.attr(title_production_styles(), "white-space"), Render.attr(title_production_styles(), "min-height"))))) ==
-      ("8px", ("4px", ("580", ("normal", "32px")))) : (String & (String & (String & (String & String))))}
 
-def title_content_inset() -> title_inset_law():
-  {==}
 
-def title_group_binding(+owner: String, +title: String, +node: Doc.Node, +rest: +List<Doc.Node>) ->
-  {Doc.element_children(first(Render.card_title_nodes(owner, title, node <> rest))) ==
-    Render.card_title_control(title, node) <> Render.card_title_actions(title, rest) : +List<Doc.Node>}:
-  {==}
 
-def card_owned_inset() ->
-  {(Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{})), "padding-inline"),
-    Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{})), "padding-block")) == ("12px", "12px") : (String & String)}:
-  {==}
 
-def lane_group_order(+owner: String, +label: String, +stage: Board.Stage, +count: Nat, +create: +List<Doc.Node>) ->
-  {Doc.element_children(Render.lane_heading_node(owner, label, stage, count, create)) ==
-    [Render.lane_heading_leading(owner, label, stage, count), Render.lane_heading_trailing(owner, create)] : +List<Doc.Node>}:
-  {==}
 
-def lane_control_preservation(+owner: String, +create: +List<Doc.Node>) ->
-  {Doc.element_children(Render.lane_heading_trailing(owner, create)) == create : +List<Doc.Node>}:
-  {==}
 
-def lane_trailing_edge(+owner: String, +create: +List<Doc.Node>) ->
-  {(Render.attr(Doc.element_styles(Render.lane_heading_trailing(owner, create)), "margin-inline-start"),
-    Render.attr(Doc.element_styles(Render.lane_heading_trailing(owner, create)), "flex")) == ("auto", "0 0 auto") : (String & String)}:
-  {==}
 
-def lane_grouping_surface(+owner: String, +label: String, +stage: Board.Stage, +count: Nat, +create: +List<Doc.Node>) ->
-  {(Render.attr(Render.board_lane_styles(stage), "border"),
-    Render.attr(Doc.element_styles(Render.lane_heading_node(owner, label, stage, count, create)), "border-bottom")) == ("", "") : (String & String)}:
-  {==}
 
-def timestamp_intrinsic_width() ->
-  {Render.attr(Render.card_timestamp_styles(), "flex") == "none" : String}:
-  {==}
 
-def description_line_limit(+owner: String, +description: String) ->
-  {Render.attr(Doc.element_styles(first(Render.card_description_when(False{}, owner, description))), "-webkit-line-clamp") == "3" : String}:
-  {==}
+
+
+
+
+
+
+
+
+
+
 
 type Requirements is Type:
   Requirements{
     title_action: @+title:String -> @+key:String -> @+attrs:+List<Doc.Property> -> @+original_styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @original_children:+List<Doc.Node> ->
       {Render.card_title_control(title, Doc.Element{key, "button", attrs, original_styles, events, original_children}) == Doc.Element{key, "button", attrs, List.append(&2, Doc.Property, original_styles, Render.card_title_styles()), events, [Doc.Text{title}]} : Doc.Node},
-    title_inset: title_inset_law(),
+    title_inset: {(Render.attr(title_production_styles(), "padding-inline"),
+          (Render.attr(title_production_styles(), "padding-block"),
+           (Render.attr(title_production_styles(), "font-weight"),
+            (Render.attr(title_production_styles(), "white-space"), Render.attr(title_production_styles(), "min-height"))))) ==
+          ("8px", ("4px", ("580", ("normal", "32px")))) : (String & (String & (String & (String & String))))},
     title_group: @+owner:String -> @+title:String -> @+node:Doc.Node -> @+rest:+List<Doc.Node> -> {Doc.element_children(first(Render.card_title_nodes(owner, title, node <> rest))) == Render.card_title_control(title, node) <> Render.card_title_actions(title, rest) : +List<Doc.Node>},
     card_inset: {(Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{})), "padding-inline"), Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{})), "padding-block")) == ("12px", "12px") : (String & String)},
     lane_groups: @+owner:String -> @+label:String -> @+stage:Board.Stage -> @+count:Nat -> @+create:+List<Doc.Node> ->
@@ -117,4 +85,8 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{title_action, title_content_inset(), title_group_binding, card_owned_inset(), lane_group_order, lane_control_preservation, lane_trailing_edge, lane_grouping_surface, timestamp_intrinsic_width(), description_line_limit, search_hint_boundary}
+  Requirements{+title => +key => +attrs => +original_styles => +events => original_children => {==}, {==}, +owner => +title => +node => +rest => {==}, {==}, +owner => +label => +stage => +count => +create => {==}, +owner => +create => {==}, +owner => +create => {==}, +owner => +label => +stage => +count => +create => {==}, {==}, +owner => +description => {==}, +key => +filter => +name => +visual =>
+        {==}
+
+      # The actual title transform retains the complete accepted action boundary.
+    }
