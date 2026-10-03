@@ -20,20 +20,31 @@ def accepted_no_stale(parent: String, revision: Nat, reply: J.Json) ->
   {Interface.feedback_nodes(parent, U.Accepted{revision, reply}) == Nil{} : +List<Interface.Node>}:
   {==}
 
-def editor_rejected_visible(+identity: U.Editor, revision: Nat, groups: +List<View.InputGroup>, +structure: +List<Forms.Section>,
-  +submit: View.ControlDeclaration, submitted: Nat, +reason: String, pending: Bool, +parent: String, +state: Core.State) ->
+def editor_rejected_visible_law(-identity: U.Editor, -revision: Nat, -groups: +List<View.InputGroup>,
+  -structure: +List<Forms.Section>, -submit: View.ControlDeclaration, -submitted: Nat,
+  -reason: String, -pending: Bool, -parent: String, -state: Core.State) -> Type:
   {Interface.editor(Some{View.EditorScene{identity, revision, groups, structure, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
     List.append(&2, Interface.Node, Interface.sections(structure, identity, parent, 0n, state),
-      [Interface.Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}}, Interface.declared(parent, submit, state)]) : +List<Interface.Node>}:
+      [Interface.Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}}, Interface.declared(parent, submit, state)]) : +List<Interface.Node>}
+
+def editor_rejected_visible(+identity: U.Editor, revision: Nat, groups: +List<View.InputGroup>, +structure: +List<Forms.Section>,
+  +submit: View.ControlDeclaration, submitted: Nat, +reason: String, pending: Bool, +parent: String, +state: Core.State) ->
+  editor_rejected_visible_law(identity, revision, groups, structure, submit, submitted, reason, pending, parent, state):
   {==}
 
-def composer_rejected_visible(+identity: U.Editor, revision: Nat, message: U.Text, +footer: +List<View.ComposerControl>,
-  context: Maybe<&2, Context.Observation>, +submit: View.ControlDeclaration, submitted: Nat, +reason: String, pending: Bool, +parent: String, +state: Core.State) ->
+def composer_rejected_visible_law(-identity: U.Editor, -revision: Nat, -message: U.Text,
+  -footer: +List<View.ComposerControl>, -context: Maybe<&2, Context.Observation>,
+  -submit: View.ControlDeclaration, -submitted: Nat, -reason: String, -pending: Bool,
+  -parent: String, -state: Core.State) -> Type:
   {Interface.composer(Some{View.ComposerScene{identity, revision, message, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
     [Interface.Node{parent ++ "/composer/" ++ U.editor_key(identity), "composer/" ++ U.editor_key(identity), "Message", Interface.Composer{}, Interface.Region{},
       Interface.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, parent ++ "/composer/" ++ U.editor_key(identity), state) <>
         [Interface.Node{(parent ++ "/composer/" ++ U.editor_key(identity)) ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}},
-         Interface.composer_actions(footer, submit, parent ++ "/composer/" ++ U.editor_key(identity), state)]}] : +List<Interface.Node>}:
+         Interface.composer_actions(footer, submit, parent ++ "/composer/" ++ U.editor_key(identity), state)]}] : +List<Interface.Node>}
+
+def composer_rejected_visible(+identity: U.Editor, revision: Nat, message: U.Text, +footer: +List<View.ComposerControl>,
+  context: Maybe<&2, Context.Observation>, +submit: View.ControlDeclaration, submitted: Nat, +reason: String, pending: Bool, +parent: String, +state: Core.State) ->
+  composer_rejected_visible_law(identity, revision, message, footer, context, submit, submitted, reason, pending, parent, state):
   {==}
 
 type Requirements is Type:
@@ -46,15 +57,9 @@ type Requirements is Type:
     accepted_no_stale: @parent:String -> @revision:Nat -> @reply:J.Json ->
       {Interface.feedback_nodes(parent, U.Accepted{revision, reply}) == Nil{} : +List<Interface.Node>},
     editor_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @groups:+List<View.InputGroup> -> @+structure:+List<Forms.Section> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent:String -> @+state:Core.State ->
-      {Interface.editor(Some{View.EditorScene{identity, revision, groups, structure, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
-    List.append(&2, Interface.Node, Interface.sections(structure, identity, parent, 0n, state),
-      [Interface.Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}}, Interface.declared(parent, submit, state)]) : +List<Interface.Node>},
+      editor_rejected_visible_law(identity, revision, groups, structure, submit, submitted, reason, pending, parent, state),
     composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> -> @context:Maybe<&2, Context.Observation> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent:String -> @+state:Core.State ->
-      {Interface.composer(Some{View.ComposerScene{identity, revision, message, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
-    [Interface.Node{parent ++ "/composer/" ++ U.editor_key(identity), "composer/" ++ U.editor_key(identity), "Message", Interface.Composer{}, Interface.Region{},
-      Interface.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, parent ++ "/composer/" ++ U.editor_key(identity), state) <>
-        [Interface.Node{(parent ++ "/composer/" ++ U.editor_key(identity)) ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}},
-         Interface.composer_actions(footer, submit, parent ++ "/composer/" ++ U.editor_key(identity), state)]}] : +List<Interface.Node>}}
+      composer_rejected_visible_law(identity, revision, message, footer, context, submit, submitted, reason, pending, parent, state)}
 
 def evidence() -> Requirements:
   Requirements{

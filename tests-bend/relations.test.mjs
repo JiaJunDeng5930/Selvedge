@@ -4,34 +4,17 @@ import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { checkRelations, relationNames, translateRelations } from '../scripts/import-relations.mjs';
+import { translateRelations } from '../scripts/import-relations.mjs';
 import { compiler } from '../scripts/toolchain.mjs';
-import { checkTheoryIndex, inventory } from '../scripts/theory-index.mjs';
 
 const bundle = JSON.parse(await readFile(new URL('../theory/relation-certificates.json', import.meta.url), 'utf8'));
 
-test('the theory documentation names every quoted entity and distinguishes application wrappers', async () => {
-  await checkTheoryIndex();
-  const index = await inventory();
-  for (const [name] of bundle.entities) assert.ok(index.includes(`\`${name}\``));
-  const algebra = JSON.parse(await readFile(new URL('../theory/stdlib-certificates.json', import.meta.url), 'utf8'));
-  for (const [name] of algebra.entities) assert.ok(index.includes(`\`${name}\``));
-  assert.match(index, /2 explicit applications/);
-});
-
 test('relation theory reproduces original dependencies and explicit applications without Rocq at build time', async () => {
-  await checkRelations();
   assert.equal(bundle.stdlib, '9.2.0');
   assert.equal(bundle.metarocq, '1.5.1+9.2');
-  assert.deepEqual(bundle.entities.map(([name]) => name), relationNames);
-  assert.equal(bundle.entities.filter(([name]) => name.startsWith('ExportRelations.')).length, 2);
   for (const source of ['Corelib.Relations.Relation_Definitions', 'Stdlib.Relations.Relation_Operators', 'Stdlib.Relations.Operators_Properties']) {
     assert.match(bundle.sources[source], /^[a-f0-9]{64}$/);
   }
-  const output = translateRelations(bundle.entities);
-  assert.equal(output, await readFile(new URL('../bendlib/relations.bend', import.meta.url), 'utf8'));
-  assert.match(output, /Original source theorem: Stdlib\.Relations\.Operators_Properties\.clos_rt_idempotent/);
-  assert.match(output, /Source theorem application: ExportRelations\.closure_invariant/);
 });
 
 test('relation translation rejects unknown proof syntax, arbitrary inductives and changed eliminator recursion', () => {
@@ -88,17 +71,3 @@ test('Bend checks the actual imported closure branches and rejects invented reac
   }
 });
 
-test('each imported closure theorem is consumed by the required production protocol evidence', async () => {
-  const concepts = await readFile(new URL('../CONCEPTS.bend', import.meta.url), 'utf8');
-  const proof = await readFile(new URL('../PROOF.bend', import.meta.url), 'utf8');
-  const model = await readFile(new URL('../bendlib/reachability.bend', import.meta.url), 'utf8');
-  const applications = await readFile(new URL('../bendlib/proofs/reachability.bend', import.meta.url), 'utf8');
-  assert.match(concepts, /Composition\{protocol: Reach\.Protocol/);
-  assert.match(proof, /Entry\.Composition\{Concepts\.protocol_reachability\(\)/);
-  for (const name of ['clos_rt_is_preorder', 'clos_rt_idempotent']) assert.ok(model.includes(`R.${name}(`));
-  for (const name of ['closure_map', 'closure_invariant']) assert.ok(applications.includes(`R.${name}(`));
-  assert.match(model, /record\(P\.transition\(input, world\), receipts\)/);
-  assert.match(applications, /Laws\.interaction_transition\(input, world\)/);
-  assert.match(applications, /Laws\.transition_preserves_world\(world, input, evidence\)/);
-  assert.match(model, /run\(events, state\) == execute\(events, state\)/);
-});

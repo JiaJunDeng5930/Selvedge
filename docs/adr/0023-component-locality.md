@@ -21,27 +21,26 @@ feature assembly. Core stateful operations quantify over an unknown remainder
 type; their effect type also has an unknown feature-payload parameter.
 `bendlib/component.bend` supplies product state and complete decisions containing
 state, reply and ordered effects. `MODEL.bend` chooses concrete state and effect
-instances. `FEATURES.bend` owns feature state and cursor composition.
+instances. `FEATURES.bend` owns feature state and effect composition.
 
 The global vocabulary has stable feature categories. `feature-resolution`,
-`feature-protocol`, `feature-codec`, `feature-state` and `feature-ui` own the
-corresponding contributions. Feature-specific resolved operations are interpreted
+`feature-protocol`, `feature-codec` and `feature-state` own the corresponding
+contributions. Feature-specific resolved operations are interpreted
 by `feature-execution`, specified by `feature-spec`, and connected by
 `feature-laws`. Task creation is an explicit interaction premise: the assembler
 supplies the independent specification, implementation and their complete-decision
 proof. It never uses a production callback as its own expected behavior.
 
-`surface.bend` owns the shared presentation vocabulary. `feature-view` assembles
-component rendering, and `feature-codec` owns feature cursor fields, validation,
-encoding, decoding and observed-clock updates. The universal UI and wire modules
-do not import private board representations. This boundary must include the
-serialized cursor: preserving a component in memory while resetting it on the
-next input is not an extensible UI.
+The current semantic interface is in [../../UI.bend](../../UI.bend) and
+[../../core/interface.bend](../../core/interface.bend); feature command encoding
+is in [../../bendlib/feature-codec.bend](../../bendlib/feature-codec.bend).
+A cursor that survives only in memory but resets on the next input cannot
+support an extensible UI.
 
 Local task and reasoning proofs quantify over arbitrary surrounding types.
 The application reuses these values in its existing input-wide proof.
 `CONCEPTS.Harness.locality` additionally requires actual update and preservation
-evidence for task storage, reasoning dispatch, board storage and board navigation.
+evidence for task storage, reasoning dispatch and board storage.
 Write laws constrain the requested value as well as the untouched remainder.
 Board-specific laws leave future components free to update their own state.
 

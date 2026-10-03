@@ -435,10 +435,10 @@ root.addEventListener('keydown', event => {
 });
 root.addEventListener('pointerdown', event => {
   const scope = state.web.application.platform.scope;
-  const layerKey = Bend.active_layer_key(state);
-  const layer = scope.$ === 'Temporary' && layerKey.$ === 'Some'
-    ? [...root.querySelectorAll('[data-layer-key]')].find(node => node.dataset.layerKey === layerKey.value)
-    : null;
+  const layers = scope.$ === 'Temporary'
+    ? [...root.querySelectorAll('[data-layer-key]')].filter(node => !node.closest('[inert]'))
+    : [];
+  const layer = layers.length === 1 ? layers[0] : null;
   if (layer?.dataset.layerOutside === 'true') {
     const path = event.composedPath();
     const onTrigger = path.some(node => {

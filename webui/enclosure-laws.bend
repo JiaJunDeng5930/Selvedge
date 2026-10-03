@@ -73,9 +73,17 @@ def layout_copied(+value: D.Style, +layout: C.ContentLayout, +geometry: C.Geomet
   C.ContentLayout{alignment, space, gap} = layout
   action_insets(value, geometry, space, gap)
 
+def flow_preserves_area(+value: D.Style, flow: D.Flow) ->
+  {area(A.with_flow(value, flow)) == area(value) : E.ContentArea}:
+  D.Style{text, chrome, alignment, old_flow, overflow, frame, minimum, maximum, states} = value
+  {==}
+
 def action_copied(+value: D.Style, +face: C.Face, +geometry: C.Geometry) ->
   {area(A.action_style(value, face, geometry)) == layout_area(C.content_layout(face)) : E.ContentArea}:
-  layout_copied(value, C.content_layout(face), geometry)
+  Equal.trans(E.ContentArea, area(A.action_style(value, face, geometry)),
+    area(A.action_content_style(A.action_text(value, face, geometry), C.content_layout(face), geometry)), layout_area(C.content_layout(face)),
+    flow_preserves_area(A.action_content_style(A.action_text(value, face, geometry), C.content_layout(face), geometry), A.action_flow(face, C.content_layout(face))),
+    layout_copied(A.action_text(value, face, geometry), C.content_layout(face), geometry))
 
 def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
   {minimum(A.action_style_insets(value, geometry, space, gap)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, A.text_line_height(typography(value)), A.chrome_border_width(chrome(value)), space))) : Nat}:

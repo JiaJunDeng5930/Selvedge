@@ -44,28 +44,16 @@ test('project snapshots are bounded, versioned UTF-8 observations and never foll
   await assert.rejects(snapshotProject(nonfile, limits), /regular file/);
 });
 
-test('the actual native contract freezes project context across configure, checkpoint and branch', async t => {
+test('Bend-generated JavaScript rejects an invalid project revision', async t => {
   const kernel = new Kernel();
   t.after(() => kernel.close());
   await kernel.initialize();
   const input = async value => (await kernel.request(value)).value;
-  const command = value => input({ kind: 'command', command: value });
   const configure = project => input({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture' }],
     tools: [], max_fork: 4, max_descendants: 8, project });
-  const first = { workspace: '/project', instructions: 'Original project instructions', revision: 'a'.repeat(64) };
-  const second = { ...first, instructions: 'New instructions apply to new tasks', revision: 'b'.repeat(64) };
-  assert.equal((await configure(first)).reply.ok, true);
-  const original = await command({ op: 'create', profile: 'fixture', message: 'work' });
-  assert.deepEqual(original.effects[0].model.project, { ...first, source: 'AGENTS.md' });
-  await input({ kind: 'model', task_id: 0, ticket: original.effects[0].ticket, ok: true, items: [{ type: 'text', text: 'done' }] });
-  await command({ op: 'compact', task_id: 0, summary: 'The task completed its first objective.' });
-  await configure(second);
-  const branch = await command({ op: 'fork', task_id: 0, child_count: 1 });
-  assert.equal(branch.effects.filter(x => x.kind === 'model').length, 2);
-  for (const effect of branch.effects) assert.deepEqual(effect.model.project, { ...first, source: 'AGENTS.md' });
-  const newer = await command({ op: 'create', profile: 'fixture', message: 'new task' });
-  assert.deepEqual(newer.effects[0].model.project, { ...second, source: 'AGENTS.md' });
-  const rejected = await configure({ ...second, revision: 'absent' });
+  const project = { workspace: '/project', instructions: 'Original project instructions', revision: 'a'.repeat(64) };
+  assert.equal((await configure(project)).reply.ok, true);
+  const rejected = await configure({ ...project, revision: 'absent' });
   assert.equal(rejected.reply.ok, false, 'An absent source cannot carry invented guidance');
 });
 

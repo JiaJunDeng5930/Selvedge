@@ -385,16 +385,23 @@ def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.Dire
     (found => E.observed_pending(found, result, application)),
     E.find_pending(pending_entries(application), ticket), None{}, absent)
 
+def preparation_snapshot_law(-program: M.World(), -route: U.Route, -drafts: +List<U.Draft>,
+  -readers: +List<Finite.Entry(E.Reader)>, -layers: +List<E.Layer>, -attention: String,
+  -navigation: E.NavigationState, -filter: B.Filter, -now: U32, -next: Nat,
+  -pending: +List<E.Pending>, -previews: +List<Live.Output>, -code_blocks: +List<Content.Block>,
+  -workspace: D.Workspace, -draft: U.Draft) -> Type:
+  {E.prepare(E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
+      now, next, pending, previews, code_blocks}}, Some{workspace}, draft) ==
+    E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
+      now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks}},
+      D.success(J.Null{}), Nil{}, [E.ObserveDirectories{next, workspace}], False{}} : E.Decision}
+
 def preparation_snapshot(+program: M.World(), route: U.Route, +drafts: +List<U.Draft>,
   +readers: +List<Finite.Entry(E.Reader)>, +layers: +List<E.Layer>, attention: String,
   navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
   +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>,
   +workspace: D.Workspace, +draft: U.Draft) ->
-  {E.prepare(E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-      now, next, pending, previews, code_blocks}}, Some{workspace}, draft) ==
-    E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-      now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks}},
-      D.success(J.Null{}), Nil{}, [E.ObserveDirectories{next, workspace}], False{}} : E.Decision}:
+  preparation_snapshot_law(program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, workspace, draft):
   {==}
 
 type Requirements is Type:
@@ -433,11 +440,7 @@ type Requirements is Type:
       @navigation:E.NavigationState -> @filter:B.Filter -> @now:U32 -> @next:Nat ->
       @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code_blocks:+List<Content.Block> ->
       @+workspace:D.Workspace -> @+draft:U.Draft ->
-      {E.prepare(E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-          now, next, pending, previews, code_blocks}}, Some{workspace}, draft) ==
-        E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-          now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks}},
-          D.success(J.Null{}), Nil{}, [E.ObserveDirectories{next, workspace}], False{}} : E.Decision}
+      preparation_snapshot_law(program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, workspace, draft)
   }
 
 def evidence() -> Requirements:

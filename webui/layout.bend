@@ -456,8 +456,10 @@ def capacity_allows_details(capacity: V.Capacity) -> Bool:
 
 def present(+viewport: Design.Viewport, +surface: UI.Surface) -> Design.Layout:
   UI.Surface{content, base, +overlays, active_scope} = surface
-  Core.Scene{V.Scene{world_navigation, world_main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
-  V.Arrangement{navigation, page} = arrangement
+  Core.Scene{+view, settings, transfers, preview, code, directory_picker} = content
+  V.Scene{world_navigation, world_main, layers, arrangement, attention} = view
+  V.Arrangement{navigation} = arrangement
+  page = V.scene_page(view)
   requested_side_pane = actual_details(overlays) && capacity_allows_details(capacity(viewport))
   current_shell = shell(viewport, navigation, requested_side_pane)
   layout_with_shell(viewport, surface, overlays, current_shell, navigation, page, layers)

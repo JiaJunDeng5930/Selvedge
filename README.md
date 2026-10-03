@@ -30,34 +30,9 @@ operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
 command, scheduling, commit and dispatch equations, as well as safety and trace
 properties. [PROOF.bend](PROOF.bend) assembles the local proofs in
 `bendlib/proofs`; their explicit dependency graph follows the semantic boundaries.
-[INVARIANTS.bend](INVARIANTS.bend)
-defines the reflected validity/admission predicates. The full command refinement
-includes `bendlib/commit.bend`'s rollback, output-bound, and refusal semantics;
-it is not merely a pre-scheduling postcondition. `bendlib/protocol.bend` completes
-the interaction vocabulary with asynchronous results, configuration, restart,
-scheduler ticks and accepted internal tool calls. The input-wide refinement fixes
-their post-state, reply and effects, including refusal versus tool-error settlement.
-`bendlib/execution.bend` independently specifies work resolution, effect dispatch
-and finite scheduling. Neither it nor the command/protocol/commit specification
-imports PROGRAM; the complete refinement closes over this independent scheduler.
-The independent native-interface and transcript specifications extend this chain
-to malformed packets and finite input sequences. Trace simulation retains complete
-decision receipts, not only the final world. Existing Stdlib iterator theorems
-provide finite-run simulation, partition and invariant lifting; the project proves
-the one-step and tape/journal correspondences. MAIN contains only the IO boundary.
-The shared proof gate rejects unsafe/foreign evidence even when a compiled kernel
-is cached; MAIN's separately reported foreign input and service loop are not proofs.
+See [INVARIANTS.bend](INVARIANTS.bend) for the validity predicates.
 
 ## Component changes and proof reuse
-
-The task component quantifies over the type of surrounding feature state and
-effect payloads. Its implementation and local proofs do not import the assembled
-application model. `bendlib/component.bend` supplies product-state updates and
-complete decisions; `bendlib/reasoning-laws.bend` proves the production reasoning
-step for arbitrary surrounding types. `CONCEPTS.Harness.locality` additionally
-binds task updates, reasoning dispatch, board storage and board UI updates to
-their actual production paths, including both the intended update and preservation
-of unrelated state.
 
 Feature commands, queries, completions and effects cross stable outer categories.
 `bendlib/feature-*.bend` owns their resolution, interpretation, codecs, resource
@@ -66,10 +41,9 @@ feature's own contracts. A shared-resource or scheduling change still requires
 its actual interaction proof. See [ADR 0023](docs/adr/0023-component-locality.md)
 for the supported changes and evidence boundaries.
 
-`surface.bend` supplies common presentation nodes; feature rendering and cursor
-serialization are assembled in `feature-view` and `feature-codec`. The universal
-UI and input decoder remain unchanged when the extension fixture adds its own
-view and round-tripping cursor state.
+Follow [UI.bend](UI.bend) and [core/interface.bend](core/interface.bend) for
+the semantic interface, and [bendlib/feature-codec.bend](bendlib/feature-codec.bend)
+for feature command encoding.
 
 `bun run check:components` checks actual source dependencies and private feature
 patterns against `components.json`; it runs during normal checks and builds,
@@ -81,12 +55,6 @@ These checks constrain source changes, not human reading time or whole-build tim
 
 The existing standard-library proof terms and their checked translation live in
 [theory/README.md](theory/README.md). Normal builds need neither Rocq nor MetaRocq.
-`CONCEPTS.Composition.protocol` additionally binds the whole input-labelled
-protocol to imported relational-closure theory: reachability composition,
-macro-step flattening, simulation and safety. Its carrier retains full decision
-receipts and is proved to correspond to the actual journal and finite executor.
-The project supplies one-step and representation obligations, not another copy
-of the generic path theory. The theory inventory is generated and checked.
 
 ## Workspaces and projects
 
@@ -133,12 +101,6 @@ The actual command and context guarantees are bound by
 `bendlib/workspace-architecture.bend` in `CONCEPTS.Harness.working_context`.
 Journal format 2 records these task-local plans, not a global working directory;
 opening an older kernel/format is rejected without automatic migration.
-Operation ownership is a standard association-list binding: the stable operation
-identity is the key, while invocation and execution/result stage are the value.
-Lookup, removal and removal-absence evidence come from the original ExtLib
-`FMapAList` definitions and proof. Product projections express separation of task
-control and operation rights; only the domain update/dispatch correspondence is
-local. Batch and trace consumers instantiate original library theorems directly.
 Command descriptions, validation schemas, lifecycle controls, and client forms
 derive from the executable definitions. [host/README.md](host/README.md) describes
 the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates support.
@@ -154,29 +116,11 @@ physical capabilities. Authenticated public commands reach the authoritative
 kernel, and the browser observes world snapshots only after journal commit.
 Drafts settle against the actual command completion and their revision.
 
-The production Interface tree carries populated page regions. Existing core and
-Web proof aggregates bind region order and preservation to the actual page and
-renderer functions; see [ADR 0028](docs/adr/0028-populated-page-regions.md).
-
-The `Thread`, `Composer` and `Activity` vocabulary separates conversation content,
-execution feedback, audit details and submission intent. The production surface
-carries proofs for ordered speech, audit data, result values/errors and Send/Steer
-draft ownership. The browser uses the pinned desktop theme tokens; its product
-interaction and document structure come from Bend. See
-[the browser adapter](host/public/README.md) and
+See [ADR 0028](docs/adr/0028-populated-page-regions.md) for page-region ownership.
+See [the browser adapter](host/public/README.md) and
 [ADR 0026](docs/adr/0026-browser-executed-bend-ui.md).
 
-[HOOKS.bend](HOOKS.bend) is the unified extension entry. All accepted model tools,
-including internal task operations, pass through its ordered before-tool protocol.
-The symmetric `afterTool` protocol processes committed execution results with
-allow/rewrite/deny decisions. It preserves original call and error identity,
-retains an audit receipt, and owns independent cancellable callback tickets.
-Processed results enter the default model context; raw receipts remain available
-through authorized history reads. See [the plugin protocol](docs/plugins.md).
-Plugins can register tools, inspect/rewrite/deny arguments and receive native
-post-commit lifecycle events. Original calls and task-bound authorization records
-remain distinct; callbacks never acquire permission by inheriting history.
-See [docs/plugins.md](docs/plugins.md) for the executable protocol, configuration,
+See [docs/plugins.md](docs/plugins.md) for configuration, the protocol,
 example and explicit delivery/trust boundaries.
 
 ## Run

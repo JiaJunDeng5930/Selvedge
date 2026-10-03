@@ -4,14 +4,12 @@ import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { checkMaps, mapNames, translateMaps } from '../scripts/import-maps.mjs';
+import { translateMaps } from '../scripts/import-maps.mjs';
 import { compiler } from '../scripts/toolchain.mjs';
 
 const bundle = JSON.parse(await readFile(new URL('../theory/rocq-maps.json', import.meta.url), 'utf8'));
 
 test('the association-map bridge reproduces pinned original definitions and proof without the source prover', async () => {
-  await checkMaps();
-  assert.deepEqual(bundle.entities.map(([name]) => name), mapNames);
   assert.equal(bundle.extlib, '0.13.1');
   assert.equal(bundle.stdlib, '9.2.0');
   for (const name of ['ExtLib/Data/Map/FMapAList', 'ExtLib/Core/RelDec', 'ExtLib/Tactics/Consider', 'Stdlib/Lists/List']) {

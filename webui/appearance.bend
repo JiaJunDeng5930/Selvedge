@@ -7,6 +7,7 @@ import ../core/form-fields.bend as Forms
 import ./design.bend as Design
 import ./surfaces.bend as Surfaces
 import ./controls.bend as Controls
+import ./editor-layout.bend as EditorLayout
 
 # Codex Desktop 26.917.71314 supplies the semantic theme tokens, 4px spacing,
 # compact 12px text, and 20px/44px composer line/minimum. Selvedge uses 13/20
@@ -27,8 +28,10 @@ def style_background(value: Design.Style) -> Design.Paint:
 
 def states_background(chrome: Design.Chrome, states: Design.ControlStates, phase: Surfaces.Phase) -> Design.Paint:
   match states phase:
-    case Design.Interactive{hover, pressed, opacity, ring, width, offset} Surfaces.Hovered{}: chrome_background(hover)
-    case Design.Interactive{hover, pressed, opacity, ring, width, offset} Surfaces.Pressed{}: chrome_background(pressed)
+    case Design.Interactive{Design.PhasePaint{foreground, background}, pressed, opacity, ring, width, offset} Surfaces.Hovered{}: background
+    case Design.Interactive{hover, Design.PhasePaint{foreground, background}, opacity, ring, width, offset} Surfaces.Pressed{}: background
+    case Design.SurfaceFeedback{Design.PhasePaint{foreground, background}, pressed} Surfaces.Hovered{}: background
+    case Design.SurfaceFeedback{hover, Design.PhasePaint{foreground, background}} Surfaces.Pressed{}: background
     case _ _: chrome_background(chrome)
 
 def phase_background(value: Design.Style, phase: Surfaces.Phase) -> Design.Paint:
@@ -89,10 +92,10 @@ def passive() -> Design.ControlStates:
 
 def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
   pressed_background: Design.Paint) -> Design.ControlStates:
-  Design.Chrome{+foreground, background, +border, +border_width, +radius, +shadow} = style_chrome
+  Design.Chrome{+foreground, background, border, border_width, radius, shadow} = style_chrome
   Design.Interactive{
-    chrome(foreground, hover_background, border, border_width, radius, shadow),
-    chrome(foreground, pressed_background, border, border_width, radius, shadow),
+    Design.PhasePaint{foreground, hover_background},
+    Design.PhasePaint{foreground, pressed_background},
     40n,
     paint("--color-token-focus-border"),
     2n,
@@ -178,11 +181,47 @@ def widget_field_style(widget: Controls.Widget, entry: Forms.Entry) -> Design.St
     case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}), Enclosure.ambient(8n, 6n))
     case _: ordinary_field_style(entry)
 
+def field_values(value: Design.Style, size: Nat, weight: Nat, border: Nat, minimum: Nat, radius: Nat) -> Design.Style:
+  Design.Style{Design.TextStyle{font, old_size, line, old_weight}, Design.Chrome{foreground, background, border_paint, old_border, old_radius, shadow}, alignment, flow, overflow, frame, old_minimum, maximum, states} = value
+  Design.Style{Design.TextStyle{font, size, line, weight}, Design.Chrome{foreground, background, border_paint, border, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}
+
+def work_title_field(+value: Design.Style) -> Design.Style:
+  Design.Style{Design.TextStyle{font, size, line, weight}, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
+  field_values(value, 20n, 550n, 0n, minimum, radius)
+
+def work_description_field(+value: Design.Style) -> Design.Style:
+  Design.Style{Design.TextStyle{font, +size, line, +weight}, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  field_values(value, size, weight, 0n, 110n, radius)
+
+def message_field(+value: Design.Style) -> Design.Style:
+  Design.Style{Design.TextStyle{font, +size, line, +weight}, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  field_values(value, size, weight, 0n, 44n, radius)
+
+def normalize_text_field(kind: EditorLayout.FieldKind, value: Design.Style) -> Design.Style:
+  match kind:
+    case EditorLayout.WorkTitle{}: work_title_field(value)
+    case _: value
+
+def normalize_text_area(kind: EditorLayout.FieldKind, value: Design.Style) -> Design.Style:
+  match kind:
+    case EditorLayout.WorkDescription{}: work_description_field(value)
+    case _: value
+
+def normalize_field(kind: EditorLayout.FieldKind, widget: Controls.Widget, value: Design.Style) -> Design.Style:
+  match widget:
+    case Controls.TextInput{}: normalize_text_field(kind, value)
+    case Controls.TextArea{}: normalize_text_area(kind, value)
+    case Controls.MessageInput{}: message_field(value)
+    case _: value
+
+def search_field_style() -> Design.Style:
+  field_values(with_content_area(field_surface(Surfaces.Inset{}), Enclosure.area(Enclosure.SearchField{})), 13n, 400n, 1n, 32n, 6n)
+
 def field_style(meaning: UI.Meaning) -> Design.Style:
   match meaning:
-    case UI.BoardSearch{filter}: with_content_area(field_surface(Surfaces.Inset{}), Enclosure.area(Enclosure.SearchField{}))
+    case UI.BoardSearch{filter}: search_field_style()
     case UI.Edit{editor, +field, +entry, +value}:
-      widget_field_style(Controls.widget_for(entry, field, value), entry)
+      normalize_field(EditorLayout.field_kind(meaning), Controls.widget_for(entry, field, value), widget_field_style(Controls.widget_for(entry, field, value), entry))
     case _: editable_field()
 
 def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
@@ -274,19 +313,12 @@ def style_in_context(role: UI.Role, meaning: UI.Meaning,
 
 def navigation_context(context: Controls.Context) -> Bool:
   match context:
-    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution}: True{}
+    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution, source_family}: True{}
     case _: False{}
 
 def rounded_chrome(value: Design.Chrome, radius: Nat) -> Design.Chrome:
   Design.Chrome{foreground, background, border, width, old_radius, shadow} = value
   Design.Chrome{foreground, background, border, width, radius, shadow}
-
-def rounded_states(value: Design.ControlStates, +radius: Nat) -> Design.ControlStates:
-  match value:
-    case Design.Passive{}: Design.Passive{}
-    case Design.Interactive{hover, pressed, opacity, ring, width, offset}:
-      Design.Interactive{rounded_chrome(hover, radius), rounded_chrome(pressed, radius),
-        opacity, ring, width, offset}
 
 def layout_inline_inset(layout: Controls.ContentLayout) -> Nat:
   Controls.ContentLayout{alignment, content_area, gap} = layout
@@ -312,14 +344,35 @@ def action_style_insets(value: Design.Style, geometry: Controls.Geometry, +conte
   Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
   required_height = extent_height(Enclosure.required_extent(0n, text_line_height(text),
     chrome_border_width(style_chrome), content_area))
-  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, rounded_states(states, radius)}
+  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, states}
 
 def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry) -> Design.Style:
   Controls.ContentLayout{content_alignment, content_area, content_gap} = layout
   action_style_insets(value, geometry, content_area, content_gap)
 
-def action_style(value: Design.Style, face: Controls.Face, geometry: Controls.Geometry) -> Design.Style:
-  action_content_style(value, Controls.content_layout(face), geometry)
+def action_flow(face: Controls.Face, layout: Controls.ContentLayout) -> Design.Flow:
+  match face layout:
+    case Controls.SingleLineFace{text} _: Design.BlockFlow{}
+    case Controls.ChoiceFace{text, checked} _: Design.ChoiceFlow{}
+    case _ Controls.ContentLayout{alignment, content_area, gap}: Design.InlineControlFlow{alignment}
+
+def with_flow(value: Design.Style, flow: Design.Flow) -> Design.Style:
+  Design.Style{text, chrome, alignment, old_flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}
+
+def icon_text_style(value: Design.Style, geometry: Controls.Geometry) -> Design.Style:
+  Design.Style{Design.TextStyle{font, size, line, weight}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Controls.Geometry{width, height, icon, radius, leading} = geometry
+  Design.Style{Design.TextStyle{font, size, icon, weight}, chrome, alignment, flow, overflow, frame, minimum, maximum, states}
+
+def action_text(value: Design.Style, face: Controls.Face, geometry: Controls.Geometry) -> Design.Style:
+  match face:
+    case Controls.IconFace{glyph}: icon_text_style(value, geometry)
+    case _: value
+
+def action_style(value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) -> Design.Style:
+  +layout = Controls.content_layout(face)
+  with_flow(action_content_style(action_text(value, face, geometry), layout, geometry), action_flow(face, layout))
 
 def selection_style(value: Design.Style, behavior: Controls.Behavior) -> Design.Style:
   match behavior:
@@ -352,6 +405,84 @@ def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
         0n, 100n, passive())
     case _: fallback
 
+def style_frame(value: Design.Style) -> Enclosure.Frame:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  frame
+
+
+def modeled_container(value: Design.Style, flow: Design.Flow, gap: Nat) -> Design.Style:
+  Design.Style{text, chrome, alignment, old_flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content, Enclosure.EmbeddedContent{gap}}, minimum, maximum, states}
+
+def navigation_family_style(selected: Bool, gap: Nat, radius: Nat) -> Design.Style:
+  +role: Surfaces.Role = Surfaces.Choice{selected}
+  +foreground = primary_foreground()
+  with_content_area(fields(ordinary_text(), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
+    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
+    Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
+
+def embedded_control(value: Design.Style) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  +chrome = chrome(foreground, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, radius, shadow)
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, role_interactive(chrome, Surfaces.EmbeddedAction{})}
+
+def embedded_label_style(value: Design.Style) -> Design.Style:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, Design.BlockFlow{}, Design.SingleLineOverflow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, minimum, maximum, states}
+
+def project_label_style(value: Design.Style) -> Design.Style:
+  embedded_label_style(embedded_control(value))
+
+def chooser_text(selected: Maybe<&2, Nat>) -> Design.TextStyle:
+  match selected:
+    case None{}: ordinary_text()
+    case Some{id}: creation_heading_text()
+
+def chooser_embedded_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style:
+  Design.Style{old_text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  +text = chooser_text(selected)
+  fields(text, chrome, alignment, flow, overflow, 0n, 4n, 4n, Nat.max(minimum, (text_line_height(text) + 8n : Nat)), maximum, states)
+
+def chooser_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style:
+  chooser_embedded_style(selected, embedded_control(value))
+
+def source_control_style(family: Controls.SourceFamily, representation: Controls.Representation, value: Design.Style) -> Design.Style:
+  match family representation:
+    case _ Controls.Action{input, availability, name, Controls.SingleLineFace{text}, behavior, geometry, placement, help, feedback}: project_label_style(value)
+    case Controls.SourceFamily{owner, UI.ProjectChooser{selected}} Controls.Action{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, help, feedback}: chooser_style(selected, value)
+    case _ _: value
+
+def source_style(header: Bool, family: Controls.SourceFamily, value: Design.Style) -> Design.Style:
+  match header family:
+    case True{} Controls.SourceFamily{owner, UI.ProjectGroup{project, selected, expanded}}: navigation_family_style(selected, 2n, 6n)
+    case _ _: value
+
+def project_group_style() -> Design.Style:
+  with_arrangement(fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 4n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
+
+def choice_group_style(value: Design.Style) -> Design.Style:
+  with_arrangement(with_flow(value, Design.ColumnFlow{}), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
+
+def source_header_style(+key: String, family: Controls.SourceFamily, value: Design.Style) -> Design.Style:
+  match family:
+    case Controls.SourceFamily{+owner, +source}: source_style(String.eq(key, owner ++ "/actions"), Controls.SourceFamily{owner, source}, value)
+    case _: value
+
+
+def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style) -> Design.Style:
+  match meaning:
+    case UI.ProjectGroup{project, selected, expanded}: project_group_style()
+    case UI.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n)
+    case UI.ProjectChooser{selected}: fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.InlineControlFlow{Controls.LeadingContents{}}, Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+    case UI.ContextSummary{observation}: with_content_area(modeled_container(value, Design.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(style_frame(value)))))
+    case UI.DirectoryRow{path, primary}: modeled_container(value, Design.ColumnFlow{}, 8n)
+    case UI.ChoiceGroup{}: choice_group_style(value)
+    case UI.Region{}: source_header_style(key, family, value)
+    case _: source_control_style(family, representation, value)
+
+def final_style(key: String, meaning: UI.Meaning, context: Controls.Context, representation: Controls.Representation, value: Design.Style) -> Design.Style:
+  family_style(key, meaning, Controls.source_reference(context), representation, value)
+
 def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design.Appearance>:
   match values:
     case Nil{}: Nil{}
@@ -359,7 +490,7 @@ def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design
       +local = Controls.enter(key, role, meaning, context)
       +control = Controls.represent(key, meaning, label, role, local)
       Con{Design.Appearance{key,
-        control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local))), control),
+        final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local))), control)),
         control, nodes_at(children, local)}, nodes_at(rest, context)}
 
 def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
@@ -375,7 +506,7 @@ def present_fields(content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI
   Core.Settings{open, access, credential_entered, appearance, open_action,
     close_action, connect_action} = settings
   Design.Visuals{theme(appearance, system_dark),
-    Design.Rhythm{16n, 24n, 16n, 4n, 29n, 12n}, nodes_at(base, context), nodes_at(overlays, context)}
+    nodes_at(base, context), nodes_at(overlays, context)}
 
 def present(surface: UI.Surface, system_dark: Bool) -> Design.Visuals:
   UI.Surface{+content, base, overlays, active_scope} = surface

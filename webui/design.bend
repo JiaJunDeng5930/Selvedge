@@ -128,20 +128,27 @@ type Flow is Data:
   RowFlow{}
   SplitRowFlow{}
   WrapFlow{}
+  InlineControlFlow{alignment: Controls.ContentAlignment}
+  ChoiceFlow{}
 
 type Overflow is Data:
   ContentFlow{}
   ScrollFlow{}
   # The toolbar remains reachable while the code body uses its modeled wrap mode.
   CodeOverflow{}
+  SingleLineOverflow{}
 
 type Chrome is Data:
   Chrome{foreground: Paint, background: Paint, border: Paint, border_width: Nat,
     radius: Nat, shadow: Bool}
 
+type PhasePaint is Data:
+  PhasePaint{foreground: Paint, background: Paint}
+
 type ControlStates is Data:
   Passive{}
-  Interactive{hover: Chrome, pressed: Chrome, disabled_opacity_percent: Nat,
+  SurfaceFeedback{hover: PhasePaint, pressed: PhasePaint}
+  Interactive{hover: PhasePaint, pressed: PhasePaint, disabled_opacity_percent: Nat,
     focus_ring: Paint, focus_ring_width: Nat, focus_ring_offset: Nat}
 
 type Style is Data:
@@ -153,12 +160,8 @@ type Appearance is Data:
   Appearance{key: String, style: Style, control: Controls.Representation,
     children: +List<Appearance>}
 
-type Rhythm is Data:
-  Rhythm{page_inset: Nat, section_gap: Nat, message_gap: Nat, activity_gap: Nat,
-    row_height: Nat, board_gap: Nat}
-
 type Visuals is Data:
-  Visuals{theme: Theme, rhythm: Rhythm, base: +List<Appearance>, overlays: +List<Appearance>}
+  Visuals{theme: Theme, base: +List<Appearance>, overlays: +List<Appearance>}
 
 type Presentation is Data:
   Presentation{layout: Layout, visuals: Visuals}

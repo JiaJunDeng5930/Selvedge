@@ -46,10 +46,9 @@ drafting request as failed instead of automatically issuing another paid request
 
 ## UI and external boundaries
 
-`board-navigation.bend` and `board-view.bend` produce the cursor, read-only
-filters, visible cards, enabled actions, fields and drop bindings. The command
-codecs supply the same vocabulary to API callers and form bindings. Navigation
-does not become a durable task command.
+Page observations are in [../../core/ui-world.bend](../../core/ui-world.bend);
+the semantic interface is in [../../core/interface.bend](../../core/interface.bend).
+Navigation does not become a durable task command.
 
 The browser owns keyed DOM, focus, unsent input, popovers and pointer geometry.
 It fills only native-provided bindings. Drag retains the source revision from
@@ -68,21 +67,16 @@ is not filesystem authority.
 
 ## Evidence and limits
 
-`board-architecture.bend` and `proofs/board.bend` assemble complete-change,
-task-birth, drafting-settlement, callback-correlation and navigation evidence.
-The public harness carries this evidence with the existing command, execution,
-invariant, recovery and trace laws. `board-proof.test.mjs` mutates type-correct
-production expressions and requires the assembled proof to reject ignored
-insertion positions, lost suffixes, missing effects, stale tickets, replaced
-descriptions and incorrect dialog transitions.
+The production board refinement and callback evidence is declared in
+[../../bendlib/board-architecture.bend](../../bendlib/board-architecture.bend) and
+constructed in [../../bendlib/proofs/board.bend](../../bendlib/proofs/board.bend).
+[../../tests-bend/board-proof.test.mjs](../../tests-bend/board-proof.test.mjs)
+requires the assembled proof to reject type-correct production defects.
 
 `board-service.test.mjs` exercises the compiled kernel with real SQLite, HTTP
 streams, authenticated attachments, cancellation and restart. Manual order is
 checked across replay and metadata edits. File/text component tests cover bytes
-and provider decoding. `scripts/board-browser-check.mjs` drives isolated Chrome
-via CDP: actual pointer insertion, edits across SSE refresh, searchable choices,
-continuous creation, pasted files, previews and narrow/dark layouts. Results and
-screenshots are under `.workpad/board-webui/`.
+and provider decoding. Browser observations remain a separate external boundary.
 
 Proofs do not establish DOM/file/HTTP correctness, compiler correctness, model
 quality or account availability. Boundary tests use local fixtures, not a paid

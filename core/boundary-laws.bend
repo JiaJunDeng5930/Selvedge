@@ -57,12 +57,16 @@ def settings_fields_with_project(project:Nat, +previous:Maybe<&2, D.Workspace>, 
     case Some{previous_value} Some{sandbox_value} None{}: {==}
     case Some{previous_value} Some{sandbox_value} Some{choice}: {==}
 
-def settings_projection(+config:Context.Configuration, +workspace:D.Workspace, +guidance:D.ProjectContext) ->
+def settings_observations_law(-config: Context.Configuration, -workspace: D.Workspace,
+  -guidance: D.ProjectContext) -> Type:
   {settings_fields(Context.observed_settings(config, Context.DirectoryObservation{workspace, guidance})) ==
     SettingsFields{D.workspace_json(workspace), D.project_json(guidance),
       J.get(Context.settings(config), "project_id"),
       J.get(Context.settings(config), "sandbox"),
-      J.get(Context.settings(config), "approval")} : SettingsFields}:
+      J.get(Context.settings(config), "approval")} : SettingsFields}
+
+def settings_projection(+config:Context.Configuration, +workspace:D.Workspace, +guidance:D.ProjectContext) ->
+  settings_observations_law(config, workspace, guidance):
   match config:
     case Context.Configuration{Context.EnvironmentDefaults{}, previous, sandbox, approval}:
       settings_fields_without_project(previous, sandbox, approval, workspace, guidance)
@@ -166,11 +170,7 @@ type Requirements is Type:
         M.Create{profile, reasoning, U.text(text), Context.observed_settings(config, observation)} : M.Command},
     settings_observations: @+config:Context.Configuration -> @+workspace:D.Workspace ->
       @+guidance:D.ProjectContext ->
-      {settings_fields(Context.observed_settings(config, Context.DirectoryObservation{workspace, guidance})) ==
-        SettingsFields{D.workspace_json(workspace), D.project_json(guidance),
-          J.get(Context.settings(config), "project_id"),
-          J.get(Context.settings(config), "sandbox"),
-          J.get(Context.settings(config), "approval")} : SettingsFields},
+      settings_observations_law(config, workspace, guidance),
     inactive_stream_removed: @+task:Nat -> @+operation:Nat -> @+parts:+List<Live.Part> ->
       @+outputs:+List<Live.Output> -> @+world:M.World() ->
       @inactive:{Live.active(Live.Output{task, operation, parts}, world) == False{} : Bool} ->

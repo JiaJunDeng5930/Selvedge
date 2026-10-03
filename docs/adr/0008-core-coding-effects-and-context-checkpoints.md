@@ -20,7 +20,7 @@ cannot match the settled phase. This reuses ticket correlation and the existing
 transition/replay certificate instead of inventing a second cancellation state
 machine in the host.
 
-Full history is the durable record; `MODEL.context_history` is an idempotent
+Full history is the durable record; [`domain.context_history`](../../bendlib/domain.bend) is an idempotent
 projection for a model request. A checkpoint replaces only that request view.
 `SummaryPending` and `RequestSummary` give summary work a correlated ticket with
 no tool manifest. Effect admission requires all calls in the projected context

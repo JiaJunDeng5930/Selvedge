@@ -1,8 +1,7 @@
 # Web workspace and incremental rendering
 
-The Web adapter retains the native presentation boundary from ADR 0014. This
-change rearranges existing widgets and adds browser rendering mechanics; it does
-not add a second task model or extend `UI.bend`.
+The current UI scope is set by [ADR 0025](0025-native-conversation-and-desktop-source.md)
+and [ADR 0026](0026-browser-executed-bend-ui.md).
 
 The visual references were the Codex app, T3 Code and Alma: quiet task navigation,
 a constrained reading column, an anchored composer and secondary details revealed

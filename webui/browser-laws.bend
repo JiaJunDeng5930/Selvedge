@@ -51,12 +51,14 @@ def stale_snapshot(+received: Nat, +world: M.World(), +state: Browser.State,
   Equal.cong(Bool, Browser.Decision,
     (newer => Browser.snapshot_new(newer, received, world, Browser.State{web, current, next, pending})),
     Nat.is_lt(current, received), False{}, stale)
-def admitted_request(command: J.Json, completion: E.Completion, origin: String,
-  web: Web.State, sequence: Nat, next: Nat, pending: +List<Browser.Pending>) ->
+def admitted_request_law(-command: J.Json, -completion: E.Completion, -origin: String, -web: Web.State, -sequence: Nat, -next: Nat, -pending: +List<Browser.Pending>) -> Type:
   {Browser.request_ready(False{}, command, completion, origin, Browser.State{web, sequence, next, pending}) ==
-    Browser.Decision{Browser.State{web, sequence, (next + 1n : Nat),
-      List.append(&2, Browser.Pending, pending, [Browser.Pending{next, completion, command, origin, Browser.AwaitingReceipt{}}])},
-      [Browser.Command{next, command}]} : Browser.Decision}:
+      Browser.Decision{Browser.State{web, sequence, (next + 1n : Nat),
+        List.append(&2, Browser.Pending, pending, [Browser.Pending{next, completion, command, origin, Browser.AwaitingReceipt{}}])},
+        [Browser.Command{next, command}]} : Browser.Decision}
+
+def admitted_request(command: J.Json, completion: E.Completion, origin: String,
+  web: Web.State, sequence: Nat, next: Nat, pending: +List<Browser.Pending>) -> admitted_request_law(command, completion, origin, web, sequence, next, pending):
   {==}
 def duplicate_retains_state(command: J.Json, completion: E.Completion, origin: String,
   state: Browser.State) ->
@@ -66,14 +68,16 @@ def unmatched_completion(received: Nat, world: M.World(), reply: J.Json, state: 
   {Browser.completed(None{}, received, world, reply, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
   {==}
 
+def stale_completion_law(-ticket: Nat, -received: Nat, -supplied: M.World(), -reply: J.Json, -completion: E.Completion, -web: Web.State, -current: Nat, -next: Nat, -pending: +List<Browser.Pending>) -> Type:
+  {Browser.complete_new(False{}, ticket, received, supplied, reply, completion,
+      Browser.State{web, current, next, pending}) ==
+      Browser.product_input(Product.CommandCompleted{
+        Browser.program(Browser.State{web, current, next, pending}), reply, completion},
+        Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}
+
 def stale_completion_uses_current(ticket: Nat, received: Nat, supplied: M.World(), reply: J.Json,
   completion: E.Completion, web: Web.State, current: Nat, next: Nat,
-  pending: +List<Browser.Pending>) ->
-  {Browser.complete_new(False{}, ticket, received, supplied, reply, completion,
-    Browser.State{web, current, next, pending}) ==
-    Browser.product_input(Product.CommandCompleted{
-      Browser.program(Browser.State{web, current, next, pending}), reply, completion},
-      Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}:
+  pending: +List<Browser.Pending>) -> stale_completion_law(ticket, received, supplied, reply, completion, web, current, next, pending):
   {==}
 
 def failed_transition(ticket: Nat, error: String, web: Web.State, sequence: Nat, next: Nat, requests: +List<Browser.Pending>) ->
@@ -137,10 +141,12 @@ def document_state(core: Core.State, platform: Platform.Platform, generation: Na
   Browser.State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, Focus.Document{}}},
     generation, realization, environment}, sequence, next, requests}
 
-def document_key_event(+key: String, +shift: Bool, +core: Core.State, platform: Platform.Platform, +generation: Nat,
-  +realization: Rendered.State, +environment: Design.Environment, +sequence: Nat, +next: Nat, +requests: +List<Browser.Pending>) ->
+def document_key_event_law(-key: String, -shift: Bool, -core: Core.State, -platform: Platform.Platform, -generation: Nat, -realization: Rendered.State, -environment: Design.Environment, -sequence: Nat, -next: Nat, -requests: +List<Browser.Pending>) -> Type:
   {Browser.key_event(key, shift, document_state(core, platform, generation, realization, environment, sequence, next, requests)) ==
-    Browser.KeyResult{False{}, Browser.Decision{document_state(core, platform, generation, realization, environment, sequence, next, requests), Nil{}}} : Browser.KeyResult}:
+      Browser.KeyResult{False{}, Browser.Decision{document_state(core, platform, generation, realization, environment, sequence, next, requests), Nil{}}} : Browser.KeyResult}
+
+def document_key_event(+key: String, +shift: Bool, +core: Core.State, platform: Platform.Platform, +generation: Nat,
+  +realization: Rendered.State, +environment: Design.Environment, +sequence: Nat, +next: Nat, +requests: +List<Browser.Pending>) -> document_key_event_law(key, shift, core, platform, generation, realization, environment, sequence, next, requests):
   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
   {==}
 
@@ -160,10 +166,7 @@ def node_identity(value: Doc.Node) -> Maybe<&2, RootIdentity>:
     case Doc.Element{key, tag, attrs, styles, events, children}: Some{RootIdentity{key, tag}}
     case _: None{}
 
-def node_children(value: Doc.Node) -> +List<Doc.Node>:
-  match value:
-    case Doc.Element{key, tag, attrs, styles, events, children}: children
-    case _: Nil{}
+
 
 def first_node(values: +List<Doc.Node>) -> Doc.Node:
   match values:
@@ -176,7 +179,7 @@ def second_node(values: +List<Doc.Node>) -> Doc.Node:
     case _: Doc.Text{""}
 
 def application_node(value: Doc.Document) -> Doc.Node:
-  second_node(node_children(document_root(value)))
+  second_node(Doc.element_children(document_root(value)))
 
 def without_root_layout(value: Doc.Node) -> Doc.Node:
   match value:
@@ -189,7 +192,7 @@ def notice_root_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String
   {==}
 
 def notice_children(+notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {node_children(document_root(Browser.with_notices(notices, root, title))) ==
+  {Doc.element_children(document_root(Browser.with_notices(notices, root, title))) ==
     [Browser.notice_region(notices), Browser.application_for_notices(notices, root)] : +List<Doc.Node>}:
   {==}
 
@@ -222,18 +225,18 @@ def empty_application_unchanged(+root: Doc.Node, title: String) ->
   {==}
 
 def empty_notice_hidden(root: Doc.Node, title: String) ->
-  {first_node(node_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
+  {first_node(Doc.element_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
     Doc.Element{"@browser/unknown-status", "aside", [Doc.Property{"hidden", ""}], [Doc.Property{"display", "none"}], Nil{}, Nil{}} : Doc.Node}:
   {==}
 
 def notice_contents(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {node_children(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>}:
+  {Doc.element_children(first_node(Doc.element_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>}:
   match notices:
     case Nil{}: {==}
     case Con{notice, rest}: {==}
 
 def notice_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {node_identity(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) ==
+  {node_identity(first_node(Doc.element_children(document_root(Browser.with_notices(notices, root, title))))) ==
     Some{RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, RootIdentity>}:
   match notices:
     case Nil{}: {==}
@@ -257,22 +260,21 @@ type Requirements is Type:
     dismissal_refused: @input:Core.Input -> @+state:Browser.State ->
       {Browser.dismiss_permitted(False{}, input, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
     notice_identity: @notices:+List<Doc.Node> -> @root:Doc.Node -> @title:String ->
-      {node_identity(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == Some{RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, RootIdentity>},
+      {node_identity(first_node(Doc.element_children(document_root(Browser.with_notices(notices, root, title))))) == Some{RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, RootIdentity>},
     notice_root_identity: @notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_identity(document_root(Browser.with_notices(notices, root, title))) ==
     Some{RootIdentity{"@browser/interaction", "div"}} : Maybe<&2, RootIdentity>},
-    notice_children: @+notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_children(document_root(Browser.with_notices(notices, root, title))) ==
+    notice_children: @+notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {Doc.element_children(document_root(Browser.with_notices(notices, root, title))) ==
     [Browser.notice_region(notices), Browser.application_for_notices(notices, root)] : +List<Doc.Node>},
     notice_title: @notices: +List<Doc.Node> -> @root: Doc.Node -> @+title: String -> {document_title(Browser.with_notices(notices, root, title)) == title : String},
     application_identity: @notices: +List<Doc.Node> -> @+root: Doc.Node -> @title: String -> {node_identity(application_node(Browser.with_notices(notices, root, title))) == node_identity(root) : Maybe<&2, RootIdentity>},
     application_content: @notices: +List<Doc.Node> -> @+root: Doc.Node -> @title: String -> {without_root_layout(application_node(Browser.with_notices(notices, root, title))) == without_root_layout(root) : Doc.Node},
     empty_application_unchanged: @+root: Doc.Node -> @title: String -> {application_node(Browser.with_notices(Nil{}, root, title)) == root : Doc.Node},
-    empty_notice_hidden: @root: Doc.Node -> @title: String -> {first_node(node_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
+    empty_notice_hidden: @root: Doc.Node -> @title: String -> {first_node(Doc.element_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
     Doc.Element{"@browser/unknown-status", "aside", [Doc.Property{"hidden", ""}], [Doc.Property{"display", "none"}], Nil{}, Nil{}} : Doc.Node},
-    notice_contents: @notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_children(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>},
+    notice_contents: @notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {Doc.element_children(first_node(Doc.element_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>},
     document_key_event: @+key:String -> @+shift:Bool -> @+core:Core.State -> @platform:Platform.Platform -> @+generation:Nat ->
       @+realization:Rendered.State -> @+environment:Design.Environment -> @+sequence:Nat -> @+next:Nat -> @+requests:+List<Browser.Pending> ->
-      {Browser.key_event(key, shift, document_state(core, platform, generation, realization, environment, sequence, next, requests)) ==
-        Browser.KeyResult{False{}, Browser.Decision{document_state(core, platform, generation, realization, environment, sequence, next, requests), Nil{}}} : Browser.KeyResult},
+      document_key_event_law(key, shift, core, platform, generation, realization, environment, sequence, next, requests),
     failed_transition: @ticket:Nat -> @error:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @requests:+List<Browser.Pending> ->
       {Browser.step(Browser.Failed{ticket, error}, Browser.State{web, sequence, next, requests}) ==
         Browser.Decision{Browser.State{web, sequence, next, Browser.uncertain_pending(requests, ticket, error)}, Nil{}} : Browser.Decision},
@@ -290,17 +292,10 @@ type Requirements is Type:
       {Browser.snapshot(received, world, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
     admitted_request: @command:J.Json -> @completion:E.Completion -> @origin:String ->
       @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      {Browser.request_ready(False{}, command, completion, origin, Browser.State{web, sequence, next, pending}) ==
-        Browser.Decision{Browser.State{web, sequence, (next + 1n : Nat),
-          List.append(&2, Browser.Pending, pending, [Browser.Pending{next, completion, command, origin, Browser.AwaitingReceipt{}}])},
-          [Browser.Command{next, command}]} : Browser.Decision},
+      admitted_request_law(command, completion, origin, web, sequence, next, pending),
     stale_completion: @ticket:Nat -> @received:Nat -> @supplied:M.World() -> @reply:J.Json ->
       @completion:E.Completion -> @web:Web.State -> @current:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      {Browser.complete_new(False{}, ticket, received, supplied, reply, completion,
-        Browser.State{web, current, next, pending}) ==
-        Browser.product_input(Product.CommandCompleted{
-          Browser.program(Browser.State{web, current, next, pending}), reply, completion},
-          Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}
+      stale_completion_law(ticket, received, supplied, reply, completion, web, current, next, pending)
   }
 def evidence() -> Requirements:
   Requirements{Product.interface_evidence(), dismissal_allowed, dismissal_refused, notice_identity, notice_root_identity, notice_children, notice_title, application_identity, application_content, empty_application_unchanged, empty_notice_hidden, notice_contents, document_key_event, failed_transition, document_key, failed_preserves_web, failed_retains_ticket, consumed_ticket, stale_snapshot, admitted_request, stale_completion_uses_current}

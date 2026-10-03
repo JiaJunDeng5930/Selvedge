@@ -49,10 +49,9 @@ desktop capability is introduced as an empty native object.
 The actual styled desktop `DropdownMenu`, `SearchInput`, `RadioGroup` and
 `RadioItem`, with their React/ReactDOM implementation, are extracted from
 `app-shared-7b9edc1bfb7f.js`. The bundler removes unrelated application code and
-the final module has no external imports. `desktop.mjs` binds native labels,
-choices, enabled flags and dispatch callbacks to those components. Focus,
-keyboard navigation, collision handling and dismissal are not reimplemented.
-Menu portals attach to an enclosing native dialog when one exists.
+the final module has no external imports. Current DOM realization is in
+[../../host/public/renderer.mjs](../../host/public/renderer.mjs); the pinned source
+and reproduction record remain in `host/public/vendor/desktop-source.json`.
 
 The scroll implementation uses **22 unchanged callback bodies and nine unchanged
 helpers** from `thread-scroll-layout-27da424d79e0.js` and `app-initial`. The local

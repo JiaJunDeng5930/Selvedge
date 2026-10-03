@@ -9,8 +9,7 @@ not claims about all Bend versions.
 
 The first browser pass exposed a mismatch hidden by the pure type check:
 successful creation opened a detail dialog, whereas the reference closes it
-unless continuous creation is selected. The intended create/edit transitions
-are now fields of the assembled `BoardBoundary`, challenged by semantic mutations.
+unless continuous creation is selected.
 
 Column-only drag was also insufficient. Manual order now uses the finite map's
 existing association-list order, with positional insertion specified separately
@@ -278,23 +277,6 @@ installation, and bootstrap, npm/Just commands, Codex actions, hooks, and the
 macOS/Linux CI configuration all target the checked native implementation.
 The pinned macOS installer and local gates were executed; the remote CI jobs
 have been configured but were not run as part of this local task.
-
-The three exploration goals are realized at their relevant boundaries. Requirements,
-model predicates, and operational definitions inhabit the same Bend program used
-by the service. List-monoid laws, transition induction, replay composition, and
-observation stuttering are instantiated directly on that program. MODEL,
-INVARIANTS, LAWS, and PROGRAM provide the top-level reading path, with PROOF holding
-proof construction; client command descriptions and controls derive from model
-values instead of a second handwritten protocol specification.
-
-The resulting guarantee is deliberately precise. Formalization does not certify
-that the predicates capture all informal intent, make runtime rejection impossible,
-prove progress or scheduler fairness, or verify a remote system. Live vendor
-credentials were not used: authentication and MCP behavior were exercised against
-controlled endpoints and real local processes. The Bend checker/compiler, C ABI,
-Node, SQLite, operating system, and remote services remain trusted boundaries.
-Those limits, the positive functional evidence, and the measured costs are part of
-the outcome of this experiment, rather than hidden assumptions of the safety proof.
 
 ## 2026-09-24: extend the migrated runtime into a coding harness
 

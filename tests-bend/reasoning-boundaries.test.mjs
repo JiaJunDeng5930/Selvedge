@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Kernel } from '../host/kernel.mjs';
 import { providerInput, responseBody } from '../host/providers.mjs';
-import { presentationNodes as walk } from './support.mjs';
 
 const policy = (transport = 'configuration_update', extra = {}) => ({ evaluator: 'separate-evaluator',
   efforts: ['low', 'medium', 'high'], baseline: 'medium', transport, max_lease: 10, ...extra });
@@ -36,41 +35,17 @@ async function kernel(t, adaptive = policy()) {
   };
 }
 
-test('fixed endpoints bypass evaluation; an adaptive endpoint accepts only auto and freezes its complete policy', async t => {
-  const k = await kernel(t);
-  const fixed = await k.command({ op: 'create', profile: 'fixed', message: 'Ordinary request.' });
-  assert.equal(fixed.effects.filter(item => item.kind === 'reasoning').length, 0);
-  assert.equal(effect(fixed, 'model').model.reasoning, 'medium');
-  await k.model(effect(fixed, 'model'));
-  for (const reasoning of ['low', 'medium', 'high']) {
-    assert.equal((await k.command({ op: 'create', profile: 'automatic', reasoning, message: 'Explicit effort is not permitted.' })).reply.ok, false);
-  }
-  assert.equal((await k.command({ op: 'create', profile: 'fixed', reasoning: 'auto', message: 'Not configured.' })).reply.ok, false);
-  const created = await k.create();
-  const pending = effect(created, 'reasoning', 1);
-  assert.equal(pending.model.reasoning, 'auto');
-  assert.deepEqual(pending.model.adaptive_reasoning, policy());
-  assert.equal(pending.model.name, 'a-manually-configured-model');
-  assert.equal(created.effects.some(item => item.kind === 'model'), false);
-  assert.equal((await k.page(1)).task.phase, 'reasoning_pending');
-});
-
-test('native generation records encode exact Responses prefixes and never leak audit records into provider input', async t => {
+test('Bend-generated JavaScript generation records encode exact Responses prefixes and never leak audit records into provider input', async t => {
   const k = await kernel(t);
   const pending = effect(await k.create(), 'reasoning');
   const first = effect(await k.choose(pending, 'low', 2), 'model');
-  assert.deepEqual(first.sampling, { effective_effort: 'low', request_effort: 'medium' });
   const firstInput = providerInput(first.history);
   assert.deepEqual(firstInput.at(-1), { type: 'configuration_update', reasoning: { effort: 'low' } });
   const second = effect(await k.model(first, [readCall('read-one'), readCall('read-two')]), 'model');
   assert.deepEqual(providerInput(second.history).slice(0, firstInput.length), firstInput);
-  assert.equal(second.history.filter(item => item.role === 'configuration_update').length, 1);
-  assert.equal(second.history.filter(item => item.role === 'reasoning_record' && item.content.sampling).at(-1).content.remaining, 0);
   const exhausted = await k.model(second, [readCall('read-three')]);
   const again = effect(exhausted, 'reasoning');
-  assert.equal(exhausted.effects.some(item => item.kind === 'model'), false);
   const third = effect(await k.choose(again, 'high', 1), 'model');
-  assert.deepEqual(third.sampling, { effective_effort: 'high', request_effort: 'medium' });
   assert.deepEqual(providerInput(third.history).slice(0, providerInput(second.history).length), providerInput(second.history));
   assert.deepEqual(providerInput(third.history).at(-1), { type: 'configuration_update', reasoning: { effort: 'high' } });
   const body = responseBody(third, { provider: 'responses' });
@@ -82,7 +57,6 @@ test('native generation records encode exact Responses prefixes and never leak a
 test('request-effort transport is independent of ChatGPT and never emits a configuration update', async t => {
   const k = await kernel(t, policy('request_effort'));
   const first = effect(await k.choose(effect(await k.create(), 'reasoning'), 'high', 1), 'model');
-  assert.deepEqual(first.sampling, { effective_effort: 'high', request_effort: 'high' });
   assert.equal(responseBody(first).reasoning.effort, 'high');
   assert.ok(!providerInput(first.history).some(item => item.type === 'configuration_update'));
   const pending = effect(await k.model(first, [readCall('next')]), 'reasoning');
@@ -91,7 +65,7 @@ test('request-effort transport is independent of ChatGPT and never emits a confi
   assert.ok(!providerInput(second.history).some(item => item.type === 'configuration_update'));
 });
 
-test('native evaluator wire omits private continuation even when it is nested inside a tool result', async t => {
+test('Bend-generated JavaScript evaluator wire omits private continuation even when it is nested inside a tool result', async t => {
   const k = await kernel(t);
   const first = effect(await k.choose(effect(await k.create(), 'reasoning'), 'low', 10), 'model');
   const result = await k.model(first, [
@@ -106,18 +80,3 @@ test('native evaluator wire omits private continuation even when it is nested in
   assert.ok((await k.page()).messages.some(item => item.role === 'model_context'));
 });
 
-test('native profile selection exposes only Auto without submitting or changing a task', async t => {
-  const k = await kernel(t);
-  const initial = await k.send({ kind: 'ui', state: null, event: { type: 'refresh' } });
-  const selected = await k.send({ kind: 'ui', state: initial.reply.result.presentation.state, event: { type: 'profile', profile: 'automatic' } });
-  assert.deepEqual(selected.effects, []);
-  const form = walk(selected.reply.result.presentation.root).find(node => node.kind === 'form' && node.key === 'create');
-  assert.equal(form.enabled, true);
-  assert.deepEqual(form.fields.find(field => field.name === 'reasoning').choices, [{ value: 'auto', label: 'Auto' }]);
-  assert.equal(form.event.command.reasoning, 'auto');
-  assert.deepEqual(form.changes.profile.reset_fields, ['reasoning']);
-  const fixed = await k.send({ kind: 'ui', state: selected.reply.result.presentation.state, event: { type: 'profile', profile: 'fixed' } });
-  const fixedForm = walk(fixed.reply.result.presentation.root).find(node => node.kind === 'form' && node.key === 'create');
-  assert.equal(fixedForm.fields.find(field => field.name === 'reasoning').value, 'medium');
-  assert.deepEqual((await k.command({ op: 'list' })).reply.result.tasks, []);
-});

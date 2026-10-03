@@ -225,9 +225,7 @@ def ordered_children_matches_specification(+values: +List<UI.Node>, role: UI.Rol
     case UI.Content{}: {==}
     case UI.Alert{}: {==}
 
-def node_key(value: UI.Node) -> String:
-  UI.Node{key, semantic, label, role, meaning, children} = value
-  key
+
 
 def non_dialog_order_observation(role: UI.Role, +values: +List<UI.Node>, +context: Controls.Context) -> +List<UI.Node>:
   match role:
@@ -583,7 +581,7 @@ type CountPredicate is Data:
 def count_matches(predicate: CountPredicate, value: UI.Node) -> Bool:
   match predicate:
     case CountAll{}: True{}
-    case CountKey{key}: String.eq(node_key(value), key)
+    case CountKey{key}: String.eq(UI.node_key(value), key)
 
 def count_by(+predicate: CountPredicate, values: +List<UI.Node>) -> Nat:
   match values:
@@ -710,10 +708,10 @@ def dialog_partition_preserves_length(+values: +List<UI.Node>, +context: Control
 
 def dialog_partition_preserves_occurrences(+target: UI.Node, +values: +List<UI.Node>,
   +context: Controls.Context) ->
-  {count_by(CountKey{node_key(target)},
+  {count_by(CountKey{UI.node_key(target)},
       Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
-    count_by(CountKey{node_key(target)}, values) : Nat}:
-  partition_count_preserved(CountKey{node_key(target)}, values, context)
+    count_by(CountKey{UI.node_key(target)}, values) : Nat}:
+  partition_count_preserved(CountKey{UI.node_key(target)}, values, context)
 
 type Requirements is Type:
   Requirements{
@@ -725,9 +723,9 @@ type Requirements is Type:
       {List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
         List.length(&2, UI.Node, values) : Nat},
     dialog_partition_occurrences: @target:UI.Node -> @values:+List<UI.Node> -> @context:Controls.Context ->
-      {count_by(CountKey{node_key(target)},
+      {count_by(CountKey{UI.node_key(target)},
           Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
-        count_by(CountKey{node_key(target)}, values) : Nat},
+        count_by(CountKey{UI.node_key(target)}, values) : Nat},
     ordered_children_reference: @values:+List<UI.Node> -> @role:UI.Role -> @context:Controls.Context ->
       {Order.ordered_children(role, values, context) == specified_children(role, values, context) : +List<UI.Node>},
     dialog_order_idempotent: @values:+List<UI.Node> -> @context:Controls.Context ->

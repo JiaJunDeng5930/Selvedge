@@ -6,19 +6,17 @@ import ./document.bend as Doc
 import ./renderer.bend as Render
 import ./MODEL.bend as Web
 import ./controls.bend as Controls
+import ./appearance.bend as Appearance
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
 import ../BOARD.bend as Board
 
-def node_styles(node: Doc.Node) -> +List<Doc.Property>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, children}: styles
-    case _: Nil{}
+
 
 def document_background(document: Doc.Document) -> String:
   Doc.Document{root, title} = document
-  Render.attr(node_styles(root), "background")
+  Render.attr(Doc.element_styles(root), "background")
 
 def color_clear() -> {Render.surface_color(Surfaces.Clear{}) == "transparent" : String}:
   {==}
@@ -42,7 +40,7 @@ def application_background(+scene: Web.Scene) ->
   match scene:
     case Web.Scene{UI.Surface{content, base, overlays, active}, platform, generation, realization,
       Design.Presentation{Design.Layout{Design.Viewport{width, height}, shell, main, placements},
-        Design.Visuals{theme, rhythm, base_appearance, overlay_appearance}}}: {==}
+        Design.Visuals{theme, base_appearance, overlay_appearance}}}: {==}
 
 def lane_background(+stage: Board.Stage) ->
   {Render.attr(Render.board_lane_styles(stage), "background") ==
@@ -50,22 +48,24 @@ def lane_background(+stage: Board.Stage) ->
   {==}
 
 def chip_background(key: String, kind: String, text: String, +tone: Surfaces.Tone) ->
-  {Render.attr(node_styles(Render.card_chip(key, kind, text, tone)), "background") ==
+  {Render.attr(Doc.element_styles(Render.card_chip(key, kind, text, tone)), "background") ==
     Render.surface_background(Surfaces.Chip{tone}, Surfaces.Rest{}) : String}:
   {==}
 
 def selected_background(+selected: Bool) ->
-  {Render.project_selected_background(selected) ==
+  {Render.paint(Appearance.style_background(Appearance.navigation_family_style(selected, 2n, 6n))) ==
     Render.surface_background(Surfaces.Choice{selected}, Surfaces.Rest{}) : String}:
   {==}
 
-def wrapper_phases(+role: Surfaces.Role) ->
+def wrapper_phases_law(-role: Surfaces.Role) -> Type:
   {(Render.attr(Render.native_surface_properties(role), "--native-rest-background"),
-    (Render.attr(Render.native_surface_properties(role), "--native-hover-background"),
-     Render.attr(Render.native_surface_properties(role), "--native-pressed-background"))) ==
-    (Render.surface_background(role, Surfaces.Rest{}),
-      (Render.surface_background(role, Surfaces.Hovered{}), Render.surface_background(role, Surfaces.Pressed{}))) :
-    (String & (String & String))}:
+      (Render.attr(Render.native_surface_properties(role), "--native-hover-background"),
+       Render.attr(Render.native_surface_properties(role), "--native-pressed-background"))) ==
+      (Render.surface_background(role, Surfaces.Rest{}),
+        (Render.surface_background(role, Surfaces.Hovered{}), Render.surface_background(role, Surfaces.Pressed{}))) :
+      (String & (String & String))}
+
+def wrapper_phases(+role: Surfaces.Role) -> wrapper_phases_law(role):
   {==}
 
 def rest_background_property(+value: String) ->
@@ -77,12 +77,14 @@ def rest_foreground_property(+value: String) ->
   {==}
 
 # The final action properties expose rest color variables to the CSS interpreter.
+def action_rest_background_law(-key: String, -visual: Design.Style, -input: Core.Input, -availability: View.Availability, -name: String, -face: Controls.Face, -behavior: Controls.Behavior, -geometry: Controls.Geometry, -placement: Controls.Placement, -help: Controls.Help, -feedback: Controls.Feedback) -> Type:
+  {Render.attr(Doc.element_styles(Render.action(key, Design.Appearance{key, visual, Controls.NoControl{}, Nil{}},
+      Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})),
+      "--native-rest-background") == Render.attr(Render.style(visual), "background") : String}
+
 def action_rest_background(+key: String, +visual: Design.Style, input: Core.Input, availability: View.Availability,
   name: String, face: Controls.Face, behavior: Controls.Behavior, geometry: Controls.Geometry,
-  placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
-  {Render.attr(node_styles(Render.action(key, Design.Appearance{key, visual, Controls.NoControl{}, Nil{}},
-    Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})),
-    "--native-rest-background") == Render.attr(Render.style(visual), "background") : String}:
+  placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) -> action_rest_background_law(key, visual, input, availability, name, face, behavior, geometry, placement, help, feedback):
   EnclosureRender.action_background_preserved(key, visual, input, availability, name, face, behavior, geometry, placement, help, feedback)
 
 def surface_foreground(+role: Surfaces.Role) ->
@@ -105,16 +107,12 @@ type Requirements is Type:
       {Render.attr(Render.board_lane_styles(stage), "background") ==
         Render.surface_background(Surfaces.Lane{Render.stage_surface_tone(stage)}, Surfaces.Rest{}) : String},
     chip_background: @key:String -> @kind:String -> @text:String -> @+tone:Surfaces.Tone ->
-      {Render.attr(node_styles(Render.card_chip(key, kind, text, tone)), "background") ==
+      {Render.attr(Doc.element_styles(Render.card_chip(key, kind, text, tone)), "background") ==
         Render.surface_background(Surfaces.Chip{tone}, Surfaces.Rest{}) : String},
     selected_background: @+selected:Bool ->
-      {Render.project_selected_background(selected) == Render.surface_background(Surfaces.Choice{selected}, Surfaces.Rest{}) : String},
+      {Render.paint(Appearance.style_background(Appearance.navigation_family_style(selected, 2n, 6n))) == Render.surface_background(Surfaces.Choice{selected}, Surfaces.Rest{}) : String},
     wrapper_phases: @+role:Surfaces.Role ->
-      {(Render.attr(Render.native_surface_properties(role), "--native-rest-background"),
-        (Render.attr(Render.native_surface_properties(role), "--native-hover-background"),
-          Render.attr(Render.native_surface_properties(role), "--native-pressed-background"))) ==
-        (Render.surface_background(role, Surfaces.Rest{}),
-          (Render.surface_background(role, Surfaces.Hovered{}), Render.surface_background(role, Surfaces.Pressed{}))) : (String & (String & String))},
+      wrapper_phases_law(role),
     rest_background_property: @+value:String ->
       {Render.pointer_property("background", value) == Doc.Property{"--native-rest-background", value} : Doc.Property},
     rest_foreground_property: @+value:String ->
@@ -122,9 +120,7 @@ type Requirements is Type:
     action_rest_background: @+key:String -> @+visual:Design.Style -> @input:Core.Input -> @availability:View.Availability ->
       @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry ->
       @placement:Controls.Placement -> @help:Controls.Help -> @feedback:Controls.Feedback ->
-      {Render.attr(node_styles(Render.action(key, Design.Appearance{key, visual, Controls.NoControl{}, Nil{}},
-        Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})),
-        "--native-rest-background") == Render.attr(Render.style(visual), "background") : String}
+      action_rest_background_law(key, visual, input, availability, name, face, behavior, geometry, placement, help, feedback)
   }
 
 def evidence() -> Requirements:

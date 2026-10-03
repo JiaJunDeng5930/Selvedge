@@ -286,13 +286,9 @@ def work_status_child_key(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
                 case _: work_status_child_key(rest)
             case _: work_status_child_key(rest)
 
-def observation_node_key(node: Interface.Node) -> String:
-  Interface.Node{key, semantic, label, role, meaning, children} = node
-  key
-
 def selected_work_child_identity(selected: Bool, +node: Interface.Node, +parent: String, rest: +List<Interface.Node>) ->
   {work_status_child_key(Interface.board_group(parent, "work-status", Interface.WorkStatus{}, [Interface.selected_node(selected, node)]) <> rest) ==
-    Some{observation_node_key(node)} : Maybe<&2, String>}:
+    Some{Interface.node_key(node)} : Maybe<&2, String>}:
   match selected:
     case True{}:
       Interface.Node{key, semantic, label, role, meaning, children} = node
@@ -587,24 +583,23 @@ def start_route_rejects_destination_nav(+world: M.World(), +session: E.Session) 
   E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def role_of_node(node: Interface.Node) -> Interface.Role:
-  Interface.Node{key, semantic, label, role, meaning, children} = node
-  role
-
 def selected_declaration_role_tracks_predicate(+route: U.Route, +parent: String,
   declaration: View.ControlDeclaration, +state: Core.State) ->
-  {role_of_node(Interface.selected_declaration(route, parent, declaration, state)) ==
-    role_of_node(Interface.selected_node(Interface.navigation_action_selected(route, declaration_input(declaration)),
+  {Interface.node_role(Interface.selected_declaration(route, parent, declaration, state)) ==
+    Interface.node_role(Interface.selected_node(Interface.navigation_action_selected(route, declaration_input(declaration)),
       Interface.declared(parent, declaration, state))) : Interface.Role}:
   match declaration:
     case View.ControlDeclaration{identity, label, prominence, input, availability}:
       {==}
 
-def board_settings_preserve_state(+board: B.State, +world: M.World()) ->
+def settings_state_law(-board: B.State, -world: M.World()) -> Type:
   {View.board_settings(board, world) ==
     View.BoardSettings{B.automatic(board), B.draft_profile(board), Board.profiles(world),
       View.board_control("board/automatic", "自动排期",
-        B.Settings{Bool.not(B.automatic(board)), B.draft_profile(board)}, world)} : View.LayerContent}:
+        B.Settings{Bool.not(B.automatic(board)), B.draft_profile(board)}, world)} : View.LayerContent}
+
+def board_settings_preserve_state(+board: B.State, +world: M.World()) ->
+  settings_state_law(board, world):
   match board:
     case B.State{cards, next_card, agents, next_agent, automatic, draft_profile}: {==}
 
@@ -701,14 +696,11 @@ type Requirements is Type:
       {(board_navigation_selected(U.Start{}, world, session), projects_navigation_selected(U.Start{}, world, session), agents_navigation_selected(U.Start{}, world, session)) ==
         (False{}, (False{}, False{})) : Bool & (Bool & Bool)},
     selected_navigation_role: @route:U.Route -> @+parent:String -> @+declaration:View.ControlDeclaration -> @+state:Core.State ->
-      {role_of_node(Interface.selected_declaration(route, parent, declaration, state)) ==
-        role_of_node(Interface.selected_node(Interface.navigation_action_selected(route, declaration_input(declaration)),
+      {Interface.node_role(Interface.selected_declaration(route, parent, declaration, state)) ==
+        Interface.node_role(Interface.selected_node(Interface.navigation_action_selected(route, declaration_input(declaration)),
           Interface.declared(parent, declaration, state))) : Interface.Role},
     settings_state: @+board:B.State -> @+world:M.World() ->
-      {View.board_settings(board, world) ==
-        View.BoardSettings{B.automatic(board), B.draft_profile(board), Board.profiles(world),
-          View.board_control("board/automatic", "自动排期",
-            B.Settings{Bool.not(B.automatic(board)), B.draft_profile(board)}, world)} : View.LayerContent},
+      settings_state_law(board, world),
     settings_layer: @+session:E.Session -> @+world:M.World() ->
       {View.layer_content(U.BoardSettings{}, session, world) == View.board_settings(Board.registry(world), world) : View.LayerContent},
     create_draft: @stage:B.Stage -> @+application:E.Application ->

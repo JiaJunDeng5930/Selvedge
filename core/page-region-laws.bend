@@ -79,16 +79,12 @@ def region_children(node: Interface.Node) -> +List<Interface.Node>:
   Interface.Node{key, semantic, label, role, meaning, children} = node
   children
 
-def region_key(node: Interface.Node) -> String:
-  Interface.Node{key, semantic, label, role, meaning, children} = node
-  key
-
 def region_keeps_children(+parent: String, +region: Composition.Region, +position: Composition.Position, +children: +List<Interface.Node>) ->
   {region_children(Interface.page_region(parent, region, position, children)) == children : +List<Interface.Node>}:
   {==}
 
 def region_has_key(+parent: String, +region: Composition.Region, +position: Composition.Position, +children: +List<Interface.Node>) ->
-  {region_key(Interface.page_region(parent, region, position, children)) == parent ++ "/region/" ++ Composition.region_name(region) : String}:
+  {Interface.node_key(Interface.page_region(parent, region, position, children)) == parent ++ "/region/" ++ Composition.region_name(region) : String}:
   {==}
 
 def select_region(matches: Bool, children: +List<Interface.Node>, rest: Maybe<&2, +List<Interface.Node>>) -> Maybe<&2, +List<Interface.Node>>:
@@ -119,9 +115,14 @@ def board_title(+filter: B.Filter, +columns: +List<View.BoardColumn>, +create: V
     Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
   {==}
 
-def creation_introduction_title(+heading: String, +summary: String, +context: Maybe<&2, Context.Preview>, +project: Maybe<&2, View.ProjectChoice>, +choose: View.ControlDeclaration, +parent: String, +state: Core.State) ->
+def creation_title_law(-heading: String, -summary: String, -context: Maybe<&2, Context.Preview>,
+  -project: Maybe<&2, View.ProjectChoice>, -choose: View.ControlDeclaration, -parent: String,
+  -state: Core.State) -> Type:
   {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
-    Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>}:
+    Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>}
+
+def creation_introduction_title(+heading: String, +summary: String, +context: Maybe<&2, Context.Preview>, +project: Maybe<&2, View.ProjectChoice>, +choose: View.ControlDeclaration, +parent: String, +state: Core.State) ->
+  creation_title_law(heading, summary, context, project, choose, parent, state):
   {==}
 
 def task_title_text(value: View.TaskScene) -> String:
@@ -246,7 +247,7 @@ def content_navigation(value: Core.Scene) -> View.Navigation:
   nav
 
 def content_navigation_placement(value: Core.Scene) -> View.NavigationPlacement:
-  Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement, page}, attention}, settings, transfers, preview, code, directory_picker} = value
+  Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = value
   placement
 
 def collapsed_navigation_single(+toggle: View.ControlDeclaration, expanded: Bool, create: View.ControlDeclaration,
@@ -260,11 +261,11 @@ def collapsed_assembly(+content: Core.Scene, +state: Core.State,
   {navigation_head(surface_base(Interface.assemble(content, state))) ==
     navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node}:
   match content:
-    case Core.Scene{View.Scene{View.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, View.Arrangement{+placement, +page}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
+    case Core.Scene{View.Scene{View.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, View.Arrangement{+placement}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
       +nav: View.Navigation = View.Navigation{expanded, create, destinations, projects, tasks, toggle}
       Equal.cong(View.NavigationPlacement, Interface.Node,
         (position => navigation_head(surface_base(Interface.assemble(Core.Scene{View.Scene{nav, main, layers,
-          View.Arrangement{position, page}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
+          View.Arrangement{position}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
         placement, View.CollapsedNavigation{}, collapsed)
 
 type Requirements is Type:
@@ -297,8 +298,7 @@ type Requirements is Type:
       {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
         Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
     creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+choose:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
-      {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
-        Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>},
+      creation_title_law(heading, summary, context, project, choose, parent, state),
     task_title: @+value:View.TaskScene -> @+parent:String -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
         Some{[Interface.region(task_title_key(value, parent), "heading", task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
@@ -310,7 +310,7 @@ type Requirements is Type:
     children: @+parent:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+nodes:+List<Interface.Node> ->
       {region_children(Interface.page_region(parent, region, position, nodes)) == nodes : +List<Interface.Node>},
     identity: @+parent:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+nodes:+List<Interface.Node> ->
-      {region_key(Interface.page_region(parent, region, position, nodes)) == parent ++ "/region/" ++ Composition.region_name(region) : String}
+      {Interface.node_key(Interface.page_region(parent, region, position, nodes)) == parent ++ "/region/" ++ Composition.region_name(region) : String}
   }
 
 def evidence() -> Requirements:

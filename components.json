@@ -291,6 +291,7 @@
       "core/interface.bend",
       "webui/controls.bend",
       "webui/design.bend",
+      "webui/editor-layout.bend",
       "webui/enclosure.bend",
       "webui/surfaces.bend"
     ],
@@ -852,9 +853,12 @@
     "webui/project-presentation-laws.bend": [
       "bendlib/stdlib.bend",
       "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/code-block.bend",
       "core/composition.bend",
       "core/interface.bend",
       "core/ui-world.bend",
+      "core/user-context.bend",
       "core/user-experience.bend",
       "core/user-input.bend",
       "webui/appearance.bend",
@@ -1027,6 +1031,7 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "webui/MODEL.bend",
+      "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",

@@ -11,7 +11,6 @@ import ../bendlib/board-filter.bend as BoardFilter
 import ../bendlib/json.bend as J
 import ../bendlib/schema.bend as Schema
 import ./SYSTEM.bend as Core
-import ./laws.bend as Laws
 import ./user-experience.bend as E
 import ./user-input.bend as U
 import ./ui-world.bend as V
@@ -94,6 +93,18 @@ type Meaning is Data:
 
 type Node is Data:
   Node{key: String, semantic: String, label: String, role: Role, meaning: Meaning, children: +List<Node>}
+
+def node_key(node: Node) -> String:
+  Node{key, semantic, label, role, meaning, children} = node
+  key
+
+def node_role(node: Node) -> Role:
+  Node{key, semantic, label, role, meaning, children} = node
+  role
+
+def node_label(node: Node) -> String:
+  Node{key, semantic, label, role, meaning, children} = node
+  label
 
 # Content and interaction are two projections of one observation. Keys in the
 # interaction tree identify the actual controls, fields and owning regions.
@@ -408,7 +419,8 @@ def actual_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, 
 
 def field_node(+field: Forms.FieldScene, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
   Forms.FieldScene{+field, label, entry} = field
-  Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Field{}, Edit{editor, field, actual_entry(field, entry, field_value(state, editor, field), state), field_value(state, editor, field)}, field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)}
+  +observed = field_value(state, editor, field)
+  Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Field{}, Edit{editor, field, actual_entry(field, entry, observed, state), observed}, field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)}
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
@@ -1371,7 +1383,7 @@ def base_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, stat
     case V.LeadingNavigation{}: [navigation(nav, state)]
 
 def base_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.State) -> +List<Node>:
-  V.Arrangement{placement, page} = arrangement
+  V.Arrangement{placement} = arrangement
   base_navigation_at(placement, nav, state)
 
 def navigation_dialog(node: Node) -> Node:
@@ -1383,7 +1395,7 @@ def modal_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, sta
     case _: Nil{}
 
 def modal_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.State) -> +List<Node>:
-  V.Arrangement{placement, page} = arrangement
+  V.Arrangement{placement} = arrangement
   modal_navigation_at(placement, nav, state)
 
 type PersistentTrigger is Data:
@@ -1708,12 +1720,6 @@ def focus_in(+nodes: +List<Node>, requested: String) -> Maybe<&2, String>:
 def focus_target(surface: Surface, requested: String) -> Maybe<&2, String>:
   focus_in(active_nodes(surface), requested)
 
-
-
-def source_preserves_program(decision: Core.Decision, previous: +List<E.Layer>, origin: String) ->
-  {Laws.runtime(source_decision(decision, previous, origin)) == Laws.runtime(decision) : M.Decision()}:
-  Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
-  {==}
 
 
 def submits(meaning: Meaning, editor: U.Editor) -> Bool:

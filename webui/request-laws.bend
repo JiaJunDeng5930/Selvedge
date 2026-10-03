@@ -23,18 +23,22 @@ def unrelated_field(+name: String, +value: J.Json, +rest: +List<J.Field>,
     (owned => Request.kept_field(owned, J.Field{name, value}, Request.without_guidance(rest))),
     String.eq(name, "guidance"), False{}, unrelated)
 
-def create_payload(profile: String, reasoning: String, message: String, fields: +List<J.Field>) ->
+def create_law(-profile: String, -reasoning: String, -message: String, -fields: +List<J.Field>) -> Type:
   {Browser.request_payload(M.Create{profile, reasoning, message, J.Object{fields}}) ==
-    J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}},
-      J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
-      J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}]} : J.Json}:
+      J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}},
+        J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
+        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}]} : J.Json}
+
+def create_payload(profile: String, reasoning: String, message: String, fields: +List<J.Field>) -> create_law(profile, reasoning, message, fields):
   {==}
 
-def fork_payload(id: Nat, count: Nat, messages: +List<String>, fields: +List<J.Field>) ->
+def fork_law(-id: Nat, -count: Nat, -messages: +List<String>, -fields: +List<J.Field>) -> Type:
   {Browser.request_payload(M.Fork{id, count, messages, J.Object{fields}}) ==
-    J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
-      J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-      J.Field{"messages", J.Array{Tasks.strings_json(messages)}}]} : J.Json}:
+      J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
+        J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
+        J.Field{"messages", J.Array{Tasks.strings_json(messages)}}]} : J.Json}
+
+def fork_payload(id: Nat, count: Nat, messages: +List<String>, fields: +List<J.Field>) -> fork_law(id, count, messages, fields):
   {==}
 
 def project_payload(name: String, workspace: J.Json, guidance: +List<J.Field>) ->
@@ -63,22 +67,26 @@ def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspa
         case J.Array{items}: {==}
         case J.Object{fields}: {==}
 
-def agent_payload(id: Maybe<&2, Nat>, revision: Nat, name: String, profile: String,
-  reasoning: String, instructions: String, fields: +List<J.Field>, concurrency: Nat) ->
+def agent_law(-id: Maybe<&2, Nat>, -revision: Nat, -name: String, -profile: String, -reasoning: String, -instructions: String, -fields: +List<J.Field>, -concurrency: Nat) -> Type:
   {Browser.request_payload(M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision,
-    B.AgentProfile{revision, name, profile, reasoning, instructions, J.Object{fields}, concurrency}}}}) ==
-    BoardCodec.command("save_board_agent", J.Field{"agent", J.Text{BoardCodec.id_text(id)}} <>
-      BoardCodec.agent_fields(B.AgentProfile{revision, name, profile, reasoning, instructions,
-        J.Object{Request.without_guidance(fields)}, concurrency})) : J.Json}:
+      B.AgentProfile{revision, name, profile, reasoning, instructions, J.Object{fields}, concurrency}}}}) ==
+      BoardCodec.command("save_board_agent", J.Field{"agent", J.Text{BoardCodec.id_text(id)}} <>
+        BoardCodec.agent_fields(B.AgentProfile{revision, name, profile, reasoning, instructions,
+          J.Object{Request.without_guidance(fields)}, concurrency})) : J.Json}
+
+def agent_payload(id: Maybe<&2, Nat>, revision: Nat, name: String, profile: String,
+  reasoning: String, instructions: String, fields: +List<J.Field>, concurrency: Nat) -> agent_law(id, revision, name, profile, reasoning, instructions, fields, concurrency):
   {==}
 
-def rejected_settlement(ticket: Nat, completion: E.Completion, command: J.Json, origin: String,
-  status: Browser.RequestStatus, reason: String, web: Web.State, sequence: Nat, next: Nat, pending: +List<Browser.Pending>) ->
+def settlement_law(-ticket: Nat, -completion: E.Completion, -command: J.Json, -origin: String, -status: Browser.RequestStatus, -reason: String, -web: Web.State, -sequence: Nat, -next: Nat, -pending: +List<Browser.Pending>) -> Type:
   {Browser.rejected_pending(Some{Browser.Pending{ticket, completion, command, origin, status}}, reason,
-    Browser.State{web, sequence, next, pending}) ==
-    Browser.product_input(Product.CommandCompleted{Browser.program(Browser.State{web, sequence, next, pending}),
-      D.failure("command_not_submitted", reason), completion},
-      Browser.State{web, sequence, next, Browser.remove(pending, ticket)}) : Browser.Decision}:
+      Browser.State{web, sequence, next, pending}) ==
+      Browser.product_input(Product.CommandCompleted{Browser.program(Browser.State{web, sequence, next, pending}),
+        D.failure("command_not_submitted", reason), completion},
+        Browser.State{web, sequence, next, Browser.remove(pending, ticket)}) : Browser.Decision}
+
+def rejected_settlement(ticket: Nat, completion: E.Completion, command: J.Json, origin: String,
+  status: Browser.RequestStatus, reason: String, web: Web.State, sequence: Nat, next: Nat, pending: +List<Browser.Pending>) -> settlement_law(ticket, completion, command, origin, status, reason, web, sequence, next, pending):
   {==}
 
 def stale_rejection(+ticket: Nat, reason: String, +pending: +List<Browser.Pending>, web: Web.State, sequence: Nat, next: Nat,
@@ -106,10 +114,12 @@ def unrelated_pending(+entry: Browser.Pending, +rest: +List<Browser.Pending>, +t
     (hit => Browser.choose_removed(hit, Browser.Pending{current, completion, command, origin, status}, Browser.remove(rest, ticket))),
     Nat.is_eq(current, ticket), False{}, distinct)
 
-def draft_rejected(revision: Nat, body: U.Body, feedback: U.Feedback, directory_entry: String, submitted: Nat, reason: String) ->
+def rejected_draft_law(-revision: Nat, -body: U.Body, -feedback: U.Feedback, -directory_entry: String, -submitted: Nat, -reason: String) -> Type:
   {E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted,
-    D.failure("command_not_submitted", reason)) ==
-    U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft}:
+      D.failure("command_not_submitted", reason)) ==
+      U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft}
+
+def draft_rejected(revision: Nat, body: U.Body, feedback: U.Feedback, directory_entry: String, submitted: Nat, reason: String) -> rejected_draft_law(revision, body, feedback, directory_entry, submitted, reason):
   {==}
 
 def unrelated_command(id: Nat, message: String) ->
@@ -164,13 +174,9 @@ type Requirements is Type:
       {decision_world(E.complete_command(program, D.failure("command_not_submitted", reason), completion, E.Application{program, session})) == program : M.World()},
     owned_field_absent: @+fields:+List<J.Field> -> {J.find(Request.without_guidance(fields), "guidance") == J.Null{} : J.Json},
     create: @profile:String -> @reasoning:String -> @message:String -> @fields:+List<J.Field> ->
-      {Browser.request_payload(M.Create{profile, reasoning, message, J.Object{fields}}) ==
-        J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"create"}},
-          J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}]} : J.Json},
+      create_law(profile, reasoning, message, fields),
     fork: @id:Nat -> @count:Nat -> @messages:+List<String> -> @fields:+List<J.Field> ->
-      {Browser.request_payload(M.Fork{id, count, messages, J.Object{fields}}) ==
-        J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
-          J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{Tasks.strings_json(messages)}}]} : J.Json},
+      fork_law(id, count, messages, fields),
     project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> ->
       {Browser.request_payload(M.CreateProject{name, workspace, J.Object{guidance}}) ==
         J.Object{[J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]} : J.Json},
@@ -179,21 +185,13 @@ type Requirements is Type:
         Codec.command_json(M.UpdateProject{id, name, workspace, J.Null{}}) : J.Json},
     agent: @id:Maybe<&2, Nat> -> @revision:Nat -> @name:String -> @profile:String -> @reasoning:String ->
       @instructions:String -> @fields:+List<J.Field> -> @concurrency:Nat ->
-      {Browser.request_payload(M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision,
-        B.AgentProfile{revision, name, profile, reasoning, instructions, J.Object{fields}, concurrency}}}}) ==
-        BoardCodec.command("save_board_agent", J.Field{"agent", J.Text{BoardCodec.id_text(id)}} <>
-          BoardCodec.agent_fields(B.AgentProfile{revision, name, profile, reasoning, instructions,
-            J.Object{Request.without_guidance(fields)}, concurrency})) : J.Json},
+      agent_law(id, revision, name, profile, reasoning, instructions, fields, concurrency),
     preserve_field: @+name:String -> @+value:J.Json -> @+rest:+List<J.Field> ->
       @unrelated:{String.eq(name, "guidance") == False{} : Bool} ->
       {Request.without_guidance(J.Field{name, value} <> rest) == J.Field{name, value} <> Request.without_guidance(rest) : +List<J.Field>},
     settlement: @ticket:Nat -> @completion:E.Completion -> @command:J.Json -> @origin:String -> @status:Browser.RequestStatus ->
       @reason:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      {Browser.rejected_pending(Some{Browser.Pending{ticket, completion, command, origin, status}}, reason,
-        Browser.State{web, sequence, next, pending}) ==
-        Browser.product_input(Product.CommandCompleted{Browser.program(Browser.State{web, sequence, next, pending}),
-          D.failure("command_not_submitted", reason), completion},
-          Browser.State{web, sequence, next, Browser.remove(pending, ticket)}) : Browser.Decision},
+      settlement_law(ticket, completion, command, origin, status, reason, web, sequence, next, pending),
     stale: @+ticket:Nat -> @reason:String -> @+pending:+List<Browser.Pending> -> @web:Web.State -> @sequence:Nat -> @next:Nat ->
       @absent:{Browser.find(pending, ticket) == None{} : Maybe<&2, Browser.Pending>} ->
       {Browser.command_rejected(ticket, reason, Browser.State{web, sequence, next, pending}) ==
@@ -203,8 +201,7 @@ type Requirements is Type:
       @distinct:{Nat.is_eq(Browser.ticket_of(entry), ticket) == False{} : Bool} ->
       {Browser.remove(entry <> rest, ticket) == entry <> Browser.remove(rest, ticket) : +List<Browser.Pending>},
     rejected_draft: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @directory_entry:String -> @submitted:Nat -> @reason:String ->
-      {E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted, D.failure("command_not_submitted", reason)) ==
-        U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft},
+      rejected_draft_law(revision, body, feedback, directory_entry, submitted, reason),
     uncertain: @ticket:Nat -> @reason:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
       {Browser.failed_completion(ticket, reason, Browser.State{web, sequence, next, pending}) ==
         Browser.Decision{Browser.State{web, sequence, next, Browser.uncertain_pending(pending, ticket, reason)}, Nil{}} : Browser.Decision},

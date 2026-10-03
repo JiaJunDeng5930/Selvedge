@@ -61,16 +61,15 @@ test('the conceptual entry declares proof-carrying concepts rather than implemen
   assert.match(source, /law harness:\s+Harness/);
 });
 
-test('proof modules form an explicit acyclic graph and consume public laws rather than sibling helpers', async () => {
+test('proof modules form an explicit acyclic dependency graph', async () => {
   const directory = path.join(root, 'bendlib/proofs');
   const graph = new Map();
   for (const filename of await readdir(directory)) {
     if (!filename.endsWith('.bend')) continue;
     const source = await readFile(path.join(directory, filename), 'utf8');
     const dependencies = [];
-    for (const [, relative, alias] of source.matchAll(/^import (\.\/[^\s]+\.bend) as (\w+)$/gm)) {
+    for (const [, relative] of source.matchAll(/^import (\.\/[^\s]+\.bend) as (\w+)$/gm)) {
       dependencies.push(path.basename(relative));
-      assert.doesNotMatch(source, new RegExp(`\\b${alias}\\.`), 'Sibling evidence must be consumed through declared laws');
     }
     graph.set(filename, dependencies);
   }

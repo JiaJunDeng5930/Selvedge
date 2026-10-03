@@ -95,11 +95,6 @@ def transfer_editor(transfer: Transfer) -> U.Editor:
     case Uploading{editor, file}: editor
     case UploadFailed{editor, file, reason}: editor
 
-def uploading(transfer: Transfer) -> Bool:
-  match transfer:
-    case Uploading{editor, file}: True{}
-    case _: False{}
-
 def blocks(+editor: U.Editor, transfers: +List<Finite.Entry(Transfer)>) -> Bool:
   match transfers:
     case Nil{}: False{}

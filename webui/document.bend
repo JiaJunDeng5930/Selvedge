@@ -27,3 +27,29 @@ type Node is Data:
 
 type Document is Data:
   Document{root: Node, title: String}
+
+
+def element_attributes(node: Node) -> +List<Property>:
+  match node:
+    case Element{key, tag, attributes, styles, events, children}: attributes
+    case _: Nil{}
+
+def element_styles(node: Node) -> +List<Property>:
+  match node:
+    case Element{key, tag, attributes, styles, events, children}: styles
+    case _: Nil{}
+
+def element_events(node: Node) -> +List<Event>:
+  match node:
+    case Element{key, tag, attributes, styles, events, children}: events
+    case _: Nil{}
+
+def element_children(node: Node) -> +List<Node>:
+  match node:
+    case Element{key, tag, attributes, styles, events, children}: children
+    case _: Nil{}
+
+def direct_text(node: Node) -> String:
+  match node:
+    case Text{value}: value
+    case _: ""

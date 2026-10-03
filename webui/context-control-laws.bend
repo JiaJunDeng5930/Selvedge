@@ -49,7 +49,7 @@ def permissions_label(+label: String, current: Controls.Face, +execution: Maybe<
   {==}
 
 def execution_observation(context: Controls.Context) -> Maybe<&2, Context.Observation>:
-  Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution} = context
+  Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   execution
 
 def page_observation(content: Core.Scene) -> Maybe<&2, Context.Observation>:
@@ -95,23 +95,19 @@ def delivery_steer_face(+label: String, current: Controls.Face, execution: Maybe
   {Controls.composer_face(View.DeliverySubject{User.Steer{}}, label, current, execution) == Controls.IconFace{Controls.Branch{}} : Controls.Face}:
   {==}
 
-def attributes(value: Doc.Node) -> +List<Doc.Property>:
-  match value:
-    case Doc.Element{key, tag, attrs, styles, events, children}: attrs
-    case _: Nil{}
 
-def events(value: Doc.Node) -> +List<Doc.Event>:
-  match value:
-    case Doc.Element{key, tag, attrs, styles, events, children}: events
-    case _: Nil{}
+
+
+
+def choice_native_event_law(-key: String, -label: String, -selected: Bool, -description: String, -visual: Design.Style, -input: Core.Input, -availability: View.Availability, -name: String, -face: Controls.Face, -behavior: Controls.Behavior, -geometry: Controls.Geometry, -placement: Controls.Placement, -help: Controls.Help, -feedback: Controls.Feedback, -visual_children: +List<Design.Appearance>) -> Type:
+  {Doc.element_events(Render.choice_node(key, label, selected, description, visual,
+      Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, visual_children)) ==
+      [Doc.Activate{key}] : +List<Doc.Event>}
 
 def choice_native_event(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
   input: Core.Input, availability: View.Availability, name: String, face: Controls.Face,
   behavior: Controls.Behavior, geometry: Controls.Geometry, placement: Controls.Placement,
-  help: Controls.Help, feedback: Controls.Feedback, visual_children: +List<Design.Appearance>) ->
-  {events(Render.choice_node(key, label, selected, description, visual,
-    Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, visual_children)) ==
-    [Doc.Activate{key}] : +List<Doc.Event>}:
+  help: Controls.Help, feedback: Controls.Feedback, visual_children: +List<Design.Appearance>) -> choice_native_event_law(key, label, selected, description, visual, input, availability, name, face, behavior, geometry, placement, help, feedback, visual_children):
   Controls.Geometry{width, height, icon, radius, leading} = geometry
   {==}
 
@@ -140,7 +136,7 @@ type Requirements is Type:
   Requirements{
     choice_native_event: @+key:String -> @label:String -> @selected:Bool -> @description:String -> @+visual:Design.Style ->
       @input:Core.Input -> @availability:View.Availability -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @help:Controls.Help -> @feedback:Controls.Feedback -> @visual_children:+List<Design.Appearance> ->
-      {events(Render.choice_node(key, label, selected, description, visual, Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, visual_children)) == [Doc.Activate{key}] : +List<Doc.Event>},
+      choice_native_event_law(key, label, selected, description, visual, input, availability, name, face, behavior, geometry, placement, help, feedback, visual_children),
     choice_binding: @+key:String -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Binding.binding(Controls.represent(key, UI.Choice{selected, description, input, availability}, label, role, context)) == UI.Activate{input, availability} : UI.Meaning},
     choice_radio: @+selected:Bool -> {Render.behavior(Controls.ChoiceRadio{selected}) == [Doc.Property{"role", "radio"}, Doc.Property{"aria-checked", Render.boolean(selected)}] : +List<Doc.Property>},

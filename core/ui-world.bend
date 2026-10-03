@@ -200,7 +200,7 @@ type NavigationPlacement is Data:
   CollapsedNavigation{}
 
 type Arrangement is Data:
-  Arrangement{navigation: NavigationPlacement, page: Composition.Page}
+  Arrangement{navigation: NavigationPlacement}
 
 type Scene is Data:
   Scene{navigation: Navigation, main: Page, layers: +List<Layer>, arrangement: Arrangement, attention: String}
@@ -376,35 +376,6 @@ def creation_heading(project: Maybe<&2, ProjectChoice>) -> String:
     case None{}: "What would you like to build?"
     case Some{ProjectChoice{id, name, workspace}}: "Work on"
 
-def creation_last_segment(parts: +List<String>, latest: String) -> String:
-  match parts:
-    case Nil{}: latest
-    case Con{"", rest}: creation_last_segment(rest, latest)
-    case Con{part, rest}: creation_last_segment(rest, part)
-
-def creation_basename(+path: String) -> String:
-  creation_last_segment(String.split(path, '/'), path)
-
-def creation_folder_count(count: Nat) -> String:
-  match count:
-    case 0n: ""
-    case 1n: ""
-    case 2n+rest: " + " ++ Nat.show((1n + rest : Nat)) ++ " folders"
-
-def creation_workspace_root(primary: Maybe<&2, String>, roots: +List<String>) -> Maybe<&2, String>:
-  match primary:
-    case Some{path}: Some{path}
-    case None{}: List.head(&2, String, roots)
-
-def creation_workspace_summary(root: Maybe<&2, String>, count: Nat) -> String:
-  match root:
-    case None{}: ""
-    case Some{path}: "Workspace: " ++ creation_basename(path) ++ creation_folder_count(count)
-
-def creation_workspace(+value: D.Workspace) -> String:
-  D.Workspace{+roots, primary} = value
-  creation_workspace_summary(creation_workspace_root(primary, roots), List.length(&2, String, roots))
-
 def preview_observation(context: Maybe<&2, Context.Preview>) -> Maybe<&2, Context.Observation>:
   match context:
     case None{}: None{}
@@ -526,8 +497,9 @@ def configuration_workspace(config: Context.Configuration) -> Maybe<&2, D.Worksp
   workspace
 
 def execution_group(+identity: U.Editor, +config: Context.Configuration, +world: M.World()) -> InputGroup:
-  ExecutionInput{config, Context.preview(config, world),
-    workspace_controls(preview_workspace(Context.preview(config, world)), identity,
+  +observed = Context.preview(config, world)
+  ExecutionInput{config, observed,
+    workspace_controls(preview_workspace(observed), identity,
       workspace_inheritance(configuration_workspace(config), identity)),
     projects(world), List.filter(~D.Profile, (profile => Workspace.valid_reviewer_profile(profile)), Board.profiles(world))}
 
@@ -1092,25 +1064,15 @@ def page_composition(page: Page) -> Composition.Page:
     case AgentsPage{agents, create}: Composition.AgentCollection{}
     case MissingObject{message}: Composition.Unavailable{}
 
-def arrangement(beside: Bool, page: Page, expanded: Bool) -> Arrangement:
-  Arrangement{navigation_placement(beside, expanded), page_composition(page)}
+def arrangement(beside: Bool, expanded: Bool) -> Arrangement:
+  Arrangement{navigation_placement(beside, expanded)}
 
-def observed_main_page(+scene: Scene) -> Composition.Page:
+def scene_page(scene: Scene) -> Composition.Page:
   Scene{navigation, +main, layers, arrangement, attention} = scene
   page_composition(main)
 
-def observed_arrangement_page(+scene: Scene) -> Composition.Page:
-  Scene{navigation, main, layers, +arrangement, attention} = scene
-  Arrangement{navigation, page} = arrangement
-  page
-
 def finish_scene(navigation: Navigation, +main: Page, +layers: +List<Layer>, beside: Bool, expanded: Bool, attention: String) -> Scene:
-  Scene{navigation, main, layers, arrangement(beside, main, expanded), attention}
-
-def finish_scene_page_agreement(navigation: Navigation, +main: Page, +layers: +List<Layer>, beside: Bool, expanded: Bool, attention: String)
-  -> {observed_main_page(finish_scene(navigation, main, layers, beside, expanded, attention)) ==
-      observed_arrangement_page(finish_scene(navigation, main, layers, beside, expanded, attention)) : Composition.Page}:
-  {==}
+  Scene{navigation, main, layers, arrangement(beside, expanded), attention}
 
 def observe_session(capacity: Capacity, +program: M.World(), +session: E.Session) -> Scene:
   Capacity{+navigation_beside, details_beside} = capacity
@@ -1119,22 +1081,6 @@ def observe_session(capacity: Capacity, +program: M.World(), +session: E.Session
   +main = page(route, session, program)
   finish_scene(navigation(visible, route, program, session), main, layers(open_layers, session, program, details_beside), navigation_beside, visible, focus)
 
-def observe_session_page_agreement(capacity: Capacity, +program: M.World(), +session: E.Session)
-  -> {observed_main_page(observe_session(capacity, program, session)) ==
-      observed_arrangement_page(observe_session(capacity, program, session)) : Composition.Page}:
-  Capacity{+navigation_beside, details_beside} = capacity
-  E.Session{+route, drafts, readers, open_layers, focus, +expanded, filter, now, next, pending, previews, code_blocks} = session
-  +visible = navigation_visible(E.navigation_visibility(expanded), navigation_beside)
-  +main = page(route, session, program)
-  finish_scene_page_agreement(navigation(visible, route, program, session), main,
-    layers(open_layers, session, program, details_beside), navigation_beside, visible, focus)
-
 def observe(capacity: Capacity, application: E.Application) -> Scene:
   E.Application{+program, +session} = application
   observe_session(capacity, program, session)
-
-def observed_page_agreement(capacity: Capacity, application: E.Application)
-  -> {observed_main_page(observe(capacity, application)) ==
-      observed_arrangement_page(observe(capacity, application)) : Composition.Page}:
-  E.Application{+program, +session} = application
-  observe_session_page_agreement(capacity, program, session)

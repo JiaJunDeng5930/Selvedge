@@ -29,20 +29,5 @@ Keep the established incremental Markdown renderer and DOM reconciliation.
 
 Do not add a terminal, file browser, Git controls, account catalog or task
 lifecycle interpretation merely because the reference application has them.
-This change deliberately leaves every Bend source untouched. In particular, a
-task label remains the native task label; the browser does not invent a title by
-reading messages that the native presentation did not expose.
-
-The browser owns only display mechanics: choosing which existing composer form
-is visible, expanding settings, sizing the editor, following scroll position,
-opening panels, and managing keyboard focus. Submitting an action still passes
-through the same native resolver. An old enabled control is not authorization.
-
-## Evidence
-
-`npm run test:browser` drives the native kernel, SQLite, HTTP/SSE fixture and an
-isolated Chrome profile. It checks pointer reachability for menus, settings and
-approval actions, Enter/Shift+Enter/IME behavior, mobile navigation, modal focus,
-stable streaming DOM and retained drafts. Screenshots cover light/dark, desktop,
-mobile, details and permission requests. Those are browser-boundary checks, not
-formal proofs about DOM layout or a commercial model.
+The current scope is set by [ADR 0025](0025-native-conversation-and-desktop-source.md)
+and [ADR 0026](0026-browser-executed-bend-ui.md).

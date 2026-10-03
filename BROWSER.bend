@@ -38,4 +38,3 @@ def directory_listed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) 
 
 def outside_event(identity: String, state: Browser.State) -> Browser.OutsideDecision: Browser.outside_event(identity, state)
 
-def active_layer_key(state: Browser.State) -> Maybe<&2, String>: Browser.active_layer_key(state)

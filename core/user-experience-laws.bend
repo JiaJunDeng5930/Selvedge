@@ -26,16 +26,14 @@ def runtime_input(+input: M.Input, +program: M.World(), session: E.Session) ->
     Program.transition(input, program) : M.Decision()}:
   native_decision(Program.transition(input, program), session, M.durable(input))
 
-def delivery_retains_editor(task: Nat, message: U.Text, previous: U.Delivery, selected: U.Delivery, world: M.World()) ->
-  {U.apply_edit(U.ChooseDelivery{selected}, U.Message{task, message, previous}, world) ==
-    Done{U.Message{task, message, selected}} : Result<&2, &2, String, U.Body>}:
-  {==}
-
 # Requests preserve the entire application until the server supplies a receipt.
-def command_request(+command: M.Command, +application: E.Application, +submitted: Maybe<&2, U.Draft>) ->
+def request_law(-command: M.Command, -application: E.Application, -submitted: Maybe<&2, U.Draft>) -> Type:
   {E.execute(command, application, submitted) ==
     E.Decision{application, D.success(J.Null{}), Nil{},
-      [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision}:
+      [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision}
+
+def command_request(+command: M.Command, +application: E.Application, +submitted: Maybe<&2, U.Draft>) ->
+  request_law(command, application, submitted):
   {==}
 
 def program_observed(+program: M.World(), +session: E.Session, previous: M.World()) ->
@@ -50,10 +48,14 @@ def direct_completed(+program: M.World(), +result: J.Json, +session: E.Session, 
 
 # The submitted snapshot is settled only if its editor still has that revision;
 # the existing submission laws establish acceptance, refusal and stale ownership.
-def draft_completed(+program: M.World(), +result: J.Json, +draft: U.Draft, +session: E.Session, previous: M.World()) ->
+def draft_law(-program: M.World(), -result: J.Json, -draft: U.Draft, -session: E.Session,
+  -previous: M.World()) -> Type:
   {E.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) ==
     E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
-      E.Application{program, E.settle(draft, result, E.retain_previews(session, program))}), result, Nil{}, False{}) : E.Decision}:
+      E.Application{program, E.settle(draft, result, E.retain_previews(session, program))}), result, Nil{}, False{}) : E.Decision}
+
+def draft_completed(+program: M.World(), +result: J.Json, +draft: U.Draft, +session: E.Session, previous: M.World()) ->
+  draft_law(program, result, draft, session, previous):
   {==}
 
 def stale_draft_completed(+program: M.World(), +result: J.Json, +draft: U.Draft, +session: E.Session, previous: M.World(),
@@ -165,13 +167,13 @@ type CommandRequirements is Type:
     receipt: @+completion:E.Completion -> @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
       {E.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == completion_spec(completion, program, result, session) : E.Decision},
     request: @+command:M.Command -> @+application:E.Application -> @+submitted:Maybe<&2, U.Draft> ->
-      {E.execute(command, application, submitted) == E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision},
+      request_law(command, application, submitted),
     observation: @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
       {E.step(E.ProgramObserved{program}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision},
     direct: @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
       {E.step(E.CommandCompleted{program, result, E.DirectCompletion{}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
     draft: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
-      {E.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) == E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result, E.Application{program, E.settle(draft, result, E.retain_previews(session, program))}), result, Nil{}, False{}) : E.Decision},
+      draft_law(program, result, draft, session, previous),
     stale: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
       @absent:{E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool} ->
       {E.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
@@ -199,22 +201,9 @@ def command_evidence() -> CommandRequirements:
   }
 
 
-def direct_request(+command: M.Command, +application: E.Application) ->
-  {E.execute(command, application, None{}) == E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.DirectCompletion{}}], False{}} : E.Decision}:
-  {==}
-
-def draft_request(+command: M.Command, +application: E.Application, +draft: U.Draft) ->
-  {E.execute(command, application, Some{draft}) == E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.DraftCompletion{draft}}], False{}} : E.Decision}:
-  {==}
-
 def confirmation_request(+command: M.Command, title: String, +destination: U.Route, +trigger: String,
   target: String, query: String, rest: +List<E.Layer>, +application: E.Application) ->
   {E.confirm(E.Layer{U.Confirm{command, title, destination}, trigger, target, query} <> rest, application) ==
     E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.ConfirmationCompletion{command, trigger, destination}}], False{}} : E.Decision}:
   {==}
 
-def confirmation_identity(+current: M.Command, title: String, destination: U.Route, +current_trigger: String,
-  target: String, query: String, rest: +List<E.Layer>, +command: M.Command, +trigger: String) ->
-  {E.confirmation_owned(E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query} <> rest, command, trigger) ==
-    (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command))) : Bool}:
-  {==}

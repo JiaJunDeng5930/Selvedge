@@ -117,16 +117,14 @@ def base_nodes_with_trigger(+surface: UI.Surface, +trigger: UI.Node) -> +List<UI
   UI.Surface{content, +base, +overlays, active_scope} = surface
   trigger <> base
 
-def node_key(node: UI.Node) -> String:
-  UI.Node{key, semantic, label, role, meaning, children} = node
-  key
+
 
 def exact_trigger_node_in_base(+surface: UI.Surface, +trigger: UI.Node,
   scope: Maybe<&2, String>,
-  found: {UI.find_node(base_nodes_with_trigger(surface, trigger), node_key(trigger)) ==
+  found: {UI.find_node(base_nodes_with_trigger(surface, trigger), UI.node_key(trigger)) ==
     Some{trigger} : Maybe<&2, UI.Node>}) ->
-  {Layout.anchor(surface_with_trigger_in_base(surface, trigger, scope), node_key(trigger)) ==
-    Some{node_key(trigger)} : Maybe<&2, String>}:
+  {Layout.anchor(surface_with_trigger_in_base(surface, trigger, scope), UI.node_key(trigger)) ==
+    Some{UI.node_key(trigger)} : Maybe<&2, String>}:
   match surface:
     case UI.Surface{content, +base, +overlays, +previous_scope}:
       match trigger:
@@ -171,10 +169,12 @@ def expected_anchored_menu(viewport: Design.Viewport, origin: String) -> Design.
 
 # The browser evaluates real anchor space; this production projection requires
 # all anchored menus to prefer larger block space before fitting a scrollport.
-def anchored_menu_prefers_block_space(+viewport: Design.Viewport, +origin: String) ->
+def anchored_menu_prefers_block_space_law(-viewport: Design.Viewport, -origin: String) -> Type:
   {(Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-order"),
-    Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-fallbacks")) ==
-    ("most-block-size", "flip-block, flip-inline, flip-block flip-inline") : (String & String)}:
+      Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-fallbacks")) ==
+      ("most-block-size", "flip-block, flip-inline, flip-block flip-inline") : (String & String)}
+
+def anchored_menu_prefers_block_space(+viewport: Design.Viewport, +origin: String) -> anchored_menu_prefers_block_space_law(viewport, origin):
   match viewport:
     case Design.Viewport{width, height}: {==}
 
@@ -188,12 +188,14 @@ def menu_uses_resolved_origin(viewport: Design.Viewport, initial_attention: Stri
     resolved => Layout.anchored_menu_placement(viewport, resolved),
     Layout.anchor(surface, return_attention), Some{origin}, matched)
 
-def collapsed_navigation_uses_zero_main_offset(+viewport: Design.Viewport) ->
+def collapsed_navigation_offset_law(-viewport: Design.Viewport) -> Type:
   {Layout.shell(viewport, V.CollapsedNavigation{}, False{}) ==
-    Design.Shell{Design.HiddenNavigation{},
-      Design.Box{0n, 0n,
-        Nat.max(0n, Nat.sub(Nat.sub(Layout.viewport_width(viewport), 0n), 0n)),
-        Layout.viewport_height(viewport)}, None{}} : Design.Shell}:
+      Design.Shell{Design.HiddenNavigation{},
+        Design.Box{0n, 0n,
+          Nat.max(0n, Nat.sub(Nat.sub(Layout.viewport_width(viewport), 0n), 0n)),
+          Layout.viewport_height(viewport)}, None{}} : Design.Shell}
+
+def collapsed_navigation_uses_zero_main_offset(+viewport: Design.Viewport) -> collapsed_navigation_offset_law(viewport):
   match viewport:
     case Design.Viewport{width, height}: {==}
 
@@ -285,10 +287,12 @@ def approval_without_composer_retains_dock(main: Design.Box) ->
     Composition.NoComposer{}, Composition.BeforeComposer{}, Composition.NoLatest{}), main)) == True{} : Bool}:
   {==}
 
-def input_metrics_follow_consistent_bounds(canvas: Design.Box) ->
+def input_metrics_law(-canvas: Design.Box) -> Type:
   {Layout.input_metrics(canvas) == Design.InputMetrics{
-    Nat.min(44n, Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n))),
-    Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}:
+      Nat.min(44n, Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n))),
+      Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}
+
+def input_metrics_follow_consistent_bounds(canvas: Design.Box) -> input_metrics_law(canvas):
   match canvas:
     case Design.Box{+left, +top, +width, height}: {==}
 
@@ -304,18 +308,22 @@ def settings_hidden(+main: Design.Box) ->
   {Layout.settings_bounds(Design.HiddenNavigation{}, main) == Layout.settings_in_heading(main) : Design.Box}:
   {==}
 
-def settings_navigation_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) ->
+def settings_navigation_coordinates_law(-left: Nat, -top: Nat, -width: Nat, -height: Nat) -> Type:
   {Layout.settings_in_navigation(Design.Box{left, top, width, height}) ==
-    Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-      Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-      Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}:
+      Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+        Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+        Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}
+
+def settings_navigation_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) -> settings_navigation_coordinates_law(left, top, width, height):
   {==}
 
-def settings_heading_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) ->
+def settings_heading_coordinates_law(-left: Nat, -top: Nat, -width: Nat, -height: Nat) -> Type:
   {Layout.settings_in_heading(Design.Box{left, top, width, height}) ==
-    Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-      Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-      Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}:
+      Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+        Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+        Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}
+
+def settings_heading_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) -> settings_heading_coordinates_law(left, top, width, height):
   {==}
 
 type Requirements is Type:
@@ -327,15 +335,9 @@ type Requirements is Type:
     settings_hidden: @+main:Design.Box ->
       {Layout.settings_bounds(Design.HiddenNavigation{}, main) == Layout.settings_in_heading(main) : Design.Box},
     settings_navigation_coordinates: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      {Layout.settings_in_navigation(Design.Box{left, top, width, height}) ==
-        Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-          Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-          Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
+      settings_navigation_coordinates_law(left, top, width, height),
     settings_heading_coordinates: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      {Layout.settings_in_heading(Design.Box{left, top, width, height}) ==
-        Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-          Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-          Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
+      settings_heading_coordinates_law(left, top, width, height),
     explicit_main_frame: @recipe:Composition.Recipe -> @main:Design.Box ->
       {Layout.main_frame(recipe, main) == expected_main_frame(recipe, main) : Design.MainFrame},
     conversation_dock_band: @main:Design.Box -> @composer:Composition.Composer ->
@@ -352,11 +354,7 @@ type Requirements is Type:
       @below:{Nat.is_lt(Layout.viewport_width(viewport), Layout.details_minimum_width()) == True{} : Bool} ->
       {details_beside(Layout.capacity(viewport)) == False{} : Bool},
     collapsed_navigation_offset: @+viewport:Design.Viewport ->
-      {Layout.shell(viewport, V.CollapsedNavigation{}, False{}) ==
-        Design.Shell{Design.HiddenNavigation{},
-          Design.Box{0n, 0n,
-            Nat.max(0n, Nat.sub(Nat.sub(Layout.viewport_width(viewport), 0n), 0n)),
-            Layout.viewport_height(viewport)}, None{}} : Design.Shell},
+      collapsed_navigation_offset_law(viewport),
     unrequested_details: @+viewport:Design.Viewport -> @+navigation:V.NavigationPlacement ->
       {Layout.shell(viewport, navigation, False{}) == shell_without_details(viewport, navigation) : Design.Shell},
     overlay_identity: @+viewport:Design.Viewport -> @overlays:+List<UI.Node> ->
@@ -371,17 +369,15 @@ type Requirements is Type:
       {conversation_has_approval_only_dock(Layout.main_frame(conversation_recipe(
         Composition.NoComposer{}, Composition.BeforeComposer{}, Composition.NoLatest{}), main)) == True{} : Bool},
     input_metrics: @canvas:Design.Box ->
-      {Layout.input_metrics(canvas) == Design.InputMetrics{
-        Nat.min(44n, Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n))),
-        Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics},
+      input_metrics_law(canvas),
     anchor_scope_independence: @+surface:UI.Surface -> @requested:String -> @scope:Maybe<&2, String> ->
       {Layout.anchor(surface, requested) ==
         Layout.anchor(surface_with_scope(surface, scope), requested) : Maybe<&2, String>},
     exact_base_trigger_anchor: @+surface:UI.Surface -> @+trigger:UI.Node -> @scope:Maybe<&2, String> ->
-      @found:{UI.find_node(base_nodes_with_trigger(surface, trigger), node_key(trigger)) ==
+      @found:{UI.find_node(base_nodes_with_trigger(surface, trigger), UI.node_key(trigger)) ==
         Some{trigger} : Maybe<&2, UI.Node>} ->
-      {Layout.anchor(surface_with_trigger_in_base(surface, trigger, scope), node_key(trigger)) ==
-        Some{node_key(trigger)} : Maybe<&2, String>},
+      {Layout.anchor(surface_with_trigger_in_base(surface, trigger, scope), UI.node_key(trigger)) ==
+        Some{UI.node_key(trigger)} : Maybe<&2, String>},
     empty_tree_anchor: @+surface:UI.Surface -> @requested:String -> @scope:Maybe<&2, String> ->
       {Layout.anchor(surface_with_empty_trees(surface, scope), requested) ==
         None{} : Maybe<&2, String>},
@@ -393,9 +389,7 @@ type Requirements is Type:
         Some{anchored_layer(initial_attention, return_attention, content, close)}, surface) ==
         expected_anchored_menu(viewport, origin) : Design.OverlayPlacement},
     anchored_menu_prefers_block_space: @+viewport:Design.Viewport -> @+origin:String ->
-      {(Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-order"),
-        Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-fallbacks")) ==
-        ("most-block-size", "flip-block, flip-inline, flip-block flip-inline") : (String & String)},
+      anchored_menu_prefers_block_space_law(viewport, origin),
     compact_creation: @height:Nat -> @below:{Nat.is_lt(height, 420n) == True{} : Bool} ->
       {Layout.creation_flow_for_height(height) == Design.Compact{} : Design.CreationFlow},
     balanced_creation: @height:Nat -> @enough:{Nat.is_lt(height, 420n) == False{} : Bool} ->

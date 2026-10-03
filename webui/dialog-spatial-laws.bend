@@ -45,10 +45,7 @@ def split_recombines(+nodes: +List<Doc.Node>, kinds: +List<EditorLayout.SectionK
     case Nil{} _: {==}
     case Con{+node, +rest} Nil{}: Std.app_nil_r(Doc.Node, node <> rest)
 
-def node_children(node: Doc.Node) -> +List<Doc.Node>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, children}: children
-    case _: Nil{}
+
 
 def first(values: +List<Doc.Node>) -> Doc.Node:
   match values:
@@ -63,7 +60,7 @@ def rest(values: +List<Doc.Node>) -> +List<Doc.Node>:
 def footer_originals(values: +List<Doc.Node>) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{node, Nil{}}: node_children(node)
+    case Con{node, Nil{}}: Doc.element_children(node)
     case Con{node, remaining}: node <> footer_originals(remaining)
 
 def footer_items_preserve(+owner: String, +values: +List<Doc.Node>) ->
@@ -78,10 +75,10 @@ def footer_items_preserve(+owner: String, +values: +List<Doc.Node>) ->
         footer_items_preserve(owner, next <> third <> remaining))
 
 def observed_footer(node: Doc.Node) -> +List<Doc.Node>:
-  footer_originals(node_children(first(rest(rest(node_children(node))))))
+  footer_originals(Doc.element_children(first(rest(rest(Doc.element_children(node))))))
 
 def observed_body(node: Doc.Node) -> +List<Doc.Node>:
-  node_children(first(node_children(first(rest(node_children(node))))))
+  Doc.element_children(first(Doc.element_children(first(rest(Doc.element_children(node))))))
 
 def original_children(+node: Doc.Node) -> +List<Doc.Node>:
   List.append(&2, Doc.Node, observed_body(node), observed_footer(node))
@@ -115,20 +112,11 @@ def node_key(node: Doc.Node) -> String:
     case Doc.Element{key, tag, attrs, styles, events, children}: key
     case _: ""
 
-def node_attributes(node: Doc.Node) -> +List<Doc.Property>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, children}: attrs
-    case _: Nil{}
 
-def node_events(node: Doc.Node) -> +List<Doc.Event>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, children}: events
-    case _: Nil{}
 
-def node_styles(node: Doc.Node) -> +List<Doc.Property>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, children}: styles
-    case _: Nil{}
+
+
+
 
 def field_layout_binding(+card: Maybe<&2, Nat>, +field: Forms.Field, +entry: Forms.Entry,
   +value: Forms.Observed) ->
@@ -141,9 +129,9 @@ def title_identity(+key: String, +tag: String, +attributes: +List<Doc.Property>,
   +name: String) ->
   {(node_key(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
       Doc.Element{key, tag, attributes, styles, events, children})),
-    (node_attributes(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
+    (Doc.element_attributes(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
       Doc.Element{key, tag, attributes, styles, events, children})),
-     node_events(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
+     Doc.element_events(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
       Doc.Element{key, tag, attributes, styles, events, children})))) ==
    (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))}:
   {==}
@@ -153,9 +141,9 @@ def description_identity(+key: String, +tag: String, +attributes: +List<Doc.Prop
   +name: String) ->
   {(node_key(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
       Doc.Element{key, tag, attributes, styles, events, children})),
-    (node_attributes(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
+    (Doc.element_attributes(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
       Doc.Element{key, tag, attributes, styles, events, children})),
-     node_events(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
+     Doc.element_events(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
       Doc.Element{key, tag, attributes, styles, events, children})))) ==
    (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))}:
   {==}
@@ -163,25 +151,27 @@ def description_identity(+key: String, +tag: String, +attributes: +List<Doc.Prop
 def partition_inset(+properties: +List<Doc.Property>) -> String:
   Render.attr(properties, "padding-block") ++ " " ++ Render.attr(properties, "padding-inline")
 
-def region_owned_insets() ->
+def region_owned_insets_law() -> Type:
   {(partition_inset(Render.dialog_header_styles()),
-    (partition_inset(Render.dialog_body_styles()),
-     (partition_inset(Render.dialog_footer_styles()),
-      (Render.attr(Render.dialog_header_styles(), "flex"),
-       Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
-   ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
-   (String & (String & (String & (String & String))))}:
+      (partition_inset(Render.dialog_body_styles()),
+       (partition_inset(Render.dialog_footer_styles()),
+        (Render.attr(Render.dialog_header_styles(), "flex"),
+         Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
+     ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
+     (String & (String & (String & (String & String))))}
+
+def region_owned_insets() -> region_owned_insets_law():
   {==}
 
 def shared_inline_inset() -> {Appearance.dialog_inline_inset() == 24n : Nat}:
   {==}
 
 def above_input_margin(+key: String, +name: String, input: Doc.Node) ->
-  {Render.attr(node_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String}:
+  {Render.attr(Doc.element_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String}:
   {==}
 
 def section_heading_margin(+owner: String, +name: String) ->
-  {Render.attr(node_styles(first(Render.section_label(owner, False{}, name))), "margin") == "0" : String}:
+  {Render.attr(Doc.element_styles(first(Render.section_label(owner, False{}, name))), "margin") == "0" : String}:
   {==}
 
 def absent_footer(key: String) ->
@@ -201,16 +191,18 @@ def generic_body(+node: Doc.Node) ->
   {EditorLayout.split([node], [EditorLayout.GenericSection{}]) == EditorLayout.Suffix{[node], Nil{}} : EditorLayout.Suffix}:
   {==}
 
-def concrete_field_kinds() ->
+def concrete_field_kinds_law() -> Type:
   {[EditorLayout.card_field(Forms.CardTitle{}), EditorLayout.card_field(Forms.CardDescription{}),
-    EditorLayout.card_field(Forms.CardStage{}), EditorLayout.card_field(Forms.CardPriority{}),
-    EditorLayout.card_field(Forms.CardProject{}), EditorLayout.card_field(Forms.CardOwner{}),
-    EditorLayout.card_field(Forms.CardLabels{}), EditorLayout.card_field(Forms.ContinueCapture{}),
-    EditorLayout.card_field(Forms.AssistedCapture{}), EditorLayout.card_field(Forms.AssistanceProfile{})] ==
-   [EditorLayout.WorkTitle{}, EditorLayout.WorkDescription{}, EditorLayout.MetadataFlexible{},
-    EditorLayout.MetadataFlexible{}, EditorLayout.MetadataFlexible{}, EditorLayout.MetadataWide{},
-    EditorLayout.MetadataWide{}, EditorLayout.CaptureOption{}, EditorLayout.CaptureOption{},
-    EditorLayout.CaptureOption{}] : +List<EditorLayout.FieldKind>}:
+      EditorLayout.card_field(Forms.CardStage{}), EditorLayout.card_field(Forms.CardPriority{}),
+      EditorLayout.card_field(Forms.CardProject{}), EditorLayout.card_field(Forms.CardOwner{}),
+      EditorLayout.card_field(Forms.CardLabels{}), EditorLayout.card_field(Forms.ContinueCapture{}),
+      EditorLayout.card_field(Forms.AssistedCapture{}), EditorLayout.card_field(Forms.AssistanceProfile{})] ==
+     [EditorLayout.WorkTitle{}, EditorLayout.WorkDescription{}, EditorLayout.MetadataFlexible{},
+      EditorLayout.MetadataFlexible{}, EditorLayout.MetadataFlexible{}, EditorLayout.MetadataWide{},
+      EditorLayout.MetadataWide{}, EditorLayout.CaptureOption{}, EditorLayout.CaptureOption{},
+      EditorLayout.CaptureOption{}] : +List<EditorLayout.FieldKind>}
+
+def concrete_field_kinds() -> concrete_field_kinds_law():
   {==}
 
 def style_insets(value: Design.Style) -> (Nat & (Nat & Nat)):
@@ -225,7 +217,9 @@ def field_style_widget_binding(editor: User.Editor, +field: Forms.Field, +entry:
   +value: Forms.Observed,
   toggle: {Controls.widget_for(entry, field, value) == Controls.ToggleInput{} : Controls.Widget}) ->
   {Appearance.field_style(UI.Edit{editor, field, entry, value}) == Appearance.toggle_field() : Design.Style}:
-  Equal.cong(Controls.Widget, Design.Style, (widget => Appearance.widget_field_style(widget, entry)),
+  Equal.cong(Controls.Widget, Design.Style,
+    (widget => Appearance.normalize_field(EditorLayout.field_kind(UI.Edit{editor, field, entry, value}),
+      widget, Appearance.widget_field_style(widget, entry))),
     Controls.widget_for(entry, field, value), Controls.ToggleInput{}, toggle)
 
 def toggle_geometry(+properties: +List<Doc.Property>) ->
@@ -235,46 +229,51 @@ def toggle_geometry(+properties: +List<Doc.Property>) ->
       (Render.attr(properties, "padding-block"), (Render.attr(properties, "align-self"),
         (Render.attr(properties, "margin"), Render.attr(properties, "flex"))))))))
 
-def rendered_toggle_geometry(+key: String, +name: String, +enabled: Bool) ->
-  {toggle_geometry(node_styles(first(node_children(Render.input(key,
-    UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-    Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-      name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}},
-    Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}})))))) ==
-   ("16px", ("16px", ("16px", ("0px", ("0px", ("center", ("0", "none"))))))) :
-   (String & (String & (String & (String & (String & (String & (String & String)))))))}:
+def rendered_toggle_geometry_law(-key: String, -name: String, -enabled: Bool) -> Type:
+  {toggle_geometry(Doc.element_styles(first(Doc.element_children(Render.input(key,
+      UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+      Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+        name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}},
+      Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}})))))) ==
+     ("16px", ("16px", ("16px", ("0px", ("0px", ("center", ("0", "none"))))))) :
+     (String & (String & (String & (String & (String & (String & (String & String)))))))}
+
+def rendered_toggle_geometry(+key: String, +name: String, +enabled: Bool) -> rendered_toggle_geometry_law(key, name, enabled):
   {==}
 
-def toggle_value_and_events(+key: String, +name: String, +enabled: Bool) ->
-  {(Render.attr(node_attributes(first(node_children(Render.input(key,
-      UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-      Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-        name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field())))), "value"),
-    node_events(first(node_children(Render.input(key,
-      UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-      Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-        name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field()))))) ==
-   (Render.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)}:
+def toggle_value_and_events_law(-key: String, -name: String, -enabled: Bool) -> Type:
+  {(Render.attr(Doc.element_attributes(first(Doc.element_children(Render.input(key,
+        UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+        Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+          name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field())))), "value"),
+      Doc.element_events(first(Doc.element_children(Render.input(key,
+        UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+        Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
+          name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field()))))) ==
+     (Render.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)}
+
+def toggle_value_and_events(+key: String, +name: String, +enabled: Bool) -> toggle_value_and_events_law(key, name, enabled):
   match enabled:
     case False{}: {==}
     case True{}: {==}
 
-def capture_toggle_target(+key: String, +name: String, input: Doc.Node) ->
-  {(Render.attr(node_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "min-height"),
-    Render.attr(node_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "flex")) ==
-   ("32px", "1 1 200px") : (String & String)}:
+def capture_toggle_target_law(-key: String, -name: String, -input: Doc.Node) -> Type:
+  {(Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "min-height"),
+      Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "flex")) ==
+     ("32px", "1 1 200px") : (String & String)}
+
+def capture_toggle_target(+key: String, +name: String, input: Doc.Node) -> capture_toggle_target_law(key, name, input):
   {==}
 
-def option_label(node: Doc.Node) -> String:
-  match node:
-    case Doc.Text{value}: value
-    case _: ""
 
-def assistance_default_option(+key: String, +profiles: +List<Domain.Profile>) ->
+
+def assistance_default_option_law(-key: String, -profiles: +List<Domain.Profile>) -> Type:
   {(node_key(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))),
-    (Render.attr(node_attributes(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))), "value"),
-     option_label(first(node_children(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))))))) ==
-   (key ++ "/option/", ("", "使用看板默认模型")) : (String & (String & String))}:
+      (Render.attr(Doc.element_attributes(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))), "value"),
+       Doc.direct_text(first(Doc.element_children(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))))))) ==
+     (key ++ "/option/", ("", "使用看板默认模型")) : (String & (String & String))}
+
+def assistance_default_option(+key: String, +profiles: +List<Domain.Profile>) -> assistance_default_option_law(key, profiles):
   {==}
 
 def assistance_remaining_profiles(+key: String, +profiles: +List<Domain.Profile>) ->
@@ -282,57 +281,29 @@ def assistance_remaining_profiles(+key: String, +profiles: +List<Domain.Profile>
     Render.profile_options(profiles, key) : +List<Doc.Node>}:
   {==}
 
-def assistance_field_options(+key: String, +enabled: Bool, +selected: String, +profiles: +List<Domain.Profile>) ->
-  {node_children(Render.enriched_element(key, "select",
-      [Doc.Property{"data-field", Forms.key(Forms.AssistanceProfile{})}, Doc.Property{"value", selected}],
-      Nil{}, Nil{}, Nil{}, [View.CardAssistanceInput{enabled, selected, profiles}], Nil{})) ==
-    Render.option(key, "", "使用看板默认模型") <> Render.profile_options(profiles, key) : +List<Doc.Node>}:
+def assistance_field_options_law(-key: String, -enabled: Bool, -selected: String, -profiles: +List<Domain.Profile>) -> Type:
+  {Doc.element_children(Render.enriched_element(key, "select",
+        [Doc.Property{"data-field", Forms.key(Forms.AssistanceProfile{})}, Doc.Property{"value", selected}],
+        Nil{}, Nil{}, Nil{}, [View.CardAssistanceInput{enabled, selected, profiles}], Nil{})) ==
+      Render.option(key, "", "使用看板默认模型") <> Render.profile_options(profiles, key) : +List<Doc.Node>}
+
+def assistance_field_options(+key: String, +enabled: Bool, +selected: String, +profiles: +List<Domain.Profile>) -> assistance_field_options_law(key, enabled, selected, profiles):
   {==}
 
 type Requirements is Type:
   Requirements{
-    assistance_default_option: @+key:String -> @+profiles:+List<Domain.Profile> ->   {(node_key(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))),
-    (Render.attr(node_attributes(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))), "value"),
-     option_label(first(node_children(first(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles))))))) ==
-   (key ++ "/option/", ("", "使用看板默认模型")) : (String & (String & String))},
+    assistance_default_option: @+key:String -> @+profiles:+List<Domain.Profile> ->   assistance_default_option_law(key, profiles),
     assistance_remaining_profiles: @+key:String -> @+profiles:+List<Domain.Profile> ->   {rest(Render.assistance_options(key, Forms.key(Forms.AssistanceProfile{}), profiles)) ==
     Render.profile_options(profiles, key) : +List<Doc.Node>},
-    assistance_field_options: @+key:String -> @+enabled:Bool -> @+selected:String -> @+profiles:+List<Domain.Profile> ->   {node_children(Render.enriched_element(key, "select",
-      [Doc.Property{"data-field", Forms.key(Forms.AssistanceProfile{})}, Doc.Property{"value", selected}],
-      Nil{}, Nil{}, Nil{}, [View.CardAssistanceInput{enabled, selected, profiles}], Nil{})) ==
-    Render.option(key, "", "使用看板默认模型") <> Render.profile_options(profiles, key) : +List<Doc.Node>},
+    assistance_field_options: @+key:String -> @+enabled:Bool -> @+selected:String -> @+profiles:+List<Domain.Profile> ->   assistance_field_options_law(key, enabled, selected, profiles),
     field_style_widget_binding: @editor:User.Editor -> @+field:Forms.Field -> @+entry:Forms.Entry -> @+value:Forms.Observed ->
       @toggle:{Controls.widget_for(entry, field, value) == Controls.ToggleInput{} : Controls.Widget} ->
       {Appearance.field_style(UI.Edit{editor, field, entry, value}) == Appearance.toggle_field() : Design.Style},
-    rendered_toggle_geometry: @+key:String -> @+name:String -> @+enabled:Bool ->   {toggle_geometry(node_styles(first(node_children(Render.input(key,
-    UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-    Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-      name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}},
-    Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}})))))) ==
-   ("16px", ("16px", ("16px", ("0px", ("0px", ("center", ("0", "none"))))))) :
-   (String & (String & (String & (String & (String & (String & (String & String)))))))},
-    toggle_value_and_events: @+key:String -> @+name:String -> @+enabled:Bool ->   {(Render.attr(node_attributes(first(node_children(Render.input(key,
-      UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-      Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-        name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field())))), "value"),
-    node_events(first(node_children(Render.input(key,
-      UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-      Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}},
-        name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field()))))) ==
-   (Render.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)},
-    capture_toggle_target: @+key:String -> @+name:String -> @input:Doc.Node ->   {(Render.attr(node_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "min-height"),
-    Render.attr(node_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "flex")) ==
-   ("32px", "1 1 200px") : (String & String)},
+    rendered_toggle_geometry: @+key:String -> @+name:String -> @+enabled:Bool ->   rendered_toggle_geometry_law(key, name, enabled),
+    toggle_value_and_events: @+key:String -> @+name:String -> @+enabled:Bool ->   toggle_value_and_events_law(key, name, enabled),
+    capture_toggle_target: @+key:String -> @+name:String -> @input:Doc.Node ->   capture_toggle_target_law(key, name, input),
     dialog_outer_inset: {style_insets(Appearance.style(UI.Dialog{}, UI.Region{})) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))},
-    concrete_field_kinds:   {[EditorLayout.card_field(Forms.CardTitle{}), EditorLayout.card_field(Forms.CardDescription{}),
-    EditorLayout.card_field(Forms.CardStage{}), EditorLayout.card_field(Forms.CardPriority{}),
-    EditorLayout.card_field(Forms.CardProject{}), EditorLayout.card_field(Forms.CardOwner{}),
-    EditorLayout.card_field(Forms.CardLabels{}), EditorLayout.card_field(Forms.ContinueCapture{}),
-    EditorLayout.card_field(Forms.AssistedCapture{}), EditorLayout.card_field(Forms.AssistanceProfile{})] ==
-   [EditorLayout.WorkTitle{}, EditorLayout.WorkDescription{}, EditorLayout.MetadataFlexible{},
-    EditorLayout.MetadataFlexible{}, EditorLayout.MetadataFlexible{}, EditorLayout.MetadataWide{},
-    EditorLayout.MetadataWide{}, EditorLayout.CaptureOption{}, EditorLayout.CaptureOption{},
-    EditorLayout.CaptureOption{}] : +List<EditorLayout.FieldKind>},
+    concrete_field_kinds:   concrete_field_kinds_law(),
     suffix_recombination: @nodes:+List<Doc.Node> -> @kinds:+List<EditorLayout.SectionKind> ->
       {recombine(EditorLayout.split(nodes, kinds)) == nodes : +List<Doc.Node>},
     original_dialog_order: @key:String -> @label:String -> @visual:Design.Style -> @parts:Render.DialogParts ->
@@ -345,31 +316,26 @@ type Requirements is Type:
       @events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @name:String ->
       {(node_key(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})),
-        (node_attributes(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
+        (Doc.element_attributes(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})),
-         node_events(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
+         Doc.element_events(Render.editor_field(EditorLayout.WorkTitle{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})))) ==
        (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))},
     description_identity: @key:String -> @tag:String -> @attributes:+List<Doc.Property> -> @styles:+List<Doc.Property> ->
       @events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @name:String ->
       {(node_key(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})),
-        (node_attributes(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
+        (Doc.element_attributes(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})),
-         node_events(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
+         Doc.element_events(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})))) ==
        (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))},
     shared_inline_inset: {Appearance.dialog_inline_inset() == 24n : Nat},
-    region_owned_insets: {(partition_inset(Render.dialog_header_styles()),
-      (partition_inset(Render.dialog_body_styles()),
-       (partition_inset(Render.dialog_footer_styles()),
-        (Render.attr(Render.dialog_header_styles(), "flex"), Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
-      ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
-      (String & (String & (String & (String & String))))},
+    region_owned_insets: region_owned_insets_law(),
     above_input_margin: @key:String -> @name:String -> @input:Doc.Node ->
-      {Render.attr(node_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String},
+      {Render.attr(Doc.element_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String},
     section_heading_margin: @owner:String -> @name:String ->
-      {Render.attr(node_styles(first(Render.section_label(owner, False{}, name))), "margin") == "0" : String},
+      {Render.attr(Doc.element_styles(first(Render.section_label(owner, False{}, name))), "margin") == "0" : String},
     absent_footer: @key:String -> {Render.dialog_footer(key, Nil{}) == Nil{} : +List<Doc.Node>},
     terminal_submit: @node:Doc.Node ->
       {EditorLayout.split([node], [EditorLayout.SubmitAction{}]) == EditorLayout.Suffix{Nil{}, [node]} : EditorLayout.Suffix},

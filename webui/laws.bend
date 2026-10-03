@@ -162,12 +162,14 @@ def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.S
       realization,
       Rendered.stale_frame_retains_state(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization, stale)))
 
+def stale_reading_law(-application: E.Application, -services: Services.State, -platform: Platform.Platform, -task: Nat, -generation: Nat, -event: Reading.Event, -inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Type:
+  {Platform.step(Platform.ReadingInput{task, generation, event},
+      Platform.State{Core.State{application, services}, platform}) ==
+      Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}
+
 def stale_reading(application: E.Application, services: Services.State, platform: Platform.Platform,
   task: Nat, generation: Nat, event: Reading.Event,
-  inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) ->
-  {Platform.step(Platform.ReadingInput{task, generation, event},
-    Platform.State{Core.State{application, services}, platform}) ==
-    Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}:
+  inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> stale_reading_law(application, services, platform, task, generation, event, inactive):
   match platform:
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
       Equal.cong(Bool, Platform.Decision,
@@ -175,11 +177,13 @@ def stale_reading(application: E.Application, services: Services.State, platform
           Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
         Platform.active_reader(application, task, generation), False{}, inactive)
 
-def history_layout_changed(height: F32, viewport: F32, anchor: Physical.Anchor, reduced: Bool) ->
+def history_layout_changed_law(-height: F32, -viewport: F32, -anchor: Physical.Anchor, -reduced: Bool) -> Type:
   {Reading.step(Reading.LayoutChanged{height, viewport}, U.ReadHistory{},
-    Reading.Bookmark{Some{anchor}}, reduced) ==
-    Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
-      [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.PreserveAnchor{anchor}]} : Reading.Decision}:
+      Reading.Bookmark{Some{anchor}}, reduced) ==
+      Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
+        [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.PreserveAnchor{anchor}]} : Reading.Decision}
+
+def history_layout_changed(height: F32, viewport: F32, anchor: Physical.Anchor, reduced: Bool) -> history_layout_changed_law(height, viewport, anchor, reduced):
   Equal.cong(Reading.Effect, Reading.Decision,
     (effect => Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
       [Reading.ReserveComposer{Reading.reserve(height, viewport)}, effect]}),
@@ -187,11 +191,13 @@ def history_layout_changed(height: F32, viewport: F32, anchor: Physical.Anchor, 
     Reading.PreserveAnchor{anchor},
     Reading.history_layout(anchor))
 
-def history_layout_missing(height: F32, viewport: F32, reduced: Bool) ->
+def history_layout_missing_law(-height: F32, -viewport: F32, -reduced: Bool) -> Type:
   {Reading.step(Reading.LayoutChanged{height, viewport}, U.ReadHistory{},
-    Reading.Bookmark{None{}}, reduced) ==
-    Reading.Decision{Reading.Bookmark{None{}}, None{},
-      [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.MeasureAnchor{}]} : Reading.Decision}:
+      Reading.Bookmark{None{}}, reduced) ==
+      Reading.Decision{Reading.Bookmark{None{}}, None{},
+        [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.MeasureAnchor{}]} : Reading.Decision}
+
+def history_layout_missing(height: F32, viewport: F32, reduced: Bool) -> history_layout_missing_law(height, viewport, reduced):
   Equal.cong(Reading.Effect, Reading.Decision,
     (effect => Reading.Decision{Reading.Bookmark{None{}}, None{},
       [Reading.ReserveComposer{Reading.reserve(height, viewport)}, effect]}),
@@ -199,16 +205,20 @@ def history_layout_missing(height: F32, viewport: F32, reduced: Bool) ->
     Reading.MeasureAnchor{},
     Reading.missing_history_anchor())
 
-def follow_latest_layout(bookmark: Reading.Bookmark, reduced: Bool) ->
+def follow_latest_layout_law(-bookmark: Reading.Bookmark, -reduced: Bool) -> Type:
   {Reading.step(Reading.FollowLatest{}, U.ReadHistory{}, bookmark, reduced) ==
-    Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.AlignLatest{Bool.not(reduced)}]} :
-    Reading.Decision}:
+      Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.AlignLatest{Bool.not(reduced)}]} :
+      Reading.Decision}
+
+def follow_latest_layout(bookmark: Reading.Bookmark, reduced: Bool) -> follow_latest_layout_law(bookmark, reduced):
   {==}
 
-def reduced_follow_latest_layout(unit: Unit) ->
+def reduced_follow_latest_layout_law(-unit: Unit) -> Type:
   {Reading.step(Reading.FollowLatest{}, U.ReadHistory{}, Reading.Bookmark{None{}}, True{}) ==
-    Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.AlignLatest{False{}}]} :
-    Reading.Decision}:
+      Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.AlignLatest{False{}}]} :
+      Reading.Decision}
+
+def reduced_follow_latest_layout(unit: Unit) -> reduced_follow_latest_layout_law(unit):
   {==}
 
 def session_readers(session: E.Session) -> +List<Finite.Entry(E.Reader)>:
@@ -594,11 +604,13 @@ def layout_sequence_preserves_bookmark(count: Nat, seed: Tape) ->
         advance_preserves_bookmark(Std.iter(~Tape, ~advance, steps, initial)), evidence(initial))),
     count)(seed)
 
-def temporary_enter_product(owner: U.Editor, shift: Bool, alt: Bool, modified: Bool,
-  identity: String, initial: String, restore: String, core: Core.State, platform: Platform.Platform) ->
+def temporary_enter_product_law(-owner: U.Editor, -shift: Bool, -alt: Bool, -modified: Bool, -identity: String, -initial: String, -restore: String, -core: Core.State, -platform: Platform.Platform) -> Type:
   {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-    Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
-    Platform.unchanged(core) : Core.Decision}:
+      Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
+      Platform.unchanged(core) : Core.Decision}
+
+def temporary_enter_product(owner: U.Editor, shift: Bool, alt: Bool, modified: Bool,
+  identity: String, initial: String, restore: String, core: Core.State, platform: Platform.Platform) -> temporary_enter_product_law(owner, shift, alt, modified, identity, initial, restore, core, platform):
   Equal.cong(Platform.Decision, Core.Decision, Model.platform_product,
     Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
       Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})}),
@@ -607,11 +619,13 @@ def temporary_enter_product(owner: U.Editor, shift: Bool, alt: Bool, modified: B
         platform_editors(with_scope(platform, Focus.Temporary{identity, initial, restore}), owner)), Nil{}},
     modal_enter_decision(owner, shift, alt, modified, identity, initial, restore, core, platform))
 
-def temporary_enter_effects(owner: U.Editor, shift: Bool, alt: Bool, modified: Bool,
-  identity: String, initial: String, restore: String, core: Core.State, platform: Platform.Platform) ->
+def temporary_enter_effects_law(-owner: U.Editor, -shift: Bool, -alt: Bool, -modified: Bool, -identity: String, -initial: String, -restore: String, -core: Core.State, -platform: Platform.Platform) -> Type:
   {platform_effects(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-    Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
-    Nil{} : +List<Platform.Effect>}:
+      Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
+      Nil{} : +List<Platform.Effect>}
+
+def temporary_enter_effects(owner: U.Editor, shift: Bool, alt: Bool, modified: Bool,
+  identity: String, initial: String, restore: String, core: Core.State, platform: Platform.Platform) -> temporary_enter_effects_law(owner, shift, alt, modified, identity, initial, restore, core, platform):
   Equal.cong(Platform.Decision, +List<Platform.Effect>, platform_effects,
     Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
       Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})}),
@@ -692,25 +706,15 @@ type Requirements is Type:
     stale_reading: @application:E.Application -> @services:Services.State -> @platform:Platform.Platform ->
       @task:Nat -> @generation:Nat -> @event:Reading.Event ->
       @inactive:{Platform.active_reader(application, task, generation) == False{} : Bool} ->
-      {Platform.step(Platform.ReadingInput{task, generation, event},
-        Platform.State{Core.State{application, services}, platform}) ==
-        Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision},
+      stale_reading_law(application, services, platform, task, generation, event, inactive),
     history_layout_changed: @height:F32 -> @viewport:F32 -> @anchor:Physical.Anchor -> @reduced:Bool ->
-      {Reading.step(Reading.LayoutChanged{height, viewport}, U.ReadHistory{}, Reading.Bookmark{Some{anchor}}, reduced) ==
-        Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
-          [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.PreserveAnchor{anchor}]} : Reading.Decision},
+      history_layout_changed_law(height, viewport, anchor, reduced),
     history_layout_missing: @height:F32 -> @viewport:F32 -> @reduced:Bool ->
-      {Reading.step(Reading.LayoutChanged{height, viewport}, U.ReadHistory{}, Reading.Bookmark{None{}}, reduced) ==
-        Reading.Decision{Reading.Bookmark{None{}}, None{},
-          [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.MeasureAnchor{}]} : Reading.Decision},
+      history_layout_missing_law(height, viewport, reduced),
     follow_latest_layout: @bookmark:Reading.Bookmark -> @reduced:Bool ->
-      {Reading.step(Reading.FollowLatest{}, U.ReadHistory{}, bookmark, reduced) ==
-        Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}},
-          [Reading.AlignLatest{Bool.not(reduced)}]} : Reading.Decision},
+      follow_latest_layout_law(bookmark, reduced),
     reduced_follow_latest_layout: @unit:Unit ->
-      {Reading.step(Reading.FollowLatest{}, U.ReadHistory{}, Reading.Bookmark{None{}}, True{}) ==
-        Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}},
-          [Reading.AlignLatest{False{}}]} : Reading.Decision},
+      reduced_follow_latest_layout_law(unit),
     layout_after_product: @program:M.World() -> @session:E.Session -> @task:Nat -> @generation:Nat ->
       @disclosures:+List<E.Disclosure> -> @bookmarks:+List<Finite.Entry(Reading.Bookmark)> -> @anchor:Physical.Anchor ->
       @reader_observed:{E.reader(session_readers(session), task) == E.Reader{generation, U.ReadHistory{}, disclosures} : E.Reader} ->
@@ -737,14 +741,10 @@ type Requirements is Type:
         Product.step(Product.SubmitComposer{platform_capacity(platform), owner}, core) : Core.Decision},
     temporary_enter_product: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
       @identity:String -> @initial:String -> @restore:String -> @core:Core.State -> @platform:Platform.Platform ->
-      {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-        Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
-        Platform.unchanged(core) : Core.Decision},
+      temporary_enter_product_law(owner, shift, alt, modified, identity, initial, restore, core, platform),
     temporary_enter_effects: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
       @identity:String -> @initial:String -> @restore:String -> @core:Core.State -> @platform:Platform.Platform ->
-      {platform_effects(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-        Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
-        Nil{} : +List<Platform.Effect>},
+      temporary_enter_effects_law(owner, shift, alt, modified, identity, initial, restore, core, platform),
     stale_focus_ticket: @core:Core.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String ->
       @stale:{Nat.is_eq(received, platform_ticket(platform)) == False{} : Bool} ->
       {Platform.step(Platform.FocusApplied{received, identity}, Platform.State{core, platform}) ==

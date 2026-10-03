@@ -725,9 +725,6 @@ def scene_layer_key(value: Web.Scene) -> Maybe<&2, String>:
   Web.Scene{UI.Surface{content, base, overlays, scope}, platform, generation, realization, presentation} = value
   scope
 
-def active_layer_key(state: State) -> Maybe<&2, String>:
-  scene_layer_key(scene(state))
-
 def outside_layer_owned(+identity: String, key: Maybe<&2, String>) -> Bool:
   match key:
     case None{}: False{}
@@ -763,14 +760,17 @@ def outside_permitted(allowed: Bool, input: Core.Input, +state: State) -> Outsid
     case False{}: OutsideDecision{False{}, Decision{state, Nil{}}}
     case True{}: outside_scoped(active_focus_scope(state), input, state)
 
-def outside_target(+identity: String, found: Maybe<&2, DismissTarget>, +state: State) -> OutsideDecision:
+def outside_target(+identity: String, found: Maybe<&2, DismissTarget>, current_layer: Maybe<&2, String>, +state: State) -> OutsideDecision:
   match found:
     case None{}: OutsideDecision{False{}, Decision{state, Nil{}}}
     case Some{DismissTarget{key, input, outside, escape}}:
-      outside_permitted((String.eq(identity, key) && outside) && outside_layer_owned(identity, active_layer_key(state)), input, state)
+      outside_permitted((String.eq(identity, key) && outside) && outside_layer_owned(identity, current_layer), input, state)
+
+def outside_scene(+identity: String, +value: Web.Scene, +state: State) -> OutsideDecision:
+  outside_target(identity, dismiss_target(scene_nodes(value)), scene_layer_key(value), state)
 
 def outside_event(identity: String, +state: State) -> OutsideDecision:
-  outside_target(identity, dismiss_target(nodes(state)), state)
+  outside_scene(identity, scene(state), state)
 
 def escape_target(found: Maybe<&2, DismissTarget>, state: State) -> Decision:
   match found:

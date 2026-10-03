@@ -12,20 +12,11 @@ import ./design.bend as Design
 import ./controls.bend as Controls
 import ../bendlib/stdlib.bend as Stdlib
 
-def children(node: Doc.Node) -> +List<Doc.Node>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, values}: values
-    case _: Nil{}
 
-def attributes(node: Doc.Node) -> +List<Doc.Property>:
-  match node:
-    case Doc.Element{key, tag, attrs, styles, events, values}: attrs
-    case _: Nil{}
 
-def styles(node: Doc.Node) -> +List<Doc.Property>:
-  match node:
-    case Doc.Element{key, tag, attrs, values, events, children}: values
-    case _: Nil{}
+
+
+
 
 def node_key(node: Doc.Node) -> String:
   match node:
@@ -58,16 +49,18 @@ def region_partition(+key: String, +region: Composition.Region, +position: Compo
 def region_child_order(+key: String, +region: Composition.Region, +position: Composition.Position,
   +values: +List<Doc.Node>, label: String, role: UI.Role, meaning_children: +List<UI.Node>,
   visual: Design.Style, representation: Controls.Representation, appearance_children: +List<Design.Appearance>) ->
-  {children(Render.match_node(key, label, role, UI.PageRegion{region, position}, meaning_children,
+  {Doc.element_children(Render.match_node(key, label, role, UI.PageRegion{region, position}, meaning_children,
     values, visual, representation, appearance_children)) == values : +List<Doc.Node>}:
   {==}
 
-def region_identity(+key: String, +region: Composition.Region, +position: Composition.Position,
-  +values: +List<Doc.Node>) ->
+def identity_law(-key: String, -region: Composition.Region, -position: Composition.Position, -values: +List<Doc.Node>) -> Type:
   {(node_key(Render.page_region(key, region, position, values)),
-    (Render.attr(attributes(Render.page_region(key, region, position, values)), "data-page-region"),
-      Render.attr(attributes(Render.page_region(key, region, position, values)), "data-page-position"))) ==
-    (key, (Composition.region_name(region), Render.page_position(position))) : (String & (String & String))}:
+      (Render.attr(Doc.element_attributes(Render.page_region(key, region, position, values)), "data-page-region"),
+        Render.attr(Doc.element_attributes(Render.page_region(key, region, position, values)), "data-page-position"))) ==
+      (key, (Composition.region_name(region), Render.page_position(position))) : (String & (String & String))}
+
+def region_identity(+key: String, +region: Composition.Region, +position: Composition.Position,
+  +values: +List<Doc.Node>) -> identity_law(key, region, position, values):
   {==}
 
 def ordinary_heading_not_promoted(+key: String, +nested: +List<Doc.Node>) ->
@@ -77,7 +70,7 @@ def ordinary_heading_not_promoted(+key: String, +nested: +List<Doc.Node>) ->
 
 def groups(nodes: +List<Doc.Node>) -> (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>)):
   match nodes:
-    case Con{heading, Con{body, Con{dock, Nil{}}}}: (children(heading), (children(body), children(dock)))
+    case Con{heading, Con{body, Con{dock, Nil{}}}}: (Doc.element_children(heading), (Doc.element_children(body), Doc.element_children(dock)))
     case _: (Nil{}, (Nil{}, Nil{}))
 
 def overview_partition(+nodes: +List<Doc.Node>, +organization: Composition.Body) ->
@@ -101,10 +94,12 @@ def intrinsic_header() ->
     Render.attr(Render.intrinsic_heading_styles(), "flex-wrap")) == ("none", "wrap") : (String & String)}:
   {==}
 
-def remaining_body() ->
+def body_law() -> Type:
   {(Render.attr(Render.remaining_body_styles(), "flex"),
-    (Render.attr(Render.remaining_body_styles(), "min-height"), Render.attr(Render.remaining_body_styles(), "overflow"))) ==
-      ("1", ("0", "auto")) : (String & (String & String))}:
+      (Render.attr(Render.remaining_body_styles(), "min-height"), Render.attr(Render.remaining_body_styles(), "overflow"))) ==
+        ("1", ("0", "auto")) : (String & (String & String))}
+
+def remaining_body() -> body_law():
   {==}
 
 def specified_organization(organization: Composition.Body) -> String:
@@ -120,7 +115,7 @@ def second(nodes: +List<Doc.Node>) -> Doc.Node:
     case _: Doc.Text{""}
 
 def overview_organization(+nodes: +List<Doc.Node>, +organization: Composition.Body) ->
-  {Render.attr(attributes(second(Render.overview_children(nodes, organization))), "data-overview-organization") ==
+  {Render.attr(Doc.element_attributes(second(Render.overview_children(nodes, organization))), "data-overview-organization") ==
     specified_organization(organization) : String}:
   match organization:
     case Composition.CenteredCreation{}: {==}
@@ -134,16 +129,18 @@ def overview_organization(+nodes: +List<Doc.Node>, +organization: Composition.Bo
 # Only the explicit conversation body owns reading observation. A nested old
 # timeline element retains its DOM key without acquiring a second scroller.
 def old_timeline_not_scroll(+key: String, +values: +List<Doc.Node>, +task: Nat, +generation: Nat) ->
-  {Render.attr(attributes(Render.reading_element("timeline", key, "div", Nil{}, Nil{}, Nil{}, values,
+  {Render.attr(Doc.element_attributes(Render.reading_element("timeline", key, "div", Nil{}, Nil{}, Nil{}, values,
     Some{Render.ReadingIdentity{task, generation}})), "data-reading-scroll") == "" : String}:
   {==}
 
-def reading_body_children(+key: String, +values: +List<Doc.Node>, +task: Nat, +generation: Nat) ->
-  {children(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values,
-    Some{Render.ReadingIdentity{task, generation}})) ==
-    [Doc.Element{("conversation/" ++ Nat.show(task) ++ "/body") ++ "/reading-content", "div",
-      [Doc.Property{"data-reading-content", ""}, Doc.Property{"data-reading-task", Nat.show(task)}],
-      [Doc.Property{"display", "flex"}, Doc.Property{"flex-direction", "column"}, Doc.Property{"gap", "16px"}], Nil{}, values}] : +List<Doc.Node>}:
+def reading_body_law(-key: String, -values: +List<Doc.Node>, -task: Nat, -generation: Nat) -> Type:
+  {Doc.element_children(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values,
+      Some{Render.ReadingIdentity{task, generation}})) ==
+      [Doc.Element{("conversation/" ++ Nat.show(task) ++ "/body") ++ "/reading-content", "div",
+        [Doc.Property{"data-reading-content", ""}, Doc.Property{"data-reading-task", Nat.show(task)}],
+        [Doc.Property{"display", "flex"}, Doc.Property{"flex-direction", "column"}, Doc.Property{"gap", "16px"}], Nil{}, values}] : +List<Doc.Node>}
+
+def reading_body_children(+key: String, +values: +List<Doc.Node>, +task: Nat, +generation: Nat) -> reading_body_law(key, values, task, generation):
   {==}
 
 def first(nodes: +List<Doc.Node>) -> Doc.Node:
@@ -152,17 +149,17 @@ def first(nodes: +List<Doc.Node>) -> Doc.Node:
     case _: Doc.Text{""}
 
 def overview_main_partition(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Design.Band, +organization: Composition.Body) ->
-  {groups(children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))}:
+  {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))}:
   Design.Box{left, top, width, height} = canvas
   Design.Band{band_left, band_width} = band
   {==}
 
 def group_flow(+nodes: +List<Doc.Node>) -> ((String & String) & (String & (String & String))):
-  ((Render.attr(styles(first(nodes)), "flex"), Render.attr(styles(first(nodes)), "flex-wrap")),
-    (Render.attr(styles(second(nodes)), "flex"), (Render.attr(styles(second(nodes)), "min-height"), Render.attr(styles(second(nodes)), "overflow"))))
+  ((Render.attr(Doc.element_styles(first(nodes)), "flex"), Render.attr(Doc.element_styles(first(nodes)), "flex-wrap")),
+    (Render.attr(Doc.element_styles(second(nodes)), "flex"), (Render.attr(Doc.element_styles(second(nodes)), "min-height"), Render.attr(Doc.element_styles(second(nodes)), "overflow"))))
 
 def overview_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Design.Band, +organization: Composition.Body) ->
-  {group_flow(children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) ==
+  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) ==
     (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))}:
   Design.Box{left, top, width, height} = canvas
   Design.Band{band_left, band_width} = band
@@ -176,16 +173,18 @@ def overview_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Desi
     case Composition.UnavailableNotice{}: {==}
 
 def board_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {group_flow(children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset})))) ==
+  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset})))) ==
     (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))}:
   Design.Box{left, top, canvas_width, height} = canvas
   {==}
 
-def reading_body_identity(+key: String, +values: +List<Doc.Node>, +task: Nat, +generation: Nat) ->
+def reading_identity_law(-key: String, -values: +List<Doc.Node>, -task: Nat, -generation: Nat) -> Type:
   {(node_key(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})),
-    (Render.attr(attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-task"),
-     Render.attr(attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-generation"))) ==
-    ("conversation/" ++ Nat.show(task) ++ "/body", (Nat.show(task), Nat.show(generation))) : (String & (String & String))}:
+      (Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-task"),
+       Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-generation"))) ==
+      ("conversation/" ++ Nat.show(task) ++ "/body", (Nat.show(task), Nat.show(generation))) : (String & (String & String))}
+
+def reading_body_identity(+key: String, +values: +List<Doc.Node>, +task: Nat, +generation: Nat) -> reading_identity_law(key, values, task, generation):
   {==}
 
 # Column sizing may change a child's CSS. The observation retains its key,
@@ -364,7 +363,7 @@ def receipt_partition(parts: (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Nod
   (receipts(heading), (receipts(body), receipts(dock)))
 
 def board_region_preservation(+nodes: +List<Doc.Node>, +canvas: Design.Box, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {receipt_partition(groups(children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) ==
+  {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) ==
     receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))}:
   Design.Box{left, top, canvas_width, height} = canvas
   Equal.cong(+List<RegionReceipt>, (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>)),
@@ -379,7 +378,7 @@ def creation_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, 
   ShellSpatial.creation_group_order(nodes, band, flow)
 
 def unavailable_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box, +band: Design.Band) ->
-  {children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>}:
+  {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>}:
   Design.Box{left, top, width, height} = canvas
   {==}
 
@@ -387,33 +386,39 @@ def unavailable_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Bo
 def rendered_region_child_order(+key: String, semantic: String, label: String, role: UI.Role,
   region: Composition.Region, position: Composition.Position, +nodes: +List<UI.Node>,
   visual: Design.Style, representation: Controls.Representation, +appearances: +List<Design.Appearance>) ->
-  {children(first(Render.render_nodes([UI.Node{key, semantic, label, role, UI.PageRegion{region, position}, nodes}],
+  {Doc.element_children(first(Render.render_nodes([UI.Node{key, semantic, label, role, UI.PageRegion{region, position}, nodes}],
     [Design.Appearance{key, visual, representation, appearances}]))) == Render.render_nodes(nodes, appearances) : +List<Doc.Node>}:
   {==}
 
 # These final properties follow the generic input's width:100%. The native
 # renderer applies style properties in order, so the region's width wins.
-def board_select_bounds(+key: String, +attrs: +List<Doc.Property>, +styles_value: +List<Doc.Property>,
-  +events: +List<Doc.Event>, +children_value: +List<Doc.Node>) ->
+def board_select_bounds_law(-key: String, -attrs: +List<Doc.Property>, -styles_value: +List<Doc.Property>, -events: +List<Doc.Event>, -children_value: +List<Doc.Node>) -> Type:
   {Render.board_input(Doc.Element{key, "select", attrs, styles_value, events, children_value}) ==
-    Doc.Element{key, "select", attrs, List.append(&2, Doc.Property, styles_value,
-      [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node}:
+      Doc.Element{key, "select", attrs, List.append(&2, Doc.Property, styles_value,
+        [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node}
+
+def board_select_bounds(+key: String, +attrs: +List<Doc.Property>, +styles_value: +List<Doc.Property>,
+  +events: +List<Doc.Event>, +children_value: +List<Doc.Node>) -> board_select_bounds_law(key, attrs, styles_value, events, children_value):
   {==}
+
+def board_input_bounds_law(-key: String, -attrs: +List<Doc.Property>, -styles_value: +List<Doc.Property>, -events: +List<Doc.Event>, -children_value: +List<Doc.Node>) -> Type:
+  {Render.board_input(Doc.Element{key, "input", attrs, styles_value, events, children_value}) ==
+      Doc.Element{key, "input", attrs, List.append(&2, Doc.Property, styles_value,
+        [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node}
 
 def board_input_bounds(+key: String, +attrs: +List<Doc.Property>, +styles_value: +List<Doc.Property>,
-  +events: +List<Doc.Event>, +children_value: +List<Doc.Node>) ->
-  {Render.board_input(Doc.Element{key, "input", attrs, styles_value, events, children_value}) ==
-    Doc.Element{key, "input", attrs, List.append(&2, Doc.Property, styles_value,
-      [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node}:
+  +events: +List<Doc.Event>, +children_value: +List<Doc.Node>) -> board_input_bounds_law(key, attrs, styles_value, events, children_value):
   {==}
 
-def board_labeled_select_bounds(+key: String, +field: String, +name: String, +attrs: +List<Doc.Property>,
-  +styles_value: +List<Doc.Property>, +label_styles: +List<Doc.Property>, +events: +List<Doc.Event>, +children_value: +List<Doc.Node>) ->
+def board_labeled_select_law(-key: String, -field: String, -name: String, -attrs: +List<Doc.Property>, -styles_value: +List<Doc.Property>, -label_styles: +List<Doc.Property>, -events: +List<Doc.Event>, -children_value: +List<Doc.Node>) -> Type:
   {Render.board_control(Doc.Element{key, "label", Nil{}, label_styles, Nil{},
-    [Doc.Text{name}, Doc.Element{field, "select", attrs, styles_value, events, children_value}]}) ==
-    Doc.Element{key, "label", Nil{}, label_styles, Nil{}, [Doc.Text{name},
-      Doc.Element{field, "select", attrs, List.append(&2, Doc.Property, styles_value,
-        [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value}]} : Doc.Node}:
+      [Doc.Text{name}, Doc.Element{field, "select", attrs, styles_value, events, children_value}]}) ==
+      Doc.Element{key, "label", Nil{}, label_styles, Nil{}, [Doc.Text{name},
+        Doc.Element{field, "select", attrs, List.append(&2, Doc.Property, styles_value,
+          [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value}]} : Doc.Node}
+
+def board_labeled_select_bounds(+key: String, +field: String, +name: String, +attrs: +List<Doc.Property>,
+  +styles_value: +List<Doc.Property>, +label_styles: +List<Doc.Property>, +events: +List<Doc.Event>, +children_value: +List<Doc.Node>) -> board_labeled_select_law(key, field, name, attrs, styles_value, label_styles, events, children_value):
   {==}
 
 def board_region_controls(+nodes: +List<Doc.Node>) ->
@@ -434,8 +439,8 @@ def expected_section_children(kind: EditorLayout.SectionKind, owner: String, +la
 
 def typed_section_content(+owner: String, +label: String, visual: Design.Style,
   +rendered: +List<Doc.Node>, +kind: EditorLayout.SectionKind) ->
-  {(children(Render.editor_section(owner, label, visual, rendered, kind)),
-    Render.attr(attributes(Render.editor_section(owner, label, visual, rendered, kind)), "aria-label")) ==
+  {(Doc.element_children(Render.editor_section(owner, label, visual, rendered, kind)),
+    Render.attr(Doc.element_attributes(Render.editor_section(owner, label, visual, rendered, kind)), "aria-label")) ==
    (expected_section_children(kind, owner, label, rendered), label) : (+List<Doc.Node> & String)}:
   match kind:
     case EditorLayout.GenericSection{}: {==}
@@ -444,15 +449,17 @@ def typed_section_content(+owner: String, +label: String, visual: Design.Style,
     case EditorLayout.CaptureSection{}: {==}
     case EditorLayout.SubmitAction{}: {==}
 
+def section_layout_contract_law(-owner: String, -label: String, -rendered: +List<Doc.Node>, -source_children: +List<UI.Node>, -visual: Design.Style, -representation: Controls.Representation, -appearances: +List<Design.Appearance>) -> Type:
+  {(Doc.element_children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children,
+        rendered, visual, representation, appearances)),
+      Render.attr(Doc.element_attributes(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children,
+        rendered, visual, representation, appearances)), "aria-label")) ==
+     (expected_section_children(EditorLayout.section_kind(appearances), owner, label, rendered), label) :
+     (+List<Doc.Node> & String)}
+
 def section_layout_contract(+owner: String, +label: String, +rendered: +List<Doc.Node>,
   source_children: +List<UI.Node>, visual: Design.Style,
-  representation: Controls.Representation, +appearances: +List<Design.Appearance>) ->
-  {(children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children,
-      rendered, visual, representation, appearances)),
-    Render.attr(attributes(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children,
-      rendered, visual, representation, appearances)), "aria-label")) ==
-   (expected_section_children(EditorLayout.section_kind(appearances), owner, label, rendered), label) :
-   (+List<Doc.Node> & String)}:
+  representation: Controls.Representation, +appearances: +List<Design.Appearance>) -> section_layout_contract_law(owner, label, rendered, source_children, visual, representation, appearances):
   typed_section_content(owner, label, visual, rendered, EditorLayout.section_kind(appearances))
 
 def section_title_owner(+owner: String, +label: String, +rendered: +List<Doc.Node>,
@@ -460,14 +467,14 @@ def section_title_owner(+owner: String, +label: String, +rendered: +List<Doc.Nod
   representation: Controls.Representation, +appearances: +List<Design.Appearance>,
   nonempty: {String.is_empty(label) == False{} : Bool},
   generic: {EditorLayout.section_kind(appearances) == EditorLayout.GenericSection{} : EditorLayout.SectionKind}) ->
-  {node_key(first(children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children,
+  {node_key(first(Doc.element_children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children,
     rendered, visual, representation, appearances)))) == Render.generated_identity(owner, "title") : String}:
   Equal.trans(String,
-    node_key(first(children(Render.editor_section(owner, label, visual, rendered, EditorLayout.section_kind(appearances))))),
-    node_key(first(children(Render.editor_section(owner, label, visual, rendered, EditorLayout.GenericSection{})))),
+    node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, rendered, EditorLayout.section_kind(appearances))))),
+    node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, rendered, EditorLayout.GenericSection{})))),
     Render.generated_identity(owner, "title"),
     Equal.cong(EditorLayout.SectionKind, String,
-      (kind => node_key(first(children(Render.editor_section(owner, label, visual, rendered, kind))))),
+      (kind => node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, rendered, kind))))),
       EditorLayout.section_kind(appearances), EditorLayout.GenericSection{}, generic),
     Equal.cong(Bool, String,
       (empty => node_key(first(List.append(&2, Doc.Node, Render.section_label(owner, empty, label), rendered)))),
@@ -475,14 +482,14 @@ def section_title_owner(+owner: String, +label: String, +rendered: +List<Doc.Nod
 
 def dialog_suffix_title_owner(+owner: String, +label: String, visual: Design.Style,
   header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {node_key(first(children(first(children(Render.dialog_region_suffix(owner, label, visual, header, suffix)))))) ==
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_suffix(owner, label, visual, header, suffix)))))) ==
     Render.generated_identity(owner, "title") : String}:
   match suffix:
     case EditorLayout.Suffix{body, footer}: {==}
 
 def dialog_region_title_owner(+owner: String, +label: String, visual: Design.Style,
   parts: Render.DialogParts) ->
-  {node_key(first(children(first(children(Render.dialog_region_parts(owner, label, visual, parts)))))) ==
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_parts(owner, label, visual, parts)))))) ==
     Render.generated_identity(owner, "title") : String}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
@@ -491,13 +498,13 @@ def dialog_region_title_owner(+owner: String, +label: String, visual: Design.Sty
 def dialog_title_owner(+owner: String, label: String, rendered: +List<Doc.Node>,
   source_children: +List<UI.Node>, visual: Design.Style, representation: Controls.Representation,
   appearances: +List<Design.Appearance>) ->
-  {node_key(first(children(first(children(Render.match_node(owner, label, UI.Dialog{}, UI.Region{}, source_children,
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.match_node(owner, label, UI.Dialog{}, UI.Region{}, source_children,
     rendered, visual, representation, appearances)))))) == Render.generated_identity(owner, "title") : String}:
   dialog_region_title_owner(owner, label, visual, Render.dialog_partition(rendered, appearances))
 
 def activity_fallback_owner(+owner: String, label: String, source_children: +List<UI.Node>,
   visual: Design.Style, representation: Controls.Representation, appearances: +List<Design.Appearance>) ->
-  {node_key(first(children(Render.match_node(owner, label, UI.Activity{}, UI.Region{}, source_children,
+  {node_key(first(Doc.element_children(Render.match_node(owner, label, UI.Activity{}, UI.Region{}, source_children,
     Nil{}, visual, representation, appearances)))) == Render.generated_identity(owner, "summary") : String}:
   {==}
 
@@ -508,14 +515,11 @@ def activity_label_owner(+owner: String, label: String) ->
 type FactObservation is Data:
   FactObservation{key: String, label_key: String, label: String, value: String}
 
-def text(node: Doc.Node) -> String:
-  match node:
-    case Doc.Text{value}: value
-    case _: ""
+
 
 def fact_contents(key: String, values: +List<Doc.Node>) -> FactObservation:
   match values:
-    case Con{+label, Con{value, Nil{}}}: FactObservation{key, node_key(label), text(first(children(label))), text(first(children(value)))}
+    case Con{+label, Con{value, Nil{}}}: FactObservation{key, node_key(label), Doc.direct_text(first(Doc.element_children(label))), Doc.direct_text(first(Doc.element_children(value)))}
     case _: FactObservation{key, "", "", ""}
 
 def observed_fact(node: Doc.Node) -> FactObservation:
@@ -548,7 +552,7 @@ def specified_task_facts(+owner: String, value: View.TaskDetails) -> +List<FactO
 def task_facts_owner(+owner: String, +details: View.TaskDetails, label: String, role: UI.Role,
   source_children: +List<UI.Node>, rendered: +List<Doc.Node>, visual: Design.Style,
   representation: Controls.Representation, appearances: +List<Design.Appearance>) ->
-  {observed_facts(children(first(children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children,
+  {observed_facts(Doc.element_children(first(Doc.element_children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children,
     rendered, visual, representation, appearances))))) == specified_task_facts(owner, details) : +List<FactObservation>}:
   View.TaskDetails{Context.EffectiveContext{task, Domain.TaskContext{Domain.Workspace{roots, primary}, Domain.Sandbox{mode, network}, approval, project}, guidance, access}, Domain.Model{Domain.Profile{id, provider, name, policy}, reasoning, model_guidance}, tools, lineage, queued, status, phase} = details
   {==}
@@ -557,48 +561,46 @@ type Requirements is Type:
   Requirements{
     generated_identity: @+owner:String -> @+part:String -> {Render.generated_identity(owner, part) == owner ++ "/@" ++ part : String},
     section_title_owner: @+owner:String -> @+label:String -> @+rendered:+List<Doc.Node> -> @source_children:+List<UI.Node> -> @+visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> -> @nonempty:{String.is_empty(label) == False{} : Bool} -> @generic:{EditorLayout.section_kind(appearances) == EditorLayout.GenericSection{} : EditorLayout.SectionKind} ->
-      {node_key(first(children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children, rendered, visual, representation, appearances)))) == Render.generated_identity(owner, "title") : String},
+      {node_key(first(Doc.element_children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children, rendered, visual, representation, appearances)))) == Render.generated_identity(owner, "title") : String},
     section_layout_contract: @+owner:String -> @+label:String -> @+rendered:+List<Doc.Node> -> @source_children:+List<UI.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> ->
-      {(children(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children, rendered, visual, representation, appearances)),
-        Render.attr(attributes(Render.match_node(owner, label, UI.Section{}, UI.Region{}, source_children, rendered, visual, representation, appearances)), "aria-label")) ==
-       (expected_section_children(EditorLayout.section_kind(appearances), owner, label, rendered), label) : (+List<Doc.Node> & String)},
+      section_layout_contract_law(owner, label, rendered, source_children, visual, representation, appearances),
     dialog_title_owner: @+owner:String -> @label:String -> @rendered:+List<Doc.Node> -> @source_children:+List<UI.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @appearances:+List<Design.Appearance> ->
-      {node_key(first(children(first(children(Render.match_node(owner, label, UI.Dialog{}, UI.Region{}, source_children, rendered, visual, representation, appearances)))))) == Render.generated_identity(owner, "title") : String},
+      {node_key(first(Doc.element_children(first(Doc.element_children(Render.match_node(owner, label, UI.Dialog{}, UI.Region{}, source_children, rendered, visual, representation, appearances)))))) == Render.generated_identity(owner, "title") : String},
     activity_fallback_owner: @+owner:String -> @label:String -> @source_children:+List<UI.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @appearances:+List<Design.Appearance> ->
-      {node_key(first(children(Render.match_node(owner, label, UI.Activity{}, UI.Region{}, source_children, Nil{}, visual, representation, appearances)))) == Render.generated_identity(owner, "summary") : String},
+      {node_key(first(Doc.element_children(Render.match_node(owner, label, UI.Activity{}, UI.Region{}, source_children, Nil{}, visual, representation, appearances)))) == Render.generated_identity(owner, "summary") : String},
     activity_label_owner: @+owner:String -> @label:String -> {node_key(first(Render.region_label(owner, UI.Activity{}, label))) == Render.generated_identity(owner, "summary") : String},
     task_facts_owner: @+owner:String -> @+details:View.TaskDetails -> @label:String -> @role:UI.Role -> @source_children:+List<UI.Node> -> @rendered:+List<Doc.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @appearances:+List<Design.Appearance> ->
-      {observed_facts(children(first(children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children, rendered, visual, representation, appearances))))) == specified_task_facts(owner, details) : +List<FactObservation>},
+      {observed_facts(Doc.element_children(first(Doc.element_children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children, rendered, visual, representation, appearances))))) == specified_task_facts(owner, details) : +List<FactObservation>},
     board_select_bounds: @+key:String -> @+attrs:+List<Doc.Property> -> @+styles_value:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children_value:+List<Doc.Node> ->
-      {Render.board_input(Doc.Element{key, "select", attrs, styles_value, events, children_value}) == Doc.Element{key, "select", attrs, List.append(&2, Doc.Property, styles_value, [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node},
+      board_select_bounds_law(key, attrs, styles_value, events, children_value),
     board_input_bounds: @+key:String -> @+attrs:+List<Doc.Property> -> @+styles_value:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children_value:+List<Doc.Node> ->
-      {Render.board_input(Doc.Element{key, "input", attrs, styles_value, events, children_value}) == Doc.Element{key, "input", attrs, List.append(&2, Doc.Property, styles_value, [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node},
+      board_input_bounds_law(key, attrs, styles_value, events, children_value),
     board_labeled_select: @+key:String -> @+field:String -> @+name:String -> @+attrs:+List<Doc.Property> -> @+styles_value:+List<Doc.Property> -> @+label_styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children_value:+List<Doc.Node> ->
-      {Render.board_control(Doc.Element{key, "label", Nil{}, label_styles, Nil{}, [Doc.Text{name}, Doc.Element{field, "select", attrs, styles_value, events, children_value}]}) == Doc.Element{key, "label", Nil{}, label_styles, Nil{}, [Doc.Text{name}, Doc.Element{field, "select", attrs, List.append(&2, Doc.Property, styles_value, [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value}]} : Doc.Node},
+      board_labeled_select_law(key, field, name, attrs, styles_value, label_styles, events, children_value),
     board_control_dispatch: @+nodes:+List<Doc.Node> -> {Render.positioned_page_children(Composition.region_name(Composition.BoardControls{}), nodes) == Render.board_controls(nodes) : +List<Doc.Node>},
     rendered_child_order: @+key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @region:Composition.Region -> @position:Composition.Position -> @+nodes:+List<UI.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> ->
-      {children(first(Render.render_nodes([UI.Node{key, semantic, label, role, UI.PageRegion{region, position}, nodes}], [Design.Appearance{key, visual, representation, appearances}]))) == Render.render_nodes(nodes, appearances) : +List<Doc.Node>},
+      {Doc.element_children(first(Render.render_nodes([UI.Node{key, semantic, label, role, UI.PageRegion{region, position}, nodes}], [Design.Appearance{key, visual, representation, appearances}]))) == Render.render_nodes(nodes, appearances) : +List<Doc.Node>},
     board_regions: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
-      {receipt_partition(groups(children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
+      {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
     creation_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band -> @+input:Maybe<&2, Design.InputMetrics> -> @+flow:Design.CreationFlow ->
       {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}))) == nodes : +List<Doc.Node>},
     unavailable_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band ->
-      {children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>},
+      {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>},
     overview_main: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->
-      {groups(children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
+      {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
 
     overview_flow: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->
-      {group_flow(children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))},
+      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization})))) == (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))},
     board_flow: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
-      {group_flow(children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset})))) == (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))},
+      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset})))) == (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))},
     reading_identity: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
-      {(node_key(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), (Render.attr(attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-task"), Render.attr(attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-generation"))) == ("conversation/" ++ Nat.show(task) ++ "/body", (Nat.show(task), Nat.show(generation))) : (String & (String & String))},
+      reading_identity_law(key, values, task, generation),
     region_partition: @+key:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+values:+List<Doc.Node> -> @+rest:+List<Doc.Node> ->
       {partition(Render.page_region(key, region, position, values) <> rest) == prescribed_cons(position, Render.page_region(key, region, position, values), rest) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
     child_order: @+key:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+values:+List<Doc.Node> -> @label:String -> @role:UI.Role -> @meaning_children:+List<UI.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @appearance_children:+List<Design.Appearance> ->
-      {children(Render.match_node(key, label, role, UI.PageRegion{region, position}, meaning_children, values, visual, representation, appearance_children)) == values : +List<Doc.Node>},
+      {Doc.element_children(Render.match_node(key, label, role, UI.PageRegion{region, position}, meaning_children, values, visual, representation, appearance_children)) == values : +List<Doc.Node>},
     identity: @+key:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+values:+List<Doc.Node> ->
-      {(node_key(Render.page_region(key, region, position, values)), (Render.attr(attributes(Render.page_region(key, region, position, values)), "data-page-region"), Render.attr(attributes(Render.page_region(key, region, position, values)), "data-page-position"))) == (key, (Composition.region_name(region), Render.page_position(position))) : (String & (String & String))},
+      identity_law(key, region, position, values),
     ordinary_heading: @+key:String -> @+nested:+List<Doc.Node> ->
       {partition(Render.decorate("heading", "heading", Doc.Element{key, "h2", Nil{}, Nil{}, Nil{}, nested}) <> Nil{}) == (Nil{}, (Nil{}, Nil{})) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
     overview_partition: @+nodes:+List<Doc.Node> -> @+organization:Composition.Body ->
@@ -610,13 +612,13 @@ type Requirements is Type:
 
 
     header: {(Render.attr(Render.intrinsic_heading_styles(), "flex"), Render.attr(Render.intrinsic_heading_styles(), "flex-wrap")) == ("none", "wrap") : (String & String)},
-    body: {(Render.attr(Render.remaining_body_styles(), "flex"), (Render.attr(Render.remaining_body_styles(), "min-height"), Render.attr(Render.remaining_body_styles(), "overflow"))) == ("1", ("0", "auto")) : (String & (String & String))},
+    body: body_law(),
     organization: @+nodes:+List<Doc.Node> -> @+organization:Composition.Body ->
-      {Render.attr(attributes(second(Render.overview_children(nodes, organization))), "data-overview-organization") == specified_organization(organization) : String},
+      {Render.attr(Doc.element_attributes(second(Render.overview_children(nodes, organization))), "data-overview-organization") == specified_organization(organization) : String},
     timeline: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
-      {Render.attr(attributes(Render.reading_element("timeline", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-scroll") == "" : String},
+      {Render.attr(Doc.element_attributes(Render.reading_element("timeline", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})), "data-reading-scroll") == "" : String},
     reading_body: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
-      {children(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Render.ReadingIdentity{task, generation}})) == [Doc.Element{("conversation/" ++ Nat.show(task) ++ "/body") ++ "/reading-content", "div", [Doc.Property{"data-reading-content", ""}, Doc.Property{"data-reading-task", Nat.show(task)}], [Doc.Property{"display", "flex"}, Doc.Property{"flex-direction", "column"}, Doc.Property{"gap", "16px"}], Nil{}, values}] : +List<Doc.Node>}
+      reading_body_law(key, values, task, generation)
   }
 
 def evidence() -> Requirements:

@@ -21,7 +21,7 @@ function model(task_id, ticket, text = 'done', calls = []) {
     items: [...(text ? [{ type: 'text', text }] : []), ...calls.map(call => ({ type: 'call', ...call }))] };
 }
 
-test('compiled native transport preserves Unicode, embedded controls and exact JSON numeric lexemes', async t => {
+test('Bend-generated JavaScript Worker and codec transport preserves Unicode, embedded controls and exact JSON numeric lexemes', async t => {
   const { k, send, command } = await kernel(t, { tools: [remote] });
   const text = 'hello\n"\\\0 世界 😀';
   const created = await command({ op: 'create', profile: 'fixture', message: text });
@@ -35,13 +35,11 @@ test('compiled native transport preserves Unicode, embedded controls and exact J
   const output = page.reply.result.messages.find(x => x.role === 'function_output');
   assert.ok(output.content.huge instanceof JsonNumber);
   assert.equal(output.content.huge.source, '9007199254740993');
-  assert.equal(page.durable, false);
-  assert.deepEqual(page.effects, []);
   assert.equal((await command({ op: 'read', task_id: 0, limit: 0 })).reply.ok, false);
   assert.equal((await command({ op: 'create', profile: 'fixture', message: 'x', unknown: 1 })).reply.ok, false);
 });
 
-test('native hook envelopes reject unknown authority fields and malformed identities at the process boundary', async t => {
+test('Worker hook envelopes reject unknown authority fields and malformed identities at the kernel boundary', async t => {
   const { send } = await kernel(t);
   for (const packet of [
     { kind: 'hook', task_id: 0, ticket: 0, outcome: { decision: 'rewrite', arguments: {}, name: 'bash' } },

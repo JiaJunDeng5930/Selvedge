@@ -21,14 +21,14 @@ type SpeechProjection is Data:
 type Requirements is Type:
   Requirements{
     production_regions: PageRegions.Requirements,
-    observed_page: @capacity:View.Capacity -> @application:Experience.Application ->
-      {View.observed_main_page(View.observe(capacity, application)) == View.observed_arrangement_page(View.observe(capacity, application)) : Composition.Page},
+    observed_page: @navigation:View.Navigation -> @main:View.Page -> @layers:+List<View.Layer> ->
+      @placement:View.NavigationPlacement -> @attention:String ->
+      {View.scene_page(View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}) ==
+        View.page_composition(main) : Composition.Page},
     task_page: @task:View.TaskScene ->
       {Composition.recipe(View.page_composition(View.TaskPage{task})) == expected_task_recipe(task) : Composition.Recipe},
     conversation_recipe: @composer:Bool -> @approvals:Bool -> @return_latest:Bool ->
-      {Composition.recipe(Composition.Conversation{composer, approvals, return_latest}) ==
-        Composition.Recipe{Composition.ReadingMeasure{}, Composition.ConversationHeading{}, Composition.ChronologicalReading{},
-          expected_bottom_composer(composer), expected_decisions(approvals), expected_latest(return_latest)} : Composition.Recipe},
+      conversation_recipe_law(composer, approvals, return_latest),
     unavailable_page: @message:String ->
       {Composition.recipe(View.page_composition(View.MissingObject{message})) ==
         Composition.Recipe{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.UnavailableNotice{},
@@ -45,9 +45,7 @@ type Requirements is Type:
     structure_order: @recipe:Composition.Recipe ->
       {Composition.structure(recipe) == expected_structure(recipe) : Composition.Structure},
     creation_structure: @composer:Bool ->
-      {Composition.structure(Composition.recipe(Composition.Creation{composer})) ==
-        Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <>
-          Composition.centered_composer_region(Composition.centered_composer(composer)), Nil{}} : Composition.Structure},
+      creation_structure_law(composer),
     creation_project: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, View.ProjectChoice>},
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> ->
@@ -55,10 +53,7 @@ type Requirements is Type:
       {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
     creation_page: @+input:Maybe<&2, View.ComposerScene> -> @+parent:String -> @+world:M.World() ->
       @+session:Experience.Session -> @+services:Services.State ->
-      {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
-        List.append(&2, Interface.Node,
-          Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
-          Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>},
+      creation_page_law(input, parent, world, session, services),
     context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent:String -> @+state:Core.State ->
       {Interface.controls(declaration <> rest, parent, state) == Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->
@@ -73,16 +68,6 @@ def has_composer(composer: Maybe<&2, View.ComposerScene>) -> Bool:
   match composer:
     case None{}: False{}
     case Some{scene}: True{}
-
-def has_decisions(decisions: +List<Conversation.DecisionRequest>) -> Bool:
-  match decisions:
-    case Nil{}: False{}
-    case Con{decision, rest}: True{}
-
-def has_return_latest(action: Maybe<&2, U.Input>) -> Bool:
-  match action:
-    case None{}: False{}
-    case Some{input}: True{}
 
 def expected_bottom_composer(present: Bool) -> Composition.Composer:
   match present:
@@ -99,10 +84,13 @@ def expected_latest(present: Bool) -> Composition.Latest:
     case True{}: Composition.AboveComposer{}
     case False{}: Composition.NoLatest{}
 
-def conversation_recipe_evidence(composer: Bool, approvals: Bool, return_latest: Bool)
-  -> {Composition.recipe(Composition.Conversation{composer, approvals, return_latest}) ==
+def conversation_recipe_law(-composer: Bool, -approvals: Bool, -return_latest: Bool) -> Type:
+  {Composition.recipe(Composition.Conversation{composer, approvals, return_latest}) ==
       Composition.Recipe{Composition.ReadingMeasure{}, Composition.ConversationHeading{}, Composition.ChronologicalReading{},
-        expected_bottom_composer(composer), expected_decisions(approvals), expected_latest(return_latest)} : Composition.Recipe}:
+        expected_bottom_composer(composer), expected_decisions(approvals), expected_latest(return_latest)} : Composition.Recipe}
+
+def conversation_recipe_evidence(composer: Bool, approvals: Bool, return_latest: Bool)
+  -> conversation_recipe_law(composer, approvals, return_latest):
   match composer approvals return_latest:
     case False{} False{} False{}: {==}
     case False{} False{} True{}: {==}
@@ -117,13 +105,13 @@ def expected_task_recipe(task: View.TaskScene) -> Composition.Recipe:
   View.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = task
   Conversation.Timeline{task_id, generation, groups, operations, approvals, reading, return_to_latest} = timeline
   Composition.Recipe{Composition.ReadingMeasure{}, Composition.ConversationHeading{}, Composition.ChronologicalReading{},
-    expected_bottom_composer(has_composer(composer)), expected_decisions(has_decisions(approvals)), expected_latest(has_return_latest(return_to_latest))}
+    expected_bottom_composer(has_composer(composer)), expected_decisions(View.has_decisions(approvals)), expected_latest(View.has_return_latest(return_to_latest))}
 
 def task_recipe_components_evidence(composer: Maybe<&2, View.ComposerScene>, approvals: +List<Conversation.DecisionRequest>, return_latest: Maybe<&2, U.Input>)
   -> {Composition.Recipe{Composition.ReadingMeasure{}, Composition.ConversationHeading{}, Composition.ChronologicalReading{},
         Composition.bottom_composer(View.has_composer(composer)), Composition.decisions(View.has_decisions(approvals)), Composition.latest(View.has_return_latest(return_latest))} ==
       Composition.Recipe{Composition.ReadingMeasure{}, Composition.ConversationHeading{}, Composition.ChronologicalReading{},
-        expected_bottom_composer(has_composer(composer)), expected_decisions(has_decisions(approvals)), expected_latest(has_return_latest(return_latest))} : Composition.Recipe}:
+        expected_bottom_composer(has_composer(composer)), expected_decisions(View.has_decisions(approvals)), expected_latest(View.has_return_latest(return_latest))} : Composition.Recipe}:
   match composer approvals return_latest:
     case None{} Nil{} None{}: {==}
     case None{} Nil{} Some{input}: {==}
@@ -210,10 +198,13 @@ def structure_evidence(recipe: Composition.Recipe)
     case Composition.Recipe{measure, heading, Composition.AgentRows{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.UnavailableNotice{}, composer, decisions, latest}: {==}
 
-def creation_structure_order(composer: Bool) ->
+def creation_structure_law(-composer: Bool) -> Type:
   {Composition.structure(Composition.recipe(Composition.Creation{composer})) ==
     Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <>
-      Composition.centered_composer_region(Composition.centered_composer(composer)), Nil{}} : Composition.Structure}:
+      Composition.centered_composer_region(Composition.centered_composer(composer)), Nil{}} : Composition.Structure}
+
+def creation_structure_order(composer: Bool) ->
+  creation_structure_law(composer):
   {==}
 
 def introduction_context(value: View.CreationIntroduction) -> Maybe<&2, Context.Preview>:
@@ -242,16 +233,16 @@ def selected_project_registry(origin: Context.Origin, +id: Nat, workspace: Conte
     View.creation_project(Projects.find(Projects.registry(Features.State(), world), id), id) : Maybe<&2, View.ProjectChoice>}:
   {==}
 
-def selected_project_heading(+id: Nat, +name: String, +workspace: D.Workspace) ->
-  {View.creation_heading(Some{View.ProjectChoice{id, name, workspace}}) == "Work on" : String}:
-  {==}
-
-def creation_page_keeps_composer(+input: Maybe<&2, View.ComposerScene>, +parent: String,
-  +world: M.World(), +session: Experience.Session, +services: Services.State) ->
+def creation_page_law(-input: Maybe<&2, View.ComposerScene>, -parent: String, -world: M.World(),
+  -session: Experience.Session, -services: Services.State) -> Type:
   {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
     List.append(&2, Interface.Node,
       Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
-      Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>}:
+      Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>}
+
+def creation_page_keeps_composer(+input: Maybe<&2, View.ComposerScene>, +parent: String,
+  +world: M.World(), +session: Experience.Session, +services: Services.State) ->
+  creation_page_law(input, parent, world, session, services):
   {==}
 
 def context_action_admission(+declaration: View.ControlDeclaration, +rest: +List<View.ControlDeclaration>, +parent: String, +state: Core.State) ->
@@ -280,7 +271,7 @@ def absent_model_label(fallback: String) ->
 def evidence() -> Requirements:
   Requirements{
     PageRegions.evidence(),
-    capacity => application => View.observed_page_agreement(capacity, application),
+    navigation => main => layers => placement => attention => {==},
     task => task_recipe_evidence(task),
     composer => approvals => return_latest => conversation_recipe_evidence(composer, approvals, return_latest),
     message => {==},

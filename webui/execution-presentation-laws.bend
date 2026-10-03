@@ -19,31 +19,35 @@ def directory_production(+key: String, label: String, role: UI.Role, +path: Stri
     Render.directory_row_node(key, path, primary, visual, children) : Doc.Node}:
   {==}
 
-def directory_identity(+key: String, +path: String, +primary: Bool, +visual: Design.Style, +children: +List<Doc.Node>) ->
+def directory_identity_law(-key: String, -path: String, -primary: Bool, -visual: Design.Style, -children: +List<Doc.Node>) -> Type:
   {Render.directory_row_node(key, path, primary, visual, children) ==
-    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", path), Render.property("data-primary", Render.boolean(primary))],
-      List.append(&2, Doc.Property, Render.style(visual),
-        [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("align-items", "stretch"),
-         Render.property("gap", "8px"), Render.property("min-width", "0"), Render.property("flex", "0 0 auto")]), Nil{},
-      [Render.directory_path_node(key, path), Doc.Element{key ++ "/controls", "div", Nil{},
-        [Render.property("display", "flex"), Render.property("flex", "none"), Render.property("width", "100%"), Render.property("min-width", "0"), Render.property("align-items", "center"), Render.property("gap", "4px")], Nil{}, children}]} : Doc.Node}:
+      Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", path), Render.property("data-primary", Render.boolean(primary))],
+        List.append(&2, Doc.Property, Render.style(visual),
+          [Render.property("flex", "0 0 auto")]), Nil{},
+        [Render.directory_path_node(key, path), Doc.Element{key ++ "/controls", "div", Nil{},
+          [Render.property("display", "flex"), Render.property("flex", "none"), Render.property("width", "100%"), Render.property("min-width", "0"), Render.property("align-items", "center"), Render.property("gap", "4px")], Nil{}, children}]} : Doc.Node}
+
+def directory_identity(+key: String, +path: String, +primary: Bool, +visual: Design.Style, +children: +List<Doc.Node>) -> directory_identity_law(key, path, primary, visual, children):
   {==}
 
-def directory_full_path(+key: String, +path: String) ->
+def directory_full_path_law(-key: String, -path: String) -> Type:
   {Render.directory_path_node(key, path) ==
-    Doc.Element{key ++ "/path", "span", [Render.property("title", path)],
-      [Render.property("width", "100%"), Render.property("flex", "0 0 auto"), Render.property("min-width", "0"), Render.property("overflow", "hidden"),
-       Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]} : Doc.Node}:
+      Doc.Element{key ++ "/path", "span", [Render.property("title", path)],
+        [Render.property("width", "100%"), Render.property("flex", "0 0 auto"), Render.property("min-width", "0"), Render.property("overflow", "hidden"),
+         Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]} : Doc.Node}
+
+def directory_full_path(+key: String, +path: String) -> directory_full_path_law(key, path):
   {==}
+
+def choice_binding_retained_law(-key: String, -tag: String, -attrs: +List<Doc.Property>, -styles: +List<Doc.Property>, -events: +List<Doc.Event>, -children: +List<Doc.Node>, -label: String, -description: String, -selected: Bool) -> Type:
+  {Render.choice_face(Doc.Element{key, tag, attrs, styles, events, children}, label, description, selected) ==
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
+        [Render.property("width", "100%"), Render.property("min-width", "0"),
+         Render.property("height", "auto"), Render.property("flex-shrink", "0")]), events,
+         Render.choice_content(key, label, description, selected)} : Doc.Node}
 
 def choice_binding_retained(+key: String, +tag: String, +attrs: +List<Doc.Property>, +styles: +List<Doc.Property>, +events: +List<Doc.Event>,
-  children: +List<Doc.Node>, +label: String, +description: String, +selected: Bool) ->
-  {Render.choice_face(Doc.Element{key, tag, attrs, styles, events, children}, label, description, selected) ==
-    Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
-      [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"),
-       Render.property("gap", "8px"), Render.property("width", "100%"), Render.property("min-width", "0"),
-       Render.property("height", "auto"), Render.property("flex-shrink", "0"), Render.property("justify-content", "space-between")]), events,
-       Render.choice_content(key, label, description, selected)} : Doc.Node}:
+  children: +List<Doc.Node>, +label: String, +description: String, +selected: Bool) -> choice_binding_retained_law(key, tag, attrs, styles, events, children, label, description, selected):
   {==}
 
 def choice_group_production(+key: String, +label: String, role: UI.Role, source: +List<UI.Node>,
@@ -59,15 +63,16 @@ def summary_production(+key: String, +label: String, +role: UI.Role, +observatio
     Render.context_summary_node(key, label, role, observation, visual, children, appearances) : Doc.Node}:
   {==}
 
-def summary_passive_facts(+key: String, +label: String, role: UI.Role, +observation: Context.Observation,
-  +visual: Design.Style, +children: +List<Doc.Node>, appearances: +List<Design.Appearance>) ->
+def summary_passive_facts_law(-key: String, -label: String, -role: UI.Role, -observation: Context.Observation, -visual: Design.Style, -children: +List<Doc.Node>, -appearances: +List<Design.Appearance>) -> Type:
   {Render.context_summary_node(key, label, role, observation, visual, children, appearances) ==
-    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),
-      Render.property("data-context-kind", Render.context_observation_kind(observation))], List.append(&2, Doc.Property, Render.style(visual),
-      [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "4px"),
-       Render.property("min-width", "0"), Render.property("flex", "0 0 auto"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))]), Nil{},
-      Doc.Element{key ++ "/provenance", "div", Nil{}, [Render.property("font-size", "12px"),
-        Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}:
+      Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),
+        Render.property("data-context-kind", Render.context_observation_kind(observation))], List.append(&2, Doc.Property, Render.style(visual),
+        [Render.property("flex", "0 0 auto")]), Nil{},
+        Doc.Element{key ++ "/provenance", "div", Nil{}, [Render.property("font-size", "12px"),
+          Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}
+
+def summary_passive_facts(+key: String, +label: String, role: UI.Role, +observation: Context.Observation,
+  +visual: Design.Style, +children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> summary_passive_facts_law(key, label, role, observation, visual, children, appearances):
   {==}
 
 def committed_provenance(context: Context.EffectiveContext) ->
@@ -97,23 +102,26 @@ def approval_canonical(+value: Context.ApprovalValue) ->
   {==}
 
 
-def choice_content_projection(+key: String, +label: String, +description: String, +selected: Bool) ->
+def choice_content_projection_law(-key: String, -label: String, -description: String, -selected: Bool) -> Type:
   {Render.choice_content(key, label, description, selected) ==
-    [Doc.Element{key ++ "/content", "span", Nil{}, [Render.property("display", "flex"), Render.property("flex-direction", "column"),
-      Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("text-align", "start"), Render.property("gap", "2px")], Nil{},
-      [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
-        [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
-         Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-     Render.choice_mark(key, selected, 20n, 16n)] : +List<Doc.Node>}:
+      [Doc.Element{key ++ "/content", "span", Nil{}, [Render.property("display", "flex"), Render.property("flex-direction", "column"),
+        Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("text-align", "start"), Render.property("gap", "2px")], Nil{},
+        [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
+          [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
+           Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
+       Render.choice_mark(key, selected, 20n, 16n)] : +List<Doc.Node>}
+
+def choice_content_projection(+key: String, +label: String, +description: String, +selected: Bool) -> choice_content_projection_law(key, label, description, selected):
   {==}
 
-def choice_group_native(+key: String, +label: String, +visual: Design.Style, +children: +List<Doc.Node>) ->
+def choice_group_native_law(-key: String, -label: String, -visual: Design.Style, -children: +List<Doc.Node>) -> Type:
   {Render.choice_group_node(key, label, visual, children) ==
-    Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],
-      List.append(&2, Doc.Property, Render.style(visual), [Render.property("display", "flex"), Render.property("flex-direction", "column"),
-        Render.property("gap", "4px"), Render.property("min-width", "0"), Render.property("flex-shrink", "0"), Render.property("height", "auto")]), Nil{},
-      Doc.Element{key ++ "/label", "div", Nil{}, [Render.property("font-size", "12px"),
-        Render.property("color", "var(--color-token-text-secondary)"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}:
+      Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],
+        List.append(&2, Doc.Property, Render.style(visual), [Render.property("flex-shrink", "0"), Render.property("height", "auto")]), Nil{},
+        Doc.Element{key ++ "/label", "div", Nil{}, [Render.property("font-size", "12px"),
+          Render.property("color", "var(--color-token-text-secondary)"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}
+
+def choice_group_native(+key: String, +label: String, +visual: Design.Style, +children: +List<Doc.Node>) -> choice_group_native_law(key, label, visual, children):
   {==}
 
 def custom_workspace_provenance(workspace: Domain.Workspace, sandbox: Context.SandboxValue, approval: Context.ApprovalValue) ->
@@ -126,25 +134,11 @@ type Requirements is Type:
       {Render.match_node(key, label, role, UI.DirectoryRow{path, primary}, source, children, visual, representation, appearances) ==
     Render.directory_row_node(key, path, primary, visual, children) : Doc.Node},
     directory_identity: @+key: String -> @+path: String -> @+primary: Bool -> @+visual: Design.Style -> @+children: +List<Doc.Node> ->
-      {Render.directory_row_node(key, path, primary, visual, children) ==
-    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", path), Render.property("data-primary", Render.boolean(primary))],
-      List.append(&2, Doc.Property, Render.style(visual),
-        [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("align-items", "stretch"),
-         Render.property("gap", "8px"), Render.property("min-width", "0"), Render.property("flex", "0 0 auto")]), Nil{},
-      [Render.directory_path_node(key, path), Doc.Element{key ++ "/controls", "div", Nil{},
-        [Render.property("display", "flex"), Render.property("flex", "none"), Render.property("width", "100%"), Render.property("min-width", "0"), Render.property("align-items", "center"), Render.property("gap", "4px")], Nil{}, children}]} : Doc.Node},
+      directory_identity_law(key, path, primary, visual, children),
     directory_full_path: @+key: String -> @+path: String ->
-      {Render.directory_path_node(key, path) ==
-    Doc.Element{key ++ "/path", "span", [Render.property("title", path)],
-      [Render.property("width", "100%"), Render.property("flex", "0 0 auto"), Render.property("min-width", "0"), Render.property("overflow", "hidden"),
-       Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]} : Doc.Node},
+      directory_full_path_law(key, path),
     choice_binding_retained: @+key: String -> @+tag: String -> @+attrs: +List<Doc.Property> -> @+styles: +List<Doc.Property> -> @+events: +List<Doc.Event> -> @children: +List<Doc.Node> -> @+label: String -> @+description: String -> @+selected: Bool ->
-      {Render.choice_face(Doc.Element{key, tag, attrs, styles, events, children}, label, description, selected) ==
-    Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
-      [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"),
-       Render.property("gap", "8px"), Render.property("width", "100%"), Render.property("min-width", "0"),
-       Render.property("height", "auto"), Render.property("flex-shrink", "0"), Render.property("justify-content", "space-between")]), events,
-       Render.choice_content(key, label, description, selected)} : Doc.Node},
+      choice_binding_retained_law(key, tag, attrs, styles, events, children, label, description, selected),
     choice_group_production: @+key: String -> @+label: String -> @role: UI.Role -> @source: +List<UI.Node> -> @+children: +List<Doc.Node> -> @+visual: Design.Style -> @representation: Controls.Representation -> @appearances: +List<Design.Appearance> ->
       {Render.match_node(key, label, role, UI.ChoiceGroup{}, source, children, visual, representation, appearances) ==
     Render.choice_group_node(key, label, visual, children) : Doc.Node},
@@ -152,13 +146,7 @@ type Requirements is Type:
       {Render.match_node(key, label, role, UI.ContextSummary{observation}, source, children, visual, representation, appearances) ==
     Render.context_summary_node(key, label, role, observation, visual, children, appearances) : Doc.Node},
     summary_passive_facts: @+key: String -> @+label: String -> @role: UI.Role -> @+observation: Context.Observation -> @+visual: Design.Style -> @+children: +List<Doc.Node> -> @appearances: +List<Design.Appearance> ->
-      {Render.context_summary_node(key, label, role, observation, visual, children, appearances) ==
-    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),
-      Render.property("data-context-kind", Render.context_observation_kind(observation))], List.append(&2, Doc.Property, Render.style(visual),
-      [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "4px"),
-       Render.property("min-width", "0"), Render.property("flex", "0 0 auto"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))]), Nil{},
-      Doc.Element{key ++ "/provenance", "div", Nil{}, [Render.property("font-size", "12px"),
-        Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
+      summary_passive_facts_law(key, label, role, observation, visual, children, appearances),
     committed_provenance: @context: Context.EffectiveContext ->
       {Render.context_observation_kind(Context.CommittedExecution{context}) == "committed" : String},
     unavailable_provenance: @reason: String ->
@@ -173,20 +161,9 @@ type Requirements is Type:
     approval_canonical: @+value: Context.ApprovalValue ->
       {Render.approval_text(value) == Context.approval_option(Context.observed_approval(value)) : String},
     choice_content_projection: @+key: String -> @+label: String -> @+description: String -> @+selected: Bool ->
-      {Render.choice_content(key, label, description, selected) ==
-    [Doc.Element{key ++ "/content", "span", Nil{}, [Render.property("display", "flex"), Render.property("flex-direction", "column"),
-      Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("text-align", "start"), Render.property("gap", "2px")], Nil{},
-      [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
-        [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
-         Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-     Render.choice_mark(key, selected, 20n, 16n)] : +List<Doc.Node>},
+      choice_content_projection_law(key, label, description, selected),
     choice_group_native: @+key: String -> @+label: String -> @+visual: Design.Style -> @+children: +List<Doc.Node> ->
-      {Render.choice_group_node(key, label, visual, children) ==
-    Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],
-      List.append(&2, Doc.Property, Render.style(visual), [Render.property("display", "flex"), Render.property("flex-direction", "column"),
-        Render.property("gap", "4px"), Render.property("min-width", "0"), Render.property("flex-shrink", "0"), Render.property("height", "auto")]), Nil{},
-      Doc.Element{key ++ "/label", "div", Nil{}, [Render.property("font-size", "12px"),
-        Render.property("color", "var(--color-token-text-secondary)"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
+      choice_group_native_law(key, label, visual, children),
     custom_workspace_provenance: @workspace: Domain.Workspace -> @sandbox: Context.SandboxValue -> @approval: Context.ApprovalValue ->
       {Render.context_draft_kind(Context.EnteredWorkspace{workspace}, sandbox, approval) == "custom" : String}}
 

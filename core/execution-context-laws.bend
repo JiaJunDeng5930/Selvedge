@@ -71,14 +71,18 @@ def directory_label(+path: String, +primary: Bool, choose: V.ControlDeclaration,
     Some{DirectoryFact{path, path, primary}} : Maybe<&2, DirectoryFact>}:
   {==}
 
-def directory_commands(+path: String, +rest: +List<String>, +primary: Maybe<&2, String>, +editor: U.Editor) ->
+def directory_commands_law(-path: String, -rest: +List<String>, -primary: Maybe<&2, String>,
+  -editor: U.Editor) -> Type:
   {V.root_controls(path <> rest, primary, editor) ==
     V.WorkspaceRoot{path, V.is_primary(primary, path),
       V.ControlDeclaration{"primary/" ++ U.editor_key(editor) ++ "/" ++ path, "Use as working directory", V.Secondary{},
         U.EditDraft{editor, U.EditWorkspace{Context.ChoosePrimary{path}}}, V.Available{}},
       V.ControlDeclaration{"remove-root/" ++ U.editor_key(editor) ++ "/" ++ path, "Remove directory", V.Secondary{},
         U.EditDraft{editor, U.EditWorkspace{Context.RemoveRoot{path}}}, V.Available{}}} <>
-      V.root_controls(rest, primary, editor) : +List<V.WorkspaceRoot>}:
+      V.root_controls(rest, primary, editor) : +List<V.WorkspaceRoot>}
+
+def directory_commands(+path: String, +rest: +List<String>, +primary: Maybe<&2, String>, +editor: U.Editor) ->
+  directory_commands_law(path, rest, primary, editor):
   {==}
 
 def mode_input(+mode: D.SandboxMode, current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: String, state: Core.State) ->
@@ -204,37 +208,60 @@ def first_context(nodes: +List<UI.Node>) -> Maybe<&2, Context.Observation>:
     case Nil{}: None{}
     case Con{node, rest}: node_context(node)
 
+def workspace_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
+  -origin: Context.Origin, -project: Maybe<&2, Nat>, -workspace: Context.WorkspaceValue,
+  -sandbox: Context.SandboxValue, -approval: Context.ApprovalValue,
+  -guidance: Context.GuidancePreview, -controls: V.WorkspaceControls,
+  -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: String,
+  -state: Core.State) -> Type:
+  {first_context(UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
+    Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
+
 def workspace_menu_observation(+editor: U.Editor, config: Context.Configuration, +origin: Context.Origin, +project: Maybe<&2, Nat>, +workspace: Context.WorkspaceValue,
   +sandbox: Context.SandboxValue, +approval: Context.ApprovalValue, +guidance: Context.GuidancePreview,
   controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, parent: String, state: Core.State) ->
-  {first_context(UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
-    Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}:
+  workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state):
   V.WorkspaceControls{identity, roots, inherit} = controls
   Core.State{E.Application{world, session}, services} = state
   {==}
 
+def permissions_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
+  -origin: Context.Origin, -project: Maybe<&2, Nat>, -workspace: Context.WorkspaceValue,
+  -sandbox: Context.SandboxValue, -approval: Context.ApprovalValue,
+  -guidance: Context.GuidancePreview, -controls: V.WorkspaceControls,
+  -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: String,
+  -state: Core.State) -> Type:
+  {first_context(UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
+    Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
+
 def permissions_menu_observation(+editor: U.Editor, config: Context.Configuration, +origin: Context.Origin, +project: Maybe<&2, Nat>, +workspace: Context.WorkspaceValue,
   +sandbox: Context.SandboxValue, +approval: Context.ApprovalValue, +guidance: Context.GuidancePreview,
   controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, parent: String, state: Core.State) ->
-  {first_context(UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
-    Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}:
+  permissions_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state):
   Core.State{E.Application{world, session}, services} = state
   {==}
 
-def draft_footer(+editor: U.Editor, +observation: Context.Observation, +profiles: +List<D.Profile>) ->
+def draft_footer_law(-editor: U.Editor, -observation: Context.Observation,
+  -profiles: +List<D.Profile>) -> Type:
   {V.draft_context_footer(editor, observation, profiles) ==
     [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/" ++ U.editor_key(editor), V.observation_workspace(observation), V.Secondary{},
       U.Activate{U.OpenPanel{U.WorkspaceConfiguration{editor}, "composer/workspace/" ++ U.editor_key(editor)}}, V.Available{}}},
      V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), V.observation_permissions(observation, profiles), V.Secondary{},
-      U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>}:
+      U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>}
+
+def draft_footer(+editor: U.Editor, +observation: Context.Observation, +profiles: +List<D.Profile>) ->
+  draft_footer_law(editor, observation, profiles):
   {==}
 
-def committed_footer(+task: Nat, +observation: Context.Observation, +profiles: +List<D.Profile>) ->
+def committed_footer_law(-task: Nat, -observation: Context.Observation, -profiles: +List<D.Profile>) -> Type:
   {V.committed_context_footer(task, Some{observation}, profiles) ==
     [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/message/" ++ Nat.show(task), V.observation_workspace(observation), V.Secondary{},
       U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/workspace/message/" ++ Nat.show(task)}}, V.Available{}}},
      V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), V.observation_permissions(observation, profiles), V.Secondary{},
-      U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>}:
+      U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>}
+
+def committed_footer(+task: Nat, +observation: Context.Observation, +profiles: +List<D.Profile>) ->
+  committed_footer_law(task, observation, profiles):
   {==}
 
 def overridden_workspace_reset(+workspace: D.Workspace, +editor: U.Editor) ->
@@ -321,12 +348,8 @@ def automatic_caption(+key: String, provider: String, +name: String, reasoning: 
   Core.State{application, services} = state
   {==}
 
-def node_label(value: UI.Node) -> String:
-  UI.Node{key, semantic, label, role, meaning, children} = value
-  label
-
 def committed_project_node_world(+project: Maybe<&2, Nat>, +world: M.World(), session: E.Session, services: Services.State, parent: String) ->
-  {node_label(UI.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == UI.committed_project_text(project, world) : String}:
+  {UI.node_label(UI.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == UI.committed_project_text(project, world) : String}:
   {==}
 
 def committed_project_named(id: Nat, +name: String, workspace: D.Workspace, guidance: D.ProjectContext) ->
@@ -340,7 +363,7 @@ def committed_project_lookup(+id: Nat, +world: M.World()) ->
 type Requirements is Type:
   Requirements{
     committed_project_node_world: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @session:E.Session -> @services:Services.State -> @parent:String ->
-      {node_label(UI.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == UI.committed_project_text(project, world) : String},
+      {UI.node_label(UI.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == UI.committed_project_text(project, world) : String},
     committed_source_label: @task:Nat -> @context:D.TaskContext -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess -> @world:M.World() ->
       {V.execution_source_summary(Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}, world) == "Task settings" : String},
     committed_project_name: @id:Nat -> @+name:String -> @workspace:D.Workspace -> @guidance:D.ProjectContext ->
@@ -369,17 +392,13 @@ type Requirements is Type:
     available_choice: @selected:Bool -> @description:String -> @+input:Core.Input -> {UI.bind(UI.Choice{selected, description, input, V.Available{}}, UI.Press{}) == Some{input} : Maybe<&2, Core.Input>},
     unavailable_choice: @selected:Bool -> @description:String -> @input:Core.Input -> @reason:String -> {UI.bind(UI.Choice{selected, description, input, V.Unavailable{reason}}, UI.Press{}) == None{} : Maybe<&2, Core.Input>},
     draft_footer: @+editor:U.Editor -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
-      {V.draft_context_footer(editor, observation, profiles) ==
-        [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/" ++ U.editor_key(editor), V.observation_workspace(observation), V.Secondary{}, U.Activate{U.OpenPanel{U.WorkspaceConfiguration{editor}, "composer/workspace/" ++ U.editor_key(editor)}}, V.Available{}}},
-         V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), V.observation_permissions(observation, profiles), V.Secondary{}, U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>},
+      draft_footer_law(editor, observation, profiles),
     committed_footer: @+task:Nat -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
-      {V.committed_context_footer(task, Some{observation}, profiles) ==
-        [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/message/" ++ Nat.show(task), V.observation_workspace(observation), V.Secondary{}, U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/workspace/message/" ++ Nat.show(task)}}, V.Available{}}},
-         V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), V.observation_permissions(observation, profiles), V.Secondary{}, U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>},
+      committed_footer_law(task, observation, profiles),
     workspace_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent:String -> @state:Core.State ->
-      {first_context(UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) == Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>},
+      workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     permissions_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent:String -> @state:Core.State ->
-      {first_context(UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) == Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>},
+      permissions_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     unavailable_workspace: @+reason:String -> @config:Context.Configuration -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @editor:U.Editor -> @+parent:String -> @state:Core.State ->
       {UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) == [UI.Node{parent ++ "/unavailable", "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>},
     unavailable_permissions: @+reason:String -> @config:Context.Configuration -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @editor:U.Editor -> @+parent:String -> @state:Core.State ->
@@ -397,10 +416,7 @@ type Requirements is Type:
     directory_label: @+path:String -> @+primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @parent:String -> @state:Core.State ->
       {directory_fact(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)) == Some{DirectoryFact{path, path, primary}} : Maybe<&2, DirectoryFact>},
     directory_commands: @+path:String -> @+rest:+List<String> -> @+primary:Maybe<&2, String> -> @+editor:U.Editor ->
-      {V.root_controls(path <> rest, primary, editor) == V.WorkspaceRoot{path, V.is_primary(primary, path),
-        V.ControlDeclaration{"primary/" ++ U.editor_key(editor) ++ "/" ++ path, "Use as working directory", V.Secondary{}, U.EditDraft{editor, U.EditWorkspace{Context.ChoosePrimary{path}}}, V.Available{}},
-        V.ControlDeclaration{"remove-root/" ++ U.editor_key(editor) ++ "/" ++ path, "Remove directory", V.Secondary{}, U.EditDraft{editor, U.EditWorkspace{Context.RemoveRoot{path}}}, V.Available{}}} <>
-        V.root_controls(rest, primary, editor) : +List<V.WorkspaceRoot>},
+      directory_commands_law(path, rest, primary, editor),
     filesystem_preserves_network: @+mode:D.SandboxMode -> @current:D.SandboxMode -> @+network:Bool -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->
       {choice_input(UI.sandbox_choice(mode, current, network, editor, parent, state)) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}}}} : Maybe<&2, Core.Input>},
     network_preserves_filesystem: @+mode:D.SandboxMode -> @current:Bool -> @+target:Bool -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->

@@ -55,7 +55,7 @@ def action_retains_binding(+key: String, +input: Core.Input, +availability: View
   {binding(Controls.make_action(key, input, availability, label, role, context)) ==
     UI.Activate{input, availability} : UI.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def panel_toggle_fields_retains_binding(+expanded: Bool, value: Controls.Representation) ->
   {binding(Controls.panel_toggle_fields(expanded, value)) == binding(value) : UI.Meaning}:
@@ -69,28 +69,52 @@ def panel_toggle_retains_binding(+key: String, expanded: Bool, +input: Core.Inpu
   label: String, role: UI.Role, context: Controls.Context) ->
   {binding(Controls.make_panel_toggle(key, expanded, input, availability, label, role, context)) == UI.Activate{input, availability} : UI.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def choice_retains_binding(+key: String, selected: Bool, +input: Core.Input, +availability: View.Availability,
   label: String, role: UI.Role, context: Controls.Context) ->
   {binding(Controls.make_choice(key, selected, input, availability, label, role, context)) ==
     UI.Activate{input, availability} : UI.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def composer_action_retains_binding(+key: String, subject: View.ComposerSubject, +input: Core.Input,
   +availability: View.Availability, label: String, role: UI.Role, context: Controls.Context) ->
   {binding(Controls.make_composer_action(key, subject, input, availability, label, role, context)) ==
     UI.Activate{input, availability} : UI.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
+
+def presented_action_retains_binding(input: Core.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
+  {binding(Controls.presented_action(input, availability, name, projection, placement, help, feedback)) == UI.Activate{input, availability} : UI.Meaning}:
+  match projection:
+    case Controls.ActionPresentation{face, behavior, geometry}: {==}
+
+def source_action_retains_binding(area: Controls.Area, family: Controls.SourceFamily, +value: Controls.Representation) ->
+  {binding(Controls.source_action(area, family, value)) == binding(value) : UI.Meaning}:
+  match value:
+    case Controls.Action{+input, availability, +name, face, behavior, geometry, placement, help, feedback}:
+      presented_action_retains_binding(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback)
+    case Controls.NoControl{}: {==}
+    case Controls.Input{meaning, name, widget, label, availability}: {==}
+    case Controls.Movable{destinations, face, name, handle, geometry, help}: {==}
+
+def represented_action_retains_binding(+key: String, +input: Core.Input, +availability: View.Availability,
+  +label: String, +role: UI.Role, +context: Controls.Context) ->
+  {binding(Controls.represent_action(key, input, availability, label, role, context)) == UI.Activate{input, availability} : UI.Meaning}:
+  Controls.Context{+area, selection, code, appearance, access, open, layers, execution, +family} = context
+  Equal.trans(UI.Meaning,
+    binding(Controls.represent_action(key, input, availability, label, role, context)),
+    binding(Controls.make_action(key, input, availability, label, role, context)), UI.Activate{input, availability},
+    source_action_retains_binding(area, family, Controls.make_action(key, input, availability, label, role, context)),
+    action_retains_binding(key, input, availability, label, role, context))
 
 def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: String,
   role: UI.Role, context: Controls.Context) ->
   {binding(Controls.represent(key, meaning, label, role, context)) == source_binding(meaning) : UI.Meaning}:
   match meaning:
     case UI.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
-    case UI.Activate{input, availability}: action_retains_binding(key, input, availability, label, role, context)
+    case UI.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
     case UI.Choice{selected, description, input, availability}: choice_retains_binding(key, selected, input, availability, label, role, context)
     case UI.ProjectGroup{project, selected, expanded}: {==}
@@ -180,7 +204,7 @@ def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context) ->
         Con{BoundNode{key, source_binding(meaning), source_nodes(children)}, source_nodes(rest)}, {==}, steps)
 
 def visual_bindings(visuals: Design.Visuals) -> Bindings:
-  Design.Visuals{theme, rhythm, base, overlays} = visuals
+  Design.Visuals{theme, base, overlays} = visuals
   Bindings{presented_nodes(base), presented_nodes(overlays)}
 
 def surface_bindings(surface: UI.Surface) -> Bindings:
@@ -226,23 +250,27 @@ def expected_message(+editor: User.Editor, +availability: View.Availability, +la
     Controls.Geometry{32n, 32n, 16n, 16n, 0n}, Controls.ComposerEnd{},
     expected_icon_help(availability, label), Controls.Quiet{}}
 
+def message_uses_arrow_law(-key: String, -task: Nat, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+  {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
+      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
+      expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation}
+
 def message_uses_arrow(+key: String, task: Nat, +availability: View.Availability,
   +label: String, role: UI.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) ->
-  {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
-    label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}}) ==
-    expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation}:
+  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> message_uses_arrow_law(key, task, availability, label, role, selection, code, appearance, access, open, layers):
   match availability:
     case View.Available{}: {==}
     case View.NeedsDirectoryObservation{}: {==}
     case View.Unavailable{reason}: {==}
 
+def creation_uses_arrow_law(-key: String, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+  {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
+      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
+      expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation}
+
 def creation_uses_arrow(+key: String, +availability: View.Availability,
   +label: String, role: UI.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) ->
-  {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
-    label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}}) ==
-    expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation}:
+  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> creation_uses_arrow_law(key, availability, label, role, selection, code, appearance, access, open, layers):
   match availability:
     case View.Available{}: {==}
     case View.NeedsDirectoryObservation{}: {==}
@@ -252,6 +280,7 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
   match face:
     case Controls.IconFace{icon}: None{}
     case Controls.TextFace{text}: Some{text}
+    case Controls.SingleLineFace{text}: Some{text}
     case Controls.IconTextFace{icon, text}: Some{text}
     case Controls.PickerFace{icon, text}: Some{text}
     case Controls.ChoiceFace{text, checked}: Some{text}
@@ -330,23 +359,27 @@ def choice(representation: Controls.Representation) -> Maybe<&2, Choice>:
       Some{Choice{face, behavior}}
     case _: None{}
 
+def model_option_marks_current_law(-key: String, -editor: User.Editor, -profile: String, -reasoning: String, -current: String, -label: String, -role: UI.Role, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+  {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
+      User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
+      Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+      Some{Choice{Controls.ChoiceFace{label, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>}
+
 def model_option_marks_current(+key: String, editor: User.Editor, +profile: String,
   reasoning: String, +current: String, +label: String, role: UI.Role, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) ->
-  {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-    User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
-    Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}})) ==
-    Some{Choice{Controls.ChoiceFace{label, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>}:
+  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> model_option_marks_current_law(key, editor, profile, reasoning, current, label, role, code, appearance, access, open, layers):
   {==}
+
+def delivery_option_marks_current_law(-key: String, -task: Nat, -delivery: User.Delivery, -current: User.Delivery, -label: String, -role: UI.Role, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+  {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
+      User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
+      Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+      Some{Choice{Controls.ChoiceFace{label, Controls.same_delivery(delivery, current)},
+        Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>}
 
 def delivery_option_marks_current(+key: String, task: Nat, +delivery: User.Delivery,
   +current: User.Delivery, +label: String, role: UI.Role, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) ->
-  {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-    User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
-    Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}})) ==
-    Some{Choice{Controls.ChoiceFace{label, Controls.same_delivery(delivery, current)},
-      Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>}:
+  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> delivery_option_marks_current_law(key, task, delivery, current, label, role, code, appearance, access, open, layers):
   {==}
 
 def action_text(representation: Controls.Representation) -> Maybe<&2, String>:
@@ -380,16 +413,18 @@ def directory_removal_uses_cross(+parent: String, +editor: User.Editor, +path: S
   {workspace_removal_faces(View.workspace_controls(Domain.Workspace{[path], primary}, editor, None{}),
     parent, state, context) == [Some{Controls.IconFace{Controls.CloseCross{}}}] : +List<Maybe<&2, Controls.Face>>}:
   match state context:
-    case Core.State{application, services} Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
+    case Core.State{application, services} Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
+
+def approval_keeps_label_law(-key: String, -task: Nat, -operation: Nat, -allow: Bool, -reason: String, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+  {action_text(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
+      User.Activate{User.ReviewApproval{task, operation, allow, reason}}}}, availability}, label, role,
+      Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+      Some{label} : Maybe<&2, String>}
 
 def approval_keeps_label(key: String, task: Nat, operation: Nat, allow: Bool, reason: String,
   availability: View.Availability, +label: String, role: UI.Role, selection: Controls.Selection,
   code: Maybe<&2, Code.Scene>, appearance: Services.Appearance, access: Services.Access, open: Bool,
-  layers: +List<View.Layer>) ->
-  {action_text(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-    User.Activate{User.ReviewApproval{task, operation, allow, reason}}}}, availability}, label, role,
-    Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}})) ==
-    Some{label} : Maybe<&2, String>}:
+  layers: +List<View.Layer>) -> approval_keeps_label_law(key, task, operation, allow, reason, availability, label, role, selection, code, appearance, access, open, layers):
   match allow:
     case True{}: {==}
     case False{}: {==}
@@ -440,15 +475,11 @@ type Requirements is Type:
     message_uses_arrow: @+key:String -> @task:Nat -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
-        label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}}) ==
-        expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation},
+      message_uses_arrow_law(key, task, availability, label, role, selection, code, appearance, access, open, layers),
     creation_uses_arrow: @+key:String -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
-        label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}}) ==
-        expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation},
+      creation_uses_arrow_law(key, availability, label, role, selection, code, appearance, access, open, layers),
     menu_preserves_labels: @+purpose:Controls.Purpose -> @+label:String ->
       {menu_text(Controls.face_for(purpose, label, Controls.MenuArea{})) == required_menu_text(purpose, label) : Maybe<&2, String>},
     copy_keeps_space: @state:Code.CopyState ->
@@ -460,25 +491,15 @@ type Requirements is Type:
     model_option_marks_current: @+key:String -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
       @+current:String -> @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> ->
       @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-        User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
-        Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}})) ==
-        Some{Choice{Controls.ChoiceFace{label, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
+      model_option_marks_current_law(key, editor, profile, reasoning, current, label, role, code, appearance, access, open, layers),
     delivery_option_marks_current: @+key:String -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-        User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
-        Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}})) ==
-        Some{Choice{Controls.ChoiceFace{label, Controls.same_delivery(delivery, current)},
-          Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
+      delivery_option_marks_current_law(key, task, delivery, current, label, role, code, appearance, access, open, layers),
     approval_keeps_label: @key:String -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
       @availability:View.Availability -> @+label:String -> @role:UI.Role -> @selection:Controls.Selection ->
       @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      {action_text(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
-        User.Activate{User.ReviewApproval{task, operation, allow, reason}}}}, availability}, label, role,
-        Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}})) ==
-        Some{label} : Maybe<&2, String>},
+      approval_keeps_label_law(key, task, operation, allow, reason, availability, label, role, selection, code, appearance, access, open, layers),
     icon_help_supports_focus: @icon:Controls.Icon -> @availability:View.Availability -> @feedback:Controls.Feedback -> @label:String ->
       {help_access(Controls.help_for(Controls.IconFace{icon}, availability, feedback, label)) ==
         HelpAccess{True{}, True{}, False{}} : HelpAccess},
