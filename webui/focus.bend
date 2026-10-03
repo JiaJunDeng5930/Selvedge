@@ -81,11 +81,6 @@ def change_target(previous: Scope, current: Scope) -> String:
     case Document{}: restore(previous)
     case Temporary{id, initial, trigger}: initial
 
-def contains(scope: Scope, observed_owner: String) -> Bool:
-  match scope:
-    case Document{}: True{}
-    case Temporary{id, initial, trigger}: String.eq(id, observed_owner)
-
 def permits_composer(scope: Scope) -> Bool:
   match scope:
     case Document{}: True{}

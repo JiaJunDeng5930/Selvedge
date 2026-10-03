@@ -802,10 +802,6 @@ def board_profile(+automatic: Bool, +selected: String, choices: +List<D.Profile>
   Node{parent ++ "/drafting-model", "drafting-model", "草稿模型", Field{},
     BoardProfile{automatic, selected, choices, enabled_control(Core.control(state, V.board_control("board/profile", "草稿模型", B.Settings{automatic, selected}, world)))}, Nil{}}
 
-def with_view(+view: String, +filter: B.Filter) -> B.Filter:
-  B.Filter{old, search, status, priority, date, assignee, creator, project, label} = filter
-  B.Filter{view, search, status, priority, date, assignee, creator, project, label}
-
 def with_search(+search: String, +filter: B.Filter) -> B.Filter:
   B.Filter{view, old, status, priority, date, assignee, creator, project, label} = filter
   B.Filter{view, search, status, priority, date, assignee, creator, project, label}

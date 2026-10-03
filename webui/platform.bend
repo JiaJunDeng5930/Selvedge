@@ -273,11 +273,6 @@ def observe(state: State) -> Scene:
 
 
 
-def retained_editors(decision: Decision) -> +List<Editor.Editor>:
-  Decision{product, Platform{readers, editors, focused, ticket, reduced, capacity, scope}, effects} = decision
-  editors
-
-
 def editing_retains_selection(revision: Nat, body: U.Body, directory_entry: String, editor: Editor.Editor) ->
   {synchronize_editor(Some{U.Draft{revision, body, U.Editing{}, directory_entry}}, editor) == editor : Editor.Editor}:
   {==}

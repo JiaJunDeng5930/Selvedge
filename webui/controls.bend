@@ -487,10 +487,6 @@ def purpose_fields(key: String, event: Core.Input, selection: Selection, code: M
     case Core.EditField{editor, Forms.WorkspaceDirectories{}, Forms.WorkspaceChange{Workspace.RemoveRoot{path}}}: RemoveValue{}
     case _: NamedAction{}
 
-def purpose_for(key: String, event: Core.Input, context: Context) -> Purpose:
-  Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
-  purpose_fields(key, event, selection, code, appearance, access, settings_open, layers)
-
 def navigation_icon(expanded: Bool) -> Icon:
   match expanded:
     case False{}: Sidebar{}

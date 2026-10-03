@@ -369,10 +369,6 @@ def board_page_column_ids_match_display(+board: B.State, +filter: B.Filter, +rou
 
 
 
-def view_filter(view: String, +filter: B.Filter) -> B.Filter:
-  B.Filter{old_view, search, status, priority, date, assignee, creator, project, label} = filter
-  B.Filter{view, search, status, priority, date, assignee, creator, project, label}
-
 def search_filter(search: String, +filter: B.Filter) -> B.Filter:
   B.Filter{view, old_search, status, priority, date, assignee, creator, project, label} = filter
   B.Filter{view, search, status, priority, date, assignee, creator, project, label}
@@ -404,11 +400,6 @@ def toggled_project_filter(+value: String, +filter: B.Filter) -> B.Filter:
 def toggled_label_filter(+value: String, +filter: B.Filter) -> B.Filter:
   B.Filter{view, search, status, priority, date, assignee, creator, project, label} = filter
   B.Filter{view, search, status, priority, date, assignee, creator, project, Interface.toggled_filter(label, value)}
-
-def view_change_preserves_filter_facets(+view: String, +filter: B.Filter) ->
-  {Interface.with_view(view, filter) == view_filter(view, filter) : B.Filter}:
-  match filter:
-    case B.Filter{old_view, search, status, priority, date, assignee, creator, project, label}: {==}
 
 def search_change_preserves_filter_facets(+search: String, +filter: B.Filter) ->
   {Interface.with_search(search, filter) == search_filter(search, filter) : B.Filter}:
@@ -608,8 +599,6 @@ type Requirements is Type:
     agent_missing: @id:Nat -> @+world:M.World() ->
       @absent:{B.find_agent(Board.registry(world), id) == None{} : Maybe<&2, B.AgentProfile>} ->
       {View.face_owner(B.Agent{id}, world) == "智能体 #" ++ Nat.show(id) ++ " 不可用" : String},
-    view_facets: @+view:String -> @+filter:B.Filter ->
-      {Interface.with_view(view, filter) == view_filter(view, filter) : B.Filter},
     search_facets: @+search:String -> @+filter:B.Filter ->
       {Interface.with_search(search, filter) == search_filter(search, filter) : B.Filter},
     status_facets: @+value:String -> @+filter:B.Filter ->
@@ -706,7 +695,6 @@ def evidence() -> Requirements:
       Equal.cong(Maybe<&2, B.AgentProfile>, String,
         (found => View.face_agent_name(found, id)), B.find_agent(Board.registry(world), id), None{}, absent)
     ,
-    view => filter => view_change_preserves_filter_facets(view, filter),
     search => filter => search_change_preserves_filter_facets(search, filter),
     value => filter => status_toggle_preserves_other_facets(value, filter),
     value => filter => priority_toggle_preserves_other_facets(value, filter),

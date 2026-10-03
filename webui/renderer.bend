@@ -23,7 +23,6 @@ import ../core/user-experience.bend as Experience
 import ../core/SYSTEM.bend as Core
 import ../core/user-conversation.bend as Conversation
 import ../REASONING.bend as Reasoning
-import ../bendlib/json.bend as Json
 
 # NOTE: Bend requires layout helpers to be filled before structural lowering;
 # each child result carries its source metadata into those nonrecursive helpers.
@@ -167,11 +166,6 @@ def replace_styles(node: Doc.Node, extra: +List<Doc.Property>) -> Doc.Node:
     case other: other
 
 
-def node_role(value: Design.Node) -> UI.Role:
-  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
-  role
-
-
 def code_wrap(value: Bool) -> String:
   match value:
     case True{}: "pre-wrap"
@@ -237,22 +231,10 @@ def frame_input(value: Design.MainFrame) -> Maybe<&2, Design.InputMetrics>:
     case _: None{}
 
 
-def keep_section(keep: Bool, value: Doc.Node) -> +List<Doc.Node>:
-  match keep:
-    case True{}: [value]
-    case False{}: Nil{}
-
-
 def css_characters(value: String) -> String:
   match value:
     case SNil{}: ""
     case SCon{head, rest}: "-" ++ U32.show(Char.to_u32(head)) ++ css_characters(rest)
-
-
-def rendered_json(value: Result<&2, &2, String, String>) -> String:
-  match value:
-    case Done{text}: text
-    case Fail{reason}: reason
 
 
 def theme_name(value: Design.Theme) -> String:
@@ -264,12 +246,6 @@ def theme_class(value: Design.Theme) -> String:
   match value:
     case Design.Light{}: "native-application light"
     case Design.Dark{}: "native-application dark"
-
-
-def first_node(values: +List<Doc.Node>) -> Doc.Node:
-  match values:
-    case Nil{}: Doc.Text{""}
-    case Con{value, rest}: value
 
 
 def generated_identity(owner: String, part: String) -> String:
@@ -631,17 +607,6 @@ def lane_create_matches(stage: Board.Stage, meaning: UI.Meaning) -> Bool:
       same_stage(stage, requested)
     case _: False{}
 
-def lane_child(selected: Bool, belongs: Bool, +node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
-  match selected:
-    case True{}:
-      match belongs:
-        case True{}: node <> tail
-        case False{}: tail
-    case False{}:
-      match belongs:
-        case True{}: tail
-        case False{}: node <> tail
-
 def lane_prepared_child(selected: Bool, belongs: Bool, +node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
   match selected belongs:
     case True{} True{}: node <> tail
@@ -700,9 +665,6 @@ def card_status_chip_when(empty: Bool, +status: String, +owner: String) -> +List
     case True{}: Nil{}
     case False{}: [card_chip(generated_identity(owner, "status"), "status", status, Surfaces.Neutral{})]
 
-def card_status_chip(+status: String, +owner: String) -> +List<Doc.Node>:
-  card_status_chip_when(String.is_empty(status), status, owner)
-
 def card_metadata(+card_key: String, face: View.CardFace, status_empty: Bool) -> Doc.Node:
   View.CardFace{id, title, description, +priority, pinned, status, project, labels, owner, updated} = face
   Doc.Element{generated_identity(card_key, "metadata"), "div", [property("data-card-metadata", "")],
@@ -736,17 +698,6 @@ def card_title_control(+title: String, node: Doc.Node) -> Doc.Node:
       Doc.Element{key, "button", attrs,
         List.append(&2, Doc.Property, styles, card_title_styles()), events, [Doc.Text{title}]}
     case other: other
-
-def card_action_node(want_more: Bool, include: Bool, +node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
-  match want_more:
-    case True{}:
-      match include:
-        case True{}: node <> tail
-        case False{}: tail
-    case False{}:
-      match include:
-        case True{}: node <> tail
-        case False{}: tail
 
 def card_prepared_action(include: Bool, node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
   match include:
@@ -897,10 +848,6 @@ def opened(value: Bool) -> +List<Doc.Property>:
   match value:
     case True{}: [property("open", "")]
     case False{}: Nil{}
-
-
-def json_text(value: Json.Json) -> String:
-  rendered_json(Json.show(value))
 
 
 def shadow_style(value: Bool) -> +List<Doc.Property>:
@@ -1285,19 +1232,6 @@ def pointer_styles(values: +List<Doc.Property>) -> +List<Doc.Property>:
   match values:
     case Nil{}: Nil{}
     case Con{Doc.Property{name, value}, rest}: pointer_property(name, value) <> pointer_styles(rest)
-
-def embedded_action_properties() -> +List<Doc.Property>:
-  [property("--native-rest-background", surface_background(Surfaces.EmbeddedAction{}, Surfaces.Rest{})),
-   property("--native-hover-background", surface_background(Surfaces.EmbeddedAction{}, Surfaces.Hovered{})),
-   property("--native-pressed-background", surface_background(Surfaces.EmbeddedAction{}, Surfaces.Pressed{}))]
-
-def native_surface_properties(+role: Surfaces.Role) -> +List<Doc.Property>:
-  [property("--native-rest-background", surface_background(role, Surfaces.Rest{})),
-   property("--native-hover-background", surface_background(role, Surfaces.Hovered{})),
-   property("--native-pressed-background", surface_background(role, Surfaces.Pressed{})),
-   property("--native-rest-color", paint(Design.ThemeToken{"--color-token-text-primary"})),
-   property("--native-hover-color", paint(Design.ThemeToken{"--color-token-text-primary"})),
-   property("--native-pressed-color", paint(Design.ThemeToken{"--color-token-text-primary"}))]
 
 def action(+key: String, +visual: Design.Style, value: Controls.Representation) -> Doc.Node:
   match value:

@@ -108,14 +108,6 @@ def appearance_kind(value: Design.Node) -> SectionKind:
     case Controls.NoControl{}: section_kind(children)
     case _: representation_kind(representation)
 
-def body(value: Suffix) -> +List<Doc.Node>:
-  Suffix{+content, footer} = value
-  content
-
-def footer(value: Suffix) -> +List<Doc.Node>:
-  Suffix{content, +actions} = value
-  actions
-
 # Only a terminal submit, optionally preceded by the capture section, is moved.
 # Earlier capture sections remain body content and all source order is retained.
 def prepend(kind: SectionKind, +node: Doc.Node, suffix: Suffix) -> Suffix:

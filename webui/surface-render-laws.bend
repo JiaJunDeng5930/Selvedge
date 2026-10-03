@@ -70,13 +70,6 @@ type Requirements is Type:
         Render.surface_background(Surfaces.Chip{tone}, Surfaces.Rest{}) : String},
     selected_background: @+selected:Bool ->
       {Render.paint(Appearance.style_background(Appearance.navigation_family_style(selected, 2n, 6n))) == Render.surface_background(Surfaces.Choice{selected}, Surfaces.Rest{}) : String},
-    wrapper_phases: @+role:Surfaces.Role ->
-      {(Render.attr(Render.native_surface_properties(role), "--native-rest-background"),
-          (Render.attr(Render.native_surface_properties(role), "--native-hover-background"),
-           Render.attr(Render.native_surface_properties(role), "--native-pressed-background"))) ==
-          (Render.surface_background(role, Surfaces.Rest{}),
-            (Render.surface_background(role, Surfaces.Hovered{}), Render.surface_background(role, Surfaces.Pressed{}))) :
-          (String & (String & String))},
     rest_background_property: @+value:String ->
       {Render.pointer_property("background", value) == Doc.Property{"--native-rest-background", value} : Doc.Property},
     rest_foreground_property: @+value:String ->
@@ -98,7 +91,7 @@ def evidence() -> Requirements:
       # This is the actual application document, rather than a palette-only assertion.
     , scene => application_background(scene), +stage => {==},
     key => kind => text => +tone => {==}, +selected => {==},
-    +role => {==}, +value => {==}, +value =>
+    +value => {==}, +value =>
         {==}
 
       # The final action properties expose rest color variables to the CSS interpreter.

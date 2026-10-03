@@ -254,9 +254,6 @@ def observe(+state: State) -> Document.Document:
           Document.Element{"@browser/retry", "button", [Document.Property{"type", "button"}], Nil{}, [Document.Activate{"@browser/retry"}], [Document.Text{"Retry"}]}]}, "Display failed"}
     case _: render_document(state)
 
-def prepend_effect(effect: Effect, decision: Decision) -> Decision:
-  Decision{state, effects} = decision
-  Decision{state, effect <> effects}
 def collected_finish(decision: Decision, web: +List<Web.Effect>, services: +List<Services.Effect>) -> Decision:
   Decision{state, requests} = decision
   Decision{state, List.append(&2, Effect, wrap_web(web), List.append(&2, Effect, requests, wrap_services(services)))}
