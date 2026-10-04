@@ -1,6 +1,5 @@
 import Base
 import ./typography.bend as T
-import ./enclosure.bend as Enclosure
 import ./document.bend as Doc
 import ./renderer.bend as Render
 import ./appearance.bend as Appearance
@@ -8,7 +7,6 @@ import ./design.bend as Design
 import ./controls.bend as Controls
 import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
-import ../bendlib/stdlib.bend as Std
 import ../BOARD.bend as Board
 import ../core/SYSTEM.bend as Core
 
@@ -77,7 +75,7 @@ def title_inset(typography: T.Presentation) ->
 type Requirements is Type:
   Requirements{
     search_intrinsic_minimum: @+typography:T.Presentation -> @+key:String -> @+filter:Board.Filter -> @+name:String ->
-      {(Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "min-height"), Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "height")) == (Render.px(Appearance.style_minimum_height(Appearance.field_style(UI.BoardSearch{filter}, typography))), "") : (String & String)},
+      {(Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "min-height"), Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "height")) == (Render.px(Design.style_minimum_height(Appearance.field_style(UI.BoardSearch{filter}, typography))), "") : (String & String)},
     title_action: @+typography:T.Presentation -> @+title:String -> @+key:String -> @+visual:Design.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+help:Controls.Help -> @+feedback:Controls.Feedback ->
       {Doc.element_children(first(Render.card_title_nodes(key, title,
         [Render.action(key, visual, Controls.Action{input, availability, name, Controls.TextFace{title}, behavior, geometry, placement, help, feedback})], typography))) ==

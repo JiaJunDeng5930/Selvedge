@@ -11,49 +11,9 @@ import ./viewport-space.bend as ViewportSpace
 import ./space.bend as Space
 import ../core/user-experience.bend as E
 
-def toolbar_height(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  toolbar
-
-def navigation_width(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  navigation
-
-def minimum_main_width(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  main
-
-def details_width(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  details
 
 
 
-def reading_maximum_width(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  reading
-
-def overview_maximum_width(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  overview
-
-
-
-def input_minimum_height(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  minimum
-
-def input_maximum_height(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  maximum
-
-def input_line_height(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  leading
-
-def creation_balanced_minimum_height(+parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
-  creation
 
 def inline_gutter_for_width(narrow: Bool) -> Nat:
   match narrow:
@@ -61,7 +21,7 @@ def inline_gutter_for_width(narrow: Bool) -> Nat:
     case False{}: 16n
 
 def inline_gutter(+parameters: Design.LayoutParameters, width: Nat) -> Nat:
-  inline_gutter_for_width(Nat.is_lt(width, minimum_main_width(parameters)))
+  inline_gutter_for_width(Nat.is_lt(width, Design.main_minimum_width(parameters)))
 
 def overlay_gutter_for_width(narrow: Bool) -> Nat:
   match narrow:
@@ -70,14 +30,10 @@ def overlay_gutter_for_width(narrow: Bool) -> Nat:
 
 def overlay_gutter(+parameters: Design.LayoutParameters, viewport: Design.Viewport) -> Nat:
   Design.Viewport{width, height} = viewport
-  overlay_gutter_for_width(Nat.is_lt(width, minimum_main_width(parameters)))
+  overlay_gutter_for_width(Nat.is_lt(width, Design.main_minimum_width(parameters)))
 
 def viewport_width(viewport: Design.Viewport) -> Nat:
   ViewportSpace.width(viewport)
-
-def viewport_height(viewport: Design.Viewport) -> Nat:
-  Design.Viewport{+width, height} = viewport
-  height
 
 
 
@@ -113,7 +69,7 @@ def settings_bounds(+parameters: Design.LayoutParameters, navigation: Design.Nav
 
 def header_height(+parameters: Design.LayoutParameters, main: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, height} = main
-  Nat.min(toolbar_height(parameters), height)
+  Nat.min(Design.toolbar_height(parameters), height)
 
 def heading_box(+parameters: Design.LayoutParameters, +main: Design.Box) -> Design.Box:
   Design.Box{left, top, width, height} = main
@@ -182,8 +138,8 @@ def box_height(box: Design.Box) -> Nat:
 
 def measure_band(+parameters: Design.LayoutParameters, selected_measure: Composition.Measure, +box: Design.Box) -> Design.Band:
   match selected_measure:
-    case Composition.ReadingMeasure{}: centered_band(parameters, box, reading_maximum_width(parameters))
-    case Composition.OverviewMeasure{}: centered_band(parameters, box, overview_maximum_width(parameters))
+    case Composition.ReadingMeasure{}: centered_band(parameters, box, Design.reading_maximum_width(parameters))
+    case Composition.OverviewMeasure{}: centered_band(parameters, box, Design.overview_maximum_width(parameters))
     case Composition.AvailableMeasure{}: centered_band(parameters, box, box_width(box))
 
 def composer_content_inset() -> Nat:
@@ -192,8 +148,8 @@ def composer_content_inset() -> Nat:
 def input_metrics(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Design.InputMetrics:
   Design.Box{+left, +top, +width, height} = canvas
   # The remaining line and spacing values follow the imported Desktop component tokens.
-  +maximum = Nat.max(input_minimum_height(parameters), Nat.min(input_maximum_height(parameters), Nat.div(height, 3n)))
-  Design.InputMetrics{input_minimum_height(parameters), maximum, input_line_height(parameters), composer_content_inset(), 4n, 8n}
+  +maximum = Nat.max(Design.input_minimum_height(parameters), Nat.min(Design.input_maximum_height(parameters), Nat.div(height, 3n)))
+  Design.InputMetrics{Design.input_minimum_height(parameters), maximum, Design.input_line_height(parameters), composer_content_inset(), 4n, 8n}
 
 def centered_input(+parameters: Design.LayoutParameters, composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
   match composer:
@@ -248,7 +204,7 @@ def recipe_dock(recipe: Composition.Recipe) -> +List<Composition.Region>:
 def board_column_width(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, +height} = canvas
   +gutter = inline_gutter(parameters, width)
-  Nat.min(Nat.div(reading_maximum_width(parameters), 2n), Nat.max(0n, Nat.sub(width, Nat.mul(2n, gutter))))
+  Nat.min(Nat.div(Design.reading_maximum_width(parameters), 2n), Nat.max(0n, Nat.sub(width, Nat.mul(2n, gutter))))
 
 def creation_flow_choice(compact: Bool) -> Design.CreationFlow:
   match compact:
@@ -256,7 +212,7 @@ def creation_flow_choice(compact: Bool) -> Design.CreationFlow:
     case False{}: Design.Balanced{}
 
 def creation_flow_for_height(+parameters: Design.LayoutParameters, height: Nat) -> Design.CreationFlow:
-  creation_flow_choice(Nat.is_lt(height, creation_balanced_minimum_height(parameters)))
+  creation_flow_choice(Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)))
 
 def creation_flow(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Design.CreationFlow:
   creation_flow_for_height(parameters, box_height(canvas))
@@ -269,30 +225,27 @@ def creation_block_margin(flow: Design.CreationFlow) -> Design.BlockMargin:
 def creation_arrangement(flow: Design.CreationFlow) -> Design.CreationArrangement:
   Design.CreationArrangement{24n, 24n, 16n, Design.Centered{}, creation_block_margin(flow)}
 
-def main_frame(+parameters: Design.LayoutParameters, +recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
-  match recipe:
-    case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
+def main_frame_structure(structure: Design.MainStructure, +parameters: Design.LayoutParameters, +recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
+  match structure recipe:
+    case Design.CreationStructure{} Composition.Recipe{measure, page_heading, body, composer, decisions, latest}:
       Design.CreationFrame{heading_box(parameters, main), main, measure_band(parameters, measure, main), centered_input(parameters, composer, main), creation_flow(parameters, main)}
-    case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
+    case Design.ConversationStructure{} Composition.Recipe{measure, page_heading, body, composer, decisions, latest}:
       heading = heading_box(parameters, main)
       +canvas = body_box(parameters, main)
       +reading = measure_band(parameters, measure, canvas)
       Design.ConversationFrame{heading, canvas, reading,
         conversation_dock(parameters, recipe_dock(recipe), canvas, reading, composer)}
-    case Composition.Recipe{measure, page_heading, Composition.ProjectSections{}, composer, decisions, latest}:
+    case Design.OverviewStructure{organization} Composition.Recipe{measure, page_heading, body, composer, decisions, latest}:
       +canvas = main
-      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), Composition.ProjectSections{}}
-    case Composition.Recipe{measure, page_heading, Composition.ProjectRows{}, composer, decisions, latest}:
-      +canvas = main
-      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), Composition.ProjectRows{}}
-    case Composition.Recipe{measure, page_heading, Composition.AgentRows{}, composer, decisions, latest}:
-      +canvas = main
-      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), Composition.AgentRows{}}
-    case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
+      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), organization}
+    case Design.BoardStructure{} Composition.Recipe{measure, page_heading, body, composer, decisions, latest}:
       +canvas = main
       Design.BoardFrame{canvas, board_column_width(parameters, canvas), Enclosure.separation(Enclosure.BoardColumns{}), 16n}
-    case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
+    case Design.UnavailableStructure{} Composition.Recipe{measure, page_heading, body, composer, decisions, latest}:
       Design.UnavailableFrame{heading_box(parameters, main), body_box(parameters, main), measure_band(parameters, measure, body_box(parameters, main))}
+
+def main_frame(+parameters: Design.LayoutParameters, +recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
+  main_frame_structure(Design.main_structure(recipe), parameters, recipe, main)
 
 def inset_box(+parameters: Design.LayoutParameters, +viewport: Design.Viewport) -> Design.Box:
   Design.Viewport{+width, +height} = viewport
@@ -309,7 +262,7 @@ def centered_dialog(+parameters: Design.LayoutParameters, viewport: Design.Viewp
 def details_overlay(+parameters: Design.LayoutParameters, viewport: Design.Viewport, side_pane: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
   match side_pane:
     case Some{bounds}: Design.TrailingPane{bounds}
-    case None{}: centered_dialog(parameters, viewport, reading_maximum_width(parameters))
+    case None{}: centered_dialog(parameters, viewport, Design.reading_maximum_width(parameters))
 
 def choose_layer(matches: Bool, layer: V.Layer, fallback: Maybe<&2, V.Layer>) -> Maybe<&2, V.Layer>:
   match matches:
@@ -352,10 +305,10 @@ def menu_overlay(+parameters: Design.LayoutParameters, viewport: Design.Viewport
 def role_overlay(+parameters: Design.LayoutParameters, viewport: Design.Viewport, role: UI.Role, key: String, +layers: +List<V.Layer>,
   +surface: UI.Surface, details: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
   match role:
-    case UI.Dialog{}: centered_dialog(parameters, viewport, reading_maximum_width(parameters))
+    case UI.Dialog{}: centered_dialog(parameters, viewport, Design.reading_maximum_width(parameters))
     case UI.Menu{}: menu_overlay(parameters, viewport, key, layers, surface)
     case UI.Details{}: details_overlay(parameters, viewport, details)
-    case _: centered_dialog(parameters, viewport, reading_maximum_width(parameters))
+    case _: centered_dialog(parameters, viewport, Design.reading_maximum_width(parameters))
 
 def overlay_navigation_bounds(navigation: Design.Navigation) -> Maybe<&2, Design.OverlayPlacement>:
   match navigation:

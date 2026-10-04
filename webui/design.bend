@@ -1,4 +1,5 @@
 import Base
+import ./document.bend as Doc
 import ./enclosure.bend as Enclosure
 import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
@@ -87,6 +88,32 @@ type MainFrame is Data:
   BoardFrame{canvas: Box, column_width: Nat, column_gap: Nat, inset: Nat}
   UnavailableFrame{heading: Box, canvas: Box, band: Band}
 
+type MainStructure is Data:
+  CreationStructure{}
+  ConversationStructure{}
+  OverviewStructure{organization: Composition.Body}
+  BoardStructure{}
+  UnavailableStructure{}
+
+def main_structure(recipe: Composition.Recipe) -> MainStructure:
+  Composition.Recipe{measure, heading, body, composer, decisions, latest} = recipe
+  match body:
+    case Composition.CenteredCreation{}: CreationStructure{}
+    case Composition.ChronologicalReading{}: ConversationStructure{}
+    case Composition.ProjectSections{}: OverviewStructure{Composition.ProjectSections{}}
+    case Composition.ProjectRows{}: OverviewStructure{Composition.ProjectRows{}}
+    case Composition.AgentRows{}: OverviewStructure{Composition.AgentRows{}}
+    case Composition.StageColumns{}: BoardStructure{}
+    case Composition.UnavailableNotice{}: UnavailableStructure{}
+
+def frame_structure(frame: MainFrame) -> MainStructure:
+  match frame:
+    case CreationFrame{heading, canvas, band, input, flow}: CreationStructure{}
+    case ConversationFrame{heading, viewport, reading, dock}: ConversationStructure{}
+    case OverviewFrame{canvas, band, organization}: OverviewStructure{organization}
+    case BoardFrame{canvas, column_width, column_gap, inset}: BoardStructure{}
+    case UnavailableFrame{heading, canvas, band}: UnavailableStructure{}
+
 type OverlayPlacement is Data:
   CenteredDialog{available: Box, maximum_width: Nat}
   # Prefer below/end of the anchor; flip vertically and clamp both axes to available.
@@ -168,6 +195,10 @@ type Surface is Data:
   Surface{content: Core.Scene, theme: Theme, base: +List<Node>,
     overlays: +List<Node>, active_scope: Maybe<&2, String>}
 
+# The document is derived once from the original surface by Renderer.prepare.
+type PreparedSurface is Data:
+  PreparedSurface{surface: Surface, base: +List<Doc.Node>, overlays: +List<Doc.Node>}
+
 def semantic_nodes(nodes: +List<Node>) -> +List<UI.Node>:
   match nodes:
     case Nil{}: Nil{}
@@ -177,3 +208,59 @@ def semantic_nodes(nodes: +List<Node>) -> +List<UI.Node>:
 def semantic_surface(surface: Surface) -> UI.Surface:
   Surface{content, theme, base, overlays, active_scope} = surface
   UI.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
+
+def viewport_height(viewport: Viewport) -> Nat:
+  Viewport{width, height} = viewport
+  height
+
+def navigation_width(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
+  navigation
+
+def main_minimum_width(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
+  main
+
+def details_width(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
+  details
+
+def toolbar_height(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  toolbar
+
+def reading_maximum_width(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  reading
+
+def overview_maximum_width(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  overview
+
+def input_minimum_height(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  minimum
+
+def input_maximum_height(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  maximum
+
+def input_line_height(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  leading
+
+def creation_balanced_minimum_height(+parameters: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  creation
+
+def style_text(style: Style) -> T.Presentation:
+  Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states} = style
+  text
+
+def style_minimum_height(value: Style) -> Nat:
+  Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
+  height
+
+def style_frame(value: Style) -> Enclosure.Frame:
+  Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  frame

@@ -21,10 +21,6 @@ type Outcome is Data:
   AwaitingContent{missing: +List<T.MeasurementSpec>}
   Prepared{surface: D.Surface}
 
-def presentation(style: D.Style) -> T.Presentation:
-  D.Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states} = style
-  text
-
 def description_presentation(text: T.Presentation) -> T.Presentation:
   T.Presentation{tier, emphasis, scale} = text
   T.Presentation{T.Support{}, T.Regular{}, scale}
@@ -71,7 +67,7 @@ def control_specifications(key: String, control: C.Representation, text: T.Prese
     case _: Nil{}
 
 def node_own_specifications(key: String, control: C.Representation, style: D.Style) -> +List<T.MeasurementSpec>:
-  control_specifications(key, control, presentation(style))
+  control_specifications(key, control, D.style_text(style))
 
 def nodes_specifications(nodes: +List<D.Node>) -> +List<T.MeasurementSpec>:
   match nodes:

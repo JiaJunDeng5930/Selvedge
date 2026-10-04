@@ -1088,3 +1088,11 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
       Movable{destinations, face, "Move " ++ label, Grip{}, Geometry{32n, 32n, 16n, 8n, 0n},
         Tooltip{"Move card", 300n, True{}, True{}, False{}}}
     case _: NoControl{}
+
+def layout_content_area(value: ContentLayout) -> Enclosure.ContentArea:
+  ContentLayout{alignment, area, gap} = value
+  area
+
+def geometry_minimum_height(value: Geometry) -> Nat:
+  Geometry{width, height, icon, radius, leading} = value
+  height

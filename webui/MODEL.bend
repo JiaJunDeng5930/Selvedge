@@ -16,6 +16,7 @@ import ../core/user-experience.bend as E
 import ./visibility.bend as Visibility
 import ./presentation-order.bend as Order
 import ./content-space.bend as CS
+import ./renderer.bend as Renderer
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -37,8 +38,12 @@ type Decision is Data:
   Decision{state: State, product: Core.Decision, effects: +List<Effect>}
 
 type Scene is Data:
-  Scene{surface: Design.Surface, platform: Platform.Scene, generation: Nat, realization: Rendered.State,
+  Scene{presentation: Design.PreparedSurface, platform: Platform.Scene, generation: Nat, realization: Rendered.State,
     layout: Design.Layout}
+
+def scene_surface(scene: Scene) -> Design.Surface:
+  Scene{Design.PreparedSurface{surface, base, overlays}, platform, generation, realization, layout} = scene
+  surface
 
 type SceneOutcome is Data:
   AwaitingTypography{}
@@ -136,18 +141,23 @@ def measurement_budget(state: State) -> Nat:
     case F.Failed{font_generation, scale}: 0n
 
 def allocated_scene(outcome: Layout.Outcome, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, surface: Design.Surface) -> SceneOutcome:
+  realization: Rendered.State, presentation: Design.PreparedSurface) -> SceneOutcome:
   match outcome:
     case Layout.LayoutUnsupported{required, available}: UnsupportedSpace{required, available}
     case Layout.LayoutReady{layout}:
-      ReadyScene{Scene{surface, Platform.observe(application), generation, realization, layout}}
+      ReadyScene{Scene{presentation, Platform.observe(application), generation, realization, layout}}
+
+def presented_scene(+presentation: Design.PreparedSurface, +application: Platform.State, generation: Nat,
+  realization: Rendered.State, parameters: Design.LayoutParameters, viewport: Design.Viewport) -> SceneOutcome:
+  Design.PreparedSurface{surface, base, overlays} = presentation
+  allocated_scene(Layout.present(parameters, viewport, Design.semantic_surface(surface)), application, generation, realization, presentation)
 
 def prepared_scene(preparation: CS.Outcome, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
   parameters: Design.LayoutParameters, viewport: Design.Viewport) -> SceneOutcome:
   match preparation:
     case CS.AwaitingContent{missing}: AwaitingTypography{}
     case CS.Prepared{+prepared}:
-      allocated_scene(Layout.present(parameters, viewport, Design.semantic_surface(prepared)), application, generation, realization, prepared)
+      presented_scene(Renderer.prepare(prepared), application, generation, realization, parameters, viewport)
 
 def font_scene(font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
   +viewport: Design.Viewport, dark: Bool, +surface: UI.Surface) -> SceneOutcome:
@@ -164,8 +174,9 @@ def scene_for_surface(state: State, surface: UI.Surface) -> SceneOutcome:
 
 def projected_frame(outcome: SceneOutcome) -> Maybe<&2, UI.Surface>:
   match outcome:
-    case ReadyScene{Scene{surface, platform, generation, realization, layout}}:
-      Some{Visibility.project(Design.semantic_surface(surface), layout)}
+    case ReadyScene{+scene}:
+      Scene{presentation, platform, generation, realization, layout} = scene
+      Some{Visibility.project(Design.semantic_surface(scene_surface(scene)), layout)}
     case _: None{}
 
 def frame_surface(state: State, surface: UI.Surface) -> Maybe<&2, UI.Surface>:

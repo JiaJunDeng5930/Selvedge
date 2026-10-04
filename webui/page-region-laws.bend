@@ -1,5 +1,4 @@
 import Base
-import ./appearance.bend as Appearance
 import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ../core/user-conversation.bend as Conversation
@@ -114,7 +113,7 @@ def first(nodes: +List<Doc.Node>) -> Doc.Node:
     case _: Doc.Text{""}
 
 def overview_main_partition(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Design.Band, +organization: Composition.Body) ->
-  {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))}:
+  {groups(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.OverviewFrame{canvas, band, organization}), None{})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))}:
   Design.Box{left, top, width, height} = canvas
   Design.Band{band_left, band_width} = band
   {==}
@@ -124,7 +123,7 @@ def group_flow(+nodes: +List<Doc.Node>) -> ((String & String) & (String & (Strin
     (Render.attr(Doc.element_styles(second(nodes)), "flex"), (Render.attr(Doc.element_styles(second(nodes)), "min-height"), Render.attr(Doc.element_styles(second(nodes)), "overflow"))))
 
 def overview_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Design.Band, +organization: Composition.Body) ->
-  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) ==
+  {group_flow(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.OverviewFrame{canvas, band, organization}), None{})))) ==
     (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))}:
   Design.Box{left, top, width, height} = canvas
   Design.Band{band_left, band_width} = band
@@ -138,7 +137,7 @@ def overview_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +band: Desi
     case Composition.UnavailableNotice{}: {==}
 
 def board_main_flow(+nodes: +List<Doc.Node>, +canvas: Design.Box, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{})))) ==
+  {group_flow(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.BoardFrame{canvas, width, gap, inset}), None{})))) ==
     (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))}:
   Design.Box{left, top, canvas_width, height} = canvas
   {==}
@@ -291,23 +290,23 @@ def board_stage_receipt(+node: Doc.Node, +width: Nat, +gap: Nat, +inset: Nat) ->
     case Doc.TargetProperties{key, target, attrs, styles}: {==}
 
 def body_receipts_nil(width: Nat, gap: Nat, inset: Nat) ->
-  {receipts(Render.board_body_nodes(Nil{}, width, gap, inset)) == Nil{} : +List<RegionReceipt>}:
+  {receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), Nil{})) == Nil{} : +List<RegionReceipt>}:
   {==}
 
 def body_receipts_cons(+node: Doc.Node, +rest: +List<Doc.Node>, +width: Nat, +gap: Nat, +inset: Nat,
-  premise: {receipts(Render.board_body_nodes(rest, width, gap, inset)) == receipts(rest) : +List<RegionReceipt>}) ->
-  {receipts(Render.board_body_nodes(node <> rest, width, gap, inset)) == receipts(node <> rest) : +List<RegionReceipt>}:
-  changed_head = Equal.cong(RegionReceipt, +List<RegionReceipt>, (head => head <> receipts(Render.board_body_nodes(rest, width, gap, inset))),
+  premise: {receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), rest)) == receipts(rest) : +List<RegionReceipt>}) ->
+  {receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), node <> rest)) == receipts(node <> rest) : +List<RegionReceipt>}:
+  changed_head = Equal.cong(RegionReceipt, +List<RegionReceipt>, (head => head <> receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), rest))),
     receipt(Render.board_stage_region(node, width, gap, inset)), receipt(node), board_stage_receipt(node, width, gap, inset))
   changed_tail = Equal.cong(+List<RegionReceipt>, +List<RegionReceipt>, (tail => receipt(node) <> tail),
-    receipts(Render.board_body_nodes(rest, width, gap, inset)), receipts(rest), premise)
-  Equal.trans(+List<RegionReceipt>, receipts(Render.board_body_nodes(node <> rest, width, gap, inset)),
-    receipt(node) <> receipts(Render.board_body_nodes(rest, width, gap, inset)), receipts(node <> rest), changed_head, changed_tail)
+    receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), rest)), receipts(rest), premise)
+  Equal.trans(+List<RegionReceipt>, receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), node <> rest)),
+    receipt(node) <> receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), rest)), receipts(node <> rest), changed_head, changed_tail)
 
 def body_receipts(+nodes: +List<Doc.Node>, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {receipts(Render.board_body_nodes(nodes, width, gap, inset)) == receipts(nodes) : +List<RegionReceipt>}:
+  {receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), nodes)) == receipts(nodes) : +List<RegionReceipt>}:
   Stdlib.list_ind(~Doc.Node,
-    ~(nodes => @width:Nat -> @gap:Nat -> @inset:Nat -> {receipts(Render.board_body_nodes(nodes, width, gap, inset)) == receipts(nodes) : +List<RegionReceipt>}),
+    ~(nodes => @width:Nat -> @gap:Nat -> @inset:Nat -> {receipts(Stdlib.map(~Doc.Node, ~Doc.Node, ~(node => Render.board_stage_region(node, width, gap, inset)), nodes)) == receipts(nodes) : +List<RegionReceipt>}),
     ~(width => gap => inset => body_receipts_nil(width, gap, inset)),
     ~(node => rest => recursive => +width => +gap => +inset => body_receipts_cons(node, rest, width, gap, inset, recursive(width, gap, inset))), nodes)(width, gap, inset)
 
@@ -316,22 +315,19 @@ def receipt_partition(parts: (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Nod
   (receipts(heading), (receipts(body), receipts(dock)))
 
 def board_region_preservation(+nodes: +List<Doc.Node>, +canvas: Design.Box, +width: Nat, +gap: Nat, +inset: Nat) ->
-  {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{}))))) ==
+  {receipt_partition(groups(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.BoardFrame{canvas, width, gap, inset}), None{}))))) ==
     receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))}:
   Design.Box{left, top, canvas_width, height} = canvas
-  Equal.cong(+List<RegionReceipt>, (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>)),
-    (body => (receipts(Render.page_nodes(nodes, "heading")), (body, receipts(Render.page_nodes(nodes, "dock"))))),
-    receipts(Render.board_body_nodes(Render.page_nodes(nodes, "body"), width, gap, inset)),
-    receipts(Render.page_nodes(nodes, "body")), body_receipts(Render.page_nodes(nodes, "body"), width, gap, inset))
+  {==}
 
 def creation_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box,
   +band: Design.Band, +input: Maybe<&2, Design.InputMetrics>, +flow: Design.CreationFlow) ->
-  {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}, None{}))) == nodes : +List<Doc.Node>}:
+  {ShellSpatial.creation_canvas_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.CreationFrame{heading, canvas, band, input, flow}), None{}))) == nodes : +List<Doc.Node>}:
   Design.Box{left, top, width, height} = canvas
   ShellSpatial.creation_group_order(nodes, band, flow)
 
 def unavailable_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box, +band: Design.Band) ->
-  {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}, None{}))) == nodes : +List<Doc.Node>}:
+  {Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.UnavailableFrame{heading, canvas, band}), None{}))) == nodes : +List<Doc.Node>}:
   Design.Box{left, top, width, height} = canvas
   {==}
 
@@ -363,9 +359,9 @@ def expected_section_children(kind: EditorLayout.SectionKind, owner: String, +la
 
 def typed_section_content(+owner: String, +label: String, +visual: Design.Style,
   +rendered: +List<Doc.Node>, +kind: EditorLayout.SectionKind) ->
-  {(Doc.element_children(Render.editor_section(owner, label, visual, rendered, kind, Appearance.style_text(visual))),
-    Render.attr(Doc.element_attributes(Render.editor_section(owner, label, visual, rendered, kind, Appearance.style_text(visual))), "aria-label")) ==
-   (expected_section_children(kind, owner, label, rendered, Appearance.style_text(visual)), label) : (+List<Doc.Node> & String)}:
+  {(Doc.element_children(Render.editor_section(owner, label, visual, rendered, kind, Design.style_text(visual))),
+    Render.attr(Doc.element_attributes(Render.editor_section(owner, label, visual, rendered, kind, Design.style_text(visual))), "aria-label")) ==
+   (expected_section_children(kind, owner, label, rendered, Design.style_text(visual)), label) : (+List<Doc.Node> & String)}:
   match kind:
     case EditorLayout.GenericSection{}: {==}
     case EditorLayout.WorkSection{}: {==}
@@ -381,14 +377,14 @@ def typed_section_content(+owner: String, +label: String, +visual: Design.Style,
 
 def dialog_suffix_title_owner(+owner: String, +label: String, +visual: Design.Style,
   header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_suffix(owner, label, visual, header, suffix, Appearance.style_text(visual))))))) ==
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_suffix(owner, label, visual, header, suffix, Design.style_text(visual))))))) ==
     Render.generated_identity(owner, "title") : String}:
   match suffix:
     case EditorLayout.Suffix{body, footer}: {==}
 
 def dialog_region_title_owner(+owner: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_parts(owner, label, visual, parts, Appearance.style_text(visual))))))) ==
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_parts(owner, label, visual, parts, Design.style_text(visual))))))) ==
     Render.generated_identity(owner, "title") : String}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
@@ -452,7 +448,7 @@ type Requirements is Type:
     section_layout_contract: @+owner:String -> @semantic:String -> @+label:String -> @+source_children:+List<Render.Child> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {(Doc.element_children(Render.match_node(Design.Node{owner, semantic, label, UI.Section{}, UI.Region{}, visual, representation, Render.sources(source_children)}, source_children)),
           Render.attr(Doc.element_attributes(Render.match_node(Design.Node{owner, semantic, label, UI.Section{}, UI.Region{}, visual, representation, Render.sources(source_children)}, source_children)), "aria-label")) ==
-         (expected_section_children(EditorLayout.section_kind(Render.sources(source_children)), owner, label, Render.documents(source_children), Appearance.style_text(visual)), label) :
+         (expected_section_children(EditorLayout.section_kind(Render.sources(source_children)), owner, label, Render.documents(source_children), Design.style_text(visual)), label) :
          (+List<Doc.Node> & String)},
     dialog_title_owner: @+owner:String -> @semantic:String -> @label:String -> @+source_children:+List<Render.Child> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {node_key(first(Doc.element_children(first(Doc.element_children(Render.match_node(Design.Node{owner, semantic, label, UI.Dialog{}, UI.Region{}, visual, representation, Render.sources(source_children)}, source_children)))))) == Render.generated_identity(owner, "title") : String},
@@ -479,18 +475,18 @@ type Requirements is Type:
     rendered_child_order: @+key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @region:Composition.Region -> @position:Composition.Position -> @+nodes:+List<Design.Node> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {Doc.element_children(first(Render.render_nodes([Design.Node{key, semantic, label, role, UI.PageRegion{region, position}, visual, representation, nodes}]))) == Render.render_nodes(nodes) : +List<Doc.Node>},
     board_regions: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
-      {receipt_partition(groups(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
+      {receipt_partition(groups(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.BoardFrame{canvas, width, gap, inset}), None{}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
     creation_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band -> @+input:Maybe<&2, Design.InputMetrics> -> @+flow:Design.CreationFlow ->
-      {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}, None{}))) == nodes : +List<Doc.Node>},
+      {ShellSpatial.creation_canvas_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.CreationFrame{heading, canvas, band, input, flow}), None{}))) == nodes : +List<Doc.Node>},
     unavailable_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band ->
-      {Doc.element_children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}, None{}))) == nodes : +List<Doc.Node>},
+      {Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.UnavailableFrame{heading, canvas, band}), None{}))) == nodes : +List<Doc.Node>},
     overview_main: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->
-      {groups(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
+      {groups(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.OverviewFrame{canvas, band, organization}), None{})))) == partition(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
 
     overview_flow: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->
-      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.OverviewFrame{canvas, band, organization}, None{})))) == (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))},
+      {group_flow(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.OverviewFrame{canvas, band, organization}), None{})))) == (("none", "wrap"), ("1", ("0", "auto"))) : ((String & String) & (String & (String & String)))},
     board_flow: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
-      {group_flow(Doc.element_children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}, None{})))) == (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))},
+      {group_flow(Doc.element_children(first(Render.prepare_main_children(nodes, Design.frame_structure(Design.BoardFrame{canvas, width, gap, inset}), None{})))) == (("none", "wrap"), ("1", ("0", "hidden"))) : ((String & String) & (String & (String & String)))},
     reading_identity: @+key:String -> @+values:+List<Doc.Node> -> @+task:Nat -> @+generation:Nat ->
       {(node_key(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Conversation.Identity{task, generation}})),
           (Render.attr(Doc.element_attributes(Render.reading_element("conversation-body", key, "div", Nil{}, Nil{}, Nil{}, values, Some{Conversation.Identity{task, generation}})), "data-reading-task"),
@@ -512,7 +508,7 @@ type Requirements is Type:
     conversation_heading_preservation: @+nodes:+List<Doc.Node> ->
       {receipts(Render.conversation_heading_nodes(nodes)) == receipts(Render.page_nodes(nodes, "heading")) : +List<RegionReceipt>},
     conversation_partition: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+viewport:Design.Box -> @+reading:Design.Band -> @+dock:Maybe<&2, Design.Dock> ->
-      {groups(Render.main_children(nodes, Design.ConversationFrame{heading, viewport, reading, dock}, None{})) == conversation_parts(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
+      {groups(Render.prepare_main_children(nodes, Design.frame_structure(Design.ConversationFrame{heading, viewport, reading, dock}), None{})) == conversation_parts(nodes) : (+List<Doc.Node> & (+List<Doc.Node> & +List<Doc.Node>))},
 
 
     header: {(Render.attr(Render.intrinsic_heading_styles(), "flex"), Render.attr(Render.intrinsic_heading_styles(), "flex-wrap")) == ("none", "wrap") : (String & String)},
@@ -534,14 +530,14 @@ type Requirements is Type:
 def evidence() -> Requirements:
   Requirements{+owner => +part => {==}, +owner => semantic => +label => +source_children => +visual => representation => nonempty => generic =>
       Equal.trans(String,
-        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children)), Appearance.style_text(visual))))),
-        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.GenericSection{}, Appearance.style_text(visual))))),
+        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children)), Design.style_text(visual))))),
+        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.GenericSection{}, Design.style_text(visual))))),
         Render.generated_identity(owner, "title"),
         Equal.cong(EditorLayout.SectionKind, String,
-          (kind => node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), kind, Appearance.style_text(visual)))))),
+          (kind => node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), kind, Design.style_text(visual)))))),
           EditorLayout.section_kind(Render.sources(source_children)), EditorLayout.GenericSection{}, generic),
         Equal.cong(Bool, String,
-          (empty => node_key(first(List.append(&2, Doc.Node, Render.section_label(owner, empty, label, Appearance.style_text(visual)), Render.documents(source_children))))),
+          (empty => node_key(first(List.append(&2, Doc.Node, Render.section_label(owner, empty, label, Design.style_text(visual)), Render.documents(source_children))))),
           String.is_empty(label), False{}, nonempty))
     , +owner => semantic => +label => +source_children => visual => representation => typed_section_content(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children))), +owner => semantic => label => +source_children => visual => representation => dialog_region_title_owner(owner, label, visual, Render.dialog_partition(source_children)), +owner => semantic => label => visual => representation => {==},
     +typography => +owner => label => {==}, task_facts_owner, +key => +attrs => +styles_value => +events => +children_value => {==}, +key => +attrs => +styles_value => +events => +children_value => {==}, +key => +field => +name => +attrs => +styles_value => +label_styles => +events => +children_value => {==}, +nodes => {==}, +key => semantic => label => role => region => position => +nodes => visual => representation =>

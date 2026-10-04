@@ -18,14 +18,14 @@ import ./space-laws.bend as SpaceLaws
 import ./content-space.bend as CS
 import ./content-space-laws.bend as CSL
 import ./appearance.bend as Appearance
+import ./renderer.bend as R
 
 def scene_layout(scene: Model.Scene) -> Design.Layout:
   Model.Scene{surface, platform, generation, realization, layout} = scene
   layout
 
 def scene_surface(scene: Model.Scene) -> UI.Surface:
-  Model.Scene{surface, platform, generation, realization, layout} = scene
-  Design.semantic_surface(surface)
+  Design.semantic_surface(Model.scene_surface(scene))
 
 # An unready outcome contains no scene. Ready outcomes must preserve the actual
 # semantic surface; Pending/Failed/Unsupported branches have separate equations.
@@ -37,9 +37,11 @@ def SemanticClaim(outcome: Model.SceneOutcome, surface: UI.Surface) -> Type:
 def allocated_semantics(+outcome: Layout.Outcome, application: Platform.State, generation: Nat,
   realization: Rendered.State, +surface: Design.Surface, original: UI.Surface,
   semantic: {Design.semantic_surface(surface) == original : UI.Surface}) ->
-  SemanticClaim(Model.allocated_scene(outcome, application, generation, realization, surface), original):
+  SemanticClaim(Model.allocated_scene(outcome, application, generation, realization, R.prepare(surface)), original):
   match outcome:
-    case Layout.LayoutReady{layout}: semantic
+    case Layout.LayoutReady{layout}:
+      Design.Surface{content, theme, base, overlays, active_scope} = surface
+      semantic
     case Layout.LayoutUnsupported{required, available}: Unit{}
 
 def preparation_semantics(+preparation: CS.Outcome, +application: Platform.State, +generation: Nat,
@@ -51,6 +53,7 @@ def preparation_semantics(+preparation: CS.Outcome, +application: Platform.State
   match preparation:
     case CS.AwaitingContent{missing}: Unit{}
     case CS.Prepared{+prepared}:
+      Design.Surface{content, theme, base, overlays, active_scope} = prepared
       allocated_semantics(Layout.present(parameters, viewport, Design.semantic_surface(prepared)), application, generation, realization, prepared, original,
         Equal.trans(UI.Surface, Design.semantic_surface(prepared), Design.semantic_surface(appearance), original, preparation_claim, appearance_claim))
 
@@ -83,7 +86,7 @@ def PreparedClaim(outcome: Model.SceneOutcome, expected: Layout.Outcome) -> Type
 
 def allocated_layout(+outcome: Layout.Outcome, application: Platform.State, generation: Nat,
   realization: Rendered.State, surface: Design.Surface) ->
-  PreparedClaim(Model.allocated_scene(outcome, application, generation, realization, surface), outcome):
+  PreparedClaim(Model.allocated_scene(outcome, application, generation, realization, R.prepare(surface)), outcome):
   match outcome:
     case Layout.LayoutReady{layout}: {==}
     case Layout.LayoutUnsupported{required, available}: {==}
@@ -99,6 +102,7 @@ def preparation_layout(+preparation: CS.Outcome, +parameters: Design.LayoutParam
   match preparation:
     case CS.AwaitingContent{missing}: {==}
     case CS.Prepared{+surface}:
+      Design.Surface{content, theme, base, overlays, active_scope} = surface
       allocated_layout(Layout.present(parameters, viewport, Design.semantic_surface(surface)), application, generation, realization, surface)
 
 def observes_layout(+environment: Design.Environment, +application: Platform.State,

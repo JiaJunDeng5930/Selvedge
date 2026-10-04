@@ -27,6 +27,7 @@ import ./browser-laws.bend as BrowserLaws
 import ./dismissal-laws.bend as DismissalLaws
 import ./persistent-trigger-laws.bend as PersistentTriggerLaws
 import ./renderer-laws.bend as RendererLaws
+import ./physical-tree-laws.bend as PhysicalTreeLaws
 import ./page-region-laws.bend as PageRegionLaws
 import ./visibility.bend as Visibility
 import ./focus.bend as Focus
@@ -85,7 +86,7 @@ type Realization is Type:
     layout: LayoutLaws.Requirements, appearance: AppearanceLaws.Requirements, surfaces: SurfaceLaws.Requirements, enclosures: EnclosureLaws.Requirements, frame_relations: FrameRelationLaws.Requirements, enclosure_rendering: EnclosureRenderLaws.Requirements, surface_rendering: SurfaceRenderLaws.Requirements,
     presentation: PresentationLaws.Requirements, presentation_order: PresentationOrderLaws.Requirements,
     controls: ControlLaws.Requirements, control_contents: ControlContentLaws.Requirements,
-    commands: UserExperienceLaws.CommandRequirements, browser: BrowserLaws.Requirements, persistent_trigger: PersistentTriggerLaws.Requirements, dismissal: DismissalLaws.Requirements, renderer: RendererLaws.Requirements, page_regions: PageRegionLaws.Requirements, visibility: Visibility.Requirements,
+    commands: UserExperienceLaws.CommandRequirements, browser: BrowserLaws.Requirements, persistent_trigger: PersistentTriggerLaws.Requirements, dismissal: DismissalLaws.Requirements, renderer: RendererLaws.Requirements, physical_tree: PhysicalTreeLaws.Requirements, page_regions: PageRegionLaws.Requirements, visibility: Visibility.Requirements,
     focus_cycle: Focus.CycleRequirements, scroll_ownership: Reading.ScrollOwnershipRequirements,
     form_inputs: FormInputLaws.Requirements, dock: DockLaws.Requirements, card_destinations: CardDestinationLaws.Requirements,
     board_space: BoardSpatialLaws.Requirements, shell_space: ShellSpatialLaws.Requirements, dialog_space: DialogSpatialLaws.Requirements,
@@ -95,7 +96,7 @@ type Realization is Type:
 def realization() -> Realization:
   Realization{ContentSpaceLaws.evidence(), TypographyLaws.evidence(), FontLaws.stale, FontLaws.ready_duplicate, FontLaws.failed_duplicate, FontLaws.current_pending, FontLaws.received_success, FontLaws.received_invalid, FontLaws.received_empty, FontLaws.received_multiple, FontLaws.received_valid, FontLaws.retag_scale, FontLaws.retag_body, FontLaws.retag_pending, FontLaws.retag_generation, FontLaws.retag_pending_variant, FontLaws.retag_ready_variant, FontLaws.retag_failed_variant, FontLaws.pending_request, FontLaws.ready_request, FontLaws.failed_request, FontLaws.begin_scale, ViewportSpaceLaws.evidence(), FactContentLaws.evidence(), DirectoryEntryLaws.picker_requirements(), RequestLaws.evidence(), Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
     AppearanceLaws.evidence(), SurfaceLaws.evidence(), EnclosureLaws.evidence(), FrameRelationLaws.evidence(), EnclosureRenderLaws.evidence(), SurfaceRenderLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(), ControlContentLaws.evidence(),
-    UserExperienceLaws.command_evidence(), BrowserLaws.evidence(), persistent_trigger_evidence(), DismissalLaws.evidence(), RendererLaws.evidence(), PageRegionLaws.evidence(), Visibility.evidence(),
+    UserExperienceLaws.command_evidence(), BrowserLaws.evidence(), persistent_trigger_evidence(), DismissalLaws.evidence(), RendererLaws.evidence(), PhysicalTreeLaws.evidence(), PageRegionLaws.evidence(), Visibility.evidence(),
     Focus.cycle_evidence(), Reading.scroll_ownership_evidence(),
     FormInputLaws.evidence(), DockLaws.evidence(), CardDestinationLaws.evidence(),
     BoardSpatialLaws.evidence(), ShellSpatialLaws.evidence(), DialogSpatialLaws.evidence(), ContextControlLaws.evidence(), ProjectPresentationLaws.evidence(), ExecutionPresentationLaws.evidence(), DirectoryEntryLaws.evidence(), FocusRetentionLaws.evidence(), SubmissionFeedbackLaws.evidence()}

@@ -2,7 +2,6 @@ import Base
 import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
-import ./MODEL.bend as Web
 import ./design.bend as Design
 import ./typography.bend as T
 import ./surfaces.bend as Surfaces
@@ -23,7 +22,6 @@ import ../core/user-input.bend as User
 import ../core/user-experience.bend as Experience
 import ../core/SYSTEM.bend as Core
 import ../core/user-conversation.bend as Conversation
-import ../REASONING.bend as Reasoning
 
 # NOTE: Bend requires layout helpers to be filled before structural lowering;
 # each child result carries its source metadata into those nonrecursive helpers.
@@ -74,25 +72,9 @@ def paint(value: Design.Paint) -> String:
 
 
 
-def resolved_font(value: T.TextStyle) -> T.Font:
-  T.TextStyle{family, size, line_height, weight} = value
-  family
-
-def resolved_size(value: T.TextStyle) -> Nat:
-  T.TextStyle{family, size, line_height, weight} = value
-  size
-
-def resolved_leading(value: T.TextStyle) -> Nat:
-  T.TextStyle{family, size, line_height, weight} = value
-  line_height
-
-def resolved_weight(value: T.TextStyle) -> Nat:
-  T.TextStyle{family, size, line_height, weight} = value
-  weight
-
 def text_properties(+value: T.TextStyle) -> +List<Doc.Property>:
-  [property("font-family", T.font_family(resolved_font(value))), property("font-size", px(resolved_size(value))),
-   property("line-height", px(resolved_leading(value))), property("font-weight", Nat.show(resolved_weight(value)))]
+  [property("font-family", T.font_family(T.resolved_font(value))), property("font-size", px(T.resolved_size(value))),
+   property("line-height", px(T.resolved_line_height(value))), property("font-weight", Nat.show(T.resolved_weight(value)))]
 
 def text_presentation(value: T.Presentation) -> +List<Doc.Property>:
   text_properties(T.resolved(value))
@@ -101,8 +83,8 @@ def part_text(+parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +L
   text_presentation(T.with_emphasis(T.with_tier(parent, tier), emphasis))
 
 def rich_resolved(+prefix: String, +value: T.TextStyle) -> +List<Doc.Property>:
-  [property(prefix ++ "-size", px(resolved_size(value))), property(prefix ++ "-line", px(resolved_leading(value))),
-   property(prefix ++ "-weight", Nat.show(resolved_weight(value))), property(prefix ++ "-font", T.font_family(resolved_font(value)))]
+  [property(prefix ++ "-size", px(T.resolved_size(value))), property(prefix ++ "-line", px(T.resolved_line_height(value))),
+   property(prefix ++ "-weight", Nat.show(T.resolved_weight(value))), property(prefix ++ "-font", T.font_family(T.resolved_font(value)))]
 
 def rich_role(prefix: String, parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
   rich_resolved(prefix, T.resolved(T.with_emphasis(T.with_tier(parent, tier), emphasis)))
@@ -981,8 +963,6 @@ def measured_input_styles(key: String, frame: Design.MainFrame) -> +List<Doc.Pro
   measured_input_present(Bool.not(String.is_empty(key)), frame_input(frame))
 
 
-def frame_region(key: String, +region: String, box: Design.Box, children: +List<Doc.Node>) -> Doc.Node:
-  Doc.Element{key, "div", [property("data-region", region)], bounds(box), Nil{}, children}
 
 
 def modal_scope(+key: String, active: Maybe<&2, String>, value: Doc.Node) -> Doc.Node:
@@ -1016,7 +996,7 @@ def style_rest(value: Design.Style) -> +List<Doc.Property>:
     List.append(&2, Doc.Property, flow(direction), List.append(&2, Doc.Property, overflow_style(overflow), style_details(shadow, alignment, states)))))
 
 def style(+value: Design.Style) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, style_rest(value), text_presentation(Appearance.style_text(value)))
+  List.append(&2, Doc.Property, style_rest(value), text_presentation(Design.style_text(value)))
 
 def dialog_partition_child_by_header(+child: Doc.Node, is_header: Bool,
   +header: +List<Doc.Node>, +body: +List<Doc.Node>, +layouts: +List<EditorLayout.SectionKind>,
@@ -1214,28 +1194,28 @@ def face_with_wrapping(+key: String, value: Controls.Face, +typography: T.Presen
 def face(+key: String, +value: Controls.Face, +typography: T.Presentation, geometry: Controls.Geometry) -> +List<Doc.Node>:
   face_with_wrapping(key, value, typography, geometry, Controls.caption_wrapping(value))
 
-def render_base_role(role: UI.Role, value: Doc.Node, navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> Doc.Node:
+def base_role_styles(role: UI.Role, navigation: Design.Navigation, main: Design.Box) -> +List<Doc.Property>:
   match role:
-    case UI.Navigation{}: replace_styles(value, navigation_styles(navigation))
-    case UI.Main{}: replace_styles(value, bounds(main))
-    case _: value
+    case UI.Navigation{}: navigation_styles(navigation)
+    case UI.Main{}: bounds(main)
+    case _: Nil{}
 
-def render_navigation_toggle(+parameters: Design.LayoutParameters, role: UI.Role, value: Doc.Node, +navigation: Design.Navigation,
-  +main: Design.Box, +details: Maybe<&2, Design.Box>) -> Doc.Node:
+def navigation_toggle_styles(+parameters: Design.LayoutParameters, role: UI.Role, +navigation: Design.Navigation,
+  +main: Design.Box, +details: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
   match navigation:
     case Design.HiddenNavigation{}:
-      replace_styles(value, List.append(&2, Doc.Property,
-        bounds(Layout.navigation_toggle_bounds(parameters, Design.Shell{navigation, main, details})), [property("z-index", "6")]))
-    case _: render_base_role(role, value, navigation, main, details)
+      List.append(&2, Doc.Property,
+        bounds(Layout.navigation_toggle_bounds(parameters, Design.Shell{navigation, main, details})), [property("z-index", "6")])
+    case _: base_role_styles(role, navigation, main)
 
-def render_base(+parameters: Design.LayoutParameters, role: UI.Role, meaning: UI.Meaning, value: Doc.Node,
-  navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> Doc.Node:
+def base_styles(+parameters: Design.LayoutParameters, role: UI.Role, meaning: UI.Meaning,
+  navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
   match meaning:
     case UI.ComposerAction{composer_subject, Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability}:
-      render_navigation_toggle(parameters, role, value, navigation, main, details)
+      navigation_toggle_styles(parameters, role, navigation, main, details)
     case UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability}:
-      render_navigation_toggle(parameters, role, value, navigation, main, details)
-    case _: render_base_role(role, value, navigation, main, details)
+      navigation_toggle_styles(parameters, role, navigation, main, details)
+    case _: base_role_styles(role, navigation, main)
 
 
 def frame_styles(region: String, +frame: Design.MainFrame) -> +List<Doc.Property>:
@@ -1287,13 +1267,9 @@ def action(+key: String, +visual: Design.Style, value: Controls.Representation) 
     case Controls.Action{input, availability, name, +face_value, response, +size, placement, hint, feedback}:
       Doc.Element{key, "button", List.append(&2, Doc.Property, [property("type", "button"), property("class", "native-control"), property("aria-label", name), property("data-native-key", key)],
         List.append(&2, Doc.Property, unavailable(availability), List.append(&2, Doc.Property, behavior(response), help(hint)))),
-        action_styles(key, visual, face_value, size, placement), [Doc.Activate{key}], face(key, face_value, Appearance.style_text(visual), size)}
+        action_styles(key, visual, face_value, size, placement), [Doc.Activate{key}], face(key, face_value, Design.style_text(visual), size)}
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
-
-def render_shell(+parameters: Design.LayoutParameters, role: UI.Role, meaning: UI.Meaning, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
-  Design.Shell{navigation, main, details} = shell
-  render_base(parameters, role, meaning, value, navigation, main, details)
 
 
 def field_text(field: Forms.Field, value: Forms.Observed) -> String:
@@ -1351,33 +1327,17 @@ def creation_group_styles_with_arrangement(band: Design.Band, arrangement: Desig
 def creation_group_styles(band: Design.Band, flow: Design.CreationFlow) -> +List<Doc.Property>:
   creation_group_styles_with_arrangement(band, Layout.creation_arrangement(flow))
 
-def creation_regions_with_footer_gap(+band: Design.Band, footer_gap: Nat, parts: CreationParts) -> +List<Doc.Node>:
-  CreationParts{hero, footer} = parts
-  [Doc.Element{"creation-hero", "div", [property("data-region", "creation-hero")],
-    List.append(&2, Doc.Property, creation_band_styles(band),
-      [property("flex", "0 0 auto"), property("min-height", "min-content")]), Nil{}, hero},
-   Doc.Element{"creation-footer", "div", [property("data-region", "creation-footer")],
-    List.append(&2, Doc.Property, creation_band_styles(band), [property("flex", "0 0 auto"), property("gap", px(footer_gap))]), Nil{}, footer}]
 
-def creation_regions_with_arrangement(+band: Design.Band, arrangement: Design.CreationArrangement, parts: CreationParts) -> +List<Doc.Node>:
-  Design.CreationArrangement{inset, gap, footer_gap, alignment, margin} = arrangement
-  creation_regions_with_footer_gap(band, footer_gap, parts)
 
-def creation_regions(+band: Design.Band, flow: Design.CreationFlow, parts: CreationParts) -> +List<Doc.Node>:
-  creation_regions_with_arrangement(band, Layout.creation_arrangement(flow), parts)
 
-def creation_group(+band: Design.Band, +flow: Design.CreationFlow, children: +List<Doc.Node>) -> Doc.Node:
-  Doc.Element{"creation-group", "div", [property("data-region", "creation-group")],
-    creation_group_styles(band, flow), Nil{}, creation_regions(band, flow, creation_partition(children))}
 
-def creation_canvas_with_arrangement(canvas: Design.Box, band: Design.Band, flow: Design.CreationFlow, children: +List<Doc.Node>, arrangement: Design.CreationArrangement) -> +List<Doc.Node>:
-  Design.CreationArrangement{inset, gap, footer_gap, alignment, margin} = arrangement
-  [replace_styles(frame_region("creation-canvas", "creation", canvas, [creation_group(band, flow, children)]),
-    [property("display", "flex"), property("flex-direction", "column"), property("align-items", "center"),
-      property("overflow-y", "auto"), property("padding-block", px(inset))])]
 
-def creation_canvas_nodes(canvas: Design.Box, band: Design.Band, +flow: Design.CreationFlow, children: +List<Doc.Node>) -> +List<Doc.Node>:
-  creation_canvas_with_arrangement(canvas, band, flow, children, Layout.creation_arrangement(flow))
+
+
+
+
+
+
 
 def creation_introduction_alignment(value: Design.Alignment) -> +List<Doc.Property>:
   match value:
@@ -1391,10 +1351,8 @@ def creation_introduction_with_arrangement(arrangement: Design.CreationArrangeme
     creation_introduction_alignment(alignment))
 
 def creation_introduction_styles() -> +List<Doc.Property>:
-  creation_introduction_with_arrangement(Layout.creation_arrangement(Design.Balanced{}))
+  [property("display", "flex"), property("flex-direction", "row"), property("flex-wrap", "wrap"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0")]
 
-# A page region owns its populated children. Ordinary nested sections and
-# headings never participate in page placement.
 def page_position(position: Composition.Position) -> String:
   match position:
     case Composition.HeadingPosition{}: "heading"
@@ -1486,12 +1444,7 @@ def overview_children(+children: +List<Doc.Node>, +organization: Composition.Bod
       overview_body_styles(organization), Nil{}, page_nodes(children, "body")},
     page_group("overview-dock", "dock", [property("flex", "none")], page_nodes(children, "dock"))]
 
-def overview_shell(+canvas: Design.Box, band: Design.Band, organization: Composition.Body, children: +List<Doc.Node>) -> Doc.Node:
-  Design.Box{left, top, width, height} = canvas
-  Design.Band{band_left, band_width} = band
-  replace_styles(frame_region("overview-shell", "overview", canvas, overview_children(children, organization)),
-    List.append(&2, Doc.Property, page_shell_styles(canvas),
-      [property("padding-inline", px(Nat.sub(band_left, left))), property("padding-top", "24px")]))
+
 
 def board_stage_region(value: Doc.Node, +width: Nat, +gap: Nat, +inset: Nat) -> Doc.Node:
   match value:
@@ -1504,18 +1457,11 @@ def board_stage_region(value: Doc.Node, +width: Nat, +gap: Nat, +inset: Nat) -> 
          property("scrollbar-gutter", "stable"), property("box-sizing", "border-box")], events, board_columns(children, width)}
     case other: other
 
-def board_body_nodes(values: +List<Doc.Node>, +width: Nat, +gap: Nat, +inset: Nat) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: board_stage_region(value, width, gap, inset) <> board_body_nodes(rest, width, gap, inset)
 
-def board_children(+children: +List<Doc.Node>, +width: Nat, +gap: Nat, +inset: Nat) -> +List<Doc.Node>:
-  [page_group("board-heading", "heading", board_heading_styles(inset), page_nodes(children, "heading")),
-    page_group("board-body", "body", board_body_styles(), board_body_nodes(page_nodes(children, "body"), width, gap, inset)),
-    page_group("board-dock", "dock", [property("flex", "none")], page_nodes(children, "dock"))]
 
-def board_shell(+canvas: Design.Box, width: Nat, gap: Nat, inset: Nat, children: +List<Doc.Node>) -> Doc.Node:
-  replace_styles(frame_region("board-shell", "board", canvas, board_children(children, width, gap, inset)), board_shell_styles(canvas))
+
+
+
 
 def conversation_title_styles() -> +List<Doc.Property>:
   [property("display", "block"), property("min-height", "0"), property("min-width", "0"), property("width", "100%"), property("overflow", "hidden"),
@@ -1590,26 +1536,8 @@ def conversation_dock_region(node: Doc.Node) -> Doc.Node:
 def conversation_dock_regions(children: +List<Doc.Node>) -> +List<Doc.Node>:
   Std.map(~Doc.Node, ~Doc.Node, ~conversation_dock_region, children)
 
-def conversation_children(+children: +List<Doc.Node>, +heading: Design.Box, +viewport: Design.Box, +reading: Design.Band, +dock: Maybe<&2, Design.Dock>, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
-  [page_group("conversation-heading", "heading", conversation_heading_styles(heading), conversation_heading_nodes(children)),
-    reading_element("conversation-body", "conversation-body", "div", [property("data-region", "conversation-body"), property("data-page-group", "body")],
-      timeline_styles(Design.ConversationFrame{heading, viewport, reading, dock}), Nil{}, page_nodes(children, "body"), identity),
-    reading_element("dock", "conversation-dock", "div", [property("data-region", "dock"), property("data-page-group", "dock")],
-      conversation_dock_styles(dock), Nil{}, conversation_dock_regions(page_nodes(children, "dock")), identity)]
 
 
-def main_children(+children: +List<Doc.Node>, frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
-  match frame:
-    case Design.CreationFrame{heading, canvas, band, input, flow}:
-      creation_canvas_nodes(canvas, band, flow, children)
-    case Design.UnavailableFrame{heading, canvas, band}:
-      [frame_region("unavailable-canvas", "unavailable", canvas, children)]
-    case Design.ConversationFrame{heading, viewport, reading, dock}:
-      conversation_children(children, heading, viewport, reading, dock, identity)
-    case Design.OverviewFrame{canvas, band, organization}:
-      [overview_shell(canvas, band, organization, children)]
-    case Design.BoardFrame{canvas, width, gap, inset}:
-      [board_shell(canvas, width, gap, inset, children)]
 
 
 def node_value(value: UI.Meaning) -> String:
@@ -1690,20 +1618,74 @@ def positioned_page_children_found(found: Bool, children: +List<Doc.Node>) -> +L
 def positioned_page_children(region: String, children: +List<Doc.Node>) -> +List<Doc.Node>:
   positioned_page_children_found(String.eq(region, Composition.region_name(Composition.BoardControls{})), children)
 
-def positioned_children(key: String, region: String, children: +List<Doc.Node>, frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
+
+
+
+
+# NOTE: Page wrappers are built once, after the original children are prepared.
+# Geometry is applied to these same nodes by place; it never selects children.
+def intrinsic_creation_band() -> +List<Doc.Property>:
+  [property("max-width", "100%"), property("min-width", "0"), property("display", "flex"), property("flex-direction", "column")]
+
+def prepare_creation_regions(parts: CreationParts) -> +List<Doc.Node>:
+  CreationParts{hero, footer} = parts
+  [Doc.Element{"creation-hero", "div", [property("data-region", "creation-hero")],
+    List.append(&2, Doc.Property, intrinsic_creation_band(), [property("flex", "0 0 auto"), property("min-height", "min-content")]), Nil{}, hero},
+   Doc.Element{"creation-footer", "div", [property("data-region", "creation-footer")],
+    List.append(&2, Doc.Property, intrinsic_creation_band(), [property("flex", "0 0 auto")]), Nil{}, footer}]
+
+def prepare_creation(children: +List<Doc.Node>) -> +List<Doc.Node>:
+  [Doc.Element{"creation-canvas", "div", [property("data-region", "creation")],
+    [property("display", "flex"), property("flex-direction", "column"), property("align-items", "center"), property("overflow-y", "auto")], Nil{},
+    [Doc.Element{"creation-group", "div", [property("data-region", "creation-group")],
+      List.append(&2, Doc.Property, intrinsic_creation_band(), [property("flex", "0 0 auto")]), Nil{},
+      prepare_creation_regions(creation_partition(children))}]}]
+
+def prepare_board(+children: +List<Doc.Node>) -> +List<Doc.Node>:
+  [Doc.Element{"board-shell", "div", [property("data-region", "board")],
+    [property("display", "flex"), property("flex-direction", "column"), property("gap", "0"), property("min-height", "0"), property("min-width", "0"), property("overflow", "hidden"), property("box-sizing", "border-box")], Nil{},
+    [page_group("board-heading", "heading", [property("display", "flex"), property("flex-wrap", "wrap"), property("align-items", "center"), property("justify-content", "flex-start"), property("gap", "8px 16px"), property("flex", "none"), property("min-width", "0"), property("box-sizing", "border-box")], page_nodes(children, "heading")),
+     page_group("board-body", "body", board_body_styles(), page_nodes(children, "body")),
+     page_group("board-dock", "dock", [property("flex", "none")], page_nodes(children, "dock"))]}]
+
+def prepare_conversation(+children: +List<Doc.Node>, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
+  [page_group("conversation-heading", "heading", [property("display", "flex"), property("align-items", "center"), property("justify-content", "space-between"), property("gap", "16px"), property("padding", "0 16px"), property("padding-right", "56px"), property("box-sizing", "border-box"), property("z-index", "5")], conversation_heading_nodes(children)),
+   reading_element("conversation-body", "conversation-body", "div", [property("data-region", "conversation-body"), property("data-page-group", "body")],
+     [property("display", "flex"), property("flex-direction", "column"), property("gap", "16px"), property("overflow-y", "auto")], Nil{}, page_nodes(children, "body"), identity),
+   reading_element("dock", "conversation-dock", "div", [property("data-region", "dock"), property("data-page-group", "dock")],
+     [property("display", "flex"), property("flex-direction", "column"), property("gap", "8px"), property("overflow", "hidden")], Nil{}, conversation_dock_regions(page_nodes(children, "dock")), identity)]
+
+def prepare_main_children(+children: +List<Doc.Node>, +structure: Design.MainStructure, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
+  match structure:
+    case Design.CreationStructure{}: prepare_creation(children)
+    case Design.UnavailableStructure{}:
+      [Doc.Element{"unavailable-canvas", "div", [property("data-region", "unavailable")], Nil{}, Nil{}, children}]
+    case Design.ConversationStructure{}: prepare_conversation(children, identity)
+    case Design.BoardStructure{}: prepare_board(children)
+    case Design.OverviewStructure{organization}:
+      [Doc.Element{"overview-shell", "div", [property("data-region", "overview")],
+        [property("display", "flex"), property("flex-direction", "column"), property("gap", "24px"), property("min-height", "0"), property("box-sizing", "border-box")], Nil{}, overview_children(children, organization)}]
+
+def prepare_region_children(key: String, region: String, children: +List<Doc.Node>, structure: Design.MainStructure, identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
   match region:
-    case "main": main_children(children, frame, identity)
+    case "main": prepare_main_children(children, structure, identity)
     case "composer-actions": composer_action_groups(key, children)
     case _: children
 
-
-def position_main(values: +List<Doc.Node>, +frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
+def prepare_trees(values: +List<Doc.Node>, +structure: Design.MainStructure, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Doc.Element{+key, tag, +attrs, styles, events, children}, rest}:
-      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, List.append(&2, Doc.Property, frame_styles(attr(attrs, "data-region"), frame), measured_input_styles(attr(attrs, "data-native-editor-key"), frame))), events, positioned_page_children(attr(attrs, "data-page-region"), positioned_children(key, attr(attrs, "data-region"), position_main(children, frame, identity), frame, identity))} <> position_main(rest, frame, identity)
-    case Con{other, rest}: other <> position_main(rest, frame, identity)
+      Doc.Element{key, tag, attrs, styles, events,
+        positioned_page_children(attr(attrs, "data-page-region"), prepare_region_children(key, attr(attrs, "data-region"), prepare_trees(children, structure, identity), structure, identity))} <> prepare_trees(rest, structure, identity)
+    case Con{other, rest}: other <> prepare_trees(rest, structure, identity)
 
+def prepare_tree(value: Doc.Node, +structure: Design.MainStructure, +identity: Maybe<&2, Conversation.Identity>) -> Doc.Node:
+  match value:
+    case Doc.Element{+key, tag, +attrs, styles, events, children}:
+      Doc.Element{key, tag, attrs, styles, events,
+        positioned_page_children(attr(attrs, "data-page-region"), prepare_region_children(key, attr(attrs, "data-region"), prepare_trees(children, structure, identity), structure, identity))}
+    case other: other
 
 def input_children(+key: String, meaning: UI.Meaning, widget: Controls.Widget) -> +List<Doc.Node>:
   match widget:
@@ -1875,21 +1857,21 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
     case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound_field(key, label, field, visual, documents(children))
     case UI.ComposerAction{subject, input_value, availability}: action(key, visual, representation)
     case UI.PanelToggle{expanded, input_value, availability}: action(key, visual, representation)
-    case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children, Appearance.style_text(visual))
+    case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children, Design.style_text(visual))
     case UI.Activate{input_value, availability}: action(key, visual, representation)
     case UI.Choice{selected, description, input, availability}: action(key, visual, representation)
     case UI.ProjectGroup{project, selected, expanded}: project_group_node(key, project, selected, expanded, visual, children)
-    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, children, Appearance.style_text(visual))
+    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, children, Design.style_text(visual))
     case UI.ProjectChooser{selected}: project_chooser_node(key, selected, visual, children)
     case UI.DirectoryRow{path, primary}: directory_row_node(key, path, primary, visual, documents(children))
-    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, children, Appearance.style_text(visual))
-    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, documents(children), Appearance.style_text(visual))
+    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, children, Design.style_text(visual))
+    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, documents(children), Design.style_text(visual))
     case UI.PageRegion{region, position}: page_region(key, region, position, documents(children))
-    case UI.BoardGroup{grouping}: board_group_node(key, grouping, documents(children), Appearance.style_text(visual))
-    case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children, Appearance.style_text(visual))
-    case UI.PageContext{conversation}: region_node(key, label, role, visual, children, Appearance.style_text(visual))
+    case UI.BoardGroup{grouping}: board_group_node(key, grouping, documents(children), Design.style_text(visual))
+    case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children, Design.style_text(visual))
+    case UI.PageContext{conversation}: region_node(key, label, role, visual, children, Design.style_text(visual))
     case UI.ActivityContent{expanded, audit}: activity_node(key, label, visual, children, expanded, audit)
-    case UI.Region{}: region_node(key, label, role, visual, children, Appearance.style_text(visual))
+    case UI.Region{}: region_node(key, label, role, visual, children, Design.style_text(visual))
     case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children)
     case UI.CodeFacts{Code.Scene{+identity, literal, wrap, copy, enabled, controls}}:
       Doc.Element{key, "div", Nil{}, [property("display", "contents")], Nil{}, [
@@ -1898,7 +1880,7 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
         Doc.TargetProperties{key ++ "/wrap", Code.key(identity) ++ "/code", Nil{}, [property("white-space", code_wrap(wrap)), property("overflow-wrap", "anywhere")]}]}
     case UI.TaskFacts{details}: Doc.Element{key, "section", [property("data-native-key", key)], style(visual), Nil{}, task_details(key, details)}
     case UI.CardArchive{count}: card_archive_node(key, label, count, documents(children))
-    case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, visual, Appearance.style_text(visual))
+    case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, visual, Design.style_text(visual))
     case other: input(key, other, representation, visual)
 
 
@@ -1918,47 +1900,171 @@ def render_node(+value: Design.Node) -> Doc.Node:
   match_node(value, render_children(children))
 
 
-def render_base_shell_node(+parameters: Design.LayoutParameters, +value: Design.Node, +shell: Design.Shell) -> Doc.Node:
-  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
-  match semantic:
-    case "settings/open":
-      Design.Shell{navigation, main, details} = shell
-      replace_styles(render_node(value), List.append(&2, Doc.Property,
-        bounds(Layout.settings_bounds(parameters, navigation, main)), [property("z-index", "6")]))
-    case _: render_shell(parameters, role, meaning, render_node(value), shell)
 
-def positioned_root(value: Doc.Node, +frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> Doc.Node:
-  match value:
-    case Doc.Element{+key, tag, +attrs, styles, events, children}:
-      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, List.append(&2, Doc.Property, frame_styles(attr(attrs, "data-region"), frame), measured_input_styles(attr(attrs, "data-native-editor-key"), frame))), events,
-        positioned_page_children(attr(attrs, "data-page-region"), positioned_children(key, attr(attrs, "data-region"), position_main(children, frame, identity), frame, identity))}
-    case other: other
 
-def render_base_node(+parameters: Design.LayoutParameters, +value: Design.Node, shell: Design.Shell, main: Design.MainFrame) -> Doc.Node:
-  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
-  match meaning:
-    case UI.PageContext{conversation}: positioned_root(render_base_shell_node(parameters, value, shell), main, conversation)
-    case _: positioned_root(render_base_shell_node(parameters, value, shell), main, None{})
 
-def base_nodes(+parameters: Design.LayoutParameters, values: +List<Design.Node>, +shell: Design.Shell, +main: Design.MainFrame) -> +List<Doc.Node>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: render_base_node(parameters, value, shell, main) <> base_nodes(parameters, rest, shell, main)
 
-def overlays(values: +List<Design.Node>, placements: +List<Design.Overlay>, +active: Maybe<&2, String>) -> +List<Doc.Node>:
-  match values placements:
-    case Con{value, rest} Con{Design.Overlay{key, level, placement}, remaining}:
-      replace_styles(modal_scope(key, active, render_node(value)), List.append(&2, Doc.Property, overlay_styles(placement), [property("z-index", Nat.show(Nat.add(50n, level)))])) <>
-        overlays(rest, remaining, active)
-    case _ _: Nil{}
+
+
+
+
+
 
 def document_theme(+theme: Design.Theme) -> Doc.Node:
   Doc.TargetProperties{"document-theme", "@document/root",
     [property("data-theme", theme_name(theme))], [property("color-scheme", theme_name(theme))]}
 
-def render(scene: Web.Scene) -> Doc.Document:
-  Web.Scene{Design.Surface{+content, +theme, base, overlays_value, +active}, platform, generation, realization,
-    Design.Layout{Design.Viewport{width, height}, shell, main, placements, +parameters}} = scene
+
+
+def surface_structure(content: Core.Scene) -> Design.MainStructure:
+  Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
+  Design.main_structure(Composition.recipe(View.scene_page(view)))
+
+def prepare_base_node(+value: Design.Node, structure: Design.MainStructure) -> Doc.Node:
+  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
+  match meaning:
+    case UI.PageContext{conversation}: prepare_tree(render_node(value), structure, conversation)
+    case _: prepare_tree(render_node(value), structure, None{})
+
+def prepare_base(values: +List<Design.Node>, +structure: Design.MainStructure) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: prepare_base_node(value, structure) <> prepare_base(rest, structure)
+
+def prepare_overlays(values: +List<Design.Node>, +active: Maybe<&2, String>) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+value, rest}:
+      Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
+      modal_scope(key, active, render_node(value)) <> prepare_overlays(rest, active)
+
+def application_document(+theme: Design.Theme, active: Maybe<&2, String>, base: +List<Doc.Node>, overlays: +List<Doc.Node>) -> Doc.Document:
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
     [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", "var(--color-token-text-primary)")], Nil{},
-    document_theme(theme) <> List.append(&2, Doc.Node, [base_scope(active, base_nodes(parameters, base, shell, main))], overlays(overlays_value, placements, active))}, "Selvedge"}
+    document_theme(theme) <> List.append(&2, Doc.Node, [base_scope(active, base)], overlays)}, "Selvedge"}
+
+def prepare(+surface: Design.Surface) -> Design.PreparedSurface:
+  Design.Surface{content, theme, base, overlays_value, active} = surface
+  Design.PreparedSurface{surface, prepare_base(base, surface_structure(content)), prepare_overlays(overlays_value, active)}
+
+def prepared_document(prepared: Design.PreparedSurface) -> Doc.Document:
+  Design.PreparedSurface{Design.Surface{content, theme, source_base, source_overlays, active}, base, overlays} = prepared
+  application_document(theme, active, base, overlays)
+
+def place_creation_introduction(page_region: String, arrangement: Design.CreationArrangement) -> +List<Doc.Property>:
+  match page_region:
+    case "creation-introduction": creation_introduction_with_arrangement(arrangement)
+    case _: Nil{}
+
+def place_creation_region_styles(key: String, page_region: String, canvas: Design.Box, +band: Design.Band, +flow: Design.CreationFlow, arrangement: Design.CreationArrangement) -> +List<Doc.Property>:
+  match key arrangement:
+    case "creation-canvas" Design.CreationArrangement{inset, gap, footer_gap, alignment, margin}: List.append(&2, Doc.Property, bounds(canvas),
+      [property("display", "flex"), property("flex-direction", "column"), property("align-items", "center"), property("overflow-y", "auto"), property("padding-block", px(inset))])
+    case "creation-group" _: creation_group_styles(band, flow)
+    case "creation-hero" _: List.append(&2, Doc.Property, creation_band_styles(band), [property("flex", "0 0 auto"), property("min-height", "min-content")])
+    case "creation-footer" Design.CreationArrangement{inset, gap, footer_gap, alignment, margin}: List.append(&2, Doc.Property, creation_band_styles(band), [property("flex", "0 0 auto"), property("gap", px(footer_gap))])
+    case _ _: place_creation_introduction(page_region, Layout.creation_arrangement(flow))
+
+def place_unavailable_styles(key: String, canvas: Design.Box) -> +List<Doc.Property>:
+  match key:
+    case "unavailable-canvas": bounds(canvas)
+    case _: Nil{}
+
+def place_overview_styles(key: String, +canvas: Design.Box, band: Design.Band) -> +List<Doc.Property>:
+  match key canvas band:
+    case "overview-shell" Design.Box{+left, top, width, height} Design.Band{band_left, band_width}:
+      List.append(&2, Doc.Property, page_shell_styles(Design.Box{left, top, width, height}), [property("padding-inline", px(Nat.sub(band_left, left))), property("padding-top", "24px")])
+    case _ _ _: Nil{}
+
+def place_board_styles(key: String, canvas: Design.Box, inset: Nat) -> +List<Doc.Property>:
+  match key:
+    case "board-shell": board_shell_styles(canvas)
+    case "board-heading": board_heading_styles(inset)
+    case _: Nil{}
+
+def place_conversation_heading(key: String, heading: Design.Box) -> +List<Doc.Property>:
+  match key:
+    case "conversation-heading": conversation_heading_styles(heading)
+    case _: Nil{}
+
+def place_conversation_styles(key: String, region: String, +heading: Design.Box, +viewport: Design.Box, +reading: Design.Band, +dock: Maybe<&2, Design.Dock>) -> +List<Doc.Property>:
+  match region:
+    case "conversation-body": timeline_styles(Design.ConversationFrame{heading, viewport, reading, dock})
+    case "dock": conversation_dock_styles(dock)
+    case _: place_conversation_heading(key, heading)
+
+# NOTE: Every placement branch retains the cached node identity and child order.
+def place_region_styles(key: String, region: String, page_region: String, frame: Design.MainFrame) -> +List<Doc.Property>:
+  match frame:
+    case Design.CreationFrame{heading, canvas, band, input, +flow}:
+      place_creation_region_styles(key, page_region, canvas, band, flow, Layout.creation_arrangement(flow))
+    case Design.UnavailableFrame{heading, canvas, band}: place_unavailable_styles(key, canvas)
+    case Design.OverviewFrame{canvas, band, organization}: place_overview_styles(key, canvas, band)
+    case Design.BoardFrame{canvas, width, gap, inset}: place_board_styles(key, canvas, inset)
+    case Design.ConversationFrame{heading, viewport, reading, dock}: place_conversation_styles(key, region, heading, viewport, reading, dock)
+
+def place_board_stage(in_body: Bool, node: Doc.Node, frame: Design.MainFrame) -> Doc.Node:
+  match in_body frame:
+    case True{} Design.BoardFrame{canvas, width, gap, inset}: board_stage_region(node, width, gap, inset)
+    case _ _: node
+
+def place_element(+key: String, tag: String, +attrs: +List<Doc.Property>, styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, +frame: Design.MainFrame) -> Doc.Node:
+  Doc.Element{key, tag, attrs,
+    List.append(&2, Doc.Property, styles, List.append(&2, Doc.Property,
+      frame_styles(attr(attrs, "data-region"), frame), List.append(&2, Doc.Property,
+      measured_input_styles(attr(attrs, "data-native-editor-key"), frame),
+      place_region_styles(key, attr(attrs, "data-region"), attr(attrs, "data-page-region"), frame)))), events, children}
+
+def place_children(values: +List<Doc.Node>, +in_board_body: Bool, +frame: Design.MainFrame) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Doc.Element{+key, tag, attrs, styles, events, children}, rest}:
+      place_board_stage(in_board_body,
+        place_element(key, tag, attrs, styles, events, place_children(children, String.eq(key, "board-body"), frame), frame), frame) <> place_children(rest, in_board_body, frame)
+    case Con{Doc.Portal{key, target, children}, rest}:
+      Doc.Portal{key, target, place_children(children, False{}, frame)} <> place_children(rest, in_board_body, frame)
+    case Con{other, rest}: other <> place_children(rest, in_board_body, frame)
+
+def place_tree(value: Doc.Node, +frame: Design.MainFrame) -> Doc.Node:
+  match value:
+    case Doc.Element{+key, tag, attrs, styles, events, children}:
+      place_element(key, tag, attrs, styles, events, place_children(children, String.eq(key, "board-body"), frame), frame)
+    case Doc.Portal{key, target, children}: Doc.Portal{key, target, place_children(children, False{}, frame)}
+    case other: other
+
+def base_shell_styles_from_shell(semantic: String, role: UI.Role, meaning: UI.Meaning, +parameters: Design.LayoutParameters,
+  +navigation: Design.Navigation, +main: Design.Box, details: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
+  match semantic:
+    case "settings/open":
+      List.append(&2, Doc.Property,
+        bounds(Layout.settings_bounds(parameters, navigation, main)), [property("z-index", "6")])
+    case _: base_styles(parameters, role, meaning, navigation, main, details)
+
+def base_shell_styles(semantic: String, role: UI.Role, meaning: UI.Meaning, +parameters: Design.LayoutParameters, shell: Design.Shell) -> +List<Doc.Property>:
+  Design.Shell{navigation, main, details} = shell
+  base_shell_styles_from_shell(semantic, role, meaning, parameters, navigation, main, details)
+
+def place_base_shell_node(semantic: String, role: UI.Role, meaning: UI.Meaning, +parameters: Design.LayoutParameters, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
+  replace_styles(value, base_shell_styles(semantic, role, meaning, parameters, shell))
+
+def place_base_node(value: Design.Node, document: Doc.Node, layout: Design.Layout) -> Doc.Node:
+  Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
+  Design.Layout{viewport, shell, main_frame, placements, parameters} = layout
+  place_base_shell_node(semantic, role, meaning, parameters, place_tree(document, main_frame), shell)
+
+def place_base(values: +List<Design.Node>, documents: +List<Doc.Node>, +layout: Design.Layout) -> +List<Doc.Node>:
+  match values documents:
+    case Con{value, rest} Con{document, remaining}: place_base_node(value, document, layout) <> place_base(rest, remaining, layout)
+    case _ cached: cached
+
+def place_overlays(values: +List<Design.Node>, placements: +List<Design.Overlay>, documents: +List<Doc.Node>) -> +List<Doc.Node>:
+  match values placements documents:
+    case Con{value, rest} Con{Design.Overlay{key, level, placement}, remaining} Con{document, cached}:
+      replace_styles(document, List.append(&2, Doc.Property, overlay_styles(placement), [property("z-index", Nat.show(Nat.add(50n, level)))])) <>
+        place_overlays(rest, remaining, cached)
+    case _ _ cached: cached
+
+def place(prepared: Design.PreparedSurface, +layout: Design.Layout) -> Doc.Document:
+  Design.PreparedSurface{Design.Surface{content, theme, base, overlays_value, active}, cached_base, cached_overlays} = prepared
+  Design.Layout{viewport, shell, main, placements, parameters} = layout
+  application_document(theme, active, place_base(base, cached_base, layout), place_overlays(overlays_value, placements, cached_overlays))

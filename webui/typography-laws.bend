@@ -28,56 +28,40 @@ def support_positive(+scale: Text.Scale) ->
   Text.Scale{additional_milli} = scale
   Nat.max_ge_l(1n, Nat.div(Nat.mul(12n, Nat.add(1000n, additional_milli)), 1000n))
 
-def size(value: Text.TextStyle) -> Nat:
-  Text.TextStyle{family, size, leading, weight} = value
-  size
-
-def leading(value: Text.TextStyle) -> Nat:
-  Text.TextStyle{family, size, leading, weight} = value
-  leading
-
-def family(value: Text.TextStyle) -> Text.Font:
-  Text.TextStyle{family, size, leading, weight} = value
-  family
-
-def weight(value: Text.TextStyle) -> Nat:
-  Text.TextStyle{family, size, leading, weight} = value
-  weight
-
 def body_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(size(Text.resolve(Text.Body{}, emphasis, scale)), Text.support_size(scale)) == True{} : Bool}:
+  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Body{}, emphasis, scale)), Text.support_size(scale)) == True{} : Bool}:
   separated(Text.support_size(scale), Text.scaled(13n, scale))
 
 def section_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(size(Text.resolve(Text.Section{}, emphasis, scale)), Text.body_size(scale)) == True{} : Bool}:
+  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Section{}, emphasis, scale)), Text.body_size(scale)) == True{} : Bool}:
   separated(Text.body_size(scale), Text.scaled(14n, scale))
 
 def title_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(size(Text.resolve(Text.Title{}, emphasis, scale)), Text.section_size(scale)) == True{} : Bool}:
+  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Title{}, emphasis, scale)), Text.section_size(scale)) == True{} : Bool}:
   separated(Text.section_size(scale), Text.scaled(20n, scale))
 
 def display_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(size(Text.resolve(Text.Display{}, emphasis, scale)), Text.title_size(scale)) == True{} : Bool}:
+  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Display{}, emphasis, scale)), Text.title_size(scale)) == True{} : Bool}:
   separated(Text.title_size(scale), Text.scaled(28n, scale))
 
 def readable_leading(+tier: Text.Tier, emphasis: Text.Emphasis, +scale: Text.Scale) ->
-  {Nat.is_ge(leading(Text.resolve(tier, emphasis, scale)), 1n+size(Text.resolve(tier, emphasis, scale))) == True{} : Bool}:
+  {Nat.is_ge(Text.resolved_line_height(Text.resolve(tier, emphasis, scale)), 1n+Text.resolved_size(Text.resolve(tier, emphasis, scale))) == True{} : Bool}:
   Nat.max_ge_l(1n+Text.size(tier, scale), Text.scaled(Text.nominal_leading(tier), scale))
 
 def code_size(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {size(Text.resolve(Text.CodeBody{}, emphasis, scale)) == size(Text.resolve(Text.Body{}, emphasis, scale)) : Nat}:
+  {Text.resolved_size(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.resolved_size(Text.resolve(Text.Body{}, emphasis, scale)) : Nat}:
   {==}
 
 def code_leading(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {leading(Text.resolve(Text.CodeBody{}, emphasis, scale)) == leading(Text.resolve(Text.Body{}, emphasis, scale)) : Nat}:
+  {Text.resolved_line_height(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(Text.Body{}, emphasis, scale)) : Nat}:
   {==}
 
 def code_support_size(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {size(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == size(Text.resolve(Text.Support{}, emphasis, scale)) : Nat}:
+  {Text.resolved_size(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.resolved_size(Text.resolve(Text.Support{}, emphasis, scale)) : Nat}:
   {==}
 
 def code_support_leading(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {leading(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == leading(Text.resolve(Text.Support{}, emphasis, scale)) : Nat}:
+  {Text.resolved_line_height(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(Text.Support{}, emphasis, scale)) : Nat}:
   {==}
 
 def spec_content(value: Text.MeasurementSpec) -> (String & (String & (Maybe<&2, Nat> & String))):
@@ -177,41 +161,41 @@ type Requirements is Type:
     support_is_positive: @+scale:Text.Scale ->
       {Nat.is_ge(Text.support_size(scale), 1n) == True{} : Bool},
     body_separation: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {Nat.is_gt(size(Text.resolve(Text.Body{}, emphasis, scale)), Text.support_size(scale)) == True{} : Bool},
+      {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Body{}, emphasis, scale)), Text.support_size(scale)) == True{} : Bool},
     section_separation: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {Nat.is_gt(size(Text.resolve(Text.Section{}, emphasis, scale)), Text.body_size(scale)) == True{} : Bool},
+      {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Section{}, emphasis, scale)), Text.body_size(scale)) == True{} : Bool},
     title_separation: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {Nat.is_gt(size(Text.resolve(Text.Title{}, emphasis, scale)), Text.section_size(scale)) == True{} : Bool},
+      {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Title{}, emphasis, scale)), Text.section_size(scale)) == True{} : Bool},
     display_separation: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {Nat.is_gt(size(Text.resolve(Text.Display{}, emphasis, scale)), Text.title_size(scale)) == True{} : Bool},
+      {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Display{}, emphasis, scale)), Text.title_size(scale)) == True{} : Bool},
     readable_leading: @tier:Text.Tier -> @emphasis:Text.Emphasis -> @scale:Text.Scale ->
-      {Nat.is_ge(leading(Text.resolve(tier, emphasis, scale)), 1n+size(Text.resolve(tier, emphasis, scale))) == True{} : Bool},
+      {Nat.is_ge(Text.resolved_line_height(Text.resolve(tier, emphasis, scale)), 1n+Text.resolved_size(Text.resolve(tier, emphasis, scale))) == True{} : Bool},
     prominence_is_independent: @tier:Text.Tier -> @emphasis:Text.Emphasis -> @scale:Text.Scale ->
-      {weight(Text.resolve(tier, emphasis, scale)) == Text.weight(emphasis) : Nat},
+      {Text.resolved_weight(Text.resolve(tier, emphasis, scale)) == Text.weight(emphasis) : Nat},
     family_is_tier_owned: @tier:Text.Tier -> @emphasis:Text.Emphasis -> @scale:Text.Scale ->
-      {family(Text.resolve(tier, emphasis, scale)) == Text.font(tier) : Text.Font},
+      {Text.resolved_font(Text.resolve(tier, emphasis, scale)) == Text.font(tier) : Text.Font},
     emphasis_preserves_size: @+tier:Text.Tier -> @first:Text.Emphasis -> @second:Text.Emphasis -> @+scale:Text.Scale ->
-      {size(Text.resolve(tier, first, scale)) == size(Text.resolve(tier, second, scale)) : Nat},
+      {Text.resolved_size(Text.resolve(tier, first, scale)) == Text.resolved_size(Text.resolve(tier, second, scale)) : Nat},
     emphasis_preserves_leading: @+tier:Text.Tier -> @first:Text.Emphasis -> @second:Text.Emphasis -> @+scale:Text.Scale ->
-      {leading(Text.resolve(tier, first, scale)) == leading(Text.resolve(tier, second, scale)) : Nat},
+      {Text.resolved_line_height(Text.resolve(tier, first, scale)) == Text.resolved_line_height(Text.resolve(tier, second, scale)) : Nat},
     regular_prominence: @tier:Text.Tier -> @scale:Text.Scale ->
-      {weight(Text.resolve(tier, Text.Regular{}, scale)) == 400n : Nat},
+      {Text.resolved_weight(Text.resolve(tier, Text.Regular{}, scale)) == 400n : Nat},
     medium_prominence: @tier:Text.Tier -> @scale:Text.Scale ->
-      {weight(Text.resolve(tier, Text.Medium{}, scale)) == 500n : Nat},
+      {Text.resolved_weight(Text.resolve(tier, Text.Medium{}, scale)) == 500n : Nat},
     strong_prominence: @tier:Text.Tier -> @scale:Text.Scale ->
-      {weight(Text.resolve(tier, Text.Strong{}, scale)) == 600n : Nat},
+      {Text.resolved_weight(Text.resolve(tier, Text.Strong{}, scale)) == 600n : Nat},
     code_body_font: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {family(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.MonospaceFont{} : Text.Font},
+      {Text.resolved_font(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.MonospaceFont{} : Text.Font},
     code_support_font: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {family(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.MonospaceFont{} : Text.Font},
+      {Text.resolved_font(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.MonospaceFont{} : Text.Font},
     code_body_size: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {size(Text.resolve(Text.CodeBody{}, emphasis, scale)) == size(Text.resolve(Text.Body{}, emphasis, scale)) : Nat},
+      {Text.resolved_size(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.resolved_size(Text.resolve(Text.Body{}, emphasis, scale)) : Nat},
     code_body_leading: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {leading(Text.resolve(Text.CodeBody{}, emphasis, scale)) == leading(Text.resolve(Text.Body{}, emphasis, scale)) : Nat},
+      {Text.resolved_line_height(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(Text.Body{}, emphasis, scale)) : Nat},
     code_support_size: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {size(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == size(Text.resolve(Text.Support{}, emphasis, scale)) : Nat},
+      {Text.resolved_size(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.resolved_size(Text.resolve(Text.Support{}, emphasis, scale)) : Nat},
     code_support_leading: @scale:Text.Scale -> @emphasis:Text.Emphasis ->
-      {leading(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == leading(Text.resolve(Text.Support{}, emphasis, scale)) : Nat},
+      {Text.resolved_line_height(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(Text.Support{}, emphasis, scale)) : Nat},
     interface_family: {Text.font_family(Text.InterfaceFont{}) == "var(--font-sans, system-ui)" : String},
     code_family: {Text.font_family(Text.MonospaceFont{}) == "var(--font-mono, monospace)" : String},
     measurement_content: @key:String -> @text:String -> @style:Text.TextStyle -> @wrapping:Text.Wrapping -> @available:Maybe<&2,Nat> -> @reference:String ->

@@ -144,3 +144,7 @@ def arrangement_gap(value: Arrangement) -> Nat:
 def frame_gap(value: Frame) -> Nat:
   Frame{content, arrangement} = value
   arrangement_gap(arrangement)
+
+def extent_height(value: Extent) -> Nat:
+  Extent{width, height} = value
+  height

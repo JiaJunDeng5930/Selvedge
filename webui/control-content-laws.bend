@@ -7,7 +7,6 @@ import ./appearance.bend as Appearance
 import ./design.bend as Design
 import ./document.bend as Doc
 import ./renderer.bend as Render
-import ./renderer-laws.bend as Renderer
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
 
@@ -48,7 +47,7 @@ def layout_insets(layout: Controls.ContentLayout) -> (Nat & (Nat & Nat)):
 
 
 def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alignment: Design.Alignment, flow: Design.Flow, overflow: Design.Overflow, content_area: Enclosure.ContentArea, gap: Nat, height: Nat, maximum: Nat, states: Design.ControlStates, face: Controls.Face, size: Controls.Geometry) ->
-  {EnclosureLaws.frame_coordinates(Appearance.style_frame(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size))) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}:
+  {EnclosureLaws.frame_coordinates(Design.style_frame(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size))) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}:
   T.Presentation{tier, emphasis, scale} = text
   Design.Chrome{foreground, background, border, border_width, chrome_radius, shadow} = chrome
   match face size:
@@ -98,7 +97,7 @@ type Requirements is Type:
     action_content_is_last: @+key:String -> @+visual:Design.Style -> @input:Core.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+size:Controls.Geometry -> @placement:Controls.Placement -> @help:Controls.Help -> @feedback:Controls.Feedback ->
       {Doc.element_styles(Render.action(key, visual, Controls.Action{input, availability, name, face, behavior, size, placement, help, feedback})) == Render.action_styles(key, visual, face, size, placement) : +List<Doc.Property>},
     appearance_consumes_layout: @text:T.Presentation -> @chrome:Design.Chrome -> @alignment:Design.Alignment -> @flow:Design.Flow -> @overflow:Design.Overflow -> @content_area:Enclosure.ContentArea -> @gap:Nat -> @height:Nat -> @maximum:Nat -> @states:Design.ControlStates -> @face:Controls.Face -> @size:Controls.Geometry ->
-      {EnclosureLaws.frame_coordinates(Appearance.style_frame(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size))) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}}
+      {EnclosureLaws.frame_coordinates(Design.style_frame(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size))) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}}
 
 def evidence() -> Requirements:
   Requirements{+key => +icon => {==}, filesystem => network => approval => {==}, icon => {==}, +leading => label => {==}, +key => {==}, +key => {==}, +typography => geometry => +key => +leading => label => {==}, +key => {==}, +typography => +key => label => +description => width => height => icon => radius => slot => {==}, +typography => +key => label => +description => width => height => icon => radius => slot => {==}, +typography => geometry => +key => filesystem => network => approval => {==}, icon => width => height => size => radius => slot => ({==}, {==}), +key => +visual => input => availability => name => +face => behavior => +size => placement => help => feedback => {==}, appearance_consumes_layout}

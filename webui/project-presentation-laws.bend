@@ -2,15 +2,12 @@ import Base
 import ./typography.bend as T
 import ./enclosure.bend as Enclosure
 import ./appearance.bend as Appearance
-import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./renderer.bend as Render
 import ../core/field-options.bend as Options
 import ./design.bend as Design
-import ./surfaces.bend as Surfaces
 import ./controls.bend as Controls
 import ../core/interface.bend as UI
-import ../core/composition.bend as Composition
 import ../core/SYSTEM.bend as Core
 import ../core/user-input.bend as User
 import ../core/user-experience.bend as Experience
@@ -33,10 +30,6 @@ def projection_construction(input: Core.Input, availability: View.Availability, 
 def label_properties(value: Design.Style) -> (Design.Flow & (Design.Overflow & (Nat & Nat))):
   Design.Style{text, chrome, alignment, flow, overflow, +frame, minimum, maximum, states} = value
   (flow, (overflow, (Enclosure.inline(Enclosure.frame_content(frame)), Enclosure.block(Enclosure.frame_content(frame)))))
-
-def creation_heading_observed(value: Design.Style) -> T.Presentation:
-  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
-  text
 
 
 
@@ -128,7 +121,7 @@ def name_geometry(+visual: Design.Style) -> name_geometry_law(visual):
 
 
 def chooser_draft_observation_law(-id: Nat, -fallback: Design.Style) -> Type:
-  {creation_heading_observed(Appearance.chooser_style(Some{id}, fallback)) == creation_heading_observed(fallback) : T.Presentation}
+  {Design.style_text(Appearance.chooser_style(Some{id}, fallback)) == Design.style_text(fallback) : T.Presentation}
 
 def chooser_draft_observation(+id: Nat, +fallback: Design.Style) -> chooser_draft_observation_law(id, fallback):
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = fallback
@@ -195,7 +188,7 @@ type Requirements is Type:
     more_geometry: @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> {Controls.project_geometry(Controls.ProjectMore{}, Controls.Geometry{width, height, icon, radius, leading}) == Controls.Geometry{28n, 28n, icon, radius, leading} : Controls.Geometry},
     name_geometry: @+visual:Design.Style -> name_geometry_law(visual),
     task_production: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+task:Nat -> @+status:String -> @+selected:Bool -> @+children:+List<Design.Node> -> @+visual:Design.Style -> @+representation:Controls.Representation -> {Render.match_node(Design.Node{key, semantic, label, role, UI.TaskRow{task, status, selected}, visual, representation, children}, Render.render_children(children)) ==
-        Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status), Render.property("class", "native-surface")], Render.pointer_styles(Render.style(visual)), Nil{}, Render.task_row_children(Render.render_children(children), status, Appearance.style_text(visual))} : Doc.Node},
+        Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status), Render.property("class", "native-surface")], Render.pointer_styles(Render.style(visual)), Nil{}, Render.task_row_children(Render.render_children(children), status, Design.style_text(visual))} : Doc.Node},
     chooser_production: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+selected:Maybe<&2, Nat> -> @+children:+List<Design.Node> -> @+visual:Design.Style -> @+representation:Controls.Representation -> {Render.match_node(Design.Node{key, semantic, label, role, UI.ProjectChooser{selected}, visual, representation, children}, Render.render_children(children)) ==
         Doc.Element{key, "div", [Render.property("data-native-key", key)], Render.style(visual), Nil{}, Render.documents(Render.render_children(children))} : Doc.Node},
     chevron_paths: {(Render.icon_path(Controls.ChevronRight{}), Render.icon_path(Controls.ChevronDown{})) == ("M7.5 4.5 L13 10 L7.5 15.5", "M4.5 7.5 L10 13 L15.5 7.5") : String & String},

@@ -9,7 +9,6 @@ import ./renderer.bend as Render
 import ./viewport-space.bend as ViewportSpace
 import ./viewport-space-laws.bend as ViewportSpaceLaws
 import ./space.bend as Space
-import ../bendlib/stdlib.bend as Std
 import ../core/SYSTEM.bend as Core
 import ../core/user-experience.bend as E
 
@@ -211,8 +210,8 @@ def conversation_has_approval_only_dock(frame: Design.MainFrame) -> Bool:
 
 def input_metrics_law(+parameters: Design.LayoutParameters, -canvas: Design.Box) -> Type:
   {Layout.input_metrics(parameters, canvas) == Design.InputMetrics{
-      Layout.input_minimum_height(parameters),
-      Nat.max(Layout.input_minimum_height(parameters), Nat.min(Layout.input_maximum_height(parameters), Nat.div(Layout.box_height(canvas), 3n))), Layout.input_line_height(parameters), Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}
+      Design.input_minimum_height(parameters),
+      Nat.max(Design.input_minimum_height(parameters), Nat.min(Design.input_maximum_height(parameters), Nat.div(Layout.box_height(canvas), 3n))), Design.input_line_height(parameters), Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}
 
 def input_metrics_follow_consistent_bounds(+parameters: Design.LayoutParameters, canvas: Design.Box) -> input_metrics_law(parameters, canvas):
   match canvas:
@@ -275,7 +274,7 @@ def packed_ready(+parameters: Design.LayoutParameters, +viewport: Design.Viewpor
       Equal.cong(ViewportSpace.Result, Bool,
         (result => ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, result))),
         Layout.shell(parameters, viewport, navigation, details),
-        ViewportSpace.Allocated{ViewportSpace.placed_shell(placements, ViewportSpace.height(viewport), ViewportSpace.empty_shell(viewport, parameters, navigation))}, allocated)
+        ViewportSpace.Allocated{ViewportSpace.placed_shell(placements, Design.viewport_height(viewport), ViewportSpace.empty_shell(viewport, parameters, navigation))}, allocated)
     case Space.Insufficient{required, available}:
       Empty.absurd({ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
         Layout.shell(parameters, viewport, navigation, details))) == True{} : Bool}, proof)
@@ -365,19 +364,19 @@ def metrics_maximum(value: Design.InputMetrics) -> Nat:
   maximum
 
 def input_minimum_retained(+parameters: Design.LayoutParameters, canvas: Design.Box) ->
-  {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Layout.input_minimum_height(parameters) : Nat}:
+  {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Design.input_minimum_height(parameters) : Nat}:
   match canvas:
     case Design.Box{left, top, width, height}: {==}
 
 def input_maximum_fits_minimum(+parameters: Design.LayoutParameters, canvas: Design.Box) ->
-  {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Layout.input_minimum_height(parameters)) == True{} : Bool}:
+  {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Design.input_minimum_height(parameters)) == True{} : Bool}:
   match canvas:
-    case Design.Box{left, top, width, height}: Nat.max_ge_l(Layout.input_minimum_height(parameters), Nat.min(Layout.input_maximum_height(parameters), Nat.div(height, 3n)))
+    case Design.Box{left, top, width, height}: Nat.max_ge_l(Design.input_minimum_height(parameters), Nat.min(Design.input_maximum_height(parameters), Nat.div(height, 3n)))
 
 type Requirements is Type:
   Requirements{
-    input_minimum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Layout.input_minimum_height(parameters) : Nat},
-    input_maximum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Layout.input_minimum_height(parameters)) == True{} : Bool},
+    input_minimum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Design.input_minimum_height(parameters) : Nat},
+    input_maximum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Design.input_minimum_height(parameters)) == True{} : Bool},
     settings_beside: @+parameters:Design.LayoutParameters -> @+box:Design.Box -> @main:Design.Box ->
       {Layout.settings_bounds(parameters, Design.BesideNavigation{box}, main) == Layout.settings_in_navigation(parameters, box) : Design.Box},
     settings_overlay: @+parameters:Design.LayoutParameters -> @+box:Design.Box -> @main:Design.Box ->
@@ -433,9 +432,9 @@ type Requirements is Type:
         expected_anchored_menu(parameters, viewport, origin) : Design.OverlayPlacement},
     anchored_menu_prefers_block_space: @+parameters:Design.LayoutParameters -> @+viewport:Design.Viewport -> @+origin:String ->
       anchored_menu_prefers_block_space_law(parameters, viewport, origin),
-    compact_creation: @+parameters:Design.LayoutParameters -> @height:Nat -> @below:{Nat.is_lt(height, Layout.creation_balanced_minimum_height(parameters)) == True{} : Bool} ->
+    compact_creation: @+parameters:Design.LayoutParameters -> @height:Nat -> @below:{Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)) == True{} : Bool} ->
       {Layout.creation_flow_for_height(parameters, height) == Design.Compact{} : Design.CreationFlow},
-    balanced_creation: @+parameters:Design.LayoutParameters -> @height:Nat -> @enough:{Nat.is_lt(height, Layout.creation_balanced_minimum_height(parameters)) == False{} : Bool} ->
+    balanced_creation: @+parameters:Design.LayoutParameters -> @height:Nat -> @enough:{Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)) == False{} : Bool} ->
       {Layout.creation_flow_for_height(parameters, height) == Design.Balanced{} : Design.CreationFlow},
     navigation_capacity_feasible: @+parameters: Design.LayoutParameters -> @+viewport: Design.Viewport -> @intent: E.NavigationIntent ->
       {navigation_beside(Layout.capacity(parameters, viewport, intent)) ==
@@ -485,5 +484,5 @@ def evidence() -> Requirements:
         resolved => Layout.anchored_menu_placement(parameters, viewport, resolved),
         Layout.anchor(surface, return_attention), Some{origin}, matched),
     +parameters => viewport => origin => anchored_menu_prefers_block_space(parameters, viewport, origin),
-    +parameters => height => below => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Layout.creation_balanced_minimum_height(parameters)), True{}, below),
-    +parameters => height => enough => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Layout.creation_balanced_minimum_height(parameters)), False{}, enough), navigation_capacity_feasible, details_capacity_feasible, carried_parameters, present_feasible, present_unsupported, present_parameters}
+    +parameters => height => below => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)), True{}, below),
+    +parameters => height => enough => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)), False{}, enough), navigation_capacity_feasible, details_capacity_feasible, carried_parameters, present_feasible, present_unsupported, present_parameters}

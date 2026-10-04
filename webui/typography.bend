@@ -206,3 +206,19 @@ def valid_body(metric: Metric) -> Bool:
 
 def reading_width(reference_advance: Nat, columns: Nat) -> Nat:
   Nat.mul(reference_advance, columns)
+
+def resolved_line_height(style: TextStyle) -> Nat:
+  TextStyle{font, size, height, weight} = style
+  height
+
+def resolved_size(value: TextStyle) -> Nat:
+  TextStyle{family, size, line_height, weight} = value
+  size
+
+def resolved_font(value: TextStyle) -> Font:
+  TextStyle{family, size, line_height, weight} = value
+  family
+
+def resolved_weight(value: TextStyle) -> Nat:
+  TextStyle{family, size, line_height, weight} = value
+  weight

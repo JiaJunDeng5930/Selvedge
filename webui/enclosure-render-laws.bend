@@ -6,7 +6,6 @@ import ./appearance.bend as A
 import ./controls.bend as C
 import ./design.bend as D
 import ./renderer.bend as R
-import ./renderer-laws.bend as Renderer
 import ./document.bend as Doc
 import ./board-spatial-laws.bend as BoardLaws
 import ../core/interface.bend as UI
@@ -820,7 +819,7 @@ def parent_action(+property: ParentProperty, +key: String, +visual: D.Style, +in
         parent_style(True{}, property, visual), parent_action_tail(True{}, property, visual, face, size, placement, key, parent_value(visual, property)))))
 
 def parent_minimum(+value: D.Style) ->
-  {parent_value(value, MinimumHeight{}) == R.px(Model.minimum(value)) : String}:
+  {parent_value(value, MinimumHeight{}) == R.px(D.style_minimum_height(value)) : String}:
   D.Style{text, D.Chrome{fg, bg, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
   {==}
 
@@ -911,7 +910,7 @@ type Requirements is Type:
     area_properties: @+area:E.ContentArea -> {R.content_area_properties(area) == [R.property("padding-inline", R.px(E.inline(area))), R.property("padding-block", R.px(E.block(area))), R.property("box-sizing", "border-box")] : +List<Doc.Property>},
     style_allocation: @+value:D.Style -> @+axis:Axis -> {R.attr(R.style(value), axis_name(axis)) == R.px(axis_space(axis, Model.area(value))) : String},
     duplicate: @+name:String -> @+old:String -> @+new:String -> {R.attr([R.property(name, old), R.property(name, new)], name) == new : String},
-    geometry_height: @+size:C.Geometry -> @+visual:D.Style -> {R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height") == R.px(Model.minimum(visual)) : String},
+    geometry_height: @+size:C.Geometry -> @+visual:D.Style -> {R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height") == R.px(D.style_minimum_height(visual)) : String},
     navigation_header: @+typography:T.Presentation -> @+selected:Bool -> {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
     navigation_task: @+typography:T.Presentation -> @+selected:Bool -> @+key:String -> @+task:Nat -> @+status:String -> @+children:+List<R.Child> -> {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
     embedded_name: @+typography:T.Presentation -> {(R.attr(R.style(A.project_label_style(A.ordinary_button(typography))), "padding-inline"), R.attr(R.style(A.project_label_style(A.ordinary_button(typography))), "padding-block")) == ("0px", "0px") : (String & String)},
@@ -932,7 +931,7 @@ type Requirements is Type:
 def evidence() -> Requirements:
   Requirements{parent_action, +area => {==}, style_allocation, duplicate, +size => +visual =>
       Equal.trans(String, R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height"),
-        parent_value(visual, MinimumHeight{}), R.px(Model.minimum(visual)),
+        parent_value(visual, MinimumHeight{}), R.px(D.style_minimum_height(visual)),
         parent_append(False{}, MinimumHeight{}, R.style(visual), R.action_geometry(size, visual), "", parent_value(visual, MinimumHeight{}),
           parent_style(False{}, MinimumHeight{}, visual), parent_geometry(False{}, MinimumHeight{}, size, visual, parent_value(visual, MinimumHeight{}))),
         parent_minimum(visual))

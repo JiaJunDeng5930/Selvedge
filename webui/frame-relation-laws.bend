@@ -5,17 +5,12 @@ import ./design.bend as D
 import ./appearance.bend as A
 import ./controls.bend as C
 import ./renderer.bend as R
-import ./renderer-laws.bend as Renderer
 import ./document.bend as Doc
 import ./enclosure-render-laws.bend as EnclosureRender
 import ../BOARD.bend as Board
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
-
-def style_frame(value: D.Style) -> E.Frame:
-  D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
-  frame
 
 def actual_geometry(value: C.Representation) -> C.Geometry:
   match value:
@@ -37,7 +32,7 @@ def mark_icon_extent(layout: C.ChoiceContentLayout) -> Nat:
 
 
 def content_preserves_arrangement(+value: D.Style, content: E.ContentArea) ->
-  {E.frame_gap(style_frame(A.with_content_area(value, content))) == E.frame_gap(style_frame(value)) : Nat}:
+  {E.frame_gap(D.style_frame(A.with_content_area(value, content))) == E.frame_gap(D.style_frame(value)) : Nat}:
   D.Style{text, chrome, alignment, flow, overflow, E.Frame{old_content, arrangement}, minimum, maximum, states} = value
   {==}
 
@@ -118,7 +113,7 @@ def style_flow(value: D.Style) -> D.Flow:
   flow
 
 def frame_value(+value: D.Style) ->
-  {EnclosureRender.parent_value(value, EnclosureRender.FrameGap{}) == R.px(E.frame_gap(style_frame(value))) : String}:
+  {EnclosureRender.parent_value(value, EnclosureRender.FrameGap{}) == R.px(E.frame_gap(D.style_frame(value))) : String}:
   D.Style{text, D.Chrome{fg, bg, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
   {==}
 
@@ -127,11 +122,11 @@ def frame_value(+value: D.Style) ->
 
 
 def card_gap_law(-key: String, -face: View.CardFace, -destinations: +List<UI.Placement>, -source: +List<R.Child>, -visual: D.Style, +typography: T.Presentation) -> Type:
-  {R.attr(Doc.element_styles(R.card_node(key, face, destinations, source, visual, typography)), "gap") == R.px(E.frame_gap(style_frame(visual))) : String}
+  {R.attr(Doc.element_styles(R.card_node(key, face, destinations, source, visual, typography)), "gap") == R.px(E.frame_gap(D.style_frame(visual))) : String}
 
 def card_gap(+key: String, +face: View.CardFace, +destinations: +List<UI.Placement>, +source: +List<R.Child>, +visual: D.Style, +typography: T.Presentation) -> card_gap_law(key, face, destinations, source, visual, typography):
   View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated} = face
-  Equal.trans(String, R.attr(R.style(visual), "gap"), EnclosureRender.parent_value(visual, EnclosureRender.FrameGap{}), R.px(E.frame_gap(style_frame(visual))), EnclosureRender.parent_style(False{}, EnclosureRender.FrameGap{}, visual), frame_value(visual))
+  Equal.trans(String, R.attr(R.style(visual), "gap"), EnclosureRender.parent_value(visual, EnclosureRender.FrameGap{}), R.px(E.frame_gap(D.style_frame(visual))), EnclosureRender.parent_style(False{}, EnclosureRender.FrameGap{}, visual), frame_value(visual))
 
 def card_properties(+styles: +List<Doc.Property>) -> (String & (String & (String & (String & (String & (String & (String & (String & String)))))))):
   (R.attr(styles, "display"), (R.attr(styles, "flex-direction"), (R.attr(styles, "gap"), (R.attr(styles, "min-width"), (R.attr(styles, "border-color"), (R.attr(styles, "border-width"), (R.attr(styles, "border-style"), (R.attr(styles, "border-radius"), R.attr(styles, "box-shadow")))))))))
@@ -146,19 +141,19 @@ def card_production_properties(+key: String, +face: View.CardFace, +destinations
 
 def action_frame_gap_law(-key: String, -visual: D.Style, -input: Core.Input, -availability: View.Availability, -name: String,
   -face: C.Face, -behavior: C.Behavior, -size: C.Geometry, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback) -> Type:
-  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, size, placement, help, feedback})), "gap") == R.px(E.frame_gap(style_frame(visual))) : String}
+  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, size, placement, help, feedback})), "gap") == R.px(E.frame_gap(D.style_frame(visual))) : String}
 
 def action_frame_gap(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability, +name: String,
   +face: C.Face, +behavior: C.Behavior, +size: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) -> action_frame_gap_law(key, visual, input, availability, name, face, behavior, size, placement, help, feedback):
   Equal.trans(String,
     R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, size, placement, help, feedback})), "gap"),
-    EnclosureRender.parent_value(visual, EnclosureRender.FrameGap{}), R.px(E.frame_gap(style_frame(visual))),
+    EnclosureRender.parent_value(visual, EnclosureRender.FrameGap{}), R.px(E.frame_gap(D.style_frame(visual))),
     EnclosureRender.parent_action(EnclosureRender.FrameGap{}, key, visual, input, availability, name, face, behavior, size, placement, help, feedback), frame_value(visual))
 
 def choice_frame_gap_law(-key: String, -label: String, -selected: Bool, -description: String, -visual: D.Style,
   -input: Core.Input, -availability: View.Availability, -name: String, -face: C.Face, -behavior: C.Behavior,
   -size: C.Geometry, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback, +typography: T.Presentation) -> Type:
-  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, C.ChoiceFace{label, C.choice_description(description), selected}, behavior, size, placement, help, feedback})), "gap") == R.px(E.frame_gap(style_frame(visual))) : String}
+  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, C.ChoiceFace{label, C.choice_description(description), selected}, behavior, size, placement, help, feedback})), "gap") == R.px(E.frame_gap(D.style_frame(visual))) : String}
 
 def choice_frame_gap(+key: String, +label: String, +selected: Bool, +description: String, +visual: D.Style,
   +input: Core.Input, +availability: View.Availability, +name: String, +face: C.Face, +behavior: C.Behavior,
@@ -173,7 +168,7 @@ def flow_assigned(+value: D.Style, +flow: D.Flow) ->
 
 
 def choice_style_metrics(+value: D.Style) -> (Nat & D.Flow):
-  (E.frame_gap(style_frame(value)), style_flow(value))
+  (E.frame_gap(D.style_frame(value)), style_flow(value))
 
 def choice_style_normalization(+value: D.Style, +size: C.Geometry, label: String, description: Maybe<&2, String>, selected: Bool) ->
   {choice_style_metrics(A.action_style(value, C.ChoiceFace{label, description, selected}, size)) == (8n, D.ChoiceFlow{}) : (Nat & D.Flow)}:
@@ -189,7 +184,7 @@ def actual_choice_normalization(+key: String, +selected: Bool, +description: Str
   +role: UI.Role, +context: C.Context, +fallback: D.Style, +typography: T.Presentation) -> actual_choice_normalization_law(key, selected, description, input, availability, label, role, context, fallback, typography):
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-  choice_style_normalization(A.feedback_style(A.choice_button(selected, A.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{0n, 28n, 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+  choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{0n, 28n, 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
 
 type Requirements is Type:
   Requirements{
@@ -207,18 +202,18 @@ type Requirements is Type:
     embedded_gap: @+content:E.ContentArea -> @+gap:Nat -> {E.frame_gap(E.frame(content, E.EmbeddedContent{gap})) == gap : Nat},
     separate_gap: @+content:E.ContentArea -> @+spacing:E.Separation -> {E.frame_gap(E.frame(content, E.SeparateFrames{spacing})) == E.separation(spacing) : Nat},
     joined_gap: @content:E.ContentArea -> {E.frame_gap(E.frame(content, E.JoinedPartitions{})) == 0n : Nat},
-    content_preserves_arrangement: @+value:D.Style -> @content:E.ContentArea -> {E.frame_gap(style_frame(A.with_content_area(value, content))) == E.frame_gap(style_frame(value)) : Nat},
-    role_navigation: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {style_frame(A.style(UI.Navigation{}, meaning, typography)) == E.Frame{E.area(E.Navigation{}), E.SeparateFrames{E.NavigationRows{}}} : E.Frame},
-    role_menu: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {style_frame(A.style(UI.Menu{}, meaning, typography)) == E.Frame{E.area(E.Menu{}), E.SeparateFrames{E.MenuItems{}}} : E.Frame},
-    role_card: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {style_frame(A.style(UI.Card{}, meaning, typography)) == E.Frame{E.area(E.Card{}), E.SeparateFrames{E.CardSections{}}} : E.Frame},
-    role_details: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {style_frame(A.style(UI.Details{}, meaning, typography)) == E.Frame{E.area(E.Details{}), E.SeparateFrames{E.Sections{}}} : E.Frame},
-    role_dialog: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {style_frame(A.style(UI.Dialog{}, meaning, typography)) == E.Frame{E.DialogPartitions{}, E.JoinedPartitions{}} : E.Frame},
+    content_preserves_arrangement: @+value:D.Style -> @content:E.ContentArea -> {E.frame_gap(D.style_frame(A.with_content_area(value, content))) == E.frame_gap(D.style_frame(value)) : Nat},
+    role_navigation: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Navigation{}, meaning, typography)) == E.Frame{E.area(E.Navigation{}), E.SeparateFrames{E.NavigationRows{}}} : E.Frame},
+    role_menu: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Menu{}, meaning, typography)) == E.Frame{E.area(E.Menu{}), E.SeparateFrames{E.MenuItems{}}} : E.Frame},
+    role_card: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Card{}, meaning, typography)) == E.Frame{E.area(E.Card{}), E.SeparateFrames{E.CardSections{}}} : E.Frame},
+    role_details: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Details{}, meaning, typography)) == E.Frame{E.area(E.Details{}), E.SeparateFrames{E.Sections{}}} : E.Frame},
+    role_dialog: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Dialog{}, meaning, typography)) == E.Frame{E.DialogPartitions{}, E.JoinedPartitions{}} : E.Frame},
     actual_choice_geometry: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {actual_geometry(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.Geometry{0n, 28n, 16n, 6n, 20n} : C.Geometry},
     actual_choice_layout: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout},
     actual_choice_mark_contains_icon: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {Nat.is_le(mark_icon_extent(C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context))), mark_extent(C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context)))) == True{} : Bool},
     selection_keeps_allocation: @+key:String -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {C.choice_layout(C.make_choice(key, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout},
     production_choice_allocation: @+key:String -> @+label:String -> @+selected:Bool -> @+description:Maybe<&2, String> -> @+visual:D.Style -> @input:Core.Input -> @availability:View.Availability -> @name:String -> @behavior:C.Behavior -> @+geometry:C.Geometry -> @placement:C.Placement -> @help:C.Help -> @feedback:C.Feedback ->
-      {Doc.element_children(R.action(key, visual, C.Action{input, availability, name, C.ChoiceFace{label, description, selected}, behavior, geometry, placement, help, feedback})) == R.face(key, C.ChoiceFace{label, description, selected}, A.style_text(visual), geometry) : +List<Doc.Node>},
+      {Doc.element_children(R.action(key, visual, C.Action{input, availability, name, C.ChoiceFace{label, description, selected}, behavior, geometry, placement, help, feedback})) == R.face(key, C.ChoiceFace{label, description, selected}, D.style_text(visual), geometry) : +List<Doc.Node>},
     mark_reserves_space: @+key:String -> @+selected:Bool -> @+extent:Nat -> @+icon:Nat -> {(R.attr(Doc.element_styles(R.choice_mark(key, selected, extent, icon)), "width"), (R.attr(Doc.element_styles(R.choice_mark(key, selected, extent, icon)), "height"), R.attr(Doc.element_styles(R.choice_mark(key, selected, extent, icon)), "flex-shrink"))) == (R.px(extent), (R.px(icon), "0")) : (String & (String & String))},
     project_siblings: @+typography:T.Presentation -> @+key:String -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+children:+List<R.Child> -> {R.attr(Doc.element_styles(R.project_group_node(key, project, selected, expanded, A.project_group_style(typography), children)), "gap") == R.px(E.separation(E.NavigationRows{})) : String},
     dialog_content_separation: {R.attr(R.dialog_content_styles(), "gap") == R.px(E.separation(E.DialogSections{})) : String},
@@ -228,8 +223,8 @@ type Requirements is Type:
     choice_without_description: @+typography:T.Presentation -> @+key:String -> @label:String -> @selected:Bool -> @text_gap:Nat -> @extent:Nat -> @icon:Nat ->
       {R.choice_content_layout(key, label, None{}, selected, C.ChoiceContentLayout{text_gap, extent, icon}, typography) ==
         [Doc.Element{key ++ "/content", "span", Nil{}, [R.property("display", "flex"), R.property("flex-direction", "column"), R.property("flex", "1 1 0"), R.property("min-width", "0"), R.property("text-align", "start")], Nil{}, [R.caption_label(key, label, C.caption_wrapping(C.ChoiceFace{label, None{}, selected}))]}, R.choice_mark(key, selected, extent, icon)] : +List<Doc.Node>},
-    timeline_gap: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {E.frame_gap(style_frame(A.style(UI.Timeline{}, meaning, typography))) == E.separation(E.Messages{}) : Nat},
-    section_gap: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {E.frame_gap(style_frame(A.style(UI.Section{}, meaning, typography))) == E.separation(E.Sections{}) : Nat},
+    timeline_gap: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {E.frame_gap(D.style_frame(A.style(UI.Timeline{}, meaning, typography))) == E.separation(E.Messages{}) : Nat},
+    section_gap: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {E.frame_gap(D.style_frame(A.style(UI.Section{}, meaning, typography))) == E.separation(E.Sections{}) : Nat},
     choice_group_gap: @+typography:T.Presentation -> @+key:String -> @+label:String -> @+visual:D.Style -> @+children:+List<Doc.Node> -> {R.attr(Doc.element_styles(R.choice_group_node(key, label, A.choice_group_style(visual), children, typography)), "gap") == R.px(E.separation(E.MenuItems{})) : String},
     card_gap: @+typography:T.Presentation -> @+key:String -> @+face:View.CardFace -> @+destinations:+List<UI.Placement> -> @+source:+List<R.Child> -> @+visual:D.Style -> card_gap_law(key, face, destinations, source, visual, typography),
     lane_allocation: @+stage:Board.Stage -> {(R.attr(R.board_lane_styles(stage), "padding-inline"), R.attr(R.board_lane_styles(stage), "padding-block")) == (R.px(E.inline(E.area(E.Lane{}))), R.px(E.block(E.area(E.Lane{})))) : (String & String)},
@@ -243,7 +238,7 @@ def evidence() -> Requirements:
   Requirements{
     +typography => +key => +id => +title => +description => +priority => +pinned => +status => +project => +labels => +owner => +updated => +destinations => +source => +visual => {==},
     +typography => +key => +face => +destinations => +source => +meaning => card_production_properties(key, face, destinations, source, meaning, typography), action_frame_gap,
-    +typography => +key => +label => +selected => +description => +visual => +input => +availability => +name => +face => +behavior => +size => +placement => +help => +feedback => choice_frame_gap(key, label, selected, description, visual, input, availability, name, face, behavior, size, placement, help, feedback, typography), +value => +face => +size => flow_assigned(A.action_content_style(value, C.content_layout(face), size, A.intrinsic_content_height(face, A.style_text(value), size)), A.action_flow(face, C.content_layout(face))),
+    +typography => +key => +label => +selected => +description => +visual => +input => +availability => +name => +face => +behavior => +size => +placement => +help => +feedback => choice_frame_gap(key, label, selected, description, visual, input, availability, name, face, behavior, size, placement, help, feedback, typography), +value => +face => +size => flow_assigned(A.action_content_style(value, C.content_layout(face), size, A.intrinsic_content_height(face, D.style_text(value), size)), A.action_flow(face, C.content_layout(face))),
     +typography => +key => +selected => +description => +input => +availability => +label => +role => +context => +fallback => actual_choice_normalization(key, selected, description, input, availability, label, role, context, fallback, typography), +content => +gap => {==}, +content => +spacing => {==}, content => {==}, content_preserves_arrangement,
     +typography => +meaning => {==},
     +typography => +meaning => {==},

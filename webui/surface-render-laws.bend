@@ -26,10 +26,14 @@ def document_background(document: Doc.Document) -> String:
 
 
 
+def placed_scene(scene: Web.Scene) -> Doc.Document:
+  Web.Scene{presentation, platform, generation, realization, layout} = scene
+  Render.place(presentation, layout)
+
 def application_background(+scene: Web.Scene) ->
-  {document_background(Render.render(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String}:
+  {document_background(placed_scene(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String}:
   match scene:
-    case Web.Scene{Design.Surface{content, theme, base, overlays, active}, platform, generation, realization,
+    case Web.Scene{Design.PreparedSurface{Design.Surface{content, theme, source_base, source_overlays, active}, base, overlays}, platform, generation, realization,
       Design.Layout{Design.Viewport{width, height}, shell, main, placements, parameters}}: {==}
 
 
@@ -62,7 +66,7 @@ type Requirements is Type:
     surface_paint: @+role:Surfaces.Role -> @+phase:Surfaces.Phase ->
       {Render.paint(Design.SurfacePaint{role, phase}) == Render.surface_color(Surfaces.background(role, phase)) : String},
     application_background: @+scene:Web.Scene ->
-      {document_background(Render.render(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String},
+      {document_background(placed_scene(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String},
     lane_background: @+stage:Board.Stage ->
       {Render.attr(Render.board_lane_styles(stage), "background") ==
         Render.surface_background(Surfaces.Lane{Render.stage_surface_tone(stage)}, Surfaces.Rest{}) : String},

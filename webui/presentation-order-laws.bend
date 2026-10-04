@@ -562,7 +562,7 @@ def FrameProjectionClaim(outcome: Model.SceneOutcome, projected: Maybe<&2, UI.Su
 
 def projected_frame_claim(+outcome: Model.SceneOutcome) -> FrameProjectionClaim(outcome, Model.projected_frame(outcome)):
   match outcome:
-    case Model.ReadyScene{Model.Scene{surface, platform, generation, realization, layout}}: {==}
+    case Model.ReadyScene{Model.Scene{presentation, platform, generation, realization, layout}}: {==}
     case Model.AwaitingTypography{}: {==}
     case Model.FailedTypography{}: {==}
     case Model.UnsupportedSpace{required, available}: {==}

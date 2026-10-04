@@ -232,8 +232,7 @@ def notice_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
 
 
 def semantic_scene(scene: Web.Scene) -> UI.Surface:
-  Web.Scene{surface, platform, generation, realization, layout} = scene
-  Design.semantic_surface(surface)
+  Design.semantic_surface(Web.scene_surface(scene))
 
 def semantic_or(outcome: Web.SceneOutcome, original: UI.Surface) -> UI.Surface:
   match outcome:

@@ -11,6 +11,7 @@ import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
 import ./MODEL.bend as Model
 import ./design.bend as Design
+import ./renderer.bend as R
 import ./font-observation.bend as F
 import ./typography.bend as T
 import ./layout.bend as Layout
@@ -969,7 +970,7 @@ type Requirements is Type:
     scene_uses_measurement: @+application:Platform.State -> @+generation:Nat -> @+realization:Rendered.State -> @+viewport:Design.Viewport -> @+dark:Bool -> @root:Nat -> @font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @+content_cache:+List<T.Measured> -> @+surface:Interface.Surface -> @+prepared:Design.Surface -> @+layout:Design.Layout ->
       @preparation:{CS.prepare(content_cache, Appearance.present(surface, dark, scale)) == CS.Prepared{prepared} : CS.Outcome} ->
       @allocated:{Layout.present(ViewportSpace.parameters(scale, metric), viewport, Design.semantic_surface(prepared)) == Layout.LayoutReady{layout} : Layout.Outcome} ->
-      {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric, content_cache}}, surface) == Model.ReadyScene{Model.Scene{prepared, Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome},
+      {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric, content_cache}}, surface) == Model.ReadyScene{Model.Scene{R.prepare(prepared), Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome},
 
     product_refinement: @input:Product.Input -> @core:Core.State -> @platform:Platform.Platform ->
       @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
@@ -1063,6 +1064,21 @@ type Requirements is Type:
       {tape_bookmark(Std.iter(~Tape, ~advance, count, seed)) == tape_bookmark(seed) : Reading.Bookmark}
   }
 
+def scene_uses_measurement(+application: Platform.State, +generation: Nat, +realization: Rendered.State,
+  +viewport: Design.Viewport, +dark: Bool, root: Nat, font_generation: Nat, +scale: T.Scale,
+  +metric: T.Metric, +content_cache: +List<T.Measured>, +surface: Interface.Surface,
+  +prepared: Design.Surface, +layout: Design.Layout,
+  preparation: {CS.prepare(content_cache, Appearance.present(surface, dark, scale)) == CS.Prepared{prepared} : CS.Outcome},
+  allocated: {Layout.present(ViewportSpace.parameters(scale, metric), viewport, Design.semantic_surface(prepared)) == Layout.LayoutReady{layout} : Layout.Outcome}) ->
+  {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric, content_cache}}, surface) == Model.ReadyScene{Model.Scene{R.prepare(prepared), Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome}:
+  Design.Surface{content, theme, base, overlays, active_scope} = prepared
+  Equal.trans(Model.SceneOutcome,
+    Model.prepared_scene(CS.prepare(content_cache, Appearance.present(surface, dark, scale)), application, generation, realization, ViewportSpace.parameters(scale, metric), viewport),
+    Model.prepared_scene(CS.Prepared{prepared}, application, generation, realization, ViewportSpace.parameters(scale, metric), viewport),
+    Model.ReadyScene{Model.Scene{R.prepare(prepared), Platform.observe(application), generation, realization, layout}},
+    Equal.cong(CS.Outcome, Model.SceneOutcome, (outcome => Model.prepared_scene(outcome, application, generation, realization, ViewportSpace.parameters(scale, metric), viewport)), CS.prepare(content_cache, Appearance.present(surface, dark, scale)), CS.Prepared{prepared}, preparation),
+    Equal.cong(Layout.Outcome, Model.SceneOutcome, (outcome => Model.allocated_scene(outcome, application, generation, realization, R.prepare(prepared))), Layout.present(ViewportSpace.parameters(scale, metric), viewport, Design.semantic_surface(prepared)), Layout.LayoutReady{layout}, allocated))
+
 def evidence() -> Requirements:
   Requirements{reflow_same, +application => +generation => +realization => +environment => +font => +received => +metrics => stale =>
       Equal.cong(Bool, Model.Decision,
@@ -1081,12 +1097,7 @@ def evidence() -> Requirements:
       invalidated_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
         (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
     , reflow_product, typography_product, pending_scene, failed_scene, pending_frame, failed_frame, +application => +generation => +realization => +viewport => +dark => root => font_generation => +scale => +metric => +content_cache => +surface => +prepared => +layout => preparation => allocated =>
-      Equal.trans(Model.SceneOutcome,
-        Model.prepared_scene(CS.prepare(content_cache, Appearance.present(surface, dark, scale)), application, generation, realization, ViewportSpace.parameters(scale, metric), viewport),
-        Model.prepared_scene(CS.Prepared{prepared}, application, generation, realization, ViewportSpace.parameters(scale, metric), viewport),
-        Model.ReadyScene{Model.Scene{prepared, Platform.observe(application), generation, realization, layout}},
-        Equal.cong(CS.Outcome, Model.SceneOutcome, (outcome => Model.prepared_scene(outcome, application, generation, realization, ViewportSpace.parameters(scale, metric), viewport)), CS.prepare(content_cache, Appearance.present(surface, dark, scale)), CS.Prepared{prepared}, preparation),
-        Equal.cong(Layout.Outcome, Model.SceneOutcome, (outcome => Model.allocated_scene(outcome, application, generation, realization, prepared)), Layout.present(ViewportSpace.parameters(scale, metric), viewport, Design.semantic_surface(prepared)), Layout.LayoutReady{layout}, allocated))
+      scene_uses_measurement(application, generation, realization, viewport, dark, root, font_generation, scale, metric, content_cache, surface, prepared, layout, preparation, allocated)
     ,
     input => core => platform => environment => font => generation => realization =>
       product_refinement(input, core, platform, generation, realization, environment, font),

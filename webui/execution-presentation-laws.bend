@@ -3,8 +3,6 @@ import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
 import ../core/user-context.bend as Context
-import ../core/ui-world.bend as View
-import ../core/user-input.bend as User
 import ../bendlib/domain.bend as Domain
 import ./renderer.bend as Render
 import ./controls.bend as Controls
@@ -78,10 +76,10 @@ type Requirements is Type:
              Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]} : Doc.Node},
     choice_group_production: @+key: String -> @semantic: String -> @+label: String -> @role: UI.Role -> @+source: +List<Design.Node> -> @+visual: Design.Style -> @representation: Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, UI.ChoiceGroup{}, visual, representation, source}, Render.render_children(source)) ==
-    Render.choice_group_node(key, label, visual, Render.documents(Render.render_children(source)), Appearance.style_text(visual)) : Doc.Node},
+    Render.choice_group_node(key, label, visual, Render.documents(Render.render_children(source)), Design.style_text(visual)) : Doc.Node},
     summary_production: @+key: String -> @semantic: String -> @+label: String -> @+role: UI.Role -> @+observation: Context.Observation -> @+source: +List<Design.Node> -> @+visual: Design.Style -> @representation: Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, UI.ContextSummary{observation}, visual, representation, source}, Render.render_children(source)) ==
-    Render.context_summary_node(key, label, role, observation, visual, Render.render_children(source), Appearance.style_text(visual)) : Doc.Node},
+    Render.context_summary_node(key, label, role, observation, visual, Render.render_children(source), Design.style_text(visual)) : Doc.Node},
     summary_passive_facts: @+typography:T.Presentation -> @+key: String -> @+label: String -> @role: UI.Role -> @+observation: Context.Observation -> @+visual: Design.Style -> @+children: +List<Render.Child> ->
       {Render.context_summary_node(key, label, role, observation, visual, children, typography) ==
           Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),

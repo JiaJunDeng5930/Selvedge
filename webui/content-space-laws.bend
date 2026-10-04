@@ -234,10 +234,6 @@ def extent_width(value: E.Extent) -> Nat:
   E.Extent{width, height} = value
   width
 
-def extent_height(value: E.Extent) -> Nat:
-  E.Extent{width, height} = value
-  height
-
 def padded_ink(ink: E.Extent, style: D.Style) -> E.Extent:
   E.Extent{width, height} = ink
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = style
@@ -246,14 +242,6 @@ def padded_ink(ink: E.Extent, style: D.Style) -> E.Extent:
 def geometry_width(value: C.Geometry) -> Nat:
   C.Geometry{width, height, icon, radius, leading} = value
   width
-
-def geometry_height(value: C.Geometry) -> Nat:
-  C.Geometry{width, height, icon, radius, leading} = value
-  height
-
-def style_height(value: D.Style) -> Nat:
-  D.Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states} = value
-  height
 
 def outer_width_geometry(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), geometry_width(geometry)) == True{} : Bool}:
@@ -272,19 +260,19 @@ def outer_width_ink(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   Nat.max_ge_r(minimum_width, required_width)
 
 def outer_height_style(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
-  {Nat.is_ge(extent_height(S.outer_extent(ink, geometry, style)), style_height(style)) == True{} : Bool}:
+  {Nat.is_ge(E.extent_height(S.outer_extent(ink, geometry, style)), D.style_minimum_height(style)) == True{} : Bool}:
   E.Extent{width, height} = ink
   C.Geometry{minimum_width, +minimum_height, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = style
-  required_height = extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
+  required_height = E.extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
   Nat.max_ge_l(minimum, Nat.max(minimum_height, required_height))
 
 def outer_height_geometry(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
-  {Nat.is_le(geometry_height(geometry), extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}:
+  {Nat.is_le(C.geometry_minimum_height(geometry), E.extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}:
   E.Extent{width, height} = ink
   C.Geometry{minimum_width, +minimum_height, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = style
-  +required_height = extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
+  +required_height = E.extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
   +inner = Nat.max(minimum_height, required_height)
   +outer = Nat.max(minimum, inner)
   Space.le_trans(minimum_height, inner, outer,
@@ -292,11 +280,11 @@ def outer_height_geometry(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style
     Equal.trans(Bool, Nat.is_le(inner, outer), Nat.is_ge(outer, inner), True{}, Equal.sym(Bool, Nat.is_ge(outer, inner), Nat.is_le(inner, outer), Space.ge_le(outer, inner)), Nat.max_ge_r(minimum, inner)))
 
 def outer_height_ink(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
-  {Nat.is_le(extent_height(padded_ink(ink, style)), extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}:
+  {Nat.is_le(E.extent_height(padded_ink(ink, style)), E.extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}:
   E.Extent{width, height} = ink
   C.Geometry{minimum_width, +minimum_height, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = style
-  +required_height = extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
+  +required_height = E.extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
   +inner = Nat.max(minimum_height, required_height)
   +outer = Nat.max(minimum, inner)
   Space.le_trans(required_height, inner, outer,
@@ -312,9 +300,9 @@ type Requirements is Type:
     choice: @+measured:+List<T.Measured> -> @+key:String -> @+caption:String -> @+description:Maybe<&2, String> -> @+text:T.Presentation -> @+geometry:C.Geometry -> @+gap:Nat -> {S.ink(measured, key, C.ChoiceFace{caption, description, True{}}, text, geometry, gap) == S.ink(measured, key, C.ChoiceFace{caption, description, False{}}, text, geometry, gap) : S.Content},
     outer_width_geometry: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), geometry_width(geometry)) == True{} : Bool},
     outer_width_ink: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), extent_width(padded_ink(ink, style))) == True{} : Bool},
-    outer_height_style: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_ge(extent_height(S.outer_extent(ink, geometry, style)), style_height(style)) == True{} : Bool},
-    outer_height_geometry: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_le(geometry_height(geometry), extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool},
-    outer_height_ink: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_le(extent_height(padded_ink(ink, style)), extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}}
+    outer_height_style: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_ge(E.extent_height(S.outer_extent(ink, geometry, style)), D.style_minimum_height(style)) == True{} : Bool},
+    outer_height_geometry: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_le(C.geometry_minimum_height(geometry), E.extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool},
+    outer_height_ink: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_le(E.extent_height(padded_ink(ink, style)), E.extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}}
 
 def evidence() -> Requirements:
   Requirements{prepare_semantics, refinement_control, refinement_style, demand_consumed, choice_reservation,

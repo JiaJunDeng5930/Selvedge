@@ -5,16 +5,12 @@ import ./design.bend as Design
 import ../core/user-experience.bend as E
 import ../core/ui-world.bend as V
 
-def line_height(style: T.TextStyle) -> Nat:
-  T.TextStyle{font, size, height, weight} = style
-  height
-
 def parameters(+scale: T.Scale, body: T.Metric) -> Design.LayoutParameters:
   T.Metric{key, minimum, preferred, height, +advance} = body
-  +leading = Nat.max(line_height(T.resolve(T.Body{}, T.Regular{}, scale)), height)
+  +leading = Nat.max(T.resolved_line_height(T.resolve(T.Body{}, T.Regular{}, scale)), height)
   +toolbar = Nat.max(T.scaled(46n, scale), Nat.add(leading, T.scaled(26n, scale)))
   +input_minimum = Nat.max(T.scaled(44n, scale), Nat.add(leading, Nat.mul(2n, T.scaled(12n, scale))))
-  balanced = Nat.add(toolbar, Nat.mul(2n, Nat.add(line_height(T.resolve(T.Display{}, T.Regular{}, scale)),
+  balanced = Nat.add(toolbar, Nat.mul(2n, Nat.add(T.resolved_line_height(T.resolve(T.Display{}, T.Regular{}, scale)),
     Nat.add(input_minimum, Nat.add(T.scaled(32n, scale), Nat.mul(3n, T.scaled(16n, scale)))))))
   Design.LayoutParameters{T.scaled(275n, scale), Nat.add(T.reading_width(advance, 64n), Nat.mul(2n, T.scaled(16n, scale))),
     T.scaled(360n, scale), T.reading_width(advance, 96n), T.reading_width(advance, 144n), toolbar,
@@ -34,30 +30,14 @@ def width(viewport: Design.Viewport) -> Nat:
   Design.Viewport{width, height} = viewport
   width
 
-def height(viewport: Design.Viewport) -> Nat:
-  Design.Viewport{width, height} = viewport
-  height
-
-def navigation_width(value: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
-  navigation
-
-def main_minimum_width(value: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
-  main
-
-def details_width(value: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
-  details
-
 def navigation_slot(value: Design.LayoutParameters) -> Space.Slot<ShellPart>:
-  Space.Slot{NavigationPart{}, Space.Rigid{navigation_width(value)}}
+  Space.Slot{NavigationPart{}, Space.Rigid{Design.navigation_width(value)}}
 
 def main_slot(minimum: Nat) -> Space.Slot<ShellPart>:
   Space.Slot{MainPart{}, Space.Fill{minimum}}
 
 def details_slot(value: Design.LayoutParameters) -> Space.Slot<ShellPart>:
-  Space.Slot{DetailsPart{}, Space.Rigid{details_width(value)}}
+  Space.Slot{DetailsPart{}, Space.Rigid{Design.details_width(value)}}
 
 def packed(value: Space.Packing<ShellPart>) -> Bool:
   match value:
@@ -65,7 +45,7 @@ def packed(value: Space.Packing<ShellPart>) -> Bool:
     case Space.Insufficient{required, available}: False{}
 
 def navigation_slots(+value: Design.LayoutParameters) -> +List<Space.Slot<ShellPart>>:
-  [navigation_slot(value), main_slot(main_minimum_width(value))]
+  [navigation_slot(value), main_slot(Design.main_minimum_width(value))]
 
 def include_navigation(placement: V.NavigationPlacement, value: Design.LayoutParameters,
   rest: +List<Space.Slot<ShellPart>>) -> +List<Space.Slot<ShellPart>>:
@@ -79,7 +59,7 @@ def include_details(requested: Bool, value: Design.LayoutParameters) -> +List<Sp
     case False{}: Nil{}
 
 def regular_slots(+value: Design.LayoutParameters, placement: V.NavigationPlacement, details: Bool) -> +List<Space.Slot<ShellPart>>:
-  include_navigation(placement, value, main_slot(main_minimum_width(value)) <> include_details(details, value))
+  include_navigation(placement, value, main_slot(Design.main_minimum_width(value)) <> include_details(details, value))
 
 def navigation_capacity(viewport: Design.Viewport, value: Design.LayoutParameters) -> Bool:
   packed(Space.pack(~ShellPart, navigation_slots(value), 0n, width(viewport)))
@@ -105,7 +85,7 @@ def actual_main_minimum(compact: Bool, minimum: Nat) -> Nat:
 
 def shell_slots(+viewport: Design.Viewport, +value: Design.LayoutParameters, +placement: V.NavigationPlacement,
   +details: Bool) -> +List<Space.Slot<ShellPart>>:
-  +minimum = main_minimum_width(value)
+  +minimum = Design.main_minimum_width(value)
   include_navigation(placement, value,
     main_slot(actual_main_minimum(compact_main(placement, details, width(viewport), minimum), minimum)) <>
       include_details(details, value))
@@ -118,11 +98,11 @@ def initial_navigation(+viewport: Design.Viewport, value: Design.LayoutParameter
   placement: V.NavigationPlacement) -> Design.Navigation:
   match placement:
     case V.ModalNavigation{}:
-      Design.OverlayNavigation{Design.Box{0n, 0n, Nat.min(navigation_width(value), width(viewport)), height(viewport)}}
+      Design.OverlayNavigation{Design.Box{0n, 0n, Nat.min(Design.navigation_width(value), width(viewport)), Design.viewport_height(viewport)}}
     case _: Design.HiddenNavigation{}
 
 def empty_shell(+viewport: Design.Viewport, value: Design.LayoutParameters, placement: V.NavigationPlacement) -> Design.Shell:
-  Design.Shell{initial_navigation(viewport, value, placement), Design.Box{0n, 0n, 0n, height(viewport)}, None{}}
+  Design.Shell{initial_navigation(viewport, value, placement), Design.Box{0n, 0n, 0n, Design.viewport_height(viewport)}, None{}}
 
 def install(part: ShellPart, box: Design.Box, shell: Design.Shell) -> Design.Shell:
   match part shell:
@@ -141,7 +121,7 @@ def from_packing(+viewport: Design.Viewport, value: Design.LayoutParameters, pla
   match packing:
     case Space.Insufficient{required, available}: Unsupported{required, available}
     case Space.Packed{placements, unused}:
-      Allocated{placed_shell(placements, height(viewport), empty_shell(viewport, value, placement))}
+      Allocated{placed_shell(placements, Design.viewport_height(viewport), empty_shell(viewport, value, placement))}
 
 def shell(+viewport: Design.Viewport, +value: Design.LayoutParameters, +placement: V.NavigationPlacement, details: Bool) -> Result:
   from_packing(viewport, value, placement, shell_packing(viewport, value, placement, details))

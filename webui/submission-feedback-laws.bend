@@ -6,7 +6,6 @@ import ./renderer.bend as Render
 import ./design.bend as Design
 import ./controls.bend as Controls
 import ../core/interface.bend as UI
-import ../core/user-input.bend as U
 
 def alert_policy_fields(value: Design.Style) -> (T.Presentation & (Design.Paint & Design.Overflow)):
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
@@ -14,7 +13,7 @@ def alert_policy_fields(value: Design.Style) -> (T.Presentation & (Design.Paint 
 
 def alert_policy(value: Design.Style) ->
   {alert_policy_fields(Appearance.alert_style(UI.Alert{}, value)) ==
-    (T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(Appearance.style_text(value))},
+    (T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(Design.style_text(value))},
       (Design.ThemeToken{"--color-text-danger"}, Design.TextFlow{T.WrapAnywhere{}})) : (T.Presentation & (Design.Paint & Design.Overflow))}:
   match value:
     case Design.Style{T.Presentation{tier, emphasis, scale}, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
@@ -23,7 +22,7 @@ type Requirements is Type:
   Requirements{
     alert_style_policy: @value:Design.Style ->
       {alert_policy_fields(Appearance.alert_style(UI.Alert{}, value)) ==
-        (T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(Appearance.style_text(value))},
+        (T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(Design.style_text(value))},
           (Design.ThemeToken{"--color-text-danger"}, Design.TextFlow{T.WrapAnywhere{}})) : (T.Presentation & (Design.Paint & Design.Overflow))},
     text_flow_serialization: @wrapping:T.Wrapping ->
       {Render.overflow_style(Design.TextFlow{wrapping}) ==

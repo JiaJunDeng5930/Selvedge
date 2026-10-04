@@ -248,7 +248,8 @@ def status_document(role: String, message: String) -> Document.Document:
 
 def scene_document(outcome: Web.SceneOutcome, pending: +List<Pending>) -> Document.Document:
   match outcome:
-    case Web.ReadyScene{scene}: mark_document(Renderer.render(scene), pending)
+    case Web.ReadyScene{Web.Scene{presentation, platform, generation, realization, layout}}:
+      mark_document(Renderer.place(presentation, layout), pending)
     case Web.AwaitingTypography{}: status_document("status", "Measuring interface text…")
     case Web.FailedTypography{}: status_document("alert", "The interface could not measure its text. Change the display environment to retry.")
     case Web.UnsupportedSpace{required, available}:
@@ -282,7 +283,7 @@ def collected_finish(decision: Decision, web: +List<Web.Effect>, services: +List
   Decision{state, List.append(&2, Effect, wrap_web(web), List.append(&2, Effect, requests, wrap_services(services)))}
 def scene_nodes(outcome: Web.SceneOutcome) -> +List<UI.Node>:
   match outcome:
-    case Web.ReadyScene{Web.Scene{surface, platform, generation, realization, layout}}: UI.active_nodes(Design.semantic_surface(surface))
+    case Web.ReadyScene{scene}: UI.active_nodes(Design.semantic_surface(Web.scene_surface(scene)))
     case _: Nil{}
 def nodes(state: State) -> +List<UI.Node>:
   scene_nodes(scene(state))
@@ -740,9 +741,12 @@ def active_focus_scope(state: State) -> Focus.Scope:
   State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
   scope
 
-def ready_layer_key(value: Web.Scene) -> Maybe<&2, String>:
-  Web.Scene{Design.Surface{content, theme, base, overlays, scope}, platform, generation, realization, layout} = value
+def surface_layer_key(surface: Design.Surface) -> Maybe<&2, String>:
+  Design.Surface{content, theme, base, overlays, scope} = surface
   scope
+
+def ready_layer_key(value: Web.Scene) -> Maybe<&2, String>:
+  surface_layer_key(Web.scene_surface(value))
 
 def scene_layer_key(outcome: Web.SceneOutcome) -> Maybe<&2, String>:
   match outcome:
