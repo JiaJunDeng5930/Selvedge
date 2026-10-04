@@ -1,0 +1,310 @@
+import Base
+import ./authored.bend as Authored
+import ./source.bend as Source
+import ./design.bend as Design
+import ./physical-space.bend as Model
+import ./spatial.bend as Spatial
+import ./enclosure.bend as Enclosure
+import ./typography.bend as Typography
+import ../core/interface.bend as UI
+import ../core/ui-world.bend as View
+import ../core/SYSTEM.bend as Core
+import ../core/composition.bend as Composition
+
+type Anchor is Data:
+  Anchor{key: String, bounds: Spatial.Box}
+
+type Result is Data:
+  Ready{source: Source.Node}
+  Rejected{key: String, problem: Authored.Problem}
+
+type BaseParts is Data:
+  BaseParts{navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>}
+
+type OverlayParts is Data:
+  OverlayParts{docked: +List<Source.Node>, floating: +List<Source.Node>}
+
+def neutral(font: Typography.Presentation, direction: Model.Direction, width: Model.AxisSize, height: Model.AxisSize, cross: Spatial.Alignment) -> Source.Style:
+  Source.Style{Source.Layout{direction, Spatial.Leading{}, cross,
+    Enclosure.frame(Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}),
+    width, height, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}},
+    Source.ExplicitFont{font}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"}, Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}}, Design.Passive{}}
+
+def theme_name(theme: Design.Theme) -> String:
+  match theme:
+    case Design.Light{}: "light"
+    case Design.Dark{}: "dark"
+
+def application_background(style: Source.Style) -> Source.Style:
+  Source.Style{layout, font_choice, chrome, states} = style
+  Source.Style{layout, font_choice, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"}, Design.ThemeToken{"--color-token-bg-primary"}, Design.Transparent{}, 0n, 0n, False{}}, states}
+
+# Shell geometry retains the authored interaction, typography and descendants.
+def application_style(+font: Typography.Presentation) -> Source.Style:
+  application_background(neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}))
+
+def reframed_style(style: Source.Style, layout: Source.Layout) -> Source.Style:
+  Source.Style{old_layout, font, chrome, states} = style
+  Source.Style{layout, font, chrome, states}
+
+def reframe(node: Source.Node, +layout: Source.Layout) -> Source.Node:
+  match node:
+    case Source.NativeAttachment{key, target, attributes, style, children}: Source.NativeAttachment{key, target, attributes, reframed_style(style, layout), children}
+    case Source.Box{key, tag, style, attributes, children}: Source.Box{key, tag, reframed_style(style, layout), attributes, children}
+    case Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Source.Control{key, tag, reframed_style(style, layout), attributes, accessible_name, enabled, first_event, remaining_events, children}
+    case Source.Glyph{key, drawing, style}: Source.Glyph{key, drawing, reframed_style(style, layout)}
+    case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: Source.Field{key, kind, reframed_style(style, layout), attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}
+    case Source.RichText{key, style, content, attachments}: Source.RichText{key, reframed_style(style, layout), content, attachments}
+    case Source.Text{key, value, font, wrapping}: Source.Text{key, value, font, wrapping}
+
+def layout_of(node: Source.Node) -> Source.Layout:
+  match node:
+    case Source.NativeAttachment{key, target, attributes, Source.Style{layout, font, chrome, states}, children}: layout
+    case Source.Box{key, tag, Source.Style{layout, font, chrome, states}, attributes, children}: layout
+    case Source.Control{key, tag, Source.Style{layout, font, chrome, states}, attributes, accessible_name, enabled, first_event, remaining_events, children}: layout
+    case Source.Glyph{key, drawing, Source.Style{layout, font, chrome, states}}: layout
+    case Source.Field{key, kind, Source.Style{layout, font, chrome, states}, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: layout
+    case Source.RichText{key, Source.Style{layout, font, chrome, states}, content, attachments}: layout
+    case Source.Text{key, value, font, wrapping}:
+      Source.Layout{Model.Vertical{}, Spatial.Leading{}, Spatial.Leading{}, Enclosure.frame(Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}), Model.NaturalSize{}, Model.NaturalSize{}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}}
+
+def resized_layout(layout: Source.Layout, width: Model.AxisSize, height: Model.AxisSize, scroll: Model.Scroll, cross: Spatial.Alignment, position: Spatial.Position) -> Source.Layout:
+  Source.Layout{direction, main, old_cross, frame, old_width, old_height, minimum, old_scroll, old_position} = layout
+  Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}
+
+def resize(+node: Source.Node, width: Model.AxisSize, height: Model.AxisSize, scroll: Model.Scroll, cross: Spatial.Alignment, position: Spatial.Position) -> Source.Node:
+  reframe(node, resized_layout(layout_of(node), width, height, scroll, cross, position))
+
+def wrap(key: String, style: Source.Style, children: +List<Source.Node>) -> Source.Node:
+  Source.Box{key, Source.Div{}, style, Nil{}, children}
+
+def spacer(key: String, font: Typography.Presentation) -> Source.Node:
+  Source.Box{key, Source.Div{}, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{}, Nil{}}
+
+def with_footer(key: String, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, settings: +List<Source.Node>, font: Typography.Presentation) -> Source.Node:
+  Source.Box{key, tag, style, attributes, List.append(&2, Source.Node, children, spacer("/application/navigation-spacer", font) <> settings)}
+
+def base_role_found(found: Bool, role: UI.Role, fallback: UI.Role) -> UI.Role:
+  match found:
+    case True{}: role
+    case False{}: fallback
+
+def base_role(+key: String, +values: +List<Design.Node>) -> UI.Role:
+  match values:
+    case Nil{}: UI.Content{}
+    case Con{Design.Node{current, semantic, label, role, meaning, style, control, children}, rest}:
+      base_role_found(String.eq(key, current), role, base_role(key, rest))
+
+def is_navigation(+key: String, role: UI.Role) -> Bool:
+  match role:
+    case UI.Navigation{}: True{}
+    case _: String.eq(key, "/navigation/navigation/toggle")
+
+def split_base_settings(found: Bool, node: Source.Node, parts: BaseParts) -> BaseParts:
+  match found parts:
+    case True{} BaseParts{navigation, main, settings, other}: BaseParts{navigation, main, node <> settings, other}
+    case False{} BaseParts{navigation, main, settings, other}: BaseParts{navigation, main, settings, node <> other}
+
+def split_base_role(+node: Source.Node, role: UI.Role, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>) -> BaseParts:
+  match role:
+    case UI.Main{}: BaseParts{navigation, node <> main, settings, other}
+    case _:
+      split_base_settings(String.eq(Source.key_of(node), "/settings/open"), node, BaseParts{navigation, main, settings, other})
+
+def split_base_navigation(found: Bool, +node: Source.Node, +role: UI.Role, parts: BaseParts) -> BaseParts:
+  match found parts:
+    case True{} BaseParts{navigation, main, settings, other}: BaseParts{node <> navigation, main, settings, other}
+    case False{} BaseParts{navigation, main, settings, other}:
+      split_base_role(node, role, navigation, main, settings, other)
+
+def split_base_node(+node: Source.Node, +role: UI.Role, parts: BaseParts) -> BaseParts:
+  split_base_navigation(is_navigation(Source.key_of(node), role), node, role, parts)
+
+def split_base(+values: +List<Source.Node>, +design: +List<Design.Node>) -> BaseParts:
+  match values:
+    case Nil{}: BaseParts{Nil{}, Nil{}, Nil{}, Nil{}}
+    case Con{+node, rest}:
+      split_base_node(node, base_role(Source.key_of(node), design), split_base(rest, design))
+
+def navigation_footer(+values: +List<Source.Node>, settings: +List<Source.Node>, +font: Typography.Presentation) -> +List<Source.Node>:
+  match values:
+    case Nil{}: settings
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      with_footer(key, tag, style, attributes, children, settings, font) <> rest
+    case Con{first, rest}: first <> navigation_footer(rest, settings, font)
+
+def navigation_nodes(+values: +List<Source.Node>, +width: Nat) -> +List<Source.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{node, rest}:
+      resize(node, Model.LimitedSize{0n, width, width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> navigation_nodes(rest, width)
+
+def reading_layout(layout: Source.Layout, +maximum: Nat) -> Source.Layout:
+  Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
+  Source.Layout{direction, main, cross, frame, Model.LimitedSize{0n, maximum, maximum}, height, minimum, scroll, position}
+
+def reading_children(values: +List<Source.Node>, +maximum: Nat) -> +List<Source.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+node, rest}: reframe(node, reading_layout(layout_of(node), maximum)) <> reading_children(rest, maximum)
+
+def main_nodes(values: +List<Source.Node>, +maximum: Nat) -> +List<Source.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Source.Box{key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, rest}:
+      Source.Box{key, tag, Source.Style{Source.Layout{direction, main, Spatial.Centered{}, frame, Model.StretchSize{}, Model.StretchSize{}, minimum, scroll, Spatial.InFlow{}}, font, chrome, states}, attributes, reading_children(children, maximum)} <> main_nodes(rest, maximum)
+    case Con{node, rest}: node <> main_nodes(rest, maximum)
+
+def body_mode(beside: Bool, navigation_width: Nat, +reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
+  match beside:
+    case True{}:
+      Source.Box{"/application/body", Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+        List.append(&2, Source.Node, navigation_nodes(navigation_footer(navigation, settings, font), navigation_width), List.append(&2, Source.Node, main_nodes(main, reading_width), List.append(&2, Source.Node, other, docked)))}
+    case False{}:
+      Source.Box{"/application/body", Source.Div{}, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+        Source.Box{"/application/topbar", Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, Spatial.Centered{}), Nil{},
+          List.append(&2, Source.Node, navigation, spacer("/application/topbar-spacer", font) <> settings)} <>
+        List.append(&2, Source.Node, main_nodes(main, reading_width), List.append(&2, Source.Node, other, docked))}
+
+def body_direction(capacity: View.Capacity, parameters: Design.LayoutParameters, reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
+  View.Capacity{beside, details} = capacity
+  body_mode(beside, Design.navigation_width(parameters), reading_width, navigation, main, settings, other, docked, font)
+
+def body(parts: BaseParts, reading_width: Nat, +capacity: View.Capacity, +parameters: Design.LayoutParameters, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
+  BaseParts{navigation, main, settings, other} = parts
+  body_direction(capacity, parameters, reading_width, navigation, main, settings, other, docked, font)
+
+def prefer_anchor(found: Maybe<&2, String>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match found:
+    case Some{key}: Some{key}
+    case None{}: fallback
+
+def semantic_anchor_found(found: Bool, key: String, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match found:
+    case True{}: Some{key}
+    case False{}: fallback
+
+def semantic_anchor(+requested: String, +values: +List<UI.Node>) -> Maybe<&2, String>:
+  match values:
+    case Nil{}: None{}
+    case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
+      semantic_anchor_found(String.eq(semantic, requested), key, prefer_anchor(semantic_anchor(requested, children), semantic_anchor(requested, rest)))
+
+def found_key(found: Maybe<&2, UI.Node>) -> Maybe<&2, String>:
+  match found:
+    case None{}: None{}
+    case Some{UI.Node{key, semantic, label, role, meaning, children}}: Some{key}
+
+def anchor_key(+requested: String, +base: +List<Design.Node>, +overlays: +List<Design.Node>) -> Maybe<&2, String>:
+  +semantic_base = Design.semantic_nodes(base)
+  +semantic_overlays = Design.semantic_nodes(overlays)
+  prefer_anchor(found_key(UI.find_node(semantic_base, requested)),
+    prefer_anchor(found_key(UI.find_node(semantic_overlays, requested)),
+      prefer_anchor(semantic_anchor(requested, semantic_base), semantic_anchor(requested, semantic_overlays))))
+
+def observed_anchor_found(found: Bool, bounds: Spatial.Box, fallback: Maybe<&2, Spatial.Box>) -> Maybe<&2, Spatial.Box>:
+  match found:
+    case True{}: Some{bounds}
+    case False{}: fallback
+
+def observed_anchor(+key: String, anchors: +List<Anchor>) -> Maybe<&2, Spatial.Box>:
+  match anchors:
+    case Nil{}: None{}
+    case Con{Anchor{current, bounds}, rest}:
+      observed_anchor_found(String.eq(key, current), bounds, observed_anchor(key, rest))
+
+def layer_found(found: Bool, layer: View.Layer, fallback: Maybe<&2, View.Layer>) -> Maybe<&2, View.Layer>:
+  match found:
+    case True{}: Some{layer}
+    case False{}: fallback
+
+def find_layer(+key: String, layers: +List<View.Layer>) -> Maybe<&2, View.Layer>:
+  match layers:
+    case Nil{}: None{}
+    case Con{+layer, rest}:
+      View.Layer{kind, content, initial, restore, dismissal} = layer
+      layer_found(String.eq(UI.layer_key(initial), key), layer, find_layer(key, rest))
+
+def anchored_position(found: Maybe<&2, String>, outside: Enclosure.Insets, gap: Nat, anchors: +List<Anchor>) -> Spatial.Position:
+  match found:
+    case None{}: Spatial.CenteredLayer{outside}
+    case Some{+key}: Spatial.AnchoredLayer{key, observed_anchor(key, anchors), outside, gap, Spatial.Leading{}}
+
+def menu_position(found: Maybe<&2, View.Layer>, +outside: Enclosure.Insets, gap: Nat, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>) -> Spatial.Position:
+  match found:
+    case Some{View.Layer{View.AnchoredMenu{}, content, initial, restore, dismissal}}:
+      anchored_position(anchor_key(restore, base, overlays), outside, gap, anchors)
+    case _: Spatial.CenteredLayer{outside}
+
+def floating_position(role: UI.Role, key: String, +outside: Enclosure.Insets, gap: Nat, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>) -> Spatial.Position:
+  match role:
+    case UI.Menu{}: menu_position(find_layer(key, layers), outside, gap, base, overlays, anchors)
+    case _: Spatial.CenteredLayer{outside}
+
+def floating_width(role: UI.Role, +reading_width: Nat) -> Model.AxisSize:
+  match role:
+    case UI.Menu{}: Model.CappedNaturalSize{100n}
+    case _: Model.LimitedSize{0n, reading_width, reading_width}
+
+def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height} = parameters
+  OverlayParts{resize(node, Model.LimitedSize{0n, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating}
+
+def outside_insets(+unit: Nat) -> Enclosure.Insets:
+  Enclosure.Insets{Nat.mul(2n, unit), Nat.mul(2n, unit)}
+
+def float_overlay(+role: UI.Role, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height} = parameters
+  +unit = Nat.max(1n, Nat.div(line_height, 4n))
+  +outside = outside_insets(unit)
+  OverlayParts{docked, resize(node, floating_width(role, reading_width), Model.CappedNaturalSize{100n}, Model.ScrollVertically{}, Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
+
+def overlay_layout(+role: UI.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  match role details_beside:
+    case UI.Details{} True{}:
+      dock_overlay(parameters, node, docked, floating)
+    case _ _:
+      float_overlay(role, parameters, node, layers, base, overlays, anchors, docked, floating)
+
+def overlay_capacity(+role: UI.Role, capacity: View.Capacity, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  View.Capacity{navigation_beside, details_beside} = capacity
+  overlay_layout(role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating)
+
+def split_overlay_node(+node: Source.Node, +role: UI.Role, capacity: View.Capacity, parameters: Design.LayoutParameters, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, parts: OverlayParts) -> OverlayParts:
+  OverlayParts{docked, floating} = parts
+  overlay_capacity(role, capacity, parameters, node, layers, base, overlays, anchors, docked, floating)
+
+def split_overlays(+values: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +base: +List<Design.Node>, +overlays: +List<Design.Node>, +anchors: +List<Anchor>) -> OverlayParts:
+  match values:
+    case Nil{}: OverlayParts{Nil{}, Nil{}}
+    case Con{+node, rest}:
+      split_overlay_node(node, base_role(Source.key_of(node), overlays), capacity, parameters, layers, base, overlays, anchors,
+        split_overlays(rest, capacity, parameters, layers, base, overlays, anchors))
+
+def assembled_parts(parts: OverlayParts, reading_width: Nat, base_nodes: +List<Source.Node>, base: +List<Design.Node>, capacity: View.Capacity, parameters: Design.LayoutParameters, +font: Typography.Presentation, theme: Design.Theme) -> Result:
+  OverlayParts{docked, floating} = parts
+  Ready{Source.Box{"/application", Source.Div{}, application_style(font), [Source.DataAttribute{"theme", theme_name(theme)}],
+        body(split_base(base_nodes, base), reading_width, capacity, parameters, docked, font) <> floating}}
+
+def structure_reading_width(structure: Design.MainStructure, parameters: Design.LayoutParameters) -> Nat:
+  match structure:
+    case Design.ConversationStructure{}: Design.reading_maximum_width(parameters)
+    case _: Design.overview_maximum_width(parameters)
+
+def scene_reading_width(content: Core.Scene, parameters: Design.LayoutParameters) -> Nat:
+  Core.Scene{surface, settings, transfers, preview, code, directory_picker} = content
+  structure_reading_width(Design.main_structure(Composition.recipe(View.scene_page(surface))), parameters)
+
+def assemble_surface(surface: Design.Surface, base_nodes: +List<Source.Node>, overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, layers: +List<View.Layer>, anchors: +List<Anchor>, +font: Typography.Presentation) -> Result:
+  Design.Surface{content, theme, +base, +overlays, active_scope} = surface
+  assembled_parts(split_overlays(overlay_nodes, capacity, parameters, layers, base, overlays, anchors), scene_reading_width(content, parameters), base_nodes, base, capacity, parameters, font, theme)
+
+def assemble(base_result: Authored.Result, overlay_result: Authored.Result, +surface: Design.Surface, capacity: View.Capacity, parameters: Design.LayoutParameters, layers: +List<View.Layer>, anchors: +List<Anchor>, +font: Typography.Presentation) -> Result:
+  match base_result overlay_result:
+    case Authored.Rejected{key, problem} _: Rejected{key, problem}
+    case _ Authored.Rejected{key, problem}: Rejected{key, problem}
+    case Authored.Authored{base_nodes} Authored.Authored{overlay_nodes}:
+      assemble_surface(surface, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font)
+
+def source(+surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation) -> Result:
+  assemble(Authored.base(surface, parameters), Authored.overlays(surface, parameters), surface, capacity, parameters, layers, anchors, font)

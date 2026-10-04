@@ -1,4 +1,5 @@
 import Base
+import ./spatial.bend as SpatialModel
 import ./typography.bend as T
 import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
@@ -86,17 +87,17 @@ type Requirements is Type:
       {Appearance.theme(Services.SystemAppearance{}, system_dark) == system_theme(system_dark) : Design.Theme},
     user_message_style_is_exact: @+typography:T.Presentation -> @meaning:UI.Meaning ->
       {Appearance.style(UI.UserMessage{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
-            Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style},
+            Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, SpatialModel.Trailing{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style},
     assistant_message_style_is_exact: @+typography:T.Presentation -> @meaning:UI.Meaning ->
       {Appearance.style(UI.AssistantMessage{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
-            Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style},
+            Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, SpatialModel.Leading{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style},
     composer_actions_style_is_exact: @+typography:T.Presentation -> @meaning:UI.Meaning ->
       {Appearance.style(UI.ComposerActions{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
-            Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style},
+            Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, SpatialModel.Stretch{}, SpatialModel.SplitRowFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style},
     primary_button_keeps_interaction_states: @+typography:T.Presentation -> @meaning:UI.Meaning ->
       {Appearance.style(UI.PrimaryButton{}, meaning, typography) == Design.Style{T.with_emphasis(typography, T.Medium{}), Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
             Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
-            Design.Transparent{}, 0n, 8n, False{}}, Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
+            Design.Transparent{}, 0n, 8n, False{}}, SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
             Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
               Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}}},
             Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},

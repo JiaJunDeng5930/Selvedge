@@ -46,10 +46,6 @@ type Requirements is Type:
       {Interface.composer(view, parent, state) == Interface.expected_composer(view, parent, state) : +List<Interface.Node>},
     structure_order: @recipe:Composition.Recipe ->
       {Composition.structure(recipe) == expected_structure(recipe) : Composition.Structure},
-    creation_structure: @composer:Bool ->
-      {Composition.structure(Composition.recipe(Composition.Creation{composer})) ==
-        Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <>
-          Composition.centered_composer_region(Composition.centered_composer(composer)), Nil{}} : Composition.Structure},
     creation_project: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, View.ProjectChoice>},
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> ->

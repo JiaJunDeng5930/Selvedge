@@ -82,8 +82,7 @@ and a concrete `justification` before executing the command. The Web UI shows
 the complete command, reason, working directory and requested scope, with
 **Approve once** and **Deny** buttons for human review. Approval permits only that
 invocation outside filesystem and network isolation; it never changes the task's
-saved settings. A frozen task can receive a decision but waits for Unfreeze before
-running. Duplicate or stale decisions cannot authorize another execution.
+saved settings.
 Cancellation, malformed model replies and interrupted reviews grant no access.
 A failed sandbox command is not retried automatically with broader permissions.
 
@@ -103,7 +102,7 @@ the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates su
 limits. Decision reasons that are program requirements belong in Bend entities,
 executable specifications or public rules bound to actual production computations.
 Do not maintain another account in documentation of requirements already expressed
-there. [ADRs](docs/adr) are optional.
+there.
 
 [UI.bend](UI.bend) is the platform-independent interaction entry. Its typed
 presentation, form bindings, navigation and action availability are evaluated

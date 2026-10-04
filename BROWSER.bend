@@ -1,9 +1,13 @@
+import ./webui/focus.bend as Focus
+import ./webui/physical-plan.bend as Plan
+import ./webui/physical-content.bend as Content
+import ./webui/browser.bend as Legacy
 import Base
 import ./MODEL.bend as M
 import ./webui/document.bend as Document
 import ./webui/editor.bend as Editor
 import ./webui/reading.bend as Reading
-import ./webui/browser.bend as Browser
+import ./webui/physical-browser.bend as Browser
 import ./webui/font-observation.bend as F
 import ./core/client-services.bend as Services
 import ./core/code-block.bend as Code
@@ -13,7 +17,7 @@ import ./bendlib/json.bend as J
 def empty() -> M.World(): Browser.empty()
 def initial(program: M.World(), sequence: Nat) -> Browser.State: Browser.initial(program, sequence)
 def command_rejected(ticket: Nat, reason: String, state: Browser.State) -> Browser.Decision: Browser.command_rejected(ticket, reason, state)
-def step(input: Browser.Input, state: Browser.State) -> Browser.Decision: Browser.step(input, state)
+def step(input: Legacy.Input, state: Browser.State) -> Browser.Decision: Browser.step(input, state)
 def observe(state: Browser.State) -> Document.Document: Browser.observe(state)
 def activate(key: String, state: Browser.State) -> Browser.Decision: Browser.activate(key, state)
 def edit_text(key: String, text: String, state: Browser.State) -> Browser.Decision: Browser.edit_text(key, text, state)
@@ -44,3 +48,31 @@ def measurement_budget(state: Browser.State) -> Nat: Browser.measurement_budget(
 
 def measurement_plan(state: Browser.State) -> F.Plan: Browser.measurement_plan(state)
 def measurements(observation: F.Observation, state: Browser.State) -> Browser.Decision: Browser.measurements(observation, state)
+
+def focus_ticket(state: Browser.State) -> Nat: Browser.focus_ticket(state)
+
+def active_scope(state: Browser.State) -> Focus.Scope: Browser.active_scope(state)
+
+def displayed_generation(state: Browser.State) -> Nat: Browser.displayed_generation(state)
+
+def display_ready(state: Browser.State) -> Bool: Browser.display_ready(state)
+
+def requested_generation(state: Browser.State) -> Nat: Browser.requested_generation(state)
+
+def render_status(state: Browser.State) -> String: Browser.render_status(state)
+
+def physical_plan(state: Browser.State) -> Maybe<&2, Plan.Plan>: Browser.physical_plan(state)
+
+def physical_measured(generation: Nat, receipts: +List<String>, state: Browser.State) -> Browser.Decision: Browser.physical_measured(generation, receipts, state)
+
+def physical_measurement_failed(generation: Nat, reason: String, state: Browser.State) -> Browser.Decision: Browser.physical_measurement_failed(generation, reason, state)
+
+def capture_anchor(key: String, left: Nat, top: Nat, width: Nat, height: Nat, state: Browser.State) -> Browser.Decision: Browser.capture_anchor(key, left, top, width, height, state)
+
+def remeasure(state: Browser.State) -> Browser.Decision: Browser.remeasure(state)
+
+def probe_document(job: Plan.Job) -> Document.Document: Browser.probe_document(job)
+
+def probe_target_keys(request: Content.Request) -> +List<String>: Browser.probe_target_keys(request)
+
+def publication(last_published: Nat, state: Browser.State) -> Browser.Publication: Browser.publication(last_published, state)

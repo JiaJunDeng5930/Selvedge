@@ -1,4 +1,5 @@
 import Base
+import ../spatial.bend as SpatialModel
 import ../space.bend as Space
 import ../typography.bend as T
 import ../enclosure.bend as E
@@ -39,7 +40,7 @@ def layout_copied(+value: D.Style, +layout: C.ContentLayout, +geometry: C.Geomet
   C.ContentLayout{alignment, space, gap} = layout
   action_insets(value, geometry, space, gap, content_height)
 
-def flow_preserves_area(+value: D.Style, flow: D.Flow) ->
+def flow_preserves_area(+value: D.Style, flow: SpatialModel.Flow) ->
   {Rule.area(A.with_flow(value, flow)) == Rule.area(value) : E.ContentArea}:
   D.Style{text, chrome, alignment, old_flow, overflow, frame, minimum, maximum, states} = value
   {==}

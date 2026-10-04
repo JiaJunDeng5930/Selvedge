@@ -58,3 +58,38 @@ def accumulator_refines(+left: String, +right: String, +same: Bool) ->
 def public_refines(+left: String, +right: String) ->
   {Same.string_equal(left, right) == String.eq(left, right) : Bool}:
   accumulator_refines(left, right, True{})
+
+def same_bit(+value: Bool) -> {Bool.cmp(value, value) == EQ{} : Cmp}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def same_word(+size: Nat, +value: Word(size)) -> {Word.cmp(size, value, value) == EQ{} : Cmp}:
+  match size:
+    case 0n: {==}
+    case 1n+rest:
+      match value:
+        case WCon{+head, +tail}:
+          Equal.trans(Cmp, Word.cmp.fin(head, head, Word.cmp(rest, tail, tail)), Word.cmp.fin(head, head, EQ{}), EQ{},
+            Equal.cong(Cmp, Cmp, (order => Word.cmp.fin(head, head, order)), Word.cmp(rest, tail, tail), EQ{}, same_word(rest, tail)), same_bit(head))
+
+def same_character(+code: U32) -> {Char.cmp(Chr{code}, Chr{code}) == ((Chr{code}, Chr{code}), EQ{}) : (Char & Char) & Cmp}:
+  match code:
+    case U32{+value}:
+      Equal.cong(Cmp, (Char & Char) & Cmp, (order => ((Chr{U32{value}}, Chr{U32{value}}), order)), Word.cmp(32n, value, value), EQ{}, same_word(32n, value))
+
+def same_comparison(+text: String) -> {String.cmp(text, text) == ((text, text), EQ{}) : (String & String) & Cmp}:
+  match text:
+    case SNil{}: {==}
+    case SCon{Chr{+code}, +rest}:
+      Equal.trans((String & String) & Cmp,
+        String.cmp(SCon{Chr{code}, rest}, SCon{Chr{code}, rest}),
+        String.cmp.rec(Chr{code}, Chr{code}, String.cmp(rest, rest)),
+        ((SCon{Chr{code}, rest}, SCon{Chr{code}, rest}), EQ{}),
+        Equal.cong((Char & Char) & Cmp, (String & String) & Cmp,
+          (heads => String.cmp.fin(rest, rest, heads)), Char.cmp(Chr{code}, Chr{code}), ((Chr{code}, Chr{code}), EQ{}), same_character(code)),
+        Equal.cong((String & String) & Cmp, (String & String) & Cmp,
+          (compared => String.cmp.rec(Chr{code}, Chr{code}, compared)), String.cmp(rest, rest), ((rest, rest), EQ{}), same_comparison(rest)))
+
+def same_string(+text: String) -> {String.eq(text, text) == True{} : Bool}:
+  Equal.cong((String & String) & Cmp, Bool, (compared => String.eq.fin(compared)), String.cmp(text, text), ((text, text), EQ{}), same_comparison(text))

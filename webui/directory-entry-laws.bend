@@ -6,17 +6,10 @@ import ../core/SYSTEM.bend as Core
 import ../core/interface.bend as UI
 import ../core/user-input.bend as U
 import ./browser.bend as Browser
-import ./renderer.bend as Renderer
 import ./controls.bend as Controls
-import ./document.bend as Doc
 
 type Requirements is Type:
   Requirements{
-    events: @+key:String -> @face:Controls.Face ->
-      {Renderer.input_events(key, Controls.DirectoryChooser{face}) == [Doc.EditText{key}, Doc.ConfirmText{key}] : +List<Doc.Event>},
-    independent_editor: @key:String -> @face:Controls.Face ->
-      {Renderer.editor_properties(key, Controls.DirectoryChooser{face}) == Nil{} : +List<Doc.Property>},
-    observed_value: @editor:U.Editor -> @+text:String -> {Renderer.node_value(UI.EnterDirectory{editor, text}) == text : String},
     enter_key: {Browser.confirmation_key("Enter", False{}, False{}, False{}, False{}, False{}) == True{} : Bool},
     composing_key: @keyboard:String -> @control:Bool -> @alt:Bool -> @shift:Bool -> @meta:Bool ->
       {Browser.confirmation_key(keyboard, True{}, control, alt, shift, meta) == False{} : Bool},
@@ -28,8 +21,7 @@ type Requirements is Type:
       {Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
     rejected_confirmation: @+key:String -> @keyboard:String -> @composing:Bool -> @control:Bool -> @alt:Bool -> @shift:Bool -> @meta:Bool -> @+state:Browser.State ->
       @denied:{Browser.confirmation_key(keyboard, composing, control, alt, shift, meta) == False{} : Bool} ->
-      {Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
-  }
+      {Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state) == Browser.Decision{state, Nil{}} : Browser.Decision}}
 
 law evidence:
   Requirements

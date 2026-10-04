@@ -11,16 +11,10 @@ def Rule.evidence():
     values => {==},
     choices => key => editor => enabled => profile => label => role => context => {==},
     choices => key => editor => enabled => profile => label => role => context => {==},
-    choices => editor => enabled => profile => {==},
-    key => {==},
     choices => key => semantic => label => role => editor => previous => profile => children => enabled => {==},
     enabled => selected => previous => profile => {==},
     enabled => selected => previous => profile => {==},
     stage => rest => {==},
     priority => rest => {==},
     value => {==},
-    value => {==},
-    key => stage => rest => {==},
-    key => priority => rest => {==},
-    key => value => {==},
-    key => value => {==}}
+    value => {==}}

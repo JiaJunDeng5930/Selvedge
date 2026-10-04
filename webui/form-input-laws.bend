@@ -5,9 +5,7 @@ import ../core/interface.bend as UI
 import ../core/user-input.bend as User
 import ../BOARD.bend as Board
 import ./controls.bend as Controls
-import ./renderer.bend as Renderer
 import ./browser.bend as Browser
-import ./document.bend as Doc
 
 def labels_in_fields(values: +List<Forms.FieldScene>) -> Maybe<&2, Forms.Entry>:
   match values:
@@ -53,11 +51,6 @@ type Requirements is Type:
       {Controls.represent(key, UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
           Controls.Input{UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_checked: @choices:+List<Forms.ChoiceValue> -> @editor:User.Editor -> @enabled:Bool -> @profile:String ->
-      {Renderer.checked_properties(UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}) ==
-    Renderer.checked_property(enabled) : +List<Doc.Property>},
-    assistance_event: @key:String ->
-      {Renderer.input_events(key, Controls.ToggleInput{}) == [Doc.EditToggle{key}] : +List<Doc.Event>},
     assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<UI.Node> -> @enabled:Bool ->
       {Browser.toggle_gesture(Some{UI.Node{key, semantic, label, role,
           UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==
@@ -78,18 +71,7 @@ type Requirements is Type:
       {Options.field_options(Forms.CardStage{}, value) == Options.stage_options(Board.stages()) : +List<Forms.ChoiceValue>},
     priority_choices_binding: @value:Forms.Observed ->
       {Options.field_options(Forms.CardPriority{}, value) ==
-        Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}]) : +List<Forms.ChoiceValue>},
-    stage_option: @key:String -> @stage:Board.Stage -> @rest:+List<Board.Stage> ->
-      {Renderer.field_options(key, Options.stage_options(Con{stage, rest})) ==
-    Renderer.option(key, Board.stage_name(stage), Board.stage_label(stage)) <> Renderer.field_options(key, Options.stage_options(rest)) : +List<Doc.Node>},
-    priority_option: @key:String -> @priority:Board.Priority -> @rest:+List<Board.Priority> ->
-      {Renderer.field_options(key, Options.priority_options(Con{priority, rest})) ==
-    Renderer.option(key, Board.priority_name(priority), Board.priority_label(priority)) <> Renderer.field_options(key, Options.priority_options(rest)) : +List<Doc.Node>},
-    stage_options_binding: @key:String -> @value:Forms.Observed ->
-      {Renderer.field_options(key, Options.field_options(Forms.CardStage{}, value)) == Renderer.field_options(key, Options.stage_options(Board.stages())) : +List<Doc.Node>},
-    priority_options_binding: @key:String -> @value:Forms.Observed ->
-      {Renderer.field_options(key, Options.field_options(Forms.CardPriority{}, value)) ==
-    Renderer.field_options(key, Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}])) : +List<Doc.Node>}}
+        Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}]) : +List<Forms.ChoiceValue>}}
 
 law evidence:
   Requirements

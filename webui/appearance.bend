@@ -1,4 +1,5 @@
 import Base
+import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
 import ../core/interface.bend as UI
@@ -46,8 +47,8 @@ def chrome(foreground: Design.Paint, background: Design.Paint, border: Design.Pa
   border_width: Nat, radius: Nat, shadow: Bool) -> Design.Chrome:
   Design.Chrome{foreground, background, border, border_width, radius, shadow}
 
-def fields(text: T.Presentation, style_chrome: Design.Chrome, alignment: Design.Alignment,
-  flow: Design.Flow, overflow: Design.Overflow, padding_inline: Nat, padding_block: Nat,
+def fields(text: T.Presentation, style_chrome: Design.Chrome, alignment: SpatialModel.Alignment,
+  flow: SpatialModel.Flow, overflow: SpatialModel.Overflow, padding_inline: Nat, padding_block: Nat,
   gap: Nat, minimum_height: Nat, maximum_width_percent: Nat,
   states: Design.ControlStates) -> Design.Style:
   Design.Style{text, style_chrome, alignment, flow, overflow, Enclosure.Frame{Enclosure.ambient(padding_inline, padding_block), Enclosure.EmbeddedContent{gap}}, minimum_height, maximum_width_percent, states}
@@ -88,17 +89,17 @@ def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
   }
 
 def base_style(+typography: T.Presentation) -> Design.Style:
-  fields(typography, base_chrome(), Design.Stretch{}, Design.BlockFlow{},
-    Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+  fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
+    SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
 
-def surface_style(flow: Design.Flow, overflow: Design.Overflow, padding_inline: Nat,
+def surface_style(flow: SpatialModel.Flow, overflow: SpatialModel.Overflow, padding_inline: Nat,
   padding_block: Nat, gap: Nat, radius: Nat, shadow: Bool, +typography: T.Presentation) -> Design.Style:
-  fields(typography, surface_chrome(radius, shadow), Design.Stretch{}, flow, overflow,
+  fields(typography, surface_chrome(radius, shadow), SpatialModel.Stretch{}, flow, overflow,
     padding_inline, padding_block, gap, 0n, 100n, passive())
 
-def toolbar_style(flow: Design.Flow, +typography: T.Presentation) -> Design.Style:
-  fields(typography, base_chrome(), Design.Stretch{}, flow,
-    Design.ContentFlow{}, 0n, 0n, 4n, 32n, 100n, passive())
+def toolbar_style(flow: SpatialModel.Flow, +typography: T.Presentation) -> Design.Style:
+  fields(typography, base_chrome(), SpatialModel.Stretch{}, flow,
+    SpatialModel.ContentFlow{}, 0n, 0n, 4n, 32n, 100n, passive())
 
 def role_interactive(style_chrome: Design.Chrome, +role: Surfaces.Role) -> Design.ControlStates:
   interactive(style_chrome, surface(role, Surfaces.Hovered{}), surface(role, Surfaces.Pressed{}))
@@ -106,7 +107,7 @@ def role_interactive(style_chrome: Design.Chrome, +role: Surfaces.Role) -> Desig
 def button_style(foreground: Design.Paint, +role: Surfaces.Role, emphasis: T.Emphasis, +typography: T.Presentation) -> Design.Style:
   +style_chrome = chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, 8n, False{})
   with_content_area(fields(T.with_emphasis(typography, emphasis), style_chrome,
-    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
+    SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
     role_interactive(style_chrome, role)), Enclosure.area(Enclosure.TextControl{}))
 
 def ordinary_button(+typography: T.Presentation) -> Design.Style:
@@ -128,29 +129,29 @@ def selected_button(+typography: T.Presentation) -> Design.Style:
 
 def display_only_field(+typography: T.Presentation) -> Design.Style:
   +style_chrome = chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 8n, False{})
-  fields(typography, style_chrome, Design.Stretch{}, Design.BlockFlow{},
-    Design.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, passive())
+  fields(typography, style_chrome, SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
+    SpatialModel.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, passive())
 
 def field_surface(+role: Surfaces.Role, +typography: T.Presentation) -> Design.Style:
   +style_chrome = chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(role, Surfaces.Rest{}),
     paint("--color-token-input-border"), 1n, 8n, False{})
-  with_content_area(fields(typography, style_chrome, Design.Stretch{}, Design.BlockFlow{},
-    Design.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, role_interactive(style_chrome, role)), Enclosure.area(Enclosure.Field{}))
+  with_content_area(fields(typography, style_chrome, SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
+    SpatialModel.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, role_interactive(style_chrome, role)), Enclosure.area(Enclosure.Field{}))
 
 def editable_field(+typography: T.Presentation) -> Design.Style:
   field_surface(Surfaces.Field{}, typography)
 
 def compound_field_style(+typography: T.Presentation) -> Design.Style:
-  fields(typography, base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-    Design.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
+  fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
+    SpatialModel.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
 
 def toggle_extent() -> Nat:
   16n
 
 def toggle_field(+typography: T.Presentation) -> Design.Style:
   +style_chrome = base_chrome()
-  fields(typography, style_chrome, Design.Centered{}, Design.BlockFlow{},
-    Design.ContentFlow{}, 0n, 0n, 0n, toggle_extent(), 100n,
+  fields(typography, style_chrome, SpatialModel.Centered{}, SpatialModel.BlockFlow{},
+    SpatialModel.ContentFlow{}, 0n, 0n, 0n, toggle_extent(), 100n,
     role_interactive(style_chrome, Surfaces.EmbeddedField{}))
 
 def ordinary_field_style(entry: Forms.Entry, +typography: T.Presentation) -> Design.Style:
@@ -221,69 +222,69 @@ def style(role: UI.Role, meaning: UI.Meaning, +typography: T.Presentation) -> De
     case UI.Navigation{}:
       with_arrangement(with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
         surface(Surfaces.Navigation{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
-        Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 8n, 8n, 4n,
+        SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 8n, 8n, 4n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{})), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
     case UI.NavigationHeader{}:
       fields(typography, base_chrome(),
-        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 0n, 4n, 8n,
+        SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 4n, 8n,
         36n, 100n, passive())
     case UI.Main{}:
-      fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Canvas{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}), Design.Stretch{},
-        Design.ColumnFlow{}, Design.ScrollFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+      fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Canvas{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}), SpatialModel.Stretch{},
+        SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case UI.Heading{}:
       fields(typography, base_chrome(),
-        Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, 0n, 0n, 8n,
+        SpatialModel.Stretch{}, SpatialModel.SplitRowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n,
         46n, 100n, passive())
     case UI.Timeline{}:
-      with_arrangement(fields(typography, base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-        Design.ContentFlow{}, 0n, 0n, 16n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Messages{}})
+      with_arrangement(fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
+        SpatialModel.ContentFlow{}, 0n, 0n, 16n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Messages{}})
     case UI.Activity{}:
       fields(typography,
         chrome(Design.TextForeground{Surfaces.SecondaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
-        Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 4n,
+        SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 4n,
         0n, 100n, passive())
     case UI.UserMessage{}:
       with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Inset{}, Surfaces.Rest{}),
-        transparent(), 0n, 16n, False{}), Design.Trailing{}, Design.BlockFlow{},
-        Design.ContentFlow{}, 12n, 8n, 0n, 0n, 70n, passive()), Enclosure.area(Enclosure.UserMessage{}))
+        transparent(), 0n, 16n, False{}), SpatialModel.Trailing{}, SpatialModel.BlockFlow{},
+        SpatialModel.ContentFlow{}, 12n, 8n, 0n, 0n, 70n, passive()), Enclosure.area(Enclosure.UserMessage{}))
     case UI.AssistantMessage{}:
-      fields(typography, base_chrome(), Design.Leading{}, Design.BlockFlow{},
-        Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+      fields(typography, base_chrome(), SpatialModel.Leading{}, SpatialModel.BlockFlow{},
+        SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case UI.Composer{}:
-      with_content_area(fields(typography, surface_chrome(16n, True{}), Design.Stretch{},
-        Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
-    case UI.ComposerActions{}: toolbar_style(Design.SplitRowFlow{}, typography)
+      with_content_area(fields(typography, surface_chrome(16n, True{}), SpatialModel.Stretch{},
+        SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
+    case UI.ComposerActions{}: toolbar_style(SpatialModel.SplitRowFlow{}, typography)
     case UI.Approval{}:
       with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
         surface(Surfaces.Content{}, Surfaces.Rest{}),
         paint("--color-token-editor-warning-foreground"), 1n, 12n, False{}),
-        Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n,
+        SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 12n, 8n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Approval{}))
-    case UI.Toolbar{}: toolbar_style(Design.RowFlow{}, typography)
+    case UI.Toolbar{}: toolbar_style(SpatialModel.RowFlow{}, typography)
     case UI.CodeBlock{}:
       with_content_area(fields(typography,
         chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Inset{}, Surfaces.Rest{}),
           paint("--color-token-border-default"), 1n, 8n, False{}),
-        Design.Stretch{}, Design.ColumnFlow{}, Design.CodeOverflow{}, 12n, 12n, 4n,
+        SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.CodeOverflow{}, 12n, 12n, 4n,
         0n, 100n, passive()), Enclosure.area(Enclosure.CodeBlock{}))
     case UI.ApprovalQueue{}:
-      fields(typography, base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-        Design.ScrollFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
+      fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
+        SpatialModel.ScrollFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
     case UI.Section{}:
-      with_arrangement(fields(typography, base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-        Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Sections{}})
+      with_arrangement(fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
+        SpatialModel.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Sections{}})
     case UI.Dialog{}:
-      with_arrangement(with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 16n, True{}, typography), Enclosure.DialogPartitions{}), Enclosure.JoinedPartitions{})
+      with_arrangement(with_content_area(surface_style(SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 16n, True{}, typography), Enclosure.DialogPartitions{}), Enclosure.JoinedPartitions{})
     case UI.Menu{}:
       with_arrangement(with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
         surface(Surfaces.Floating{}, Surfaces.Rest{}),
         paint("--color-token-border-default"), 1n, 12n, True{}),
-        Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 0n, 0n, 2n,
+        SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 0n, 0n, 2n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Menu{})), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
     case UI.Details{}:
-      with_arrangement(with_content_area(surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{}, typography), Enclosure.area(Enclosure.Details{})), Enclosure.SeparateFrames{Enclosure.Sections{}})
+      with_arrangement(with_content_area(surface_style(SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 16n, 16n, 16n, 0n, False{}, typography), Enclosure.area(Enclosure.Details{})), Enclosure.SeparateFrames{Enclosure.Sections{}})
     case UI.Card{}:
-      with_arrangement(with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 9n, True{}, typography), Enclosure.area(Enclosure.Card{})), Enclosure.SeparateFrames{Enclosure.CardSections{}})
+      with_arrangement(with_content_area(surface_style(SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 12n, 8n, 9n, True{}, typography), Enclosure.area(Enclosure.Card{})), Enclosure.SeparateFrames{Enclosure.CardSections{}})
     case UI.PrimaryButton{}: primary_button(typography)
     case UI.DestructiveButton{}: destructive_button(typography)
     case UI.SelectedButton{}: selected_button(typography)
@@ -361,19 +362,19 @@ def action_style_insets(value: Design.Style, +geometry: Controls.Geometry, +cont
   minimum_height = Controls.geometry_minimum_height(geometry)
   required_height = Enclosure.extent_height(Enclosure.required_extent(0n, content_height,
     chrome_border_width(style_chrome), content_area))
-  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, states}
+  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, SpatialModel.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, states}
 
 def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry, content_height: Nat) -> Design.Style:
   Controls.ContentLayout{content_alignment, content_area, content_gap} = layout
   action_style_insets(value, geometry, content_area, content_gap, content_height)
 
-def action_flow(face: Controls.Face, layout: Controls.ContentLayout) -> Design.Flow:
+def action_flow(face: Controls.Face, layout: Controls.ContentLayout) -> SpatialModel.Flow:
   match face layout:
-    case Controls.SingleLineFace{text} _: Design.BlockFlow{}
-    case Controls.ChoiceFace{text, description, checked} _: Design.ChoiceFlow{}
-    case _ Controls.ContentLayout{alignment, content_area, gap}: Design.InlineControlFlow{alignment}
+    case Controls.SingleLineFace{text} _: SpatialModel.BlockFlow{}
+    case Controls.ChoiceFace{text, description, checked} _: SpatialModel.ChoiceFlow{}
+    case _ Controls.ContentLayout{alignment, content_area, gap}: SpatialModel.InlineControlFlow{alignment}
 
-def with_flow(value: Design.Style, flow: Design.Flow) -> Design.Style:
+def with_flow(value: Design.Style, flow: SpatialModel.Flow) -> Design.Style:
   Design.Style{text, chrome, alignment, old_flow, overflow, frame, minimum, maximum, states} = value
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}
 
@@ -407,17 +408,17 @@ def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
   match semantic:
     case "creation/title":
       fields(Design.style_text(fallback), base_chrome(),
-        Design.Centered{}, Design.BlockFlow{}, Design.ContentFlow{}, 0n, 0n, 0n,
+        SpatialModel.Centered{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 0n,
         0n, 100n, passive())
     case "creation/context":
       fields(Design.style_text(fallback),
         chrome(Design.TextForeground{Surfaces.SecondaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
-        Design.Centered{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 8n,
+        SpatialModel.Centered{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n,
         0n, 100n, passive())
     case _: fallback
 
 
-def modeled_container(value: Design.Style, flow: Design.Flow, gap: Nat) -> Design.Style:
+def modeled_container(value: Design.Style, flow: SpatialModel.Flow, gap: Nat) -> Design.Style:
   Design.Style{text, chrome, alignment, old_flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
   Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content, Enclosure.EmbeddedContent{gap}}, minimum, maximum, states}
 
@@ -425,7 +426,7 @@ def navigation_family_style(selected: Bool, gap: Nat, radius: Nat, +typography: 
   +role: Surfaces.Role = Surfaces.Choice{selected}
   +foreground: Design.Paint = Design.TextForeground{Surfaces.PrimaryText{}}
   with_content_area(fields(T.with_tier(typography, T.Support{}), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
-    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
+    SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
     Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
 
 def embedded_control(value: Design.Style) -> Design.Style:
@@ -435,7 +436,7 @@ def embedded_control(value: Design.Style) -> Design.Style:
 
 def embedded_label_style(value: Design.Style) -> Design.Style:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
-  Design.Style{text, chrome, alignment, Design.BlockFlow{}, Design.SingleLineOverflow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, minimum, maximum, states}
+  Design.Style{text, chrome, alignment, SpatialModel.BlockFlow{}, SpatialModel.SingleLineOverflow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, minimum, maximum, states}
 
 def project_label_style(value: Design.Style) -> Design.Style:
   embedded_label_style(embedded_control(value))
@@ -462,10 +463,10 @@ def source_style(header: Bool, family: Controls.SourceFamily, value: Design.Styl
     case _ _: value
 
 def project_group_style(+typography: T.Presentation) -> Design.Style:
-  with_arrangement(fields(typography, base_chrome(), Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 4n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
+  with_arrangement(fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 4n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
 
 def choice_group_style(value: Design.Style) -> Design.Style:
-  with_arrangement(with_flow(value, Design.ColumnFlow{}), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
+  with_arrangement(with_flow(value, SpatialModel.ColumnFlow{}), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
 
 def source_header_style(+key: String, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match family:
@@ -479,9 +480,9 @@ def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamil
   match meaning:
     case UI.ProjectGroup{project, selected, expanded}: project_group_style(typography)
     case UI.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
-    case UI.ProjectChooser{selected}: fields(typography, base_chrome(), Design.Stretch{}, Design.InlineControlFlow{Controls.LeadingContents{}}, Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
-    case UI.ContextSummary{observation}: with_content_area(modeled_container(value, Design.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
-    case UI.DirectoryRow{path, primary}: modeled_container(value, Design.ColumnFlow{}, 8n)
+    case UI.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+    case UI.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
+    case UI.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
     case UI.ChoiceGroup{}: choice_group_style(value)
     case UI.Region{}: source_header_style(key, family, value, typography)
     case UI.PageContext{conversation}: source_header_style(key, family, value, typography)
@@ -493,7 +494,7 @@ def source_content_style(content: Controls.SourceContent, geometry: Controls.Geo
     case Controls.TitleContent{caption}:
       Design.Style{+text, chrome, alignment, flow, overflow, Enclosure.Frame{area, arrangement}, minimum, maximum, states} = value
       target_height = Controls.geometry_minimum_height(geometry)
-      Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Strong{}), chrome, Design.Leading{}, Design.BlockFlow{}, overflow,
+      Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Strong{}), chrome, SpatialModel.Leading{}, SpatialModel.BlockFlow{}, overflow,
         Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), arrangement}, Nat.max(minimum, target_height), maximum, states}
     case _: value
 
@@ -563,7 +564,7 @@ def alert_style(role: UI.Role, value: Design.Style) -> Design.Style:
     case UI.Alert{}:
       Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
       Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Regular{}),
-        Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, Design.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
+        Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, SpatialModel.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
     case _: value
 
 def prepared_style(+key: String, semantic: String, +role: UI.Role, +meaning: UI.Meaning,

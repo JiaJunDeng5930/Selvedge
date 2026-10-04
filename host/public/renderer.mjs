@@ -11,7 +11,7 @@ const booleans = new Set(['disabled', 'checked', 'selected', 'multiple', 'requir
 
 /** Execute the document vocabulary without interpreting product roles. */
 export class Renderer {
-  constructor(root, callbacks) {
+  constructor(root, callbacks, { isolated = false } = {}) {
     this.root = root;
     this.callbacks = callbacks;
     this.records = new Map();
@@ -19,10 +19,40 @@ export class Renderer {
     this.composing = new WeakSet();
     this.deferred = [];
     this.document = null;
+    this.isolated = isolated;
+    this.disposed = false;
   }
   target(key) {
-    if (key === '@document/root') return this.root.ownerDocument.documentElement;
+    if (key === '@document/root') return this.isolated ? this.root : this.root.ownerDocument.documentElement;
     return this.targets.get(key) ?? this.records.get(key)?.node;
+  }
+  ownedTarget(key) {
+    const node = this.target(key);
+    if (!node || !this.root.contains(node)) throw new Error(`Missing owned native target ${key}`);
+    return node;
+  }
+  targetBounds(key, origin) {
+    if (!this.root.contains(origin)) throw new Error('Target origin is outside the renderer');
+    const box = this.ownedTarget(key).getBoundingClientRect();
+    const content = origin.getBoundingClientRect();
+    return { left: box.left - content.left, top: box.top - content.top, width: box.width, height: box.height };
+  }
+  async whenSettled() {
+    while (!this.disposed) {
+      const instances = [...this.records.values()].flatMap(record => record.markdown ? [record.markdown] : []);
+      if ((await Promise.all(instances.map(markdown => markdown.whenSettled()))).some(done => !done) || this.disposed) return false;
+      // NOTE: Parser-owned anchors must exist before declarative portals and target properties can be replayed.
+      if (this.document) this.render(this.document);
+      const current = [...this.records.values()].flatMap(record => record.markdown ? [record.markdown] : []);
+      if (current.length === instances.length && current.every((markdown, index) => markdown === instances[index])) return true;
+    }
+    return false;
+  }
+  dispose() {
+    this.disposed = true;
+    for (const record of this.records.values()) record.markdown?.dispose();
+    this.records.clear(); this.targets.clear(); this.document = null;
+    this.root.replaceChildren();
   }
   properties(record, attributes, styles) {
     const node = record.node;
@@ -77,7 +107,7 @@ export class Renderer {
     });
     node.addEventListener('keydown', event => dispatch('ConfirmText', event));
     node.addEventListener('input', event => { if (!event.isComposing) dispatch('EditText', event); });
-    node.addEventListener('change', event => { dispatch('EditToggle', event); dispatch('SelectFiles', event); });
+    node.addEventListener('change', event => { dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event); });
     node.addEventListener('dragstart', event => dispatch('DragCard', event));
     node.addEventListener('dragover', event => { if (record.bindings.some(binding => binding.$ === 'DropCard')) event.preventDefault(); });
     node.addEventListener('drop', event => { event.preventDefault(); dispatch('DropCard', event); });
@@ -101,7 +131,11 @@ export class Renderer {
     const key = value.key ?? path;
     const kind = value.$ === 'Element' ? `${namespace ?? ''}:${value.tag}` : value.$;
     let record = this.records.get(key);
-    if (record && record.kind !== kind) { record.markdown?.dispose(); record.node.remove(); this.records.delete(key); record = null; }
+    if (record && record.kind !== kind) {
+      record.markdown?.dispose();
+      for (const target of record.targets ?? []) this.targets.delete(target);
+      record.node.remove(); this.records.delete(key); record = null;
+    }
     if (!record) {
       let node;
       if (value.$ === 'Text') node = this.root.ownerDocument.createTextNode(value.value);
@@ -121,11 +155,12 @@ export class Renderer {
       this.children(record.node, value.children, key, record.node.namespaceURI === svg && value.tag !== 'foreignObject' ? svg : undefined);
       this.controlledValue(record);
     } else {
-      if (!record.markdown || record.text !== value.value) {
+      const source = value.source.$ === 'Some' ? value.source.value : null;
+      const owner = source ? this.callbacks.codeKey(source, 0n) : null;
+      if (!record.markdown || record.text !== value.value || record.owner !== owner) {
         record.markdown?.dispose();
         for (const target of record.targets ?? []) this.targets.delete(target);
         record.node.replaceChildren(); record.targets = [];
-        const source = value.source.$ === 'Some' ? value.source.value : null;
         record.markdown = new Markdown(record.node, {
           smooth: false,
           codeKey: source ? ordinal => this.callbacks.codeKey(source, ordinal) : undefined,
@@ -134,15 +169,17 @@ export class Renderer {
           onChange: () => this.callbacks.changed?.(),
         });
         record.text = value.value;
+        record.owner = owner;
         record.markdown.append(value.value); record.markdown.finish();
       }
     }
     return record.node;
   }
   render(document) {
+    if (this.disposed) throw new Error('Renderer is disposed');
     this.document = document;
     this.used = new Set(); this.deferred = [];
-    this.root.ownerDocument.title = document.title;
+    if (!this.isolated) this.root.ownerDocument.title = document.title;
     const node = this.node(document.root, 'root');
     if (this.root.firstChild !== node) this.root.replaceChildren(node);
     for (let index = 0; index < this.deferred.length; index++) {

@@ -91,11 +91,6 @@ outcome may already have happened.
 
 ## One before-tool protocol
 
-Every accepted model tool call passes through the same native chain, including
-`bash`, `fork_task`, `read_task`, `send_message_to_task`, `archive_task`,
-`cancel_operation`, MCP tools and plugin tools. Public user commands are a separate
-authority boundary; a user pressing Fork is not a model tool call.
-
 Before source classification or argument validation, Bend commits a `CheckTool`
 effect and a task-local pending ticket. The host sends `beforeTool` with:
 
@@ -128,8 +123,7 @@ parent return of `fork_task`. Public user commands and inherited fork returns do
 not manufacture another invocation. Calls refused before execution do not have
 an execution result to process.
 
-After the raw completion is committed, enabled plugins from the task's frozen
-contract run in order. Each receives the preceding result value:
+After the raw completion is committed, the host sends:
 
 ```json
 {

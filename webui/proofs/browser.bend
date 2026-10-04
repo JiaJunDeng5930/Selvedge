@@ -1,21 +1,15 @@
 import Base
 import ../browser.bend as Browser
-import ../document.bend as Doc
 import ../MODEL.bend as Web
 import ../laws.bend as Interaction
 import ../rendered.bend as Rendered
 import ../platform.bend as Platform
 import ../design.bend as Design
 import ../font-observation.bend as F
-import ../presentation-laws.bend as PresentationLaws
-import ../../core/interface.bend as UI
 import ../../core/SYSTEM.bend as Core
 import ../../MODEL.bend as M
-
-# Settlement removes every matching ticket, even from malformed duplicate input.
 import ../browser-laws.bend as Rule
 import ./laws.bend as Proof_laws
-import ./presentation.bend as Proof_presentation
 import ../../core/interface-program-rules.bend as Rules_interface_program_rules
 
 def removed_choice_absent(+same: Bool, +entry: Browser.Pending,
@@ -44,6 +38,7 @@ def consumed_ticket(+pending: +List<Browser.Pending>, +ticket: Nat) ->
         {==}, consumed_ticket(rest, ticket))
 
 # A stale snapshot never touches the program or any local interaction state.
+
 def stale_snapshot(+received: Nat, +world: M.World(), +state: Browser.State,
   stale: {Nat.is_lt(Rule.sequence(state), received) == False{} : Bool}) ->
   {Browser.snapshot(received, world, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
@@ -51,8 +46,6 @@ def stale_snapshot(+received: Nat, +world: M.World(), +state: Browser.State,
   Equal.cong(Bool, Browser.Decision,
     (newer => Browser.snapshot_new(newer, received, world, Browser.State{web, current, next, pending})),
     Nat.is_lt(current, received), False{}, stale)
-
-
 
 def uncertain_entry_ticket(hit: Bool, entry: Browser.Pending, reason: String) ->
   {Browser.ticket_of(Browser.mark_uncertain(hit, entry, reason)) == Browser.ticket_of(entry) : Nat}:
@@ -83,124 +76,13 @@ def uncertain_retains_tickets(+requests: +List<Browser.Pending>, +ticket: Nat, +
           Browser.owns_ticket(Browser.uncertain_pending(rest, ticket, reason), observed), Browser.owns_ticket(rest, observed),
           uncertain_retains_tickets(rest, ticket, reason, observed)))
 
-
-
-def document_event_outcome(outcome: Web.SceneOutcome, key: String, shift: Bool, core: Core.State,
-  platform: Platform.Platform, generation: Nat, realization: Rendered.State, environment: Design.Environment,
-  font: F.State, sequence: Nat, next: Nat, requests: +List<Browser.Pending>) ->
-  {Browser.key_event_scene(outcome, key, shift, Rule.document_state(core, platform, generation, realization, environment, font, sequence, next, requests)) ==
-    Browser.KeyResult{False{}, Browser.Decision{Rule.document_state(core, platform, generation, realization, environment, font, sequence, next, requests), Nil{}}} : Browser.KeyResult}:
-  match outcome:
-    case Web.ReadyScene{scene}:
-      Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
-      {==}
-    case Web.AwaitingTypography{}: {==}
-    case Web.FailedTypography{}: {==}
-    case Web.UnsupportedSpace{required, available}: {==}
-
 def document_key_event(+key: String, +shift: Bool, +core: Core.State, +platform: Platform.Platform, +generation: Nat,
   +realization: Rendered.State, +environment: Design.Environment, +font: F.State, +sequence: Nat, +next: Nat, +requests: +List<Browser.Pending>) -> Rule.document_key_event_law(key, shift, core, platform, generation, realization, environment, font, sequence, next, requests):
-  document_event_outcome(Browser.scene(Rule.document_state(core, platform, generation, realization, environment, font, sequence, next, requests)),
-    key, shift, core, platform, generation, realization, environment, font, sequence, next, requests)
-
-def application_identity(notices: +List<Doc.Node>, +root: Doc.Node, title: String) ->
-  {Rule.node_identity(Rule.application_node(Browser.with_notices(notices, root, title))) == Rule.node_identity(root) : Maybe<&2, Rule.RootIdentity>}:
-  match notices root:
-    case Nil{} _: {==}
-    case Con{notice, rest} Doc.Element{key, tag, attrs, styles, events, children}: {==}
-    case Con{notice, rest} Doc.Text{text}: {==}
-    case Con{notice, rest} Doc.Markdown{key, source, text}: {==}
-    case Con{notice, rest} Doc.Portal{key, target, children}: {==}
-    case Con{notice, rest} Doc.TargetProperties{key, target, attributes, styles}: {==}
-
-def application_content(notices: +List<Doc.Node>, +root: Doc.Node, title: String) ->
-  {Rule.without_root_layout(Rule.application_node(Browser.with_notices(notices, root, title))) == Rule.without_root_layout(root) : Doc.Node}:
-  match notices root:
-    case Nil{} _: {==}
-    case Con{notice, rest} Doc.Element{key, tag, attrs, styles, events, children}: {==}
-    case Con{notice, rest} Doc.Text{text}: {==}
-    case Con{notice, rest} Doc.Markdown{key, source, text}: {==}
-    case Con{notice, rest} Doc.Portal{key, target, children}: {==}
-    case Con{notice, rest} Doc.TargetProperties{key, target, attributes, styles}: {==}
-
-
-
-
-
-def notice_contents(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {Doc.element_children(Rule.first_node(Doc.element_children(Rule.document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>}:
-  match notices:
-    case Nil{}: {==}
-    case Con{notice, rest}: {==}
-
-def notice_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
-  {Rule.node_identity(Rule.first_node(Doc.element_children(Rule.document_root(Browser.with_notices(notices, root, title))))) ==
-    Some{Rule.RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, Rule.RootIdentity>}:
-  match notices:
-    case Nil{}: {==}
-    case Con{notice, rest}: {==}
-
-
-
-
-
-def semantic_claim(+outcome: Web.SceneOutcome, +surface: UI.Surface, claim: PresentationLaws.SemanticClaim(outcome, surface)) ->
-  {Rule.semantic_or(outcome, surface) == surface : UI.Surface}:
-  match outcome:
-    case Web.ReadyScene{Web.Scene{prepared, platform, generation, realization, layout}}: claim
-    case Web.AwaitingTypography{}: {==}
-    case Web.FailedTypography{}: {==}
-    case Web.UnsupportedSpace{required, available}: {==}
-
-def font_semantics(+font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
-  +viewport: Design.Viewport, +dark: Bool, +surface: UI.Surface) ->
-  {Rule.semantic_or(Web.font_scene(font, application, generation, realization, viewport, dark, surface), surface) == surface : UI.Surface}:
-  semantic_claim(Web.font_scene(font, application, generation, realization, viewport, dark, surface), surface,
-    Proof_presentation.scene_for_surface_preserves_semantics(Web.State{application, generation, realization, Design.Environment{viewport, dark, 0n}, font}, surface))
-
-def web_semantics(state: Web.State, +surface: UI.Surface) ->
-  {Rule.semantic_or(Web.scene_for_surface(state, surface), surface) == surface : UI.Surface}:
-  Web.State{application, generation, realization, Design.Environment{viewport, dark, root}, font} = state
-  font_semantics(font, application, generation, realization, viewport, dark, surface)
-
+  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  {==}
 
 def receipt_input(observation: F.Observation, state: Browser.State) ->
   {Browser.measurements(observation, state) == Browser.step(Browser.Native{Web.TypographyObserved{observation}}, state) : Browser.Decision}:
-  {==}
-
-
-def awaiting_nodes() -> {Browser.scene_nodes(Web.AwaitingTypography{}) == Nil{} : +List<UI.Node>}:
-  {==}
-
-def failed_nodes() -> {Browser.scene_nodes(Web.FailedTypography{}) == Nil{} : +List<UI.Node>}:
-  {==}
-
-def unsupported_nodes(required: Nat, available: Nat) ->
-  {Browser.scene_nodes(Web.UnsupportedSpace{required, available}) == Nil{} : +List<UI.Node>}:
-  {==}
-
-def awaiting_outside(identity: String, state: Browser.State) ->
-  {Browser.outside_scene(identity, Web.AwaitingTypography{}, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision}:
-  {==}
-
-def failed_outside(identity: String, state: Browser.State) ->
-  {Browser.outside_scene(identity, Web.FailedTypography{}, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision}:
-  {==}
-
-def unsupported_outside(identity: String, required: Nat, available: Nat, state: Browser.State) ->
-  {Browser.outside_scene(identity, Web.UnsupportedSpace{required, available}, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision}:
-  {==}
-
-def awaiting_key(key: String, shift: Bool, state: Browser.State) ->
-  {Browser.key_event_scene(Web.AwaitingTypography{}, key, shift, state) == Browser.KeyResult{False{}, Browser.Decision{state, Nil{}}} : Browser.KeyResult}:
-  {==}
-
-def failed_key(key: String, shift: Bool, state: Browser.State) ->
-  {Browser.key_event_scene(Web.FailedTypography{}, key, shift, state) == Browser.KeyResult{False{}, Browser.Decision{state, Nil{}}} : Browser.KeyResult}:
-  {==}
-
-def unsupported_key(required: Nat, available: Nat, key: String, shift: Bool, state: Browser.State) ->
-  {Browser.key_event_scene(Web.UnsupportedSpace{required, available}, key, shift, state) == Browser.KeyResult{False{}, Browser.Decision{state, Nil{}}} : Browser.KeyResult}:
   {==}
 
 def finish_unchanged_transport(web: Web.State, core: Core.State, effects: +List<Web.Effect>, sequence: Nat,
@@ -224,18 +106,23 @@ def finished_receipt_transport(decision: Web.Decision, +core: Core.State,
       product, Platform.unchanged(core), unchanged),
     finish_unchanged_transport(web, core, effects, sequence, next, pending, origin))
 
-
 def Rule.evidence():
-  Rule.Requirements{+observation => +web => sequence => next => pending =>
+  Rule.Requirements{
+    +observation => +web => sequence => next => pending =>
       finished_receipt_transport(Web.step(Web.TypographyObserved{observation}, web),
-        Interaction.model_core(Interaction.model_application(web)), Proof_laws.typography_product(web, observation), sequence, next, pending, "")
-    , finish_unchanged_transport, receipt_input, application => generation => realization => environment => font => sequence => next => pending =>
-      {==}
-    , awaiting_nodes(), failed_nodes(), unsupported_nodes, awaiting_outside, failed_outside, unsupported_outside, awaiting_key, failed_key, unsupported_key, +web => +sequence => +next => +pending => +scene => ready =>
-      +original = Browser.mask_surface(Web.observed_surface(web), pending)
-      Equal.trans(UI.Surface, Rule.semantic_scene(scene), Rule.semantic_or(Browser.scene(Browser.State{web, sequence, next, pending}), original), original,
-        Equal.sym(UI.Surface, Rule.semantic_or(Browser.scene(Browser.State{web, sequence, next, pending}), original), Rule.semantic_scene(scene),
-          Equal.cong(Web.SceneOutcome, UI.Surface, (outcome => Rule.semantic_or(outcome, original)),
-            Browser.scene(Browser.State{web, sequence, next, pending}), Web.ReadyScene{scene}, ready)),
-        web_semantics(web, original))
-    , Rules_interface_program_rules.interface_evidence(), +input => +state => {==}, input => +state => {==}, notice_identity, notices => root => title => {==}, +notices => root => title => {==}, notices => root => +title => {==}, application_identity, application_content, +root => title => {==}, root => title => {==}, notice_contents, document_key_event, ticket => error => web => sequence => next => requests => {==}, tab => escape => shift => realization => state => {==}, ticket => error => web => sequence => next => requests => {==}, ticket => error => web => sequence => next => requests => observed => uncertain_retains_tickets(requests, ticket, error, observed), consumed_ticket, stale_snapshot, command => completion => origin => web => sequence => next => pending => {==}, ticket => received => supplied => reply => completion => web => current => next => pending => {==}}
+        Interaction.model_core(Interaction.model_application(web)), Proof_laws.typography_product(web, observation), sequence, next, pending, ""),
+    finish_unchanged_transport,
+    receipt_input,
+    +web => sequence => next => +pending => {==},
+    Rules_interface_program_rules.interface_evidence(),
+    +input => +state => {==},
+    input => +state => {==},
+    document_key_event,
+    ticket => error => web => sequence => next => requests => {==},
+    tab => escape => shift => realization => state => {==},
+    ticket => error => web => sequence => next => requests => {==},
+    ticket => error => web => sequence => next => requests => observed => uncertain_retains_tickets(requests, ticket, error, observed),
+    consumed_ticket,
+    stale_snapshot,
+    command => completion => origin => web => sequence => next => pending => {==},
+    ticket => received => supplied => reply => completion => web => current => next => pending => {==}}

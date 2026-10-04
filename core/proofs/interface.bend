@@ -42,3 +42,13 @@ def Rule.relocated_content(trigger, scene, base, overlays):
 def Rule.assembled_content(scene, state):
   Core.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code, folder_picker} = scene
   {==}
+
+
+def Rule.placement_destination_authority(key, semantic, label, role, destinations, face, children, target, surface):
+  {==}
+
+def Rule.placement_filtered_destination_accepted(key, semantic, label, role, destinations, face, children, target, surface, input, hidden, accepted):
+  accepted
+
+def Rule.placement_rejected_destination(key, semantic, label, role, destinations, face, children, target, surface, rejected):
+  rejected

@@ -102,7 +102,6 @@ def Rule.evidence():
     +id => attention => +expanded => summary => audit => expand => collapse => +task => +parent => +state => {==},
     view => parent => state => InterfaceRules.composer_tree_agreement(view, parent, state),
     recipe => structure_evidence(recipe),
-    composer => {==},
     +context => +world => {==},
     identity => revision => message => footer => context => submit => feedback => pending => world => current_composer_context(identity, revision, message, footer, context, submit, feedback, pending, world),
     +input => +parent => +world => +session => +services => {==},

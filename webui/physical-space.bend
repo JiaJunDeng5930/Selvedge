@@ -1,0 +1,202 @@
+import Base
+import ./spatial.bend as Spatial
+import ./space.bend as Space
+import ./enclosure.bend as Enclosure
+
+type AxisSize is Data:
+  NaturalSize{}
+  StretchSize{}
+  ExactSize{extent: Nat}
+  LimitedSize{minimum: Nat, preferred_extra: Nat, maximum_extra: Nat}
+  PercentSize{percent: Nat}
+  CappedNaturalSize{maximum_percent: Nat}
+
+type Direction is Data:
+  Horizontal{}
+  Vertical{}
+  ResponsiveHorizontal{}
+  Layered{}
+
+type Scroll is Data:
+  Confined{}
+  ScrollHorizontally{}
+  ScrollVertically{}
+  ScrollBoth{}
+
+type Interaction<-E: Data> is Data:
+  DisplayOnly{}
+  Operable{first: E, remaining: +List<E>, enabled: Bool}
+
+type Height is Data:
+  FixedHeight{height: Nat}
+  HeightAtWidth{key: String}
+
+type Rule is Data:
+  Rule{direction: Direction, main_alignment: Spatial.Alignment,
+    cross_alignment: Spatial.Alignment, frame: Enclosure.Frame, border: Nat,
+    width: AxisSize, height: AxisSize, minimum: Enclosure.Extent, scroll: Scroll, position: Spatial.Position}
+
+type Tree<-A: Data, -E: Data> is Data:
+  Leaf{key: String, value: A, interaction: Interaction<E>, rule: Rule,
+    demand: Space.Demand, height: Height}
+  Container{key: String, value: A, interaction: Interaction<E>, rule: Rule,
+    children: +List<Tree<A, E>>}
+
+type HeightSample is Data:
+  HeightSample{key: String, width: Nat, height: Nat}
+
+type HeightRequest<-A: Data> is Data:
+  HeightRequest{key: String, value: A, width: Nat}
+
+def extent_max(first: Enclosure.Extent, second: Enclosure.Extent) -> Enclosure.Extent:
+  Enclosure.Extent{first_width, first_height} = first
+  Enclosure.Extent{second_width, second_height} = second
+  Enclosure.Extent{Nat.max(first_width, second_width), Nat.max(first_height, second_height)}
+
+def interaction_floor(~E: Data, +interaction: Interaction<E>) -> Enclosure.Extent:
+  match interaction:
+    case DisplayOnly{}: Enclosure.Extent{0n, 0n}
+    case Operable{first, remaining, enabled}: Enclosure.Extent{32n, 32n}
+
+def outer_extent(~E: Data, content: Enclosure.Extent, rule: Rule, interaction: Interaction<E>) -> Enclosure.Extent:
+  Enclosure.Extent{width, height} = content
+  Rule{direction, main_alignment, cross_alignment, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
+  extent_max(Enclosure.required_extent(width, height, border, Enclosure.frame_content(frame)),
+    extent_max(minimum, interaction_floor(~E, interaction)))
+
+# Scroll viewport floors are independent of overflowing content; preferred
+# demand still retains the full content extent for allocation and scrolling.
+def viewport_content_minimum(content: Enclosure.Extent, +scroll: Scroll) -> Enclosure.Extent:
+  Enclosure.Extent{width, height} = content
+  match scroll:
+    case Confined{}: Enclosure.Extent{width, height}
+    case ScrollHorizontally{}: Enclosure.Extent{0n, height}
+    case ScrollVertically{}: Enclosure.Extent{width, 0n}
+    case ScrollBoth{}: Enclosure.Extent{0n, 0n}
+
+def outer_demand(~E: Data, content: Space.Demand, +rule: Rule, +interaction: Interaction<E>) -> Space.Demand:
+  Space.Demand{minimum, preferred} = content
+  Rule{direction, main_alignment, cross_alignment, frame, border, width, height, explicit_minimum, scroll, position} = rule
+  +lower = outer_extent(~E, viewport_content_minimum(minimum, scroll), rule, interaction)
+  Space.Demand{lower, extent_max(lower, outer_extent(~E, preferred, rule, interaction))}
+
+def fixed_leaf_content(demand: Space.Demand, +height: Nat) -> Space.Demand:
+  Space.Demand{minimum, preferred} = demand
+  Enclosure.Extent{minimum_width, minimum_height} = minimum
+  Enclosure.Extent{preferred_width, preferred_height} = preferred
+  +lower: Enclosure.Extent = Enclosure.Extent{minimum_width, Nat.max(minimum_height, height)}
+  Space.Demand{lower, extent_max(lower, Enclosure.Extent{preferred_width, Nat.max(preferred_height, height)})}
+
+def intrinsic_leaf_content(demand: Space.Demand) -> Space.Demand:
+  Space.Demand{+minimum, preferred} = demand
+  Space.Demand{minimum, extent_max(minimum, preferred)}
+
+def leaf_content_demand(+demand: Space.Demand, height: Height) -> Space.Demand:
+  match height:
+    case FixedHeight{fixed}: fixed_leaf_content(demand, fixed)
+    case HeightAtWidth{key}: intrinsic_leaf_content(demand)
+
+def horizontal_extent(gap: Nat, first: Enclosure.Extent, rest: Enclosure.Extent) -> Enclosure.Extent:
+  Enclosure.Extent{first_width, first_height} = first
+  Enclosure.Extent{rest_width, rest_height} = rest
+  Enclosure.Extent{Nat.add(first_width, Nat.add(gap, rest_width)), Nat.max(first_height, rest_height)}
+
+def vertical_extent(gap: Nat, first: Enclosure.Extent, rest: Enclosure.Extent) -> Enclosure.Extent:
+  Enclosure.Extent{first_width, first_height} = first
+  Enclosure.Extent{rest_width, rest_height} = rest
+  Enclosure.Extent{Nat.max(first_width, rest_width), Nat.add(first_height, Nat.add(gap, rest_height))}
+
+def combine_extent(+direction: Direction, gap: Nat, first: Enclosure.Extent, rest: Enclosure.Extent) -> Enclosure.Extent:
+  match direction:
+    case Horizontal{}: horizontal_extent(gap, first, rest)
+    case Layered{}: extent_max(first, rest)
+    case _: vertical_extent(gap, first, rest)
+
+def position_outside(+position: Spatial.Position) -> Enclosure.Insets:
+  match position:
+    case Spatial.InFlow{}: Enclosure.Insets{0n, 0n}
+    case Spatial.CenteredLayer{outside}: outside
+    case Spatial.AnchoredLayer{anchor_key, anchor, outside, gap, alignment}: outside
+
+def clearance_extent_layered(outside: Enclosure.Insets, extent: Enclosure.Extent) -> Enclosure.Extent:
+  Enclosure.Insets{inline, block} = outside
+  Enclosure.Extent{width, height} = extent
+  Enclosure.Extent{Nat.add(width, Nat.mul(2n, inline)), Nat.add(height, Nat.mul(2n, block))}
+
+def clearance_extent(+direction: Direction, position: Spatial.Position, +extent: Enclosure.Extent) -> Enclosure.Extent:
+  match direction:
+    case Layered{}: clearance_extent_layered(position_outside(position), extent)
+    case _: extent
+
+def clearance_layered_demand(+position: Spatial.Position, demand: Space.Demand) -> Space.Demand:
+  Space.Demand{minimum, preferred} = demand
+  Space.Demand{clearance_extent(Layered{}, position, minimum), clearance_extent(Layered{}, position, preferred)}
+
+def clearance_demand(+direction: Direction, +position: Spatial.Position, +demand: Space.Demand) -> Space.Demand:
+  match direction:
+    case Layered{}: clearance_layered_demand(position, demand)
+    case _: demand
+
+def rule_position(rule: Rule) -> Spatial.Position:
+  Rule{direction, main_alignment, cross_alignment, frame, border, width, height, minimum, scroll, position} = rule
+  position
+
+def remaining_gap(~A: Data, ~E: Data, +trees: +List<Tree<A, E>>, gap: Nat) -> Nat:
+  match trees:
+    case Nil{}: 0n
+    case Con{head, rest}: gap
+
+def prepend_demand(+direction: Direction, +gap: Nat, first: Space.Demand, rest: Space.Demand) -> Space.Demand:
+  Space.Demand{first_minimum, first_preferred} = first
+  Space.Demand{rest_minimum, rest_preferred} = rest
+  +minimum = combine_extent(direction, gap, first_minimum, rest_minimum)
+  Space.Demand{minimum, extent_max(minimum, combine_extent(direction, gap, first_preferred, rest_preferred))}
+
+# Responsive intrinsic requirements retain column height; row feasibility uses
+# the same fold with Horizontal at the offered-width allocation boundary.
+def content_demand(~A: Data, ~E: Data, +trees: +List<Tree<A, E>>, +direction: Direction, +gap: Nat) -> Space.Demand:
+  match trees:
+    case Nil{}: Space.fixed_demand(0n, 0n)
+    case Con{Leaf{key, value, interaction, +rule, demand, height}, +rest}:
+      prepend_demand(direction, remaining_gap(~A, ~E, rest, gap), clearance_demand(direction, rule_position(rule), outer_demand(~E, leaf_content_demand(demand, height), rule, interaction)),
+        content_demand(~A, ~E, rest, direction, gap))
+    case Con{Container{key, value, interaction, +rule, children}, +rest}:
+      Rule{+child_direction, main_alignment, cross_alignment, +frame, border, width, height, minimum, scroll, position} = rule
+      prepend_demand(direction, remaining_gap(~A, ~E, rest, gap),
+        clearance_demand(direction, position, outer_demand(~E, content_demand(~A, ~E, children, child_direction, Enclosure.frame_gap(frame)), rule, interaction)),
+        content_demand(~A, ~E, rest, direction, gap))
+
+def demand(~A: Data, ~E: Data, tree: Tree<A, E>) -> Space.Demand:
+  content_demand(~A, ~E, tree <> Nil{}, Horizontal{}, 0n)
+
+def minimum_demand(value: Space.Demand) -> Enclosure.Extent:
+  Space.Demand{minimum, preferred} = value
+  minimum
+
+def preferred_demand(value: Space.Demand) -> Enclosure.Extent:
+  Space.Demand{minimum, preferred} = value
+  preferred
+
+def accept_dimension(+fits: Bool, value: Space.Dimension) -> Maybe<&2, Space.Dimension>:
+  match fits:
+    case False{}: None{}
+    case True{}: Some{value}
+
+def materialize(+size: AxisSize, +minimum: Nat, +preferred: Nat, offered: Nat) -> Maybe<&2, Space.Dimension>:
+  match size:
+    case NaturalSize{}: Some{Space.Fit{minimum, Nat.sub(Nat.max(minimum, preferred), minimum), 0n}}
+    case StretchSize{}: Some{Space.Fill{minimum}}
+    case ExactSize{+extent}: accept_dimension(Nat.is_le(minimum, extent), Space.Rigid{extent})
+    case LimitedSize{+authored_minimum, +preferred_extra, maximum_extra}:
+      +maximum = Nat.add(Nat.add(authored_minimum, preferred_extra), maximum_extra)
+      +lower = Nat.max(minimum, authored_minimum)
+      +chosen = Nat.min(maximum, Nat.max(lower, preferred))
+      accept_dimension(Nat.is_le(lower, maximum), Space.Fit{lower, Nat.sub(chosen, lower), Nat.sub(maximum, chosen)})
+    case PercentSize{+percent}:
+      +extent = Nat.div(Nat.mul(offered, percent), 100n)
+      accept_dimension(Nat.is_le(percent, 100n) && Nat.is_le(minimum, extent), Space.Rigid{extent})
+    case CappedNaturalSize{+maximum_percent}:
+      +cap = Nat.div(Nat.mul(offered, maximum_percent), 100n)
+      +chosen = Nat.min(cap, Nat.max(minimum, preferred))
+      accept_dimension(Nat.is_le(maximum_percent, 100n) && Nat.is_le(minimum, cap),
+        Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)})

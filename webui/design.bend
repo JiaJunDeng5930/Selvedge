@@ -1,4 +1,5 @@
 import Base
+import ./spatial.bend as SpatialModel
 import ./document.bend as Doc
 import ./enclosure.bend as Enclosure
 import ./surfaces.bend as Surfaces
@@ -36,19 +37,16 @@ type Viewport is Data:
 type Environment is Data:
   Environment{viewport: Viewport, system_dark: Bool, root_font_size_milli: Nat}
 
-type Box is Data:
-  Box{left: Nat, top: Nat, width: Nat, height: Nat}
-
 type Band is Data:
   Band{left: Nat, width: Nat}
 
 type Navigation is Data:
   HiddenNavigation{}
-  BesideNavigation{bounds: Box}
-  OverlayNavigation{bounds: Box}
+  BesideNavigation{bounds: SpatialModel.Box}
+  OverlayNavigation{bounds: SpatialModel.Box}
 
 type Shell is Data:
-  Shell{navigation: Navigation, main: Box, details: Maybe<&2, Box>}
+  Shell{navigation: Navigation, main: SpatialModel.Box, details: Maybe<&2, SpatialModel.Box>}
 
 type DockRegion is Data:
   LatestControl{}
@@ -78,15 +76,15 @@ type BlockMargin is Data:
 
 type CreationArrangement is Data:
   CreationArrangement{canvas_inset: Nat, region_gap: Nat, footer_gap: Nat,
-    introduction_alignment: Alignment, block_margin: BlockMargin}
+    introduction_alignment: SpatialModel.Alignment, block_margin: BlockMargin}
 
 type MainFrame is Data:
   # Center the intrinsic input group in this canvas, subject to its height bound.
-  CreationFrame{heading: Box, canvas: Box, band: Band, input: Maybe<&2, InputMetrics>, flow: CreationFlow}
-  ConversationFrame{heading: Box, viewport: Box, reading: Band, dock: Maybe<&2, Dock>}
-  OverviewFrame{canvas: Box, band: Band, organization: Composition.Body}
-  BoardFrame{canvas: Box, column_width: Nat, column_gap: Nat, inset: Nat}
-  UnavailableFrame{heading: Box, canvas: Box, band: Band}
+  CreationFrame{heading: SpatialModel.Box, canvas: SpatialModel.Box, band: Band, input: Maybe<&2, InputMetrics>, flow: CreationFlow}
+  ConversationFrame{heading: SpatialModel.Box, viewport: SpatialModel.Box, reading: Band, dock: Maybe<&2, Dock>}
+  OverviewFrame{canvas: SpatialModel.Box, band: Band, organization: Composition.Body}
+  BoardFrame{canvas: SpatialModel.Box, column_width: Nat, column_gap: Nat, inset: Nat}
+  UnavailableFrame{heading: SpatialModel.Box, canvas: SpatialModel.Box, band: Band}
 
 type MainStructure is Data:
   CreationStructure{}
@@ -115,11 +113,11 @@ def frame_structure(frame: MainFrame) -> MainStructure:
     case UnavailableFrame{heading, canvas, band}: UnavailableStructure{}
 
 type OverlayPlacement is Data:
-  CenteredDialog{available: Box, maximum_width: Nat}
+  CenteredDialog{available: SpatialModel.Box, maximum_width: Nat}
   # Prefer below/end of the anchor; flip vertically and clamp both axes to available.
-  AnchoredPopover{anchor: String, available: Box, maximum_width: Nat, maximum_height: Nat, gap: Nat}
-  TrailingPane{bounds: Box}
-  NavigationDrawer{bounds: Box}
+  AnchoredPopover{anchor: String, available: SpatialModel.Box, maximum_width: Nat, maximum_height: Nat, gap: Nat}
+  TrailingPane{bounds: SpatialModel.Box}
+  NavigationDrawer{bounds: SpatialModel.Box}
 
 type Overlay is Data:
   Overlay{key: String, level: Nat, placement: OverlayPlacement}
@@ -131,7 +129,7 @@ type LayoutParameters is Data:
     creation_balanced_minimum_height: Nat}
 
 type NodePlacement is Data:
-  NodePlacement{key: String, bounds: Box}
+  NodePlacement{key: String, bounds: SpatialModel.Box}
 
 type Layout is Data:
   Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>, parameters: LayoutParameters, controls: +List<NodePlacement>}
@@ -149,29 +147,6 @@ type Paint is Data:
   SurfaceForeground{role: Surfaces.Role}
   TextForeground{tone: Surfaces.TextTone}
 
-type Alignment is Data:
-  Stretch{}
-  Leading{}
-  Trailing{}
-  Centered{}
-
-type Flow is Data:
-  BlockFlow{}
-  ColumnFlow{}
-  RowFlow{}
-  SplitRowFlow{}
-  WrapFlow{}
-  InlineControlFlow{alignment: Controls.ContentAlignment}
-  ChoiceFlow{}
-
-type Overflow is Data:
-  ContentFlow{}
-  TextFlow{wrapping: T.Wrapping}
-  ScrollFlow{}
-  # The toolbar remains reachable while the code body uses its modeled wrap mode.
-  CodeOverflow{}
-  SingleLineOverflow{}
-
 type Chrome is Data:
   Chrome{foreground: Paint, background: Paint, border: Paint, border_width: Nat,
     radius: Nat, shadow: Bool}
@@ -186,8 +161,8 @@ type ControlStates is Data:
     focus_ring: Paint, focus_ring_width: Nat, focus_ring_offset: Nat}
 
 type Style is Data:
-  Style{text: T.Presentation, chrome: Chrome, alignment: Alignment, flow: Flow,
-    overflow: Overflow, frame: Enclosure.Frame,
+  Style{text: T.Presentation, chrome: Chrome, alignment: SpatialModel.Alignment, flow: SpatialModel.Flow,
+    overflow: SpatialModel.Overflow, frame: Enclosure.Frame,
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Node is Data:
@@ -268,3 +243,14 @@ def style_minimum_height(value: Style) -> Nat:
 def style_frame(value: Style) -> Enclosure.Frame:
   Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
   frame
+
+def parameters(+scale: T.Scale, body: T.Metric) -> LayoutParameters:
+  T.Metric{key, minimum, preferred, height, +advance} = body
+  +leading = Nat.max(T.resolved_line_height(T.resolve(T.Body{}, T.Regular{}, scale)), height)
+  +toolbar = Nat.max(T.scaled(46n, scale), Nat.add(leading, T.scaled(26n, scale)))
+  +input_minimum = Nat.max(T.scaled(44n, scale), Nat.add(leading, Nat.mul(2n, T.scaled(12n, scale))))
+  balanced = Nat.add(toolbar, Nat.mul(2n, Nat.add(T.resolved_line_height(T.resolve(T.Display{}, T.Regular{}, scale)),
+    Nat.add(input_minimum, Nat.add(T.scaled(32n, scale), Nat.mul(3n, T.scaled(16n, scale)))))))
+  LayoutParameters{T.scaled(275n, scale), Nat.add(T.reading_width(advance, 64n), Nat.mul(2n, T.scaled(16n, scale))),
+    T.scaled(360n, scale), T.reading_width(advance, 96n), T.reading_width(advance, 144n), toolbar,
+    input_minimum, Nat.max(T.scaled(240n, scale), input_minimum), leading, balanced}

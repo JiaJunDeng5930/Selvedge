@@ -3,6 +3,8 @@ import { decodeBendValue, encodeBendValue } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
+import { createPhysicalMeasurer } from './physical-measurement.mjs';
+import { tokenizeJsonValue } from './json-tokens.mjs';
 
 const value = ($, fields = {}) => ({ $, ...fields });
 const bool = enabled => Boolean(enabled);
@@ -27,13 +29,24 @@ function showJson(input) {
   }
 }
 const root = document.getElementById('surface');
-const textMeasurer = createTextMeasurer(root);
+let textMeasurementScope = root;
+let textMeasurer = createTextMeasurer(textMeasurementScope);
 let state = Bend.initial(Bend.empty(), 0n);
 let token = sessionStorage.getItem('selvedge-token') ?? '';
 let connection;
 let revision = 0;
 let dragged = null;
 let renderQueued = false;
+let renderedGeneration = null;
+let pendingFocus = null;
+let physicalRevision = 0;
+let physicalActive = false;
+let physicalQueued = null;
+let physicalScheduled = false;
+let disposed = false;
+let geometryFrame = null;
+let displayedGeometry = null;
+const physicalMeasurer = createPhysicalMeasurer({ surface: root, bend: Bend, onChange: geometryChanged });
 const files = new Map();
 const transfers = new Map();
 const resources = new Set();
@@ -41,7 +54,7 @@ const streams = new Map();
 const renderer = new Renderer(root, {
   event(binding, event, node, composing) {
     switch (binding.$) {
-      case 'Activate': event.preventDefault(); commit(Bend.activate(binding.key, state)); break;
+      case 'Activate': event.preventDefault(); captureAnchor(binding.key, node); commit(Bend.activate(binding.key, state)); break;
       case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); break;
       case 'ConfirmText': commit(Bend.confirm_text(binding.key, event.key, bool(event.isComposing || composing || event.keyCode === 229), bool(event.ctrlKey), bool(event.altKey), bool(event.shiftKey), bool(event.metaKey), state)); break;
       case 'EditToggle': commit(Bend.edit_toggle(binding.key, bool(node.checked), state)); break;
@@ -53,15 +66,14 @@ const renderer = new Renderer(root, {
         node.value = ''; break;
       case 'DragCard': dragged = binding.key; event.dataTransfer?.setData('text/plain', binding.key); break;
       case 'DropCard': if (dragged) commit(Bend.place(dragged, binding.key, state)); dragged = null; break;
-      case 'PlaceCard': event.preventDefault(); commit(Bend.place(binding.key, binding.target, state)); break;
+      case 'SelectDestination': if (node.value) { captureAnchor(binding.key, node); commit(Bend.place(binding.key, node.value, state)); } break;
+      case 'PlaceCard': event.preventDefault(); captureAnchor(binding.key, node); commit(Bend.place(binding.key, binding.target, state)); break;
       default: throw new TypeError(`Unknown document event ${binding.$}`);
     }
   },
   codeKey: (source, ordinal) => Bend.code_key(source, ordinal),
   codeSource(source, ordinal, text) { queueMicrotask(() => commit(Bend.code_source(source, ordinal, text, state))); },
-  changed() {
-    if (!renderQueued) { renderQueued = true; queueMicrotask(() => { renderQueued = false; render(); }); }
-  },
+  changed: geometryChanged,
 });
 function safeNumber(input, name) {
   const number = Number(input);
@@ -99,6 +111,12 @@ function measurementMetric(metric) {
 }
 function render() {
   const effects = [];
+  const scope = root.matches('.native-application') ? root : root.querySelector('.native-application') ?? root;
+  if (scope !== textMeasurementScope) {
+    textMeasurer.dispose();
+    textMeasurementScope = scope;
+    textMeasurer = createTextMeasurer(scope);
+  }
   const budget = Number(Bend.measurement_budget(state));
   for (let round = 0; round < budget; round += 1) {
     const plan = Bend.measurement_plan(state);
@@ -111,8 +129,82 @@ function render() {
     state = decision.state;
     effects.push(...list(decision.effects));
   }
-  renderer.render(Bend.observe(state));
+  const publication = Bend.publication(renderedGeneration ?? 0n, state);
+  if (pendingFocus && pendingFocus.ticket !== Bend.focus_ticket(state)) pendingFocus = null;
+  switch (publication.$) {
+    case 'KeepPublished': break;
+    case 'Publish': {
+      renderer.render(publication.document);
+      renderedGeneration = publication.generation > 0n ? publication.generation : null;
+      // Publication establishes the baseline; only later native content reflow requests a new measurement.
+      displayedGeometry = geometrySignature();
+      if (pendingFocus) applyFocus(pendingFocus);
+      break;
+    }
+    default: throw new TypeError(`Unknown publication ${publication.$}`);
+  }
+  schedulePhysical();
   for (const effect of effects) Promise.resolve(execute(effect)).catch(error => console.error(error));
+}
+function captureAnchor(key, node) {
+  const box = node.getBoundingClientRect();
+  const nat = amount => measuredNat(Math.max(0, Math.round(amount)), 'anchor geometry');
+  commit(Bend.capture_anchor(key, nat(box.left), nat(box.top), nat(box.width), nat(box.height), state));
+}
+function geometrySignature() {
+  return [...root.querySelectorAll('[data-native-key]')].filter(node => !node.closest('[aria-hidden="true"]')).map(node => {
+    const box = node.getBoundingClientRect();
+    return [node.dataset.nativeKey, box.width, box.height, node.scrollWidth, node.scrollHeight];
+  }).map(parts => JSON.stringify(parts)).join(';');
+}
+function geometryChanged() {
+  if (disposed || renderQueued || renderedGeneration === null) return;
+  renderQueued = true;
+  geometryFrame = requestAnimationFrame(() => {
+    geometryFrame = null;
+    renderQueued = false;
+    const signature = geometrySignature();
+    if (signature === displayedGeometry) return;
+    displayedGeometry = signature;
+    commit(Bend.remeasure(state));
+  });
+}
+function schedulePhysical() {
+  if (disposed) return;
+  const plan = Bend.physical_plan(state);
+  physicalQueued = plan.$ === 'Some' && plan.value.$ === 'Awaiting'
+    ? { plan: plan.value, generation: Bend.requested_generation(state), revision: physicalRevision } : null;
+  if (!physicalQueued || physicalActive || physicalScheduled) return;
+  physicalScheduled = true;
+  queueMicrotask(runPhysical);
+}
+async function runPhysical() {
+  physicalScheduled = false;
+  if (disposed || physicalActive || !physicalQueued) return;
+  const batch = physicalQueued;
+  physicalQueued = null;
+  physicalActive = true;
+  try {
+    // Streaming can supersede this generation; Bend receives the old ticket and decides acceptance.
+    const receipt = await physicalMeasurer.measure(batch.plan);
+    if (disposed || batch.revision !== physicalRevision) return;
+    commit(Bend.physical_measured(batch.generation, linked(tokenizeJsonValue(JSON.parse(receipt))), state));
+  } catch (error) {
+    if (!disposed && batch.revision === physicalRevision && error.name !== 'AbortError') {
+      commit(Bend.physical_measurement_failed(batch.generation, String(error), state));
+    }
+  } finally {
+    physicalActive = false;
+    schedulePhysical();
+  }
+}
+function applyFocus(physical) {
+  if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus = null; return; }
+  const node = renderer.target(physical.target);
+  if (!node) { pendingFocus = physical; return; }
+  pendingFocus = null;
+  node.focus({ preventScroll: true });
+  platform(value('FocusApplied', { ticket: physical.ticket, identity: owner(document.activeElement) }));
 }
 function commit(decision) {
   state = decision.state; render();
@@ -274,17 +366,14 @@ function frame() {
 async function browserEffect(effect) {
   if (effect.$ === 'MeasureFrame') {
     requestAnimationFrame(() => {
-      if (root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') native(value('FrameObserved', { generation: effect.generation, frame: frame() }));
+      if (renderedGeneration !== null && root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') native(value('FrameObserved', { generation: renderedGeneration, frame: frame() }));
     }); return;
   }
   if (effect.$ !== 'PlatformEffect') throw new TypeError(`Unknown web effect ${effect.$}`);
   const physical = effect.effect;
   switch (physical.$) {
     case 'Focus': {
-      if (physical.ticket !== state.web.application.platform.focus_ticket) return;
-      const node = renderer.target(physical.target); if (!node) return;
-      node.focus({ preventScroll: true });
-      platform(value('FocusApplied', { ticket: physical.ticket, identity: owner(document.activeElement) })); break;
+      applyFocus(physical); break;
     }
     case 'Clipboard': {
       let success = false;
@@ -317,21 +406,46 @@ function markReadingCorrection(surface) {
   readingCorrections.set(surface, correction);
   requestAnimationFrame(() => { if (readingCorrections.get(surface) === correction) readingCorrections.delete(surface); });
 }
-function measureUserAnchor(surface) {
+function readingOwner(surface) {
+  return Object.freeze({ key: surface.dataset.nativeKey, task: surface.dataset.readingTask, generation: surface.dataset.readingGeneration });
+}
+function matchesReadingOwner(surface, captured) {
+  return surface.dataset.nativeKey === captured.key && surface.dataset.readingTask === captured.task && surface.dataset.readingGeneration === captured.generation;
+}
+function retireReadingMeasurement(surface, pending) {
+  if (readingMeasurements.get(surface)?.identity === pending.identity) readingMeasurements.delete(surface);
+}
+function currentReadingMeasurement(surface) {
   const pending = readingMeasurements.get(surface);
+  if (pending && (!surface.isConnected || !matchesReadingOwner(surface, pending.owner))) {
+    retireReadingMeasurement(surface, pending);
+    return null;
+  }
+  return pending;
+}
+function createReadingMeasurement(surface) {
+  const pending = { identity: Symbol(), owner: readingOwner(surface), frame: null, pointers: new Set() };
+  readingMeasurements.set(surface, pending);
+  return pending;
+}
+function measureUserAnchor(surface) {
+  const pending = currentReadingMeasurement(surface);
   if (!pending || pending.frame !== null) return;
   pending.frame = requestAnimationFrame(() => {
     pending.frame = null;
-    if (!surface.isConnected) { readingMeasurements.delete(surface); return; }
+    // Keyed nodes can survive a reader change; queued work keeps its original owner.
+    if (!surface.isConnected || !matchesReadingOwner(surface, pending.owner) || readingMeasurements.get(surface)?.identity !== pending.identity) {
+      retireReadingMeasurement(surface, pending);
+      return;
+    }
     const observed = anchor(surface);
-    if (pending.pointers.size === 0) readingMeasurements.delete(surface);
-    if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed }));
+    if (pending.pointers.size === 0) retireReadingMeasurement(surface, pending);
+    if (observed) commit(Bend.reading(BigInt(pending.owner.task), BigInt(pending.owner.generation), value('AnchorObserved', { anchor: observed }), state));
   });
 }
 function beginUserScroll(surface, pointerId) {
   readingUserOwned.add(surface);
-  let pending = readingMeasurements.get(surface);
-  if (!pending) { pending = { frame: null, pointers: new Set() }; readingMeasurements.set(surface, pending); }
+  const pending = currentReadingMeasurement(surface) ?? createReadingMeasurement(surface);
   if (pointerId !== undefined) { pending.pointers.add(pointerId); readingPointers.set(pointerId, surface); }
   readingInput(surface, value('BeginUserScroll'));
   measureUserAnchor(surface);
@@ -345,18 +459,18 @@ function applyReading(physical) {
       // An instant move to the current offset cancels an earlier smooth correction.
       surface.scrollTo({ top: surface.scrollTop, left: surface.scrollLeft, behavior: 'instant' }); break;
     case 'AlignLatest':
-      if (!readingMeasurements.has(surface)) {
+      if (!currentReadingMeasurement(surface)) {
         readingUserOwned.delete(surface); markReadingCorrection(surface);
         surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
       }
       break;
     case 'PreserveAnchor': {
-      if (readingMeasurements.has(surface)) break;
+      if (currentReadingMeasurement(surface)) break;
       const node = [...surface.querySelectorAll('[data-reading-key]')].find(item => item.dataset.readingKey === effect.anchor.identity);
       if (node) { markReadingCorrection(surface); surface.scrollTop += node.getBoundingClientRect().top - surface.getBoundingClientRect().top - effect.anchor.offset; } break;
     }
     case 'MeasureAnchor': {
-      if (readingMeasurements.has(surface)) { measureUserAnchor(surface); break; }
+      if (currentReadingMeasurement(surface)) { measureUserAnchor(surface); break; }
       const observed = anchor(surface); if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed })); break;
     }
     case 'ReserveComposer': { const content = root.querySelector(`[data-reading-content][data-reading-task="${physical.task}"]`); if (content) content.style.paddingBottom = `${effect.height}px`; break; }
@@ -422,7 +536,11 @@ function environmentInput() {
     system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches),
   }) });
 }
-function environment() { native(environmentInput()); }
+function environment() {
+  physicalRevision++;
+  physicalMeasurer.cancel();
+  native(environmentInput());
+}
 window.addEventListener('resize', environment);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', environment);
 document.fonts.addEventListener('loadingdone', environment);
@@ -430,7 +548,7 @@ document.fonts.addEventListener('loadingerror', environment);
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 motion.addEventListener('change', () => platform(value('MotionPreference', { reduced: bool(motion.matches) })));
 root.addEventListener('focusin', () => platform(value('FocusObserved', { identity: owner(document.activeElement) })));
-window.addEventListener('pagehide', () => { textMeasurer.dispose(); connection?.abort(); for (const resource of resources) URL.revokeObjectURL(resource); });
+window.addEventListener('pagehide', () => { disposed = true; physicalRevision++; physicalMeasurer.dispose(); if (geometryFrame !== null) cancelAnimationFrame(geometryFrame); textMeasurer.dispose(); connection?.abort(); for (const resource of resources) URL.revokeObjectURL(resource); });
 const bootEffects = [];
 for (const input of [
   environmentInput(),
@@ -508,7 +626,7 @@ root.addEventListener('keydown', event => {
   if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.target.matches('input,textarea,select')) observeUserScroll(event);
 });
 root.addEventListener('pointerdown', event => {
-  const scope = state.web.application.platform.scope;
+  const scope = Bend.active_scope(state);
   const layers = scope.$ === 'Temporary'
     ? [...root.querySelectorAll('[data-layer-key]')].filter(node => !node.closest('[inert]'))
     : [];
@@ -543,7 +661,7 @@ function endReadingPointer(event) {
   const surface = readingPointers.get(event.pointerId);
   if (!surface) return;
   readingPointers.delete(event.pointerId);
-  const pending = readingMeasurements.get(surface);
+  const pending = currentReadingMeasurement(surface);
   if (pending) { pending.pointers.delete(event.pointerId); measureUserAnchor(surface); }
 }
 window.addEventListener('pointerup', endReadingPointer, true);
@@ -551,10 +669,10 @@ window.addEventListener('pointercancel', endReadingPointer, true);
 root.addEventListener('scroll', event => {
   const surface = event.target;
   if (!surface.matches?.('[data-reading-scroll]')) return;
-  if (!readingMeasurements.has(surface) && readingUserOwned.has(surface) && !readingCorrections.has(surface)) {
-    readingMeasurements.set(surface, { frame: null, pointers: new Set() });
+  if (!currentReadingMeasurement(surface) && readingUserOwned.has(surface) && !readingCorrections.has(surface)) {
+    createReadingMeasurement(surface);
   }
-  if (readingMeasurements.has(surface)) measureUserAnchor(surface);
+  if (currentReadingMeasurement(surface)) measureUserAnchor(surface);
 }, true);
 for (const node of root.querySelectorAll('[data-reading-scroll],[data-reading-content],[data-reading-dock]')) { observed.add(node); resizeObserver.observe(node); }
 observeReadingLayout();

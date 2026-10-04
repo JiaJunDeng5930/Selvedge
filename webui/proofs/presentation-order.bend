@@ -6,7 +6,6 @@ import ../MODEL.bend as Model
 import ../controls.bend as Controls
 import ../presentation-order.bend as Order
 import ../../bendlib/stdlib.bend as Std
-import ./presentation.bend as ImportedPresentation
 
 def panel_header_matches_specification(representation: Controls.Representation) ->
   {Controls.panel_header(representation) == Rule.specified_header_representation(representation) : Bool}:
@@ -471,17 +470,6 @@ def ordered_surface_preserves_content_scope(surface: UI.Surface) ->
   match surface:
     case UI.Surface{content, base, overlays, active_scope}: {==}
 
-def projected_frame_claim(+outcome: Model.SceneOutcome) -> Rule.FrameProjectionClaim(outcome, Model.projected_frame(outcome)):
-  match outcome:
-    case Model.ReadyScene{Model.Scene{presentation, platform, generation, realization, layout}}: {==}
-    case Model.AwaitingTypography{}: {==}
-    case Model.FailedTypography{}: {==}
-    case Model.UnsupportedSpace{required, available}: {==}
-
-def frame_surface_uses_ordered_projection(+state: Model.State, +surface: UI.Surface) ->
-  Rule.FrameProjectionClaim(Model.scene_for_surface(state, Order.ordered_surface(surface)), Model.frame_surface(state, surface)):
-  projected_frame_claim(Model.scene_for_surface(state, Order.ordered_surface(surface)))
-
 def count_append_step(+predicate: Rule.CountPredicate, +value: UI.Node, +rest: +List<UI.Node>,
   +right: +List<UI.Node>, included: Bool,
   tail_evidence: {Rule.count_by(predicate, List.append(&2, UI.Node, rest, right)) ==
@@ -598,7 +586,4 @@ def Rule.evidence():
     values => context => dialog_order_idempotent(values, context),
     value => children => node_with_children_preserves_payload(value, children),
     surface => ordered_surface_preserves_content_scope(surface),
-    environment => +application => generation => realization => font =>
-      ImportedPresentation.observes_semantic_surface(Model.State{application, generation, realization, environment, font})
-    ,
-    +state => +surface => frame_surface_uses_ordered_projection(state, surface)}
+    environment => +application => generation => realization => font => {==}}

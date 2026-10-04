@@ -4,11 +4,9 @@ import ../core/SYSTEM.bend as Core
 import ./MODEL.bend as Model
 import ./controls.bend as Controls
 import ./design.bend as Design
-import ./visibility.bend as Visibility
 import ./presentation-order.bend as Order
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
-import ./presentation-laws.bend as PresentationLaws
 import ./font-observation.bend as F
 
 type NodePayload is Data:
@@ -74,12 +72,6 @@ def non_dialog_order_observation(role: UI.Role, +values: +List<UI.Node>, +contex
     case UI.Dialog{}: values
     case _: Order.ordered_children(role, values, context)
 
-def FrameProjectionClaim(outcome: Model.SceneOutcome, projected: Maybe<&2, UI.Surface>) -> Type:
-  match outcome:
-    case Model.ReadyScene{scene}:
-      {projected == Some{Visibility.project(PresentationLaws.scene_surface(scene), PresentationLaws.scene_layout(scene))} : Maybe<&2, UI.Surface>}
-    case _: {projected == None{} : Maybe<&2, UI.Surface>}
-
 def occurrence_step(included: Bool, rest: Nat) -> Nat:
   match included:
     case True{}: Nat.add(1n, rest)
@@ -121,12 +113,10 @@ type Requirements is Type:
       {node_payload(Order.node_with_children(value, children)) == node_payload(value) : NodePayload},
     surface_content_scope_preserved: @surface:UI.Surface ->
       {surface_payload(Order.ordered_surface(surface)) == surface_payload(surface) : SurfacePayload},
-    scene_uses_ordered_surface: @environment:Design.Environment -> @+application:Platform.State ->
+    model_observes_ordered_surface: @environment:Design.Environment -> @+application:Platform.State ->
       @generation:Nat -> @realization:Rendered.State -> @font:F.State ->
-      PresentationLaws.SemanticClaim(Model.observe(Model.State{application, generation, realization, environment, font}),
-        Order.ordered_surface(Model.surface(application))),
-    frame_uses_ordered_projection: @+state:Model.State -> @+surface:UI.Surface ->
-      FrameProjectionClaim(Model.scene_for_surface(state, Order.ordered_surface(surface)), Model.frame_surface(state, surface))
+      {Model.observed_surface(Model.State{application, generation, realization, environment, font}) ==
+        Order.ordered_surface(Model.surface(application)) : UI.Surface}
   }
 
 law evidence:

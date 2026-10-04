@@ -1,4 +1,5 @@
 import Base
+import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ./space.bend as Space
 import ./typography.bend as Typography
@@ -134,19 +135,15 @@ def face_demand(face: Face, demand: Space.Demand) -> Space.Demand:
       Space.Demand{Enclosure.Extent{minimum, minimum}, Enclosure.Extent{preferred, preferred}}
     case _: demand
 
-type ContentAlignment is Data:
-  CenterContents{}
-  LeadingContents{}
-
 type ContentLayout is Data:
-  ContentLayout{alignment: ContentAlignment, content_area: Enclosure.ContentArea, gap: Nat}
+  ContentLayout{alignment: SpatialModel.ContentAlignment, content_area: Enclosure.ContentArea, gap: Nat}
 
 def content_layout(face: Face) -> ContentLayout:
   match face:
-    case IconFace{icon}: ContentLayout{CenterContents{}, Enclosure.area(Enclosure.IconControl{}), 0n}
-    case SingleLineFace{text}: ContentLayout{LeadingContents{}, Enclosure.ambient(0n, 0n), 0n}
-    case ChoiceFace{text, description, checked}: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
-    case _: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
+    case IconFace{icon}: ContentLayout{SpatialModel.CenterContents{}, Enclosure.area(Enclosure.IconControl{}), 0n}
+    case SingleLineFace{text}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.ambient(0n, 0n), 0n}
+    case ChoiceFace{text, description, checked}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
+    case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
 
 type IconPaint is Data:
   FilledIcon{}

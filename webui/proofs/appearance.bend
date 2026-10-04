@@ -1,4 +1,5 @@
 import Base
+import ../spatial.bend as SpatialModel
 import ../appearance-laws.bend as Rule
 import ../space.bend as Space
 import ../typography.bend as T
@@ -127,7 +128,7 @@ def regular_heading_role(inherited: T.Presentation, text: String, in_main: Bool)
     case True{}: {==}
     case False{}: {==}
 
-def flow_preserves_minimum(+value: Design.Style, flow: Design.Flow) ->
+def flow_preserves_minimum(+value: Design.Style, flow: SpatialModel.Flow) ->
   {Design.style_minimum_height(Appearance.with_flow(value, flow)) == Design.style_minimum_height(value) : Nat}:
   Design.Style{text, chrome, alignment, old_flow, overflow, frame, minimum, maximum, states} = value
   {==}

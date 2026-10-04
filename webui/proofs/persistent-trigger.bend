@@ -1,4 +1,4 @@
-import ./enclosure-render.bend as ExistingProof
+import ../../bendlib/proofs/equality.bend as EqualityProof
 import Base
 import ../../core/interface.bend as UI
 import ../../core/SYSTEM.bend as Core
@@ -66,7 +66,7 @@ def valid_exactly_once(+scene: Core.Scene, +base: +List<UI.Node>, +key: String, 
         Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key)))),
         Nat.add(1n, Nat.add(Rule.occurrences(body, key), Rule.occurrences(rest, key))), 1n,
         Equal.cong(Bool, Nat, (same => Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(same), Rule.occurrences(body, key)), Rule.occurrences(rest, key))))),
-          String.eq(key, key), True{}, ExistingProof.same_string(key)),
+          String.eq(key, key), True{}, EqualityProof.same_string(key)),
         Equal.cong(Nat, Nat, (count => Nat.add(1n, count)),
           Nat.add(Rule.occurrences(body, key), Rule.occurrences(rest, key)), 0n, fresh))))
 

@@ -5,6 +5,7 @@ import ../controls.bend as Controls
 import ../../core/interface.bend as UI
 import ../../core/SYSTEM.bend as Core
 import ../../core/ui-world.bend as View
+
 def projection_construction(input: Core.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
   {Controls.presented_action(input, availability, name, projection, placement, help, feedback) == Rule.projected_action(input, availability, name, projection, placement, help, feedback) : Controls.Representation}:
   match projection:
@@ -32,10 +33,26 @@ def chooser_reference(+key: String, +semantic: String, +label: String, +role: UI
   {==}
 
 def Rule.evidence():
-  Rule.Requirements{+key => +semantic => +label => +role => +project => +selected => +expanded => +children => +visual => +representation => {==}, +key => +tag => +attrs => +styles => +events => +children => {==}, +project => {==}, +project => {==}, +project => {==}, +project => +trigger => {==}, +name => +expanded => +fallback => {==}, +typography => geometry => +key => +name => {==}, +area => +family => +input => +availability => +name => +face => +behavior => +geometry => +placement => +help => +feedback => projection_construction(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback), +width => +height => +preferred => +icon => +radius => +leading => {==}, +width => +height => +preferred => +icon => +radius => +leading => {==}, +width => +height => +preferred => +icon => +radius => +leading => {==}, name_geometry,
-    +key => +semantic => +label => +role => +task => +status => +selected => +children => +visual => +representation => {==}, +key => +semantic => +label => +role => +selected => +children => +visual => +representation => {==}, {==}, +trigger => +name => +face => +behavior => +geometry => {==}, +name => +expanded => +fallback => {==}, +name => +expanded => +fallback => {==}, +node => {==}, chooser_draft_observation,
+  Rule.Requirements{
+    +project => {==},
+    +project => {==},
+    +project => {==},
+    +project => +trigger => {==},
+    +name => +expanded => +fallback => {==},
+    +area => +family => +input => +availability => +name => +face => +behavior => +geometry => +placement => +help => +feedback => projection_construction(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback),
+    +width => +height => +preferred => +icon => +radius => +leading => {==},
+    +width => +height => +preferred => +icon => +radius => +leading => {==},
+    +width => +height => +preferred => +icon => +radius => +leading => {==},
+    name_geometry,
+    {==},
+    +trigger => +name => +face => +behavior => +geometry => {==},
+    +name => +expanded => +fallback => {==},
+    +name => +expanded => +fallback => {==},
+    chooser_draft_observation,
     +typography => +key => +context => +representation => +fallback => +project => +selected => +expanded => {==},
-    +typography => +key => +context => +representation => +fallback => +task => +status => +selected => {==}, project_reference, task_reference, chooser_reference,
+    +typography => +key => +context => +representation => +fallback => +task => +status => +selected => {==},
+    project_reference,
+    task_reference,
+    chooser_reference,
     +typography => +in_main => +start => +key => +semantic => +label => +role => +meaning => +children => +context => {==},
-    +typography => +key => +owner => +owner_semantic => +owner_label => +owner_role => +owner_children => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==},
-    +typography => +key => +tag => +attrs => +styles => +events => children => +status => {==}}
+    +typography => +key => +owner => +owner_semantic => +owner_label => +owner_role => +owner_children => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==}}

@@ -20,12 +20,9 @@ import ../bendlib/json.bend as J
 import ../bendlib/domain.bend as D
 import ../bendlib/command-codec.bend as Codec
 import ./MODEL.bend as Web
-import ./design.bend as Design
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
 import ./font-observation.bend as F
-import ./document.bend as Document
-import ./renderer.bend as Renderer
 import ./request.bend as Request
 
 type RequestStatus is Data:
@@ -96,30 +93,6 @@ def mask_nodes(nodes: +List<UI.Node>, +pending: +List<Pending>) -> +List<UI.Node
 def mask_surface(surface: UI.Surface, +pending: +List<Pending>) -> UI.Surface:
   UI.Surface{content, base, overlays, scope} = surface
   UI.Surface{content, mask_nodes(base, pending), mask_nodes(overlays, pending), scope}
-def mark_attrs(blocked: Bool, attrs: +List<Document.Property>) -> +List<Document.Property>:
-  match blocked:
-    case False{}: attrs
-    case True{}: Document.Property{"aria-busy", "true"} <> attrs
-def mark_nodes(nodes: +List<Document.Node>, +pending: +List<Pending>) -> +List<Document.Node>:
-  match nodes:
-    case Nil{}: Nil{}
-    case Con{Document.Element{+key, tag, attrs, styles, events, children}, rest}:
-      Document.Element{key, tag, mark_attrs(busy(pending, key), attrs), styles, events, mark_nodes(children, pending)} <> mark_nodes(rest, pending)
-    case Con{Document.Portal{key, target, children}, rest}:
-      Document.Portal{key, target, mark_nodes(children, pending)} <> mark_nodes(rest, pending)
-    case Con{Document.TargetProperties{+key, target, attrs, styles}, rest}:
-      Document.TargetProperties{key, target, mark_attrs(busy(pending, key), attrs), styles} <> mark_nodes(rest, pending)
-    case Con{Document.Text{value}, rest}:
-      Document.Text{value} <> mark_nodes(rest, pending)
-    case Con{Document.Markdown{key, source, value}, rest}:
-      Document.Markdown{key, source, value} <> mark_nodes(rest, pending)
-def mark_node(node: Document.Node, +pending: +List<Pending>) -> Document.Node:
-  match node:
-    case Document.Element{+key, tag, attrs, styles, events, children}:
-      Document.Element{key, tag, mark_attrs(busy(pending, key), attrs), styles, events, mark_nodes(children, pending)}
-    case Document.Portal{key, target, children}: Document.Portal{key, target, mark_nodes(children, pending)}
-    case Document.TargetProperties{+key, target, attrs, styles}: Document.TargetProperties{key, target, mark_attrs(busy(pending, key), attrs), styles}
-    case other: other
 def wrap_web(effects: +List<Web.Effect>) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
@@ -135,10 +108,6 @@ def origin(input: Web.Input) -> String:
   match input:
     case Web.ElementInput{key, gesture}: key
     case _: ""
-def rendering_faults(realization: Rendered.State) -> +List<Effect>:
-  match realization:
-    case Rendered.Unmet{generation, frame, violations}: [RenderingFailed{generation, violations}]
-    case _: Nil{}
 def empty() -> M.World():
   M.initial()
 def code_key(source: Code.Source, ordinal: Nat) -> String:
@@ -186,104 +155,12 @@ def entry_text(entry: Forms.Entry, text: String) -> Maybe<&2, UI.Gesture>:
     case Forms.FileCollection{}: None{}
     case Forms.DirectoryCollection{}: Some{UI.Directory{text}}
     case _: Some{UI.Change{Forms.Text{text}}}
-def scene(state: State) -> Web.SceneOutcome:
-  State{+web, sequence, next, pending} = state
-  Web.scene_for_surface(web, mask_surface(Web.observed_surface(web), pending))
-# Unknown receipt status is local browser feedback; it never enters task history.
-def unknown_notice(ticket: Nat, reason: String) -> Document.Node:
-  Document.Element{"@browser/unknown/" ++ Nat.show(ticket), "p",
-    [Document.Property{"role", "status"}],
-    [Document.Property{"margin", "0"}, Document.Property{"padding", "8px 16px"}], Nil{},
-    [Document.Text{"Connection interrupted. Submission status is unknown. " ++ reason}]}
-
-def pending_notice(entry: Pending, rest: +List<Document.Node>) -> +List<Document.Node>:
-  Pending{ticket, completion, command, origin, status} = entry
-  match status:
-    case AwaitingReceipt{}: rest
-    case OutcomeUnknown{reason}: unknown_notice(ticket, reason) <> rest
-
-def unknown_notices(pending: +List<Pending>) -> +List<Document.Node>:
-  match pending:
-    case Nil{}: Nil{}
-    case Con{entry, rest}: pending_notice(entry, unknown_notices(rest))
-
-def inset_document(root: Document.Node) -> Document.Node:
-  match root:
-    case Document.Element{key, tag, attrs, styles, events, children}:
-      Document.Element{key, tag, attrs, List.append(&2, Document.Property, styles,
-        [Document.Property{"top", "4rem"}, Document.Property{"height", "calc(100dvh - 4rem)"}, Document.Property{"min-height", "0"}]), events, children}
-    case other: other
-
-def notice_region(notices: +List<Document.Node>) -> Document.Node:
-  match notices:
-    case Nil{}:
-      Document.Element{"@browser/unknown-status", "aside", [Document.Property{"hidden", ""}],
-        [Document.Property{"display", "none"}], Nil{}, Nil{}}
-    case Con{notice, rest}:
-      Document.Element{"@browser/unknown-status", "aside", Nil{},
-        [Document.Property{"height", "4rem"}, Document.Property{"overflow", "auto"},
-         Document.Property{"background", "var(--color-surface)"}, Document.Property{"color", "var(--color-text)"}],
-        Nil{}, notice <> rest}
-
-def application_for_notices(notices: +List<Document.Node>, root: Document.Node) -> Document.Node:
-  match notices:
-    case Nil{}: root
-    case Con{notice, rest}: inset_document(root)
-
-def with_notices(+notices: +List<Document.Node>, root: Document.Node, title: String) -> Document.Document:
-  Document.Document{Document.Element{"@browser/interaction", "div", Nil{},
-    [Document.Property{"height", "100dvh"}, Document.Property{"overflow", "hidden"}], Nil{},
-    [notice_region(notices), application_for_notices(notices, root)]}, title}
-
-def uncertainty_document(document: Document.Document, pending: +List<Pending>) -> Document.Document:
-  Document.Document{root, title} = document
-  with_notices(unknown_notices(pending), root, title)
-
-def mark_document(document: Document.Document, +pending: +List<Pending>) -> Document.Document:
-  Document.Document{root, title} = document
-  uncertainty_document(Document.Document{mark_node(root, pending), title}, pending)
-def status_document(role: String, message: String) -> Document.Document:
-  Document.Document{Document.Element{"@browser/status", "section", [Document.Property{"role", role},
-    Document.Property{"data-frame-observation", "off"}], Nil{}, Nil{}, [Document.Text{message}]}, "Selvedge"}
-
-def scene_document(outcome: Web.SceneOutcome, pending: +List<Pending>) -> Document.Document:
-  match outcome:
-    case Web.ReadyScene{Web.Scene{presentation, platform, generation, realization, layout}}:
-      mark_document(Renderer.place(presentation, layout), pending)
-    case Web.AwaitingTypography{}: status_document("status", "Measuring interface text…")
-    case Web.FailedTypography{}: status_document("alert", "The interface could not measure its text. Change the display environment to retry.")
-    case Web.UnsupportedSpace{required, available}:
-      status_document("alert", "The interface requires " ++ Nat.show(required) ++ " CSS pixels of space; " ++ Nat.show(available) ++ " are available.")
-
-def ready_document(realization: Rendered.State, scene: Web.Scene, pending: +List<Pending>) -> Document.Document:
-  match realization:
-    case Rendered.Unmet{received, frame, violations}:
-      Document.Document{Document.Element{"@browser/failure", "section",
-        [Document.Property{"role", "alert"}, Document.Property{"data-frame-observation", "off"}], Nil{}, Nil{},
-        [Document.Element{"@browser/failure/message", "p", Nil{}, Nil{}, Nil{}, [Document.Text{"The interface could not complete its display. Retry to measure and render it again."}]},
-          Document.Element{"@browser/retry", "button", [Document.Property{"type", "button"}], Nil{}, [Document.Activate{"@browser/retry"}], [Document.Text{"Retry"}]}]}, "Display failed"}
-    case _: scene_document(Web.ReadyScene{scene}, pending)
-
-def observed_document(outcome: Web.SceneOutcome, realization: Rendered.State, pending: +List<Pending>) -> Document.Document:
-  match outcome:
-    case Web.ReadyScene{scene}: ready_document(realization, scene, pending)
-    case Web.AwaitingTypography{}: scene_document(Web.AwaitingTypography{}, pending)
-    case Web.FailedTypography{}: scene_document(Web.FailedTypography{}, pending)
-    case Web.UnsupportedSpace{required, available}: scene_document(Web.UnsupportedSpace{required, available}, pending)
-
-def observe(+state: State) -> Document.Document:
-  State{Web.State{+application, +generation, +realization, +environment, +font}, sequence, next, +pending} = state
-  observed_document(scene(State{Web.State{application, generation, realization, environment, font}, sequence, next, pending}), realization, pending)
-
 def collected_finish(decision: Decision, web: +List<Web.Effect>, services: +List<Services.Effect>) -> Decision:
   Decision{state, requests} = decision
   Decision{state, List.append(&2, Effect, wrap_web(web), List.append(&2, Effect, requests, wrap_services(services)))}
-def scene_nodes(outcome: Web.SceneOutcome) -> +List<UI.Node>:
-  match outcome:
-    case Web.ReadyScene{scene}: UI.active_nodes(Design.semantic_surface(Web.scene_surface(scene)))
-    case _: Nil{}
 def nodes(state: State) -> +List<UI.Node>:
-  scene_nodes(scene(state))
+  State{web, sequence, next, pending} = state
+  UI.active_nodes(mask_surface(Web.observed_surface(web), pending))
 def found_node(+key: String, state: State) -> Maybe<&2, UI.Node>:
   UI.find_node(nodes(state), key)
 def stream_parts(parts: +List<J.Json>) -> +List<Live.Part>:
@@ -292,10 +169,6 @@ def stream_parts(parts: +List<J.Json>) -> +List<Live.Part>:
     case Con{+part, rest}: Live.Part{J.natural_or(J.natural(J.get(part, "output_index")), 0n), J.text(J.get(part, "text"))} <> stream_parts(rest)
 def stream_output(+value: J.Json) -> Live.Output:
   Live.Output{J.natural_or(J.natural(J.get(value, "task_id")), 0n), J.natural_or(J.natural(J.get(value, "ticket")), 0n), stream_parts(J.items(J.get(value, "parts")))}
-def native_frame(received: Nat, frame: Rendered.Frame, web: Web.State, sequence: Nat, next: Nat, +pending: +List<Pending>) -> Decision:
-  Web.State{+application, +generation, +previous, +environment, +font} = web
-  +realization = Web.frame_realization(Web.State{application, generation, previous, environment, font}, received, frame, mask_surface(Web.observed_surface(Web.State{application, generation, previous, environment, font}), pending))
-  Decision{State{Web.State{application, generation, realization, environment, font}, sequence, next, pending}, rendering_faults(realization)}
 
 def search_filter(filter: Board.Filter, text: String) -> Board.Filter:
   Board.Filter{view, search, status, priority, date, assignee, creator, project, label} = filter
@@ -400,6 +273,9 @@ def collect(interaction: +List<E.Effect>, origin: String, state: State) -> Decis
 def finish(decision: Web.Decision, sequence: Nat, next: Nat, pending: +List<Pending>, origin: String) -> Decision:
   Web.Decision{+web, Core.Decision{core, reply, runtime, interaction, services, durable}, effects} = decision
   collected_finish(collect(interaction, origin, State{web, sequence, next, pending}), effects, services)
+
+def native_frame(received: Nat, frame: Rendered.Frame, web: Web.State, sequence: Nat, next: Nat, +pending: +List<Pending>) -> Decision:
+  finish(Web.step(Web.FrameObserved{received, frame}, web), sequence, next, pending, "")
 
 def native_element(blocked: Bool, +key: String, gesture: UI.Gesture, state: State) -> Decision:
   match blocked:
@@ -738,18 +614,6 @@ def active_focus_scope(state: State) -> Focus.Scope:
   State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
   scope
 
-def surface_layer_key(surface: Design.Surface) -> Maybe<&2, String>:
-  Design.Surface{content, theme, base, overlays, scope} = surface
-  scope
-
-def ready_layer_key(value: Web.Scene) -> Maybe<&2, String>:
-  surface_layer_key(Web.scene_surface(value))
-
-def scene_layer_key(outcome: Web.SceneOutcome) -> Maybe<&2, String>:
-  match outcome:
-    case Web.ReadyScene{scene}: ready_layer_key(scene)
-    case _: None{}
-
 def outside_layer_owned(+identity: String, key: Maybe<&2, String>) -> Bool:
   match key:
     case None{}: False{}
@@ -767,9 +631,14 @@ def outside_completed(closed: Bool, candidate: Decision, state: State) -> Outsid
     case True{}: OutsideDecision{True{}, candidate}
     case False{}: OutsideDecision{False{}, Decision{state, Nil{}}}
 
+def semantic_layer_key(surface: UI.Surface) -> Maybe<&2, String>:
+  UI.Surface{content, base, overlays, scope} = surface
+  scope
+
 def outside_closed(identity: String, candidate: Decision) -> Bool:
   Decision{next, effects} = candidate
-  Bool.not(same_temporary(identity, active_focus_scope(next)))
+  State{web, sequence, ticket, pending} = next
+  Bool.not(outside_layer_owned(identity, semantic_layer_key(Web.observed_surface(web))))
 
 def outside_transition(+identity: String, +candidate: Decision, state: State) -> OutsideDecision:
   outside_completed(outside_closed(identity, candidate), candidate, state)
@@ -791,13 +660,12 @@ def outside_target(+identity: String, found: Maybe<&2, DismissTarget>, current_l
     case Some{DismissTarget{key, input, outside, escape}}:
       outside_permitted((String.eq(identity, key) && outside) && outside_layer_owned(identity, current_layer), input, state)
 
-def outside_scene(+identity: String, value: Web.SceneOutcome, +state: State) -> OutsideDecision:
-  match value:
-    case Web.ReadyScene{+scene}: outside_target(identity, dismiss_target(scene_nodes(Web.ReadyScene{scene})), scene_layer_key(Web.ReadyScene{scene}), state)
-    case _: OutsideDecision{False{}, Decision{state, Nil{}}}
+def current_layer_key(state: State) -> Maybe<&2, String>:
+  State{web, sequence, next, pending} = state
+  semantic_layer_key(Web.observed_surface(web))
 
-def outside_event(identity: String, +state: State) -> OutsideDecision:
-  outside_scene(identity, scene(state), state)
+def outside_event(+identity: String, +state: State) -> OutsideDecision:
+  outside_target(identity, dismiss_target(nodes(state)), current_layer_key(state), state)
 
 def escape_target(found: Maybe<&2, DismissTarget>, state: State) -> Decision:
   match found:
@@ -839,15 +707,6 @@ def temporary_key(tab: Bool, escape: Bool, reverse: Bool, +state: State) -> Deci
   State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
   key_scoped(scope, tab, escape, reverse, realization, state)
 
-def key_input_scene(outcome: Web.SceneOutcome, +key: String, shift: Bool, state: State) -> Decision:
-  match outcome:
-    case Web.ReadyScene{scene}: temporary_key(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, state)
-    case _: Decision{state, Nil{}}
-
-def key_input(+key: String, shift: Bool, +state: State) -> Decision:
-  key_input_scene(scene(state), key, shift, state)
-
-
 def key_handled(scope: Focus.Scope, +key: String, escape: Bool) -> Bool:
   match scope:
     case Focus.Document{}: False{}
@@ -857,21 +716,17 @@ def ready_key_event(+key: String, shift: Bool, +state: State) -> KeyResult:
   State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
   KeyResult{key_handled(scope, key, accepts_escape(dismiss_target(nodes(state)))), temporary_key(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, state)}
 
-def measurement_plan(state: State) -> F.Plan:
-  State{Web.State{application, generation, realization, environment, font}, sequence, next, pending} = state
-  Web.measurement_plan(Web.State{application, generation, realization, environment, font})
+def key_result_decision(result: KeyResult) -> Decision:
+  KeyResult{handled, decision} = result
+  decision
+
+def key_input(+key: String, shift: Bool, +state: State) -> Decision:
+  key_result_decision(ready_key_event(key, shift, state))
+
 
 def measurements(observation: F.Observation, state: State) -> Decision:
   native(Web.TypographyObserved{observation}, state)
 
-def key_event_scene(outcome: Web.SceneOutcome, key: String, shift: Bool, +state: State) -> KeyResult:
-  match outcome:
-    case Web.ReadyScene{scene}: ready_key_event(key, shift, state)
-    case _: KeyResult{False{}, Decision{state, Nil{}}}
-
 def key_event(key: String, shift: Bool, +state: State) -> KeyResult:
-  key_event_scene(scene(state), key, shift, state)
+  ready_key_event(key, shift, state)
 
-def measurement_budget(state: State) -> Nat:
-  State{web, sequence, next, pending} = state
-  Web.measurement_budget(web)

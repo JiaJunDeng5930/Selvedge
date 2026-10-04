@@ -3,14 +3,8 @@ import ../../core/directory-entry-laws.bend as CoreDirectory
 import ../../core/form-fields.bend as Forms
 import ../../core/interface.bend as UI
 import ../browser.bend as Browser
-import ../renderer.bend as Renderer
 import ../controls.bend as Controls
-import ../document.bend as Doc
 import ../directory-entry-laws.bend as Rule
-
-def events(+key: String, face: Controls.Face) ->
-  {Renderer.input_events(key, Controls.DirectoryChooser{face}) == [Doc.EditText{key}, Doc.ConfirmText{key}] : +List<Doc.Event>}:
-  {==}
 
 def composing_condition(enter: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool) ->
   {enter && False{} && Bool.not(control) && Bool.not(alt) && Bool.not(shift) && Bool.not(meta) == False{} : Bool}:
@@ -26,15 +20,19 @@ def absent_gesture(+found: Maybe<&2, UI.Node>, admitted: Bool,
     case False{}: {==}
 
 def Rule.evidence():
-  Rule.Requirements{events, key => face => {==}, editor => +text => {==}, {==}, keyboard => control => alt => shift => meta => composing_condition(String.eq(keyboard, "Enter"), control, alt, shift, meta), found => {==}, key => semantic => label => role => editor => text => children => {==}, +key => keyboard => composing => control => alt => shift => meta => +state => absent =>
+  Rule.Requirements{
+    {==},
+    keyboard => control => alt => shift => meta => composing_condition(String.eq(keyboard, "Enter"), control, alt, shift, meta),
+    found => {==},
+    key => semantic => label => role => editor => text => children => {==},
+    +key => keyboard => composing => control => alt => shift => meta => +state => absent =>
       Equal.cong(Maybe<&2, UI.Gesture>, Browser.Decision, gesture => Browser.apply_gesture(gesture, key, state),
         Browser.confirm_gesture(Browser.found_node(key, state), Browser.confirmation_key(keyboard, composing, control, alt, shift, meta)), None{},
-        absent_gesture(Browser.found_node(key, state), Browser.confirmation_key(keyboard, composing, control, alt, shift, meta), absent))
-    , +key => keyboard => composing => control => alt => shift => meta => +state => denied =>
+        absent_gesture(Browser.found_node(key, state), Browser.confirmation_key(keyboard, composing, control, alt, shift, meta), absent)),
+    +key => keyboard => composing => control => alt => shift => meta => +state => denied =>
       Equal.cong(Bool, Browser.Decision,
         admitted => Browser.apply_gesture(Browser.confirm_gesture(Browser.found_node(key, state), admitted), key, state),
-        Browser.confirmation_key(keyboard, composing, control, alt, shift, meta), False{}, denied)
-    }
+        Browser.confirmation_key(keyboard, composing, control, alt, shift, meta), False{}, denied)}
 
 def ordinary_choice(value: Forms.Observed) ->
   {Rule.selection_widget(Controls.value_widget(value, Forms.Choice{})) == True{} : Bool}:

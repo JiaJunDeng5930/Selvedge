@@ -15,6 +15,7 @@ type Event is Data:
   DragCard{key: String}
   DropCard{key: String}
   PlaceCard{key: String, target: String}
+  SelectDestination{key: String}
 
 type Node is Data:
   Element{key: String, tag: String, attributes: +List<Property>,

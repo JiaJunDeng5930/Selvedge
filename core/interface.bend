@@ -53,7 +53,7 @@ type Role is Data:
   Alert{}
 
 type Placement is Data:
-  Placement{target: String, input: Core.Input, availability: V.Availability}
+  Placement{target: String, label: String, input: Core.Input, availability: V.Availability}
 
 type BoardGrouping is Data:
   ViewChoices{}
@@ -645,7 +645,7 @@ def placement_target(stage: B.Stage, before: Maybe<&2, Nat>) -> String:
 
 def placement_control(target: String, control: Core.Control) -> Placement:
   Core.Control{identity, label, prominence, input, availability} = control
-  Placement{target, input, availability}
+  Placement{target, label, input, availability}
 
 def placements_at(values: +List<V.MoveDestination>, +id: Nat, +revision: Nat, +now: U32, +world: M.World(), +state: Core.State) -> +List<Placement>:
   match values:
@@ -1515,17 +1515,22 @@ def prefer_input(found: Maybe<&2, Core.Input>, fallback: Maybe<&2, Core.Input>) 
 def placement_input(values: +List<Placement>, +target: String) -> Maybe<&2, Core.Input>:
   match values:
     case Nil{}: None{}
-    case Con{Placement{key, input, availability}, rest}:
+    case Con{Placement{key, label, input, availability}, rest}:
       prefer_input(when_available(String.eq(key, target) && available(availability), input), placement_input(rest, target))
+
+def placement_source(source: Node, target: String) -> Maybe<&2, Core.Input>:
+  match source:
+    case Node{key, semantic, label, role, MovableCard{destinations, face}, children}: placement_input(destinations, target)
+    case _: None{}
 
 def place(source: Maybe<&2, Node>, target: Maybe<&2, Node>) -> Maybe<&2, Core.Input>:
   match source target:
-    case Some{Node{key, semantic, label, role, MovableCard{destinations, face}, children}} Some{Node{target, t_semantic, t_label, t_role, t_meaning, t_children}}: placement_input(destinations, target)
+    case Some{node} Some{Node{target, semantic, label, role, meaning, children}}: placement_source(node, target)
     case _ _: None{}
 
 def resolve_present(+source: Node, gesture: Gesture, surface: Surface) -> Maybe<&2, Core.Input>:
   match gesture:
-    case Place{target}: place(Some{source}, find_node(active_nodes(surface), target))
+    case Place{target}: placement_source(source, target)
     case other: bind_node(Some{source}, other)
 
 def resolve_source(source: Maybe<&2, Node>, gesture: Gesture, surface: Surface) -> Maybe<&2, Core.Input>:

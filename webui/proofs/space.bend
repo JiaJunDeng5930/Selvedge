@@ -26,6 +26,26 @@ def ge_le(+first: Nat, +second: Nat) ->
     case 1n+rest 0n: {==}
     case 1n+left 1n+right: ge_le(left, right)
 
+def and_join(+a: Bool, +b: Bool, first: {a == True{} : Bool}, second: {b == True{} : Bool}) ->
+  {Bool.and(a, b) == True{} : Bool}:
+  match a:
+    case False{}: impossible({Bool.and(False{}, b) == True{} : Bool}, first)
+    case True{}: second
+
+def and_parts(+a: Bool, +b: Bool, proof: {Bool.and(a, b) == True{} : Bool}) ->
+  {a == True{} : Bool} & {b == True{} : Bool}:
+  match a:
+    case False{}: impossible({False{} == True{} : Bool} & {b == True{} : Bool}, proof)
+    case True{}: ({==}, proof)
+
+def max_left(+a: Nat, +b: Nat) -> {Nat.is_le(a, Nat.max(a, b)) == True{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(a, Nat.max(a, b)), Nat.is_ge(Nat.max(a, b), a), True{},
+    Equal.sym(Bool, Nat.is_ge(Nat.max(a, b), a), Nat.is_le(a, Nat.max(a, b)), ge_le(Nat.max(a, b), a)), Nat.max_ge_l(a, b))
+
+def max_right(+a: Nat, +b: Nat) -> {Nat.is_le(b, Nat.max(a, b)) == True{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(b, Nat.max(a, b)), Nat.is_ge(Nat.max(a, b), b), True{},
+    Equal.sym(Bool, Nat.is_ge(Nat.max(a, b), b), Nat.is_le(b, Nat.max(a, b)), ge_le(Nat.max(a, b), b)), Nat.max_ge_r(a, b))
+
 def le_refl(+value: Nat) -> {Nat.is_le(value, value) == True{} : Bool}:
   Equal.trans(Bool, Nat.is_le(value, value), Nat.is_ge(value, value), True{},
     Equal.sym(Bool, Nat.is_ge(value, value), Nat.is_le(value, value), ge_le(value, value)), Nat.ge_refl(value))

@@ -1,5 +1,4 @@
 import Base
-import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
@@ -9,9 +8,6 @@ import ../bendlib/domain.bend as Domain
 import ./controls.bend as Controls
 import ./control-laws.bend as Binding
 import ./rendered.bend as Observed
-import ./renderer.bend as Render
-import ./document.bend as Doc
-import ./design.bend as Design
 
 def execution_observation(context: Controls.Context) -> Maybe<&2, Context.Observation>:
   Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
@@ -21,18 +17,10 @@ def page_observation(content: Core.Scene) -> Maybe<&2, Context.Observation>:
   Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
   Controls.page_execution(main)
 
-def choice_native_event_law(-key: String, -label: String, -selected: Bool, -description: String, -visual: Design.Style, -input: Core.Input, -availability: View.Availability, -name: String, -face: Controls.Face, -behavior: Controls.Behavior, -geometry: Controls.Geometry, -placement: Controls.Placement, -help: Controls.Help, -feedback: Controls.Feedback, -visual_children: +List<Render.Child>) -> Type:
-  {Doc.element_events(Render.action(key, visual, Controls.Action{input, availability, name, Controls.ChoiceFace{label, Controls.choice_description(description), selected}, behavior, geometry, placement, help, feedback})) ==
-      [Doc.Activate{key}] : +List<Doc.Event>}
-
 type Requirements is Type:
   Requirements{
-    choice_native_event: @+key:String -> @label:String -> @selected:Bool -> @description:String -> @+visual:Design.Style ->
-      @input:Core.Input -> @availability:View.Availability -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @help:Controls.Help -> @feedback:Controls.Feedback -> @visual_children:+List<Render.Child> ->
-      choice_native_event_law(key, label, selected, description, visual, input, availability, name, face, behavior, geometry, placement, help, feedback, visual_children),
     choice_binding: @+key:String -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Binding.binding(Controls.represent(key, UI.Choice{selected, description, input, availability}, label, role, context)) == UI.Activate{input, availability} : UI.Meaning},
-    choice_radio: @+selected:Bool -> {Render.behavior(Controls.ChoiceRadio{selected}) == [Doc.Property{"role", "radio"}, Doc.Property{"aria-checked", FieldOptions.boolean(selected)}] : +List<Doc.Property>},
     choice_interactive: @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.interactive(UI.Choice{selected, description, input, availability}) == True{} : Bool},
     choice_enabled: @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.required_enabled(UI.Choice{selected, description, input, availability}) == Observed.enabled(availability) : Bool},
     choice_observed_tabs: @+key:String -> @semantic:String -> @+label:String -> @role:UI.Role -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> ->
