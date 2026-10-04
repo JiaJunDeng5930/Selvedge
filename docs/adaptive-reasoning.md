@@ -93,9 +93,7 @@ reviewer; use an ordinary profile for `approval-for-me` judgments.
 Missing configuration, authentication failures, invalid choices and exhausted
 same-provider retries stop visibly without substituting a provider, model or
 guessed effort. Tool execution is not repeated when an evaluator request fails.
-Restart reconstructs the committed native state. Finished observations are not
-replayed. An unfinished evaluation is recovered through the native scheduler with
-a fresh, committed ticket; the old callback can no longer authorize a generation.
+Restart reconstructs the committed native state.
 
 `REASONING.bend` is the policy entry. `bendlib/reasoning-spec.bend` specifies
 generation authorization and settlement independently of the production

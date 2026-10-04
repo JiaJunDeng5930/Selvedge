@@ -28,6 +28,11 @@ type Delivery is Data:
   Send{}
   Steer{}
 
+def delivery_caption(delivery: Delivery) -> String:
+  match delivery:
+    case Send{}: "Send"
+    case Steer{}: "Steer"
+
 type Body is Data:
   NewTask{message: Text, profile: String, reasoning: String, context: Context.Configuration}
   Message{task: Nat, message: Text, delivery: Delivery}

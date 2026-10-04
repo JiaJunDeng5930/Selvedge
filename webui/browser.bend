@@ -255,9 +255,6 @@ def scene_document(outcome: Web.SceneOutcome, pending: +List<Pending>) -> Docume
     case Web.UnsupportedSpace{required, available}:
       status_document("alert", "The interface requires " ++ Nat.show(required) ++ " CSS pixels of space; " ++ Nat.show(available) ++ " are available.")
 
-def render_document(+state: State) -> Document.Document:
-  State{web, sequence, next, pending} = state
-  scene_document(scene(state), pending)
 def ready_document(realization: Rendered.State, scene: Web.Scene, pending: +List<Pending>) -> Document.Document:
   match realization:
     case Rendered.Unmet{received, frame, violations}:

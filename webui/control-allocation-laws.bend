@@ -12,10 +12,6 @@ def placement_key(placement: Design.NodePlacement) -> String:
   Design.NodePlacement{key, bounds} = placement
   key
 
-def placement_width(placement: Design.NodePlacement) -> Nat:
-  Design.NodePlacement{key, Design.Box{left, top, width, height}} = placement
-  width
-
 def box_left(box: Design.Box) -> Nat:
   Design.Box{left, top, width, height} = box
   left

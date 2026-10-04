@@ -921,14 +921,14 @@ def project_control_matches(input: Core.Input, project: Nat) -> Bool:
     case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{User.ProjectSubject{id}}, trigger}}}}: Nat.is_eq(id, project)
     case _: False{}
 
-def project_chevron(expanded: Bool) -> Icon:
+def disclosure_glyph(expanded: Bool) -> Icon:
   match expanded:
     case True{}: ChevronDown{}
     case False{}: ChevronRight{}
 
 def project_face(kind: ProjectControl, name: String, expanded: Bool, fallback: Face) -> Face:
   match kind:
-    case ProjectDisclosure{}: IconFace{project_chevron(expanded)}
+    case ProjectDisclosure{}: IconFace{disclosure_glyph(expanded)}
     case ProjectName{}: SingleLineFace{name}
     case ProjectCreate{}: IconFace{Plus{}}
     case ProjectMore{}: IconFace{MoreDots{}}

@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/proofs/algebra.bend as Alg
 import ../../bendlib/stdlib.bend as Std
 import ../layout.bend as Layout
 import ../design.bend as Design
@@ -35,7 +36,7 @@ def divmod_count_bound(+n: Nat, +m: Nat, +d: Nat, +r: Nat) ->
     case 1n+np:
       match m:
         case 0n:
-          %AllocationProof.add_succ(np, d) :
+          %Alg.nat_add_succ(np, d) :
             {Nat.is_le(Nat.div.fin(Nat.divmod.go(np, r, 1n+d, 0n)), _) == True{} : Bool}
           divmod_count_bound(np, r, 1n+d, 0n)
         case 1n+mp:
@@ -50,7 +51,7 @@ def divmod_count_bound(+n: Nat, +m: Nat, +d: Nat, +r: Nat) ->
               AllocationProof.le_add(Nat.add(np, d), 1n)))
 
 def half_bound(+room: Nat) -> {Nat.is_le(Nat.div(room, 2n), room) == True{} : Bool}:
-  %AllocationProof.add_zero(room) :
+  %Alg.nat_add_zero(room) :
     {Nat.is_le(Nat.div(room, 2n), _) == True{} : Bool}
   divmod_count_bound(room, 1n, 0n, 0n)
 
@@ -106,7 +107,7 @@ def translated_end(+origin: Nat, +offset: Nat, +extent: Nat, +available: Nat,
   Equal.trans(Bool, Nat.is_le(Nat.add(Nat.add(origin, offset), extent), Nat.add(origin, available)),
     Nat.is_le(Nat.add(origin, Nat.add(offset, extent)), Nat.add(origin, available)), True{},
     Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.add(origin, available))),
-      Nat.add(Nat.add(origin, offset), extent), Nat.add(origin, Nat.add(offset, extent)), AllocationProof.add_assoc(origin, offset, extent)),
+      Nat.add(Nat.add(origin, offset), extent), Nat.add(origin, Nat.add(offset, extent)), Alg.nat_add_assoc(origin, offset, extent)),
     offset_le(origin, Nat.add(offset, extent), available, fits))
 
 
@@ -214,7 +215,7 @@ def positioned_bound(+item: Layout.BandItem, +actual: Nat, +width: Nat,
       Equal.trans(Nat, Nat.add(Nat.add(actual, width), Nat.add(Allocation.placement_gap(~Layout.BandItem, rest, gap), Allocation.used(~Layout.BandItem, rest, gap))),
         Nat.add(actual, Nat.add(width, Nat.add(Allocation.placement_gap(~Layout.BandItem, rest, gap), Allocation.used(~Layout.BandItem, rest, gap)))),
         Nat.add(start, Allocation.used(~Layout.BandItem, Space.Placement{item, actual, width} <> rest, gap)),
-        AllocationProof.add_assoc(actual, width, Nat.add(Allocation.placement_gap(~Layout.BandItem, rest, gap), Allocation.used(~Layout.BandItem, rest, gap))),
+        Alg.nat_add_assoc(actual, width, Nat.add(Allocation.placement_gap(~Layout.BandItem, rest, gap), Allocation.used(~Layout.BandItem, rest, gap))),
         Equal.trans(Nat, Nat.add(actual, Nat.add(width, Nat.add(Allocation.placement_gap(~Layout.BandItem, rest, gap), Allocation.used(~Layout.BandItem, rest, gap)))),
           Nat.add(actual, Allocation.used(~Layout.BandItem, Space.Placement{item, actual, width} <> rest, gap)),
           Nat.add(start, Allocation.used(~Layout.BandItem, Space.Placement{item, actual, width} <> rest, gap)),
@@ -232,11 +233,11 @@ def next_budget(+actual: Nat, +width: Nat, +between: Nat, +remaining: Nat, +end:
     Equal.cong(Nat, Bool, (n => Nat.is_le(n, end)),
       Nat.add(Nat.add(actual, Nat.add(width, between)), remaining), Nat.add(Nat.add(actual, width), Nat.add(between, remaining)),
       Equal.trans(Nat, Nat.add(Nat.add(actual, Nat.add(width, between)), remaining), Nat.add(actual, Nat.add(Nat.add(width, between), remaining)),
-        Nat.add(Nat.add(actual, width), Nat.add(between, remaining)), AllocationProof.add_assoc(actual, Nat.add(width, between), remaining),
+        Nat.add(Nat.add(actual, width), Nat.add(between, remaining)), Alg.nat_add_assoc(actual, Nat.add(width, between), remaining),
         Equal.trans(Nat, Nat.add(actual, Nat.add(Nat.add(width, between), remaining)), Nat.add(actual, Nat.add(width, Nat.add(between, remaining))),
           Nat.add(Nat.add(actual, width), Nat.add(between, remaining)),
-          Equal.cong(Nat, Nat, (n => Nat.add(actual, n)), Nat.add(Nat.add(width, between), remaining), Nat.add(width, Nat.add(between, remaining)), AllocationProof.add_assoc(width, between, remaining)),
-          Equal.sym(Nat, Nat.add(Nat.add(actual, width), Nat.add(between, remaining)), Nat.add(actual, Nat.add(width, Nat.add(between, remaining))), AllocationProof.add_assoc(actual, width, Nat.add(between, remaining)))))), fits)
+          Equal.cong(Nat, Nat, (n => Nat.add(actual, n)), Nat.add(Nat.add(width, between), remaining), Nat.add(width, Nat.add(between, remaining)), Alg.nat_add_assoc(width, between, remaining)),
+          Equal.sym(Nat, Nat.add(Nat.add(actual, width), Nat.add(between, remaining)), Nat.add(actual, Nat.add(width, Nat.add(between, remaining))), Alg.nat_add_assoc(actual, width, Nat.add(between, remaining)))))), fits)
 
 def intervals_step(+actual: Nat, +width: Nat, +rest: +List<Space.Placement<Layout.BandItem>>, +gap: Nat, +end: Nat,
   fits: {Nat.is_le(Nat.add(Nat.add(actual, width), Nat.add(Allocation.placement_gap(~Layout.BandItem, rest, gap), Allocation.used(~Layout.BandItem, rest, gap))), end) == True{} : Bool},
@@ -365,7 +366,7 @@ def inner_target_balance(+block: Nat, +height: Nat,
       Nat.is_le(Nat.add(block, Nat.sub(height, Nat.mul(2n, block))), Nat.add(block, Nat.add(Nat.add(block, 0n), Nat.sub(height, Nat.mul(2n, block))))), True{},
       Equal.cong(Nat, Bool, (n => Nat.is_le(Nat.add(block, Nat.sub(height, Nat.mul(2n, block))), n)),
         Nat.add(Nat.mul(2n, block), Nat.sub(height, Nat.mul(2n, block))), Nat.add(block, Nat.add(Nat.add(block, 0n), Nat.sub(height, Nat.mul(2n, block)))),
-        AllocationProof.add_assoc(block, Nat.add(block, 0n), Nat.sub(height, Nat.mul(2n, block)))),
+        Alg.nat_add_assoc(block, Nat.add(block, 0n), Nat.sub(height, Nat.mul(2n, block)))),
       offset_le(block, Nat.sub(height, Nat.mul(2n, block)), Nat.add(Nat.add(block, 0n), Nat.sub(height, Nat.mul(2n, block))),
         Equal.trans(Bool, Nat.is_le(Nat.sub(height, Nat.mul(2n, block)), Nat.add(Nat.add(block, 0n), Nat.sub(height, Nat.mul(2n, block)))),
           Nat.is_le(Nat.sub(height, Nat.mul(2n, block)), Nat.add(Nat.sub(height, Nat.mul(2n, block)), Nat.add(block, 0n))), True{},
@@ -381,7 +382,7 @@ def inner_target_fits(+block: Nat, +height: Nat,
     {Nat.add(Nat.mul(2n, block), Nat.sub(height, Nat.mul(2n, block))) == height : Nat},
     AllocationProof.residual(Nat.mul(2n, block), 0n, height,
       Equal.trans(Bool, Nat.is_le(Nat.add(Nat.mul(2n, block), 0n), height), Nat.is_le(Nat.mul(2n, block), height), True{},
-        Equal.cong(Nat, Bool, (n => Nat.is_le(n, height)), Nat.add(Nat.mul(2n, block), 0n), Nat.mul(2n, block), AllocationProof.add_zero(Nat.mul(2n, block))), fits))))
+        Equal.cong(Nat, Bool, (n => Nat.is_le(n, height)), Nat.add(Nat.mul(2n, block), 0n), Nat.mul(2n, block), Alg.nat_add_zero(Nat.mul(2n, block))), fits))))
 
 def lift_box(+minimum_width: Nat, +minimum_height: Nat, +target: Design.Box, +block: Nat, +actual: Design.Box,
   inner_fits: {Nat.is_le(Nat.add(block, Nat.sub(Layout.box_height(target), Nat.mul(2n, block))), Layout.box_height(target)) == True{} : Bool},

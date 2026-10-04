@@ -227,17 +227,6 @@ def expected_popover_styles(anchor: String, available: Design.Box,
    Render.property("max-width", Render.px(Nat.min(width, maximum_width))),
    Render.property("max-height", Render.px(Nat.min(height, maximum_height))), Render.property("overflow", "auto")]
 
-def font_properties(+value: Design.Style) -> (String & (String & (String & String))):
-  (Render.attr(Render.style(value), "font-family"),
-    (Render.attr(Render.style(value), "font-size"),
-      (Render.attr(Render.style(value), "line-height"), Render.attr(Render.style(value), "font-weight"))))
-
-def owned_font_properties(+presentation: T.Presentation) -> (String & (String & (String & String))):
-  +resolved = T.resolved(presentation)
-  (T.font_family(T.resolved_font(resolved)),
-    (Render.px(T.resolved_size(resolved)),
-      (Render.px(T.resolved_line_height(resolved)), Nat.show(T.resolved_weight(resolved)))))
-
 def placed_wrapper_styles(+key: String, +attrs: +List<Doc.Property>, styles: +List<Doc.Property>, frame: Design.MainFrame) -> +List<Doc.Property>:
   Doc.element_styles(Render.place_element(key, "div", attrs, styles, Nil{}, Nil{}, frame))
 

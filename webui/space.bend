@@ -26,12 +26,6 @@ def preferred(dimension: Dimension) -> Nat:
     case Fit{value, preferred_extra, maximum_extra}: Nat.add(value, preferred_extra)
     case Fill{value}: value
 
-def maximum(dimension: Dimension) -> Maybe<&2, Nat>:
-  match dimension:
-    case Rigid{extent}: Some{extent}
-    case Fit{value, preferred_extra, maximum_extra}: Some{Nat.add(Nat.add(value, preferred_extra), maximum_extra)}
-    case Fill{value}: None{}
-
 type Slot<-A: Data> is Data:
   Slot{value: A, dimension: Dimension}
 

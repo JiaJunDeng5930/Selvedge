@@ -43,14 +43,14 @@ type Requirements is Type:
     role_dialog: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Dialog{}, meaning, typography)) == E.DialogPartitions{} : E.ContentArea},
     canvas: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Main{}, meaning, typography)) == E.ambient(0n, 0n) : E.ContentArea},
     field: @+typography:T.Presentation -> {area(A.editable_field(typography)) == E.area(E.Field{}) : E.ContentArea},
-    part_header: {E.partition(E.Header{}) == E.ambient(24n, 14n) : E.ContentArea},
-    part_body: {E.partition(E.Body{}) == E.ambient(24n, 20n) : E.ContentArea},
-    part_footer: {E.partition(E.Footer{}) == E.ambient(24n, 12n) : E.ContentArea},
+    part_header: {E.partition(E.Header{}) == E.ambient(E.partition_inline(), 14n) : E.ContentArea},
+    part_body: {E.partition(E.Body{}) == E.ambient(E.partition_inline(), 20n) : E.ContentArea},
+    part_footer: {E.partition(E.Footer{}) == E.ambient(E.partition_inline(), 12n) : E.ContentArea},
     state_allocation: @+value:D.Style -> @+space:E.ContentArea -> {interaction(A.with_content_area(value, space)) == interaction(value) : D.ControlStates},
     icon_layout: @+icon:C.Icon -> {C.layout_content_area(C.content_layout(C.IconFace{icon})) == E.area(E.IconControl{}) : E.ContentArea},
     text_layout: @+text:String -> {C.layout_content_area(C.content_layout(C.TextFace{text})) == E.area(E.TextControl{}) : E.ContentArea},
     option_layout: @+text:String -> @+selected:Bool -> {C.layout_content_area(C.content_layout(C.ChoiceFace{text, None{}, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
-    embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.ambient(8n, 6n) : E.ContentArea}}
+    embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.area(E.Field{}) : E.ContentArea}}
 
 law evidence:
   Requirements

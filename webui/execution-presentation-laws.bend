@@ -1,4 +1,5 @@
 import Base
+import ./surfaces.bend as Surfaces
 import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
@@ -8,7 +9,7 @@ import ./renderer.bend as Render
 import ./controls.bend as Controls
 import ./document.bend as Doc
 import ./design.bend as Design
-import ./appearance.bend as Appearance
+import ./enclosure.bend as Enclosure
 # These obligations bind the actual semantic dispatch and preserve the Core
 # children. Menu placement, dismissal and committed facts keep their existing owners.
 
@@ -27,8 +28,8 @@ type Requirements is Type:
     directory_full_path: @+key: String -> @+path: String ->
       {Render.directory_path_node(key, path) ==
           Doc.Element{key ++ "/path", "span", [Render.property("title", path)],
-            [Render.property("width", "100%"), Render.property("flex", "0 0 auto"), Render.property("min-width", "0"), Render.property("overflow", "hidden"),
-             Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]} : Doc.Node},
+            List.append(&2, Doc.Property, [Render.property("width", "100%"), Render.property("flex", "0 0 auto"), Render.property("min-width", "0")],
+              Render.overflow_style(Design.SingleLineOverflow{})), Nil{}, [Doc.Text{path}]} : Doc.Node},
     choice_group_production: @+key: String -> @semantic: String -> @+label: String -> @role: UI.Role -> @+source: +List<Design.Node> -> @+visual: Design.Style -> @representation: Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, UI.ChoiceGroup{}, visual, representation, source}, Render.render_children(source)) ==
     Render.choice_group_node(key, label, visual, Render.documents(Render.render_children(source)), Design.style_text(visual)) : Doc.Node},
@@ -40,7 +41,7 @@ type Requirements is Type:
           Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),
             Render.property("data-context-kind", Render.context_observation_kind(observation))], List.append(&2, Doc.Property, Render.style(visual),
             [Render.property("flex", "0 0 auto")]), Nil{},
-            Doc.Element{key ++ "/provenance", "div", Nil{}, List.append(&2, Doc.Property, Render.part_text(typography, T.Support{}, T.Regular{}), [Render.property("color", "var(--color-token-text-secondary)")]), Nil{}, [Doc.Text{label}]} <> Render.documents(children)} : Doc.Node},
+            Doc.Element{key ++ "/provenance", "div", Nil{}, List.append(&2, Doc.Property, Render.part_text(typography, T.Support{}, T.Regular{}), [Render.property("color", Render.paint(Design.TextForeground{Surfaces.SecondaryText{}}))]), Nil{}, [Doc.Text{label}]} <> Render.documents(children)} : Doc.Node},
     committed_provenance: @context: Context.EffectiveContext ->
       {Render.context_observation_kind(Context.CommittedExecution{context}) == "committed" : String},
     unavailable_provenance: @reason: String ->
@@ -54,7 +55,7 @@ type Requirements is Type:
       {Render.choice_group_node(key, label, visual, children, typography) ==
           Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],
             List.append(&2, Doc.Property, Render.style(visual), [Render.property("flex-shrink", "0"), Render.property("height", "auto")]), Nil{},
-            Doc.Element{key ++ "/label", "div", Nil{}, List.append(&2, Doc.Property, Render.part_text(typography, T.Support{}, T.Regular{}), [Render.property("color", "var(--color-token-text-secondary)"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))]), Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
+            Doc.Element{key ++ "/label", "div", Nil{}, List.append(&2, Doc.Property, Render.part_text(typography, T.Support{}, T.Regular{}), [Render.property("color", Render.paint(Design.TextForeground{Surfaces.SecondaryText{}})), Render.property("padding-inline", Render.px(Enclosure.inline(Enclosure.area(Enclosure.Menu{}))))]), Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
     custom_workspace_provenance: @workspace: Domain.Workspace -> @sandbox: Context.SandboxValue -> @approval: Context.ApprovalValue ->
       {Render.context_draft_kind(Context.EnteredWorkspace{workspace}, sandbox, approval) == "custom" : String}}
 

@@ -25,13 +25,6 @@ type Emphasis is Data:
   Medium{}
   Strong{}
 
-def default_emphasis(tier: Tier) -> Emphasis:
-  match tier:
-    case Display{}: Medium{}
-    case Title{}: Strong{}
-    case Section{}: Medium{}
-    case _: Regular{}
-
 def scaled(nominal: Nat, scale: Scale) -> Nat:
   Scale{additional_milli} = scale
   Nat.max(1n, Nat.div(Nat.mul(nominal, Nat.add(1000n, additional_milli)), 1000n))
@@ -111,6 +104,10 @@ def presentation_scale(value: Presentation) -> Scale:
   Presentation{tier, emphasis, scale} = value
   scale
 
+def supporting(value: Presentation) -> Presentation:
+  Presentation{tier, emphasis, scale} = value
+  Presentation{Support{}, Regular{}, scale}
+
 def font_family(value: Font) -> String:
   match value:
     case InterfaceFont{}: "var(--font-sans, system-ui)"
@@ -181,12 +178,15 @@ def same_spec(first: MeasurementSpec, second: MeasurementSpec) -> Bool:
                         Bool.and(same_width(first_width, second_width), String.eq(first_reference, second_reference)))))))))))
 
 # Admission checks external data; they do not establish physical measurement accuracy.
+def metric_admission(expected_key: String, reference: String, metric: Metric) -> Bool:
+  Metric{actual_key, minimum, preferred, height, advance} = metric
+  Bool.and(String.eq(expected_key, actual_key),
+    Bool.and(Nat.is_le(minimum, preferred),
+      Bool.and(Nat.is_gt(height, 0n), Bool.or(String.eq(reference, ""), Nat.is_gt(advance, 0n)))))
+
 def valid_metric(specification: MeasurementSpec, metric: Metric) -> Bool:
-  match specification metric:
-    case MeasurementSpec{expected_key, text, family, size, line_height, weight, space, wrap, word_break, width, reference} Metric{actual_key, minimum, preferred, height, advance}:
-      Bool.and(String.eq(expected_key, actual_key),
-        Bool.and(Nat.is_le(minimum, preferred),
-          Bool.and(Nat.is_gt(height, 0n), Bool.or(String.eq(reference, ""), Nat.is_gt(advance, 0n)))))
+  MeasurementSpec{expected_key, text, family, size, line_height, weight, space, wrap, word_break, width, reference} = specification
+  metric_admission(expected_key, reference, metric)
 
 def spec(value: Probe) -> MeasurementSpec:
   Probe{key, text, TextStyle{family, size, line_height, weight}, +wrapping, available_width, reference_text} = value
@@ -200,9 +200,7 @@ def body_spec(scale: Scale) -> MeasurementSpec:
   spec(body_probe(scale))
 
 def valid_body(metric: Metric) -> Bool:
-  Metric{key, minimum, preferred, height, advance} = metric
-  String.eq(key, "@font/body") && (Nat.is_le(minimum, preferred) &&
-    (Nat.is_gt(height, 0n) && Nat.is_gt(advance, 0n)))
+  metric_admission("@font/body", "0", metric)
 
 def reading_width(reference_advance: Nat, columns: Nat) -> Nat:
   Nat.mul(reference_advance, columns)

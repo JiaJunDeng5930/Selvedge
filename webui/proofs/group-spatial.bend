@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/proofs/algebra.bend as Alg
 import ../design.bend as Design
 import ../layout.bend as Layout
 import ../group-spatial-laws.bend as Rule
@@ -51,7 +52,7 @@ def union_end(+a: Nat, +w: Nat, +b: Nat, +v: Nat) ->
     SProof.residual(Nat.min(a, b), 0n, Nat.max(Nat.add(a, w), Nat.add(b, v)),
       Equal.trans(Bool, Nat.is_le(Nat.add(Nat.min(a, b), 0n), Nat.max(Nat.add(a, w), Nat.add(b, v))),
         Nat.is_le(Nat.min(a, b), Nat.max(Nat.add(a, w), Nat.add(b, v))), True{},
-        Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.max(Nat.add(a, w), Nat.add(b, v)))), Nat.add(Nat.min(a, b), 0n), Nat.min(a, b), SProof.add_zero(Nat.min(a, b))),
+        Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.max(Nat.add(a, w), Nat.add(b, v)))), Nat.add(Nat.min(a, b), 0n), Nat.min(a, b), Alg.nat_add_zero(Nat.min(a, b))),
         SProof.le_trans(Nat.min(a, b), a, Nat.max(Nat.add(a, w), Nat.add(b, v)), SProof.min_le_first(a, b),
           SProof.le_trans(a, Nat.add(a, w), Nat.max(Nat.add(a, w), Nat.add(b, v)), SProof.le_add(a, w), max_left(Nat.add(a, w), Nat.add(b, v)))))))
 
@@ -254,9 +255,9 @@ def group_inside(+target: Design.Box, +found: Maybe<&2, Design.Box>, proof: Rule
     case None{}:
       join(target, Design.Box{l, t, 0n, 0n}, (SProof.le_refl(l), (SProof.le_refl(t),
         (Equal.trans(Bool, Nat.is_le(Nat.add(l, 0n), Nat.add(l, w)), Nat.is_le(l, Nat.add(l, w)), True{},
-          Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.add(l, w))), Nat.add(l, 0n), l, SProof.add_zero(l)), SProof.le_add(l, w)),
+          Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.add(l, w))), Nat.add(l, 0n), l, Alg.nat_add_zero(l)), SProof.le_add(l, w)),
          Equal.trans(Bool, Nat.is_le(Nat.add(t, 0n), Nat.add(t, h)), Nat.is_le(t, Nat.add(t, h)), True{},
-          Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.add(t, h))), Nat.add(t, 0n), t, SProof.add_zero(t)), SProof.le_add(t, h))))))
+          Equal.cong(Nat, Bool, (n => Nat.is_le(n, Nat.add(t, h))), Nat.add(t, 0n), t, Alg.nat_add_zero(t)), SProof.le_add(t, h))))))
 
 def enclosure(+items: +List<Layout.BandItem>, +placements: +List<Design.NodePlacement>, +target: Design.Box,
   contained: {SpatialRules.all_contained(target, placements) == True{} : Bool}) ->

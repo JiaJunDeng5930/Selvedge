@@ -61,11 +61,14 @@ def ambient(inline: Nat, block: Nat) -> ContentArea:
   Ambient{Insets{inline, block}}
 
 # The dialog owns these partitions; the outer shell delegates its allocation.
+def partition_inline() -> Nat:
+  24n
+
 def partition(part: Part) -> ContentArea:
   match part:
-    case Header{}: ambient(24n, 14n)
-    case Body{}: ambient(24n, 20n)
-    case Footer{}: ambient(24n, 12n)
+    case Header{}: ambient(partition_inline(), 14n)
+    case Body{}: ambient(partition_inline(), 20n)
+    case Footer{}: ambient(partition_inline(), 12n)
 
 def insets(area: ContentArea) -> Insets:
   match area:

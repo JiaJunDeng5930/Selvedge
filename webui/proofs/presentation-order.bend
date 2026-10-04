@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/proofs/algebra.bend as Alg
 import ../presentation-order-laws.bend as Rule
 import ../../core/interface.bend as UI
 import ../MODEL.bend as Model
@@ -503,20 +504,11 @@ def count_append(+predicate: Rule.CountPredicate, +left: +List<UI.Node>, +right:
       +tail_evidence = count_append(predicate, rest, right)
       count_append_step(predicate, value, rest, right, Rule.count_matches(predicate, value), tail_evidence)
 
-def add_succ_right(left: Nat, right: Nat) ->
-  {Nat.add(left, Nat.add(1n, right)) == Nat.add(1n, Nat.add(left, right)) : Nat}:
-  match left:
-    case 0n: {==}
-    case 1n+rest:
-      Equal.cong(Nat, Nat, (count => Nat.add(1n, count)),
-        Nat.add(rest, Nat.add(1n, right)), Nat.add(1n, Nat.add(rest, right)),
-        add_succ_right(rest, right))
-
 def body_count_step(included: Bool, prefix: Nat, suffix: Nat) ->
   {Nat.add(prefix, Rule.occurrence_step(included, suffix)) ==
     Rule.occurrence_step(included, Nat.add(prefix, suffix)) : Nat}:
   match included:
-    case True{}: add_succ_right(prefix, suffix)
+    case True{}: Alg.nat_add_succ(prefix, suffix)
     case False{}: {==}
 
 def partition_count_step(+predicate: Rule.CountPredicate, +value: UI.Node, +rest: +List<UI.Node>,

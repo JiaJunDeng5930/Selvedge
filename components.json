@@ -305,7 +305,6 @@
       "core/ui-world.bend",
       "core/user-experience.bend",
       "core/user-input.bend",
-      "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
       "webui/enclosure.bend",
@@ -397,55 +396,6 @@
       "core/user-context.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
-    ],
-    "webui/PROOF.bend": [
-      "core/user-experience-laws.bend",
-      "webui/appearance-laws.bend",
-      "webui/board-spatial-laws.bend",
-      "webui/browser-laws.bend",
-      "webui/card-destination-laws.bend",
-      "webui/container-space-laws.bend",
-      "webui/content-space-laws.bend",
-      "webui/context-control-laws.bend",
-      "webui/control-allocation-laws.bend",
-      "webui/control-content-laws.bend",
-      "webui/control-laws.bend",
-      "webui/dialog-spatial-laws.bend",
-      "webui/directory-entry-laws.bend",
-      "webui/dismissal-laws.bend",
-      "webui/dock-laws.bend",
-      "webui/enclosure-laws.bend",
-      "webui/enclosure-render-laws.bend",
-      "webui/execution-presentation-laws.bend",
-      "webui/fact-content-laws.bend",
-      "webui/focus-retention-laws.bend",
-      "webui/focus-rules.bend",
-      "webui/font-observation-laws.bend",
-      "webui/font-observation.bend",
-      "webui/form-input-laws.bend",
-      "webui/frame-relation-laws.bend",
-      "webui/group-spatial-laws.bend",
-      "webui/laws.bend",
-      "webui/layout-laws.bend",
-      "webui/layout.bend",
-      "webui/page-region-laws.bend",
-      "webui/persistent-trigger-laws.bend",
-      "webui/physical-tree-laws.bend",
-      "webui/presentation-laws.bend",
-      "webui/presentation-order-laws.bend",
-      "webui/project-presentation-laws.bend",
-      "webui/reading-rules.bend",
-      "webui/render-laws.bend",
-      "webui/renderer-laws.bend",
-      "webui/request-laws.bend",
-      "webui/shell-spatial-laws.bend",
-      "webui/submission-feedback-laws.bend",
-      "webui/surface-laws.bend",
-      "webui/surface-render-laws.bend",
-      "webui/typography-laws.bend",
-      "webui/typography.bend",
-      "webui/viewport-space-laws.bend",
-      "webui/visibility-rules.bend"
     ],
     "webui/appearance-laws.bend": [
       "core/SYSTEM.bend",
@@ -806,6 +756,7 @@
       "webui/document.bend",
       "webui/editor-layout.bend",
       "webui/enclosure-laws.bend",
+      "webui/enclosure.bend",
       "webui/renderer.bend",
       "webui/typography.bend"
     ],
@@ -824,10 +775,9 @@
       "core/composition.bend",
       "core/interface.bend",
       "core/ui-world.bend",
-      "webui/appearance.bend",
-      "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/layout.bend",
       "webui/renderer.bend"
     ],
@@ -917,11 +867,12 @@
       "core/field-options.bend",
       "core/interface.bend",
       "core/user-context.bend",
-      "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/renderer.bend",
+      "webui/surfaces.bend",
       "webui/typography.bend"
     ],
     "webui/directory-entry-laws.bend": [
@@ -992,7 +943,8 @@
       "bendlib/protocol.bend"
     ],
     "bendlib/proofs/json.bend": [
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "bendlib/proofs/algebra.bend"
     ],
     "webui/browser-laws.bend": [
       "MODEL.bend",
@@ -1109,6 +1061,7 @@
       "webui/enclosure.bend",
       "webui/renderer.bend",
       "webui/space.bend",
+      "webui/surfaces.bend",
       "webui/typography.bend"
     ],
     "webui/dismissal-laws.bend": [
@@ -1489,6 +1442,7 @@
       "webui/space.bend"
     ],
     "webui/proofs/control-allocation.bend": [
+      "bendlib/proofs/algebra.bend",
       "bendlib/stdlib.bend",
       "webui/container-space-laws.bend",
       "webui/control-allocation-laws.bend",
@@ -1645,6 +1599,7 @@
       "webui/typography.bend"
     ],
     "webui/proofs/group-spatial.bend": [
+      "bendlib/proofs/algebra.bend",
       "webui/design.bend",
       "webui/group-spatial-laws.bend",
       "webui/layout.bend",
@@ -1749,6 +1704,7 @@
       "webui/platform.bend"
     ],
     "webui/proofs/presentation-order.bend": [
+      "bendlib/proofs/algebra.bend",
       "bendlib/stdlib.bend",
       "core/interface.bend",
       "webui/MODEL.bend",
@@ -1839,15 +1795,15 @@
       "core/composition.bend",
       "core/interface.bend",
       "core/ui-world.bend",
-      "webui/appearance.bend",
-      "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/layout.bend",
       "webui/renderer.bend",
       "webui/shell-spatial-laws.bend"
     ],
     "webui/proofs/space.bend": [
+      "bendlib/proofs/algebra.bend",
       "bendlib/stdlib.bend",
       "webui/space-laws.bend",
       "webui/space.bend"

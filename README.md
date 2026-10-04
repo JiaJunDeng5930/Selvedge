@@ -66,12 +66,8 @@ The service home is protected, so keep it separate from project code directories
 macOS uses Seatbelt; Linux requires bubblewrap and seccomp support. Unavailable
 isolation fails closed, rather than falling back to an ordinary host shell.
 
-Projects provide default workspace roots for newly created tasks. Changing a
-project does not change existing tasks. Forks inherit the complete task context
-unless the user explicitly supplies overrides; a model-created fork cannot gain
-broader write, network or approval authority. `create_project`, `update_project`,
-`read_project`, `list_projects` and `delete_project` are native commands. A project
-with task references cannot be deleted. Task creation/fork accepts a `settings`
+`create_project`, `update_project`, `read_project`, `list_projects` and
+`delete_project` are native commands. Task creation/fork accepts a `settings`
 object with `project_id`, `workspace`, `sandbox` and `approval`.
 
 Approval policy has three modes. **Full Access** runs Bash without isolation.
@@ -316,13 +312,8 @@ branch results and fresh task identities.
 ## Persistence and guarantees
 
 The journal records admitted inputs and decisions before any external effect is
-started. Reopening verifies the hash chain and replays the same executable kernel;
-historical effects are not dispatched. Interrupted external mutations remain
-unknown and are not automatically repeated. File observations can be repeated,
-possibly observing a newer revision. Interrupted ordinary model requests and
-automatic summaries can be requested again by recovery. An interrupted manually
-requested summary leaves the original history intact and can be requested again
-explicitly.
+started. Reopening verifies the hash chain and replays the same executable kernel.
+Repeated file observations may observe a newer revision.
 
 Transient model connection/HTTP failures use bounded, abortable backoff from the
 native boundary policy. Permanent failures and excessive `Retry-After` delays
@@ -337,11 +328,9 @@ Use a separate home when changing the kernel; this branch provides no migration
 or backward-compatible reader. The earlier Rust implementation is retained in
 Git history, not as a second runtime in the checkout.
 
-The checked transition either retains the world with no effects, or satisfies the
-world and transition predicates. Starting from a valid world, every finite trace
-preserves its world invariant. This is a safety result: it does not prove that a
-model terminates, that every valid request fits the resource bounds, that the
-scheduler is fair, or that an operating system or remote service obeys the model.
+The Bend proofs do not establish model termination, that every valid request fits
+the resource bounds, scheduler fairness, or that an operating system or remote
+service obeys the model.
 Host-owned atomic writes do not make arbitrary Bash edits transactional.
 Concurrent commands and editors can change the same files; any required locking,
 revision checks or atomic replacement belong in the project's commands or scripts.

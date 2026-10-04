@@ -52,31 +52,6 @@ def surface_overlays(surface: D.Surface) -> +List<D.Node>:
   D.Surface{content, theme, base, overlays, scope} = surface
   overlays
 
-def awaiting_nodes(result: S.Nodes) -> Bool:
-  match result:
-    case S.AwaitingNodes{missing}: True{}
-    case S.PreparedNodes{nodes}: False{}
-
-def node_minimum_control(control: C.Representation) -> Maybe<&2, E.Extent>:
-  match control:
-    case C.Action{input, availability, name, face, behavior, C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading}, placement, help, feedback}: Some{E.Extent{width, height}}
-    case _: None{}
-
-def node_minimum(node: D.Node) -> Maybe<&2, E.Extent>:
-  node_minimum_control(node_control(node))
-
-def expected_minimum_control(control: C.Representation, minimum: E.Extent) -> Maybe<&2, E.Extent>:
-  match control:
-    case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: Some{minimum}
-    case _: None{}
-
-def expected_minimum(node: D.Node, minimum: E.Extent) -> Maybe<&2, E.Extent>:
-  expected_minimum_control(node_control(node), minimum)
-
-def demand_minimum(demand: Space.Demand) -> E.Extent:
-  Space.Demand{minimum, preferred} = demand
-  minimum
-
 def control_action_demand(control: C.Representation) -> Maybe<&2, Space.Demand>:
   match control:
     case C.Action{input, availability, name, face, behavior, C.Geometry{demand, icon, radius, leading}, placement, help, feedback}: Some{demand}

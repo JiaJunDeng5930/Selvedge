@@ -7,8 +7,7 @@ import ../design.bend as Design
 import ../document.bend as Doc
 import ../layout.bend as Layout
 import ../renderer.bend as Render
-import ../appearance.bend as Appearance
-import ../controls.bend as Controls
+import ../enclosure.bend as Enclosure
 import ../shell-spatial-laws.bend as Rule
 
 def prepend_recombines(+child: Doc.Node, parts: Render.CreationParts) ->
@@ -55,7 +54,7 @@ def creation_regions_keep_order(+children: +List<Doc.Node>, +band: Design.Band, 
 
 
 def shared_composer_inset(+parameters: Design.LayoutParameters, canvas: Design.Box) ->
-  {Rule.input_inset(Layout.input_metrics(parameters, canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat}:
+  {Rule.input_inset(Layout.input_metrics(parameters, canvas)) == Enclosure.inline(Enclosure.area(Enclosure.Field{})) : Nat}:
   match canvas:
     case Design.Box{left, top, width, height}: {==}
 

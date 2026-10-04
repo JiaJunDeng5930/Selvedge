@@ -7,8 +7,7 @@ import ./design.bend as Design
 import ./document.bend as Doc
 import ./layout.bend as Layout
 import ./renderer.bend as Render
-import ./appearance.bend as Appearance
-import ./controls.bend as Controls
+import ./enclosure.bend as Enclosure
 
 def frame_canvas(frame: Design.MainFrame) -> Design.Box:
   match frame:
@@ -137,12 +136,13 @@ type Requirements is Type:
             [Render.page_region(owner ++ "/intro", Composition.CreationIntroduction{}, Composition.BodyPosition{}, introduction)],
             [Render.page_region(owner ++ "/context", Composition.CreationContext{}, Composition.BodyPosition{}, context),
              Render.page_region(owner ++ "/input", Composition.ComposerInput{}, Composition.BodyPosition{}, composer)]} : Render.CreationParts},
-    shared_inset: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {input_inset(Layout.input_metrics(parameters, canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat},
+    shared_inset: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {input_inset(Layout.input_metrics(parameters, canvas)) == Enclosure.inline(Enclosure.area(Enclosure.Field{})) : Nat},
     title_identity: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+values:+List<Doc.Node> ->
       {Render.conversation_title_node(Doc.Element{key, tag, attrs, styles, events, values}) ==
         Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, Render.conversation_title_styles()), events, values} : Doc.Node},
-    title_properties: {Render.conversation_title_styles() == [Doc.Property{"display", "block"}, Doc.Property{"min-height", "0"}, Doc.Property{"min-width", "0"}, Doc.Property{"width", "100%"},
-          Doc.Property{"overflow", "hidden"}, Doc.Property{"text-overflow", "ellipsis"}, Doc.Property{"white-space", "nowrap"}] : +List<Doc.Property>},
+    title_properties: {Render.conversation_title_styles() == List.append(&2, Doc.Property,
+          [Doc.Property{"display", "block"}, Doc.Property{"min-height", "0"}, Doc.Property{"min-width", "0"}, Doc.Property{"width", "100%"}],
+          Render.overflow_style(Design.SingleLineOverflow{})) : +List<Doc.Property>},
     title_remaining_width: {Render.page_region_styles(Composition.ConversationTitle{}) == [Doc.Property{"display", "flex"},
       Doc.Property{"flex-direction", "column"}, Doc.Property{"justify-content", "center"}, Doc.Property{"min-width", "0"}] : +List<Doc.Property>},
     group_order: @+values:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->

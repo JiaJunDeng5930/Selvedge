@@ -5,7 +5,6 @@ import ../core/ui-world.bend as V
 import ../core/interface.bend as UI
 import ../core/composition.bend as Composition
 import ./design.bend as Design
-import ./appearance.bend as Appearance
 import ./controls.bend as Controls
 import ./viewport-space.bend as ViewportSpace
 import ./space.bend as Space
@@ -145,7 +144,7 @@ def measure_band(+parameters: Design.LayoutParameters, selected_measure: Composi
     case Composition.AvailableMeasure{}: centered_band(parameters, box, box_width(box))
 
 def composer_content_inset() -> Nat:
-  Appearance.face_padding(Controls.TextFace{""})
+  Enclosure.inline(Enclosure.area(Enclosure.Field{}))
 
 def input_metrics(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Design.InputMetrics:
   Design.Box{+left, +top, +width, height} = canvas
@@ -478,9 +477,6 @@ def root_band(+leading: +List<BandItem>, +trailing: +List<BandItem>) -> Band:
   +items = append_trailing(leading, trailing)
   Band{Enclosure.Frame{Enclosure.ambient(control_inset(items), 0n), Enclosure.EmbeddedContent{0n}}, items}
 
-def control_container(leading: +List<BandItem>, trailing: +List<BandItem>) -> Space.Container<BandItem>:
-  band_container(root_band(leading, trailing))
-
 def control_height(+geometry: Controls.Geometry, band: Nat) -> Nat:
   Space.choose(Space.Fit{Controls.geometry_minimum_height(geometry),
     Nat.sub(Controls.geometry_preferred_height(geometry), Controls.geometry_minimum_height(geometry)), 0n}, band)
@@ -528,10 +524,6 @@ def allocate_band(+parameters: Design.LayoutParameters, +target: Design.Box, +ba
   Design.Box{left, top, width, height} = target
   +cross = band_cross_required(band)
   allocate_band_guard(Nat.is_le(cross, height), parameters, target, band, cross)
-
-def allocate_control_band(fits: Bool, parameters: Design.LayoutParameters, target: Design.Box,
-  leading: +List<BandItem>, trailing: +List<BandItem>, cross: Nat) -> ControlAllocation:
-  allocate_band_guard(fits, parameters, target, root_band(leading, trailing), cross)
 
 def allocate_controls(parameters: Design.LayoutParameters, target: Design.Box,
   leading: +List<BandItem>, trailing: +List<BandItem>) -> ControlAllocation:
@@ -635,17 +627,6 @@ def box_union(first: Design.Box, second: Design.Box) -> Design.Box:
   Design.Box{left, top,
     Nat.sub(Nat.max(Nat.add(left_a, width_a), Nat.add(left_b, width_b)), left),
     Nat.sub(Nat.max(Nat.add(top_a, height_a), Nat.add(top_b, height_b)), top)}
-
-def choose_placement(matches: Bool, bounds: Design.Box, fallback: Maybe<&2, Design.Box>) -> Maybe<&2, Design.Box>:
-  match matches:
-    case True{}: Some{bounds}
-    case False{}: fallback
-
-def placement_bounds(+key: String, placements: +List<Design.NodePlacement>) -> Maybe<&2, Design.Box>:
-  match placements:
-    case Nil{}: None{}
-    case Con{Design.NodePlacement{node_key, bounds}, rest}:
-      choose_placement(String.eq(key, node_key), bounds, placement_bounds(key, rest))
 
 def union_member(found: Maybe<&2, Design.Box>, accumulated: Maybe<&2, Design.Box>) -> Maybe<&2, Design.Box>:
   match found accumulated:

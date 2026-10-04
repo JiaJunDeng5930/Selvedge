@@ -24,10 +24,12 @@ function isProof(filename) {
   return filename.split('/').includes('proofs');
 }
 
-function isRule(filename) {
-  return /^(core|webui)\//.test(filename) && !isProof(filename)
-    && (/(?:^|\/)(?:laws|[^/]+-(?:laws|rules))\.bend$/.test(filename)
-      || filename === 'core/contract.bend' || filename === 'webui/render-contract.bend');
+function isRule(filename, source) {
+  if (!/^(core|webui)\//.test(filename) || isProof(filename)) return false;
+  return /(?:^|\/)(?:laws|[^/]+-(?:laws|rules))\.bend$/.test(filename)
+    || filename === 'core/contract.bend' || filename === 'webui/render-contract.bend'
+    || declarations(filename, source).some(declaration => declaration.kind === 'law'
+      || (declaration.kind === 'type' && /Requirements?$/.test(declaration.name)));
 }
 
 function imports(filename, source) {
@@ -100,7 +102,7 @@ function inspect(root) {
   const modules = new Map([...sources].map(([filename, source]) => [filename, {
     ...imports(filename, source), declarations: declarations(filename, source),
   }]));
-  const rules = [...sources.keys()].filter(isRule).sort();
+  const rules = [...sources.keys()].filter(filename => isRule(filename, sources.get(filename))).sort();
   const proofs = [...sources.keys()].filter(filename => /^(core|webui)\/proofs\//.test(filename)).sort();
   const witnesses = new Set();
   const laws = new Set();
@@ -143,8 +145,18 @@ function inspect(root) {
     }
   }
   for (const rule of rules) {
-    const declarations = modules.get(rule).declarations.filter(declaration => declaration.kind === 'law');
-    if (!declarations.length) continue;
+    const moduleDeclarations = modules.get(rule).declarations;
+    const declarations = moduleDeclarations.filter(declaration => declaration.kind === 'law');
+    if (!declarations.length) {
+      const contracts = moduleDeclarations.filter(declaration =>
+        declaration.kind === 'type' && /Requirements?$/.test(declaration.name));
+      // This existing aggregate is committed by architecture.surface and filled
+      // by proofs/ui; it does not declare a second facade-local evidence law.
+      if (contracts.length && rule !== 'core/contract.bend') {
+        errors.push(`UI contract has no public law committing its requirements: ${rule}: ${contracts.map(declaration => declaration.name).join(', ')}`);
+      }
+      continue;
+    }
     const provider = proofFor(rule);
     const module = modules.get(provider);
     if (!module) {
@@ -171,7 +183,7 @@ export function checkUiSeparation(root) {
 function orderProofs(root, discovered) {
   const proofs = discovered.filter(isProof);
   const dependencies = new Map(proofs.map(filename => [filename, new Set()]));
-  const ruleLaws = new Map(discovered.filter(isRule).map(filename => [filename,
+  const ruleLaws = new Map(discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))).map(filename => [filename,
     new Set(declarations(filename, readFileSync(path.join(root, filename), 'utf8'))
       .filter(declaration => declaration.kind === 'law').map(declaration => declaration.name))]));
   for (const filename of proofs) {
@@ -228,9 +240,9 @@ function orderProofs(root, discovered) {
 export function prepareUiVerification(root) {
   root = realpathSync(root);
   const discovered = inspect(root);
-  const sources = [...new Set(['PROOF.bend', 'webui/PROOF.bend', 'BROWSER.bend', ...discovered])].sort();
-  const entries = ['PROOF.bend', 'webui/PROOF.bend', 'BROWSER.bend'];
-  const ordered = [...discovered.filter(isRule), ...orderProofs(root, discovered), ...entries];
+  const sources = [...new Set(['PROOF.bend', 'BROWSER.bend', ...discovered])].sort();
+  const entries = ['PROOF.bend', 'BROWSER.bend'];
+  const ordered = [...discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))), ...orderProofs(root, discovered), ...entries];
   const imports = ['import Base', ...ordered
     .map((filename, index) => `import ../${filename} as Verification${index}`)];
   const entry = '.build/ui-verification.bend';

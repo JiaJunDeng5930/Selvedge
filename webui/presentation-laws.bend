@@ -68,10 +68,6 @@ def original_core(application: Platform.State) -> Core.State:
 def original_platform(application: Platform.State) -> Platform.Platform:
   Model.model_platform(application)
 
-def viewport_of(environment: Design.Environment) -> Design.Viewport:
-  Design.Environment{viewport, system_dark, root} = environment
-  viewport
-
 
 def platform_decision_capacity(decision: Platform.Decision) -> View.Capacity:
   Platform.Decision{product, platform, effects} = decision

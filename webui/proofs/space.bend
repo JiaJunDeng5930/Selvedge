@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/proofs/algebra.bend as Alg
 import ../space.bend as Space
 import ../../bendlib/stdlib.bend as Std
 import ../space-laws.bend as Rule
@@ -29,31 +30,14 @@ def le_refl(+value: Nat) -> {Nat.is_le(value, value) == True{} : Bool}:
   Equal.trans(Bool, Nat.is_le(value, value), Nat.is_ge(value, value), True{},
     Equal.sym(Bool, Nat.is_ge(value, value), Nat.is_le(value, value), ge_le(value, value)), Nat.ge_refl(value))
 
-def add_zero(+value: Nat) -> {Nat.add(value, 0n) == value : Nat}:
-  match value:
-    case 0n: {==}
-    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(rest, 0n), rest, add_zero(rest))
-
-def add_succ(+first: Nat, +second: Nat) ->
-  {Nat.add(first, 1n+second) == 1n+Nat.add(first, second) : Nat}:
-  match first:
-    case 0n: {==}
-    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(rest, 1n+second), 1n+Nat.add(rest, second), add_succ(rest, second))
-
 def add_comm(+first: Nat, +second: Nat) ->
   {Nat.add(first, second) == Nat.add(second, first) : Nat}:
   match first:
-    case 0n: Equal.sym(Nat, Nat.add(second, 0n), second, add_zero(second))
+    case 0n: Equal.sym(Nat, Nat.add(second, 0n), second, Alg.nat_add_zero(second))
     case 1n+rest:
       Equal.trans(Nat, 1n+Nat.add(rest, second), 1n+Nat.add(second, rest), Nat.add(second, 1n+rest),
         Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(rest, second), Nat.add(second, rest), add_comm(rest, second)),
-        Equal.sym(Nat, Nat.add(second, 1n+rest), 1n+Nat.add(second, rest), add_succ(second, rest)))
-
-def add_assoc(+first: Nat, +second: Nat, +third: Nat) ->
-  {Nat.add(Nat.add(first, second), third) == Nat.add(first, Nat.add(second, third)) : Nat}:
-  match first:
-    case 0n: {==}
-    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(Nat.add(rest, second), third), Nat.add(rest, Nat.add(second, third)), add_assoc(rest, second, third))
+        Equal.sym(Nat, Nat.add(second, 1n+rest), 1n+Nat.add(second, rest), Alg.nat_add_succ(second, rest)))
 
 def le_add(+first: Nat, +extra: Nat) -> {Nat.is_le(first, Nat.add(first, extra)) == True{} : Bool}:
   match first:
@@ -144,15 +128,15 @@ def reserved_use(+own: Nat, +reserve: Nat, +budget: Nat,
   {Nat.is_le(Nat.add(own, reserve), budget) == True{} : Bool}:
   match reserve budget:
     case 0n 0n:
-      %Equal.sym(Nat, Nat.add(own, 0n), own, add_zero(own)) : {Nat.is_le(_, 0n) == True{} : Bool}
+      %Equal.sym(Nat, Nat.add(own, 0n), own, Alg.nat_add_zero(own)) : {Nat.is_le(_, 0n) == True{} : Bool}
       own_in_room
     case 0n 1n+remaining:
-      %Equal.sym(Nat, Nat.add(own, 0n), own, add_zero(own)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
+      %Equal.sym(Nat, Nat.add(own, 0n), own, Alg.nat_add_zero(own)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
       own_in_room
     case 1n+rest 0n:
       impossible({Nat.is_le(Nat.add(own, 1n+rest), 0n) == True{} : Bool}, reserve_in_budget)
     case 1n+rest 1n+remaining:
-      %Equal.sym(Nat, Nat.add(own, 1n+rest), 1n+Nat.add(own, rest), add_succ(own, rest)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
+      %Equal.sym(Nat, Nat.add(own, 1n+rest), 1n+Nat.add(own, rest), Alg.nat_add_succ(own, rest)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
       reserved_use(own, rest, remaining, reserve_in_budget, own_in_room)
 
 def chosen_lower(+dimension: Space.Dimension, +room: Nat,
@@ -202,7 +186,7 @@ def sequence_split(~A: Data, +value: A, +dimension: Space.Dimension, +rest: +Lis
   {Space.minimum_sequence(~A, Space.Slot{value, dimension} <> rest, gap) ==
     Nat.add(Space.minimum(dimension), Space.reservation(~A, rest, gap)) : Nat}:
   match rest:
-    case Nil{}: Equal.sym(Nat, Nat.add(Space.minimum(dimension), 0n), Space.minimum(dimension), add_zero(Space.minimum(dimension)))
+    case Nil{}: Equal.sym(Nat, Nat.add(Space.minimum(dimension), 0n), Space.minimum(dimension), Alg.nat_add_zero(Space.minimum(dimension)))
     case Con{next, tail}: {==}
 
 def reserve_split(~A: Data, +rest: +List<Space.Slot<A>>, +gap: Nat) ->
@@ -224,7 +208,7 @@ def used_split(~A: Data, +value: A, +offset: Nat, +size: Nat, +rest: +List<Space
   {Rule.used(~A, Space.Placement{value, offset, size} <> rest, gap) ==
     Nat.add(size, Nat.add(Rule.placement_gap(~A, rest, gap), Rule.used(~A, rest, gap))) : Nat}:
   match rest:
-    case Nil{}: Equal.sym(Nat, Nat.add(size, 0n), size, add_zero(size))
+    case Nil{}: Equal.sym(Nat, Nat.add(size, 0n), size, Alg.nat_add_zero(size))
     case Con{head, tail}: {==}
 
 def combined_balance(+size: Nat, +between: Nat, +tail_used: Nat, +unused: Nat, +next_budget: Nat, +budget: Nat,
@@ -233,11 +217,11 @@ def combined_balance(+size: Nat, +between: Nat, +tail_used: Nat, +unused: Nat, +
   {Nat.add(Nat.add(size, Nat.add(between, tail_used)), unused) == budget : Nat}:
   Equal.trans(Nat, Nat.add(Nat.add(size, Nat.add(between, tail_used)), unused),
     Nat.add(size, Nat.add(Nat.add(between, tail_used), unused)), budget,
-    add_assoc(size, Nat.add(between, tail_used), unused),
+    Alg.nat_add_assoc(size, Nat.add(between, tail_used), unused),
     Equal.trans(Nat, Nat.add(size, Nat.add(Nat.add(between, tail_used), unused)),
       Nat.add(size, Nat.add(between, Nat.add(tail_used, unused))), budget,
       Equal.cong(Nat, Nat, (n => Nat.add(size, n)), Nat.add(Nat.add(between, tail_used), unused),
-        Nat.add(between, Nat.add(tail_used, unused)), add_assoc(between, tail_used, unused)),
+        Nat.add(between, Nat.add(tail_used, unused)), Alg.nat_add_assoc(between, tail_used, unused)),
       Equal.trans(Nat, Nat.add(size, Nat.add(between, Nat.add(tail_used, unused))),
         Nat.add(size, Nat.add(between, next_budget)), budget,
         Equal.cong(Nat, Nat, (n => Nat.add(size, Nat.add(between, n))), Nat.add(tail_used, unused), next_budget, tail_balance), head_balance)))

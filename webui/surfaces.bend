@@ -1,5 +1,9 @@
 import Base
 
+type TextTone is Data:
+  PrimaryText{}
+  SecondaryText{}
+
 type Tone is Data:
   Neutral{}
   Warning{}
@@ -33,9 +37,17 @@ type Color is Data:
   Token{name: String}
   Blend{foreground: String, percent: Nat, background: String}
 
+def text_token(value: TextTone) -> String:
+  match value:
+    case PrimaryText{}: "--color-token-text-primary"
+    case SecondaryText{}: "--color-token-text-secondary"
+
+def text_foreground(value: TextTone) -> Color:
+  Token{text_token(value)}
+
 def tone_name(value: Tone) -> String:
   match value:
-    case Neutral{}: "--color-token-text-secondary"
+    case Neutral{}: text_token(SecondaryText{})
     case Warning{}: "--color-text-warning"
     case Success{}: "--color-text-success"
     case Info{}: "--color-text-info"
@@ -49,7 +61,7 @@ def foreground(role: Role) -> Color:
     case PrimaryAction{}: Token{"--color-text-primary-solid"}
     case DestructiveAction{}: Token{"--color-text-danger-ghost"}
     case Chip{value}: tone(value)
-    case _: Token{"--color-token-text-primary"}
+    case _: text_foreground(PrimaryText{})
 
 def action_background(phase: Phase, rest: String, hover: String, pressed: String) -> Color:
   match phase:

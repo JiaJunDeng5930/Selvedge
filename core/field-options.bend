@@ -163,7 +163,7 @@ def field_options(field: Forms.Field, value: Forms.Observed) -> +List<Forms.Choi
     case Forms.WorkspacePrimary{}: options(primary_choices(value))
     case Forms.CardStage{}: stage_options(Board.stages())
     case Forms.CardPriority{}: priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}])
-    case Forms.DeliveryIntent{}: [option("send", "Send"), option("steer", "Steer")]
+    case Forms.DeliveryIntent{}: [option("send", User.delivery_caption(User.Send{})), option("steer", User.delivery_caption(User.Steer{}))]
     case _: [option(observed(value), "Current value")]
 
 def execution_options(field: String, configuration: Context.Configuration, preview: Context.Preview, projects: +List<View.ProjectChoice>, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:

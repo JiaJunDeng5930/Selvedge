@@ -147,6 +147,7 @@ type Paint is Data:
   ThemeToken{name: String}
   SurfacePaint{role: Surfaces.Role, phase: Surfaces.Phase}
   SurfaceForeground{role: Surfaces.Role}
+  TextForeground{tone: Surfaces.TextTone}
 
 type Alignment is Data:
   Stretch{}

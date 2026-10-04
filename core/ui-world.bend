@@ -418,11 +418,6 @@ def creation_introduction(composer: Maybe<&2, ComposerScene>, world: M.World()) 
     case Some{ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}:
       creation_introduction_fields(draft_preview(context), world)
 
-def delivery_label(delivery: U.Delivery) -> String:
-  match delivery:
-    case U.Send{}: "Send"
-    case U.Steer{}: "Steer"
-
 def draft_context_footer(+editor: U.Editor, +observation: Context.Observation, profiles: +List<D.Profile>) -> +List<ComposerControl>:
   [ComposerControl{WorkspaceSubject{}, context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor})},
    ComposerControl{PermissionsSubject{}, context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})}]
@@ -446,7 +441,7 @@ def composer_scene(body: U.Body, scene: EditorScene, +world: M.World()) -> Maybe
       EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
       +observation: Maybe<&2, Context.Observation> = committed_observation(committed_context(Tasks.find(Commands.entries(world), task)))
       Some{ComposerScene{identity, revision, message,
-        ComposerControl{DeliverySubject{delivery}, control("composer/delivery/" ++ Nat.show(task), delivery_label(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
+        ComposerControl{DeliverySubject{delivery}, control("composer/delivery/" ++ Nat.show(task), U.delivery_caption(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
           committed_context_footer(task, observation, Board.profiles(world)), observation, submit, feedback, pending}}
     case _: None{}
 
@@ -505,8 +500,8 @@ def execution_group(+identity: U.Editor, +config: Context.Configuration, +world:
 
 def delivery_controls(+task: Nat, selected: U.Delivery) -> InputGroup:
   DeliveryInput{selected,
-    ControlDeclaration{"choose-send/" ++ Nat.show(task), "Send", Secondary{}, U.EditDraft{U.MessageEditor{task}, U.ChooseDelivery{U.Send{}}}, Available{}},
-    ControlDeclaration{"choose-steer/" ++ Nat.show(task), "Steer", Secondary{}, U.EditDraft{U.MessageEditor{task}, U.ChooseDelivery{U.Steer{}}}, Available{}}}
+    ControlDeclaration{"choose-send/" ++ Nat.show(task), U.delivery_caption(U.Send{}), Secondary{}, U.EditDraft{U.MessageEditor{task}, U.ChooseDelivery{U.Send{}}}, Available{}},
+    ControlDeclaration{"choose-steer/" ++ Nat.show(task), U.delivery_caption(U.Steer{}), Secondary{}, U.EditDraft{U.MessageEditor{task}, U.ChooseDelivery{U.Steer{}}}, Available{}}}
 
 def agent_owners(agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<B.Owner>:
   match agents:
@@ -537,8 +532,7 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<InputGroup>:
 def submit_label(body: U.Body) -> String:
   match body:
     case U.NewTask{message, profile, reasoning, context}: "Start task"
-    case U.Message{task, message, U.Send{}}: "Send"
-    case U.Message{task, message, U.Steer{}}: "Steer"
+    case U.Message{task, message, delivery}: U.delivery_caption(delivery)
     case U.Fork{task, count, messages, context}: "Fork task"
     case U.Compact{task, summary}: "Compact history"
     case _: "Save"

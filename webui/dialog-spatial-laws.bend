@@ -2,6 +2,7 @@ import Base
 import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ./enclosure-laws.bend as EnclosureLaws
+import ./enclosure.bend as Enclosure
 import ./document.bend as Doc
 import ./design.bend as Design
 import ./appearance.bend as Appearance
@@ -188,13 +189,13 @@ type Requirements is Type:
          Doc.element_events(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})))) ==
        (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))},
-    shared_inline_inset: {Appearance.dialog_inline_inset() == 24n : Nat},
+    shared_inline_inset: {Enclosure.partition_inline() == 24n : Nat},
     region_owned_insets: {(partition_inset(Render.dialog_header_styles()),
           (partition_inset(Render.dialog_body_styles()),
            (partition_inset(Render.dialog_footer_styles()),
             (Render.attr(Render.dialog_header_styles(), "flex"),
              Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
-         ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
+         ("14px " ++ Render.px(Enclosure.partition_inline()), ("20px " ++ Render.px(Enclosure.partition_inline()), ("12px " ++ Render.px(Enclosure.partition_inline()), ("0 0 auto", "0 0 auto")))) :
          (String & (String & (String & (String & String))))},
     above_input_margin: @key:String -> @name:String -> @input:Doc.Node ->
       {Render.attr(Doc.element_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String},

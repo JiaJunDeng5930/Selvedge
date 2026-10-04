@@ -18,15 +18,14 @@ reasoning, instructions, execution settings and concurrency. Role/project edits
 affect future launches, not existing frozen task contracts.
 
 Drag a card into another stage or before another card in its current stage.
-Pinned cards form the leading group. Submission rechecks the source revision and
-destination. Escape cancels a gesture. Context actions include pinning, metadata
-changes, execution, title regeneration, archive/restore and deletion. Deleting a
-card does not delete its linked task history.
+Submission rechecks the source revision. Escape cancels a gesture. Context actions
+include pinning, metadata changes, execution, title regeneration, archive/restore
+and deletion.
 
 Toolbar tabs, search and filters narrow the view without recording work commands.
-**自动** enables native dispatch of eligible assigned cards, subject to priority
-and role concurrency. Open an executed card to follow its linked conversation,
-append input, handle approvals or interrupt execution through the existing task UI.
+Enable **自动** for automatic execution. Open an executed card to follow its linked
+conversation, append input, handle approvals or interrupt execution through the
+existing task UI.
 
 ## Assistance and files
 

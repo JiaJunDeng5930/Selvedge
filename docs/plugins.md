@@ -112,21 +112,13 @@ effect and a task-local pending ticket. The host sends `beforeTool` with:
 The `tool` above abbreviates a real complete tool definition. Allowed results are
 exactly `{"decision":"allow"}`, `{"decision":"rewrite","arguments":{...}}`, or
 `{"decision":"deny","reason":"..."}`. A rewrite replaces the entire argument
-object; it cannot rename the tool, retarget the task, change the call ID or grant a
-different ticket. Each later plugin sees the preceding rewrite. Final arguments
-are validated against the frozen tool contract and live route after the whole
-chain succeeds. Exceptions, malformed replies, unavailable revisions and timeouts
-become native `HookFailure` records and do not dispatch the tool.
+object. The host can report exceptions, malformed replies, unavailable revisions
+and timeouts.
 
 See [HOOKS.bend](../HOOKS.bend) for the authoritative authorization-record semantics.
 
-A plugin only replies to the current committed ticket. Duplicate, stale,
-interrupted and post-archive replies have no authority. Freeze can retain a
-completed grant without advancing the remaining chain. Recovery retains committed
-grants but fails a pending callback whose outcome is unknown; it does not call it
-again or run the unapproved tool. Cancellation is advisory for the plugin process:
-the callback may already have performed its own effects, which Selvedge cannot
-roll back. Lifecycle controls still govern the core task independently.
+Cancellation is advisory for the plugin process: the callback may already have
+performed its own effects, which Selvedge cannot roll back.
 
 ## Result hooks
 
@@ -161,19 +153,16 @@ The reply is exactly one of:
 {"decision": "deny", "reason": "Do not deliver this result"}
 ```
 
-A rewrite may supply any JSON value, including explicit `null`. It cannot change
-the original call, the task, or the execution error flag. Extra `error`, `name`,
-`arguments` or identity fields are rejected. Invalid replies, unavailable frozen
-revisions, transport errors and timeouts become failed result records. Denial or
-failure delivers an explicit error instead of the value; it does **not** undo the
-tool's already completed external effects.
+A rewrite may supply any JSON value, including explicit `null`.
 
-`ToolReceipt` retains the original call, result and error flag. `AfterRecord`
-retains each decision. Both are visible in durable history and the UI but excluded
-from the default model-context projection; only the processed result is delivered
-there. This is not confidential erasure: authorized history reads, including
-`read_task`, can expose audit records. A confidentiality policy must also govern
-those reads and any external artifacts.
+Extra `error`, `name`, `arguments` or identity fields are rejected. Invalid replies,
+unavailable frozen revisions, transport errors and timeouts can fail result
+processing. Result processing does not undo the tool's already completed external
+effects.
+
+Excluding audit records from model context does not provide confidential erasure:
+authorized history reads, including `read_task`, can expose audit records.
+A confidentiality policy must also govern those reads and any external artifacts.
 
 See [results.bend](../bendlib/results.bend) and [protocol.bend](../bendlib/protocol.bend) for the authoritative result-processing and completion-admission semantics.
 

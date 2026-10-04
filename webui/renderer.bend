@@ -69,6 +69,7 @@ def paint(value: Design.Paint) -> String:
     case Design.ThemeToken{name}: "var(" ++ name ++ ")"
     case Design.SurfacePaint{role, phase}: surface_background(role, phase)
     case Design.SurfaceForeground{role}: surface_color(Surfaces.foreground(role))
+    case Design.TextForeground{tone}: surface_color(Surfaces.text_foreground(tone))
 
 
 
@@ -187,10 +188,10 @@ def replace_styles(node: Doc.Node, extra: +List<Doc.Property>) -> Doc.Node:
     case other: other
 
 
-def code_wrap(value: Bool) -> String:
+def code_wrapping(value: Bool) -> T.Wrapping:
   match value:
-    case True{}: "pre-wrap"
-    case False{}: "pre"
+    case True{}: T.WrapAnywhere{}
+    case False{}: T.ScrollableCode{}
 
 
 def role_name(value: UI.Role) -> String:
@@ -550,7 +551,7 @@ def board_group_styles(value: UI.BoardGrouping, +typography: T.Presentation) -> 
     case UI.SearchArea{}:
       [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("flex", "0 1 168px")]
     case UI.WorkStatus{}:
-      List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Medium{}), [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("color", "var(--color-token-text-secondary)"), property("white-space", "nowrap")])
+      List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Medium{}), [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})), property("white-space", "nowrap")])
     case UI.SecondaryActions{}:
       [property("display", "flex"), property("align-items", "center"), property("gap", "4px"), property("min-width", "0"), property("flex", "0 0 auto"), property("margin-inline-start", "auto")]
     case UI.PrimaryAction{}:
@@ -586,14 +587,14 @@ def lane_mark(+owner: String, +stage: Board.Stage) -> Doc.Node:
 
 def lane_count(+owner: String, +count: Nat, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "count"), "span", [property("data-board-count", Nat.show(count)), property("aria-label", Nat.show(count) ++ " 个任务")],
-    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("font-variant-numeric", "tabular-nums"), property("margin-inline-start", "2px")]), Nil{}, [Doc.Text{Nat.show(count)}]}
+    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})), property("font-variant-numeric", "tabular-nums"), property("margin-inline-start", "2px")]), Nil{}, [Doc.Text{Nat.show(count)}]}
 
 def lane_heading_leading(+owner: String, label: String, stage: Board.Stage, count: Nat, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "heading-leading"), "div", Nil{},
     [property("display", "flex"), property("align-items", "center"), property("gap", "7px"), property("min-width", "0")], Nil{},
     [lane_mark(owner, stage),
       Doc.Element{generated_identity(owner, "title"), "h2", Nil{},
-        List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), [property("margin", "0"), property("min-width", "0"), property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap")]), Nil{}, [Doc.Text{label}]},
+        List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), List.append(&2, Doc.Property, [property("margin", "0"), property("min-width", "0")], overflow_style(Design.SingleLineOverflow{}))), Nil{}, [Doc.Text{label}]},
       lane_count(owner, count, typography)]}
 
 def lane_heading_trailing(+owner: String, create: +List<Doc.Node>) -> Doc.Node:
@@ -634,7 +635,7 @@ def lane_children(+selected: Bool, +stage: Board.Stage, source: +List<Child>) ->
 def empty_lane_when(is_empty: Bool, +owner: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match is_empty:
     case True{}: [Doc.Element{generated_identity(owner, "empty"), "p", [property("data-board-empty", "")],
-      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("margin", "4px 2px"), property("color", "var(--color-token-text-secondary)"), property("text-align", "center")]), Nil{}, [Doc.Text{"暂无任务"}]}]
+      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("margin", "4px 2px"), property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})), property("text-align", "center")]), Nil{}, [Doc.Text{"暂无任务"}]}]
     case False{}: Nil{}
 
 def empty_lane(count: Nat, owner: String, +typography: T.Presentation) -> +List<Doc.Node>:
@@ -655,10 +656,9 @@ def board_lane_node(+key: String, +label: String, +stage: Board.Stage, +count: N
 
 def card_chip(key: String, kind: String, text: String, +tone: Surfaces.Tone, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "span", [property("data-card-chip", kind)],
-    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), [property("display", "inline-flex"), property("align-items", "center"), property("max-width", "100%"),
+    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), List.append(&2, Doc.Property, [property("display", "inline-flex"), property("align-items", "center"), property("max-width", "100%"),
      property("padding", "2px 6px"), property("border-radius", "4px"), property("background", surface_background(Surfaces.Chip{tone}, Surfaces.Rest{})),
-     property("color", surface_color(Surfaces.tone(tone))), property("white-space", "nowrap"),
-     property("overflow", "hidden"), property("text-overflow", "ellipsis")]), Nil{}, [Doc.Text{text}]}
+     property("color", surface_color(Surfaces.tone(tone)))], overflow_style(Design.SingleLineOverflow{}))), Nil{}, [Doc.Text{text}]}
 
 def priority_tone(priority: Board.Priority) -> Surfaces.Tone:
   match priority:
@@ -680,7 +680,7 @@ def card_metadata(+card_key: String, face: View.CardFace, status_empty: Bool, +t
   View.CardFace{id, title, description, +priority, pinned, status, project, labels, owner, updated} = face
   Doc.Element{generated_identity(card_key, "metadata"), "div", [property("data-card-metadata", "")],
     List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("display", "flex"), property("align-items", "center"), property("flex-wrap", "wrap"), property("gap", "5px"),
-     property("min-width", "0"), property("color", "var(--color-token-text-secondary)")]), Nil{},
+     property("min-width", "0"), property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}}))]), Nil{},
     List.append(&2, Doc.Node,
       [card_chip(generated_identity(card_key, "reference"), "reference", "SV-" ++ Nat.show(id), Surfaces.Neutral{}, typography),
        card_chip(generated_identity(card_key, "priority"), "priority", Board.priority_label(priority), priority_tone(priority), typography)],
@@ -736,7 +736,7 @@ def card_description_when(empty: Bool, owner: String, +description: String, +typ
     case False{}:
       [Doc.Element{generated_identity(owner, "description"), "p", [property("data-card-description", "")],
         List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("display", "-webkit-box"), property("-webkit-box-orient", "vertical"), property("-webkit-line-clamp", "3"),
-         property("margin", "0"), property("overflow", "hidden"), property("color", "var(--color-token-text-secondary)"),
+         property("margin", "0"), property("overflow", "hidden"), property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})),
          property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere")]), Nil{}, [Doc.Text{description}]}]
 
 def card_description(+owner: String, +description: String, +typography: T.Presentation) -> +List<Doc.Node>:
@@ -772,7 +772,7 @@ def card_footer_item_when(empty: Bool, owner: String, part: String, kind: String
     case True{}: Nil{}
     case False{}:
       [Doc.Element{generated_identity(owner, part), "span", [property("data-card-footer", kind)],
-        [property("min-width", "0"), property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap")], Nil{}, [Doc.Text{value}]}]
+        List.append(&2, Doc.Property, [property("min-width", "0")], overflow_style(Design.SingleLineOverflow{})), Nil{}, [Doc.Text{value}]}]
 
 def card_footer_item(owner: String, part: String, kind: String, +value: String) -> +List<Doc.Node>:
   card_footer_item_when(String.is_empty(value), owner, part, kind, value)
@@ -783,7 +783,7 @@ def card_footer_with_items(+card_key: String, items: +List<Doc.Node>, +typograph
     case _:
       [Doc.Element{generated_identity(card_key, "footer"), "footer", [property("data-card-footer", "")],
         List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("display", "flex"), property("align-items", "center"), property("justify-content", "space-between"),
-         property("gap", "8px"), property("margin-top", "2px"), property("color", "var(--color-token-text-secondary)"),
+         property("gap", "8px"), property("margin-top", "2px"), property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})),
          property("min-width", "0")]), Nil{}, items}]
 
 def card_timestamp_styles() -> +List<Doc.Property>:
@@ -1148,11 +1148,6 @@ def check_slot(+key: String, checked: Bool) -> Doc.Node:
   Doc.Element{key ++ "/check-slot", "span", [property("aria-hidden", "true")],
     [property("width", "var(--native-leading-slot,20px)"), property("height", "var(--native-icon-size,16px)"), property("flex-shrink", "0"), property("display", "inline-flex"), property("align-items", "center"), property("justify-content", "center")], Nil{}, selected_check(key, checked)}
 
-def disclosure_icon(expanded: Bool) -> Controls.Icon:
-  match expanded:
-    case True{}: Controls.ChevronDown{}
-    case False{}: Controls.ChevronRight{}
-
 def choice_text_content_wrapping(+key: String, label: String, description: Maybe<&2, String>, text_gap: Nat, +typography: T.Presentation, wrapping: T.Wrapping) -> Doc.Node:
   match description:
     case None{}:
@@ -1160,7 +1155,7 @@ def choice_text_content_wrapping(+key: String, label: String, description: Maybe
     case Some{description}:
       Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start"), property("gap", px(text_gap))], Nil{},
         [caption_label(key, label, wrapping), Doc.Element{key ++ "/description", "span", Nil{},
-          List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), property("color", "var(--color-token-text-secondary)") <> wrapping_properties(Controls.description_wrapping())), Nil{}, [Doc.Text{description}]}]}
+          List.append(&2, Doc.Property, text_presentation(T.supporting(typography)), property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})) <> wrapping_properties(Controls.description_wrapping())), Nil{}, [Doc.Text{description}]}]}
 
 def choice_text_content(+key: String, +label: String, +description: Maybe<&2, String>, text_gap: Nat, +typography: T.Presentation) -> Doc.Node:
   choice_text_content_wrapping(key, label, description, text_gap, typography, Controls.caption_wrapping(Controls.ChoiceFace{label, description, False{}}))
@@ -1180,7 +1175,7 @@ def face_with_wrapping(+key: String, value: Controls.Face, +typography: T.Presen
     case Controls.IconTextFace{value, text}: [icon(key ++ "/leading", value), caption_label(key, text, wrapping)]
     case Controls.PickerFace{leading, text}: List.append(&2, Doc.Node, optional_icon(key ++ "/leading", leading), [caption_label(key, text, wrapping), icon(key ++ "/disclosure", Controls.ChevronDown{})])
     case Controls.ChoiceFace{text, description, checked}: choice_content_layout_wrapping(key, text, description, checked, Controls.choice_content_layout(geometry), typography, wrapping)
-    case Controls.DisclosureFace{text, expanded}: [icon(key ++ "/disclosure", disclosure_icon(expanded)), caption_label(key, text, wrapping)]
+    case Controls.DisclosureFace{text, expanded}: [icon(key ++ "/disclosure", Controls.disclosure_glyph(expanded)), caption_label(key, text, wrapping)]
     case Controls.PermissionFace{filesystem, network, approval}: [icon(key ++ "/filesystem", filesystem), icon(key ++ "/network", network), icon(key ++ "/approval", approval)]
 
 
@@ -1439,8 +1434,8 @@ def board_stage_region(value: Doc.Node, +width: Nat, +gap: Nat, +inset: Nat) -> 
 
 
 def conversation_title_styles() -> +List<Doc.Property>:
-  [property("display", "block"), property("min-height", "0"), property("min-width", "0"), property("width", "100%"), property("overflow", "hidden"),
-    property("text-overflow", "ellipsis"), property("white-space", "nowrap")]
+  List.append(&2, Doc.Property, [property("display", "block"), property("min-height", "0"), property("min-width", "0"), property("width", "100%")],
+    overflow_style(Design.SingleLineOverflow{}))
 
 def conversation_title_node(node: Doc.Node) -> Doc.Node:
   replace_styles(node, conversation_title_styles())
@@ -1721,8 +1716,8 @@ def compound_field(+key: String, label: String, field: Forms.Field,
 
 def directory_path_node(+key: String, +path: String) -> Doc.Node:
   Doc.Element{key ++ "/path", "span", [property("title", path)],
-    [property("width", "100%"), property("flex", "0 0 auto"), property("min-width", "0"), property("overflow", "hidden"),
-     property("text-overflow", "ellipsis"), property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]}
+    List.append(&2, Doc.Property, [property("width", "100%"), property("flex", "0 0 auto"), property("min-width", "0")],
+      overflow_style(Design.SingleLineOverflow{})), Nil{}, [Doc.Text{path}]}
 
 def directory_row_node(+key: String, +path: String, primary: Bool, visual: Design.Style,
   children: +List<Doc.Node>) -> Doc.Node:
@@ -1752,12 +1747,12 @@ def context_summary_node(+key: String, +label: String, role: UI.Role, observatio
     property("data-context-kind", context_observation_kind(observation))], List.append(&2, Doc.Property, style(visual),
     [property("flex", "0 0 auto")]), Nil{},
     Doc.Element{key ++ "/provenance", "div", Nil{},
-      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)")]), Nil{}, [Doc.Text{label}]} <> documents(children)}
+      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}}))]), Nil{}, [Doc.Text{label}]} <> documents(children)}
 
 def choice_group_node(+key: String, +label: String, visual: Design.Style, children: +List<Doc.Node>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "section", [property("data-native-key", key), property("role", "radiogroup"), property("aria-label", label)],
     List.append(&2, Doc.Property, style(visual), [property("flex-shrink", "0"), property("height", "auto")]), Nil{},
-    Doc.Element{key ++ "/label", "div", Nil{}, List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("padding-inline", px(Appearance.popup_content_inset()))]), Nil{}, [Doc.Text{label}]} <> children}
+    Doc.Element{key ++ "/label", "div", Nil{}, List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", paint(Design.TextForeground{Surfaces.SecondaryText{}})), property("padding-inline", px(Enclosure.inline(Enclosure.area(Enclosure.Menu{}))))]), Nil{}, [Doc.Text{label}]} <> children}
 
 def project_header_node(node: Doc.Node) -> Doc.Node:
   match node:
@@ -1852,7 +1847,7 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
       Doc.Element{key, "div", Nil{}, [property("display", "contents")], Nil{}, [
         Doc.Portal{key ++ "/toolbar", Code.key(identity) ++ "/toolbar", documents(children)},
         Doc.TargetProperties{key ++ "/toolbar-observation", Code.key(identity) ++ "/toolbar", [property("data-native-key", key)], Nil{}},
-        Doc.TargetProperties{key ++ "/wrap", Code.key(identity) ++ "/code", Nil{}, [property("white-space", code_wrap(wrap)), property("overflow-wrap", "anywhere")]}]}
+        Doc.TargetProperties{key ++ "/wrap", Code.key(identity) ++ "/code", Nil{}, wrapping_properties(code_wrapping(wrap))}]}
     case UI.TaskFacts{details}: Doc.Element{key, "section", [property("data-native-key", key)], style(visual), Nil{}, task_details(key, details)}
     case UI.CardArchive{count}: card_archive_node(key, label, count, documents(children))
     case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, visual, Design.style_text(visual))
@@ -1915,7 +1910,7 @@ def prepare_overlays(values: +List<Design.Node>, +active: Maybe<&2, String>) -> 
 
 def application_document(+theme: Design.Theme, active: Maybe<&2, String>, base: +List<Doc.Node>, overlays: +List<Doc.Node>) -> Doc.Document:
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
-    [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", "var(--color-token-text-primary)")], Nil{},
+    [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", paint(Design.TextForeground{Surfaces.PrimaryText{}}))], Nil{},
     document_theme(theme) <> List.append(&2, Doc.Node, [base_scope(active, base)], overlays)}, "Selvedge"}
 
 def prepare(+surface: Design.Surface) -> Design.PreparedSurface:

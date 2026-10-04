@@ -17,10 +17,6 @@ type Outcome is Data:
   AwaitingContent{missing: +List<T.MeasurementSpec>}
   Prepared{surface: D.Surface}
 
-def description_presentation(text: T.Presentation) -> T.Presentation:
-  T.Presentation{tier, emphasis, scale} = text
-  T.Presentation{T.Support{}, T.Regular{}, scale}
-
 def measurement(key: String, text: String, presentation: T.Presentation, wrapping: T.Wrapping) -> T.MeasurementSpec:
   T.spec(T.Probe{key, text, T.resolved(presentation), wrapping, None{}, "0"})
 
@@ -35,7 +31,7 @@ def text_specifications(key: String, +text: String, presentation: T.Presentation
 def description_specifications(key: String, description: Maybe<&2, String>, text: T.Presentation) -> +List<T.MeasurementSpec>:
   match description:
     case None{}: Nil{}
-    case Some{description}: text_specifications(key ++ "/description", description, description_presentation(text), C.description_wrapping())
+    case Some{description}: text_specifications(key ++ "/description", description, T.supporting(text), C.description_wrapping())
 
 def single_line_specifications_empty(empty: Bool, +key: String, caption: String, +text: T.Presentation, wrapping: T.Wrapping) -> +List<T.MeasurementSpec>:
   match empty:
@@ -159,7 +155,7 @@ def combine(first: Content, second: Content, +gap: Nat, row: Bool) -> Content:
 def choice_text_description(description: Maybe<&2, String>, label: Content, measured: +List<T.Measured>, key: String, text: T.Presentation, gap: Nat) -> Content:
   match description:
     case None{}: label
-    case Some{description}: combine(label, text_content(measured, key ++ "/description", description, description_presentation(text), C.description_wrapping()), gap, False{})
+    case Some{description}: combine(label, text_content(measured, key ++ "/description", description, T.supporting(text), C.description_wrapping()), gap, False{})
 
 def choice_text(+measured: +List<T.Measured>, +key: String, caption: String, description: Maybe<&2, String>, +text: T.Presentation, gap: Nat, wrapping: T.Wrapping) -> Content:
   choice_text_description(description, text_content(measured, key ++ "/label", caption, text, wrapping), measured, key, text, gap)

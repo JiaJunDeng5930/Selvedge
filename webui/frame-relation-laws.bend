@@ -1,4 +1,5 @@
 import Base
+import ./surfaces.bend as Surfaces
 import ./typography.bend as T
 import ./enclosure.bend as E
 import ./space.bend as Space
@@ -100,7 +101,7 @@ type Requirements is Type:
     archive_allocation: @+key:String -> @+label:String -> @+count:Nat -> @+children:+List<Doc.Node> -> {(R.attr(Doc.element_styles(R.card_archive_node(key, label, count, children)), "padding-inline"), R.attr(Doc.element_styles(R.card_archive_node(key, label, count, children)), "padding-block")) == (R.px(E.inline(E.area(E.ArchiveGroup{}))), R.px(E.block(E.area(E.ArchiveGroup{})))) : (String & String)},
     choice_text_allocation: @+typography:T.Presentation -> @+key:String -> @+label:String -> @+description:String -> @+selected:Bool -> @+text_gap:Nat -> @+region_gap:Nat -> @+extent:Nat -> @+icon:Nat -> {R.choice_content_layout(key, label, Some{description}, selected, C.ChoiceContentLayout{text_gap, extent, icon}, typography) ==
           [Doc.Element{key ++ "/content", "span", Nil{}, [R.property("display", "flex"), R.property("flex-direction", "column"), R.property("flex", "1 1 0"), R.property("min-width", "0"), R.property("text-align", "start"), R.property("gap", R.px(text_gap))], Nil{},
-            [R.caption_label(key, label, C.caption_wrapping(C.ChoiceFace{label, Some{description}, selected})), Doc.Element{key ++ "/description", "span", Nil{}, List.append(&2, Doc.Property, R.part_text(typography, T.Support{}, T.Regular{}), R.property("color", "var(--color-token-text-secondary)") <> R.wrapping_properties(C.description_wrapping())), Nil{}, [Doc.Text{description}]}]},
+            [R.caption_label(key, label, C.caption_wrapping(C.ChoiceFace{label, Some{description}, selected})), Doc.Element{key ++ "/description", "span", Nil{}, List.append(&2, Doc.Property, R.text_presentation(T.supporting(typography)), R.property("color", R.paint(D.TextForeground{Surfaces.SecondaryText{}})) <> R.wrapping_properties(C.description_wrapping())), Nil{}, [Doc.Text{description}]}]},
             R.choice_mark(key, selected, extent, icon)] : +List<Doc.Node>}}
 
 law evidence:

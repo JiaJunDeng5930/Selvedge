@@ -57,20 +57,8 @@ def specified_body(values: +List<UI.Node>, +context: Controls.Context) -> +List<
     case Con{+value, rest}:
       body_step(value, specified_header_child(value, context), specified_body(rest, context))
 
-def reference_header(parts: Order.DialogParts) -> +List<UI.Node>:
-  Order.DialogParts{+header, +body} = parts
-  header
-
-def reference_body(parts: Order.DialogParts) -> +List<UI.Node>:
-  Order.DialogParts{+header, +body} = parts
-  body
-
 def specified_parts(+values: +List<UI.Node>, +context: Controls.Context) -> Order.DialogParts:
   Order.DialogParts{specified_header(values, context), specified_body(values, context)}
-
-def reference_ordered_children(parts: Order.DialogParts) -> +List<UI.Node>:
-  Order.DialogParts{+header, +body} = parts
-  List.append(&2, UI.Node, header, body)
 
 def specified_order(+values: +List<UI.Node>, +context: Controls.Context) -> +List<UI.Node>:
   List.append(&2, UI.Node, specified_header(values, context), specified_body(values, context))

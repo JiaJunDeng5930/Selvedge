@@ -255,7 +255,7 @@ def valid_advance(+metric: T.Metric, valid: {T.valid_body(metric) == True{} : Bo
   T.Metric{key, minimum, preferred, height, advance} = metric
   conjunction_right(Nat.is_gt(height, 0n), Nat.is_gt(advance, 0n),
     conjunction_right(Nat.is_le(minimum, preferred), Nat.is_gt(height, 0n) && Nat.is_gt(advance, 0n),
-      conjunction_right(String.eq(key, "@font/body"), Nat.is_le(minimum, preferred) &&
+      conjunction_right(String.eq("@font/body", key), Nat.is_le(minimum, preferred) &&
         (Nat.is_gt(height, 0n) && Nat.is_gt(advance, 0n)), valid)))
 
 
