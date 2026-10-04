@@ -2,16 +2,12 @@ import Base
 import ./design.bend as D
 import ./controls.bend as C
 import ./enclosure.bend as E
+import ./space.bend as Space
 import ./typography.bend as T
-
-# Natural measurements describe unconstrained action content. Wrapped height is
-# a separate allocation boundary; these extents do not admit a whole viewport.
-type Demand is Data:
-  Demand{minimum: E.Extent, preferred: E.Extent}
 
 type Content is Data:
   AwaitingInk{missing: +List<T.MeasurementSpec>}
-  MeasuredInk{demand: Demand}
+  MeasuredInk{demand: Space.Demand}
 
 type Nodes is Data:
   AwaitingNodes{missing: +List<T.MeasurementSpec>}
@@ -105,13 +101,13 @@ def lookup(measured: +List<T.Measured>, specification: T.MeasurementSpec) -> May
   lookup_loop(measured, None{}, specification)
 
 def fixed(+width: Nat, +height: Nat) -> Content:
-  MeasuredInk{Demand{E.Extent{width, height}, E.Extent{width, height}}}
+  MeasuredInk{Space.Demand{E.Extent{width, height}, E.Extent{width, height}}}
 
 def measured_text(specification: T.MeasurementSpec, value: Maybe<&2, T.Metric>) -> Content:
   match value:
     case None{}: AwaitingInk{[specification]}
     case Some{T.Metric{key, minimum, preferred, +height, reference}}:
-      MeasuredInk{Demand{E.Extent{minimum, height}, E.Extent{preferred, height}}}
+      MeasuredInk{Space.Demand{E.Extent{minimum, height}, E.Extent{preferred, height}}}
 
 def text_content_empty(empty: Bool, measured: +List<T.Measured>, key: String, +caption: String, text: T.Presentation, wrapping: T.Wrapping) -> Content:
   match empty:
@@ -128,8 +124,8 @@ def truncated_content(caption: Content, ellipsis: Content) -> Content:
     case AwaitingInk{first} AwaitingInk{second}: AwaitingInk{List.append(&2, T.MeasurementSpec, first, second)}
     case AwaitingInk{missing} MeasuredInk{value}: AwaitingInk{missing}
     case MeasuredInk{value} AwaitingInk{missing}: AwaitingInk{missing}
-    case MeasuredInk{Demand{E.Extent{minimum, height}, E.Extent{+preferred, natural_height}}} MeasuredInk{Demand{ellipsis_minimum, E.Extent{ellipsis_width, ellipsis_height}}}:
-      MeasuredInk{Demand{E.Extent{Nat.min(preferred, ellipsis_width), height}, E.Extent{preferred, natural_height}}}
+    case MeasuredInk{Space.Demand{E.Extent{minimum, height}, E.Extent{+preferred, natural_height}}} MeasuredInk{Space.Demand{ellipsis_minimum, E.Extent{ellipsis_width, ellipsis_height}}}:
+      MeasuredInk{Space.Demand{E.Extent{Nat.min(preferred, ellipsis_width), height}, E.Extent{preferred, natural_height}}}
 
 def single_line_content_empty(empty: Bool, +measured: +List<T.Measured>, +key: String, +caption: String, +text: T.Presentation, wrapping: T.Wrapping) -> Content:
   match empty:
@@ -155,10 +151,10 @@ def combine(first: Content, second: Content, +gap: Nat, row: Bool) -> Content:
     case AwaitingInk{left} AwaitingInk{right}: AwaitingInk{List.append(&2, T.MeasurementSpec, left, right)}
     case AwaitingInk{missing} MeasuredInk{value}: AwaitingInk{missing}
     case MeasuredInk{value} AwaitingInk{missing}: AwaitingInk{missing}
-    case MeasuredInk{Demand{first_minimum, first_preferred}} MeasuredInk{Demand{second_minimum, second_preferred}}:
+    case MeasuredInk{Space.Demand{first_minimum, first_preferred}} MeasuredInk{Space.Demand{second_minimum, second_preferred}}:
       match row:
-        case True{}: MeasuredInk{Demand{row_extent(first_minimum, second_minimum, gap), row_extent(first_preferred, second_preferred, gap)}}
-        case False{}: MeasuredInk{Demand{column_extent(first_minimum, second_minimum, gap), column_extent(first_preferred, second_preferred, gap)}}
+        case True{}: MeasuredInk{Space.Demand{row_extent(first_minimum, second_minimum, gap), row_extent(first_preferred, second_preferred, gap)}}
+        case False{}: MeasuredInk{Space.Demand{column_extent(first_minimum, second_minimum, gap), column_extent(first_preferred, second_preferred, gap)}}
 
 def choice_text_description(description: Maybe<&2, String>, label: Content, measured: +List<T.Measured>, key: String, text: T.Presentation, gap: Nat) -> Content:
   match description:
@@ -184,7 +180,7 @@ def picker_ink(leading: Maybe<&2, C.Icon>, caption: Content, +icon: Nat, +gap: N
   picker_ink_leading(leading, combine(caption, fixed(icon, icon), gap, True{}), icon, gap)
 
 def ink_geometry(+geometry: C.Geometry, +measured: +List<T.Measured>, +key: String, face: C.Face, +text: T.Presentation, +gap: Nat) -> Content:
-  C.Geometry{width, height, +icon, radius, leading} = geometry
+  C.Geometry{demand, +icon, radius, leading} = geometry
   match face:
     case C.IconFace{value}: fixed(icon, icon)
     case C.PermissionFace{filesystem, network, approval}: fixed(Nat.add(Nat.mul(3n, icon), Nat.mul(2n, gap)), icon)
@@ -204,15 +200,15 @@ def outer_required(required: E.Extent, minimum_width: Nat, minimum_height: Nat, 
 
 def outer_extent(ink: E.Extent, geometry: C.Geometry, style: D.Style) -> E.Extent:
   E.Extent{width, height} = ink
-  C.Geometry{minimum_width, minimum_height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{minimum_width, minimum_height}, preferred}, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, chrome_radius, shadow}, alignment, flow, overflow, frame, style_height, maximum, states} = style
   outer_required(E.required_extent(width, height, border, E.frame_content(frame)), minimum_width, minimum_height, style_height)
 
 def outer_content(content: Content, +geometry: C.Geometry, +style: D.Style) -> Content:
   match content:
     case AwaitingInk{missing}: AwaitingInk{missing}
-    case MeasuredInk{Demand{minimum, preferred}}:
-      MeasuredInk{Demand{outer_extent(minimum, geometry, style), outer_extent(preferred, geometry, style)}}
+    case MeasuredInk{Space.Demand{minimum, preferred}}:
+      MeasuredInk{Space.Demand{outer_extent(minimum, geometry, style), outer_extent(preferred, geometry, style)}}
 
 def natural_demand(measured: +List<T.Measured>, key: String, face: C.Face, +geometry: C.Geometry, +style: D.Style) -> Content:
   D.Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states} = style
@@ -222,13 +218,13 @@ def with_minimum(style: D.Style, height: Nat) -> D.Style:
   D.Style{text, chrome, alignment, flow, overflow, frame, old_height, maximum, states} = style
   D.Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states}
 
-def refine_node(node: D.Node, minimum: E.Extent, children: +List<D.Node>) -> D.Node:
+def refine_node(node: D.Node, +demand: Space.Demand, children: +List<D.Node>) -> D.Node:
   D.Node{key, semantic, label, role, meaning, style, control, old_children} = node
   match control:
-    case C.Action{input, availability, name, face, behavior, C.Geometry{old_width, old_height, icon, radius, leading}, placement, help, feedback}:
-      E.Extent{width, +height} = minimum
+    case C.Action{input, availability, name, face, behavior, C.Geometry{old_demand, icon, radius, leading}, placement, help, feedback}:
+      Space.Demand{E.Extent{width, height}, preferred} = demand
       D.Node{key, semantic, label, role, meaning, with_minimum(style, height),
-        C.Action{input, availability, name, face, behavior, C.Geometry{width, height, icon, radius, leading}, placement, help, feedback}, children}
+        C.Action{input, availability, name, face, behavior, C.Geometry{demand, icon, radius, leading}, placement, help, feedback}, children}
     case _: D.Node{key, semantic, label, role, meaning, style, control, children}
 
 def finish_node(node: D.Node, demand: Content, children: Nodes) -> Nodes:
@@ -236,7 +232,7 @@ def finish_node(node: D.Node, demand: Content, children: Nodes) -> Nodes:
     case AwaitingInk{first} AwaitingNodes{second}: AwaitingNodes{List.append(&2, T.MeasurementSpec, first, second)}
     case AwaitingInk{missing} PreparedNodes{nodes}: AwaitingNodes{missing}
     case MeasuredInk{value} AwaitingNodes{missing}: AwaitingNodes{missing}
-    case MeasuredInk{Demand{minimum, preferred}} PreparedNodes{nodes}: PreparedNodes{[refine_node(node, minimum, nodes)]}
+    case MeasuredInk{value} PreparedNodes{nodes}: PreparedNodes{[refine_node(node, value, nodes)]}
 
 def node_demand(measured: +List<T.Measured>, node: D.Node) -> Content:
   D.Node{key, semantic, label, role, meaning, style, control, children} = node

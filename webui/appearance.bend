@@ -348,7 +348,7 @@ def style_border_width(value: Design.Style) -> Nat:
   chrome_border_width(chrome)
 
 def geometry_icon_size(value: Controls.Geometry) -> Nat:
-  Controls.Geometry{width, height, icon, radius, leading} = value
+  Controls.Geometry{demand, icon, radius, leading} = value
   icon
 
 def choice_intrinsic_height(description: Maybe<&2, String>, +text: T.Presentation, layout: Controls.ChoiceContentLayout) -> Nat:
@@ -367,9 +367,10 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
 
-def action_style_insets(value: Design.Style, geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat, content_height: Nat) -> Design.Style:
+def action_style_insets(value: Design.Style, +geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat, content_height: Nat) -> Design.Style:
   Design.Style{+text, +style_chrome, alignment, flow, overflow, +content_frame, old_height, maximum_width_percent, states} = value
-  Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
+  Controls.Geometry{demand, icon_size, +radius, leading_slot} = geometry
+  minimum_height = Controls.geometry_minimum_height(geometry)
   required_height = Enclosure.extent_height(Enclosure.required_extent(0n, content_height,
     chrome_border_width(style_chrome), content_area))
   Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, states}
@@ -502,8 +503,8 @@ def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamil
 def source_content_style(content: Controls.SourceContent, geometry: Controls.Geometry, value: Design.Style) -> Design.Style:
   match content:
     case Controls.TitleContent{caption}:
-      Controls.Geometry{width, target_height, icon, radius, leading} = geometry
       Design.Style{+text, chrome, alignment, flow, overflow, Enclosure.Frame{area, arrangement}, minimum, maximum, states} = value
+      target_height = Controls.geometry_minimum_height(geometry)
       Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Strong{}), chrome, Design.Leading{}, Design.BlockFlow{}, overflow,
         Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), arrangement}, Nat.max(minimum, target_height), maximum, states}
     case _: value

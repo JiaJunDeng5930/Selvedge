@@ -2,6 +2,9 @@ import Base
 import ./typography.bend as T
 import ./typography-laws.bend as TypographyLaws
 import ./space-laws.bend as SpaceLaws
+import ./container-space-laws.bend as ContainerSpaceLaws
+import ./control-allocation-laws.bend as ControlAllocationLaws
+import ./layout.bend as Layout
 import ./font-observation.bend as F
 import ./font-observation-laws.bend as FontLaws
 import ./content-space-laws.bend as ContentSpaceLaws
@@ -51,7 +54,7 @@ def persistent_trigger_evidence() -> PersistentTriggerLaws.Requirements:
   PersistentTriggerLaws.evidence()
 
 type Realization is Type:
-  Realization{content_space: ContentSpaceLaws.Requirements, typography: TypographyLaws.Requirements, font_stale: @+state: F.State -> @+received: Nat -> @+metrics: +List<T.Metric> -> @different: {Nat.is_eq(F.generation(state), received) == False{} : Bool} -> {F.accept(state, Nil{}, F.Observation{received, metrics}) == state : F.State},
+  Realization{container_space: ContainerSpaceLaws.Requirement<Layout.ControlItem>, control_allocation: ControlAllocationLaws.Requirements, content_space: ContentSpaceLaws.Requirements, typography: TypographyLaws.Requirements, font_stale: @+state: F.State -> @+received: Nat -> @+metrics: +List<T.Metric> -> @different: {Nat.is_eq(F.generation(state), received) == False{} : Bool} -> {F.accept(state, Nil{}, F.Observation{received, metrics}) == state : F.State},
     font_ready_duplicate: @+generation: Nat -> @+scale: T.Scale -> @+body: T.Metric -> @received: Nat -> @metrics: +List<T.Metric> -> {F.accept(F.Ready{generation, scale, body, Nil{}}, Nil{}, F.Observation{received, metrics}) ==
     F.Ready{generation, scale, body, Nil{}} : F.State},
     font_failed_duplicate: @+generation: Nat -> @+scale: T.Scale -> @received: Nat -> @metrics: +List<T.Metric> -> {F.accept(F.Failed{generation, scale}, Nil{}, F.Observation{received, metrics}) ==
@@ -94,7 +97,7 @@ type Realization is Type:
     execution_presentation: ExecutionPresentationLaws.Requirements, directory_entry: DirectoryEntryLaws.Requirements, focus_retention: FocusRetentionLaws.Requirements, submission_feedback: SubmissionFeedbackLaws.Requirements}
 
 def realization() -> Realization:
-  Realization{ContentSpaceLaws.evidence(), TypographyLaws.evidence(), FontLaws.stale, FontLaws.ready_duplicate, FontLaws.failed_duplicate, FontLaws.current_pending, FontLaws.received_success, FontLaws.received_invalid, FontLaws.received_empty, FontLaws.received_multiple, FontLaws.received_valid, FontLaws.retag_scale, FontLaws.retag_body, FontLaws.retag_pending, FontLaws.retag_generation, FontLaws.retag_pending_variant, FontLaws.retag_ready_variant, FontLaws.retag_failed_variant, FontLaws.pending_request, FontLaws.ready_request, FontLaws.failed_request, FontLaws.begin_scale, ViewportSpaceLaws.evidence(), FactContentLaws.evidence(), DirectoryEntryLaws.picker_requirements(), RequestLaws.evidence(), Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
+  Realization{ContainerSpaceLaws.evidence(~Layout.ControlItem), ControlAllocationLaws.evidence(), ContentSpaceLaws.evidence(), TypographyLaws.evidence(), FontLaws.stale, FontLaws.ready_duplicate, FontLaws.failed_duplicate, FontLaws.current_pending, FontLaws.received_success, FontLaws.received_invalid, FontLaws.received_empty, FontLaws.received_multiple, FontLaws.received_valid, FontLaws.retag_scale, FontLaws.retag_body, FontLaws.retag_pending, FontLaws.retag_generation, FontLaws.retag_pending_variant, FontLaws.retag_ready_variant, FontLaws.retag_failed_variant, FontLaws.pending_request, FontLaws.ready_request, FontLaws.failed_request, FontLaws.begin_scale, ViewportSpaceLaws.evidence(), FactContentLaws.evidence(), DirectoryEntryLaws.picker_requirements(), RequestLaws.evidence(), Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
     AppearanceLaws.evidence(), SurfaceLaws.evidence(), EnclosureLaws.evidence(), FrameRelationLaws.evidence(), EnclosureRenderLaws.evidence(), SurfaceRenderLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(), ControlContentLaws.evidence(),
     UserExperienceLaws.command_evidence(), BrowserLaws.evidence(), persistent_trigger_evidence(), DismissalLaws.evidence(), RendererLaws.evidence(), PhysicalTreeLaws.evidence(), PageRegionLaws.evidence(), Visibility.evidence(),
     Focus.cycle_evidence(), Reading.scroll_ownership_evidence(),

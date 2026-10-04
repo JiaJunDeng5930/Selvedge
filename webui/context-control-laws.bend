@@ -1,4 +1,6 @@
 import Base
+import ./enclosure.bend as Enclosure
+import ./space.bend as Space
 import ./appearance.bend as Appearance
 import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
@@ -69,7 +71,7 @@ def choice_native_event(+key: String, label: String, selected: Bool, description
   input: Core.Input, availability: View.Availability, name: String, face: Controls.Face,
   behavior: Controls.Behavior, geometry: Controls.Geometry, placement: Controls.Placement,
   help: Controls.Help, feedback: Controls.Feedback, visual_children: +List<Render.Child>) -> choice_native_event_law(key, label, selected, description, visual, input, availability, name, face, behavior, geometry, placement, help, feedback, visual_children):
-  Controls.Geometry{width, height, icon, radius, leading} = geometry
+  Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading} = geometry
   {==}
 
 

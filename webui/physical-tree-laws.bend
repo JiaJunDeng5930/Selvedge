@@ -10,7 +10,7 @@ import ../core/SYSTEM.bend as Core
 import ../core/user-input.bend as User
 import ../core/user-experience.bend as Experience
 
-# The observation erases placement properties, retaining every content payload,
+# The observation erases styles, retaining attributes, every content payload,
 # event, key, portal target, and the complete ordered physical child tree.
 def structures_cons(+head: Doc.Node, +tail: +List<Doc.Node>) ->
   {Doc.structures(head <> tail) == Doc.structure(head) <> Doc.structures(tail) : +List<Doc.Node>}:
@@ -58,8 +58,8 @@ def board_columns_preserved(+values: +List<Doc.Node>, +width: Nat) ->
 def board_stage_preserved(+node: Doc.Node, +width: Nat, +gap: Nat, +inset: Nat) ->
   {Doc.structure(R.board_stage_region(node, width, gap, inset)) == Doc.structure(node) : Doc.Node}:
   match node:
-    case Doc.Element{+key, +tag, attrs, styles, +events, +children}:
-      Equal.cong(+List<Doc.Node>, Doc.Node, (rest => Doc.Element{key, tag, Nil{}, Nil{}, events, rest}),
+    case Doc.Element{+key, +tag, +attrs, styles, +events, +children}:
+      Equal.cong(+List<Doc.Node>, Doc.Node, (rest => Doc.Element{key, tag, attrs, Nil{}, events, rest}),
         Doc.structures(R.board_columns(children, width)), Doc.structures(children), board_columns_preserved(children, width))
     case Doc.Portal{key, target, children}: {==}
     case Doc.TargetProperties{key, target, attrs, styles}: {==}
@@ -80,7 +80,7 @@ def element_preserved(+key: String, +tag: String, +attrs: +List<Doc.Property>, +
   +before: +List<Doc.Node>, +after: +List<Doc.Node>, +frame: D.MainFrame,
   claim: {Doc.structures(after) == Doc.structures(before) : +List<Doc.Node>}) ->
   {Doc.structure(R.place_element(key, tag, attrs, styles, events, after, frame)) == Doc.structure(Doc.Element{key, tag, attrs, styles, events, before}) : Doc.Node}:
-  Equal.cong(+List<Doc.Node>, Doc.Node, (children => Doc.Element{key, tag, Nil{}, Nil{}, events, children}), Doc.structures(after), Doc.structures(before), claim)
+  Equal.cong(+List<Doc.Node>, Doc.Node, (children => Doc.Element{key, tag, attrs, Nil{}, events, children}), Doc.structures(after), Doc.structures(before), claim)
 
 def children_preserved(+values: +List<Doc.Node>, +in_body: Bool, +frame: D.MainFrame) ->
   {Doc.structures(R.place_children(values, in_body, frame)) == Doc.structures(values) : +List<Doc.Node>}:
@@ -111,16 +111,16 @@ def tree_preserved(+value: Doc.Node, +frame: D.MainFrame) ->
     case Doc.Text{value}: {==}
     case Doc.Markdown{key, source, value}: {==}
 
-def shell_preserved(+semantic: String, +role: UI.Role, +meaning: UI.Meaning, +parameters: D.LayoutParameters, +value: Doc.Node, +shell: D.Shell) ->
-  {Doc.structure(R.place_base_shell_node(semantic, role, meaning, parameters, value, shell)) == Doc.structure(value) : Doc.Node}:
-  replace_styles_preserved(value, R.base_shell_styles(semantic, role, meaning, parameters, shell))
+def shell_preserved(+key: String, +role: UI.Role, +value: Doc.Node, +shell: D.Shell, +controls: +List<D.ControlPlacement>) ->
+  {Doc.structure(R.place_base_shell_node(key, role, value, shell, controls)) == Doc.structure(value) : Doc.Node}:
+  replace_styles_preserved(value, R.base_shell_styles(key, role, shell, controls))
 
 def base_node_preserved(+value: D.Node, +document: Doc.Node, +layout: D.Layout) ->
   {Doc.structure(R.place_base_node(value, document, layout)) == Doc.structure(document) : Doc.Node}:
-  D.Node{key, +semantic, label, +role, +meaning, visual, representation, children} = value
-  D.Layout{viewport, +shell, +frame, placements, +parameters} = layout
-  Equal.trans(Doc.Node, Doc.structure(R.place_base_shell_node(semantic, role, meaning, parameters, R.place_tree(document, frame), shell)), Doc.structure(R.place_tree(document, frame)), Doc.structure(document),
-    shell_preserved(semantic, role, meaning, parameters, R.place_tree(document, frame), shell), tree_preserved(document, frame))
+  D.Node{+key, semantic, label, +role, meaning, visual, representation, children} = value
+  D.Layout{viewport, +shell, +frame, placements, parameters, +controls} = layout
+  Equal.trans(Doc.Node, Doc.structure(R.place_base_shell_node(key, role, R.place_tree(document, frame), shell, controls)), Doc.structure(R.place_tree(document, frame)), Doc.structure(document),
+    shell_preserved(key, role, R.place_tree(document, frame), shell, controls), tree_preserved(document, frame))
 
 def base_preserved(+values: +List<D.Node>, +documents: +List<Doc.Node>, +layout: D.Layout) ->
   {Doc.structures(R.place_base(values, documents, layout)) == Doc.structures(documents) : +List<Doc.Node>}:
@@ -156,20 +156,20 @@ def application_preserved(+theme: D.Theme, +active: Maybe<&2, String>,
   +before_scope = R.base_scope(active, base)
   +after_scope = R.base_scope(active, placed_base)
   scope_claim = Equal.cong(+List<Doc.Node>, Doc.Node,
-    (children => Doc.Element{"application-base", "div", Nil{}, Nil{}, Nil{}, children}),
+    (children => Doc.Element{"application-base", "div", R.background_properties(active), Nil{}, Nil{}, children}),
     Doc.structures(placed_base), Doc.structures(base), base_claim)
   children_claim = cons_preserved(R.document_theme(theme), R.document_theme(theme),
     before_scope <> overlays, after_scope <> placed_overlays, {==},
     cons_preserved(before_scope, after_scope, overlays, placed_overlays, scope_claim, overlay_claim))
   Equal.cong(+List<Doc.Node>, Doc.Document,
-    (children => Doc.Document{Doc.Element{"application", "div", Nil{}, Nil{}, Nil{}, children}, "Selvedge"}),
+    (children => Doc.Document{Doc.Element{"application", "div", [R.property("data-document", "application"), R.property("class", R.theme_class(theme))], Nil{}, Nil{}, children}, "Selvedge"}),
     Doc.structures(R.document_theme(theme) <> (after_scope <> placed_overlays)),
     Doc.structures(R.document_theme(theme) <> (before_scope <> overlays)), children_claim)
 
 def placed_structure(+prepared: D.PreparedSurface, +layout: D.Layout) ->
   {Doc.document_structure(R.place(prepared, layout)) == Doc.document_structure(R.prepared_document(prepared)) : Doc.Document}:
   D.PreparedSurface{D.Surface{content, +theme, +base, +overlays, +active}, +cached_base, +cached_overlays} = prepared
-  D.Layout{viewport, shell, main, +placements, parameters} = layout
+  D.Layout{viewport, shell, main, +placements, parameters, controls} = layout
   application_preserved(theme, active, cached_base, R.place_base(base, cached_base, layout),
     cached_overlays, R.place_overlays(overlays, placements, cached_overlays),
     base_preserved(base, cached_base, layout), overlays_preserved(overlays, placements, cached_overlays))

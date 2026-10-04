@@ -4,7 +4,10 @@ import ./design.bend as D
 import ./controls.bend as C
 import ./enclosure.bend as E
 import ./typography.bend as T
-import ./space-laws.bend as Space
+import ./space-laws.bend as SpaceLaws
+import ./space.bend as Space
+import ../core/SYSTEM.bend as Core
+import ../core/ui-world.bend as View
 import ../core/interface.bend as UI
 import ../bendlib/stdlib.bend as Std
 
@@ -23,8 +26,8 @@ def SurfaceClaim(original: D.Surface, result: S.Outcome) -> Type:
 
 def control_identity(value: C.Representation) -> C.Representation:
   match value:
-    case C.Action{input, availability, name, face, behavior, C.Geometry{width, height, icon, radius, leading}, placement, help, feedback}:
-      C.Action{input, availability, name, face, behavior, C.Geometry{0n, 0n, icon, radius, leading}, placement, help, feedback}
+    case C.Action{input, availability, name, face, behavior, C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading}, placement, help, feedback}:
+      C.Action{input, availability, name, face, behavior, C.Geometry{Space.fixed_demand(0n, 0n), icon, radius, leading}, placement, help, feedback}
     case _: value
 
 def style_identity(value: D.Style) -> D.Style:
@@ -39,26 +42,26 @@ def node_style(node: D.Node) -> D.Style:
   D.Node{key, semantic, label, role, meaning, style, control, children} = node
   style
 
-def refinement_control(+node: D.Node, +minimum: E.Extent, +children: +List<D.Node>) ->
-  {control_identity(node_control(S.refine_node(node, minimum, children))) == control_identity(node_control(node)) : C.Representation}:
+def refinement_control(+node: D.Node, +demand: Space.Demand, +children: +List<D.Node>) ->
+  {control_identity(node_control(S.refine_node(node, demand, children))) == control_identity(node_control(node)) : C.Representation}:
   D.Node{key, semantic, label, role, meaning, style, +control, old_children} = node
   match control:
     case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-      C.Geometry{width, height, icon, radius, leading} = geometry
-      E.Extent{new_width, new_height} = minimum
+      C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
+      Space.Demand{E.Extent{new_width, new_height}, new_preferred} = demand
       {==}
     case C.NoControl{}: {==}
     case C.Input{binding, name, widget, control_label, availability}: {==}
     case C.Movable{destinations, face, name, handle, geometry, help}: {==}
 
-def refinement_style(+node: D.Node, +minimum: E.Extent, +children: +List<D.Node>) ->
-  {style_identity(node_style(S.refine_node(node, minimum, children))) == style_identity(node_style(node)) : D.Style}:
+def refinement_style(+node: D.Node, +demand: Space.Demand, +children: +List<D.Node>) ->
+  {style_identity(node_style(S.refine_node(node, demand, children))) == style_identity(node_style(node)) : D.Style}:
   D.Node{key, semantic, label, role, meaning, +style, +control, old_children} = node
   D.Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states} = style
   match control:
     case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-      C.Geometry{width, height, icon, radius, leading} = geometry
-      E.Extent{new_width, new_height} = minimum
+      C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
+      Space.Demand{E.Extent{new_width, new_height}, new_preferred} = demand
       {==}
     case C.NoControl{}: {==}
     case C.Input{binding, name, widget, control_label, availability}: {==}
@@ -68,14 +71,14 @@ def node_children(node: D.Node) -> +List<D.Node>:
   D.Node{key, semantic, label, role, meaning, style, control, children} = node
   children
 
-def refinement_semantics(+node: D.Node, minimum: E.Extent, +children: +List<D.Node>,
+def refinement_semantics(+node: D.Node, demand: Space.Demand, +children: +List<D.Node>,
   same: {D.semantic_nodes(children) == D.semantic_nodes(node_children(node)) : +List<UI.Node>}) ->
-  {D.semantic_nodes([S.refine_node(node, minimum, children)]) == D.semantic_nodes([node]) : +List<UI.Node>}:
+  {D.semantic_nodes([S.refine_node(node, demand, children)]) == D.semantic_nodes([node]) : +List<UI.Node>}:
   D.Node{+key, +semantic, +label, +role, +meaning, style, +control, +old_children} = node
   match control:
     case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-      C.Geometry{width, height, icon, radius, leading} = geometry
-      E.Extent{new_width, new_height} = minimum
+      C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
+      Space.Demand{E.Extent{new_width, new_height}, new_preferred} = demand
       Equal.cong(+List<UI.Node>, +List<UI.Node>, (values => [UI.Node{key, semantic, label, role, meaning, values}]),
         D.semantic_nodes(children), D.semantic_nodes(old_children), same)
     case C.NoControl{}: Equal.cong(+List<UI.Node>, +List<UI.Node>, (values => [UI.Node{key, semantic, label, role, meaning, values}]),
@@ -107,8 +110,8 @@ def finish_node_semantics(+node: D.Node, +demand: S.Content, +children: S.Nodes,
   match demand children:
     case S.AwaitingInk{first} S.AwaitingNodes{second}: Unit{}
     case S.AwaitingInk{missing} S.PreparedNodes{nodes}: Unit{}
-    case S.MeasuredInk{S.Demand{minimum, preferred}} S.AwaitingNodes{missing}: Unit{}
-    case S.MeasuredInk{S.Demand{minimum, preferred}} S.PreparedNodes{nodes}: refinement_semantics(node, minimum, nodes, premise)
+    case S.MeasuredInk{Space.Demand{minimum, preferred}} S.AwaitingNodes{missing}: Unit{}
+    case S.MeasuredInk{Space.Demand{minimum, preferred}} S.PreparedNodes{nodes}: refinement_semantics(node, Space.Demand{minimum, preferred}, nodes, premise)
 
 def append_semantics(+first: +List<D.Node>, +second: +List<D.Node>, +left: S.Nodes, +right: S.Nodes,
   left_claim: NodesClaim(first, left), right_claim: NodesClaim(second, right)) ->
@@ -194,12 +197,12 @@ def choice_reservation(+measured: +List<T.Measured>, +key: String, +caption: Str
   +description: Maybe<&2, String>, +text: T.Presentation, +geometry: C.Geometry, +gap: Nat) ->
   {S.ink(measured, key, C.ChoiceFace{caption, description, True{}}, text, geometry, gap) ==
     S.ink(measured, key, C.ChoiceFace{caption, description, False{}}, text, geometry, gap) : S.Content}:
-  C.Geometry{width, height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
   {==}
 
 def node_minimum_control(control: C.Representation) -> Maybe<&2, E.Extent>:
   match control:
-    case C.Action{input, availability, name, face, behavior, C.Geometry{width, height, icon, radius, leading}, placement, help, feedback}: Some{E.Extent{width, height}}
+    case C.Action{input, availability, name, face, behavior, C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading}, placement, help, feedback}: Some{E.Extent{width, height}}
     case _: None{}
 
 def node_minimum(node: D.Node) -> Maybe<&2, E.Extent>:
@@ -213,21 +216,44 @@ def expected_minimum_control(control: C.Representation, minimum: E.Extent) -> Ma
 def expected_minimum(node: D.Node, minimum: E.Extent) -> Maybe<&2, E.Extent>:
   expected_minimum_control(node_control(node), minimum)
 
-def actual_minimum(+node: D.Node, +minimum: E.Extent, children: +List<D.Node>) ->
-  {node_minimum(S.refine_node(node, minimum, children)) == expected_minimum(node, minimum) : Maybe<&2, E.Extent>}:
+def demand_minimum(demand: Space.Demand) -> E.Extent:
+  Space.Demand{minimum, preferred} = demand
+  minimum
+
+def actual_minimum(+node: D.Node, +demand: Space.Demand, children: +List<D.Node>) ->
+  {node_minimum(S.refine_node(node, demand, children)) == expected_minimum(node, demand_minimum(demand)) : Maybe<&2, E.Extent>}:
   D.Node{key, semantic, label, role, meaning, style, +control, old_children} = node
   match control:
     case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-      C.Geometry{width, height, icon, radius, leading} = geometry
-      E.Extent{new_width, new_height} = minimum
+      C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
+      Space.Demand{E.Extent{new_width, new_height}, new_preferred} = demand
       {==}
     case C.NoControl{}: {==}
     case C.Input{binding, name, widget, control_label, availability}: {==}
     case C.Movable{destinations, face, name, handle, geometry, help}: {==}
 
-def demand_consumed(+node: D.Node, +minimum: E.Extent, +preferred: E.Extent, +children: +List<D.Node>) ->
-  {S.finish_node(node, S.MeasuredInk{S.Demand{minimum, preferred}}, S.PreparedNodes{children}) ==
-    S.PreparedNodes{[S.refine_node(node, minimum, children)]} : S.Nodes}:
+
+def control_action_demand(control: C.Representation) -> Maybe<&2, Space.Demand>:
+  match control:
+    case C.Action{input, availability, name, face, behavior, C.Geometry{demand, icon, radius, leading}, placement, help, feedback}: Some{demand}
+    case _: None{}
+
+def node_action_demand(node: D.Node) -> Maybe<&2, Space.Demand>:
+  control_action_demand(node_control(node))
+
+# Observe the actual prepared node rather than repeating its construction.
+def prepared_action_demand(result: S.Nodes) -> Maybe<&2, Space.Demand>:
+  match result:
+    case S.AwaitingNodes{missing}: None{}
+    case S.PreparedNodes{nodes}:
+      match nodes:
+        case Nil{}: None{}
+        case Con{node, rest}: node_action_demand(node)
+
+def demand_consumed(+key: String, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning, +style: D.Style, +input: Core.Input, +availability: View.Availability, +name: String, +face: C.Face, +behavior: C.Behavior, +geometry: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback, +original_children: +List<D.Node>, +minimum: E.Extent, +preferred: E.Extent, +children: +List<D.Node>) ->
+  {prepared_action_demand(S.finish_node(D.Node{key, semantic, label, role, meaning, style, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, original_children}, S.MeasuredInk{Space.Demand{minimum, preferred}}, S.PreparedNodes{children})) == Some{Space.Demand{minimum, preferred}} : Maybe<&2, Space.Demand>}:
+  C.Geometry{original_demand, icon, radius, leading} = geometry
+  E.Extent{width, height} = minimum
   {==}
 
 def extent_width(value: E.Extent) -> Nat:
@@ -240,13 +266,13 @@ def padded_ink(ink: E.Extent, style: D.Style) -> E.Extent:
   E.required_extent(width, height, border, E.frame_content(frame))
 
 def geometry_width(value: C.Geometry) -> Nat:
-  C.Geometry{width, height, icon, radius, leading} = value
+  C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = value
   width
 
 def outer_width_geometry(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), geometry_width(geometry)) == True{} : Bool}:
   E.Extent{width, height} = ink
-  C.Geometry{+minimum_width, minimum_height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{+minimum_width, minimum_height}, preferred}, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = style
   required_width = extent_width(E.required_extent(width, height, border, E.frame_content(frame)))
   Nat.max_ge_l(minimum_width, required_width)
@@ -254,7 +280,7 @@ def outer_width_geometry(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style)
 def outer_width_ink(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), extent_width(padded_ink(ink, style))) == True{} : Bool}:
   E.Extent{width, height} = ink
-  C.Geometry{minimum_width, minimum_height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{minimum_width, minimum_height}, preferred}, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = style
   required_width = extent_width(E.required_extent(width, height, border, E.frame_content(frame)))
   Nat.max_ge_r(minimum_width, required_width)
@@ -262,7 +288,7 @@ def outer_width_ink(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
 def outer_height_style(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   {Nat.is_ge(E.extent_height(S.outer_extent(ink, geometry, style)), D.style_minimum_height(style)) == True{} : Bool}:
   E.Extent{width, height} = ink
-  C.Geometry{minimum_width, +minimum_height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{minimum_width, +minimum_height}, preferred}, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = style
   required_height = E.extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
   Nat.max_ge_l(minimum, Nat.max(minimum_height, required_height))
@@ -270,33 +296,33 @@ def outer_height_style(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) -
 def outer_height_geometry(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   {Nat.is_le(C.geometry_minimum_height(geometry), E.extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}:
   E.Extent{width, height} = ink
-  C.Geometry{minimum_width, +minimum_height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{minimum_width, +minimum_height}, preferred}, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = style
   +required_height = E.extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
   +inner = Nat.max(minimum_height, required_height)
   +outer = Nat.max(minimum, inner)
-  Space.le_trans(minimum_height, inner, outer,
-    Equal.trans(Bool, Nat.is_le(minimum_height, inner), Nat.is_ge(inner, minimum_height), True{}, Equal.sym(Bool, Nat.is_ge(inner, minimum_height), Nat.is_le(minimum_height, inner), Space.ge_le(inner, minimum_height)), Nat.max_ge_l(minimum_height, required_height)),
-    Equal.trans(Bool, Nat.is_le(inner, outer), Nat.is_ge(outer, inner), True{}, Equal.sym(Bool, Nat.is_ge(outer, inner), Nat.is_le(inner, outer), Space.ge_le(outer, inner)), Nat.max_ge_r(minimum, inner)))
+  SpaceLaws.le_trans(minimum_height, inner, outer,
+    Equal.trans(Bool, Nat.is_le(minimum_height, inner), Nat.is_ge(inner, minimum_height), True{}, Equal.sym(Bool, Nat.is_ge(inner, minimum_height), Nat.is_le(minimum_height, inner), SpaceLaws.ge_le(inner, minimum_height)), Nat.max_ge_l(minimum_height, required_height)),
+    Equal.trans(Bool, Nat.is_le(inner, outer), Nat.is_ge(outer, inner), True{}, Equal.sym(Bool, Nat.is_ge(outer, inner), Nat.is_le(inner, outer), SpaceLaws.ge_le(outer, inner)), Nat.max_ge_r(minimum, inner)))
 
 def outer_height_ink(+ink: E.Extent, +geometry: C.Geometry, +style: D.Style) ->
   {Nat.is_le(E.extent_height(padded_ink(ink, style)), E.extent_height(S.outer_extent(ink, geometry, style))) == True{} : Bool}:
   E.Extent{width, height} = ink
-  C.Geometry{minimum_width, +minimum_height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{minimum_width, +minimum_height}, preferred}, icon, radius, leading} = geometry
   D.Style{text, D.Chrome{foreground, background, paint, border, radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = style
   +required_height = E.extent_height(E.required_extent(width, height, border, E.frame_content(frame)))
   +inner = Nat.max(minimum_height, required_height)
   +outer = Nat.max(minimum, inner)
-  Space.le_trans(required_height, inner, outer,
-    Equal.trans(Bool, Nat.is_le(required_height, inner), Nat.is_ge(inner, required_height), True{}, Equal.sym(Bool, Nat.is_ge(inner, required_height), Nat.is_le(required_height, inner), Space.ge_le(inner, required_height)), Nat.max_ge_r(minimum_height, required_height)),
-    Equal.trans(Bool, Nat.is_le(inner, outer), Nat.is_ge(outer, inner), True{}, Equal.sym(Bool, Nat.is_ge(outer, inner), Nat.is_le(inner, outer), Space.ge_le(outer, inner)), Nat.max_ge_r(minimum, inner)))
+  SpaceLaws.le_trans(required_height, inner, outer,
+    Equal.trans(Bool, Nat.is_le(required_height, inner), Nat.is_ge(inner, required_height), True{}, Equal.sym(Bool, Nat.is_ge(inner, required_height), Nat.is_le(required_height, inner), SpaceLaws.ge_le(inner, required_height)), Nat.max_ge_r(minimum_height, required_height)),
+    Equal.trans(Bool, Nat.is_le(inner, outer), Nat.is_ge(outer, inner), True{}, Equal.sym(Bool, Nat.is_ge(outer, inner), Nat.is_le(inner, outer), SpaceLaws.ge_le(outer, inner)), Nat.max_ge_r(minimum, inner)))
 
 type Requirements is Type:
   Requirements{
     semantics: @+measured:+List<T.Measured> -> @+surface:D.Surface -> SurfaceClaim(surface, S.prepare(measured, surface)),
-    control: @+node:D.Node -> @+minimum:E.Extent -> @+children:+List<D.Node> -> {control_identity(node_control(S.refine_node(node, minimum, children))) == control_identity(node_control(node)) : C.Representation},
-    style: @+node:D.Node -> @+minimum:E.Extent -> @+children:+List<D.Node> -> {style_identity(node_style(S.refine_node(node, minimum, children))) == style_identity(node_style(node)) : D.Style},
-    consumed: @+node:D.Node -> @+minimum:E.Extent -> @+preferred:E.Extent -> @+children:+List<D.Node> -> {S.finish_node(node, S.MeasuredInk{S.Demand{minimum, preferred}}, S.PreparedNodes{children}) == S.PreparedNodes{[S.refine_node(node, minimum, children)]} : S.Nodes},
+    control: @+node:D.Node -> @+demand:Space.Demand -> @+children:+List<D.Node> -> {control_identity(node_control(S.refine_node(node, demand, children))) == control_identity(node_control(node)) : C.Representation},
+    style: @+node:D.Node -> @+demand:Space.Demand -> @+children:+List<D.Node> -> {style_identity(node_style(S.refine_node(node, demand, children))) == style_identity(node_style(node)) : D.Style},
+    consumed: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+style:D.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+face:C.Face -> @+behavior:C.Behavior -> @+geometry:C.Geometry -> @+placement:C.Placement -> @+help:C.Help -> @+feedback:C.Feedback -> @+original_children:+List<D.Node> -> @+minimum:E.Extent -> @+preferred:E.Extent -> @+children:+List<D.Node> -> {prepared_action_demand(S.finish_node(D.Node{key, semantic, label, role, meaning, style, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, original_children}, S.MeasuredInk{Space.Demand{minimum, preferred}}, S.PreparedNodes{children})) == Some{Space.Demand{minimum, preferred}} : Maybe<&2, Space.Demand>},
     choice: @+measured:+List<T.Measured> -> @+key:String -> @+caption:String -> @+description:Maybe<&2, String> -> @+text:T.Presentation -> @+geometry:C.Geometry -> @+gap:Nat -> {S.ink(measured, key, C.ChoiceFace{caption, description, True{}}, text, geometry, gap) == S.ink(measured, key, C.ChoiceFace{caption, description, False{}}, text, geometry, gap) : S.Content},
     outer_width_geometry: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), geometry_width(geometry)) == True{} : Bool},
     outer_width_ink: @+ink:E.Extent -> @+geometry:C.Geometry -> @+style:D.Style -> {Nat.is_ge(extent_width(S.outer_extent(ink, geometry, style)), extent_width(padded_ink(ink, style))) == True{} : Bool},

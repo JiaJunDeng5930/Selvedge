@@ -150,7 +150,7 @@ def allocated_scene(outcome: Layout.Outcome, +application: Platform.State, gener
 def presented_scene(+presentation: Design.PreparedSurface, +application: Platform.State, generation: Nat,
   realization: Rendered.State, parameters: Design.LayoutParameters, viewport: Design.Viewport) -> SceneOutcome:
   Design.PreparedSurface{surface, base, overlays} = presentation
-  allocated_scene(Layout.present(parameters, viewport, Design.semantic_surface(surface)), application, generation, realization, presentation)
+  allocated_scene(Layout.present(parameters, viewport, presentation), application, generation, realization, presentation)
 
 def prepared_scene(preparation: CS.Outcome, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
   parameters: Design.LayoutParameters, viewport: Design.Viewport) -> SceneOutcome:

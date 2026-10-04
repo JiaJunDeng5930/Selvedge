@@ -54,22 +54,22 @@ def direct_text(node: Node) -> String:
     case Text{value}: value
     case _: ""
 
-# Placement may change properties while retaining observable content structure.
+# Placement may change styles while retaining attributes and observable content structure.
 def structures(nodes: +List<Node>) -> +List<Node>:
   match nodes:
     case Nil{}: Nil{}
     case Con{Element{key, tag, attributes, styles, events, children}, rest}:
-      Element{key, tag, Nil{}, Nil{}, events, structures(children)} <> structures(rest)
+      Element{key, tag, attributes, Nil{}, events, structures(children)} <> structures(rest)
     case Con{Portal{key, target, children}, rest}: Portal{key, target, structures(children)} <> structures(rest)
-    case Con{TargetProperties{key, target, attributes, styles}, rest}: TargetProperties{key, target, Nil{}, Nil{}} <> structures(rest)
+    case Con{TargetProperties{key, target, attributes, styles}, rest}: TargetProperties{key, target, attributes, Nil{}} <> structures(rest)
     case Con{other, rest}: other <> structures(rest)
 
 def structure(node: Node) -> Node:
   match node:
     case Element{key, tag, attributes, styles, events, children}:
-      Element{key, tag, Nil{}, Nil{}, events, structures(children)}
+      Element{key, tag, attributes, Nil{}, events, structures(children)}
     case Portal{key, target, children}: Portal{key, target, structures(children)}
-    case TargetProperties{key, target, attributes, styles}: TargetProperties{key, target, Nil{}, Nil{}}
+    case TargetProperties{key, target, attributes, styles}: TargetProperties{key, target, attributes, Nil{}}
     case other: other
 
 def document_structure(document: Document) -> Document:

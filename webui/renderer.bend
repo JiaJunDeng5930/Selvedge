@@ -1,5 +1,6 @@
 import Base
 import ./enclosure.bend as Enclosure
+import ./space.bend as Space
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./design.bend as Design
@@ -355,7 +356,7 @@ def behavior(value: Controls.Behavior) -> +List<Doc.Property>:
 
 
 def action_geometry(size: Controls.Geometry, visual: Design.Style) -> +List<Doc.Property>:
-  Controls.Geometry{width, height, icon_size, radius, leading} = size
+  Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading} = size
   [property("min-width", px(width)), property("--native-icon-size", px(icon_size)), property("--native-leading-slot", px(leading))]
 
 def greater_extent(less: Bool, width: Nat, height: Nat) -> Nat:
@@ -367,7 +368,7 @@ def square_extent(+width: Nat, +height: Nat) -> Nat:
   greater_extent(Nat.is_lt(width, height), width, height)
 
 def icon_content_extent(size: Controls.Geometry) -> +List<Doc.Property>:
-  Controls.Geometry{+width, +height, icon_size, radius, leading} = size
+  Controls.Geometry{Space.Demand{Enclosure.Extent{+width, +height}, preferred}, icon_size, radius, leading} = size
   [property("width", px(square_extent(width, height))), property("height", px(square_extent(width, height))), property("flex-shrink", "0"), property("box-sizing", "border-box")]
 
 def content_extent(face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Property>:
@@ -1200,24 +1201,6 @@ def base_role_styles(role: UI.Role, navigation: Design.Navigation, main: Design.
     case UI.Main{}: bounds(main)
     case _: Nil{}
 
-def navigation_toggle_styles(+parameters: Design.LayoutParameters, role: UI.Role, +navigation: Design.Navigation,
-  +main: Design.Box, +details: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
-  match navigation:
-    case Design.HiddenNavigation{}:
-      List.append(&2, Doc.Property,
-        bounds(Layout.navigation_toggle_bounds(parameters, Design.Shell{navigation, main, details})), [property("z-index", "6")])
-    case _: base_role_styles(role, navigation, main)
-
-def base_styles(+parameters: Design.LayoutParameters, role: UI.Role, meaning: UI.Meaning,
-  navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
-  match meaning:
-    case UI.ComposerAction{composer_subject, Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability}:
-      navigation_toggle_styles(parameters, role, navigation, main, details)
-    case UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability}:
-      navigation_toggle_styles(parameters, role, navigation, main, details)
-    case _: base_role_styles(role, navigation, main)
-
-
 def frame_styles(region: String, +frame: Design.MainFrame) -> +List<Doc.Property>:
   match region:
     case "composer": composer_styles(frame)
@@ -2032,25 +2015,37 @@ def place_tree(value: Doc.Node, +frame: Design.MainFrame) -> Doc.Node:
     case Doc.Portal{key, target, children}: Doc.Portal{key, target, place_children(children, False{}, frame)}
     case other: other
 
-def base_shell_styles_from_shell(semantic: String, role: UI.Role, meaning: UI.Meaning, +parameters: Design.LayoutParameters,
-  +navigation: Design.Navigation, +main: Design.Box, details: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
-  match semantic:
-    case "settings/open":
-      List.append(&2, Doc.Property,
-        bounds(Layout.settings_bounds(parameters, navigation, main)), [property("z-index", "6")])
-    case _: base_styles(parameters, role, meaning, navigation, main, details)
+def control_bounds_match(found: Bool, box: Design.Box,
+  rest: Maybe<&2, Design.Box>) -> Maybe<&2, Design.Box>:
+  match found:
+    case True{}: Some{box}
+    case False{}: rest
 
-def base_shell_styles(semantic: String, role: UI.Role, meaning: UI.Meaning, +parameters: Design.LayoutParameters, shell: Design.Shell) -> +List<Doc.Property>:
+def control_bounds(+key: String, controls: +List<Design.ControlPlacement>) -> Maybe<&2, Design.Box>:
+  match controls:
+    case Nil{}: None{}
+    case Con{Design.ControlPlacement{source, box}, rest}:
+      control_bounds_match(String.eq(key, source), box, control_bounds(key, rest))
+
+def allocated_base_styles(found: Maybe<&2, Design.Box>, role: UI.Role,
+  navigation: Design.Navigation, main: Design.Box) -> +List<Doc.Property>:
+  match found:
+    case Some{box}: List.append(&2, Doc.Property, bounds(box), [property("z-index", "6")])
+    case None{}: base_role_styles(role, navigation, main)
+
+def base_shell_styles(key: String, role: UI.Role, shell: Design.Shell,
+  controls: +List<Design.ControlPlacement>) -> +List<Doc.Property>:
   Design.Shell{navigation, main, details} = shell
-  base_shell_styles_from_shell(semantic, role, meaning, parameters, navigation, main, details)
+  allocated_base_styles(control_bounds(key, controls), role, navigation, main)
 
-def place_base_shell_node(semantic: String, role: UI.Role, meaning: UI.Meaning, +parameters: Design.LayoutParameters, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
-  replace_styles(value, base_shell_styles(semantic, role, meaning, parameters, shell))
+def place_base_shell_node(key: String, role: UI.Role, value: Doc.Node, shell: Design.Shell,
+  controls: +List<Design.ControlPlacement>) -> Doc.Node:
+  replace_styles(value, base_shell_styles(key, role, shell, controls))
 
 def place_base_node(value: Design.Node, document: Doc.Node, layout: Design.Layout) -> Doc.Node:
   Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
-  Design.Layout{viewport, shell, main_frame, placements, parameters} = layout
-  place_base_shell_node(semantic, role, meaning, parameters, place_tree(document, main_frame), shell)
+  Design.Layout{viewport, shell, main_frame, placements, parameters, controls} = layout
+  place_base_shell_node(key, role, place_tree(document, main_frame), shell, controls)
 
 def place_base(values: +List<Design.Node>, documents: +List<Doc.Node>, +layout: Design.Layout) -> +List<Doc.Node>:
   match values documents:
@@ -2066,5 +2061,5 @@ def place_overlays(values: +List<Design.Node>, placements: +List<Design.Overlay>
 
 def place(prepared: Design.PreparedSurface, +layout: Design.Layout) -> Doc.Document:
   Design.PreparedSurface{Design.Surface{content, theme, base, overlays_value, active}, cached_base, cached_overlays} = prepared
-  Design.Layout{viewport, shell, main, placements, parameters} = layout
+  Design.Layout{viewport, shell, main, placements, parameters, controls} = layout
   application_document(theme, active, place_base(base, cached_base, layout), place_overlays(overlays_value, placements, cached_overlays))

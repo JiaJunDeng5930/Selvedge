@@ -1,4 +1,5 @@
 import Base
+import ./space.bend as Space
 import ./typography.bend as T
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
@@ -256,7 +257,7 @@ def expected_icon_help(availability: View.Availability, label: String) -> Contro
 def expected_message(+editor: User.Editor, +availability: View.Availability, +label: String) -> Controls.Representation:
   Controls.Action{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{editor}}}},
     availability, label, Controls.IconFace{Controls.ArrowUp{}}, Controls.Push{},
-    Controls.Geometry{32n, 32n, 16n, 16n, 0n}, Controls.ComposerEnd{},
+    Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}, Controls.ComposerEnd{},
     expected_icon_help(availability, label), Controls.Quiet{}}
 
 def message_uses_arrow_law(-key: String, -task: Nat, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
@@ -347,7 +348,7 @@ def menu_preserves_labels(+purpose: Controls.Purpose, +label: String) ->
 
 def copy_keeps_space(state: Code.CopyState) ->
   {Controls.geometry_for(Controls.CopyCode{state}, Controls.face_for(Controls.CopyCode{state}, "Copy code", Controls.CodeArea{}), Controls.CodeArea{}) ==
-    Controls.Geometry{32n, 32n, 16n, 8n, 0n} : Controls.Geometry}:
+    Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n} : Controls.Geometry}:
   match state:
     case Code.CopyIdle{}: {==}
     case Code.CopyPending{}: {==}
@@ -457,10 +458,10 @@ type Requirements is Type:
       {menu_text(Controls.face_for(purpose, label, Controls.MenuArea{})) == required_menu_text(purpose, label) : Maybe<&2, String>},
     copy_keeps_space: @state:Code.CopyState ->
       {Controls.geometry_for(Controls.CopyCode{state}, Controls.face_for(Controls.CopyCode{state}, "Copy code", Controls.CodeArea{}), Controls.CodeArea{}) ==
-        Controls.Geometry{32n, 32n, 16n, 8n, 0n} : Controls.Geometry},
+        Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n} : Controls.Geometry},
     radio_reserves_check: @label:String -> @checked:Bool ->
       {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, None{}, checked}, Controls.MenuArea{}) ==
-        Controls.Geometry{0n, 28n, 16n, 6n, 20n} : Controls.Geometry},
+        Controls.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : Controls.Geometry},
     model_option_marks_current: @+key:String -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
       @+current:String -> @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> ->
       @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->

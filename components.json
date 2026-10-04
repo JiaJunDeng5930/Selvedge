@@ -315,6 +315,7 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-experience.bend",
+      "core/user-input.bend",
       "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
@@ -417,8 +418,10 @@
       "webui/board-spatial-laws.bend",
       "webui/browser-laws.bend",
       "webui/card-destination-laws.bend",
+      "webui/container-space-laws.bend",
       "webui/content-space-laws.bend",
       "webui/context-control-laws.bend",
+      "webui/control-allocation-laws.bend",
       "webui/control-content-laws.bend",
       "webui/control-laws.bend",
       "webui/dialog-spatial-laws.bend",
@@ -437,6 +440,7 @@
       "webui/frame-relation-laws.bend",
       "webui/laws.bend",
       "webui/layout-laws.bend",
+      "webui/layout.bend",
       "webui/page-region-laws.bend",
       "webui/persistent-trigger-laws.bend",
       "webui/physical-tree-laws.bend",
@@ -467,6 +471,7 @@
       "webui/design.bend",
       "webui/enclosure-laws.bend",
       "webui/enclosure.bend",
+      "webui/space.bend",
       "webui/surfaces.bend",
       "webui/typography.bend"
     ],
@@ -505,6 +510,7 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-experience.bend",
+      "webui/container-space-laws.bend",
       "webui/design.bend",
       "webui/layout.bend",
       "webui/renderer.bend",
@@ -559,6 +565,7 @@
       "core/user-experience.bend",
       "core/user-input.bend",
       "webui/enclosure.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/control-laws.bend": [
@@ -574,6 +581,7 @@
       "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "KERNEL.bend": [
@@ -656,6 +664,7 @@
       "webui/editor-layout.bend",
       "webui/enclosure.bend",
       "webui/layout.bend",
+      "webui/space.bend",
       "webui/surfaces.bend",
       "webui/typography.bend"
     ],
@@ -821,6 +830,7 @@
       "webui/design.bend",
       "webui/document.bend",
       "webui/renderer.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/dialog-spatial-laws.bend": [
@@ -915,8 +925,10 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/rendered.bend",
       "webui/renderer.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/project-presentation-laws.bend": [
@@ -935,6 +947,7 @@
       "webui/document.bend",
       "webui/enclosure.bend",
       "webui/renderer.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/document.bend": [
@@ -1095,6 +1108,7 @@
       "webui/enclosure-laws.bend",
       "webui/enclosure.bend",
       "webui/renderer.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/surfaces.bend": [],
@@ -1131,6 +1145,7 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/enclosure.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/enclosure-render-laws.bend": [
@@ -1148,6 +1163,7 @@
       "webui/enclosure-laws.bend",
       "webui/enclosure.bend",
       "webui/renderer.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/frame-relation-laws.bend": [
@@ -1162,6 +1178,7 @@
       "webui/enclosure-render-laws.bend",
       "webui/enclosure.bend",
       "webui/renderer.bend",
+      "webui/space.bend",
       "webui/typography.bend"
     ],
     "webui/dismissal-laws.bend": [
@@ -1208,7 +1225,9 @@
       "bendlib/stdlib.bend",
       "webui/space.bend"
     ],
-    "webui/space.bend": [],
+    "webui/space.bend": [
+      "webui/enclosure.bend"
+    ],
     "webui/typography-laws.bend": [
       "bendlib/stdlib.bend",
       "webui/typography.bend"
@@ -1242,6 +1261,19 @@
       "webui/document.bend",
       "webui/layout.bend",
       "webui/renderer.bend"
+    ],
+    "webui/container-space-laws.bend": [
+      "webui/space-laws.bend",
+      "webui/space.bend"
+    ],
+    "webui/control-allocation-laws.bend": [
+      "bendlib/stdlib.bend",
+      "webui/container-space-laws.bend",
+      "webui/controls.bend",
+      "webui/design.bend",
+      "webui/layout.bend",
+      "webui/space-laws.bend",
+      "webui/space.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

@@ -34,7 +34,7 @@ def application_background(+scene: Web.Scene) ->
   {document_background(placed_scene(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String}:
   match scene:
     case Web.Scene{Design.PreparedSurface{Design.Surface{content, theme, source_base, source_overlays, active}, base, overlays}, platform, generation, realization,
-      Design.Layout{Design.Viewport{width, height}, shell, main, placements, parameters}}: {==}
+      Design.Layout{Design.Viewport{width, height}, shell, main, placements, parameters, controls}}: {==}
 
 
 

@@ -191,10 +191,30 @@ def creation_canvas_geometry(+canvas: Design.Box, +band: Design.Band, +flow: Des
 
 
 
+def allocated_control_styles(+key: String, +role: UI.Role, +shell: Design.Shell,
+  +controls: +List<Design.ControlPlacement>, +box: Design.Box,
+  found: {Render.control_bounds(key, controls) == Some{box} : Maybe<&2, Design.Box>}) ->
+  {Render.base_shell_styles(key, role, shell, controls) ==
+    List.append(&2, Doc.Property, Render.bounds(box), [Doc.Property{"z-index", "6"}]) : +List<Doc.Property>}:
+  Design.Shell{+navigation, +main, details} = shell
+  Equal.cong(Maybe<&2, Design.Box>, +List<Doc.Property>,
+    (result => Render.allocated_base_styles(result, role, navigation, main)),
+    Render.control_bounds(key, controls), Some{box}, found)
+
+def unallocated_role_styles(+key: String, +role: UI.Role, +navigation: Design.Navigation,
+  +main: Design.Box, +details: Maybe<&2, Design.Box>, +controls: +List<Design.ControlPlacement>,
+  absent: {Render.control_bounds(key, controls) == None{} : Maybe<&2, Design.Box>}) ->
+  {Render.base_shell_styles(key, role, Design.Shell{navigation, main, details}, controls) ==
+    Render.base_role_styles(role, navigation, main) : +List<Doc.Property>}:
+  Equal.cong(Maybe<&2, Design.Box>, +List<Doc.Property>,
+    (result => Render.allocated_base_styles(result, role, navigation, main)),
+    Render.control_bounds(key, controls), None{}, absent)
+
 def reopening_events(+parameters: Design.LayoutParameters, role: UI.Role, expanded: Bool, availability: View.Availability,
-  +node: Doc.Node, main: Design.Box, details: Maybe<&2, Design.Box>) ->
-  {Doc.element_events(Render.replace_styles(node, Render.base_styles(parameters, role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
-    Design.HiddenNavigation{}, main, details))) == Doc.element_events(node) : +List<Doc.Event>}:
+  +node: Doc.Node, main: Design.Box, details: Maybe<&2, Design.Box>, key: String,
+  controls: +List<Design.ControlPlacement>) ->
+  {Doc.element_events(Render.replace_styles(node, Render.base_shell_styles(key, role,
+    Design.Shell{Design.HiddenNavigation{}, main, details}, controls))) == Doc.element_events(node) : +List<Doc.Event>}:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}: {==}
     case Doc.Text{text}: {==}
@@ -204,16 +224,20 @@ def reopening_events(+parameters: Design.LayoutParameters, role: UI.Role, expand
 
 type Requirements is Type:
   Requirements{
-    navigation_toggle_geometry: @+parameters:Design.LayoutParameters -> @+navigation: Design.Navigation -> @+left: Nat -> @+top: Nat -> @+width: Nat -> @+height: Nat -> @+details: Maybe<&2, Design.Box> -> {Layout.navigation_toggle_bounds(parameters, Design.Shell{navigation, Design.Box{left, top, width, height}, details}) ==
-          Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-            Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-            Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
-    reopening_rendered: @+parameters:Design.LayoutParameters -> @+role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @+main: Design.Box -> @+details: Maybe<&2, Design.Box> -> {Render.replace_styles(node, Render.base_styles(parameters, role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
-          Design.HiddenNavigation{}, main, details)) ==
-          Render.replace_styles(node, List.append(&2, Doc.Property,
-            Render.bounds(Layout.navigation_toggle_bounds(parameters, Design.Shell{Design.HiddenNavigation{}, main, details})), [Doc.Property{"z-index", "6"}])) : Doc.Node},
-    reopening_events: @+parameters:Design.LayoutParameters -> @role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @main: Design.Box -> @details: Maybe<&2, Design.Box> -> {Doc.element_events(Render.replace_styles(node, Render.base_styles(parameters, role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
-    Design.HiddenNavigation{}, main, details))) == Doc.element_events(node) : +List<Doc.Event>},
+    allocated_control_styles: @+key:String -> @+role:UI.Role -> @+shell:Design.Shell ->
+      @+controls:+List<Design.ControlPlacement> -> @+box:Design.Box ->
+      @found:{Render.control_bounds(key, controls) == Some{box} : Maybe<&2, Design.Box>} ->
+      {Render.base_shell_styles(key, role, shell, controls) ==
+        List.append(&2, Doc.Property, Render.bounds(box), [Doc.Property{"z-index", "6"}]) : +List<Doc.Property>},
+    unallocated_role_styles: @+key:String -> @+role:UI.Role -> @+navigation:Design.Navigation ->
+      @+main:Design.Box -> @+details:Maybe<&2, Design.Box> -> @+controls:+List<Design.ControlPlacement> ->
+      @absent:{Render.control_bounds(key, controls) == None{} : Maybe<&2, Design.Box>} ->
+      {Render.base_shell_styles(key, role, Design.Shell{navigation, main, details}, controls) ==
+        Render.base_role_styles(role, navigation, main) : +List<Doc.Property>},
+    reopening_events: @+parameters:Design.LayoutParameters -> @role:UI.Role -> @expanded:Bool -> @availability:View.Availability ->
+      @+node:Doc.Node -> @main:Design.Box -> @details:Maybe<&2, Design.Box> -> @key:String -> @controls:+List<Design.ControlPlacement> ->
+      {Doc.element_events(Render.replace_styles(node, Render.base_shell_styles(key, role,
+        Design.Shell{Design.HiddenNavigation{}, main, details}, controls))) == Doc.element_events(node) : +List<Doc.Event>},
     creation_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.CenteredCreation{}) == main : Design.Box},
     section_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.ProjectSections{}) == main : Design.Box},
     project_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.ProjectRows{}) == main : Design.Box},
@@ -258,8 +282,7 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
-    +parameters => +navigation => +left => +top => +width => +height => +details => {==},
-    +parameters => +role => expanded => availability => +node => +main => +details => {==}, reopening_events,
+    allocated_control_styles, unallocated_role_styles, reopening_events,
     +parameters => main => {==},
     +parameters => main => {==},
     +parameters => main => {==},

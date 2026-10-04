@@ -1,4 +1,13 @@
 import Base
+import ./enclosure.bend as Enclosure
+
+# Natural measurements describe unconstrained action content. Wrapped height is
+# a separate allocation boundary; these extents do not admit a whole viewport.
+type Demand is Data:
+  Demand{minimum: Enclosure.Extent, preferred: Enclosure.Extent}
+
+def fixed_demand(+width: Nat, +height: Nat) -> Demand:
+  Demand{Enclosure.Extent{width, height}, Enclosure.Extent{width, height}}
 
 type Dimension is Data:
   Rigid{extent: Nat}
@@ -85,3 +94,20 @@ def feasible_pack(~A: Data, feasible: Bool, +slots: +List<Slot<A>>, +gap: Nat, +
 
 def pack(~A: Data, +slots: +List<Slot<A>>, +gap: Nat, +available: Nat) -> Packing<A>:
   feasible_pack(~A, Nat.is_le(minimum_sequence(~A, slots, gap), available), slots, gap, available)
+
+type Container<-A: Data> is Data:
+  Container{leading: Nat, trailing: Nat, gap: Nat, slots: +List<Slot<A>>}
+
+def container_required(~A: Data, container: Container<A>) -> Nat:
+  Container{leading, trailing, gap, slots} = container
+  Nat.add(leading, Nat.add(minimum_sequence(~A, slots, gap), trailing))
+
+def feasible_container(~A: Data, feasible: Bool, container: Container<A>, available: Nat) -> Packing<A>:
+  match feasible:
+    case False{}: Insufficient{container_required(~A, container), available}
+    case True{}:
+      Container{+leading, trailing, gap, slots} = container
+      finish(~A, place_from(~A, slots, gap, leading, Nat.sub(Nat.sub(available, leading), trailing)))
+
+def pack_container(~A: Data, +container: Container<A>, +available: Nat) -> Packing<A>:
+  feasible_container(~A, Nat.is_le(container_required(~A, container), available), container, available)

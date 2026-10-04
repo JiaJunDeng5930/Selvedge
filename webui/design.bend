@@ -130,8 +130,11 @@ type LayoutParameters is Data:
     input_minimum_height: Nat, input_maximum_height: Nat, input_line_height: Nat,
     creation_balanced_minimum_height: Nat}
 
+type ControlPlacement is Data:
+  ControlPlacement{key: String, bounds: Box}
+
 type Layout is Data:
-  Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>, parameters: LayoutParameters}
+  Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>, parameters: LayoutParameters, controls: +List<ControlPlacement>}
 
 type Theme is Data:
   Light{}

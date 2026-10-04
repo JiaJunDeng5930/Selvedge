@@ -1,5 +1,6 @@
 import Base
 import ./enclosure.bend as Enclosure
+import ./space.bend as Space
 import ./typography.bend as Typography
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
@@ -120,7 +121,7 @@ type Behavior is Data:
   Destination{current: Bool}
 
 type Geometry is Data:
-  Geometry{minimum_width: Nat, minimum_height: Nat, icon_size: Nat,
+  Geometry{demand: Space.Demand, icon_size: Nat,
     radius: Nat, leading_slot: Nat}
 
 type ContentAlignment is Data:
@@ -688,18 +689,18 @@ def help_for(face: Face, availability: View.Availability, feedback: Feedback, na
 
 def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match purpose face area:
-    case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{32n, 32n, 16n, 16n, 0n}
-    case ProjectTaskCreation{} IconFace{icon} NavigationArea{}: Geometry{24n, 24n, 16n, 6n, 0n}
-    case _ IconFace{icon} _: Geometry{32n, 32n, 16n, 8n, 0n}
-    case _ _ NavigationArea{}: Geometry{0n, 29n, 16n, 6n, 20n}
-    case _ _ MenuArea{}: Geometry{0n, 28n, 16n, 6n, 20n}
-    case _ PickerFace{icon, text} ComposerArea{}: Geometry{0n, 28n, 16n, 6n, 0n}
-    case _ PermissionFace{filesystem, network, approval} _: Geometry{0n, 28n, 16n, 6n, 0n}
-    case _ _ _: Geometry{0n, 32n, 16n, 8n, 0n}
+    case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}
+    case ProjectTaskCreation{} IconFace{icon} NavigationArea{}: Geometry{Space.fixed_demand(24n, 24n), 16n, 6n, 0n}
+    case _ IconFace{icon} _: Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}
+    case _ _ NavigationArea{}: Geometry{Space.fixed_demand(0n, 29n), 16n, 6n, 20n}
+    case _ _ MenuArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
+    case _ PickerFace{icon, text} ComposerArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n}
+    case _ PermissionFace{filesystem, network, approval} _: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n}
+    case _ _ _: Geometry{Space.fixed_demand(0n, 32n), 16n, 8n, 0n}
 
 def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match face:
-    case ChoiceFace{text, description, checked}: Geometry{0n, 28n, 16n, 6n, 20n}
+    case ChoiceFace{text, description, checked}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
     case other: geometry_nonchoice(purpose, other, area)
 
 
@@ -834,13 +835,13 @@ type ChoiceContentLayout is Data:
   ChoiceContentLayout{text_gap: Nat, mark_extent: Nat, mark_icon_extent: Nat}
 
 def choice_content_layout(geometry: Geometry) -> ChoiceContentLayout:
-  Geometry{width, height, icon, radius, leading} = geometry
+  Geometry{demand, icon, radius, leading} = geometry
   ChoiceContentLayout{2n, leading, icon}
 
 def choice_layout(value: Representation) -> ChoiceContentLayout:
   match value:
     case Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: choice_content_layout(geometry)
-    case _: choice_content_layout(Geometry{0n, 28n, 16n, 6n, 20n})
+    case _: choice_content_layout(Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n})
 
 def entry_widget(entry: Forms.Entry) -> Widget:
   match entry:
@@ -925,9 +926,9 @@ def project_face(kind: ProjectControl, name: String, expanded: Bool, fallback: F
 
 def project_geometry(kind: ProjectControl, geometry: Geometry) -> Geometry:
   match kind geometry:
-    case ProjectDisclosure{} Geometry{width, height, icon, radius, leading}: Geometry{24n, 24n, icon, radius, leading}
-    case ProjectCreate{} Geometry{width, height, icon, radius, leading}: Geometry{28n, 28n, icon, radius, leading}
-    case ProjectMore{} Geometry{width, height, icon, radius, leading}: Geometry{28n, 28n, icon, radius, leading}
+    case ProjectDisclosure{} Geometry{demand, icon, radius, leading}: Geometry{Space.fixed_demand(24n, 24n), icon, radius, leading}
+    case ProjectCreate{} Geometry{demand, icon, radius, leading}: Geometry{Space.fixed_demand(28n, 28n), icon, radius, leading}
+    case ProjectMore{} Geometry{demand, icon, radius, leading}: Geometry{Space.fixed_demand(28n, 28n), icon, radius, leading}
     case _ _: geometry
 
 def project_behavior(kind: ProjectControl, expanded: Bool, fallback: Behavior) -> Behavior:
@@ -1085,7 +1086,7 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
     case UI.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, UI.availability(enabled))
     case UI.CardArchive{count}: NoControl{}
     case UI.MovableCard{destinations, face}:
-      Movable{destinations, face, "Move " ++ label, Grip{}, Geometry{32n, 32n, 16n, 8n, 0n},
+      Movable{destinations, face, "Move " ++ label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
         Tooltip{"Move card", 300n, True{}, True{}, False{}}}
     case _: NoControl{}
 
@@ -1093,6 +1094,18 @@ def layout_content_area(value: ContentLayout) -> Enclosure.ContentArea:
   ContentLayout{alignment, area, gap} = value
   area
 
+def geometry_minimum_width(value: Geometry) -> Nat:
+  Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading} = value
+  width
+
 def geometry_minimum_height(value: Geometry) -> Nat:
-  Geometry{width, height, icon, radius, leading} = value
+  Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading} = value
+  height
+
+def geometry_preferred_width(value: Geometry) -> Nat:
+  Geometry{Space.Demand{minimum, Enclosure.Extent{width, height}}, icon, radius, leading} = value
+  width
+
+def geometry_preferred_height(value: Geometry) -> Nat:
+  Geometry{Space.Demand{minimum, Enclosure.Extent{width, height}}, icon, radius, leading} = value
   height

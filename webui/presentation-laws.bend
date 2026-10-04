@@ -54,7 +54,7 @@ def preparation_semantics(+preparation: CS.Outcome, +application: Platform.State
     case CS.AwaitingContent{missing}: Unit{}
     case CS.Prepared{+prepared}:
       Design.Surface{content, theme, base, overlays, active_scope} = prepared
-      allocated_semantics(Layout.present(parameters, viewport, Design.semantic_surface(prepared)), application, generation, realization, prepared, original,
+      allocated_semantics(Layout.present(parameters, viewport, R.prepare(prepared)), application, generation, realization, prepared, original,
         Equal.trans(UI.Surface, Design.semantic_surface(prepared), Design.semantic_surface(appearance), original, preparation_claim, appearance_claim))
 
 def scene_for_surface_preserves_semantics(state: Model.State, +surface: UI.Surface) ->
@@ -94,7 +94,7 @@ def allocated_layout(+outcome: Layout.Outcome, application: Platform.State, gene
 def PreparationClaim(preparation: CS.Outcome, parameters: Design.LayoutParameters, viewport: Design.Viewport, actual: Model.SceneOutcome) -> Type:
   match preparation:
     case CS.AwaitingContent{missing}: {actual == Model.AwaitingTypography{} : Model.SceneOutcome}
-    case CS.Prepared{surface}: PreparedClaim(actual, Layout.present(parameters, viewport, Design.semantic_surface(surface)))
+    case CS.Prepared{surface}: PreparedClaim(actual, Layout.present(parameters, viewport, R.prepare(surface)))
 
 def preparation_layout(+preparation: CS.Outcome, +parameters: Design.LayoutParameters, +viewport: Design.Viewport,
   application: Platform.State, generation: Nat, realization: Rendered.State) ->
@@ -103,7 +103,7 @@ def preparation_layout(+preparation: CS.Outcome, +parameters: Design.LayoutParam
     case CS.AwaitingContent{missing}: {==}
     case CS.Prepared{+surface}:
       Design.Surface{content, theme, base, overlays, active_scope} = surface
-      allocated_layout(Layout.present(parameters, viewport, Design.semantic_surface(surface)), application, generation, realization, surface)
+      allocated_layout(Layout.present(parameters, viewport, R.prepare(surface)), application, generation, realization, surface)
 
 def observes_layout(+environment: Design.Environment, +application: Platform.State,
   +generation: Nat, +realization: Rendered.State, +font_generation: Nat, +scale: T.Scale, +metric: T.Metric,

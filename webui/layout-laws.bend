@@ -9,6 +9,7 @@ import ./renderer.bend as Render
 import ./viewport-space.bend as ViewportSpace
 import ./viewport-space-laws.bend as ViewportSpaceLaws
 import ./space.bend as Space
+import ./container-space-laws.bend as ContainerLaws
 import ../core/SYSTEM.bend as Core
 import ../core/user-experience.bend as E
 
@@ -237,7 +238,7 @@ def ready(value: Layout.Outcome) -> Bool:
     case Layout.LayoutUnsupported{required, available}: False{}
 
 def layout_parameters(value: Design.Layout) -> Design.LayoutParameters:
-  Design.Layout{viewport, shell, main, overlays, parameters} = value
+  Design.Layout{viewport, shell, main, overlays, parameters, controls} = value
   parameters
 
 def carried_parameters(+parameters: Design.LayoutParameters, viewport: Design.Viewport, surface: UI.Surface,
@@ -247,103 +248,431 @@ def carried_parameters(+parameters: Design.LayoutParameters, viewport: Design.Vi
   Design.Shell{navigation_value, main, details} = shell
   {==}
 
-def allocated_ready(parameters: Design.LayoutParameters, viewport: Design.Viewport, surface: UI.Surface,
-  overlays: +List<UI.Node>, shell: Design.Shell, navigation: V.NavigationPlacement, page: Composition.Page,
-  layers: +List<V.Layer>) ->
-  {ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
-    ViewportSpace.Allocated{shell})) == True{} : Bool}:
+# Success requires both actual control axes, after shell allocation.
+def controls_ready(result: Layout.ControlAllocation) -> Bool:
+  match result:
+    case Layout.ControlsReady{controls}: True{}
+    case Layout.ControlsUnsupported{required, available}: False{}
+
+def band_fits(+target: Design.Box, +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>) -> Bool:
+  Nat.is_le(Nat.max(Layout.cross_minimum(leading), Layout.cross_minimum(trailing)), Layout.box_height(target)) &&
+    Nat.is_le(Space.container_required(~Layout.ControlItem, Layout.control_container(leading, trailing)), Layout.box_width(target))
+
+def allocated_tag(+allocation: Space.Allocation<Layout.ControlItem>, target: Design.Box, band: Nat) ->
+  {controls_ready(Layout.finish_controls(Space.finish(~Layout.ControlItem, allocation), target, band)) == True{} : Bool}:
+  Space.Allocation{placements, unused} = allocation
   {==}
 
-def unsupported_preserved(parameters: Design.LayoutParameters, viewport: Design.Viewport, surface: UI.Surface,
-  overlays: +List<UI.Node>, navigation: V.NavigationPlacement, page: Composition.Page, layers: +List<V.Layer>,
-  +required: Nat, +available: Nat) ->
-  {Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
-    ViewportSpace.Unsupported{required, available}) == Layout.LayoutUnsupported{required, available} : Layout.Outcome}:
-  {==}
+def container_tag(+fits: Bool, +container: Space.Container<Layout.ControlItem>, +width: Nat, +target: Design.Box, +band: Nat) ->
+  {controls_ready(Layout.finish_controls(Space.feasible_container(~Layout.ControlItem, fits, container, width), target, band)) == fits : Bool}:
+  match fits:
+    case False{}: {==}
+    case True{}:
+      Space.Container{leading, trailing, gap, slots} = container
+      allocated_tag(Space.place_from(~Layout.ControlItem, slots, gap, leading, Nat.sub(Nat.sub(width, leading), trailing)), target, band)
 
-def packed_ready(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
-  +overlays: +List<UI.Node>, +navigation: V.NavigationPlacement, +details: Bool, +page: Composition.Page,
-  +layers: +List<V.Layer>, +packing: Space.Packing<ViewportSpace.ShellPart>,
-  binding: {ViewportSpace.shell_packing(viewport, parameters, navigation, details) == packing : Space.Packing<ViewportSpace.ShellPart>},
-  proof: ViewportSpaceLaws.Construction(viewport, parameters, navigation, details, packing)) ->
-  {ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
-    Layout.shell(parameters, viewport, navigation, details))) == True{} : Bool}:
-  match packing:
-    case Space.Packed{placements, unused}:
-      (allocated, bounds) = proof
-      Equal.cong(ViewportSpace.Result, Bool,
-        (result => ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, result))),
-        Layout.shell(parameters, viewport, navigation, details),
-        ViewportSpace.Allocated{ViewportSpace.placed_shell(placements, Design.viewport_height(viewport), ViewportSpace.empty_shell(viewport, parameters, navigation))}, allocated)
-    case Space.Insufficient{required, available}:
-      Empty.absurd({ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
-        Layout.shell(parameters, viewport, navigation, details))) == True{} : Bool}, proof)
+def band_tag(+fits: Bool, +parameters: Design.LayoutParameters, +target: Design.Box,
+  +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>, +cross: Nat) ->
+  {controls_ready(Layout.allocate_control_band(fits, parameters, target, leading, trailing, cross)) ==
+    (fits && Nat.is_le(Space.container_required(~Layout.ControlItem, Layout.control_container(leading, trailing)), Layout.box_width(target))) : Bool}:
+  match fits:
+    case False{}:
+      Design.Box{left, top, width, height} = target
+      {==}
+    case True{}:
+      Design.Box{left, top, width, height} = target
+      container_tag(Nat.is_le(Space.container_required(~Layout.ControlItem, Layout.control_container(leading, trailing)), width),
+        Layout.control_container(leading, trailing), width, target, Nat.min(height, Nat.max(Design.toolbar_height(parameters), cross)))
 
-def feasible_ready(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
-  +overlays: +List<UI.Node>, +navigation: V.NavigationPlacement, +details: Bool, +page: Composition.Page,
-  +layers: +List<V.Layer>,
-  fits: {Nat.is_le(Space.minimum_sequence(~ViewportSpace.ShellPart,
-    ViewportSpace.shell_slots(viewport, parameters, navigation, details), 0n), Layout.viewport_width(viewport)) == True{} : Bool}) ->
-  {ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
-    Layout.shell(parameters, viewport, navigation, details))) == True{} : Bool}:
-  packed_ready(parameters, viewport, surface, overlays, navigation, details, page, layers,
-    ViewportSpace.shell_packing(viewport, parameters, navigation, details), {==},
-    ViewportSpaceLaws.feasible_construction(viewport, parameters, navigation, details, fits))
+def allocation_feasibility(+parameters: Design.LayoutParameters, +target: Design.Box,
+  +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>) ->
+  {controls_ready(Layout.allocate_controls(parameters, target, leading, trailing)) == band_fits(target, leading, trailing) : Bool}:
+  Design.Box{left, top, width, height} = target
+  band_tag(Nat.is_le(Nat.max(Layout.cross_minimum(leading), Layout.cross_minimum(trailing)), height),
+    parameters, target, leading, trailing, Nat.max(Layout.cross_minimum(leading), Layout.cross_minimum(trailing)))
 
-def surface_navigation(surface: UI.Surface) -> V.NavigationPlacement:
-  UI.Surface{Core.Scene{V.Scene{navigation, main, layers, V.Arrangement{placement}, attention}, settings, transfers, preview, code, picker}, base, overlays, scope} = surface
-  placement
+def shell_fits(+shell: Design.Shell, +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) -> Bool:
+  Design.Shell{navigation, main, details} = shell
+  match navigation:
+    case Design.HiddenNavigation{}: band_fits(main, toggles, settings)
+    case Design.BesideNavigation{box}: band_fits(box, Nil{}, settings)
+    case Design.OverlayNavigation{box}: band_fits(box, Nil{}, settings)
 
-def surface_overlays(surface: UI.Surface) -> +List<UI.Node>:
-  UI.Surface{content, base, overlays, scope} = surface
-  overlays
+def adapted(+parameters: Design.LayoutParameters, +shell: Design.Shell,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) -> Design.LayoutParameters:
+  Design.Shell{navigation, main, details} = shell
+  Layout.adapt_parameters(parameters, Nat.max(Layout.cross_minimum(settings), Layout.cross_minimum(Layout.active_toggles(navigation, toggles))))
 
-def present_feasible(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
-  fits: {Nat.is_le(Space.minimum_sequence(~ViewportSpace.ShellPart,
-    ViewportSpace.shell_slots(viewport, parameters, surface_navigation(surface),
-      Layout.requested_details(parameters, viewport, surface_navigation(surface), surface_overlays(surface))), 0n), Layout.viewport_width(viewport)) == True{} : Bool}) ->
-  {ready(Layout.present(parameters, viewport, surface)) == True{} : Bool}:
-  UI.Surface{Core.Scene{+view, settings, transfers, preview, code, picker}, base, +overlays, scope} = surface
-  V.Scene{navigation, main, +layers, V.Arrangement{+placement}, attention} = view
-  feasible_ready(parameters, viewport, surface, overlays, placement,
-    Layout.requested_details(parameters, viewport, placement, overlays), V.scene_page(view), layers, fits)
+def shell_feasibility(+parameters: Design.LayoutParameters, +shell: Design.Shell,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) ->
+  {controls_ready(Layout.shell_controls(parameters, shell, settings, toggles)) == shell_fits(shell, settings, toggles) : Bool}:
+  Design.Shell{navigation, main, details} = shell
+  match navigation:
+    case Design.HiddenNavigation{}: allocation_feasibility(parameters, main, toggles, settings)
+    case Design.BesideNavigation{box}: allocation_feasibility(parameters, box, Nil{}, settings)
+    case Design.OverlayNavigation{box}: allocation_feasibility(parameters, box, Nil{}, settings)
 
-def present_unsupported(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
-  no_room: {Nat.is_le(Space.minimum_sequence(~ViewportSpace.ShellPart,
-    ViewportSpace.shell_slots(viewport, parameters, surface_navigation(surface),
-      Layout.requested_details(parameters, viewport, surface_navigation(surface), surface_overlays(surface))), 0n), Layout.viewport_width(viewport)) == False{} : Bool}) ->
-  {Layout.present(parameters, viewport, surface) == Layout.LayoutUnsupported{
-    Space.minimum_sequence(~ViewportSpace.ShellPart, ViewportSpace.shell_slots(viewport, parameters, surface_navigation(surface),
-      Layout.requested_details(parameters, viewport, surface_navigation(surface), surface_overlays(surface))), 0n), Layout.viewport_width(viewport)} : Layout.Outcome}:
-  UI.Surface{Core.Scene{+view, settings, transfers, preview, code, picker}, base, +overlays, scope} = surface
-  V.Scene{navigation, main, +layers, V.Arrangement{+placement}, attention} = view
-  +requested = Layout.requested_details(parameters, viewport, placement, overlays)
-  Equal.cong(ViewportSpace.Result, Layout.Outcome,
-    (result => Layout.outcome_with_shell(parameters, viewport, surface, overlays, placement, V.scene_page(view), layers, result)),
-    ViewportSpace.shell(viewport, parameters, placement, requested),
-    ViewportSpace.Unsupported{Space.minimum_sequence(~ViewportSpace.ShellPart,
-      ViewportSpace.shell_slots(viewport, parameters, placement, requested), 0n), Layout.viewport_width(viewport)},
-    ViewportSpaceLaws.unsupported_exact(viewport, parameters, placement, requested, no_room))
+def layout_control_tag(+result: Layout.ControlAllocation, +layout: Design.Layout) ->
+  {ready(Layout.layout_controls(result, layout)) == controls_ready(result) : Bool}:
+  match result:
+    case Layout.ControlsUnsupported{required, available}: {==}
+    case Layout.ControlsReady{controls}:
+      Design.Layout{viewport, shell, main, overlays, parameters, previous} = layout
+      {==}
+
+def decision_fits(+result: ViewportSpace.Result, +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) -> Bool:
+  match result:
+    case ViewportSpace.Unsupported{required, available}: False{}
+    case ViewportSpace.Allocated{shell}: shell_fits(shell, settings, toggles)
+
+def shell_navigation(shell: Design.Shell) -> Design.Navigation:
+  Design.Shell{navigation, main, details} = shell
+  navigation
+
+def prepare_tag(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +shell: Design.Shell, +navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) ->
+  {ready(Layout.prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)) ==
+    shell_fits(shell, settings, Layout.active_toggles(shell_navigation(shell), toggles)) : Bool}:
+  Design.Shell{shell_navigation_value, main, details} = shell
+  +selected = Layout.active_toggles(shell_navigation_value, toggles)
+  +effective = adapted(parameters, shell, settings, toggles)
+  Equal.trans(Bool,
+    ready(Layout.prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)),
+    controls_ready(Layout.shell_controls(effective, shell, settings, selected)), shell_fits(shell, settings, selected),
+    layout_control_tag(Layout.shell_controls(effective, shell, settings, selected),
+      Layout.layout_with_shell(effective, viewport, surface, overlays, shell, navigation, page, layers)),
+    shell_feasibility(effective, shell, settings, selected))
+
+def outcome_feasibility(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>, +result: ViewportSpace.Result) ->
+  {ready(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, settings, toggles, result)) ==
+    decision_fits(result, settings, toggles) : Bool}:
+  match result:
+    case ViewportSpace.Unsupported{required, available}: {==}
+    case ViewportSpace.Allocated{shell}:
+      Design.Shell{shell_navigation, main, details} = shell
+      match shell_navigation:
+        case Design.HiddenNavigation{}:
+          prepare_tag(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
+        case Design.BesideNavigation{box}:
+          prepare_tag(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
+        case Design.OverlayNavigation{box}:
+          prepare_tag(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
 
 def ParametersClaim(outcome: Layout.Outcome, parameters: Design.LayoutParameters) -> Type:
   match outcome:
     case Layout.LayoutReady{layout}: {layout_parameters(layout) == parameters : Design.LayoutParameters}
     case Layout.LayoutUnsupported{required, available}: Unit
 
-def outcome_parameters(+parameters: Design.LayoutParameters, viewport: Design.Viewport, surface: UI.Surface,
-  overlays: +List<UI.Node>, navigation: V.NavigationPlacement, page: Composition.Page,
-  layers: +List<V.Layer>, result: ViewportSpace.Result) ->
-  ParametersClaim(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, result), parameters):
+def control_parameters(+result: Layout.ControlAllocation, +layout: Design.Layout) ->
+  ParametersClaim(Layout.layout_controls(result, layout), layout_parameters(layout)):
   match result:
-    case ViewportSpace.Allocated{shell}: carried_parameters(parameters, viewport, surface, overlays, shell, navigation, page, layers)
-    case ViewportSpace.Unsupported{required, available}: Unit{}
+    case Layout.ControlsUnsupported{required, available}: Unit{}
+    case Layout.ControlsReady{controls}:
+      Design.Layout{viewport, shell, main, overlays, parameters, previous} = layout
+      {==}
 
-def present_parameters(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface) ->
-  ParametersClaim(Layout.present(parameters, viewport, surface), parameters):
+def decision_parameters(+parameters: Design.LayoutParameters, +result: ViewportSpace.Result,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) -> Design.LayoutParameters:
+  match result:
+    case ViewportSpace.Unsupported{required, available}: parameters
+    case ViewportSpace.Allocated{shell}: adapted(parameters, shell, settings, toggles)
+
+def outcome_parameters(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>, +result: ViewportSpace.Result) ->
+  ParametersClaim(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, settings, toggles, result),
+    decision_parameters(parameters, result, settings, toggles)):
+  match result:
+    case ViewportSpace.Unsupported{required, available}: Unit{}
+    case ViewportSpace.Allocated{shell}:
+      Design.Shell{shell_navigation_value, main, details} = shell
+      +effective = adapted(parameters, shell, settings, toggles)
+      control_parameters(Layout.shell_controls(effective, shell, settings, Layout.active_toggles(shell_navigation_value, toggles)),
+        Layout.layout_with_shell(effective, viewport, surface, overlays, shell, navigation, page, layers))
+
+def SurfaceFeasibility(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) -> Bool:
+  UI.Surface{Core.Scene{view, settings, transfers, preview, code, picker}, base, overlays, scope} = surface
+  V.Scene{navigation, main, layers, V.Arrangement{placement}, attention} = view
+  decision_fits(Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)),
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}))
+
+def surface_feasible(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) ->
+  {ready(Layout.present_semantic(parameters, viewport, surface, nodes)) == SurfaceFeasibility(parameters, viewport, surface, nodes) : Bool}:
+  UI.Surface{Core.Scene{+view, settings, transfers, preview, code, picker}, base, +overlays, scope} = surface
+  V.Scene{navigation, main, +layers, V.Arrangement{+placement}, attention} = view
+  outcome_feasibility(parameters, viewport, surface, overlays, placement, V.scene_page(view), layers,
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}),
+    Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)))
+
+def PresentFeasibility(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, presentation: Design.PreparedSurface) -> Bool:
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, nodes, overlays, active} = prepared
+  SurfaceFeasibility(parameters, viewport, Design.semantic_surface(prepared), nodes)
+
+def present_feasible(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +presentation: Design.PreparedSurface) ->
+  {ready(Layout.present(parameters, viewport, presentation)) == PresentFeasibility(parameters, viewport, presentation) : Bool}:
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, +nodes, overlays, active} = prepared
+  surface_feasible(parameters, viewport, Design.semantic_surface(prepared), nodes)
+
+def SemanticParameters(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) -> Design.LayoutParameters:
+  UI.Surface{Core.Scene{view, settings, transfers, preview, code, picker}, base, overlays, scope} = surface
+  V.Scene{navigation, main, layers, V.Arrangement{placement}, attention} = view
+  decision_parameters(parameters,
+    Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)),
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}))
+
+def semantic_parameters(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) ->
+  ParametersClaim(Layout.present_semantic(parameters, viewport, surface, nodes), SemanticParameters(parameters, viewport, surface, nodes)):
   UI.Surface{Core.Scene{+view, settings, transfers, preview, code, picker}, base, +overlays, scope} = surface
   V.Scene{navigation, main, +layers, V.Arrangement{+placement}, attention} = view
   outcome_parameters(parameters, viewport, surface, overlays, placement, V.scene_page(view), layers,
-    ViewportSpace.shell(viewport, parameters, placement, Layout.requested_details(parameters, viewport, placement, overlays)))
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}),
+    Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)))
+
+def PresentParameters(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, presentation: Design.PreparedSurface) -> Design.LayoutParameters:
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, nodes, actual_overlays, active} = prepared
+  SemanticParameters(parameters, viewport, Design.semantic_surface(prepared), nodes)
+
+def present_parameters(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +presentation: Design.PreparedSurface) ->
+  ParametersClaim(Layout.present(parameters, viewport, presentation), PresentParameters(parameters, viewport, presentation)):
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, +nodes, actual_overlays, active} = prepared
+  semantic_parameters(parameters, viewport, Design.semantic_surface(prepared), nodes)
+
+def parameter_update(+parameters: Design.LayoutParameters, +cross: Nat) ->
+  {Layout.adapt_parameters(parameters, cross) == Design.LayoutParameters{
+    Design.navigation_width(parameters), Design.main_minimum_width(parameters), Design.details_width(parameters),
+    Design.reading_maximum_width(parameters), Design.overview_maximum_width(parameters), Nat.max(Design.toolbar_height(parameters), cross),
+    Design.input_minimum_height(parameters), Design.input_maximum_height(parameters), Design.input_line_height(parameters),
+    Design.creation_balanced_minimum_height(parameters)} : Design.LayoutParameters}:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  {==}
+
+type Shortage is Data:
+  Shortage{required: Nat, available: Nat}
+
+def control_shortage(value: Layout.ControlAllocation) -> Maybe<&2, Shortage>:
+  match value:
+    case Layout.ControlsReady{controls}: None{}
+    case Layout.ControlsUnsupported{required, available}: Some{Shortage{required, available}}
+
+def outcome_shortage(value: Layout.Outcome) -> Maybe<&2, Shortage>:
+  match value:
+    case Layout.LayoutReady{layout}: None{}
+    case Layout.LayoutUnsupported{required, available}: Some{Shortage{required, available}}
+
+def width_shortage(fits: Bool, required: Nat, available: Nat) -> Maybe<&2, Shortage>:
+  match fits:
+    case True{}: None{}
+    case False{}: Some{Shortage{required, available}}
+
+def band_shortage(fits: Bool, +target: Design.Box, +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>, cross: Nat) -> Maybe<&2, Shortage>:
+  match fits:
+    case False{}: Some{Shortage{cross, Layout.box_height(target)}}
+    case True{}:
+      +required = Space.container_required(~Layout.ControlItem, Layout.control_container(leading, trailing))
+      width_shortage(Nat.is_le(required, Layout.box_width(target)), required, Layout.box_width(target))
+
+def target_shortage(+target: Design.Box, +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>) -> Maybe<&2, Shortage>:
+  +cross = Nat.max(Layout.cross_minimum(leading), Layout.cross_minimum(trailing))
+  band_shortage(Nat.is_le(cross, Layout.box_height(target)), target, leading, trailing, cross)
+
+def allocated_shortage(allocation: Space.Allocation<Layout.ControlItem>, target: Design.Box, band: Nat) ->
+  {control_shortage(Layout.finish_controls(Space.finish(~Layout.ControlItem, allocation), target, band)) == None{} : Maybe<&2, Shortage>}:
+  Space.Allocation{placements, unused} = allocation
+  {==}
+
+def container_shortage(+fits: Bool, +container: Space.Container<Layout.ControlItem>, +available: Nat, +target: Design.Box, band: Nat) ->
+  {control_shortage(Layout.finish_controls(Space.feasible_container(~Layout.ControlItem, fits, container, available), target, band)) ==
+    width_shortage(fits, Space.container_required(~Layout.ControlItem, container), available) : Maybe<&2, Shortage>}:
+  match fits:
+    case False{}: {==}
+    case True{}:
+      Space.Container{leading, trailing, gap, slots} = container
+      allocated_shortage(Space.place_from(~Layout.ControlItem, slots, gap, leading, Nat.sub(Nat.sub(available, leading), trailing)), target, band)
+
+def band_shortage_exact(+fits: Bool, +parameters: Design.LayoutParameters, +target: Design.Box,
+  +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>, +cross: Nat) ->
+  {control_shortage(Layout.allocate_control_band(fits, parameters, target, leading, trailing, cross)) ==
+    band_shortage(fits, target, leading, trailing, cross) : Maybe<&2, Shortage>}:
+  match fits:
+    case False{}:
+      Design.Box{left, top, width, height} = target
+      {==}
+    case True{}:
+      Design.Box{left, top, width, height} = target
+      container_shortage(Nat.is_le(Space.container_required(~Layout.ControlItem, Layout.control_container(leading, trailing)), width),
+        Layout.control_container(leading, trailing), width, target, Nat.min(height, Nat.max(Design.toolbar_height(parameters), cross)))
+
+def target_shortage_exact(+parameters: Design.LayoutParameters, +target: Design.Box,
+  +leading: +List<Layout.ControlItem>, +trailing: +List<Layout.ControlItem>) ->
+  {control_shortage(Layout.allocate_controls(parameters, target, leading, trailing)) == target_shortage(target, leading, trailing) : Maybe<&2, Shortage>}:
+  Design.Box{left, top, width, height} = target
+  +cross = Nat.max(Layout.cross_minimum(leading), Layout.cross_minimum(trailing))
+  band_shortage_exact(Nat.is_le(cross, height), parameters, target, leading, trailing, cross)
+
+def shell_shortage(+shell: Design.Shell, +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) -> Maybe<&2, Shortage>:
+  Design.Shell{navigation, main, details} = shell
+  match navigation:
+    case Design.HiddenNavigation{}: target_shortage(main, toggles, settings)
+    case Design.BesideNavigation{box}: target_shortage(box, Nil{}, settings)
+    case Design.OverlayNavigation{box}: target_shortage(box, Nil{}, settings)
+
+def shell_shortage_exact(+parameters: Design.LayoutParameters, +shell: Design.Shell,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) ->
+  {control_shortage(Layout.shell_controls(parameters, shell, settings, toggles)) == shell_shortage(shell, settings, toggles) : Maybe<&2, Shortage>}:
+  Design.Shell{navigation, main, details} = shell
+  match navigation:
+    case Design.HiddenNavigation{}: target_shortage_exact(parameters, main, toggles, settings)
+    case Design.BesideNavigation{box}: target_shortage_exact(parameters, box, Nil{}, settings)
+    case Design.OverlayNavigation{box}: target_shortage_exact(parameters, box, Nil{}, settings)
+
+def control_shortage_preserved(+result: Layout.ControlAllocation, +layout: Design.Layout) ->
+  {outcome_shortage(Layout.layout_controls(result, layout)) == control_shortage(result) : Maybe<&2, Shortage>}:
+  match result:
+    case Layout.ControlsUnsupported{required, available}: {==}
+    case Layout.ControlsReady{controls}:
+      Design.Layout{viewport, shell, main, overlays, parameters, previous} = layout
+      {==}
+
+def prepare_shortage_exact(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +shell: Design.Shell, +navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) ->
+  {outcome_shortage(Layout.prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)) ==
+    shell_shortage(shell, settings, Layout.active_toggles(shell_navigation(shell), toggles)) : Maybe<&2, Shortage>}:
+  Design.Shell{navigation_value, main, details} = shell
+  +selected = Layout.active_toggles(navigation_value, toggles)
+  +effective = adapted(parameters, shell, settings, toggles)
+  Equal.trans(Maybe<&2, Shortage>,
+    outcome_shortage(Layout.prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)),
+    control_shortage(Layout.shell_controls(effective, shell, settings, selected)), shell_shortage(shell, settings, selected),
+    control_shortage_preserved(Layout.shell_controls(effective, shell, settings, selected),
+      Layout.layout_with_shell(effective, viewport, surface, overlays, shell, navigation, page, layers)),
+    shell_shortage_exact(effective, shell, settings, selected))
+
+def decision_shortage(+result: ViewportSpace.Result, +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>) -> Maybe<&2, Shortage>:
+  match result:
+    case ViewportSpace.Unsupported{required, available}: Some{Shortage{required, available}}
+    case ViewportSpace.Allocated{shell}: shell_shortage(shell, settings, toggles)
+
+def outcome_shortage_exact(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>, +result: ViewportSpace.Result) ->
+  {outcome_shortage(Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, settings, toggles, result)) ==
+    decision_shortage(result, settings, toggles) : Maybe<&2, Shortage>}:
+  match result:
+    case ViewportSpace.Unsupported{required, available}: {==}
+    case ViewportSpace.Allocated{shell}:
+      Design.Shell{navigation_value, main, details} = shell
+      match navigation_value:
+        case Design.HiddenNavigation{}: prepare_shortage_exact(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
+        case Design.BesideNavigation{box}: prepare_shortage_exact(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
+        case Design.OverlayNavigation{box}: prepare_shortage_exact(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
+
+def layout_main(layout: Design.Layout) -> Design.MainFrame:
+  Design.Layout{viewport, shell, main, overlays, parameters, controls} = layout
+  main
+
+def AssemblyClaim(outcome: Layout.Outcome, +parameters: Design.LayoutParameters, frame: Design.MainFrame) -> Type:
+  match outcome:
+    case Layout.LayoutUnsupported{required, available}: Unit
+    case Layout.LayoutReady{layout}:
+      {layout_parameters(layout) == parameters : Design.LayoutParameters} & {layout_main(layout) == frame : Design.MainFrame}
+
+def control_assembly(+result: Layout.ControlAllocation, +layout: Design.Layout) ->
+  AssemblyClaim(Layout.layout_controls(result, layout), layout_parameters(layout), layout_main(layout)):
+  match result:
+    case Layout.ControlsUnsupported{required, available}: Unit{}
+    case Layout.ControlsReady{controls}:
+      Design.Layout{viewport, shell, main, overlays, parameters, previous} = layout
+      ({==}, {==})
+
+def shell_main(shell: Design.Shell) -> Design.Box:
+  Design.Shell{navigation, main, details} = shell
+  main
+
+def DecisionAssembly(+parameters: Design.LayoutParameters, +page: Composition.Page, +settings: +List<Layout.ControlItem>,
+  +toggles: +List<Layout.ControlItem>, result: ViewportSpace.Result, +outcome: Layout.Outcome) -> Type:
+  match result:
+    case ViewportSpace.Unsupported{required, available}: {outcome == Layout.LayoutUnsupported{required, available} : Layout.Outcome}
+    case ViewportSpace.Allocated{+shell}:
+      AssemblyClaim(outcome, adapted(parameters, shell, settings, toggles),
+        Layout.main_frame(adapted(parameters, shell, settings, toggles), Composition.recipe(page), shell_main(shell)))
+
+def outcome_assembly(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>,
+  +settings: +List<Layout.ControlItem>, +toggles: +List<Layout.ControlItem>, +result: ViewportSpace.Result) ->
+  DecisionAssembly(parameters, page, settings, toggles, result,
+    Layout.outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, settings, toggles, result)):
+  match result:
+    case ViewportSpace.Unsupported{required, available}: {==}
+    case ViewportSpace.Allocated{shell}:
+      Design.Shell{navigation_value, main, details} = shell
+      +effective = adapted(parameters, shell, settings, toggles)
+      control_assembly(Layout.shell_controls(effective, shell, settings, Layout.active_toggles(navigation_value, toggles)),
+        Layout.layout_with_shell(effective, viewport, surface, overlays, shell, navigation, page, layers))
+
+def SemanticShortage(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) -> Maybe<&2, Shortage>:
+  UI.Surface{Core.Scene{view, settings, transfers, preview, code, picker}, base, overlays, scope} = surface
+  V.Scene{navigation, main, layers, V.Arrangement{placement}, attention} = view
+  decision_shortage(Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)),
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}))
+
+def semantic_shortage_exact(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) ->
+  {outcome_shortage(Layout.present_semantic(parameters, viewport, surface, nodes)) == SemanticShortage(parameters, viewport, surface, nodes) : Maybe<&2, Shortage>}:
+  UI.Surface{Core.Scene{+view, settings, transfers, preview, code, picker}, base, +overlays, scope} = surface
+  V.Scene{navigation, main, +layers, V.Arrangement{+placement}, attention} = view
+  outcome_shortage_exact(parameters, viewport, surface, overlays, placement, V.scene_page(view), layers,
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}),
+    Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)))
+
+def SemanticAssembly(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>, outcome: Layout.Outcome) -> Type:
+  UI.Surface{Core.Scene{view, settings, transfers, preview, code, picker}, base, overlays, scope} = surface
+  V.Scene{navigation, main, layers, V.Arrangement{placement}, attention} = view
+  DecisionAssembly(parameters, V.scene_page(view), Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}),
+    Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)), outcome)
+
+def semantic_assembly(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +nodes: +List<Design.Node>) -> SemanticAssembly(parameters, viewport, surface, nodes, Layout.present_semantic(parameters, viewport, surface, nodes)):
+  UI.Surface{Core.Scene{+view, settings, transfers, preview, code, picker}, base, +overlays, scope} = surface
+  V.Scene{navigation, main, +layers, V.Arrangement{+placement}, attention} = view
+  outcome_assembly(parameters, viewport, surface, overlays, placement, V.scene_page(view), layers,
+    Layout.collect_controls(nodes, True{}), Layout.collect_controls(nodes, False{}),
+    Layout.shell(parameters, viewport, placement, Layout.requested_details(parameters, viewport, placement, overlays)))
+
+def PresentShortage(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, presentation: Design.PreparedSurface) -> Maybe<&2, Shortage>:
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, nodes, overlays, active} = prepared
+  SemanticShortage(parameters, viewport, Design.semantic_surface(prepared), nodes)
+
+def PresentAssembly(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, presentation: Design.PreparedSurface, outcome: Layout.Outcome) -> Type:
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, nodes, overlays, active} = prepared
+  SemanticAssembly(parameters, viewport, Design.semantic_surface(prepared), nodes, outcome)
+
+def present_shortage_exact(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +presentation: Design.PreparedSurface) ->
+  {outcome_shortage(Layout.present(parameters, viewport, presentation)) == PresentShortage(parameters, viewport, presentation) : Maybe<&2, Shortage>}:
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, +nodes, overlays, active} = prepared
+  semantic_shortage_exact(parameters, viewport, Design.semantic_surface(prepared), nodes)
+
+def present_assembly(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +presentation: Design.PreparedSurface) ->
+  PresentAssembly(parameters, viewport, presentation, Layout.present(parameters, viewport, presentation)):
+  Design.PreparedSurface{+prepared, cached_base, cached_overlays} = presentation
+  Design.Surface{content, theme, +nodes, overlays, active} = prepared
+  semantic_assembly(parameters, viewport, Design.semantic_surface(prepared), nodes)
 
 def navigation_capacity_feasible(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, intent: E.NavigationIntent) ->
   {navigation_beside(Layout.capacity(parameters, viewport, intent)) ==
@@ -377,22 +706,6 @@ type Requirements is Type:
   Requirements{
     input_minimum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {metrics_minimum(Layout.input_metrics(parameters, canvas)) == Design.input_minimum_height(parameters) : Nat},
     input_maximum: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {Nat.is_ge(metrics_maximum(Layout.input_metrics(parameters, canvas)), Design.input_minimum_height(parameters)) == True{} : Bool},
-    settings_beside: @+parameters:Design.LayoutParameters -> @+box:Design.Box -> @main:Design.Box ->
-      {Layout.settings_bounds(parameters, Design.BesideNavigation{box}, main) == Layout.settings_in_navigation(parameters, box) : Design.Box},
-    settings_overlay: @+parameters:Design.LayoutParameters -> @+box:Design.Box -> @main:Design.Box ->
-      {Layout.settings_bounds(parameters, Design.OverlayNavigation{box}, main) == Layout.settings_in_navigation(parameters, box) : Design.Box},
-    settings_hidden: @+parameters:Design.LayoutParameters -> @+main:Design.Box ->
-      {Layout.settings_bounds(parameters, Design.HiddenNavigation{}, main) == Layout.settings_in_heading(parameters, main) : Design.Box},
-    settings_navigation_coordinates: @+parameters:Design.LayoutParameters -> @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      {Layout.settings_in_navigation(parameters, Design.Box{left, top, width, height}) ==
-          Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-            Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-            Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
-    settings_heading_coordinates: @+parameters:Design.LayoutParameters -> @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      {Layout.settings_in_heading(parameters, Design.Box{left, top, width, height}) ==
-          Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
-            Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
-            Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
     explicit_main_frame: @+parameters:Design.LayoutParameters -> @recipe:Composition.Recipe -> @main:Design.Box ->
       {Layout.main_frame(parameters, recipe, main) == expected_main_frame(parameters, recipe, main) : Design.MainFrame},
     conversation_dock_band: @+parameters:Design.LayoutParameters -> @main:Design.Box -> @composer:Composition.Composer ->
@@ -444,18 +757,23 @@ type Requirements is Type:
     ViewportSpace.regular_slots(parameters, ViewportSpace.placement(viewport, parameters, intent), True{}), 0n), Layout.viewport_width(viewport)) : Bool},
     carried_parameters: @+parameters: Design.LayoutParameters -> @viewport: Design.Viewport -> @surface: UI.Surface -> @overlays: +List<UI.Node> -> @shell: Design.Shell -> @navigation: V.NavigationPlacement -> @page: Composition.Page -> @layers: +List<V.Layer> ->
       {layout_parameters(Layout.layout_with_shell(parameters, viewport, surface, overlays, shell, navigation, page, layers)) == parameters : Design.LayoutParameters},
-    present_feasible: @+parameters: Design.LayoutParameters -> @+viewport: Design.Viewport -> @+surface: UI.Surface -> @fits: {Nat.is_le(Space.minimum_sequence(~ViewportSpace.ShellPart,
-    ViewportSpace.shell_slots(viewport, parameters, surface_navigation(surface),
-      Layout.requested_details(parameters, viewport, surface_navigation(surface), surface_overlays(surface))), 0n), Layout.viewport_width(viewport)) == True{} : Bool} ->
-      {ready(Layout.present(parameters, viewport, surface)) == True{} : Bool},
-    present_unsupported: @+parameters: Design.LayoutParameters -> @+viewport: Design.Viewport -> @+surface: UI.Surface -> @no_room: {Nat.is_le(Space.minimum_sequence(~ViewportSpace.ShellPart,
-    ViewportSpace.shell_slots(viewport, parameters, surface_navigation(surface),
-      Layout.requested_details(parameters, viewport, surface_navigation(surface), surface_overlays(surface))), 0n), Layout.viewport_width(viewport)) == False{} : Bool} ->
-      {Layout.present(parameters, viewport, surface) == Layout.LayoutUnsupported{
-    Space.minimum_sequence(~ViewportSpace.ShellPart, ViewportSpace.shell_slots(viewport, parameters, surface_navigation(surface),
-      Layout.requested_details(parameters, viewport, surface_navigation(surface), surface_overlays(surface))), 0n), Layout.viewport_width(viewport)} : Layout.Outcome},
-    present_parameters: @+parameters: Design.LayoutParameters -> @+viewport: Design.Viewport -> @+surface: UI.Surface ->
-      ParametersClaim(Layout.present(parameters, viewport, surface), parameters)
+    present_feasible: @+parameters:Design.LayoutParameters -> @+viewport:Design.Viewport -> @+presentation:Design.PreparedSurface ->
+      {ready(Layout.present(parameters, viewport, presentation)) == PresentFeasibility(parameters, viewport, presentation) : Bool},
+    present_shortage: @+parameters:Design.LayoutParameters -> @+viewport:Design.Viewport -> @+presentation:Design.PreparedSurface ->
+      {outcome_shortage(Layout.present(parameters, viewport, presentation)) == PresentShortage(parameters, viewport, presentation) : Maybe<&2, Shortage>},
+    present_assembly: @+parameters:Design.LayoutParameters -> @+viewport:Design.Viewport -> @+presentation:Design.PreparedSurface ->
+      PresentAssembly(parameters, viewport, presentation, Layout.present(parameters, viewport, presentation)),
+    present_parameters: @+parameters:Design.LayoutParameters -> @+viewport:Design.Viewport -> @+presentation:Design.PreparedSurface ->
+      ParametersClaim(Layout.present(parameters, viewport, presentation), PresentParameters(parameters, viewport, presentation)),
+    parameter_update: @+parameters:Design.LayoutParameters -> @+cross:Nat ->
+      {Layout.adapt_parameters(parameters, cross) == Design.LayoutParameters{
+        Design.navigation_width(parameters), Design.main_minimum_width(parameters), Design.details_width(parameters),
+        Design.reading_maximum_width(parameters), Design.overview_maximum_width(parameters), Nat.max(Design.toolbar_height(parameters), cross),
+        Design.input_minimum_height(parameters), Design.input_maximum_height(parameters), Design.input_line_height(parameters),
+        Design.creation_balanced_minimum_height(parameters)} : Design.LayoutParameters},
+    container_allocation: @+leading:+List<Layout.ControlItem> -> @+trailing:+List<Layout.ControlItem> -> @+available:Nat ->
+      ContainerLaws.ContainerClaim(~Layout.ControlItem, Layout.control_container(leading, trailing), available,
+        Space.pack_container(~Layout.ControlItem, Layout.control_container(leading, trailing), available))
   }
 
 
@@ -464,11 +782,6 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{input_minimum_retained, input_maximum_fits_minimum,
-    +parameters => +box => main => {==},
-    +parameters => +box => main => {==},
-    +parameters => +main => {==},
-    +parameters => +left => +top => +width => +height => {==},
-    +parameters => +left => +top => +width => +height => {==},
     +parameters => recipe => main => explicit_main_frame(parameters, recipe, main),
     +parameters => main => composer => decisions => latest => explicit_main_frame(parameters, conversation_recipe(composer, decisions, latest), main),
     +parameters => viewport => overlays => layers => surface => shell => navigation =>
@@ -485,4 +798,5 @@ def evidence() -> Requirements:
         Layout.anchor(surface, return_attention), Some{origin}, matched),
     +parameters => viewport => origin => anchored_menu_prefers_block_space(parameters, viewport, origin),
     +parameters => height => below => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)), True{}, below),
-    +parameters => height => enough => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)), False{}, enough), navigation_capacity_feasible, details_capacity_feasible, carried_parameters, present_feasible, present_unsupported, present_parameters}
+    +parameters => height => enough => Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, Design.creation_balanced_minimum_height(parameters)), False{}, enough), navigation_capacity_feasible, details_capacity_feasible, carried_parameters, present_feasible, present_shortage_exact, present_assembly, present_parameters, parameter_update,
+      +leading => +trailing => +available => ContainerLaws.complete(~Layout.ControlItem, Layout.control_container(leading, trailing), available)}

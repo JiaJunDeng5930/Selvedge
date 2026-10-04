@@ -939,12 +939,12 @@ type Requirements is Type:
         expected_conversation(children, heading, viewport, reading, dock, identity) : +List<Doc.Node>},
     page_context_root_identity: @+parameters:Design.LayoutParameters -> @+key:String -> @+semantic:String -> @+label:String -> @+role:Interface.Role ->
       @+identity:Maybe<&2, Conversation.Identity> -> @+visual:Design.Style -> @+representation:Controls.Representation ->
-      @+source:+List<Design.Node> -> @shell:Design.Shell -> @main:Design.MainFrame ->
+      @+source:+List<Design.Node> -> @shell:Design.Shell -> @main:Design.MainFrame -> @controls:+List<Design.ControlPlacement> ->
       {Render.place_base_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source},
         Render.prepare_base_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, Design.frame_structure(main)),
-        Design.Layout{Design.Viewport{0n, 0n}, shell, main, Nil{}, parameters}) ==
-        Render.place_base_shell_node(semantic, role, Interface.PageContext{identity}, parameters,
-          Render.place_tree(Render.prepare_tree(Render.render_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}), Design.frame_structure(main), identity), main), shell) : Doc.Node},
+        Design.Layout{Design.Viewport{0n, 0n}, shell, main, Nil{}, parameters, controls}) ==
+        Render.place_base_shell_node(key, role,
+          Render.place_tree(Render.prepare_tree(Render.render_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}), Design.frame_structure(main), identity), main), shell, controls) : Doc.Node},
     background_without_modal: {Render.background_properties(None{}) == Nil{} : +List<Doc.Property>},
     background_with_modal: @current:String ->
       {Render.background_properties(Some{current}) ==
@@ -1143,7 +1143,7 @@ def evidence() -> Requirements:
     +task => generation => key => tag => attrs => styles => events => children => {==},
     +task => generation => key => tag => attrs => styles => events => children => {==},
     +children => +heading => +viewport => +reading => +dock => +identity => conversation_children_identity(children, heading, viewport, reading, dock, identity),
-    +parameters => +key => +semantic => +label => +role => +identity => +visual => +representation => +source => shell => main => {==},
+    +parameters => +key => +semantic => +label => +role => +identity => +visual => +representation => +source => shell => main => controls => {==},
     {==},
     current => {==},
     key => {==},

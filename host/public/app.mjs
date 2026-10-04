@@ -479,10 +479,16 @@ function observeReadingLayout() {
     for (const surface of root.querySelectorAll('[data-reading-scroll]')) {
       const dock = root.querySelector(`[data-reading-dock][data-reading-task="${surface.dataset.readingTask}"]`);
       const dockExtent = dock ? Math.max(0, surface.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
-      const signature = `${dockExtent}:${surface.clientHeight}`;
+      const viewportHeight = surface.clientHeight;
+      const viewportWidth = surface.clientWidth;
+      const scrollHeight = surface.scrollHeight;
+      const content = root.querySelector(`[data-reading-content][data-reading-task="${surface.dataset.readingTask}"]`);
+      const contentRect = content ? content.getBoundingClientRect() : null;
+      // Content or font reflow can change reading geometry while the dock stays fixed.
+      const signature = `${dockExtent}:${viewportHeight}:${viewportWidth}:${scrollHeight}:${contentRect?.width ?? 0}:${contentRect?.height ?? 0}`;
       if (surface.dataset.observedLayout === signature) continue;
       surface.dataset.observedLayout = signature;
-      readingInput(surface, value('LayoutChanged', { dock_extent: dockExtent, viewport_height: surface.clientHeight }));
+      readingInput(surface, value('LayoutChanged', { dock_extent: dockExtent, viewport_height: viewportHeight }));
     }
   });
 }

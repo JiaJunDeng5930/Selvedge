@@ -1,4 +1,5 @@
 import Base
+import ./space.bend as Space
 import ./typography.bend as T
 import ./enclosure.bend as Enclosure
 import ./enclosure-laws.bend as EnclosureLaws
@@ -196,7 +197,7 @@ def action_minimum_from_layout(+layout: Controls.ContentLayout, +value: Design.S
   {Design.style_minimum_height(Appearance.with_flow(Appearance.action_content_style(value, layout, geometry, Appearance.intrinsic_content_height(face, Design.style_text(value), geometry)), Appearance.action_flow(face, layout))) == Nat.max(Controls.geometry_minimum_height(geometry), Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Design.style_text(value), geometry), Appearance.style_border_width(value), Controls.layout_content_area(layout)))) : Nat}:
   Controls.ContentLayout{alignment, +space, +gap} = layout
   Design.Style{text, chrome, style_alignment, flow, overflow, frame, minimum, maximum, states} = value
-  Controls.Geometry{width, geometry_height, icon, radius, leading} = geometry
+  Controls.Geometry{Space.Demand{Enclosure.Extent{width, geometry_height}, preferred}, icon, radius, leading} = geometry
   +height = Appearance.intrinsic_content_height(face, Design.style_text(value), geometry)
   +styled = Appearance.action_style_insets(value, geometry, space, gap, height)
   Equal.trans(Nat,

@@ -10,10 +10,23 @@ import ./controls.bend as Controls
 import ./viewport-space.bend as ViewportSpace
 import ./space.bend as Space
 import ../core/user-experience.bend as E
+import ../core/user-input.bend as User
 
 
 
 
+
+type Outcome is Data:
+  LayoutReady{layout: Design.Layout}
+  LayoutUnsupported{required: Nat, available: Nat}
+
+type ControlItem is Data:
+  FixedControl{key: String, geometry: Controls.Geometry}
+  ControlSpacer{}
+
+type ControlAllocation is Data:
+  ControlsReady{controls: +List<Design.ControlPlacement>}
+  ControlsUnsupported{required: Nat, available: Nat}
 
 def inline_gutter_for_width(narrow: Bool) -> Nat:
   match narrow:
@@ -42,30 +55,6 @@ def capacity(+parameters: Design.LayoutParameters, viewport: Design.Viewport, in
 
 def shell(+parameters: Design.LayoutParameters, viewport: Design.Viewport, navigation: V.NavigationPlacement, details: Bool) -> ViewportSpace.Result:
   ViewportSpace.shell(viewport, parameters, navigation, details)
-
-def settings_in_navigation(+parameters: Design.LayoutParameters, box: Design.Box) -> Design.Box:
-  Design.Box{left, top, +width, +height} = box
-  +size = Nat.min(32n, Nat.min(width, height))
-  Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, size))),
-    Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, size))), size, size}
-
-def settings_in_heading(+parameters: Design.LayoutParameters, box: Design.Box) -> Design.Box:
-  Design.Box{left, top, +width, +height} = box
-  +size = Nat.min(32n, Nat.min(width, height))
-  Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, size))),
-    Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
-
-def navigation_toggle_bounds(+parameters: Design.LayoutParameters, shell: Design.Shell) -> Design.Box:
-  Design.Shell{navigation, Design.Box{left, top, +width, +height}, details} = shell
-  +size = Nat.min(32n, Nat.min(width, height))
-  Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, size))),
-    Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
-
-def settings_bounds(+parameters: Design.LayoutParameters, navigation: Design.Navigation, main: Design.Box) -> Design.Box:
-  match navigation:
-    case Design.BesideNavigation{box}: settings_in_navigation(parameters, box)
-    case Design.OverlayNavigation{box}: settings_in_navigation(parameters, box)
-    case Design.HiddenNavigation{}: settings_in_heading(parameters, main)
 
 def header_height(+parameters: Design.LayoutParameters, main: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, height} = main
@@ -372,26 +361,165 @@ def layout_with_shell(+parameters: Design.LayoutParameters, +viewport: Design.Vi
   Design.Shell{shell_navigation, main, +details} = shell
   +recipe = Composition.recipe(page)
   Design.Layout{viewport, shell, main_frame(parameters, recipe, main),
-    projected_overlays(parameters, viewport, overlays, layers, surface, shell, navigation), parameters}
+    projected_overlays(parameters, viewport, overlays, layers, surface, shell, navigation), parameters, Nil{}}
 
 def requested_details(+parameters: Design.LayoutParameters, +viewport: Design.Viewport,
   navigation: V.NavigationPlacement, overlays: +List<UI.Node>) -> Bool:
   actual_details(overlays) && ViewportSpace.packed(Space.pack(~ViewportSpace.ShellPart,
     ViewportSpace.regular_slots(parameters, navigation, True{}), 0n, viewport_width(viewport)))
 
-type Outcome is Data:
-  LayoutReady{layout: Design.Layout}
-  LayoutUnsupported{required: Nat, available: Nat}
+def navigation_control(meaning: UI.Meaning) -> Bool:
+  match meaning:
+    case UI.ComposerAction{subject, Core.ApplicationInput{E.UserInput{User.SetNavigation{expanded}}}, availability}: True{}
+    case UI.Activate{Core.ApplicationInput{E.UserInput{User.SetNavigation{expanded}}}, availability}: True{}
+    case _: False{}
+
+def selected_control(selected: Bool, key: String, representation: Controls.Representation,
+  rest: +List<ControlItem>) -> +List<ControlItem>:
+  match selected representation:
+    case True{} Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+      FixedControl{key, geometry} <> rest
+    case _ _: rest
+
+def leading_control(semantic: String, meaning: UI.Meaning) -> Bool:
+  match semantic:
+    case "settings/open": False{}
+    case _: navigation_control(meaning)
+
+def collect_control_kind(settings: Bool, key: String, semantic: String, meaning: UI.Meaning,
+  representation: Controls.Representation, rest: +List<ControlItem>) -> +List<ControlItem>:
+  match settings:
+    case True{}: selected_control(String.eq(semantic, "settings/open"), key, representation, rest)
+    case False{}: selected_control(leading_control(semantic, meaning), key, representation, rest)
+
+def collect_controls(+nodes: +List<Design.Node>, +settings: Bool) -> +List<ControlItem>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Design.Node{key, semantic, label, role, meaning, style, representation, children}, rest}:
+      collect_control_kind(settings, key, semantic, meaning, representation, collect_controls(rest, settings))
+
+def cross_minimum(items: +List<ControlItem>) -> Nat:
+  match items:
+    case Nil{}: 0n
+    case Con{FixedControl{key, geometry}, rest}: Nat.max(Controls.geometry_minimum_height(geometry), cross_minimum(rest))
+    case Con{ControlSpacer{}, rest}: cross_minimum(rest)
+
+def control_inset(items: +List<ControlItem>) -> Nat:
+  match items:
+    case Nil{}: 0n
+    case Con{FixedControl{key, Controls.Geometry{demand, icon, radius, leading}}, rest}:
+      Nat.max(Nat.div(icon, 2n), control_inset(rest))
+    case Con{ControlSpacer{}, rest}: control_inset(rest)
+
+def adapt_parameters(parameters: Design.LayoutParameters, cross: Nat) -> Design.LayoutParameters:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  Design.LayoutParameters{navigation, main, details, reading, overview, Nat.max(toolbar, cross), minimum, maximum, leading, creation}
+
+def control_dimension(+geometry: Controls.Geometry) -> Space.Dimension:
+  Space.Fit{Controls.geometry_minimum_width(geometry),
+    Nat.sub(Controls.geometry_preferred_width(geometry), Controls.geometry_minimum_width(geometry)), 0n}
+
+def control_slots(items: +List<ControlItem>, +clearance: Nat) -> +List<Space.Slot<ControlItem>>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{FixedControl{key, +geometry}, rest}:
+      Space.Slot{FixedControl{key, geometry}, control_dimension(geometry)} <> control_slots(rest, clearance)
+    case Con{ControlSpacer{}, rest}:
+      Space.Slot{ControlSpacer{}, Space.Fill{clearance}} <> control_slots(rest, clearance)
+
+def append_trailing(leading: +List<ControlItem>, trailing: +List<ControlItem>) -> +List<ControlItem>:
+  match trailing:
+    case Nil{}: leading
+    case Con{head, rest}: List.append(&2, ControlItem, leading, ControlSpacer{} <> head <> rest)
+
+def spacer_clearance(leading: +List<ControlItem>, inset: Nat) -> Nat:
+  match leading:
+    case Nil{}: 0n
+    case Con{head, rest}: inset
+
+def control_container(+leading: +List<ControlItem>, +trailing: +List<ControlItem>) -> Space.Container<ControlItem>:
+  +items = append_trailing(leading, trailing)
+  +inset = control_inset(items)
+  Space.Container{inset, inset, 0n, control_slots(items, spacer_clearance(leading, inset))}
+
+def control_height(+geometry: Controls.Geometry, band: Nat) -> Nat:
+  Space.choose(Space.Fit{Controls.geometry_minimum_height(geometry),
+    Nat.sub(Controls.geometry_preferred_height(geometry), Controls.geometry_minimum_height(geometry)), 0n}, band)
+
+def control_placement(key: String, geometry: Controls.Geometry, offset: Nat, width: Nat,
+  target: Design.Box, +band: Nat) -> Design.ControlPlacement:
+  Design.Box{left, top, target_width, target_height} = target
+  +height = control_height(geometry, band)
+  Design.ControlPlacement{key, Design.Box{Nat.add(left, offset), Nat.add(top, Nat.div(Nat.sub(band, height), 2n)), width, height}}
+
+def control_placements(placements: +List<Space.Placement<ControlItem>>, +target: Design.Box, +band: Nat) -> +List<Design.ControlPlacement>:
+  match placements:
+    case Nil{}: Nil{}
+    case Con{Space.Placement{FixedControl{key, geometry}, offset, width}, rest}:
+      control_placement(key, geometry, offset, width, target, band) <> control_placements(rest, target, band)
+    case Con{Space.Placement{ControlSpacer{}, offset, width}, rest}: control_placements(rest, target, band)
+
+def finish_controls(result: Space.Packing<ControlItem>, target: Design.Box, band: Nat) -> ControlAllocation:
+  match result:
+    case Space.Insufficient{required, available}: ControlsUnsupported{required, available}
+    case Space.Packed{placements, unused}: ControlsReady{control_placements(placements, target, band)}
+
+def allocate_control_band(fits: Bool, parameters: Design.LayoutParameters, +target: Design.Box,
+  +leading: +List<ControlItem>, +trailing: +List<ControlItem>, cross: Nat) -> ControlAllocation:
+  match fits:
+    case False{}:
+      Design.Box{left, top, width, height} = target
+      ControlsUnsupported{cross, height}
+    case True{}:
+      Design.Box{left, top, width, +height} = target
+      finish_controls(Space.pack_container(~ControlItem, control_container(leading, trailing), width),
+        target, Nat.min(height, Nat.max(Design.toolbar_height(parameters), cross)))
+
+def allocate_controls(+parameters: Design.LayoutParameters, +target: Design.Box,
+  +leading: +List<ControlItem>, +trailing: +List<ControlItem>) -> ControlAllocation:
+  Design.Box{left, top, width, height} = target
+  +cross = Nat.max(cross_minimum(leading), cross_minimum(trailing))
+  allocate_control_band(Nat.is_le(cross, height), parameters, target, leading, trailing, cross)
+
+def shell_controls(+parameters: Design.LayoutParameters, shell: Design.Shell,
+  +settings: +List<ControlItem>, +toggles: +List<ControlItem>) -> ControlAllocation:
+  Design.Shell{navigation, +main, details} = shell
+  match navigation:
+    case Design.HiddenNavigation{}: allocate_controls(parameters, main, toggles, settings)
+    case Design.BesideNavigation{box}: allocate_controls(parameters, box, Nil{}, settings)
+    case Design.OverlayNavigation{box}: allocate_controls(parameters, box, Nil{}, settings)
+
+def active_toggles(navigation: Design.Navigation, toggles: +List<ControlItem>) -> +List<ControlItem>:
+  match navigation:
+    case Design.HiddenNavigation{}: toggles
+    case _: Nil{}
+
+def layout_controls(result: ControlAllocation, layout: Design.Layout) -> Outcome:
+  match result:
+    case ControlsUnsupported{required, available}: LayoutUnsupported{required, available}
+    case ControlsReady{controls}:
+      Design.Layout{viewport, shell, main, overlays, parameters, previous} = layout
+      LayoutReady{Design.Layout{viewport, shell, main, overlays, parameters, controls}}
+
+def prepare_shell_controls(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  +overlays: +List<UI.Node>, +shell: Design.Shell, navigation: V.NavigationPlacement,
+  +page: Composition.Page, +layers: +List<V.Layer>, +settings: +List<ControlItem>, +toggles: +List<ControlItem>) -> Outcome:
+  Design.Shell{+shell_navigation, main, details} = shell
+  +selected = active_toggles(shell_navigation, toggles)
+  +adapted = adapt_parameters(parameters, Nat.max(cross_minimum(settings), cross_minimum(selected)))
+  layout_controls(shell_controls(adapted, shell, settings, selected),
+    layout_with_shell(adapted, viewport, surface, overlays, shell, navigation, page, layers))
 
 def outcome_with_shell(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
   overlays: +List<UI.Node>, navigation: V.NavigationPlacement, page: Composition.Page, layers: +List<V.Layer>,
-  result: ViewportSpace.Result) -> Outcome:
+  settings: +List<ControlItem>, toggles: +List<ControlItem>, result: ViewportSpace.Result) -> Outcome:
   match result:
     case ViewportSpace.Allocated{shell}:
-      LayoutReady{layout_with_shell(parameters, viewport, surface, overlays, shell, navigation, page, layers)}
+      prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
     case ViewportSpace.Unsupported{required, available}: LayoutUnsupported{required, available}
 
-def present(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface) -> Outcome:
+def present_semantic(+parameters: Design.LayoutParameters, +viewport: Design.Viewport,
+  +surface: UI.Surface, +actual_base: +List<Design.Node>) -> Outcome:
   UI.Surface{content, base, +overlays, active_scope} = surface
   Core.Scene{+view, settings, transfers, preview, code, directory_picker} = content
   V.Scene{world_navigation, world_main, layers, arrangement, attention} = view
@@ -399,4 +527,13 @@ def present(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +s
   page = V.scene_page(view)
   requested_side_pane = requested_details(parameters, viewport, navigation, overlays)
   outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
+    collect_controls(actual_base, True{}), collect_controls(actual_base, False{}),
     shell(parameters, viewport, navigation, requested_side_pane))
+
+def present_surface(parameters: Design.LayoutParameters, viewport: Design.Viewport, +prepared: Design.Surface) -> Outcome:
+  Design.Surface{content, theme, actual_base, actual_overlays, active} = prepared
+  present_semantic(parameters, viewport, Design.semantic_surface(prepared), actual_base)
+
+def present(parameters: Design.LayoutParameters, viewport: Design.Viewport, presentation: Design.PreparedSurface) -> Outcome:
+  Design.PreparedSurface{prepared, cached_base, cached_overlays} = presentation
+  present_surface(parameters, viewport, prepared)

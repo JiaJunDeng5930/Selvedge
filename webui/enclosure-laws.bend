@@ -1,4 +1,5 @@
 import Base
+import ./space.bend as Space
 import ./typography.bend as T
 import ./enclosure.bend as E
 import ./appearance.bend as A
@@ -49,7 +50,7 @@ def positive(+profile: E.Profile) ->
 def action_insets(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat, content_height: Nat) ->
   {area(A.action_style_insets(value, geometry, space, gap, content_height)) == space : E.ContentArea}:
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
-  C.Geometry{width, height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
   {==}
 
 def layout_copied(+value: D.Style, +layout: C.ContentLayout, +geometry: C.Geometry, content_height: Nat) ->
@@ -67,7 +68,7 @@ def flow_preserves_area(+value: D.Style, flow: D.Flow) ->
 def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat, +content_height: Nat) ->
   {D.style_minimum_height(A.action_style_insets(value, geometry, space, gap, content_height)) == Nat.max(C.geometry_minimum_height(geometry), E.extent_height(E.required_extent(0n, content_height, A.chrome_border_width(chrome(value)), space))) : Nat}:
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
-  C.Geometry{width, height, icon, radius, leading} = geometry
+  C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
   {==}
 
 

@@ -1,6 +1,7 @@
 import Base
 import ./typography.bend as T
 import ./enclosure.bend as E
+import ./space.bend as Space
 import ./enclosure-laws.bend as Model
 import ./appearance.bend as A
 import ./controls.bend as C
@@ -162,8 +163,8 @@ def excluded_typed_tail(+mode: AttributeMode, +value: T.Presentation, +flow: D.F
 
 def excluded_geometry(+mode: AttributeMode, +size: C.Geometry, +visual: D.Style) -> Excluded(mode, R.action_geometry(size, visual)):
   match mode size visual:
-    case RawBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: ({==}, ({==}, ({==}, Unit{})))
 
 def excluded_placement(+mode: AttributeMode, +placement: C.Placement) -> Excluded(mode, R.placement_styles(placement)):
   match mode placement:
@@ -182,22 +183,22 @@ def excluded_placement(+mode: AttributeMode, +placement: C.Placement) -> Exclude
 
 def excluded_extent(+mode: AttributeMode, +face: C.Face, +size: C.Geometry) -> Excluded(mode, R.content_extent(face, size)):
   match mode face size:
-    case RawBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
-    case RawBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case RawBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
-    case RawBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case RawBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case RawBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case RawBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case RawBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case PointerBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
-    case PointerBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case PointerBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
-    case PointerBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case PointerBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case PointerBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
-    case PointerBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
+    case RawBackground{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
+    case RawBackground{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
+    case PointerBackground{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
+    case PointerBackground{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: ({==}, ({==}, Unit{}))
 
 def excluded_anchor(+mode: AttributeMode, key: String) -> Excluded(mode, [R.property("anchor-name", R.css_anchor(key))]):
   match mode:
@@ -222,7 +223,7 @@ def last_append(+first: +List<Doc.Property>, +second: +List<Doc.Property>, +name
 def geometry_pointer(+size: C.Geometry, +visual: D.Style) ->
   {R.pointer_styles(R.action_geometry(size, visual)) == R.action_geometry(size, visual) : +List<Doc.Property>}:
   match size visual:
-    case C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
 
 def action_background_preserved(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability,
   +name: String, +face: C.Face, +behavior: C.Behavior, +geometry: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
@@ -723,64 +724,64 @@ def parent_style(+pointer: Bool, +property: ParentProperty, +value: D.Style) ->
 def parent_geometry(+pointer: Bool, +property: ParentProperty, +size: C.Geometry, +visual: D.Style, +previous: String) ->
   {R.attr_last(parent_properties(pointer, R.action_geometry(size, visual)), parent_name(property), previous) == previous : String}:
   match pointer property size visual:
-    case False{} FrameGap{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
-    case False{} MinimumHeight{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
-    case False{} BorderRadius{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
-    case True{} FrameGap{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
-    case True{} MinimumHeight{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
-    case True{} BorderRadius{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case False{} FrameGap{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case False{} MinimumHeight{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case False{} BorderRadius{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case True{} FrameGap{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case True{} MinimumHeight{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
+    case True{} BorderRadius{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
 
 def parent_content(+pointer: Bool, +property: ParentProperty, +face: C.Face, +size: C.Geometry, +previous: String) ->
   {R.attr_last(parent_properties(pointer, R.content_geometry(face, size)), parent_name(property), previous) == previous : String}:
   match pointer property face size:
-    case False{} FrameGap{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.TextFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} FrameGap{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.TextFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} MinimumHeight{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.TextFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case False{} BorderRadius{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.TextFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} FrameGap{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.TextFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} MinimumHeight{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.IconFace{icon} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.TextFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.SingleLineFace{text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.IconTextFace{icon, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.PickerFace{leading, text} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon_size, radius, slot}: {==}
-    case True{} BorderRadius{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} FrameGap{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} MinimumHeight{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case False{} BorderRadius{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} FrameGap{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} MinimumHeight{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.IconFace{icon} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.TextFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.SingleLineFace{text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.IconTextFace{icon, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.PickerFace{leading, text} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.ChoiceFace{text, description, checked} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.DisclosureFace{text, expanded} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
+    case True{} BorderRadius{} C.PermissionFace{filesystem, network, approval} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon_size, radius, slot}: {==}
 
 def parent_anchor(+pointer: Bool, +property: ParentProperty, key: String, +previous: String) ->
   {R.attr_last(parent_properties(pointer, [R.property("anchor-name", R.css_anchor(key))]), parent_name(property), previous) == previous : String}:
@@ -858,8 +859,8 @@ def search(+filter: Board.Filter, +typography: T.Presentation) ->
 def option_production_insets(+key: String, +label: String, +selected: Bool, +description: String, +geometry: C.Geometry, +input: Core.Input, +typography: T.Presentation) ->
   {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input, typography)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input, typography)), "padding-block")) == ("8px", "8px") : (String & String)}:
   match selected geometry:
-    case False{} C.Geometry{width, height, icon, radius, leading}: {==}
-    case True{} C.Geometry{width, height, icon, radius, leading}: {==}
+    case False{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: {==}
+    case True{} C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}: {==}
 
 def title_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) ->
   {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)}:
@@ -885,21 +886,21 @@ def description_production_insets(+key: String, +editor: User.Editor, +name: Str
 
 
 
-def geometry_complete_law(-width: Nat, -height: Nat, -icon: Nat, -radius: Nat, -leading: Nat, -visual: D.Style) -> Type:
-  {R.action_geometry(C.Geometry{width, height, icon, radius, leading}, visual) == [R.property("min-width", R.px(width)), R.property("--native-icon-size", R.px(icon)), R.property("--native-leading-slot", R.px(leading))] : +List<Doc.Property>}
+def geometry_complete_law(-width: Nat, -height: Nat, -preferred_width: Nat, -preferred_height: Nat, -icon: Nat, -radius: Nat, -leading: Nat, -visual: D.Style) -> Type:
+  {R.action_geometry(C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}, visual) == [R.property("min-width", R.px(width)), R.property("--native-icon-size", R.px(icon)), R.property("--native-leading-slot", R.px(leading))] : +List<Doc.Property>}
 
-def geometry_complete(+width: Nat, +height: Nat, +icon: Nat, +radius: Nat, +leading: Nat, +visual: D.Style) -> geometry_complete_law(width, height, icon, radius, leading, visual):
+def geometry_complete(+width: Nat, +height: Nat, +preferred_width: Nat, +preferred_height: Nat, +icon: Nat, +radius: Nat, +leading: Nat, +visual: D.Style) -> geometry_complete_law(width, height, preferred_width, preferred_height, icon, radius, leading, visual):
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = visual
   {==}
 
 def action_minimum_law(-key: String, -visual: D.Style, -input: Core.Input, -availability: View.Availability, -name: String,
-  -face: C.Face, -behavior: C.Behavior, -width: Nat, -height: Nat, -icon: Nat, -radius: Nat, -leading: Nat, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback) -> Type:
-  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, C.Geometry{width, height, icon, radius, leading}, placement, help, feedback})), "min-width") == R.px(width) : String}
+  -face: C.Face, -behavior: C.Behavior, -width: Nat, -height: Nat, -preferred_width: Nat, -preferred_height: Nat, -icon: Nat, -radius: Nat, -leading: Nat, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback) -> Type:
+  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}, placement, help, feedback})), "min-width") == R.px(width) : String}
 
 def action_minimum(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability, +name: String,
-  +face: C.Face, +behavior: C.Behavior, +width: Nat, +height: Nat, +icon: Nat, +radius: Nat, +leading: Nat, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
-  action_minimum_law(key, visual, input, availability, name, face, behavior, width, height, icon, radius, leading, placement, help, feedback):
-  +size: C.Geometry = C.Geometry{width, height, icon, radius, leading}
+  +face: C.Face, +behavior: C.Behavior, +width: Nat, +height: Nat, +preferred_width: Nat, +preferred_height: Nat, +icon: Nat, +radius: Nat, +leading: Nat, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
+  action_minimum_law(key, visual, input, availability, name, face, behavior, width, height, preferred_width, preferred_height, icon, radius, leading, placement, help, feedback):
+  +size: C.Geometry = C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}
   +prefix: +List<Doc.Property> = R.pointer_styles(List.append(&2, Doc.Property, R.style(visual), geometry_tail(visual, face, size, placement, key)))
   last_append(prefix, R.action_geometry(size, visual), "min-width", "")
 
@@ -914,7 +915,7 @@ type Requirements is Type:
     navigation_header: @+typography:T.Presentation -> @+selected:Bool -> {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
     navigation_task: @+typography:T.Presentation -> @+selected:Bool -> @+key:String -> @+task:Nat -> @+status:String -> @+children:+List<R.Child> -> {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
     embedded_name: @+typography:T.Presentation -> {(R.attr(R.style(A.project_label_style(A.ordinary_button(typography))), "padding-inline"), R.attr(R.style(A.project_label_style(A.ordinary_button(typography))), "padding-block")) == ("0px", "0px") : (String & String)},
-    icon_control: @+typography:T.Presentation -> @+width:String -> {(R.attr(R.style(A.action_style(A.ordinary_button(typography), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-inline"), R.attr(R.style(A.action_style(A.ordinary_button(typography), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-block")) == ("4px", "4px") : (String & String)},
+    icon_control: @+typography:T.Presentation -> @+width:String -> {(R.attr(R.style(A.action_style(A.ordinary_button(typography), C.IconFace{C.Plus{}}, C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n})), "padding-inline"), R.attr(R.style(A.action_style(A.ordinary_button(typography), C.IconFace{C.Plus{}}, C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n})), "padding-block")) == ("4px", "4px") : (String & String)},
     card_title: @+typography:T.Presentation -> {(R.attr(BoardLaws.title_production_styles(typography), "padding-inline"), R.attr(BoardLaws.title_production_styles(typography), "padding-block")) == ("8px", "4px") : (String & String)},
     search: @+typography:T.Presentation -> @+filter:Board.Filter -> {(R.attr(R.style(A.field_style(UI.BoardSearch{filter}, typography)), "padding-inline"), R.attr(R.style(A.field_style(UI.BoardSearch{filter}, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
     dialog_header: {(R.attr(R.dialog_header_styles(), "padding-inline"), R.attr(R.dialog_header_styles(), "padding-block")) == ("24px", "14px") : (String & String)},
@@ -925,8 +926,8 @@ type Requirements is Type:
     title_production_insets: @+typography:T.Presentation -> @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)},
     description_production_insets: @+typography:T.Presentation -> @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)},
     dialog_outer: @+typography:T.Presentation -> {(R.attr(R.style(A.style(UI.Dialog{}, UI.Region{}, typography)), "padding-inline"), R.attr(R.style(A.style(UI.Dialog{}, UI.Region{}, typography)), "padding-block")) == ("0px", "0px") : (String & String)},
-    action_minimum: @+key:String -> @+visual:D.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+face:C.Face -> @+behavior:C.Behavior -> @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+placement:C.Placement -> @+help:C.Help -> @+feedback:C.Feedback -> action_minimum_law(key, visual, input, availability, name, face, behavior, width, height, icon, radius, leading, placement, help, feedback),
-    geometry_complete: @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+visual:D.Style -> geometry_complete_law(width, height, icon, radius, leading, visual)}
+    action_minimum: @+key:String -> @+visual:D.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+face:C.Face -> @+behavior:C.Behavior -> @+width:Nat -> @+height:Nat -> @+preferred_width:Nat -> @+preferred_height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+placement:C.Placement -> @+help:C.Help -> @+feedback:C.Feedback -> action_minimum_law(key, visual, input, availability, name, face, behavior, width, height, preferred_width, preferred_height, icon, radius, leading, placement, help, feedback),
+    geometry_complete: @+width:Nat -> @+height:Nat -> @+preferred_width:Nat -> @+preferred_height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+visual:D.Style -> geometry_complete_law(width, height, preferred_width, preferred_height, icon, radius, leading, visual)}
 
 def evidence() -> Requirements:
   Requirements{parent_action, +area => {==}, style_allocation, duplicate, +size => +visual =>

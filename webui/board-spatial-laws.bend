@@ -1,4 +1,5 @@
 import Base
+import ./space.bend as Space
 import ./typography.bend as T
 import ./document.bend as Doc
 import ./renderer.bend as Render
@@ -41,7 +42,7 @@ def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
 
 
 def title_production_styles(+typography: T.Presentation) -> +List<Doc.Property>:
-  Render.style(Appearance.source_content_style(Controls.TitleContent{"title"}, Controls.Geometry{32n, 32n, 16n, 6n, 20n}, Appearance.ordinary_button(typography)))
+  Render.style(Appearance.source_content_style(Controls.TitleContent{"title"}, Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 6n, 20n}, Appearance.ordinary_button(typography)))
 
 
 

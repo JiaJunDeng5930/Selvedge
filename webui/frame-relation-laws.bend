@@ -1,6 +1,7 @@
 import Base
 import ./typography.bend as T
 import ./enclosure.bend as E
+import ./space.bend as Space
 import ./design.bend as D
 import ./appearance.bend as A
 import ./controls.bend as C
@@ -15,7 +16,7 @@ import ../core/ui-world.bend as View
 def actual_geometry(value: C.Representation) -> C.Geometry:
   match value:
     case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: geometry
-    case _: C.Geometry{0n, 0n, 0n, 0n, 0n}
+    case _: C.Geometry{Space.fixed_demand(0n, 0n), 0n, 0n, 0n}
 
 def mark_extent(layout: C.ChoiceContentLayout) -> Nat:
   C.ChoiceContentLayout{text_gap, extent, icon_extent} = layout
@@ -47,7 +48,7 @@ def content_preserves_arrangement(+value: D.Style, content: E.ContentArea) ->
 
 
 def actual_choice_geometry(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {actual_geometry(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.Geometry{0n, 28n, 16n, 6n, 20n} : C.Geometry}:
+  {actual_geometry(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
@@ -173,7 +174,7 @@ def choice_style_metrics(+value: D.Style) -> (Nat & D.Flow):
 def choice_style_normalization(+value: D.Style, +size: C.Geometry, label: String, description: Maybe<&2, String>, selected: Bool) ->
   {choice_style_metrics(A.action_style(value, C.ChoiceFace{label, description, selected}, size)) == (8n, D.ChoiceFlow{}) : (Nat & D.Flow)}:
   D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
-  C.Geometry{width, height, icon, radius, leading} = size
+  C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} = size
   {==}
 
 def actual_choice_normalization_law(-key: String, -selected: Bool, -description: String, -input: Core.Input, -availability: View.Availability, -label: String,
@@ -184,7 +185,7 @@ def actual_choice_normalization(+key: String, +selected: Bool, +description: Str
   +role: UI.Role, +context: C.Context, +fallback: D.Style, +typography: T.Presentation) -> actual_choice_normalization_law(key, selected, description, input, availability, label, role, context, fallback, typography):
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-  choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{0n, 28n, 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+  choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
 
 type Requirements is Type:
   Requirements{
@@ -208,7 +209,7 @@ type Requirements is Type:
     role_card: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Card{}, meaning, typography)) == E.Frame{E.area(E.Card{}), E.SeparateFrames{E.CardSections{}}} : E.Frame},
     role_details: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Details{}, meaning, typography)) == E.Frame{E.area(E.Details{}), E.SeparateFrames{E.Sections{}}} : E.Frame},
     role_dialog: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {D.style_frame(A.style(UI.Dialog{}, meaning, typography)) == E.Frame{E.DialogPartitions{}, E.JoinedPartitions{}} : E.Frame},
-    actual_choice_geometry: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {actual_geometry(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.Geometry{0n, 28n, 16n, 6n, 20n} : C.Geometry},
+    actual_choice_geometry: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {actual_geometry(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry},
     actual_choice_layout: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout},
     actual_choice_mark_contains_icon: @+key:String -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {Nat.is_le(mark_icon_extent(C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context))), mark_extent(C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context)))) == True{} : Bool},
     selection_keeps_allocation: @+key:String -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> {C.choice_layout(C.make_choice(key, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout},
