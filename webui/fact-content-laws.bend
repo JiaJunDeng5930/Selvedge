@@ -27,20 +27,11 @@ def details_document(+owner: String, value: View.TaskDetails) -> +List<Doc.Node>
      fact_document(R.generated_identity(owner, "reasoning"), "Reasoning", reasoning),
      fact_document(R.generated_identity(owner, "messages"), "Queued messages", Options.joined(queued))]}]
 
-
-
-def details_refinement(+owner: String, +value: View.TaskDetails) ->
-  {R.task_details(owner, value) == details_document(owner, value) : +List<Doc.Node>}:
-  View.TaskDetails{Context.EffectiveContext{task, Domain.TaskContext{Domain.Workspace{roots, primary}, Domain.Sandbox{mode, network}, approval, project}, guidance, access}, Domain.Model{Domain.Profile{id, provider, name, policy}, reasoning, model_guidance}, tools, lineage, queued, status, phase} = value
-  {==}
-
-
-
 type Requirements is Type:
   Requirements{
     frames: {D.fact_content_layout() == D.FactContentLayout{E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{4n}}, E.Frame{E.ambient(0n, 0n), E.SeparateFrames{E.Sections{}}}} : D.FactContentLayout},
     fact: @+key:String -> @+label:String -> @+value:String -> {R.fact(key, label, value) == fact_document(key, label, value) : Doc.Node},
     details: @+owner:String -> @+value:View.TaskDetails -> {R.task_details(owner, value) == details_document(owner, value) : +List<Doc.Node>}}
 
-def evidence() -> Requirements:
-  Requirements{{==}, +key => +label => +value => {==}, details_refinement}
+law evidence:
+  Requirements

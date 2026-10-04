@@ -210,9 +210,14 @@ def outer_content(content: Content, +geometry: C.Geometry, +style: D.Style) -> C
     case MeasuredInk{Space.Demand{minimum, preferred}}:
       MeasuredInk{Space.Demand{outer_extent(minimum, geometry, style), outer_extent(preferred, geometry, style)}}
 
-def natural_demand(measured: +List<T.Measured>, key: String, face: C.Face, +geometry: C.Geometry, +style: D.Style) -> Content:
+def shape_content(face: C.Face, content: Content) -> Content:
+  match content:
+    case AwaitingInk{missing}: AwaitingInk{missing}
+    case MeasuredInk{demand}: MeasuredInk{C.face_demand(face, demand)}
+
+def natural_demand(measured: +List<T.Measured>, key: String, +face: C.Face, +geometry: C.Geometry, +style: D.Style) -> Content:
   D.Style{text, chrome, alignment, flow, overflow, frame, height, maximum, states} = style
-  outer_content(ink(measured, key, face, text, geometry, E.frame_gap(frame)), geometry, style)
+  shape_content(face, outer_content(ink(measured, key, face, text, geometry, E.frame_gap(frame)), geometry, style))
 
 def with_minimum(style: D.Style, height: Nat) -> D.Style:
   D.Style{text, chrome, alignment, flow, overflow, frame, old_height, maximum, states} = style

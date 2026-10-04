@@ -10,16 +10,17 @@ import { checkMaps } from './import-maps.mjs';
 import { verifyProof } from './verify-proof.mjs';
 import { checkComponents, bendSources, entrySources } from './check-components.mjs';
 import { compileJavaScript } from './compile-javascript.mjs';
+import { prepareUiVerification } from './ui-verification.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-async function compileEntry(entry, output, force) {
+async function compileEntry(entry, output, force, { publicSource = entry, namespacePrefix = '' } = {}) {
   // Root entry definitions are public wrappers; import aliases are not compiler names.
-  const source = await readFile(path.join(root, entry), 'utf8');
+  const source = await readFile(path.join(root, publicSource), 'utf8');
   const names = [...source.matchAll(/^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm)].map(match => match[1]);
-  if (!names.length) throw new Error(`No public Bend wrappers in ${entry}`);
+  if (!names.length) throw new Error(`No public Bend wrappers in ${publicSource}`);
   if (force) await rm(path.join(root, `${output}.json`), { force: true });
-  return compileJavaScript({ entry, exports: Object.fromEntries(names.map(name => [name, name])), output });
+  return compileJavaScript({ entry, exports: Object.fromEntries(names.map(name => [name, `${namespacePrefix}${name}`])), output });
 }
 
 async function nativeIdentity(bend, compileArguments) {
@@ -52,12 +53,14 @@ export async function build({ native = false, force = false } = {}) {
   await checkBundle();
   await checkRelations();
   await checkMaps();
-  console.log(verifyProof({ cwd: root }));
-  console.log(verifyProof({ cwd: root, entry: 'webui/PROOF.bend' }));
+  const verification = prepareUiVerification(root);
+  console.log(verifyProof({ cwd: root, entry: verification.entry }));
 
   const kernel = await compileEntry('KERNEL.bend', '.build/kernel-model.mjs', force);
   console.log(`Bend JavaScript kernel ${kernel.cached ? 'is current' : 'built'} (${kernel.fingerprint.slice(0, 12)}).`);
-  const browser = await compileEntry('BROWSER.bend', 'host/public/generated/browser-model.mjs', force);
+  const browser = await compileEntry(verification.entry, 'host/public/generated/browser-model.mjs', force, {
+    publicSource: 'BROWSER.bend', namespacePrefix: verification.browserPrefix,
+  });
   console.log(`Bend JavaScript browser ${browser.cached ? 'is current' : 'built'} (${browser.fingerprint.slice(0, 12)}).`);
 
   const inputs = await bendSources(root);

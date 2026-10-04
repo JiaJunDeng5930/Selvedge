@@ -32,7 +32,7 @@ async function checkDirectory(directory) {
 for (const directory of ['host', 'scripts', 'tests-bend', 'examples']) await checkDirectory(directory);
 run(process.execPath, ['scripts/check-web-vendor.mjs']);
 run(process.execPath, ['scripts/theory-index.mjs', 'check']);
-// Build checks proof obligations and links both production Bend libraries, including cached builds.
+// Build checks the complete generated UI proof entry before linking both production libraries.
 await build();
 run(compiler(), ['MAIN.bend', '--check-only']);
 for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);

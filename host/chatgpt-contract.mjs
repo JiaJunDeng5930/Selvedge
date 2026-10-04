@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 // Wire baseline, not a claim that this application is the Codex CLI.
-// See docs/adr/0017-chatgpt-account-contract.md for pinned upstream sources.
 export const codexContractVersion = '0.157.1';
 export const defaultChatGPTAccount = Object.freeze({
   provider: 'chatgpt', endpoint: 'https://chatgpt.com/backend-api/codex/responses',

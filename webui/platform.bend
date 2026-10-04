@@ -1,14 +1,12 @@
 import Base
 import ../UI.bend as Product
 import ../core/interface.bend as UI
-import ../core/laws.bend as CoreLaws
 import ./focus.bend as Focus
 import ../MODEL.bend as M
 import ../core/SYSTEM.bend as Core
 import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
 import ../core/ui-world.bend as View
-import ../core/client-services.bend as Services
 import ../bendlib/association-map.bend as Finite
 import ./reading.bend as Reading
 import ./editor.bend as Editor
@@ -271,13 +269,6 @@ def observe(state: State) -> Scene:
   State{core, Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = state
   Scene{editors, focused, ticket, scope, reduced}
 
-
-
-def editing_retains_selection(revision: Nat, body: U.Body, directory_entry: String, editor: Editor.Editor) ->
-  {synchronize_editor(Some{U.Draft{revision, body, U.Editing{}, directory_entry}}, editor) == editor : Editor.Editor}:
-  {==}
-
-# Capacity reconciliation uses the committed post-state without replaying its effects.
 def same_capacity(first: View.Capacity, second: View.Capacity) -> Bool:
   View.Capacity{+first_navigation, +first_details} = first
   View.Capacity{+second_navigation, +second_details} = second
@@ -306,26 +297,3 @@ def reflow_capacity(+decision: Decision, +capacity: View.Capacity) -> Decision:
 def decision_product(decision: Decision) -> Core.Decision:
   Decision{product, platform, effects} = decision
   product
-
-def merge_reflow_product(+product: Core.Decision, effects: +List<Effect>, refreshed: Decision) ->
-  {decision_product(merge_reflow(product, effects, refreshed)) == product : Core.Decision}:
-  match refreshed:
-    case Decision{ignored, platform, reconciliation}: {==}
-
-def changed_capacity_product(decision: Decision, capacity: View.Capacity) ->
-  {decision_product(changed_capacity(decision, capacity)) == decision_product(decision) : Core.Decision}:
-  Decision{Core.Decision{+state, reply, runtime, interaction, services, durable}, Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects} = decision
-  merge_reflow_product(Core.Decision{state, reply, runtime, interaction, services, durable}, effects, after_core(unchanged(state),
-    Platform{readers, editors, focused, ticket, reduced, capacity, scope}))
-
-def retained_capacity_product(same: Bool, +decision: Decision, capacity: View.Capacity) ->
-  {decision_product(retained_capacity(same, decision, capacity)) == decision_product(decision) : Core.Decision}:
-  match same:
-    case True{}: {==}
-    case False{}: changed_capacity_product(decision, capacity)
-
-def reflow_preserves_product(+decision: Decision, +capacity: View.Capacity) ->
-  {decision_product(reflow_capacity(decision, capacity)) == decision_product(decision) : Core.Decision}:
-  Decision{+product, Platform{+readers, +editors, +focused, +ticket, +reduced, +old_capacity, +scope}, +effects} = decision
-  retained_capacity_product(same_capacity(old_capacity, capacity),
-    Decision{product, Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity)

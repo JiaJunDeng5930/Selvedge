@@ -20,12 +20,25 @@ type Outcome is Data:
   LayoutReady{layout: Design.Layout}
   LayoutUnsupported{required: Nat, available: Nat}
 
-type ControlItem is Data:
+type BandItem is Data:
   FixedControl{key: String, geometry: Controls.Geometry}
-  ControlSpacer{}
+  FlexibleRegion{key: String, minimum_height: Nat}
+  Spacer{minimum_width: Nat}
+
+type Band is Data:
+  Band{frame: Enclosure.Frame, items: +List<BandItem>}
+
+type HeadingTitle is Data:
+  HeadingTitle{key: String, minimum_height: Nat}
+
+type HeadingActions is Data:
+  HeadingActions{key: String, controls: +List<BandItem>}
+
+type HeadingContent is Data:
+  HeadingContent{title: Maybe<&2, HeadingTitle>, actions: Maybe<&2, HeadingActions>}
 
 type ControlAllocation is Data:
-  ControlsReady{controls: +List<Design.ControlPlacement>}
+  ControlsReady{controls: +List<Design.NodePlacement>}
   ControlsUnsupported{required: Nat, available: Nat}
 
 def inline_gutter_for_width(narrow: Bool) -> Nat:
@@ -375,7 +388,7 @@ def navigation_control(meaning: UI.Meaning) -> Bool:
     case _: False{}
 
 def selected_control(selected: Bool, key: String, representation: Controls.Representation,
-  rest: +List<ControlItem>) -> +List<ControlItem>:
+  rest: +List<BandItem>) -> +List<BandItem>:
   match selected representation:
     case True{} Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
       FixedControl{key, geometry} <> rest
@@ -387,29 +400,34 @@ def leading_control(semantic: String, meaning: UI.Meaning) -> Bool:
     case _: navigation_control(meaning)
 
 def collect_control_kind(settings: Bool, key: String, semantic: String, meaning: UI.Meaning,
-  representation: Controls.Representation, rest: +List<ControlItem>) -> +List<ControlItem>:
+  representation: Controls.Representation, rest: +List<BandItem>) -> +List<BandItem>:
   match settings:
     case True{}: selected_control(String.eq(semantic, "settings/open"), key, representation, rest)
     case False{}: selected_control(leading_control(semantic, meaning), key, representation, rest)
 
-def collect_controls(+nodes: +List<Design.Node>, +settings: Bool) -> +List<ControlItem>:
+def collect_controls(+nodes: +List<Design.Node>, +settings: Bool) -> +List<BandItem>:
   match nodes:
     case Nil{}: Nil{}
     case Con{Design.Node{key, semantic, label, role, meaning, style, representation, children}, rest}:
       collect_control_kind(settings, key, semantic, meaning, representation, collect_controls(rest, settings))
 
-def cross_minimum(items: +List<ControlItem>) -> Nat:
+def item_cross_minimum(item: BandItem) -> Nat:
+  match item:
+    case FixedControl{key, geometry}: Controls.geometry_minimum_height(geometry)
+    case FlexibleRegion{key, minimum_height}: minimum_height
+    case Spacer{minimum_width}: 0n
+
+def cross_minimum(items: +List<BandItem>) -> Nat:
   match items:
     case Nil{}: 0n
-    case Con{FixedControl{key, geometry}, rest}: Nat.max(Controls.geometry_minimum_height(geometry), cross_minimum(rest))
-    case Con{ControlSpacer{}, rest}: cross_minimum(rest)
+    case Con{item, rest}: Nat.max(item_cross_minimum(item), cross_minimum(rest))
 
-def control_inset(items: +List<ControlItem>) -> Nat:
+def control_inset(items: +List<BandItem>) -> Nat:
   match items:
     case Nil{}: 0n
     case Con{FixedControl{key, Controls.Geometry{demand, icon, radius, leading}}, rest}:
       Nat.max(Nat.div(icon, 2n), control_inset(rest))
-    case Con{ControlSpacer{}, rest}: control_inset(rest)
+    case Con{item, rest}: control_inset(rest)
 
 def adapt_parameters(parameters: Design.LayoutParameters, cross: Nat) -> Design.LayoutParameters:
   Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
@@ -419,77 +437,115 @@ def control_dimension(+geometry: Controls.Geometry) -> Space.Dimension:
   Space.Fit{Controls.geometry_minimum_width(geometry),
     Nat.sub(Controls.geometry_preferred_width(geometry), Controls.geometry_minimum_width(geometry)), 0n}
 
-def control_slots(items: +List<ControlItem>, +clearance: Nat) -> +List<Space.Slot<ControlItem>>:
+def item_dimension(item: BandItem) -> Space.Dimension:
+  match item:
+    case FixedControl{key, geometry}: control_dimension(geometry)
+    case FlexibleRegion{key, minimum_height}: Space.Fill{0n}
+    case Spacer{minimum_width}: Space.Fill{minimum_width}
+
+def band_slots(items: +List<BandItem>) -> +List<Space.Slot<BandItem>>:
   match items:
     case Nil{}: Nil{}
-    case Con{FixedControl{key, +geometry}, rest}:
-      Space.Slot{FixedControl{key, geometry}, control_dimension(geometry)} <> control_slots(rest, clearance)
-    case Con{ControlSpacer{}, rest}:
-      Space.Slot{ControlSpacer{}, Space.Fill{clearance}} <> control_slots(rest, clearance)
+    case Con{+item, rest}: Space.Slot{item, item_dimension(item)} <> band_slots(rest)
 
-def append_trailing(leading: +List<ControlItem>, trailing: +List<ControlItem>) -> +List<ControlItem>:
-  match trailing:
-    case Nil{}: leading
-    case Con{head, rest}: List.append(&2, ControlItem, leading, ControlSpacer{} <> head <> rest)
+def frame_inline(+frame: Enclosure.Frame) -> Nat:
+  Enclosure.inset_inline(Enclosure.insets(Enclosure.frame_content(frame)))
 
-def spacer_clearance(leading: +List<ControlItem>, inset: Nat) -> Nat:
+def frame_block(+frame: Enclosure.Frame) -> Nat:
+  Enclosure.inset_block(Enclosure.insets(Enclosure.frame_content(frame)))
+
+def band_container(band: Band) -> Space.Container<BandItem>:
+  Band{+frame, items} = band
+  +inset = frame_inline(frame)
+  Space.Container{inset, inset, Enclosure.frame_gap(frame), band_slots(items)}
+
+def band_cross_required(band: Band) -> Nat:
+  Band{frame, items} = band
+  Nat.add(cross_minimum(items), Nat.mul(2n, frame_block(frame)))
+
+def spacer_clearance(leading: +List<BandItem>, inset: Nat) -> Nat:
   match leading:
     case Nil{}: 0n
     case Con{head, rest}: inset
 
-def control_container(+leading: +List<ControlItem>, +trailing: +List<ControlItem>) -> Space.Container<ControlItem>:
+def append_trailing(+leading: +List<BandItem>, trailing: +List<BandItem>) -> +List<BandItem>:
+  match trailing:
+    case Nil{}: leading
+    case Con{+head, +rest}:
+      List.append(&2, BandItem, leading, Spacer{spacer_clearance(leading, control_inset(List.append(&2, BandItem, leading, head <> rest)))} <> head <> rest)
+
+def root_band(+leading: +List<BandItem>, +trailing: +List<BandItem>) -> Band:
   +items = append_trailing(leading, trailing)
-  +inset = control_inset(items)
-  Space.Container{inset, inset, 0n, control_slots(items, spacer_clearance(leading, inset))}
+  Band{Enclosure.Frame{Enclosure.ambient(control_inset(items), 0n), Enclosure.EmbeddedContent{0n}}, items}
+
+def control_container(leading: +List<BandItem>, trailing: +List<BandItem>) -> Space.Container<BandItem>:
+  band_container(root_band(leading, trailing))
 
 def control_height(+geometry: Controls.Geometry, band: Nat) -> Nat:
   Space.choose(Space.Fit{Controls.geometry_minimum_height(geometry),
     Nat.sub(Controls.geometry_preferred_height(geometry), Controls.geometry_minimum_height(geometry)), 0n}, band)
 
 def control_placement(key: String, geometry: Controls.Geometry, offset: Nat, width: Nat,
-  target: Design.Box, +band: Nat) -> Design.ControlPlacement:
+  target: Design.Box, +band: Nat) -> Design.NodePlacement:
   Design.Box{left, top, target_width, target_height} = target
   +height = control_height(geometry, band)
-  Design.ControlPlacement{key, Design.Box{Nat.add(left, offset), Nat.add(top, Nat.div(Nat.sub(band, height), 2n)), width, height}}
+  Design.NodePlacement{key, Design.Box{Nat.add(left, offset), Nat.add(top, Nat.div(Nat.sub(band, height), 2n)), width, height}}
 
-def control_placements(placements: +List<Space.Placement<ControlItem>>, +target: Design.Box, +band: Nat) -> +List<Design.ControlPlacement>:
+def control_placements(placements: +List<Space.Placement<BandItem>>, +target: Design.Box, +band: Nat) -> +List<Design.NodePlacement>:
   match placements:
     case Nil{}: Nil{}
     case Con{Space.Placement{FixedControl{key, geometry}, offset, width}, rest}:
       control_placement(key, geometry, offset, width, target, band) <> control_placements(rest, target, band)
-    case Con{Space.Placement{ControlSpacer{}, offset, width}, rest}: control_placements(rest, target, band)
+    case Con{Space.Placement{FlexibleRegion{key, minimum_height}, offset, width}, rest}:
+      Design.Box{left, top, target_width, target_height} = target
+      Design.NodePlacement{key, Design.Box{Nat.add(left, offset), top, width, band}} <> control_placements(rest, target, band)
+    case Con{Space.Placement{Spacer{minimum_width}, offset, width}, rest}: control_placements(rest, target, band)
 
-def finish_controls(result: Space.Packing<ControlItem>, target: Design.Box, band: Nat) -> ControlAllocation:
+def finish_controls(result: Space.Packing<BandItem>, target: Design.Box, band: Nat) -> ControlAllocation:
   match result:
     case Space.Insufficient{required, available}: ControlsUnsupported{required, available}
     case Space.Packed{placements, unused}: ControlsReady{control_placements(placements, target, band)}
 
-def allocate_control_band(fits: Bool, parameters: Design.LayoutParameters, +target: Design.Box,
-  +leading: +List<ControlItem>, +trailing: +List<ControlItem>, cross: Nat) -> ControlAllocation:
+def inner_band_target(target: Design.Box, +block: Nat) -> Design.Box:
+  Design.Box{left, top, width, height} = target
+  Design.Box{left, Nat.add(top, block), width, Nat.sub(height, Nat.mul(2n, block))}
+
+def allocate_band_guard(fits: Bool, +parameters: Design.LayoutParameters, +target: Design.Box,
+  +band: Band, cross: Nat) -> ControlAllocation:
   match fits:
     case False{}:
       Design.Box{left, top, width, height} = target
       ControlsUnsupported{cross, height}
     case True{}:
       Design.Box{left, top, width, +height} = target
-      finish_controls(Space.pack_container(~ControlItem, control_container(leading, trailing), width),
-        target, Nat.min(height, Nat.max(Design.toolbar_height(parameters), cross)))
+      Band{frame, items} = band
+      +block = frame_block(frame)
+      +chosen_height = Nat.min(height, Nat.max(Design.toolbar_height(parameters), cross))
+      finish_controls(Space.pack_container(~BandItem, band_container(band), width),
+        inner_band_target(target, block), Nat.sub(chosen_height, Nat.mul(2n, block)))
 
-def allocate_controls(+parameters: Design.LayoutParameters, +target: Design.Box,
-  +leading: +List<ControlItem>, +trailing: +List<ControlItem>) -> ControlAllocation:
+def allocate_band(+parameters: Design.LayoutParameters, +target: Design.Box, +band: Band) -> ControlAllocation:
   Design.Box{left, top, width, height} = target
-  +cross = Nat.max(cross_minimum(leading), cross_minimum(trailing))
-  allocate_control_band(Nat.is_le(cross, height), parameters, target, leading, trailing, cross)
+  +cross = band_cross_required(band)
+  allocate_band_guard(Nat.is_le(cross, height), parameters, target, band, cross)
+
+def allocate_control_band(fits: Bool, parameters: Design.LayoutParameters, target: Design.Box,
+  leading: +List<BandItem>, trailing: +List<BandItem>, cross: Nat) -> ControlAllocation:
+  allocate_band_guard(fits, parameters, target, root_band(leading, trailing), cross)
+
+def allocate_controls(parameters: Design.LayoutParameters, target: Design.Box,
+  leading: +List<BandItem>, trailing: +List<BandItem>) -> ControlAllocation:
+  allocate_band(parameters, target, root_band(leading, trailing))
 
 def shell_controls(+parameters: Design.LayoutParameters, shell: Design.Shell,
-  +settings: +List<ControlItem>, +toggles: +List<ControlItem>) -> ControlAllocation:
+  +settings: +List<BandItem>, +toggles: +List<BandItem>) -> ControlAllocation:
   Design.Shell{navigation, +main, details} = shell
   match navigation:
     case Design.HiddenNavigation{}: allocate_controls(parameters, main, toggles, settings)
     case Design.BesideNavigation{box}: allocate_controls(parameters, box, Nil{}, settings)
     case Design.OverlayNavigation{box}: allocate_controls(parameters, box, Nil{}, settings)
 
-def active_toggles(navigation: Design.Navigation, toggles: +List<ControlItem>) -> +List<ControlItem>:
+def active_toggles(navigation: Design.Navigation, toggles: +List<BandItem>) -> +List<BandItem>:
   match navigation:
     case Design.HiddenNavigation{}: toggles
     case _: Nil{}
@@ -501,21 +557,211 @@ def layout_controls(result: ControlAllocation, layout: Design.Layout) -> Outcome
       Design.Layout{viewport, shell, main, overlays, parameters, previous} = layout
       LayoutReady{Design.Layout{viewport, shell, main, overlays, parameters, controls}}
 
+# The title's zero inline minimum admits ellipsis; its declared text height stays required.
+def node_height(style: Design.Style) -> Nat:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = style
+  minimum_height
+
+def descendant_height(nodes: +List<Design.Node>) -> Nat:
+  match nodes:
+    case Nil{}: 0n
+    case Con{Design.Node{key, semantic, label, role, meaning, style, control, children}, rest}:
+      Nat.max(node_height(style), Nat.max(descendant_height(children), descendant_height(rest)))
+
+def action_controls(nodes: +List<Design.Node>) -> +List<BandItem>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Design.Node{key, semantic, label, role, meaning, style, control, children}, rest}:
+      selected_control(True{}, key, control,
+        List.append(&2, BandItem, action_controls(children), action_controls(rest)))
+
+def prefer_title(found: Maybe<&2, HeadingTitle>, fallback: Maybe<&2, HeadingTitle>) -> Maybe<&2, HeadingTitle>:
+  match found:
+    case Some{value}: Some{value}
+    case None{}: fallback
+
+def prefer_actions(found: Maybe<&2, HeadingActions>, fallback: Maybe<&2, HeadingActions>) -> Maybe<&2, HeadingActions>:
+  match found:
+    case Some{value}: Some{value}
+    case None{}: fallback
+
+def merge_heading(first: HeadingContent, second: HeadingContent) -> HeadingContent:
+  HeadingContent{first_title, first_actions} = first
+  HeadingContent{second_title, second_actions} = second
+  HeadingContent{prefer_title(first_title, second_title), prefer_actions(first_actions, second_actions)}
+
+def heading_node(key: String, meaning: UI.Meaning, +children: +List<Design.Node>, fallback: HeadingContent) -> HeadingContent:
+  match meaning:
+    case UI.PageRegion{Composition.ConversationTitle{}, Composition.HeadingPosition{}}:
+      merge_heading(HeadingContent{Some{HeadingTitle{key, descendant_height(children)}}, None{}}, fallback)
+    case UI.PageRegion{Composition.TaskActions{}, Composition.HeadingPosition{}}:
+      merge_heading(HeadingContent{None{}, Some{HeadingActions{key, action_controls(children)}}}, fallback)
+    case _: fallback
+
+def heading_content(nodes: +List<Design.Node>) -> HeadingContent:
+  match nodes:
+    case Nil{}: HeadingContent{None{}, None{}}
+    case Con{Design.Node{key, semantic, label, role, meaning, style, control, +children}, rest}:
+      heading_node(key, meaning, children, merge_heading(heading_content(children), heading_content(rest)))
+
+def title_items(title: Maybe<&2, HeadingTitle>) -> +List<BandItem>:
+  match title:
+    case None{}: Nil{}
+    case Some{HeadingTitle{key, minimum_height}}: [FlexibleRegion{key, minimum_height}]
+
+def heading_action_items(actions: Maybe<&2, HeadingActions>) -> +List<BandItem>:
+  match actions:
+    case None{}: Nil{}
+    case Some{HeadingActions{key, controls}}: controls
+
+def task_heading_items(content: HeadingContent) -> +List<BandItem>:
+  HeadingContent{title, actions} = content
+  List.append(&2, BandItem, title_items(title), heading_action_items(actions))
+
+def task_heading_band(+navigation: Design.Navigation, content: HeadingContent,
+  settings: +List<BandItem>, toggles: +List<BandItem>) -> Band:
+  match navigation:
+    case Design.HiddenNavigation{}:
+      Band{Enclosure.Frame{Enclosure.ambient(16n, 0n), Enclosure.EmbeddedContent{8n}},
+        List.append(&2, BandItem, toggles, List.append(&2, BandItem, task_heading_items(content), settings))}
+    case _:
+      Band{Enclosure.Frame{Enclosure.ambient(16n, 0n), Enclosure.EmbeddedContent{8n}}, task_heading_items(content)}
+
+def box_union(first: Design.Box, second: Design.Box) -> Design.Box:
+  Design.Box{+left_a, +top_a, width_a, height_a} = first
+  Design.Box{+left_b, +top_b, width_b, height_b} = second
+  +left = Nat.min(left_a, left_b)
+  +top = Nat.min(top_a, top_b)
+  Design.Box{left, top,
+    Nat.sub(Nat.max(Nat.add(left_a, width_a), Nat.add(left_b, width_b)), left),
+    Nat.sub(Nat.max(Nat.add(top_a, height_a), Nat.add(top_b, height_b)), top)}
+
+def choose_placement(matches: Bool, bounds: Design.Box, fallback: Maybe<&2, Design.Box>) -> Maybe<&2, Design.Box>:
+  match matches:
+    case True{}: Some{bounds}
+    case False{}: fallback
+
+def placement_bounds(+key: String, placements: +List<Design.NodePlacement>) -> Maybe<&2, Design.Box>:
+  match placements:
+    case Nil{}: None{}
+    case Con{Design.NodePlacement{node_key, bounds}, rest}:
+      choose_placement(String.eq(key, node_key), bounds, placement_bounds(key, rest))
+
+def union_member(found: Maybe<&2, Design.Box>, accumulated: Maybe<&2, Design.Box>) -> Maybe<&2, Design.Box>:
+  match found accumulated:
+    case None{} _: accumulated
+    case Some{bounds} None{}: Some{bounds}
+    case Some{bounds} Some{previous}: Some{box_union(bounds, previous)}
+
+def choose_actual_placement(matches: Bool, placement: Design.NodePlacement,
+  fallback: Maybe<&2, Design.NodePlacement>) -> Maybe<&2, Design.NodePlacement>:
+  match matches:
+    case True{}: Some{placement}
+    case False{}: fallback
+
+def actual_placement(+key: String, placements: +List<Design.NodePlacement>) -> Maybe<&2, Design.NodePlacement>:
+  match placements:
+    case Nil{}: None{}
+    case Con{+placement, rest}:
+      Design.NodePlacement{node_key, bounds} = placement
+      choose_actual_placement(String.eq(key, node_key), placement, actual_placement(key, rest))
+
+def prepend_actual_placement(found: Maybe<&2, Design.NodePlacement>,
+  rest: +List<Design.NodePlacement>) -> +List<Design.NodePlacement>:
+  match found:
+    case None{}: rest
+    case Some{placement}: placement <> rest
+
+def action_group_nodes(items: +List<BandItem>, +placements: +List<Design.NodePlacement>) -> +List<Design.NodePlacement>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{FixedControl{key, geometry}, rest}:
+      prepend_actual_placement(actual_placement(key, placements), action_group_nodes(rest, placements))
+    case Con{item, rest}: action_group_nodes(rest, placements)
+
+def placed_group_bounds(actual: +List<Design.NodePlacement>) -> Maybe<&2, Design.Box>:
+  match actual:
+    case Nil{}: None{}
+    case Con{Design.NodePlacement{key, bounds}, rest}:
+      union_member(Some{bounds}, placed_group_bounds(rest))
+
+def action_group_bounds(items: +List<BandItem>, placements: +List<Design.NodePlacement>) -> Maybe<&2, Design.Box>:
+  placed_group_bounds(action_group_nodes(items, placements))
+
+def group_bounds(found: Maybe<&2, Design.Box>, target: Design.Box) -> Design.Box:
+  match found:
+    case Some{bounds}: bounds
+    case None{}:
+      Design.Box{left, top, width, height} = target
+      Design.Box{left, top, 0n, 0n}
+
+def group_heading_actions(actions: Maybe<&2, HeadingActions>, +target: Design.Box,
+  +placements: +List<Design.NodePlacement>) -> +List<Design.NodePlacement>:
+  match actions:
+    case None{}: placements
+    case Some{HeadingActions{key, items}}:
+      List.append(&2, Design.NodePlacement, placements,
+        [Design.NodePlacement{key, group_bounds(action_group_bounds(items, placements), target)}])
+
+def finish_task_heading(result: ControlAllocation, content: HeadingContent, target: Design.Box) -> ControlAllocation:
+  match result:
+    case ControlsUnsupported{required, available}: ControlsUnsupported{required, available}
+    case ControlsReady{placements}:
+      HeadingContent{title, actions} = content
+      ControlsReady{group_heading_actions(actions, target, placements)}
+
+def append_allocation(first: ControlAllocation, second: ControlAllocation) -> ControlAllocation:
+  match first second:
+    case ControlsUnsupported{required, available} _: ControlsUnsupported{required, available}
+    case ControlsReady{first_placements} ControlsUnsupported{required, available}: ControlsUnsupported{required, available}
+    case ControlsReady{first_placements} ControlsReady{second_placements}:
+      ControlsReady{List.append(&2, Design.NodePlacement, first_placements, second_placements)}
+
+def task_navigation_controls(parameters: Design.LayoutParameters, navigation: Design.Navigation,
+  settings: +List<BandItem>) -> ControlAllocation:
+  match navigation:
+    case Design.HiddenNavigation{}: ControlsReady{Nil{}}
+    case Design.BesideNavigation{box}: allocate_controls(parameters, box, Nil{}, settings)
+    case Design.OverlayNavigation{box}: allocate_controls(parameters, box, Nil{}, settings)
+
+def task_page_controls(+parameters: Design.LayoutParameters, +shell: Design.Shell,
+  +content: HeadingContent, +settings: +List<BandItem>, +toggles: +List<BandItem>) -> ControlAllocation:
+  Design.Shell{+navigation, +main, details} = shell
+  +target = heading_box(parameters, main)
+  append_allocation(task_navigation_controls(parameters, navigation, settings),
+    finish_task_heading(allocate_band(parameters, target,
+      task_heading_band(navigation, content, settings, toggles)), content, target))
+
+def page_controls(+parameters: Design.LayoutParameters, +shell: Design.Shell, page: Composition.Page,
+  +content: HeadingContent, +settings: +List<BandItem>, +toggles: +List<BandItem>) -> ControlAllocation:
+  match page:
+    case Composition.Conversation{composer, approvals, return_latest}:
+      task_page_controls(parameters, shell, content, settings, toggles)
+    case _: shell_controls(parameters, shell, settings, toggles)
+
+def page_cross_required(+navigation: Design.Navigation, +page: Composition.Page,
+  content: HeadingContent, +settings: +List<BandItem>, +toggles: +List<BandItem>) -> Nat:
+  match page:
+    case Composition.Conversation{composer, approvals, return_latest}:
+      Nat.max(band_cross_required(root_band(active_toggles(navigation, toggles), settings)),
+        band_cross_required(task_heading_band(navigation, content, settings, toggles)))
+    case _: band_cross_required(root_band(active_toggles(navigation, toggles), settings))
+
 def prepare_shell_controls(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
   +overlays: +List<UI.Node>, +shell: Design.Shell, navigation: V.NavigationPlacement,
-  +page: Composition.Page, +layers: +List<V.Layer>, +settings: +List<ControlItem>, +toggles: +List<ControlItem>) -> Outcome:
+  +page: Composition.Page, +layers: +List<V.Layer>, +content: HeadingContent, +settings: +List<BandItem>, +toggles: +List<BandItem>) -> Outcome:
   Design.Shell{+shell_navigation, main, details} = shell
   +selected = active_toggles(shell_navigation, toggles)
-  +adapted = adapt_parameters(parameters, Nat.max(cross_minimum(settings), cross_minimum(selected)))
-  layout_controls(shell_controls(adapted, shell, settings, selected),
+  +adapted = adapt_parameters(parameters, page_cross_required(shell_navigation, page, content, settings, selected))
+  layout_controls(page_controls(adapted, shell, page, content, settings, selected),
     layout_with_shell(adapted, viewport, surface, overlays, shell, navigation, page, layers))
 
 def outcome_with_shell(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
   overlays: +List<UI.Node>, navigation: V.NavigationPlacement, page: Composition.Page, layers: +List<V.Layer>,
-  settings: +List<ControlItem>, toggles: +List<ControlItem>, result: ViewportSpace.Result) -> Outcome:
+  content: HeadingContent, settings: +List<BandItem>, toggles: +List<BandItem>, result: ViewportSpace.Result) -> Outcome:
   match result:
     case ViewportSpace.Allocated{shell}:
-      prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, settings, toggles)
+      prepare_shell_controls(parameters, viewport, surface, overlays, shell, navigation, page, layers, content, settings, toggles)
     case ViewportSpace.Unsupported{required, available}: LayoutUnsupported{required, available}
 
 def present_semantic(+parameters: Design.LayoutParameters, +viewport: Design.Viewport,
@@ -526,7 +772,7 @@ def present_semantic(+parameters: Design.LayoutParameters, +viewport: Design.Vie
   V.Arrangement{+navigation} = arrangement
   page = V.scene_page(view)
   requested_side_pane = requested_details(parameters, viewport, navigation, overlays)
-  outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
+  outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers, heading_content(actual_base),
     collect_controls(actual_base, True{}), collect_controls(actual_base, False{}),
     shell(parameters, viewport, navigation, requested_side_pane))
 

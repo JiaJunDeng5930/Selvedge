@@ -57,7 +57,7 @@ def available(catalog: +List<D.Tool>, +tool: D.Tool) -> Bool:
   match catalog:
     case Nil{}: False{}
     case Con{+entry, rest}:
-      (String.eq(D.tool_name(entry), D.tool_name(tool)) && D.source_same(D.tool_source(entry), D.tool_source(tool))) || available(rest, tool)
+      D.tool_same(entry, tool) || available(rest, tool)
 
 def add_name(keep: Bool, name: String, rest: +List<String>) -> +List<String>:
   match keep:

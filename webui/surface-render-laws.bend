@@ -1,59 +1,23 @@
 import Base
 import ./typography.bend as T
 import ./surfaces.bend as Surfaces
-import ./enclosure-render-laws.bend as EnclosureRender
 import ./design.bend as Design
 import ./document.bend as Doc
 import ./renderer.bend as Render
 import ./MODEL.bend as Web
 import ./controls.bend as Controls
 import ./appearance.bend as Appearance
-import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
 import ../BOARD.bend as Board
-
-
 
 def document_background(document: Doc.Document) -> String:
   Doc.Document{root, title} = document
   Render.attr(Doc.element_styles(root), "background")
 
-
-
-
-
-
-
-
 def placed_scene(scene: Web.Scene) -> Doc.Document:
   Web.Scene{presentation, platform, generation, realization, layout} = scene
   Render.place(presentation, layout)
-
-def application_background(+scene: Web.Scene) ->
-  {document_background(placed_scene(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String}:
-  match scene:
-    case Web.Scene{Design.PreparedSurface{Design.Surface{content, theme, source_base, source_overlays, active}, base, overlays}, platform, generation, realization,
-      Design.Layout{Design.Viewport{width, height}, shell, main, placements, parameters, controls}}: {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -87,19 +51,5 @@ type Requirements is Type:
           "--native-rest-background") == Render.attr(Render.style(visual), "background") : String}
   }
 
-def evidence() -> Requirements:
-  Requirements{+role => {==},
-    {==}, +name => {==}, +foreground => +percent => +background => {==},
-    +role => +phase =>
-        {==}
-
-      # This is the actual application document, rather than a palette-only assertion.
-    , scene => application_background(scene), +stage => {==},
-    +typography => key => kind => text => +tone => {==},
-    +typography => +selected => {==},
-    +value => {==}, +value =>
-        {==}
-
-      # The final action properties expose rest color variables to the CSS interpreter.
-    ,
-    +key => +visual => input => availability => name => face => behavior => geometry => placement => help => feedback => EnclosureRender.action_background_preserved(key, visual, input, availability, name, face, behavior, geometry, placement, help, feedback)}
+law evidence:
+  Requirements

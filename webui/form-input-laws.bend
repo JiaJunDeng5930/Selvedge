@@ -3,15 +3,12 @@ import ../core/form-fields.bend as Forms
 import ../core/field-options.bend as Options
 import ../core/interface.bend as UI
 import ../core/user-input.bend as User
-import ../core/user-context.bend as Context
-import ../MODEL.bend as Model
 import ../BOARD.bend as Board
 import ./controls.bend as Controls
 import ./renderer.bend as Renderer
 import ./browser.bend as Browser
 import ./document.bend as Doc
 
-# Locate the actual labels field within the production form sections.
 def labels_in_fields(values: +List<Forms.FieldScene>) -> Maybe<&2, Forms.Entry>:
   match values:
     case Nil{}: None{}
@@ -27,50 +24,6 @@ def labels_in_sections(values: +List<Forms.Section>) -> Maybe<&2, Forms.Entry>:
   match values:
     case Nil{}: None{}
     case Con{Forms.Section{label, fields}, rest}: labels_or_rest(labels_in_fields(fields), labels_in_sections(rest))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -138,26 +91,5 @@ type Requirements is Type:
       {Renderer.field_options(key, Options.field_options(Forms.CardPriority{}, value)) ==
     Renderer.field_options(key, Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}])) : +List<Doc.Node>}}
 
-def evidence() -> Requirements:
-  Requirements{
-    id => revision => draft => assist => profile => keep_open => {==},
-    editor => value => +text => state => {==},
-    values => title => description => stage => priority => owner => project => previous => attachments => {==},
-    values => {==},
-    choices => key => editor => values => label => role => context => {==},
-    values => {==},
-    choices => key => editor => enabled => profile => label => role => context => {==},
-    choices => key => editor => enabled => profile => label => role => context => {==},
-    choices => editor => enabled => profile => {==},
-    key => {==},
-    choices => key => semantic => label => role => editor => previous => profile => children => enabled => {==},
-    enabled => selected => previous => profile => {==},
-    enabled => selected => previous => profile => {==},
-    stage => rest => {==},
-    priority => rest => {==},
-    value => {==},
-    value => {==},
-    key => stage => rest => {==},
-    key => priority => rest => {==},
-    key => value => {==},
-    key => value => {==}}
+law evidence:
+  Requirements

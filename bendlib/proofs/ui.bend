@@ -2,8 +2,6 @@ import Base
 import ../architecture.bend as Architecture
 import ../../core/contract.bend as Contract
 import ../../core/SYSTEM.bend as Core
-import ../../core/laws.bend as CoreLaws
-import ../../core/interface.bend as Interface
 import ./conversation.bend as Conversation
 import ../../core/surface-laws.bend as SurfaceLaws
 import ../../core/session-laws.bend as SessionLaws
@@ -17,13 +15,16 @@ import ../../core/execution-context-laws.bend as ExecutionContextLaws
 import ../../core/project-interaction-laws.bend as ProjectInteractionLaws
 import ../../core/directory-entry-laws.bend as DirectoryEntryLaws
 import ../../core/submission-feedback-laws.bend as SubmissionFeedbackLaws
+import ../../core/proofs/laws.bend as CoreLawsProof
+import ../../core/proofs/submission.bend as CoreSubmissionProof
+import ../../core/interface-rules.bend as InterfaceRules
 
 def Architecture.surface():
   Contract.Requirements{
     SurfaceLaws.evidence(), SessionLaws.evidence(), SubmissionLaws.evidence(), BoundaryLaws.evidence(), CompositionLaws.evidence(),
-    ConversationPresentationLaws.evidence(), BoardPresentationLaws.evidence(), BoardCapabilityLaws.evidence(), ExecutionContextLaws.evidence(), ProjectInteractionLaws.evidence(), DirectoryEntryLaws.evidence(), SubmissionFeedbackLaws.evidence(), SubmissionLaws.reopen_evidence(),
-    input => program => session => services => CoreLaws.runtime_input(input, program, session, services),
-    capacity => +state => Interface.assembled_content(Core.observe(capacity, state), state),
+    ConversationPresentationLaws.evidence(), BoardPresentationLaws.evidence(), BoardCapabilityLaws.evidence(), ExecutionContextLaws.evidence(), ProjectInteractionLaws.evidence(), DirectoryEntryLaws.evidence(), SubmissionFeedbackLaws.evidence(), CoreSubmissionProof.reopen_evidence(),
+    input => program => session => services => CoreLawsProof.runtime_input(input, program, session, services),
+    capacity => +state => InterfaceRules.assembled_content(Core.observe(capacity, state), state),
     reader => task => world => Conversation.timeline_history(reader, task, world),
     messages => offset => Conversation.grouped_history(messages, offset),
     groups => task => disclosures => Conversation.visible_history(groups, task, disclosures),

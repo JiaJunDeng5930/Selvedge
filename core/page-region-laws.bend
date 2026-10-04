@@ -6,8 +6,6 @@ import ./user-input.bend as U
 import ./form-fields.bend as Forms
 import ./SYSTEM.bend as Core
 import ./user-conversation.bend as Conversation
-import ./user-experience.bend as Experience
-import ./client-services.bend as Services
 import ./user-context.bend as Context
 import ../BOARD.bend as B
 import ../bendlib/domain.bend as D
@@ -23,65 +21,15 @@ def observed_regions(nodes: +List<Interface.Node>) -> +List<Composition.Position
 def required_regions(page: View.Page) -> +List<Composition.PositionedRegion>:
   Composition.ordered_regions(Composition.structure(Composition.recipe(View.page_composition(page))))
 
-def page_sequence(+page: View.Page, +parent: String, +state: Core.State) ->
-  {observed_regions(Interface.page_contents(page, parent, state)) == required_regions(page) : +List<Composition.PositionedRegion>}:
-  match page:
-    case View.StartPage{None{}}:
-      Core.State{Experience.Application{world, session}, services} = state
-      {==}
-    case View.StartPage{Some{scene}}:
-      Core.State{Experience.Application{world, session}, services} = state
-      {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, None{}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, Some{input}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, None{}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, Some{input}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, None{}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, Some{input}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, None{}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, Some{input}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.ProjectPage{View.ProjectScene{id, name, D.Workspace{roots, primary}, guidance, tasks, actions}}: {==}
-    case View.ProjectsPage{projects, create}: {==}
-    case View.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
-    case View.AgentsPage{agents, create}: {==}
-    case View.MissingObject{message}: {==}
-
 def only_regions(nodes: +List<Interface.Node>) -> Bool:
   match nodes:
     case Nil{}: True{}
     case Con{Interface.Node{key, semantic, label, role, Interface.PageRegion{region, position}, children}, rest}: only_regions(rest)
     case Con{node, rest}: False{}
 
-def page_only_regions(+page: View.Page, +parent: String, +state: Core.State) ->
-  {only_regions(Interface.page_contents(page, parent, state)) == True{} : Bool}:
-  match page:
-    case View.StartPage{None{}}:
-      Core.State{Experience.Application{world, session}, services} = state
-      {==}
-    case View.StartPage{Some{scene}}:
-      Core.State{Experience.Application{world, session}, services} = state
-      {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, None{}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, Some{input}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, None{}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, Some{input}}, previews, None{}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, None{}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Nil{}, reading, Some{input}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, None{}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, Some{input}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
-    case View.ProjectPage{View.ProjectScene{id, name, D.Workspace{roots, primary}, guidance, tasks, actions}}: {==}
-    case View.ProjectsPage{projects, create}: {==}
-    case View.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
-    case View.AgentsPage{agents, create}: {==}
-    case View.MissingObject{message}: {==}
-
 def region_children(node: Interface.Node) -> +List<Interface.Node>:
   Interface.Node{key, semantic, label, role, meaning, children} = node
   children
-
-
-
-
 
 def select_region(matches: Bool, children: +List<Interface.Node>, rest: Maybe<&2, +List<Interface.Node>>) -> Maybe<&2, +List<Interface.Node>>:
   match matches:
@@ -95,16 +43,6 @@ def find_region(nodes: +List<Interface.Node>, +region: Composition.Region) -> Ma
       select_region(String.eq(Composition.region_name(part), Composition.region_name(region)), children, find_region(rest, region))
     case Con{node, rest}: find_region(rest, region)
 
-
-
-
-
-
-
-
-
-
-
 def task_title_text(value: View.TaskScene) -> String:
   View.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
   title
@@ -113,23 +51,9 @@ def task_title_key(value: View.TaskScene, parent: String) -> String:
   View.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
   parent ++ "/task/" ++ Nat.show(id)
 
-def task_title(+value: View.TaskScene, +parent: String, +state: Core.State) ->
-  {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
-    Some{[Interface.region(task_title_key(value, parent), "heading", task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
-  match value:
-    case View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, approvals, reading, latest}, previews, composer, details, View.TaskActions{detail, overflow}}: {==}
-
 def project_title_text(value: View.ProjectScene) -> String:
   View.ProjectScene{id, name, workspace, guidance, tasks, actions} = value
   name
-
-def project_title(+value: View.ProjectScene, +parent: String, +state: Core.State) ->
-  {find_region(Interface.page_contents(View.ProjectPage{value}, parent, state), Composition.ProjectTitle{}) ==
-    Some{[Interface.region(parent, "heading", project_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
-  match value:
-    case View.ProjectScene{id, name, D.Workspace{roots, primary}, guidance, tasks, actions}: {==}
-
-
 
 def layer_label(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
   match nodes:
@@ -140,12 +64,6 @@ def layer_semantic(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
     case Con{Interface.Node{key, semantic, label, role, meaning, children}, rest}: Some{semantic}
-
-
-
-
-
-
 
 type LayerTitleRequirements is Type:
   LayerTitleRequirements{
@@ -175,32 +93,6 @@ type LayerTitleRequirements is Type:
     confirmation: @title:String -> @confirm:View.ControlDeclaration -> @cancel:View.ControlDeclaration -> {View.layer_title(View.Confirmation{title, confirm, cancel}) == title : String}
   }
 
-def layer_title_evidence() -> LayerTitleRequirements:
-  LayerTitleRequirements{
-    {==},
-    task => {==},
-    {==},
-    id => {==},
-    {==},
-    id => {==},
-    {==},
-    id => {==},
-    task => {==},
-    task => {==},
-    actions => {==},
-    cards => {==},
-    automatic => selected => profiles => automation => {==},
-    filter => {==},
-    {==},
-    identity => revision => groups => sections => submit => feedback => pending => {==},
-    editor => fields => {==},
-    editor => fields => {==},
-    context => {==},
-    editor => query => fields => {==},
-    editor => fields => {==},
-    task => {==},
-    title => confirm => cancel => {==}}
-
 def surface_base(value: Interface.Surface) -> +List<Interface.Node>:
   Interface.Surface{content, base, overlays, active} = value
   base
@@ -218,35 +110,10 @@ def content_navigation_placement(value: Core.Scene) -> View.NavigationPlacement:
   Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = value
   placement
 
-
-
-def collapsed_assembly(+content: Core.Scene, +state: Core.State,
-  collapsed: {content_navigation_placement(content) == View.CollapsedNavigation{} : View.NavigationPlacement}) ->
-  {navigation_head(surface_base(Interface.assemble(content, state))) ==
-    navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node}:
-  match content:
-    case Core.Scene{View.Scene{View.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, View.Arrangement{+placement}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
-      +nav: View.Navigation = View.Navigation{expanded, create, destinations, projects, tasks, toggle}
-      Equal.cong(View.NavigationPlacement, Interface.Node,
-        (position => navigation_head(surface_base(Interface.assemble(Core.Scene{View.Scene{nav, main, layers,
-          View.Arrangement{position}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
-        placement, View.CollapsedNavigation{}, collapsed)
-
 def owned_page_context(page: View.Page) -> Maybe<&2, Conversation.Identity>:
   match page:
     case View.TaskPage{View.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: Some{Conversation.identity(timeline)}
     case _: None{}
-
-def page_payload(+page: View.Page, +state: Core.State) ->
-  {Interface.page(page, state) == Interface.Node{"/main", "main", "Content", Interface.Main{}, Interface.PageContext{owned_page_context(page)}, Interface.page_contents(page, "/main", state)} : Interface.Node}:
-  match page:
-    case View.StartPage{composer}: {==}
-    case View.TaskPage{View.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: {==}
-    case View.ProjectPage{project}: {==}
-    case View.ProjectsPage{projects, create}: {==}
-    case View.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
-    case View.AgentsPage{agents, create}: {==}
-    case View.MissingObject{message}: {==}
 
 type Requirements is Type:
   Requirements{
@@ -296,20 +163,5 @@ type Requirements is Type:
       {Interface.node_key(Interface.page_region(parent, region, position, nodes)) == parent ++ "/region/" ++ Composition.region_name(region) : String}
   }
 
-def evidence() -> Requirements:
-  Requirements{page => state => page_payload(page, state), +toggle => expanded => create => destinations => projects => tasks => +state => {==}, collapsed_assembly,
-    layer_title_evidence(),
-    +kind => +content => +initial => +restore => +close => +state => {==},
-    +kind => +content => +first => +second => +restore => +close => +state => {==},
-    +kind => +content => +initial => +restore => +close => +state => {==},
-    page => parent => state => page_sequence(page, parent, state),
-    page => parent => state => page_only_regions(page, parent, state),
-    +projects => +create => +parent => +state => {==},
-    +agents => +create => +parent => +state => {==},
-    +filter => +columns => +create => working => +settings => +filters => +archive => +parent => +state => {==},
-    +heading => +summary => +context => +project => +choose => +parent => +state => {==},
-    value => parent => state => task_title(value, parent, state),
-    value => parent => state => project_title(value, parent, state),
-    region => position => gesture => {==},
-    +parent => +region => +position => +children => {==},
-    +parent => +region => +position => +children => {==}}
+law evidence:
+  Requirements

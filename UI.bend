@@ -63,15 +63,3 @@ def step(input: Input, state: Core.State) -> Core.Decision:
     case AttachmentRead{ticket, result}: Core.step(Core.ServiceInput{Services.Previewed{ticket, result}}, state)
 
 # Preserve the entire Core decision, including every effect channel.
-def interface_input(+input: Core.Input, +state: Core.State) ->
-  {step(InterfaceInput{input}, state) == Core.step(input, state) : Core.Decision}:
-  {==}
-
-type InterfaceRequirements is Type:
-  InterfaceRequirements{
-    interface_input: @+input:Core.Input -> @+state:Core.State ->
-      {step(InterfaceInput{input}, state) == Core.step(input, state) : Core.Decision}
-  }
-
-def interface_evidence() -> InterfaceRequirements:
-  InterfaceRequirements{interface_input}

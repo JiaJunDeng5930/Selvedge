@@ -4,7 +4,6 @@ import ./code-block.bend as Content
 import ./live-output.bend as Live
 import ../MODEL.bend as M
 import ../PROGRAM.bend as Program
-import ../COMMANDS.bend as Commands
 import ../PROJECTS.bend as Projects
 import ../WORKSPACE.bend as W
 import ../BOARD.bend as B
@@ -14,7 +13,6 @@ import ../bendlib/domain.bend as D
 import ../bendlib/component.bend as C
 import ../bendlib/association-map.bend as Finite
 import ../bendlib/board-state.bend as Board
-import ../bendlib/tasks.bend as Tasks
 import ../bendlib/json.bend as J
 import ../bendlib/command-codec.bend as CommandCodec
 import ./user-context.bend as Context

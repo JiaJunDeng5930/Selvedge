@@ -124,6 +124,16 @@ type Geometry is Data:
   Geometry{demand: Space.Demand, icon_size: Nat,
     radius: Nat, leading_slot: Nat}
 
+# Icon controls expose the square footprint consumed by layout and rendering.
+def face_demand(face: Face, demand: Space.Demand) -> Space.Demand:
+  match face:
+    case IconFace{icon}:
+      Space.Demand{Enclosure.Extent{width, height}, Enclosure.Extent{preferred_width, preferred_height}} = demand
+      +minimum = Nat.max(width, height)
+      +preferred = Nat.max(preferred_width, preferred_height)
+      Space.Demand{Enclosure.Extent{minimum, minimum}, Enclosure.Extent{preferred, preferred}}
+    case _: demand
+
 type ContentAlignment is Data:
   CenterContents{}
   LeadingContents{}

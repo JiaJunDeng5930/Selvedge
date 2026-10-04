@@ -359,17 +359,9 @@ def action_geometry(size: Controls.Geometry, visual: Design.Style) -> +List<Doc.
   Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading} = size
   [property("min-width", px(width)), property("--native-icon-size", px(icon_size)), property("--native-leading-slot", px(leading))]
 
-def greater_extent(less: Bool, width: Nat, height: Nat) -> Nat:
-  match less:
-    case True{}: height
-    case False{}: width
-
-def square_extent(+width: Nat, +height: Nat) -> Nat:
-  greater_extent(Nat.is_lt(width, height), width, height)
-
 def icon_content_extent(size: Controls.Geometry) -> +List<Doc.Property>:
   Controls.Geometry{Space.Demand{Enclosure.Extent{+width, +height}, preferred}, icon_size, radius, leading} = size
-  [property("width", px(square_extent(width, height))), property("height", px(square_extent(width, height))), property("flex-shrink", "0"), property("box-sizing", "border-box")]
+  [property("width", px(width)), property("height", px(height)), property("flex-shrink", "0"), property("box-sizing", "border-box")]
 
 def content_extent(face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Property>:
   match face:
@@ -1357,9 +1349,9 @@ def page_region_styles(region: Composition.Region) -> +List<Doc.Property>:
     case Composition.ProjectActions{}:
       [property("display", "flex"), property("flex-wrap", "wrap"), property("gap", "8px"), property("min-width", "0")]
     case Composition.ConversationTitle{}:
-      [property("display", "flex"), property("flex-direction", "column"), property("flex", "1"), property("min-width", "0")]
+      [property("display", "flex"), property("flex-direction", "column"), property("justify-content", "center"), property("min-width", "0")]
     case Composition.TaskActions{}:
-      [property("display", "flex"), property("gap", "8px"), property("flex-shrink", "0")]
+      [property("display", "flex")]
     case _:
       [property("display", "flex"), property("flex-direction", "column"), property("min-width", "0")]
 
@@ -1470,7 +1462,7 @@ def conversation_heading_nodes(children: +List<Doc.Node>) -> +List<Doc.Node>:
   Std.map(~Doc.Node, ~Doc.Node, ~conversation_heading_region, page_nodes(children, "heading"))
 
 def conversation_heading_styles(+heading: Design.Box) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, bounds(heading), [property("display", "flex"), property("align-items", "center"), property("justify-content", "space-between"), property("gap", "16px"), property("padding", "0 16px"), property("padding-right", "56px"), property("box-sizing", "border-box"), property("z-index", "5")])
+  List.append(&2, Doc.Property, bounds(heading), [property("z-index", "5")])
 
 def conversation_dock_styles(dock: Maybe<&2, Design.Dock>) -> +List<Doc.Property>:
   match dock:
@@ -1632,7 +1624,7 @@ def prepare_board(+children: +List<Doc.Node>) -> +List<Doc.Node>:
      page_group("board-dock", "dock", [property("flex", "none")], page_nodes(children, "dock"))]}]
 
 def prepare_conversation(+children: +List<Doc.Node>, +identity: Maybe<&2, Conversation.Identity>) -> +List<Doc.Node>:
-  [page_group("conversation-heading", "heading", [property("display", "flex"), property("align-items", "center"), property("justify-content", "space-between"), property("gap", "16px"), property("padding", "0 16px"), property("padding-right", "56px"), property("box-sizing", "border-box"), property("z-index", "5")], conversation_heading_nodes(children)),
+  [page_group("conversation-heading", "heading", [property("z-index", "5")], conversation_heading_nodes(children)),
    reading_element("conversation-body", "conversation-body", "div", [property("data-region", "conversation-body"), property("data-page-group", "body")],
      [property("display", "flex"), property("flex-direction", "column"), property("gap", "16px"), property("overflow-y", "auto")], Nil{}, page_nodes(children, "body"), identity),
    reading_element("dock", "conversation-dock", "div", [property("data-region", "dock"), property("data-page-group", "dock")],
@@ -2015,37 +2007,56 @@ def place_tree(value: Doc.Node, +frame: Design.MainFrame) -> Doc.Node:
     case Doc.Portal{key, target, children}: Doc.Portal{key, target, place_children(children, False{}, frame)}
     case other: other
 
-def control_bounds_match(found: Bool, box: Design.Box,
+def node_bounds_match(found: Bool, box: Design.Box,
   rest: Maybe<&2, Design.Box>) -> Maybe<&2, Design.Box>:
   match found:
     case True{}: Some{box}
     case False{}: rest
 
-def control_bounds(+key: String, controls: +List<Design.ControlPlacement>) -> Maybe<&2, Design.Box>:
-  match controls:
+def node_bounds(+key: String, placements: +List<Design.NodePlacement>) -> Maybe<&2, Design.Box>:
+  match placements:
     case Nil{}: None{}
-    case Con{Design.ControlPlacement{source, box}, rest}:
-      control_bounds_match(String.eq(key, source), box, control_bounds(key, rest))
+    case Con{Design.NodePlacement{source, box}, rest}:
+      node_bounds_match(String.eq(key, source), box, node_bounds(key, rest))
 
-def allocated_base_styles(found: Maybe<&2, Design.Box>, role: UI.Role,
-  navigation: Design.Navigation, main: Design.Box) -> +List<Doc.Property>:
+def allocated_node_styles(found: Maybe<&2, Design.Box>) -> +List<Doc.Property>:
   match found:
     case Some{box}: List.append(&2, Doc.Property, bounds(box), [property("z-index", "6")])
-    case None{}: base_role_styles(role, navigation, main)
+    case None{}: Nil{}
 
-def base_shell_styles(key: String, role: UI.Role, shell: Design.Shell,
-  controls: +List<Design.ControlPlacement>) -> +List<Doc.Property>:
+def node_placement_styles(key: String, placements: +List<Design.NodePlacement>) -> +List<Doc.Property>:
+  allocated_node_styles(node_bounds(key, placements))
+
+# NOTE: Allocated boxes already use viewport coordinates, including nested nodes.
+def apply_placement_children(values: +List<Doc.Node>, +placements: +List<Design.NodePlacement>) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Doc.Element{+key, tag, attrs, styles, events, children}, rest}:
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, node_placement_styles(key, placements)), events,
+        apply_placement_children(children, placements)} <> apply_placement_children(rest, placements)
+    case Con{Doc.Portal{key, target, children}, rest}:
+      Doc.Portal{key, target, apply_placement_children(children, placements)} <> apply_placement_children(rest, placements)
+    case Con{other, rest}: other <> apply_placement_children(rest, placements)
+
+def apply_placements(value: Doc.Node, +placements: +List<Design.NodePlacement>) -> Doc.Node:
+  match value:
+    case Doc.Element{+key, tag, attrs, styles, events, children}:
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, node_placement_styles(key, placements)), events,
+        apply_placement_children(children, placements)}
+    case Doc.Portal{key, target, children}: Doc.Portal{key, target, apply_placement_children(children, placements)}
+    case other: other
+
+def base_shell_styles(role: UI.Role, shell: Design.Shell) -> +List<Doc.Property>:
   Design.Shell{navigation, main, details} = shell
-  allocated_base_styles(control_bounds(key, controls), role, navigation, main)
+  base_role_styles(role, navigation, main)
 
-def place_base_shell_node(key: String, role: UI.Role, value: Doc.Node, shell: Design.Shell,
-  controls: +List<Design.ControlPlacement>) -> Doc.Node:
-  replace_styles(value, base_shell_styles(key, role, shell, controls))
+def place_base_shell_node(role: UI.Role, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
+  replace_styles(value, base_shell_styles(role, shell))
 
 def place_base_node(value: Design.Node, document: Doc.Node, layout: Design.Layout) -> Doc.Node:
   Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
   Design.Layout{viewport, shell, main_frame, placements, parameters, controls} = layout
-  place_base_shell_node(key, role, place_tree(document, main_frame), shell, controls)
+  apply_placements(place_base_shell_node(role, place_tree(document, main_frame), shell), controls)
 
 def place_base(values: +List<Design.Node>, documents: +List<Doc.Node>, +layout: Design.Layout) -> +List<Doc.Node>:
   match values documents:

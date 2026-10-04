@@ -8,81 +8,6 @@ import ../BOARD.bend as Board
 import ../core/interface.bend as UI
 import ../core/form-fields.bend as Forms
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def input_phase(phase: Surfaces.Phase, +typography: T.Presentation) ->
-  {Appearance.phase_background(Appearance.editable_field(typography), phase) == Design.SurfacePaint{Surfaces.Field{}, phase} : Design.Paint}:
-  match phase:
-    case Surfaces.Rest{}: {==}
-    case Surfaces.Hovered{}: {==}
-    case Surfaces.Pressed{}: {==}
-
-def message_phase(entry: Forms.Entry, phase: Surfaces.Phase, +typography: T.Presentation) ->
-  {Appearance.phase_background(Appearance.widget_field_style(Controls.MessageInput{}, entry, typography), phase) == Design.SurfacePaint{Surfaces.EmbeddedField{}, phase} : Design.Paint}:
-  match phase:
-    case Surfaces.Rest{}: {==}
-    case Surfaces.Hovered{}: {==}
-    case Surfaces.Pressed{}: {==}
-
-
-
-def selected_control_phase(value: Design.Style, phase: Surfaces.Phase, +typography: T.Presentation) ->
-  {Appearance.phase_background(Appearance.selection_style(value, Controls.Radio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}:
-  match phase:
-    case Surfaces.Rest{}: {==}
-    case Surfaces.Hovered{}: {==}
-    case Surfaces.Pressed{}: {==}
-
-def toggle_control_phase(value: Design.Style, phase: Surfaces.Phase, +typography: T.Presentation) ->
-  {Appearance.phase_background(Appearance.selection_style(value, Controls.Toggle{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}:
-  match phase:
-    case Surfaces.Rest{}: {==}
-    case Surfaces.Hovered{}: {==}
-    case Surfaces.Pressed{}: {==}
-
-def menu_choice_phase(value: Design.Style, phase: Surfaces.Phase, +typography: T.Presentation) ->
-  {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}:
-  match phase:
-    case Surfaces.Rest{}: {==}
-    case Surfaces.Hovered{}: {==}
-    case Surfaces.Pressed{}: {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 type Requirements is Type:
   Requirements{
     ordinary_foreground: {Surfaces.foreground(Surfaces.QuietAction{}) == Surfaces.Token{"--color-token-text-primary"} : Surfaces.Color},
@@ -111,24 +36,5 @@ type Requirements is Type:
     toggle_control_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.Toggle{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint},
     menu_choice_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}}
 
-def evidence() -> Requirements:
-  Requirements{{==}, {==}, {==}, selected => {==}, {==}, {==}, {==},
-
-    phase => {==},
-    phase => {==},
-    phase => {==},
-    {==},
-    {==},
-    {==},
-    +typography => meaning => {==},
-    +typography => meaning => {==},
-    +typography => meaning => {==},
-    +typography => meaning => {==},
-    +typography => meaning => {==},
-    +typography => meaning => {==},
-    +typography => phase => input_phase(phase, typography),
-    +typography => entry => phase => message_phase(entry, phase, typography),
-    +typography => filter => {==},
-    +typography => value => phase => selected_control_phase(value, phase, typography),
-    +typography => value => phase => toggle_control_phase(value, phase, typography),
-    +typography => value => phase => menu_choice_phase(value, phase, typography)}
+law evidence:
+  Requirements

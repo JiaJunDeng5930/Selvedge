@@ -281,7 +281,7 @@ have been configured but were not run as part of this local task.
 ## 2026-09-24: extend the migrated runtime into a coding harness
 
 This development round began from the migrated runtime with 26 passing tests.
-Reference identities and the selected source files are pinned in ADR 0008:
+The reference inputs were
 `earendil-works/pi` at `19a0361be89bf78ccf9bbaed9a496d6484759f67`, and
 `shpz/UnrealHarness` at `af72d7e53a096bc97bbc3a6fd50e8e4bda183a8c`.
 The latter is a UE build/skills/benchmark suite, not an alternative implementation
@@ -1132,7 +1132,7 @@ permissive fallback and no commercial model's judgment was treated as proof.
 ## Desktop presentation without changing the native interaction model
 
 The frontend-only refresh follows the locally installed Codex Desktop
-`26.917.71314`; ADR 0020 records the relevant resource names. Native labels,
+`26.917.71314`. Native labels,
 field bindings and command availability stay unchanged. The adapter moves
 existing inputs into a compact composer and retains the two native send/steer
 forms behind a menu. Their separate drafts survive the switch.
@@ -1211,7 +1211,7 @@ Native builds now have a separate bounded asynchronous step and cancellation
 terminates its compiler process group. A native entry's exact three declared IO
 boundary diagnostics are accepted only for that entry; the separate proof root
 still requires the pure-success report. Compiler timeout remains a failed test,
-never evidence of semantic rejection. ADR 0023 and `tests-bend/README.md` describe
+never evidence of semantic rejection. `tests-bend/README.md` describes
 the supported changes and the division between proof and boundary-test evidence.
 
 Completion validation on the pinned Bend 2.0.27 toolchain: the full `npm test`

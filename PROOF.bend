@@ -1,5 +1,4 @@
 import Base
-import ./UI.bend as Product
 import ./bendlib/feature-laws.bend as FeatureLaws
 import ./bendlib/locality.bend as Locality
 import ./LAWS.bend as Laws
@@ -27,6 +26,7 @@ import ./bendlib/reasoning-architecture.bend as Reasoning
 import ./bendlib/proofs/reasoning.bend as ReasoningProof
 import ./bendlib/board-architecture.bend as Board
 import ./bendlib/proofs/board.bend as BoardProof
+import ./core/interface-program-rules.bend as InterfaceProgramRules
 
 # Assemble the conceptual program only after every local obligation is closed.
 
@@ -41,5 +41,5 @@ def Entry.harness():
     Reasoning.reasoning_boundary(), FeatureLaws.features(), Locality.locality()}
 
 # The native product bridge carries all trusted interface decisions unchanged.
-def product_interface_evidence() -> Product.InterfaceRequirements:
-  Product.interface_evidence()
+def product_interface_evidence() -> InterfaceProgramRules.InterfaceRequirements:
+  InterfaceProgramRules.interface_evidence()

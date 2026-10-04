@@ -2,61 +2,12 @@ import Base
 import ./client-services.bend as Services
 import ../MODEL.bend as M
 import ../bendlib/domain.bend as D
-import ../bendlib/json.bend as J
 import ./user-context.bend as Context
 import ./user-input.bend as U
 import ./user-experience.bend as E
 import ./interface.bend as UI
 import ./SYSTEM.bend as Core
 import ./ui-world.bend as V
-import ./submission-laws.bend as Submission
-
-# Draft text is separate from the selected workspace; only confirmation changes it.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def production_noop(+draft: U.Draft, +world: M.World(), +session: E.Session,
-  denied: {U.can_confirm_directory(draft) == False{} : Bool}) ->
-  {E.edit_existing(U.ConfirmDirectory{}, draft, world, session) == E.unchanged(E.Application{world, session}) : E.Decision}:
-  Equal.cong(Bool, E.Decision, admitted => E.confirm_found(admitted, draft, world, session),
-    U.can_confirm_directory(draft), False{}, denied)
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -98,44 +49,8 @@ type Requirements is Type:
       {UI.bind(UI.EnterDirectory{editor, text}, UI.ConfirmDirectory{}) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}}} : Maybe<&2, Core.Input>}
   }
 
-def evidence() -> Requirements:
-  Requirements{+revision => +body => feedback => old => +path => world => {==}, revision => body => feedback => +path => {==}, roots => +path => {==}, roots => {==}, {==}, +revision => +body => feedback => +path => +world => admitted =>
-      Equal.cong(Bool, Result<&2, &2, String, U.Draft>,
-        accepted => U.confirm_directory(accepted, U.Draft{revision, body, feedback, path}, world),
-        U.can_confirm_directory(U.Draft{revision, body, feedback, path}), True{}, admitted)
-    , +draft => +world => denied =>
-      Equal.cong(Bool, Result<&2, &2, String, U.Draft>, accepted => U.confirm_directory(accepted, draft, world),
-        U.can_confirm_directory(draft), False{}, denied)
-    , revision => +text => old_profile => old_reasoning => +context => feedback => +entry => +profile => +reasoning => world => {==}, revision => +text => +profile => +reasoning => +context => feedback => +entry => +origin => world => {==}, revision => body => feedback => +world => +session => {==}, revision => +body => feedback => +entry => +world => +session => unsupported =>
-      production_noop(U.Draft{revision, body, feedback, entry}, world, session,
-        Submission.conjunction_right_false(Bool.not(String.eq(entry, "")), U.workspace_capable(body), unsupported))
-    , +revision => +text => +profile => +reasoning => +context => feedback => +entry => +origin => +world => +session => {==}, production_noop, +editor => text => +path => {==}, +editor => +parent => +state => {==}, +editor => {==}, +editor => text => {==}}
-
-# Service completion ownership and selection use the actual production functions.
-def picker_closed(+state: Services.State) ->
-  {Services.step(Services.CloseDirectoryPicker{}, state) == Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), Nil{}} : Services.Decision}:
-  Services.State{access, credential, settings, appearance, next, transfers, preview, picker} = state
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+law evidence:
+  Requirements
 
 type DirectoryPickerRequirements is Type:
   DirectoryPickerRequirements{
@@ -151,16 +66,5 @@ type DirectoryPickerRequirements is Type:
     unavailable: @+editor:U.Editor -> @path:String -> @+application:E.Application -> @unavailable:{Core.accepts_directory(editor, application) == False{} : Bool} -> {Core.directory_chosen(editor, path, application) == application : E.Application},
     draft: @+editor:U.Editor -> @+path:String -> @+application:E.Application -> @accepted:{Core.accepts_directory(editor, application) == True{} : Bool} -> {Core.directory_chosen(editor, path, application) == Core.attached(E.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, Core.attached(E.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application)))) : E.Application}}
 
-def directory_picker_requirements() -> DirectoryPickerRequirements:
-  DirectoryPickerRequirements{picker_closed, +ticket => +result => +state => {==}, +current => editor => path => trigger => +ticket => +result => +state => stale =>
-      Equal.cong(Bool, Services.Decision, (owned => Services.finish_directory(owned, current, editor, path, trigger, result, state)),
-        Nat.is_eq(current, ticket), False{}, stale)
-    , ticket => +editor => entered => +trigger => +path => +parent => +entries => +truncated => +state => {==}, ticket => +editor => +path => parent => entries => truncated => location => trigger => +state => {==}, editor => path => {==}, +editor => +path => +application => rest => {==}, +editor => path => +application => unavailable =>
-      Equal.cong(Bool, E.Application,
-        (accepted => Core.directory_chosen_accepted(accepted, editor, path, application)),
-        Core.accepts_directory(editor, application), False{}, unavailable)
-    , +editor => +path => +application => accepted =>
-      Equal.cong(Bool, E.Application,
-        (allowed => Core.directory_chosen_accepted(allowed, editor, path, application)),
-        Core.accepts_directory(editor, application), True{}, accepted)
-    }
+law directory_picker_requirements:
+  DirectoryPickerRequirements

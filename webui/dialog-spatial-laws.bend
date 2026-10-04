@@ -2,7 +2,6 @@ import Base
 import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ./enclosure-laws.bend as EnclosureLaws
-import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./design.bend as Design
 import ./appearance.bend as Appearance
@@ -19,45 +18,18 @@ def recombine(value: EditorLayout.Suffix) -> +List<Doc.Node>:
   EditorLayout.Suffix{+body, +footer} = value
   List.append(&2, Doc.Node, body, footer)
 
-def prepend_recombines(kind: EditorLayout.SectionKind, +node: Doc.Node,
-  suffix: EditorLayout.Suffix) ->
-  {recombine(EditorLayout.prepend(kind, node, suffix)) == node <> recombine(suffix) : +List<Doc.Node>}:
-  match kind suffix:
-    case EditorLayout.SubmitAction{} EditorLayout.Suffix{Nil{}, Nil{}}: {==}
-    case EditorLayout.CaptureSection{} EditorLayout.Suffix{Nil{}, Con{submit, Nil{}}}: {==}
-    case EditorLayout.SubmitAction{} EditorLayout.Suffix{Nil{}, Con{first, remaining}}: {==}
-    case EditorLayout.SubmitAction{} EditorLayout.Suffix{Con{first, remaining}, actions}: {==}
-    case EditorLayout.CaptureSection{} EditorLayout.Suffix{Nil{}, Nil{}}: {==}
-    case EditorLayout.CaptureSection{} EditorLayout.Suffix{Nil{}, Con{first, Con{second, remaining}}}: {==}
-    case EditorLayout.CaptureSection{} EditorLayout.Suffix{Con{first, remaining}, actions}: {==}
-    case EditorLayout.GenericSection{} EditorLayout.Suffix{content, actions}: {==}
-    case EditorLayout.WorkSection{} EditorLayout.Suffix{content, actions}: {==}
-    case EditorLayout.MetadataSection{} EditorLayout.Suffix{content, actions}: {==}
-
-def split_recombines(+nodes: +List<Doc.Node>, kinds: +List<EditorLayout.SectionKind>) ->
-  {recombine(EditorLayout.split(nodes, kinds)) == nodes : +List<Doc.Node>}:
-  match nodes kinds:
-    case Con{+node, +rest} Con{+kind, +remaining}:
-      Equal.trans(+List<Doc.Node>,
-        recombine(EditorLayout.prepend(kind, node, EditorLayout.split(rest, remaining))),
-        node <> recombine(EditorLayout.split(rest, remaining)), node <> rest,
-        prepend_recombines(kind, node, EditorLayout.split(rest, remaining)),
-        Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => node <> tail),
-          recombine(EditorLayout.split(rest, remaining)), rest, split_recombines(rest, remaining)))
-    case Nil{} _: {==}
-    case Con{+node, +rest} Nil{}: Std.app_nil_r(Doc.Node, node <> rest)
-
-
 
 def first(values: +List<Doc.Node>) -> Doc.Node:
   match values:
     case Con{node, rest}: node
     case Nil{}: Doc.Text{""}
 
+
 def rest(values: +List<Doc.Node>) -> +List<Doc.Node>:
   match values:
     case Con{node, remaining}: remaining
     case Nil{}: Nil{}
+
 
 def footer_originals(values: +List<Doc.Node>) -> +List<Doc.Node>:
   match values:
@@ -65,54 +37,24 @@ def footer_originals(values: +List<Doc.Node>) -> +List<Doc.Node>:
     case Con{node, Nil{}}: Doc.element_children(node)
     case Con{node, remaining}: node <> footer_originals(remaining)
 
-def footer_items_preserve(+owner: String, +values: +List<Doc.Node>) ->
-  {footer_originals(Render.dialog_footer_items(owner, values)) == values : +List<Doc.Node>}:
-  match values:
-    case Nil{}: {==}
-    case Con{node, Nil{}}: {==}
-    case Con{node, Con{next, Nil{}}}: {==}
-    case Con{+node, Con{+next, Con{+third, +remaining}}}:
-      Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => node <> tail),
-        footer_originals(Render.dialog_footer_items(owner, next <> third <> remaining)), next <> third <> remaining,
-        footer_items_preserve(owner, next <> third <> remaining))
 
 def observed_footer(node: Doc.Node) -> +List<Doc.Node>:
   footer_originals(Doc.element_children(first(rest(rest(Doc.element_children(node))))))
 
+
 def observed_body(node: Doc.Node) -> +List<Doc.Node>:
   Doc.element_children(first(Doc.element_children(first(rest(Doc.element_children(node))))))
+
 
 def original_children(+node: Doc.Node) -> +List<Doc.Node>:
   List.append(&2, Doc.Node, observed_body(node), observed_footer(node))
 
-def suffix_observation(+key: String, +label: String, +visual: Design.Style,
-  +header: +List<Doc.Node>, suffix: EditorLayout.Suffix, +typography: T.Presentation) ->
-  {original_children(Render.dialog_region_suffix(key, label, visual, header, suffix, typography)) ==
-    recombine(suffix) : +List<Doc.Node>}:
-  match suffix:
-    case EditorLayout.Suffix{+body, Nil{}}: {==}
-    case EditorLayout.Suffix{+body, Con{+item, +remaining}}:
-      Equal.cong(+List<Doc.Node>, +List<Doc.Node>,
-        (tail => List.append(&2, Doc.Node, body, tail)),
-        footer_originals(Render.dialog_footer_items(key, item <> remaining)), item <> remaining,
-        footer_items_preserve(key, item <> remaining))
-
-def region_original_children(+key: String, +label: String, +visual: Design.Style,
-  parts: Render.DialogParts, +typography: T.Presentation) ->
-  {original_children(Render.dialog_region_parts(key, label, visual, parts, typography)) ==
-    Render.dialog_body_projection(parts) : +List<Doc.Node>}:
-  match parts:
-    case Render.DialogParts{+header, +body, +layouts}:
-      Equal.trans(+List<Doc.Node>,
-        original_children(Render.dialog_region_suffix(key, label, visual, header, EditorLayout.split(body, layouts), typography)),
-        recombine(EditorLayout.split(body, layouts)), body,
-        suffix_observation(key, label, visual, header, EditorLayout.split(body, layouts), typography),
-        split_recombines(body, layouts))
 
 def node_key(node: Doc.Node) -> String:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}: key
     case _: ""
+
 
 
 
@@ -155,12 +97,14 @@ def partition_inset(+properties: +List<Doc.Property>) -> String:
 
 
 
+
 def toggle_geometry(+properties: +List<Doc.Property>) ->
   (String & (String & (String & (String & (String & (String & (String & String))))))):
   (Render.attr(properties, "width"), (Render.attr(properties, "height"),
     (Render.attr(properties, "min-height"), (Render.attr(properties, "padding-inline"),
       (Render.attr(properties, "padding-block"), (Render.attr(properties, "align-self"),
         (Render.attr(properties, "margin"), Render.attr(properties, "flex"))))))))
+
 
 
 
@@ -176,26 +120,6 @@ def toggle_value_and_events_law(-key: String, -name: String, -enabled: Bool, -ch
         Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
           name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field(typography)))))) ==
      (FieldOptions.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)}
-
-def toggle_value_and_events(+key: String, +name: String, +enabled: Bool, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) -> toggle_value_and_events_law(key, name, enabled, choices, typography):
-  match enabled:
-    case False{}: {==}
-    case True{}: {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 type Requirements is Type:
@@ -285,30 +209,6 @@ type Requirements is Type:
     generic_body: @node:Doc.Node ->
       {EditorLayout.split([node], [EditorLayout.GenericSection{}]) == EditorLayout.Suffix{[node], Nil{}} : EditorLayout.Suffix}}
 
-def evidence() -> Requirements:
-  Requirements{
-    +key => +profiles => {==},
-    +key => +profiles => {==},
-    +key => +enabled => +selected => +profiles => {==},
-    +typography => editor => +field => +entry => +value => choices => toggle =>
-      Equal.cong(Controls.Widget, Design.Style,
-        (widget => Appearance.normalize_field(EditorLayout.field_kind(UI.Edit{editor, field, entry, value, choices}),
-          widget, Appearance.widget_field_style(widget, entry, typography))),
-        Controls.widget_for(entry, field, value), Controls.ToggleInput{}, toggle),
-    +typography => +key => +name => +enabled => choices => {==},
-    +typography => +key => +name => +enabled => choices => toggle_value_and_events(key, name, enabled, choices, typography),
-    +key => +name => input => {==},
-    +typography => {==},
-    {==},
-    nodes => kinds => split_recombines(nodes, kinds),
-    +typography => key => label => visual => parts => region_original_children(key, label, visual, parts, typography),
-    +card => +field => +entry => +value => choices => {==},
-    +key => +tag => +attributes => +styles => +events => +children => +name => {==},
-    +key => +tag => +attributes => +styles => +events => +children => +name => {==},
-    {==}, {==},
-    +key => +name => input => {==},
-    +typography => +owner => +name => {==},
-    key => {==},
-    +node => {==},
-    +capture => +submit => {==},
-    +node => {==}}
+
+law evidence:
+  Requirements

@@ -219,6 +219,12 @@ def source_same(a: Source, b: Source) -> Bool:
       plugin_same(plugin_a, plugin_b) && String.eq(remote_a, remote_b)
     case _ _: False{}
 
+def tool_same(left: Tool, right: Tool) -> Bool:
+  Tool{name_left, description_left, schema_left, source_left} = left
+  Tool{name_right, description_right, schema_right, source_right} = right
+  String.eq(name_left, name_right) && String.eq(description_left, description_right) &&
+    J.same(schema_left, schema_right) && source_same(source_left, source_right)
+
 def source_json(source: Source) -> J.Json:
   match source:
     case Extension{plugin, remote}:

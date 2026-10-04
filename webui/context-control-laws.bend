@@ -1,8 +1,4 @@
 import Base
-import ./enclosure.bend as Enclosure
-import ./space.bend as Space
-import ./appearance.bend as Appearance
-import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
@@ -17,20 +13,6 @@ import ./renderer.bend as Render
 import ./document.bend as Doc
 import ./design.bend as Design
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def execution_observation(context: Controls.Context) -> Maybe<&2, Context.Observation>:
   Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   execution
@@ -39,54 +21,9 @@ def page_observation(content: Core.Scene) -> Maybe<&2, Context.Observation>:
   Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
   Controls.page_execution(main)
 
-def initial_execution(+content: Core.Scene) ->
-  {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2, Context.Observation>}:
-  Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
-  Core.Settings{open, access, entered, appearance, open_action, close_action, connect} = settings
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def choice_native_event_law(-key: String, -label: String, -selected: Bool, -description: String, -visual: Design.Style, -input: Core.Input, -availability: View.Availability, -name: String, -face: Controls.Face, -behavior: Controls.Behavior, -geometry: Controls.Geometry, -placement: Controls.Placement, -help: Controls.Help, -feedback: Controls.Feedback, -visual_children: +List<Render.Child>) -> Type:
   {Doc.element_events(Render.action(key, visual, Controls.Action{input, availability, name, Controls.ChoiceFace{label, Controls.choice_description(description), selected}, behavior, geometry, placement, help, feedback})) ==
       [Doc.Activate{key}] : +List<Doc.Event>}
-
-def choice_native_event(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
-  input: Core.Input, availability: View.Availability, name: String, face: Controls.Face,
-  behavior: Controls.Behavior, geometry: Controls.Geometry, placement: Controls.Placement,
-  help: Controls.Help, feedback: Controls.Feedback, visual_children: +List<Render.Child>) -> choice_native_event_law(key, label, selected, description, visual, input, availability, name, face, behavior, geometry, placement, help, feedback, visual_children):
-  Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading} = geometry
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -118,5 +55,5 @@ type Requirements is Type:
     unrestricted_approval_icon: {Controls.approval_icon(Context.Unrestricted{}) == Controls.Shield{} : Controls.Icon},
     automatic_approval_icon: @+profile:String -> {Controls.approval_icon(Context.AutomaticReview{profile}) == Controls.ShieldCode{} : Controls.Icon}}
 
-def evidence() -> Requirements:
-  Requirements{choice_native_event, +key => +selected => description => +input => +availability => +label => role => context => Binding.choice_retains_binding(key, selected, description, input, availability, label, role, context), +selected => {==}, +selected => description => +input => +availability => {==}, +selected => description => +input => +availability => {==}, +key => semantic => +label => role => +selected => description => +input => +availability => +elements => {==}, +label => expanded => {==}, +label => current => +execution => {==}, initial_execution, +origin => +project => +workspace => +sandbox => +approval => +guidance => {==}, +task => +workspace => +sandbox => +approval => +project => +guidance => +access => {==}, +reason => {==}, +label => {==}, +filesystem => +network => +approval => +name => {==}, +label => current => execution => {==}, +label => current => execution => {==}, {==}, {==}, {==}, {==}, {==}, {==}, +profile => {==}}
+law evidence:
+  Requirements

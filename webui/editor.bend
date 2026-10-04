@@ -20,8 +20,3 @@ def step(editor: Editor, event: Event, enabled: Bool, pending: Bool) -> Decision
     case CompositionChanged{active}: Decision{Editor{owner, selection, active}, False{}}
     case Enter{shift, alt, modified}:
       Decision{Editor{owner, selection, composing}, Physical.submit_key(composing, True{}, True{}, modified, shift, alt, enabled, pending)}
-
-def composing_enter(owner: U.Editor, selection: Physical.Selection, shift: Bool, alt: Bool, modified: Bool, enabled: Bool, pending: Bool) ->
-  {step(Editor{owner, selection, True{}}, Enter{shift, alt, modified}, enabled, pending) ==
-    Decision{Editor{owner, selection, True{}}, False{}} : Decision}:
-  {==}

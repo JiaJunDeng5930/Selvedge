@@ -293,43 +293,9 @@ def effects(decision: Decision) -> +List<Effect>:
 
 def step(input: Input, state: State) -> Decision:
   dispatch(state, input)
-def frame_emits_no_effects(received: Nat, frame: Rendered.Frame, application: Platform.State,
-  generation: Nat, realization: Rendered.State, environment: Design.Environment, font: F.State) ->
-  {effects(step(FrameObserved{received, frame}, State{application, generation, realization, environment, font})) == Nil{} : +List<Effect>}:
-  Platform.State{core, platform} = application
-  {==}
-
-
-
-
 def product(decision: Decision) -> Core.Decision:
   Decision{state, product, effects} = decision
   product
 
 def platform_product(decision: Platform.Decision) -> Core.Decision:
   Platform.decision_product(decision)
-def realized_product(decision: Platform.Decision, generation: Nat, environment: Design.Environment, font: F.State) ->
-  {product(realized(decision, generation, environment, font)) == platform_product(decision) : Core.Decision}:
-  match decision:
-    case Platform.Decision{product, platform, effects}: {==}
-
-def invalidated_product(decision: Platform.Decision, +generation: Nat, +environment: Design.Environment, +font: F.State) ->
-  {product(invalidate(decision, generation, environment, font)) == platform_product(calibrated(decision, environment, F.retag(font, generation))) : Core.Decision}:
-  realized_product(calibrated(decision, environment, F.retag(font, generation)), generation, environment, F.retag(font, generation))
-
-def realization_preserves_product(+decision: Platform.Decision, +generation: Nat,
-  +environment: Design.Environment, +font: F.State) ->
-  {product(invalidate(decision, generation, environment, font)) == platform_product(decision) : Core.Decision}:
-  Equal.trans(Core.Decision, product(invalidate(decision, generation, environment, font)),
-    platform_product(calibrated(decision, environment, F.retag(font, generation))), platform_product(decision),
-    invalidated_product(decision, generation, environment, font),
-    Platform.reflow_preserves_product(decision,
-      font_capacity(F.retag(font, generation), environment, Platform.next(decision))))
-
-def stale_realization(+application: Platform.State, +generation: Nat, +previous: Rendered.State,
-  +environment: Design.Environment, +font: F.State, +received: Nat, +frame: Rendered.Frame, +surface: UI.Surface,
-  stale: {Nat.is_eq(generation, received) == False{} : Bool}) ->
-  {frame_realization(State{application, generation, previous, environment, font}, received, frame, surface) == previous : Rendered.State}:
-  Equal.cong(Bool, Rendered.State,
-    (owned => observed_frame(owned, frame_surface(State{application, generation, previous, environment, font}, surface), generation, received, frame, previous)),
-    Nat.is_eq(generation, received), False{}, stale)

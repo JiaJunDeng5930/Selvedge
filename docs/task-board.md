@@ -45,5 +45,3 @@ Use `bun host/cli.mjs describe` for the live API fields. The authoritative board
 command definitions are in [board-codec.bend](../bendlib/board-codec.bend).
 
 `bun run test` runs the proof/host boundary suite.
-Architecture, reference attribution and proof bindings are in
-[ADR 0022](adr/0022-native-task-board.md).

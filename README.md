@@ -38,8 +38,7 @@ Feature commands, queries, completions and effects cross stable outer categories
 `bendlib/feature-*.bend` owns their resolution, interpretation, codecs, resource
 checks and proof composition. Adding a feature extends that assembly and the
 feature's own contracts. A shared-resource or scheduling change still requires
-its actual interaction proof. See [ADR 0023](docs/adr/0023-component-locality.md)
-for the supported changes and evidence boundaries.
+its actual interaction proof.
 
 Follow [UI.bend](UI.bend) and [core/interface.bend](core/interface.bend) for
 the semantic interface, and [bendlib/feature-codec.bend](bendlib/feature-codec.bend)
@@ -105,7 +104,10 @@ Command descriptions, validation schemas, lifecycle controls, and client forms
 derive from the executable definitions. [host/README.md](host/README.md) describes
 the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates support.
 [The exploration record](docs/bend2-exploration.md) explains the findings and their
-limits. Architectural reasons live in [docs/adr](docs/adr).
+limits. Decision reasons that are program requirements belong in Bend entities,
+executable specifications or public rules bound to actual production computations.
+Do not maintain another account in documentation of requirements already expressed
+there. [ADRs](docs/adr) are optional.
 
 [UI.bend](UI.bend) is the platform-independent interaction entry. Its typed
 presentation, form bindings, navigation and action availability are evaluated
@@ -116,9 +118,7 @@ physical capabilities. Authenticated public commands reach the authoritative
 kernel, and the browser observes world snapshots only after journal commit.
 Drafts settle against the actual command completion and their revision.
 
-See [ADR 0028](docs/adr/0028-populated-page-regions.md) for page-region ownership.
-See [the browser adapter](host/public/README.md) and
-[ADR 0026](docs/adr/0026-browser-executed-bend-ui.md).
+See [the browser adapter](host/public/README.md).
 
 See [docs/plugins.md](docs/plugins.md) for configuration, the protocol,
 example and explicit delivery/trust boundaries.

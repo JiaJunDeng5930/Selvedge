@@ -9,53 +9,8 @@ import ./controls.bend as Controls
 import ./document.bend as Doc
 import ./design.bend as Design
 import ./appearance.bend as Appearance
-
 # These obligations bind the actual semantic dispatch and preserve the Core
 # children. Menu placement, dismissal and committed facts keep their existing owners.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -103,9 +58,5 @@ type Requirements is Type:
     custom_workspace_provenance: @workspace: Domain.Workspace -> @sandbox: Context.SandboxValue -> @approval: Context.ApprovalValue ->
       {Render.context_draft_kind(Context.EnteredWorkspace{workspace}, sandbox, approval) == "custom" : String}}
 
-def evidence() -> Requirements:
-  Requirements{+key => semantic => label => role => +path => +primary => +source => +visual => representation => {==}, +key => +path => +primary => +visual => +children => {==}, +key => +path => {==},
-    +key => semantic => +label => role => +source => +visual => representation => {==},
-    +key => semantic => +label => +role => +observation => +source => +visual => representation => {==},
-    +typography => +key => +label => role => +observation => +visual => +children => {==}, context => {==}, reason => {==}, origin => project => workspace => sandbox => approval => guidance => {==}, +value => {==},
-    +typography => +key => +label => +visual => +children => {==}, workspace => sandbox => approval => {==}}
+law evidence:
+  Requirements

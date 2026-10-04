@@ -6,17 +6,9 @@ import ./renderer.bend as Render
 import ./design.bend as Design
 import ./controls.bend as Controls
 import ../core/interface.bend as UI
-
 def alert_policy_fields(value: Design.Style) -> (T.Presentation & (Design.Paint & Design.Overflow)):
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
   (text, (foreground, overflow))
-
-def alert_policy(value: Design.Style) ->
-  {alert_policy_fields(Appearance.alert_style(UI.Alert{}, value)) ==
-    (T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(Design.style_text(value))},
-      (Design.ThemeToken{"--color-text-danger"}, Design.TextFlow{T.WrapAnywhere{}})) : (T.Presentation & (Design.Paint & Design.Overflow))}:
-  match value:
-    case Design.Style{T.Presentation{tier, emphasis, scale}, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
 
 type Requirements is Type:
   Requirements{
@@ -40,10 +32,5 @@ type Requirements is Type:
               Render.style(visual), Nil{}, [Doc.Text{reason}]})]
           : +List<Doc.Node>}}
 
-def evidence() -> Requirements:
-  Requirements{
-    alert_policy,
-    wrapping => {==},
-    +parent => semantic => revision => +reason => +visual => {==},
-    +reason => {==},
-    +parent => revision => +reason => +visual => {==}}
+law evidence:
+  Requirements

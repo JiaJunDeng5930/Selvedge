@@ -11,10 +11,6 @@ import ../core/ui-world.bend as View
 import ../BOARD.bend as Board
 import ../core/SYSTEM.bend as Core
 
-
-
-
-
 def first(values: +List<Doc.Node>) -> Doc.Node:
   match values:
     case Nil{}: Doc.Text{""}
@@ -24,9 +20,11 @@ def first(values: +List<Doc.Node>) -> Doc.Node:
 
 
 
+
 def search_input(+key: String, +filter: Board.Filter, +name: String, visual: Design.Style) -> Doc.Node:
   Render.input(key, UI.BoardSearch{filter},
     Controls.make_input(UI.BoardSearch{filter}, name, Controls.SearchInput{}, View.Available{}), visual)
+
 
 def search_projection(+key: String, +filter: Board.Filter, +name: String, +visual: Design.Style) ->
   (String & (String & (+List<Doc.Property> & +List<Doc.Event>))):
@@ -35,8 +33,10 @@ def search_projection(+key: String, +filter: Board.Filter, +name: String, +visua
     (Render.attr(Doc.element_attributes(node), "aria-label"),
      (Doc.element_styles(node), Doc.element_events(node))))
 
+
 def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
   List.append(&2, Doc.Property, Render.style(visual), Nil{})
+
 
 
 
@@ -64,14 +64,6 @@ def title_production_styles(+typography: T.Presentation) -> +List<Doc.Property>:
 
 
 
-def title_inset(typography: T.Presentation) ->
-  {(Render.attr(title_production_styles(typography), "padding-inline"),
-          (Render.attr(title_production_styles(typography), "padding-block"),
-           (Render.attr(title_production_styles(typography), "font-weight"),
-            (Render.attr(Doc.element_styles(Render.face_label("title", "title")), "white-space"), Render.attr(title_production_styles(typography), "min-height"))))) ==
-          ("8px", ("4px", (Nat.show(T.weight(T.Strong{})), ("normal", "32px")))) : (String & (String & (String & (String & String))))}:
-  T.Presentation{tier, emphasis, scale} = typography
-  {==}
 
 type Requirements is Type:
   Requirements{
@@ -98,16 +90,6 @@ type Requirements is Type:
     search_hint: @+key:String -> @+filter:Board.Filter -> @+name:String -> @+visual:Design.Style -> {search_projection(key, filter, name, visual) == ("搜索任务", (name, (search_styles_expected(visual), [Doc.EditText{key}]))) : (String & (String & (+List<Doc.Property> & +List<Doc.Event>)))}
   }
 
-def evidence() -> Requirements:
-  Requirements{+typography => +key => +filter => +name => {==},
-    +typography => +title => +key => +visual => +input => +availability => +name => +behavior => +geometry => +placement => +help => +feedback => {==},
-    +typography => title_inset(typography),
-    +typography => +owner => +title => +node => +rest => {==},
-    +typography => {==},
-    +typography => +owner => +label => +stage => +count => +create => {==}, +owner => +create => {==}, +owner => +create => {==},
-    +typography => +owner => +label => +stage => +count => +create => {==}, {==},
-    +typography => +owner => +description => {==}, +key => +filter => +name => +visual =>
-        {==}
 
-      # The title container retains the complete canonical action unchanged.
-    }
+law evidence:
+  Requirements

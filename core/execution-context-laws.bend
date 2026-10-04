@@ -1,5 +1,4 @@
 import Base
-import ../bendlib/stdlib.bend as Std
 import ../MODEL.bend as M
 import ../REASONING.bend as Reasoning
 import ../COMMANDS.bend as Commands
@@ -16,7 +15,6 @@ import ./SYSTEM.bend as Core
 import ./client-services.bend as Services
 import ./form-fields.bend as Forms
 
-# Observe the production entities rather than deriving expectations from their labels.
 def composer_context(value: Maybe<&2, V.ComposerScene>) -> Maybe<&2, Context.Observation>:
   match value:
     case None{}: None{}
@@ -45,128 +43,11 @@ def choice_selection(value: UI.Node) -> Maybe<&2, Bool>:
     case UI.Node{key, semantic, label, role, UI.Choice{selected, description, input, availability}, children}: Some{selected}
     case _: None{}
 
-def draft_composer_context(+message: U.Text, profile: String, reasoning: String, +config: Context.Configuration, scene: V.EditorScene, +world: M.World()) ->
-  {composer_context(V.composer_scene(U.NewTask{message, profile, reasoning, config}, scene, world)) ==
-    Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>}:
-  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
-  {==}
-
-def message_composer_context(+task: Nat, message: U.Text, delivery: U.Delivery, scene: V.EditorScene, +world: M.World()) ->
-  {composer_context(V.composer_scene(U.Message{task, message, delivery}, scene, world)) ==
-    V.committed_observation(V.committed_context(Tasks.find(Commands.entries(world), task))) : Maybe<&2, Context.Observation>}:
-  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
-  {==}
-
-
-
-def retained_summary(+value: Context.Observation, parent: String, state: Core.State) ->
-  {node_context(UI.context_summary_node(value, parent, state)) == Some{value} : Maybe<&2, Context.Observation>}:
-  Core.State{E.Application{world, session}, services} = state
-  {==}
-
-
-
-
-
-
-
-def mode_input(+mode: D.SandboxMode, current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_input(UI.sandbox_choice(mode, current, network, editor, parent, state)) ==
-    Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}}}} : Maybe<&2, Core.Input>}:
-  Core.State{application, services} = state
-  {==}
-
-def network_input(+mode: D.SandboxMode, current: Bool, +target: Bool, +editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_input(UI.network_choice(mode, current, target, editor, parent, state)) ==
-    Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, target}}}}}}} : Maybe<&2, Core.Input>}:
-  Core.State{application, services} = state
-  {==}
-
-def network_selection(mode: D.SandboxMode, +current: Bool, +target: Bool, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_selection(UI.network_choice(mode, current, target, editor, parent, state)) == Some{Cmp.is_eq(Bool.cmp(current, target))} : Maybe<&2, Bool>}:
-  match current target state:
-    case False{} False{} Core.State{application, services}: {==}
-    case False{} True{} Core.State{application, services}: {==}
-    case True{} False{} Core.State{application, services}: {==}
-    case True{} True{} Core.State{application, services}: {==}
-
-def approval_input(+choice: Context.ApprovalChoice, current: Context.ApprovalChoice, reviewer: Maybe<&2, D.Profile>, +editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_input(UI.approval_choice_node(choice, current, reviewer, editor, parent, state)) ==
-    Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetApproval{choice}}}}}} : Maybe<&2, Core.Input>}:
-  Core.State{application, services} = state
-  {==}
-
-
-
-def automatic_selection(+current: String, +next: String, reviewer: Maybe<&2, D.Profile>, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_selection(UI.approval_choice_node(Context.AutomaticReview{next}, Context.AutomaticReview{current}, reviewer, editor, parent, state)) ==
-    Some{String.eq(current, next)} : Maybe<&2, Bool>}:
-  Core.State{application, services} = state
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def no_duplicate_network_reset(config: Context.Configuration) ->
-  {UI.reset_change(config, Forms.NetworkAccess{}) == None{} : Maybe<&2, Context.Change>}:
-  Context.Configuration{origin, workspace, sandbox, approval} = config
-  {==}
-
-def unavailable_workspace(+reason: String, config: Context.Configuration, controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, editor: U.Editor, +parent: String, state: Core.State) ->
-  {UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) ==
-    [UI.Node{parent ++ "/unavailable", "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>}:
-  V.WorkspaceControls{identity, roots, inherit} = controls
-  {==}
-
-
-
 def tree_focusable(nodes: +List<UI.Node>) -> Bool:
   match nodes:
     case Nil{}: False{}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
       UI.focusable(meaning) || tree_focusable(children) || tree_focusable(rest)
-
-def committed_directories_nil(primary: Maybe<&2, String>, parent: String) ->
-  {tree_focusable(UI.committed_directory_nodes(Nil{}, primary, parent)) == False{} : Bool}:
-  {==}
-
-def committed_directories_step(+path: String, +rest: +List<String>, +primary: Maybe<&2, String>, +parent: String,
-  ih: {tree_focusable(UI.committed_directory_nodes(rest, primary, parent)) == False{} : Bool}) ->
-  {tree_focusable(UI.committed_directory_nodes(path <> rest, primary, parent)) == False{} : Bool}:
-  ih
-
-def committed_directories_passive(+roots: +List<String>, +primary: Maybe<&2, String>, +parent: String) ->
-  {tree_focusable(UI.committed_directory_nodes(roots, primary, parent)) == False{} : Bool}:
-  proof: @+selected:Maybe<&2, String> -> @+owner:String -> {tree_focusable(UI.committed_directory_nodes(roots, selected, owner)) == False{} : Bool} = Std.list_ind(~String,
-    ~(values => @+selected:Maybe<&2, String> -> @+owner:String -> {tree_focusable(UI.committed_directory_nodes(values, selected, owner)) == False{} : Bool}),
-    ~(selected => owner => committed_directories_nil(selected, owner)),
-    ~(path => rest => ih => selected => owner => committed_directories_step(path, rest, selected, owner, ih(selected, owner))), roots)
-  proof(primary, parent)
-
-def committed_extra_directories_passive(covered: Bool, +roots: +List<String>, +primary: Maybe<&2, String>, +parent: String) ->
-  {tree_focusable(List.append(&2, UI.Node, UI.committed_working_directory_extra(covered, primary, parent), UI.committed_directory_nodes(roots, primary, parent))) == False{} : Bool}:
-  match covered:
-    case True{}: committed_directories_passive(roots, primary, parent)
-    case False{}: committed_directories_passive(roots, primary, parent)
-
-def committed_context_passive(+context: Maybe<&2, Context.EffectiveContext>, +parent: String, +state: Core.State) ->
-  {tree_focusable(UI.committed_context_nodes(context, parent, state)) == False{} : Bool}:
-  match context:
-    case None{}: {==}
-    case Some{Context.EffectiveContext{task, D.TaskContext{D.Workspace{+roots, +primary}, sandbox, approval, project}, guidance, access}}:
-      Core.State{E.Application{world, session}, services} = state
-      committed_extra_directories_passive(Context.member_primary(primary, roots), roots, primary, parent)
 
 def first_context(nodes: +List<UI.Node>) -> Maybe<&2, Context.Observation>:
   match nodes:
@@ -182,14 +63,6 @@ def workspace_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
   {first_context(UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
     Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
 
-def workspace_menu_observation(+editor: U.Editor, config: Context.Configuration, +origin: Context.Origin, +project: Maybe<&2, Nat>, +workspace: Context.WorkspaceValue,
-  +sandbox: Context.SandboxValue, +approval: Context.ApprovalValue, +guidance: Context.GuidancePreview,
-  controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, parent: String, state: Core.State) ->
-  workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state):
-  V.WorkspaceControls{identity, roots, inherit} = controls
-  Core.State{E.Application{world, session}, services} = state
-  {==}
-
 def permissions_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
   -origin: Context.Origin, -project: Maybe<&2, Nat>, -workspace: Context.WorkspaceValue,
   -sandbox: Context.SandboxValue, -approval: Context.ApprovalValue,
@@ -199,39 +72,9 @@ def permissions_menu_source_law(-editor: U.Editor, -config: Context.Configuratio
   {first_context(UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
     Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
 
-def permissions_menu_observation(+editor: U.Editor, config: Context.Configuration, +origin: Context.Origin, +project: Maybe<&2, Nat>, +workspace: Context.WorkspaceValue,
-  +sandbox: Context.SandboxValue, +approval: Context.ApprovalValue, +guidance: Context.GuidancePreview,
-  controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, parent: String, state: Core.State) ->
-  permissions_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state):
-  Core.State{E.Application{world, session}, services} = state
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def effective_task(value: Context.EffectiveContext) -> Nat:
   Context.EffectiveContext{task, context, guidance, access} = value
   task
-
-def admitted_task_identity(+task: D.Task) ->
-  {effective_task(Context.effective(task)) == D.task_id(task) : Nat}:
-  D.Task{id, lineage, D.Contract{model, tools, max_fork, max_descendants, plugins, context}, status, history, queued, phase, operations, notified} = task
-  {==}
-
-
-
-
 
 type ChoiceCaption is Data:
   ChoiceCaption{label: String, description: String}
@@ -245,53 +88,6 @@ def network_pair(value: UI.Node) -> Sigma<&2, &2, Maybe<&2, Bool>, (_ => Maybe<&
   match value:
     case UI.Node{key, semantic, label, role, meaning, Con{disabled, Con{enabled, Nil{}}}}: (choice_selection(disabled), choice_selection(enabled))
     case _: (None{}, None{})
-
-def network_group_selection(mode: D.SandboxMode, +network: Bool, editor: U.Editor, parent: String, state: Core.State) ->
-  {network_pair(UI.network_choices(D.Sandbox{mode, network}, editor, parent, state)) == (Some{Bool.not(network)}, Some{network}) : Sigma<&2, &2, Maybe<&2, Bool>, (_ => Maybe<&2, Bool>)>}:
-  match network state:
-    case False{} Core.State{application, services}: {==}
-    case True{} Core.State{application, services}: {==}
-
-def filesystem_write_caption(current: D.SandboxMode, network: Bool, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.sandbox_choice(D.WorkspaceWrite{}, current, network, editor, parent, state)) == Some{ChoiceCaption{"Workspace write", "Allow edits in the working directories."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-def filesystem_read_caption(current: D.SandboxMode, network: Bool, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.sandbox_choice(D.ReadOnly{}, current, network, editor, parent, state)) == Some{ChoiceCaption{"Read only", "Read files without modifying them."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-def network_disabled_caption(mode: D.SandboxMode, current: Bool, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.network_choice(mode, current, False{}, editor, parent, state)) == Some{ChoiceCaption{"Disabled", "Keep network access off."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-def network_enabled_caption(mode: D.SandboxMode, current: Bool, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.network_choice(mode, current, True{}, editor, parent, state)) == Some{ChoiceCaption{"Enabled", "Allow network access."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-def ask_caption(current: Context.ApprovalChoice, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.approval_choice_node(Context.Ask{}, current, None{}, editor, parent, state)) == Some{ChoiceCaption{"Ask", "Ask before running actions that require approval."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-def unrestricted_caption(current: Context.ApprovalChoice, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.approval_choice_node(Context.Unrestricted{}, current, None{}, editor, parent, state)) == Some{ChoiceCaption{"Unrestricted", "Run actions without approval prompts."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-def automatic_caption(+key: String, provider: String, +name: String, reasoning: Reasoning.Policy, current: Context.ApprovalChoice, editor: U.Editor, parent: String, state: Core.State) ->
-  {choice_caption(UI.approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, reasoning}}, editor, parent, state)) == Some{ChoiceCaption{"Automatic review: " ++ name, "Use this model to review approval requests."}} : Maybe<&2, ChoiceCaption>}:
-  Core.State{application, services} = state
-  {==}
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -405,59 +201,5 @@ type Requirements is Type:
     permissions_menu_kind: @editor:U.Editor -> @beside:Bool -> {V.layer_kind(U.PermissionsConfiguration{editor}, beside) == V.AnchoredMenu{} : V.LayerKind},
     committed_dialog_kind: @task:Nat -> @beside:Bool -> {V.layer_kind(U.TaskContext{task}, beside) == V.ModalDialog{} : V.LayerKind}}
 
-def automatic_codec(profile: D.Profile) ->
-  {Context.approval_option(Context.observed_approval(Context.InheritedApproval{D.ApprovalForMe{profile}})) == "automatic" : String}:
-  D.Profile{key, provider, name, reasoning} = profile
-  {==}
-
-def evidence() -> Requirements:
-  Requirements{
-    +project => +world => session => services => parent => {==},
-    task => context => guidance => access => world => {==},
-    id => +name => workspace => guidance => {==},
-    id => {==}, +id => +world => {==}, world => {==},
-    primary => parent => {==}, parent => {==},
-    mode => network => editor => parent => state => network_group_selection(mode, network, editor, parent, state),
-    current => network => editor => parent => state => filesystem_write_caption(current, network, editor, parent, state),
-    current => network => editor => parent => state => filesystem_read_caption(current, network, editor, parent, state),
-    mode => current => editor => parent => state => network_disabled_caption(mode, current, editor, parent, state),
-    mode => current => editor => parent => state => network_enabled_caption(mode, current, editor, parent, state),
-    current => editor => parent => state => ask_caption(current, editor, parent, state),
-    current => editor => parent => state => unrestricted_caption(current, editor, parent, state),
-    key => provider => name => reasoning => current => editor => parent => state => automatic_caption(key, provider, name, reasoning, current, editor, parent, state),
-    key => {==},
-    task => admitted_task_identity(task), path => primary => gesture => {==}, value => gesture => {==},
-    selected => description => input => {==}, selected => description => input => reason => {==},
-    +editor => +observation => +profiles => {==},
-    +task => +observation => +profiles => {==},
-    editor => config => origin => project => workspace => sandbox => approval => guidance => controls => projects => reviewers => parent => state => workspace_menu_observation(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
-    editor => config => origin => project => workspace => sandbox => approval => guidance => controls => projects => reviewers => parent => state => permissions_menu_observation(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
-    reason => config => controls => projects => reviewers => editor => parent => state => unavailable_workspace(reason, config, controls, projects, reviewers, editor, parent, state),
-    +reason => config => controls => projects => reviewers => editor => +parent => state => {==},
-    +workspace => +editor => {==},
-    origin => workspace => sandbox => approval => {==},
-    origin => workspace => sandbox => approval => {==},
-    message => profile => reasoning => config => scene => world => draft_composer_context(message, profile, reasoning, config, scene, world),
-    task => message => delivery => scene => world => message_composer_context(task, message, delivery, scene, world),
-    +task => {==},
-    value => parent => state => retained_summary(value, parent, state),
-    +path => +primary => choose => remove => parent => state => {==},
-    +path => +rest => +primary => +editor => {==},
-    mode => current => network => editor => parent => state => mode_input(mode, current, network, editor, parent, state),
-    mode => current => target => editor => parent => state => network_input(mode, current, target, editor, parent, state),
-    mode => current => target => editor => parent => state => network_selection(mode, current, target, editor, parent, state),
-    choice => current => reviewer => editor => parent => state => approval_input(choice, current, reviewer, editor, parent, state),
-    +policy => {==},
-    current => next => reviewer => editor => parent => state => automatic_selection(current, next, reviewer, editor, parent, state),
-    {==}, {==}, profile => automatic_codec(profile),
-    +origin => +workspace => old => +approval => +next => {==},
-    +origin => old => +sandbox => +approval => {==},
-    +origin => +workspace => old => +approval => {==},
-    +origin => +workspace => +sandbox => old => {==},
-    editor => {==},
-    origin => workspace => approval => {==},
-    origin => workspace => sandbox => {==},
-    config => no_duplicate_network_reset(config),
-    context => parent => state => committed_context_passive(context, parent, state),
-    editor => session => world => {==}, editor => session => world => {==}, task => session => world => {==},
-    editor => beside => {==}, editor => beside => {==}, task => beside => {==}}
+law evidence:
+  Requirements

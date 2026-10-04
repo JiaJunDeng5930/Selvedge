@@ -16,125 +16,21 @@ import ../core/ui-world.bend as View
 import ../core/code-block.bend as Code
 import ../core/client-services.bend as Services
 import ../core/user-context.bend as Workspace
-
 # The projection changes only the visible face, behavior and geometry; all other
 # accepted-action fields retain their original source value.
 def projected_action(input: Core.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) -> Controls.Representation:
   Controls.ActionPresentation{face, behavior, geometry} = projection
   Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}
 
-def projection_construction(input: Core.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
-  {Controls.presented_action(input, availability, name, projection, placement, help, feedback) == projected_action(input, availability, name, projection, placement, help, feedback) : Controls.Representation}:
-  match projection:
-    case Controls.ActionPresentation{face, behavior, geometry}: {==}
-
 def label_properties(value: Design.Style) -> (Design.Flow & (Design.Overflow & (Nat & Nat))):
   Design.Style{text, chrome, alignment, flow, overflow, +frame, minimum, maximum, states} = value
   (flow, (overflow, (Enclosure.inline(Enclosure.frame_content(frame)), Enclosure.block(Enclosure.frame_content(frame)))))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def name_geometry_law(-visual: Design.Style) -> Type:
   {label_properties(Appearance.project_label_style(visual)) == (Design.BlockFlow{}, (Design.SingleLineOverflow{}, (0n, 0n))) : (Design.Flow & (Design.Overflow & (Nat & Nat)))}
 
-def name_geometry(+visual: Design.Style) -> name_geometry_law(visual):
-  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
-  Design.Chrome{foreground, background, border, width, radius, shadow} = chrome
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def chooser_draft_observation_law(-id: Nat, -fallback: Design.Style) -> Type:
   {Design.style_text(Appearance.chooser_style(Some{id}, fallback)) == Design.style_text(fallback) : T.Presentation}
-
-def chooser_draft_observation(+id: Nat, +fallback: Design.Style) -> chooser_draft_observation_law(id, fallback):
-  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = fallback
-  {==}
-
-
-
-
-
-
-
-
 
 def first_control(values: +List<Design.Node>) -> Controls.Representation:
   match values:
@@ -144,31 +40,11 @@ def first_control(values: +List<Design.Node>) -> Controls.Representation:
 def project_reference_law(-key: String, -semantic: String, -label: String, -role: UI.Role, -children: +List<UI.Node>, -context: Controls.Context, -project: Nat, -selected: Bool, -expanded: Bool) -> Type:
   {Controls.source_reference(Controls.enter(UI.Node{key, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}, context)) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}} : Controls.SourceFamily}
 
-def project_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
-  {==}
-
 def task_reference_law(-key: String, -semantic: String, -label: String, -role: UI.Role, -children: +List<UI.Node>, -context: Controls.Context, -task: Nat, -status: String, -selected: Bool) -> Type:
   {Controls.source_reference(Controls.enter(UI.Node{key, semantic, label, role, UI.TaskRow{task, status, selected}, children}, context)) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.TaskRow{task, status, selected}, children}} : Controls.SourceFamily}
 
-def task_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: String, +selected: Bool) -> task_reference_law(key, semantic, label, role, children, context, task, status, selected):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
-  {==}
-
 def chooser_reference_law(-key: String, -semantic: String, -label: String, -role: UI.Role, -children: +List<UI.Node>, -context: Controls.Context, -selected: Maybe<&2, Nat>) -> Type:
   {Controls.source_reference(Controls.enter(UI.Node{key, semantic, label, role, UI.ProjectChooser{selected}, children}, context)) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.ProjectChooser{selected}, children}} : Controls.SourceFamily}
-
-def chooser_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> chooser_reference_law(key, semantic, label, role, children, context, selected):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
-  {==}
-
-
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -212,11 +88,5 @@ type Requirements is Type:
              Render.property("order", "-1"), Render.property("color", Render.task_status_tone(status)), Render.property("white-space", "nowrap")]), events,
             [Doc.Element{key ++ "/indicator", "span", [Render.property("aria-hidden", "true")], Nil{}, Nil{}, [Doc.Text{"●"}]}, Doc.Text{status}]} : Doc.Node}}
 
-def evidence() -> Requirements:
-  Requirements{+key => +semantic => +label => +role => +project => +selected => +expanded => +children => +visual => +representation => {==}, +key => +tag => +attrs => +styles => +events => +children => {==}, +project => {==}, +project => {==}, +project => {==}, +project => +trigger => {==}, +name => +expanded => +fallback => {==}, +typography => geometry => +key => +name => {==}, +area => +family => +input => +availability => +name => +face => +behavior => +geometry => +placement => +help => +feedback => projection_construction(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback), +width => +height => +preferred => +icon => +radius => +leading => {==}, +width => +height => +preferred => +icon => +radius => +leading => {==}, +width => +height => +preferred => +icon => +radius => +leading => {==}, name_geometry,
-    +key => +semantic => +label => +role => +task => +status => +selected => +children => +visual => +representation => {==}, +key => +semantic => +label => +role => +selected => +children => +visual => +representation => {==}, {==}, +trigger => +name => +face => +behavior => +geometry => {==}, +name => +expanded => +fallback => {==}, +name => +expanded => +fallback => {==}, +node => {==}, chooser_draft_observation,
-    +typography => +key => +context => +representation => +fallback => +project => +selected => +expanded => {==},
-    +typography => +key => +context => +representation => +fallback => +task => +status => +selected => {==}, project_reference, task_reference, chooser_reference,
-    +typography => +in_main => +start => +key => +semantic => +label => +role => +meaning => +children => +context => {==},
-    +typography => +key => +owner => +owner_semantic => +owner_label => +owner_role => +owner_children => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==},
-    +typography => +key => +tag => +attrs => +styles => +events => children => +status => {==}}
+law evidence:
+  Requirements

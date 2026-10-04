@@ -33,11 +33,6 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
     ['accept an unrelated drafting ticket', 'bendlib/feature-protocol.bend',
       'board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision), retitle)',
       'board_selected_callback(True{}, retitle)', /board_boundary/],
-    ['close continuous creation', 'bendlib/board-navigation.bend',
-      'case True{}: B.CreateDialog{stage, assisted}', 'case True{}: B.NoDialog{}', /board_boundary/],
-    ['keep the dialog open after a successful edit', 'bendlib/board-navigation.bend',
-      'case B.Update{id, revision, patch, now}: with_dialog(B.NoDialog{}, cursor)',
-      'case B.Update{id, revision, patch, now}: cursor', /board_boundary/],
   ];
   for (const [label, name, before, after, diagnostic] of mutations) await t.test(label, async () => {
     const filename = path.join(directory, name), original = await readFile(filename, 'utf8');

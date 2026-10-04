@@ -149,34 +149,3 @@ def cycle(scope: Scope, order: +List<String>, focused: Maybe<&2, String>, revers
   match scope:
     case Document{}: None{}
     case Temporary{identity, initial, restore}: cycle_focused(focused, order, reverse)
-
-
-
-
-
-
-
-type CycleRequirements is Type:
-  CycleRequirements{
-    document: @order:+List<String> -> @focused:Maybe<&2,String> -> @reverse:Bool ->
-      {cycle(Document{}, order, focused, reverse) == None{} : Maybe<&2,String>},
-    forward_wrap: @+key:String -> @+focused:String -> @previous:Maybe<&2,String> -> @+first:Maybe<&2,String> -> @+last:Maybe<&2,String> ->
-      @matching:{String.eq(key, focused) == True{} : Bool} ->
-      {cycle_scan([key], focused, previous, first, last, False{}) == first : Maybe<&2,String>},
-    backward_wrap: @+key:String -> @+rest:+List<String> -> @+focused:String ->
-      @matching:{String.eq(key, focused) == True{} : Bool} ->
-      {cycle_focused(Some{focused}, key <> rest, True{}) == List.head(&2, String, List.reverse(&2, String, key <> rest)) : Maybe<&2,String>}
-  }
-
-def cycle_evidence() -> CycleRequirements:
-  CycleRequirements{order => focused => reverse => {==}, +key => +focused => previous => +first => +last => matching =>
-      Equal.cong(Bool, Maybe<&2, String>,
-        (hit => cycle_match(hit, False{}, previous, Nil{}, first, last, first)),
-        String.eq(key, focused), True{}, matching)
-    , +key => +rest => +focused => matching =>
-      Equal.cong(Bool, Maybe<&2, String>,
-        (hit => cycle_match(hit, True{}, None{}, rest, Some{key},
-          List.head(&2, String, List.reverse(&2, String, key <> rest)),
-          cycle_scan(rest, focused, Some{key}, Some{key}, List.head(&2, String, List.reverse(&2, String, key <> rest)), True{}))),
-        String.eq(key, focused), True{}, matching)
-    }

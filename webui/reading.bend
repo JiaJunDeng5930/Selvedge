@@ -45,23 +45,3 @@ def step(event: Event, intent: U.ReadingIntent, +bookmark: Bookmark, reduced_mot
 
 # A content/composer resize cannot invent follow-latest intent. The saved anchor
 # is the same object used to issue the browser correction.
-def history_layout(anchor: Physical.Anchor) ->
-  {layout(U.ReadHistory{}, Bookmark{Some{anchor}}) == PreserveAnchor{anchor} : Effect}:
-  {==}
-
-def missing_history_anchor() ->
-  {layout(U.ReadHistory{}, Bookmark{None{}}) == MeasureAnchor{} : Effect}:
-  {==}
-
-# The user takes ownership before the host can measure the new viewport.
-
-
-type ScrollOwnershipRequirements is Type:
-  ScrollOwnershipRequirements{
-    takeover: @intent:U.ReadingIntent -> @bookmark:Bookmark -> @reduced:Bool ->
-      {step(BeginUserScroll{}, intent, bookmark, reduced) ==
-        Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]} : Decision}
-  }
-
-def scroll_ownership_evidence() -> ScrollOwnershipRequirements:
-  ScrollOwnershipRequirements{intent => bookmark => reduced => {==}}

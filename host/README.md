@@ -22,8 +22,7 @@ Board text generation is a committed `RequestBoardText` effect interpreted by
 authenticated `board-files.mjs` boundary stores content-addressed, bounded files
 and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,
-order, automatic dispatch and execution association remain native. See
-`../docs/adr/0022-native-task-board.md`.
+order, automatic dispatch and execution association remain native.
 
 The suite also exercises device login and serialized credential refresh against a
 loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
@@ -54,8 +53,7 @@ Uncommitted model deltas remain correlated transport observations. Bend decides
 their presentation and retirement; JavaScript does not interpret provider roles
 or maintain a task lifecycle model. DOM behavior, Markdown formatting, focus,
 clipboard and network delivery remain external component boundaries. See
-[`public/README.md`](public/README.md) and
-[ADR 0026](../docs/adr/0026-browser-executed-bend-ui.md).
+[`public/README.md`](public/README.md).
 
 ## Coding effect interpreters
 
@@ -69,7 +67,7 @@ disclosure and failure behavior.
 `sandbox.mjs` converts an already-authorized execution plan into a Seatbelt or
 bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
 fails closed on unavailable isolation; it does not select a task's policy or
-decide an approval. See ADR 0019 and `sandbox.test.mjs` for the OS trust boundary.
+decide an approval. See `sandbox.test.mjs` for the OS trust boundary.
 
 `approvals.mjs` interprets a committed approval effect as a separate, tool-free
 provider request. It creates no task and strictly decodes one allow/deny response;
@@ -156,7 +154,7 @@ async results committed before a model reply. It never chooses a page by matchin
 message text. Native cancellation retires a specific receipt and attempts remote
 Stop; observer timeout or shutdown does not. The generic preview interface
 distinguishes replacement snapshots from append-only deltas. See
-`../docs/chatgpt-web.md` and ADR 0024 for configuration, recovery and evidence.
+`../docs/chatgpt-web.md` for configuration, recovery and evidence.
 
 Summary requests use the ordinary model transport but receive no tools. ChatGPT
 uses streaming remote compaction v2 and returns one unchanged encrypted checkpoint;

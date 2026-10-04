@@ -8,37 +8,11 @@ import ./form-fields.bend as Forms
 import ./field-options.bend as Options
 import ../bendlib/json.bend as J
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def expected_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observed, groups: +List<View.InputGroup>) -> +List<Forms.ChoiceValue>:
   match entry:
     case Forms.Choice{}: Options.choices(field, value, groups)
     case Forms.MultipleChoices{}: Options.choices(field, value, groups)
     case _: Nil{}
-
-def choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Observed, +groups: +List<View.InputGroup>) ->
-  {Interface.entry_choices(entry, field, value, groups) == expected_choices(entry, field, value, groups) : +List<Forms.ChoiceValue>}:
-  match entry:
-    case Forms.SingleLine{}: {==}
-    case Forms.Multiline{}: {==}
-    case Forms.Choice{}: {==}
-    case Forms.MultipleChoices{}: {==}
-    case Forms.DisplayOnly{}: {==}
-    case Forms.PositiveInteger{}: {==}
-    case Forms.DirectoryCollection{}: {==}
-    case Forms.FileCollection{}: {==}
 
 type Requirements is Type:
   Requirements{
@@ -66,25 +40,5 @@ type Requirements is Type:
             [Interface.Node{(parent ++ "/composer/" ++ U.editor_key(identity)) ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}},
              Interface.composer_actions(footer, submit, parent ++ "/composer/" ++ U.editor_key(identity), state)]}] : +List<Interface.Node>}}
 
-def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: String, +state: Core.State, +groups: +List<View.InputGroup>) ->
-  {Interface.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==
-    Interface.Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Interface.Field{},
-      Interface.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field),
-        expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups)},
-      Interface.field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)} : Interface.Node}:
-  Equal.cong(+List<Forms.ChoiceValue>, Interface.Node,
-    choices => Interface.Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Interface.Field{},
-      Interface.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field), choices},
-      Interface.field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)},
-    Interface.entry_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    choices_agreement(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups))
-
-def evidence() -> Requirements:
-  Requirements{
-    field => label => entry => editor => parent => state => groups => field_payload(field, label, entry, editor, parent, state, groups),
-    +parent => revision => +reason => {==},
-    parent => {==},
-    parent => revision => reply => {==},
-    +identity => revision => groups => +structure => +submit => submitted => +reason => pending => +parent => +state => {==},
-    +identity => revision => message => +footer => context => +submit => submitted => +reason => pending => +parent => +state => {==}}
+law evidence:
+  Requirements

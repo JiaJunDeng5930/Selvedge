@@ -5,45 +5,14 @@ import ./SYSTEM.bend as Core
 import ./user-experience.bend as E
 import ./client-services.bend as Services
 import ../bendlib/board-state.bend as Board
-import ../bendlib/association-map.bend as Finite
 import ./user-input.bend as U
 import ../BOARD.bend as B
 import ../MODEL.bend as M
 import ../bendlib/json.bend as J
 
-# These observations constrain production controls and details, rather than a
-# second Board lifecycle or a browser-only action menu.
 def opening(scene: View.CardScene) -> U.Input:
   View.CardScene{id, value, View.ControlDeclaration{identity, label, prominence, input, availability}, actions, linked, destinations, candidates} = scene
   input
-
-def card_opens_details(+id: Nat, card: B.Card, route: U.Route, now: U32, world: M.World()) ->
-  {opening(View.card_scene(id, card, route, now, world)) ==
-    U.Activate{U.OpenPanel{U.CardDetails{id}, "card/" ++ Nat.show(id)}} : U.Input}:
-  B.Card{revision, draft, task, archived, created, updated, enrichment, error, pinned} = card
-  {==}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Requirements is Type:
   Requirements{
@@ -82,5 +51,5 @@ type Requirements is Type:
            Interface.declared(parent ++ "/agent/" ++ Nat.show(id), edit, Core.State{E.Application{world, session}, services}),
            Interface.more(U.AgentSubject{id}, parent ++ "/agent/" ++ Nat.show(id), Core.State{E.Application{world, session}, services})]) : Interface.Node}}
 
-def evidence() -> Requirements:
-  Requirements{card_opens_details, +view => +search => +status => +priority => +date => +assignee => +creator => +project => +labels => +parent => +state => {==}, +id => +title => +status => +selected => +open => +parent => +state => {==}, parent => state => {==}, +reason => {==}, +revision => +draft => +task => +archived => +created => +updated => +enrichment => +error => +pinned => +parent => {==}, +parent => state => {==}, id => revision => state => {==}, +id => +revision => +name => +profile => +reasoning => +instructions => +settings => +concurrency => +edit => +parent => +world => +session => +services => {==}}
+law evidence:
+  Requirements

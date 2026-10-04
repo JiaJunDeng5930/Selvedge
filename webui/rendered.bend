@@ -255,10 +255,3 @@ def receive(owned: Bool, generation: Nat, surface: UI.Surface, +frame: Frame, pr
     case True{}: accepted(violations(surface, frame), generation, frame)
 def observe(+current: Nat, received: Nat, surface: UI.Surface, frame: Frame, previous: State) -> State:
   receive(Nat.is_eq(current, received), current, surface, frame, previous)
-
-
-
-def stale_frame_retains_state(+current: Nat, +received: Nat, +surface: UI.Surface, +frame: Frame, +previous: State,
-  different: {Nat.is_eq(current, received) == False{} : Bool}) ->
-  {observe(current, received, surface, frame, previous) == previous : State}:
-  Equal.cong(Bool, State, (owned => receive(owned, current, surface, frame, previous)), Nat.is_eq(current, received), False{}, different)

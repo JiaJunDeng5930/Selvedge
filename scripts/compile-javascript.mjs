@@ -77,7 +77,7 @@ async function emit(requestPath) {
     const seen = new Map();
     await Bend.book_load(book, request.entry, '', seen);
     Bend.book_valid(book, 0);
-    if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
+    if (book.hols + book.open !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
     const exports = Object.entries(request.exports);
     const roots = [...new Set(exports.map(([, definition]) => definition))];
     for (const definition of roots) {

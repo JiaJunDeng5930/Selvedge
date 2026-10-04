@@ -136,7 +136,7 @@ guessing an ID or a new key.
 The audited input is `codex-chatgpt-web/docs/protocol.md` at source revision
 `627e4f4720cd61c0cd7bc6e75b3bafd125deb217`, SHA-256
 `bd38e5df4a9ef16662627f71bd62749f7f883cd42b694dbba571c8531db204b6`,
-and its `runtime/response-resource.schema.json`. ADR 0024 describes the boundary.
+and its `runtime/response-resource.schema.json`.
 
 `tests-bend/chatgpt-web.test.mjs` uses a strict independent loopback protocol
 fixture, actual SQLite, native effects, process sandboxes, restart, cancellation

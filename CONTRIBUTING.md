@@ -39,7 +39,10 @@ rather than changing it to make a development run succeed.
 ## Reviews and decisions
 
 Work on a focused branch; `main` is protected. Explain the resulting behavior,
-its reason, and the relevant verification. Record architecture choices in an ADR.
+its reason, and the relevant verification. Express decision reasons that are
+program requirements as Bend entities, executable specifications or public rules
+bound to actual production computations. Do not maintain another account in
+documentation of requirements already expressed there. ADRs are optional.
 Record findings specific to the executable-model exploration in
 [docs/bend2-exploration.md](docs/bend2-exploration.md); avoid restating code tables
 or maintaining a second state-machine diagram.

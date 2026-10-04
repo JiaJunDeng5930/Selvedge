@@ -7,7 +7,6 @@ import ../bendlib/json.bend as J
 import ../bendlib/association-map.bend as Finite
 import ./user-input.bend as U
 import ./user-experience.bend as E
-import ./user-experience-laws.bend as Guarantees
 import ./ui-world.bend as View
 import ./form-fields.bend as Forms
 import ./client-services.bend as Services

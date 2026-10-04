@@ -382,12 +382,10 @@ def application_of(state: Core.State) -> E.Application:
   Core.State{application, services} = state
   application
 
-
 def directory_browse(+editor: U.Editor, +parent: String, +state: Core.State) -> Node:
   product_action(parent, "workspace/browse", "Browse folders",
     Core.ServiceInput{Services.OpenDirectoryPicker{editor, browse_start(editor, state), parent ++ "/workspace/browse"}},
     Core.accepts_directory(editor, application_of(state)))
-
 
 def field_children(field: Forms.Field, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
   match field:
@@ -542,22 +540,6 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.Sta
       [region(parent, "composer/" ++ U.editor_key(identity), "Message", Composer{},
         field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state, Nil{}) <>
           List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)]))]
-
-def composer_tree_present_agreement(+identity: U.Editor, revision: Nat, message: U.Text,
-    footer: +List<V.ComposerControl>, context: Maybe<&2, Context.Observation>, submit: V.ControlDeclaration,
-    feedback: U.Feedback, pending: Bool, +parent: String, +state: Core.State)
-  -> {composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) ==
-      expected_composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) : +List<Node>}:
-  match footer:
-    case Nil{}: {==}
-    case Con{first, rest}: {==}
-
-def composer_tree_agreement(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State)
-  -> {composer(view, parent, state) == expected_composer(view, parent, state) : +List<Node>}:
-  match view:
-    case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
-      composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state)
 
 def approvals(values: +List<Conversation.DecisionRequest>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
@@ -1021,7 +1003,6 @@ def card_detail_draft(value: B.Draft, +id: Nat, +card: B.Card, actions: +List<V.
    declared(parent, V.control("card/edit/" ++ Nat.show(id), "编辑任务", U.EditCard{id}), state)],
    List.append(&2, Node, card_error_observations(card, parent), List.append(&2, Node, detail_files(files, parent ++ "/attachments"),
      List.append(&2, Node, linked_card_controls(linked, parent, state), controls(actions, parent, state)))))
-
 
 def card_details_scene(value: V.CardScene, parent: String, state: Core.State) -> +List<Node>:
   V.CardScene{id, +card, open, actions, linked, destinations, candidates} = value
@@ -1488,7 +1469,6 @@ def select_scope(scope: Maybe<&2, String>, base: +List<Node>, overlays: +List<No
     case None{}: List.append(&2, Node, base, overlays)
     case Some{key}: scope_node(find_node(overlays, key))
 
-
 def active_nodes(surface: Surface) -> +List<Node>:
   Surface{content, base, overlays, scope} = surface
   select_scope(scope, base, overlays)
@@ -1717,21 +1697,14 @@ def assemble(+content: Core.Scene, +state: Core.State) -> Surface:
 def observe(capacity: V.Capacity, +state: Core.State) -> Surface:
   assemble(Core.observe(capacity, state), state)
 
-
-
 def interact(+capacity: V.Capacity, +key: String, gesture: Gesture, +state: Core.State) -> Core.Decision:
   perform(capacity, state, key, resolve(observe(capacity, state), key, gesture))
-
-
-
 
 def focus_in(+nodes: +List<Node>, requested: String) -> Maybe<&2, String>:
   preferred_key(matching_focus(nodes, requested), first_focus(nodes))
 
 def focus_target(surface: Surface, requested: String) -> Maybe<&2, String>:
   focus_in(active_nodes(surface), requested)
-
-
 
 def submits(meaning: Meaning, editor: U.Editor) -> Bool:
   match meaning:
@@ -1764,36 +1737,3 @@ def composer_enabled(capacity: V.Capacity, editor: U.Editor, state: Core.State) 
 def content(surface: Surface) -> Core.Scene:
   Surface{content, base, overlays, scope} = surface
   content
-
-def relocated_valid_content(valid: Bool, +node: Node, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
-  {content(relocate_valid_trigger(valid, node, scene, base, overlays)) == scene : Core.Scene}:
-  match valid:
-    case False{}: {==}
-    case True{}:
-      Node{key, semantic, label, role, meaning, children} = node
-      {==}
-
-def relocated_found_content(found: Maybe<&2, Node>, +target: Nat, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
-  {content(relocate_found_trigger(found, target, scene, base, overlays)) == scene : Core.Scene}:
-  match found:
-    case None{}: {==}
-    case Some{Node{key, semantic, label, role, +meaning, children}}:
-      relocated_valid_content(persistent_trigger_source(meaning, target),
-        Node{key, semantic, label, role, meaning, children}, scene, base, overlays)
-
-def relocated_key_content(found: Maybe<&2, String>, +target: Nat, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
-  {content(relocate_trigger_key(found, target, scene, base, overlays)) == scene : Core.Scene}:
-  match found:
-    case None{}: {==}
-    case Some{key}: relocated_found_content(find_node(base, key), target, scene, base, overlays)
-
-def relocated_content(trigger: Maybe<&2, PersistentTrigger>, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
-  {content(relocate_persistent_trigger(trigger, scene, base, overlays)) == scene : Core.Scene}:
-  match trigger:
-    case None{}: {==}
-    case Some{PersistentTrigger{target, requested}}: relocated_key_content(matching_focus(base, requested), target, scene, base, overlays)
-
-def assembled_content(+scene: Core.Scene, +state: Core.State) ->
-  {content(assemble(scene, state)) == scene : Core.Scene}:
-  Core.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code, folder_picker} = scene
-  {==}

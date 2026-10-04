@@ -13,6 +13,7 @@ import ../core/ui-world.bend as View
 
 # These requirements observe the production document; CSS execution remains a
 # browser boundary, including the physical glyph bounds and actual hit tests.
+
 def layout_insets(layout: Controls.ContentLayout) -> (Nat & (Nat & Nat)):
   Controls.ContentLayout{alignment, +content_area, gap} = layout
   (Enclosure.inline(content_area), (Enclosure.block(content_area), gap))
@@ -47,25 +48,6 @@ def layout_insets(layout: Controls.ContentLayout) -> (Nat & (Nat & Nat)):
 
 
 
-def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alignment: Design.Alignment, flow: Design.Flow, overflow: Design.Overflow, content_area: Enclosure.ContentArea, gap: Nat, height: Nat, maximum: Nat, states: Design.ControlStates, face: Controls.Face, size: Controls.Geometry) ->
-  {EnclosureLaws.frame_coordinates(Design.style_frame(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size))) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}:
-  T.Presentation{tier, emphasis, scale} = text
-  Design.Chrome{foreground, background, border, border_width, chrome_radius, shadow} = chrome
-  match face size:
-    case Controls.IconFace{icon} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-    case Controls.TextFace{text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-    case Controls.SingleLineFace{text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-    case Controls.IconTextFace{icon, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-    case Controls.PickerFace{leading, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, slot}: {==}
-    case Controls.ChoiceFace{text, description, checked} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-    case Controls.DisclosureFace{text, expanded} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-    case Controls.PermissionFace{filesystem, network, approval} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
-
-
-
-
-
-
 type Requirements is Type:
   Requirements{
     production_icon_paint: @+key:String -> @+icon:Controls.Icon ->
@@ -93,12 +75,12 @@ type Requirements is Type:
     permission_icons: @+typography:T.Presentation -> @geometry:Controls.Geometry -> @+key:String -> @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
       {Render.face(key, Controls.PermissionFace{filesystem, network, approval}, typography, geometry) == [Render.icon(key ++ "/filesystem", filesystem), Render.icon(key ++ "/network", network), Render.icon(key ++ "/approval", approval)] : +List<Doc.Node>},
     centered_icon_geometry: @icon:Controls.Icon -> @width:Nat -> @height:Nat -> @preferred:Enclosure.Extent -> @size:Nat -> @radius:Nat -> @slot:Nat ->
-      {Render.content_geometry(Controls.IconFace{icon}, Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, size, radius, slot}) == [Render.property("width", Render.px(Render.square_extent(width, height))), Render.property("height", Render.px(Render.square_extent(width, height))), Render.property("flex-shrink", "0"), Render.property("box-sizing", "border-box")] : +List<Doc.Property>} &
+      {Render.content_geometry(Controls.IconFace{icon}, Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, size, radius, slot}) == [Render.property("width", Render.px(width)), Render.property("height", Render.px(height)), Render.property("flex-shrink", "0"), Render.property("box-sizing", "border-box")] : +List<Doc.Property>} &
       {Render.flow(Appearance.action_flow(Controls.IconFace{icon}, Controls.content_layout(Controls.IconFace{icon}))) == [Render.property("display", "inline-flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("justify-content", "center")] : +List<Doc.Property>},
     action_content_is_last: @+key:String -> @+visual:Design.Style -> @input:Core.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+size:Controls.Geometry -> @placement:Controls.Placement -> @help:Controls.Help -> @feedback:Controls.Feedback ->
       {Doc.element_styles(Render.action(key, visual, Controls.Action{input, availability, name, face, behavior, size, placement, help, feedback})) == Render.action_styles(key, visual, face, size, placement) : +List<Doc.Property>},
     appearance_consumes_layout: @text:T.Presentation -> @chrome:Design.Chrome -> @alignment:Design.Alignment -> @flow:Design.Flow -> @overflow:Design.Overflow -> @content_area:Enclosure.ContentArea -> @gap:Nat -> @height:Nat -> @maximum:Nat -> @states:Design.ControlStates -> @face:Controls.Face -> @size:Controls.Geometry ->
       {EnclosureLaws.frame_coordinates(Design.style_frame(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size))) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}}
 
-def evidence() -> Requirements:
-  Requirements{+key => +icon => {==}, filesystem => network => approval => {==}, icon => {==}, +leading => label => {==}, +key => {==}, +key => {==}, +typography => geometry => +key => +leading => label => {==}, +key => {==}, +typography => +key => label => +description => width => height => preferred => icon => radius => slot => {==}, +typography => +key => label => +description => width => height => preferred => icon => radius => slot => {==}, +typography => geometry => +key => filesystem => network => approval => {==}, icon => width => height => preferred => size => radius => slot => ({==}, {==}), +key => +visual => input => availability => name => +face => behavior => +size => placement => help => feedback => {==}, appearance_consumes_layout}
+law evidence:
+  Requirements
