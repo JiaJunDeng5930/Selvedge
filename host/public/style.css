@@ -20,9 +20,9 @@ pre, code { font-family: var(--rich-code-font); }
 .markdown th, .markdown td { border: 1px solid var(--border-primary, GrayText); padding: .5em; }
 .math-source { white-space: pre-wrap; }
 
-.native-control, .native-surface { background: var(--native-rest-background); color: var(--native-rest-color); }
-.native-surface:hover, .native-control:hover:enabled { background: var(--native-hover-background); color: var(--native-hover-color); }
-.native-surface:active, .native-control:active:enabled { background: var(--native-pressed-background); color: var(--native-pressed-color); }
+.native-control { background: var(--native-rest-background); color: var(--native-rest-color); }
+.native-control:hover:enabled { background: var(--native-hover-background); color: var(--native-hover-color); }
+.native-control:active:enabled { background: var(--native-pressed-background); color: var(--native-pressed-color); }
 .native-control:disabled { opacity: var(--native-disabled-opacity); }
 .native-control:focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
 
@@ -32,4 +32,4 @@ pre, code { font-family: var(--rich-code-font); }
 .markdown h3 { font-size: var(--rich-body-strong-size); line-height: var(--rich-body-strong-line); font-weight: var(--rich-body-strong-weight); }
 .markdown h4, .markdown h5, .markdown h6 { font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
 .markdown pre, .markdown code { font-family: var(--rich-code-font); font-size: var(--rich-code-size); line-height: var(--rich-code-line); font-weight: var(--rich-code-weight); }
-.markdown header, .code-toolbar, .markdown .metadata { font-size: var(--rich-support-size); line-height: var(--rich-support-line); }
+.code-toolbar { font-size: var(--rich-support-size); line-height: var(--rich-support-line); }

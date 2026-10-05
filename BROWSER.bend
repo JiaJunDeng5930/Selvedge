@@ -1,3 +1,5 @@
+import ./webui/native-fields.bend as NativeFields
+import ./webui/rendered.bend as Rendered
 import ./webui/focus.bend as Focus
 import ./webui/physical-plan.bend as Plan
 import ./webui/physical-content.bend as Content
@@ -35,9 +37,9 @@ def editor_event(key: String, event: Editor.Event, state: Browser.State) -> Brow
 def reading(task: Nat, generation: Nat, event: Reading.Event, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
 def streams(body: J.Json, state: Browser.State) -> Browser.Decision: Browser.streams(body, state)
 
-def key_input(key: String, shift: Bool, state: Browser.State) -> Browser.Decision: Browser.key_input(key, shift, state)
+def key_input(key: String, shift: Bool, received: Nat, frame: Rendered.Frame, state: Browser.State) -> Browser.Decision: Browser.key_input(key, shift, received, frame, state)
 
-def key_event(key: String, shift: Bool, state: Browser.State) -> Browser.KeyResult: Browser.key_event(key, shift, state)
+def key_event(key: String, shift: Bool, received: Nat, frame: Rendered.Frame, state: Browser.State) -> Browser.KeyResult: Browser.key_event(key, shift, received, frame, state)
 
 def directory_listed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directory_listed(ticket, ok, body, state)
 
@@ -76,3 +78,6 @@ def probe_document(job: Plan.Job) -> Document.Document: Browser.probe_document(j
 def probe_target_keys(request: Content.Request) -> +List<String>: Browser.probe_target_keys(request)
 
 def publication(last_published: Nat, state: Browser.State) -> Browser.Publication: Browser.publication(last_published, state)
+
+def field_session_initial() -> NativeFields.Record: NativeFields.initial()
+def field_session_step(event: NativeFields.Event, record: NativeFields.Record) -> NativeFields.Decision: NativeFields.step(event, record)

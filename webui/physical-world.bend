@@ -190,11 +190,6 @@ def unique_fields(fields: +List<J.Field>, +seen: +List<String>) -> Bool:
     case Con{J.Field{+name, value}, rest}: Bool.not(contains(seen, name)) && unique_fields(rest, name <> seen)
 
 
-def object_valid(value: J.Json) -> Bool:
-  match value:
-    case J.Object{fields}: unique_fields(fields, Nil{})
-    case _: False{}
-
 def fields_allowed(fields: +List<J.Field>, +allowed: +List<String>) -> Bool:
   match fields:
     case Nil{}: True{}

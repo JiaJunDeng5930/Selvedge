@@ -91,9 +91,24 @@ type DrawingPaint is Data:
 type Drawing is Data:
   Drawing{view_box: String, paths: +List<DrawingPath>, width: Nat, height: Nat, paint: DrawingPaint}
 
+type CodeSurface is Data:
+  CodeSurface{frame: Enclosure.Frame, chrome: Design.Chrome}
+
+def code_surface_frame(value: CodeSurface) -> Enclosure.Frame:
+  CodeSurface{frame, chrome} = value
+  frame
+
+def code_surface_chrome(value: CodeSurface) -> Design.Chrome:
+  CodeSurface{frame, chrome} = value
+  chrome
+
 type RichPolicy is Data:
-  RichPolicy{code_frame: Enclosure.Insets, toolbar_height: Nat, block_gap: Nat,
+  RichPolicy{code_surface: CodeSurface, toolbar_height: Nat, block_gap: Nat,
     list_indent: Nat, code_text: T.Presentation, wrap: Bool}
+
+def rich_policy_code_surface(value: RichPolicy) -> CodeSurface:
+  RichPolicy{surface, toolbar_height, block_gap, list_indent, code_text, wrap} = value
+  surface
 
 type RichContent is Data:
   RichContent{source: Maybe<&2, Code.Source>, value: String, policy: RichPolicy}

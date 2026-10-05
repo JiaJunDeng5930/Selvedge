@@ -78,18 +78,44 @@ export class Renderer {
     record.attributes = next;
     record.styles = nextStyles;
   }
-  controlledValue(record) {
+  replaceValue(record, value) {
     const node = record.node;
-    if (!record.attributes.has('value') || !('value' in node)) return;
-    const value = record.attributes.get('value');
-    // Options must exist before assigning a select value, including an empty value.
-    if (node.localName === 'select') { node.value = value; return; }
-    if (this.composing.has(node) || node.value === value) return;
+    if (!('value' in node) || node.value === value) return;
     const active = node === node.ownerDocument.activeElement;
     const selection = active && typeof node.selectionStart === 'number'
       ? [node.selectionStart, node.selectionEnd, node.selectionDirection] : null;
     node.value = value;
     if (selection) node.setSelectionRange(Math.min(selection[0], value.length), Math.min(selection[1], value.length), selection[2]);
+  }
+  fieldSession(record, event) {
+    record.fieldSession ??= this.callbacks.fieldSessionInitial();
+    const decision = this.callbacks.fieldSessionStep(event, record.fieldSession);
+    record.fieldSession = decision.record;
+    if (decision.replace && decision.record.canonical.$ === 'Some') this.replaceValue(record, decision.record.canonical.value);
+    return decision;
+  }
+  controlledValue(record) {
+    if (!record.attributes.has('value') || !('value' in record.node)) return;
+    const value = record.attributes.get('value');
+    // Isolated measurement documents have no user editing sessions.
+    if (this.isolated) { this.replaceValue(record, value); return; }
+    this.fieldSession(record, { $: 'Synchronize', value });
+  }
+  synchronizeFields(updates) {
+    for (const update of list(updates)) {
+      const record = this.records.get(update.key);
+      if (!record || !this.root.contains(record.node)) continue;
+      if (update.$ === 'SetIdentity') {
+        if (!this.isolated) this.fieldSession(record, { $: 'Rebind', identity: update.identity });
+      } else if (update.$ === 'SetValue') {
+        record.attributes.set('value', update.value);
+        this.controlledValue(record);
+      } else if (update.$ === 'SetChecked') {
+        if (record.node.checked !== update.checked) record.node.checked = update.checked;
+        if (update.checked) { record.attributes.set('checked', 'true'); record.node.setAttribute('checked', ''); }
+        else { record.attributes.delete('checked'); record.node.removeAttribute('checked'); }
+      } else throw new TypeError(`Unknown native field update ${update.$}`);
+    }
   }
   events(record, bindings) {
     record.bindings = list(bindings);
@@ -99,15 +125,30 @@ export class Renderer {
     const dispatch = (kind, native) => {
       for (const event of record.bindings) if (event.$ === kind) this.callbacks.event(event, native, node, this.composing.has(node));
     };
-    node.addEventListener('compositionstart', () => this.composing.add(node));
-    node.addEventListener('compositionend', event => { this.composing.delete(node); dispatch('EditText', event); });
+    const session = event => this.isolated ? { deliver: false } : this.fieldSession(record, { $: event });
+    node.addEventListener('compositionstart', () => { this.composing.add(node); session('CompositionStarted'); });
+    node.addEventListener('compositionend', event => {
+      this.composing.delete(node);
+      if (session('CompositionEnded').deliver) dispatch('EditText', event);
+    });
+    node.addEventListener('pointerdown', () => {
+      if (record.fieldSession?.session.$ === 'SupersededTail') session('InputStarted');
+    });
+    for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('InputStarted'));
     node.addEventListener('click', event => {
+      if (node.type === 'file') session('InputStarted');
       if (record.bindings.some(binding => binding.$ === 'Activate')) event.preventDefault();
       dispatch('Activate', event); dispatch('PlaceCard', event);
     });
-    node.addEventListener('keydown', event => dispatch('ConfirmText', event));
-    node.addEventListener('input', event => { if (!event.isComposing) dispatch('EditText', event); });
-    node.addEventListener('change', event => { dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event); });
+    node.addEventListener('keydown', event => {
+      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('InputStarted');
+      dispatch('ConfirmText', event);
+    });
+    node.addEventListener('input', event => { if (session('InputObserved').deliver) dispatch('EditText', event); });
+    node.addEventListener('change', event => {
+      if (!session('InputObserved').deliver) return;
+      dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event);
+    });
     node.addEventListener('dragstart', event => dispatch('DragCard', event));
     node.addEventListener('dragover', event => { if (record.bindings.some(binding => binding.$ === 'DropCard')) event.preventDefault(); });
     node.addEventListener('drop', event => { event.preventDefault(); dispatch('DropCard', event); });

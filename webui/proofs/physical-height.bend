@@ -1,8 +1,6 @@
 import Base
 import ../../bendlib/stdlib.bend as Std
-import ../../bendlib/proofs/algebra.bend as Alg
 import ../physical-allocation.bend as Allocation
-import ../physical-space.bend as Model
 import ../space.bend as Space
 import ../space-laws.bend as SpaceLaws
 import ../spatial.bend as Spatial
@@ -80,10 +78,6 @@ def rank_zero(~A: Data, ~E: Data, state: Allocation.HeightState<A, E>) ->
     case Allocation.HeightChildren{remaining, key, value, interaction, rule, bounds, canvas, direction, left, top, previous, parent}: {==}
     case Allocation.HeightComplete{result, parent}: {==}
     case Allocation.HeightDone{result}: {==}
-
-def done_fixed(~A: Data, ~E: Data, result: Allocation.PositionedOutcome<A, E>) ->
-  {Allocation.height_step(~A, ~E, Allocation.HeightDone{result}) == Allocation.HeightDone{result} : Allocation.HeightState<A, E>}:
-  {==}
 
 def decrease_claim(~A: Data, ~E: Data, state: Allocation.HeightState<A, E>) -> Type:
   {Nat.is_le(rank(~A, ~E, Allocation.height_step(~A, ~E, state)), Nat.sub(rank(~A, ~E, state), 1n)) == True{} : Bool}

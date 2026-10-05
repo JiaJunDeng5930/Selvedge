@@ -35,10 +35,34 @@ def code_wrapping(+value: Bool) -> T.Wrapping:
     case True{}: T.WrapAnywhere{}
     case False{}: T.ScrollableCode{}
 
+def code_properties(+values: +List<Doc.Property>) -> +List<Doc.Property>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Doc.Property{+name, +value}, +rest}:
+      Paint.property("--physical-code-" ++ name, value) <> code_properties(rest)
+
+def shadow(+value: Bool) -> +List<Doc.Property>:
+  match value:
+    case True{}: [Paint.property("box-shadow", "var(--shadow-sm)")]
+    case False{}: Nil{}
+
+def chrome(+value: Design.Chrome) -> +List<Doc.Property>:
+  Design.Chrome{+foreground, +background, +border, +width, +radius, +cast_shadow} = value
+  properties([Paint.property("color", Paint.paint(foreground)), Paint.property("background", Paint.paint(background)),
+    Paint.property("border-color", Paint.paint(border)), Paint.property("border-radius", Paint.px(radius))], shadow(cast_shadow))
+
+def code_chrome(+value: Design.Chrome) -> +List<Doc.Property>:
+  Design.Chrome{foreground, background, border, width, radius, cast_shadow} = value
+  properties(code_properties(chrome(value)), [Paint.property("--physical-code-border-width", Paint.px(width))])
+
 def rich_styles(+font: T.Presentation, +policy: Source.RichPolicy) -> +List<Doc.Property>:
-  Source.RichPolicy{Enclosure.Insets{+inline, +block}, +toolbar_height, +block_gap, +list_indent, +code_text, +wrap} = policy
-  properties(properties(Paint.rich_properties(font), Paint.rich_resolved("--rich-code", T.resolved(code_text))), properties(Paint.text_presentation(T.with_tier(font, T.Body{})),
+  Source.RichPolicy{Source.CodeSurface{+frame, +surface}, +toolbar_height, +block_gap, +list_indent, +code_text, +wrap} = policy
+  +insets = Enclosure.frame_content(frame)
+  +inline = Enclosure.inline(insets)
+  +block = Enclosure.block(insets)
+  properties(properties(Paint.rich_properties(font), Paint.rich_resolved("--rich-code", T.resolved(code_text))), properties(properties(Paint.text_presentation(T.with_tier(font, T.Body{})), code_chrome(surface)),
     [Paint.property("--physical-code-padding-inline", Paint.px(inline)), Paint.property("--physical-code-padding-block", Paint.px(block)),
+     Paint.property("--physical-code-gap", Paint.px(Enclosure.frame_gap(frame))),
      Paint.property("--physical-toolbar-height", Paint.px(toolbar_height)), Paint.property("--physical-block-gap", Paint.px(block_gap)),
      Paint.property("--physical-list-indent", Paint.px(list_indent)),
      Paint.property("--physical-code-white-space", T.white_space(code_wrapping(wrap))),
@@ -54,16 +78,6 @@ def primitive_styles(+value: Content.Value) -> +List<Doc.Property>:
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +children}, +font}: Paint.text_presentation(font)
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +children}, +font}: Paint.text_presentation(font)
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +children}, +font}: Paint.text_presentation(font)
-
-def shadow(+value: Bool) -> +List<Doc.Property>:
-  match value:
-    case True{}: [Paint.property("box-shadow", "var(--shadow-sm)")]
-    case False{}: Nil{}
-
-def chrome(+value: Design.Chrome) -> +List<Doc.Property>:
-  Design.Chrome{+foreground, +background, +border, +width, +radius, +cast_shadow} = value
-  properties([Paint.property("color", Paint.paint(foreground)), Paint.property("background", Paint.paint(background)),
-    Paint.property("border-color", Paint.paint(border)), Paint.property("border-radius", Paint.px(radius))], shadow(cast_shadow))
 
 def visual(+style: Source.Style) -> +List<Doc.Property>:
   Source.Style{+layout, +font, +surface, +states} = style

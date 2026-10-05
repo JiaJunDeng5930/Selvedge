@@ -135,8 +135,8 @@ def extent_width(extent: Enclosure.Extent) -> Nat:
 def rich_minimum(node: Source.Node, +roots: +List<Content.NativeRoot>, +observed: Nat) -> Nat:
   match node:
     case Source.RichText{key, style, Source.RichContent{source, value,
-      Source.RichPolicy{Enclosure.Insets{inline, block}, toolbar_height, block_gap, list_indent, code_text, wrap}}, attachments}:
-      Nat.max(observed, Nat.add(extent_width(toolbar_minimum(roots)), Nat.mul(2n, inline)))
+      Source.RichPolicy{Source.CodeSurface{frame, chrome}, toolbar_height, block_gap, list_indent, code_text, wrap}}, attachments}:
+      Nat.max(observed, Nat.add(extent_width(toolbar_minimum(roots)), Nat.mul(2n, Enclosure.inline(Enclosure.frame_content(frame)))))
     case Source.Box{key, tag, style, attributes, children}: observed
     case Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: observed
     case Source.Text{key, value, font, wrapping}: observed

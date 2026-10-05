@@ -490,7 +490,9 @@
       "webui/focus.bend",
       "webui/physical-plan.bend",
       "webui/physical-content.bend",
-      "webui/physical-browser.bend"
+      "webui/physical-browser.bend",
+      "webui/native-fields.bend",
+      "webui/rendered.bend"
     ],
     "bendlib/proofs/ui.bend": [
       "bendlib/architecture.bend",
@@ -1477,6 +1479,36 @@
       "webui/design.bend",
       "webui/visibility.bend",
       "webui/spatial.bend"
+    ],
+    "webui/native-fields.bend": [
+      "webui/source.bend",
+      "webui/authored-controls.bend",
+      "core/interface.bend",
+      "core/user-input.bend"
+    ],
+    "webui/native-fields-rules.bend": [
+      "webui/native-fields.bend",
+      "webui/source.bend",
+      "webui/authored-controls.bend",
+      "core/interface.bend",
+      "core/user-input.bend",
+      "core/form-fields.bend"
+    ],
+    "webui/proofs/native-fields.bend": [
+      "webui/native-fields.bend",
+      "webui/native-fields-rules.bend",
+      "core/interface.bend",
+      "bendlib/stdlib.bend"
+    ],
+    "webui/code-surface-rules.bend": [
+      "webui/authored.bend",
+      "webui/source.bend",
+      "webui/design.bend",
+      "webui/enclosure.bend"
+    ],
+    "webui/proofs/code-surface.bend": [
+      "webui/code-surface-rules.bend",
+      "webui/design.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

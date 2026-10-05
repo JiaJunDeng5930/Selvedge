@@ -52,6 +52,8 @@ const transfers = new Map();
 const resources = new Set();
 const streams = new Map();
 const renderer = new Renderer(root, {
+  fieldSessionInitial: () => Bend.field_session_initial(),
+  fieldSessionStep: (event, record) => Bend.field_session_step(event, record),
   event(binding, event, node, composing) {
     switch (binding.$) {
       case 'Activate': event.preventDefault(); captureAnchor(binding.key, node); commit(Bend.activate(binding.key, state)); break;
@@ -138,11 +140,13 @@ function render() {
       renderedGeneration = publication.generation > 0n ? publication.generation : null;
       // Publication establishes the baseline; only later native content reflow requests a new measurement.
       displayedGeometry = geometrySignature();
+      if (renderedGeneration !== null) requestDisplayedFrame(renderedGeneration);
       if (pendingFocus) applyFocus(pendingFocus);
       break;
     }
     default: throw new TypeError(`Unknown publication ${publication.$}`);
   }
+  renderer.synchronizeFields(publication.fields);
   schedulePhysical();
   for (const effect of effects) Promise.resolve(execute(effect)).catch(error => console.error(error));
 }
@@ -363,11 +367,17 @@ function frame() {
   return value('Frame', { viewport: value('Rect', { left: 0, top: 0, right: innerWidth, bottom: innerHeight }), elements: linked(elements),
     focused: focused ? value('Some', { value: focused }) : value('None'), tab_order: linked(tabOrder.map(owner)) });
 }
+function requestDisplayedFrame(generation) {
+  requestAnimationFrame(() => {
+    if (renderedGeneration === generation && root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') {
+      native(value('FrameObserved', { generation, frame: frame() }));
+    }
+  });
+}
 async function browserEffect(effect) {
   if (effect.$ === 'MeasureFrame') {
-    requestAnimationFrame(() => {
-      if (renderedGeneration !== null && root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') native(value('FrameObserved', { generation: renderedGeneration, frame: frame() }));
-    }); return;
+    if (renderedGeneration !== null) requestDisplayedFrame(renderedGeneration);
+    return;
   }
   if (effect.$ !== 'PlatformEffect') throw new TypeError(`Unknown web effect ${effect.$}`);
   const physical = effect.effect;
@@ -573,7 +583,8 @@ root.addEventListener('compositionstart', event => editorEvent(event.target, val
 root.addEventListener('compositionend', event => editorEvent(event.target, value('CompositionChanged', { composing: bool(false) })));
 root.addEventListener('keydown', event => {
   if (event.key === 'Tab' || event.key === 'Escape') {
-    const result = Bend.key_event(event.key, bool(event.shiftKey), state);
+    if (renderedGeneration === null) return;
+    const result = Bend.key_event(event.key, bool(event.shiftKey), renderedGeneration, frame(), state);
     if (result.handled) event.preventDefault();
     commit(result.decision);
     return;

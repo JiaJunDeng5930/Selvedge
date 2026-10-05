@@ -173,10 +173,6 @@ def minimum_demand(value: Space.Demand) -> Enclosure.Extent:
   Space.Demand{minimum, preferred} = value
   minimum
 
-def preferred_demand(value: Space.Demand) -> Enclosure.Extent:
-  Space.Demand{minimum, preferred} = value
-  preferred
-
 def accept_dimension(+fits: Bool, value: Space.Dimension) -> Maybe<&2, Space.Dimension>:
   match fits:
     case False{}: None{}

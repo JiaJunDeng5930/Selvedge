@@ -1,5 +1,6 @@
 import Base
 import ./source.bend as Source
+import ./appearance.bend as Appearance
 import ./authored-primitives.bend as Factory
 import ./authored-controls.bend as AuthoredControls
 import ./design.bend as Design
@@ -184,22 +185,25 @@ def toolbar_preferred(+values: +List<Child>) -> Nat:
     case Con{Child{key, role, meaning, Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, nodes}, rest}: Nat.max(Controls.geometry_preferred_height(geometry), toolbar_preferred(rest))
     case Con{other, rest}: toolbar_preferred(rest)
 
-def rich_policy(+visual: Design.Style, +reserve: Nat) -> Source.RichPolicy:
+def code_surface(+visual: Design.Style) -> Source.CodeSurface:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+  Source.CodeSurface{Design.style_frame(visual), chrome}
+
+def rich_policy(+visual: Design.Style, +code_visual: Design.Style, +reserve: Nat) -> Source.RichPolicy:
   +body = T.resolved_size(T.resolved(Design.style_text(visual)))
   +code = T.with_tier(Design.style_text(visual), T.CodeBody{})
-  +padding = T.resolved_size(T.resolved(code))
-  Source.RichPolicy{Enclosure.Insets{padding, padding}, reserve, body, Nat.mul(2n, body), code, False{}}
+  Source.RichPolicy{code_surface(code_visual), reserve, body, Nat.mul(2n, body), code, False{}}
 
-def rich_leaf(+key: String, +value: String, +visual: Design.Style, +source: Maybe<&2, Code.Source>, +attachments: +List<Source.Node>) -> Source.Node:
-  Source.RichText{key, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Source.RichContent{source, value, rich_policy(visual, toolbar_reserve(attachments))}, attachments}
+def rich_leaf(+key: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +source: Maybe<&2, Code.Source>, +attachments: +List<Source.Node>) -> Source.Node:
+  Source.RichText{key, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Source.RichContent{source, value, rich_policy(visual, code_visual, toolbar_reserve(attachments))}, attachments}
 
-def rich_checked(+result: Result, +key: String, +role: UI.Role, +value: String, +visual: Design.Style, +children: +List<Child>) -> Result:
+def rich_checked(+result: Result, +key: String, +role: UI.Role, +value: String, +visual: Design.Style, +code_visual: Design.Style, +children: +List<Child>) -> Result:
   match result:
     case Rejected{key, problem}: Rejected{key, problem}
-    case Authored{unused}: Authored{[box(key, role_tag(role), role_style(visual, role), Nil{}, rich_leaf(key ++ "/markdown", value, visual, source_of(children), native(all_nodes(children))) <> ordinary(all_nodes(children)))]}
+    case Authored{unused}: Authored{[box(key, role_tag(role), role_style(visual, role), Nil{}, rich_leaf(key ++ "/markdown", value, visual, code_visual, source_of(children), native(all_nodes(children))) <> ordinary(all_nodes(children)))]}
 
-def rich(+key: String, +role: UI.Role, +value: String, +visual: Design.Style, +children: +List<Child>) -> Result:
-  rich_checked(check_owners(native(all_nodes(children)), key, source_of(children)), key, role, value, visual, children)
+def rich(+key: String, +role: UI.Role, +value: String, +visual: Design.Style, +code_visual: Design.Style, +children: +List<Child>) -> Result:
+  rich_checked(check_owners(native(all_nodes(children)), key, source_of(children)), key, role, value, visual, code_visual, children)
 
 def code_toolbar(+toolbar: +List<Source.Node>, +key: String, +identity: Code.Identity, +visual: Design.Style, +preferred: Nat, +body: Source.Node, +remaining: +List<Source.Node>) -> +List<Source.Node>:
   match toolbar:
@@ -242,11 +246,11 @@ def task_details(+owner: String, +value: View.TaskDetails, +visual: Design.Style
   View.TaskDetails{Context.EffectiveContext{task, Domain.TaskContext{Domain.Workspace{roots, primary}, Domain.Sandbox{mode, network}, approval, project}, guidance, access}, Domain.Model{Domain.Profile{id, provider, name, policy}, reasoning, model_guidance}, tools, lineage, queued, status, phase} = value
   [group(owner ++ "/@facts", visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [fact(owner ++ "/@workspace", "Working directories", FieldOptions.joined(roots), visual), fact(owner ++ "/@primary", "Primary directory", FieldOptions.optional_text(primary), visual), fact(owner ++ "/@sandbox", "Filesystem access", Domain.sandbox_mode_name(mode), visual), fact(owner ++ "/@network", "Network access", FieldOptions.boolean(network), visual), fact(owner ++ "/@approval", "Approval policy", Domain.approval_name(approval), visual), fact(owner ++ "/@model", "Model", name, visual), fact(owner ++ "/@reasoning", "Reasoning", reasoning, visual), fact(owner ++ "/@messages", "Queued messages", FieldOptions.joined(queued), visual)])]
 
-def audit_nodes(+values: +List<Conversation.AuditFace>, +key: String, +visual: Design.Style) -> +List<Source.Node>:
+def audit_nodes(+values: +List<Conversation.AuditFace>, +key: String, +visual: Design.Style, +code_visual: Design.Style) -> +List<Source.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Conversation.AuditFace{+id, kind, title, source}, rest}:
-      group(key ++ "/audit/" ++ Nat.show(id), visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [text(key ++ "/audit-title/" ++ Nat.show(id), title, visual, T.Body{}, T.Strong{}), rich_leaf(key ++ "/audit-body/" ++ Nat.show(id), Conversation.audit_detail(source), visual, None{}, Nil{})]) <> audit_nodes(rest, key, visual)
+      group(key ++ "/audit/" ++ Nat.show(id), visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [text(key ++ "/audit-title/" ++ Nat.show(id), title, visual, T.Body{}, T.Strong{}), rich_leaf(key ++ "/audit-body/" ++ Nat.show(id), Conversation.audit_detail(source), visual, code_visual, None{}, Nil{})]) <> audit_nodes(rest, key, visual, code_visual)
 
 def disclosure(+control: Controls.Representation) -> Bool:
   match control:
@@ -429,7 +433,7 @@ def regular_content(+key: String, +label: String, +role: UI.Role, +meaning: UI.M
     case UI.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{key}, Nil{}, content}
     case UI.MovableCard{destinations, face}: card(key, face, visual, children, representation, parameters, AuthoredControls.has_available_destination(destinations))
     case UI.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", key}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))
-    case UI.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual)))))
+    case UI.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(UI.CodeBlock{}, UI.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
     case UI.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
     case UI.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(key ++ "/text", value, visual, T.Body{}, T.Regular{}) <> content)
     case UI.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
@@ -439,16 +443,16 @@ def regular_content(+key: String, +label: String, +role: UI.Role, +meaning: UI.M
 def regular(+key: String, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))
 
-def read_only_role(+role: UI.Role, +key: String, +label: String, +value: String, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+def read_only_role(+role: UI.Role, +key: String, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
   match role:
     case UI.Alert{}: Authored{regular(key, label, role, UI.ReadOnly{value}, visual, control, children, parameters) <> native(all_nodes(children))}
-    case other: rich(key, other, value, visual, children)
+    case other: rich(key, other, value, visual, code_visual, children)
 
 # Native attachments remain the same nodes while passing through ordinary parents.
 def authored_node(+key: String, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
   match meaning:
     case UI.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}}: Authored{code_children(key, identity, wrap, visual, children)}
-    case UI.ReadOnly{value}: read_only_role(role, key, label, value, visual, control, children, parameters)
+    case UI.ReadOnly{value}: read_only_role(role, key, label, value, visual, Appearance.style(UI.CodeBlock{}, UI.ReadOnly{value}, Design.style_text(visual)), control, children, parameters)
     case other: Authored{regular(key, label, role, other, visual, control, children, parameters) <> native(all_nodes(children))}
 
 def decorate_nodes(+values: +List<Source.Node>, +attrs: +List<Source.Attribute>) -> +List<Source.Node>:

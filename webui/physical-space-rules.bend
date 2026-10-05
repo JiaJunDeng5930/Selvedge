@@ -19,11 +19,6 @@ def child_minima_participate(~A: Data, ~E: Data, trees: +List<Model.Tree<A, E>>,
       extent_contains(required, Model.minimum_demand(Model.demand(~A, ~E, tree))) &&
         child_minima_participate(~A, ~E, rest, required)
 
-def materialized(result: Maybe<&2, Space.Dimension>) -> Bool:
-  match result:
-    case None{}: False{}
-    case Some{value}: True{}
-
 type Requirements<-A: Data, -E: Data> is Type:
   Requirements{
     preferred_floor: @+tree:Model.Tree<A, E> ->

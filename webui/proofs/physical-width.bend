@@ -50,22 +50,6 @@ def rank(~A: Data, ~E: Data, state: Allocation.WidthState<A, E>) -> Nat:
     case Allocation.WidthComplete{result, return_to}: Nat.add(1n, return_rank(~A, ~E, return_to))
     case Allocation.WidthDone{result}: 0n
 
-def visit_work_exact(~A: Data, ~E: Data, tree: Model.Tree<A, E>) ->
-  {visit_work(~A, ~E, tree) == Nat.sub(Allocation.width_forest_work(~A, ~E, tree <> Nil{}), 1n) : Nat}:
-  match tree:
-    case Model.Leaf{key, value, interaction, rule, demand, height}: {==}
-    case Model.Container{key, value, interaction, rule, +children}:
-      Equal.cong(Nat, Nat, (n => Nat.add(5n, n)), Allocation.width_forest_work(~A, ~E, children), Nat.add(Allocation.width_forest_work(~A, ~E, children), 0n),
-        Equal.sym(Nat, Nat.add(Allocation.width_forest_work(~A, ~E, children), 0n), Allocation.width_forest_work(~A, ~E, children), Alg.nat_add_zero(Allocation.width_forest_work(~A, ~E, children))))
-
-def checked_work_exact(~A: Data, ~E: Data, tree: Model.Tree<A, E>) ->
-  {checked_work(~A, ~E, tree) == Nat.sub(Allocation.width_forest_work(~A, ~E, tree <> Nil{}), 2n) : Nat}:
-  match tree:
-    case Model.Leaf{key, value, interaction, rule, demand, height}: {==}
-    case Model.Container{key, value, interaction, rule, +children}:
-      Equal.cong(Nat, Nat, (n => Nat.add(4n, n)), Allocation.width_forest_work(~A, ~E, children), Nat.add(Allocation.width_forest_work(~A, ~E, children), 0n),
-        Equal.sym(Nat, Nat.add(Allocation.width_forest_work(~A, ~E, children), 0n), Allocation.width_forest_work(~A, ~E, children), Alg.nat_add_zero(Allocation.width_forest_work(~A, ~E, children))))
-
 def visit_zero(~A: Data, ~E: Data, tree: Model.Tree<A, E>, +continuation: Nat) ->
   {Nat.is_eq(Nat.add(visit_work(~A, ~E, tree), continuation), 0n) == False{} : Bool}:
   match tree:
@@ -94,10 +78,6 @@ def rank_zero_completed(~A: Data, ~E: Data, state: Allocation.WidthState<A, E>) 
     case Allocation.WidthChildren{remaining, key, value, interaction, rule, width, offset, direction, previous, return_to}: {==}
     case Allocation.WidthComplete{result, return_to}: {==}
     case Allocation.WidthDone{result}: {==}
-
-def done_fixed(~A: Data, ~E: Data, +result: Allocation.WidthOutcome<A, E>, +samples: +List<Model.HeightSample>) ->
-  {Allocation.width_step(~A, ~E, Allocation.WidthDone{result}, samples) == Allocation.WidthDone{result} : Allocation.WidthState<A, E>}:
-  {==}
 
 def visit_decrease(~A: Data, ~E: Data, tree: Model.Tree<A, E>, +continuation: Nat) ->
   {Nat.is_le(Nat.add(checked_work(~A, ~E, tree), continuation), Nat.sub(Nat.add(visit_work(~A, ~E, tree), continuation), 1n)) == True{} : Bool}:

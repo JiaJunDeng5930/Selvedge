@@ -1,3 +1,4 @@
+import ./native-fields.bend as NativeFields
 import ./physical-space.bend as Space
 import ./rendered.bend as Rendered
 import Base
@@ -38,14 +39,18 @@ type Lifecycle is Data:
 
 
 
+type Published is Data:
+  Published{world: Content.AllocatedWorld, semantic: UI.Surface, scope: Focus.Scope,
+    basis: NativeFields.Basis, frame: Maybe<&2, Rendered.Frame>}
+
 type State is Data:
   State{legacy: Legacy.State, generation: Nat, anchors: +List<Shell.Anchor>, lifecycle: Lifecycle,
-    displayed: Maybe<&2, Content.AllocatedWorld>}
+    displayed: Maybe<&2, Published>}
 
 
 type Publication is Data:
-  KeepPublished{}
-  Publish{generation: Nat, document: Doc.Document}
+  KeepPublished{fields: +List<NativeFields.Update>}
+  Publish{generation: Nat, document: Doc.Document, fields: +List<NativeFields.Update>}
 
 
 type Decision is Data:
@@ -77,9 +82,34 @@ def candidate(+index: Nat) -> View.Capacity:
     case 1n: View.Capacity{True{}, False{}}
     case 2n: View.Capacity{False{}, True{}}
     case _: View.Capacity{False{}, False{}}
+def semantic_surface(+capacity: View.Capacity, +state: Legacy.State) -> UI.Surface:
+  Legacy.State{Web.State{Platform.State{core, platform}, generation, realization, environment, font}, sequence, ticket, pending} = state
+  Order.ordered_surface(Legacy.mask_surface(UI.observe(capacity, core), pending))
+def published(+world: Content.AllocatedWorld, +capacity: View.Capacity, +state: Legacy.State) -> Published:
+  Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies} = world
+  +semantic = semantic_surface(capacity, state)
+  Published{world, semantic, Legacy.active_focus_scope(state), NativeFields.basis([source], semantic), None{}}
 def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>) -> Decision:
-  Legacy.Decision{accepted, collected} = decision
-  Decision{State{accepted, serial, anchors, Displaying{capacity, engine}, Some{world}}, collected}
+  Legacy.Decision{+accepted, collected} = decision
+  Decision{State{accepted, serial, anchors, Displaying{capacity, engine}, Some{published(world, capacity, accepted)}}, collected}
+def current_legacy_surface(+state: Legacy.State) -> UI.Surface:
+  Legacy.State{Web.State{Platform.State{+core, Platform.Platform{readers, editors, focused, ticket, reduced, +capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
+  Order.ordered_surface(Legacy.mask_surface(UI.observe(capacity, core), pending))
+def current_surface(+state: State) -> UI.Surface:
+  current_legacy_surface(legacy(state))
+def published_world(value: Published) -> Content.AllocatedWorld:
+  Published{world, semantic, scope, basis, frame} = value
+  world
+def native_updates(+state: State) -> +List<NativeFields.Update>:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: Nil{}
+    case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.updates(basis, current_surface(state))
+def field_owned(+key: String, +state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: False{}
+    case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.field_owned(basis, key, current_surface(state))
 def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +state: State) -> Decision:
   State{Legacy.State{Web.State{Platform.State{+core, platform}, generation, realization, environment, font}, sequence, ticket, pending}, serial, anchors, lifecycle, displayed} = state
   +decision = Platform.reflow_capacity(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, capacity)
@@ -93,7 +123,7 @@ def displayed_generation(+state: State) -> Nat:
   State{legacy, serial, anchors, lifecycle, displayed} = state
   match displayed:
     case None{}: 0n
-    case Some{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}}: generation
+    case Some{Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}: generation
 def render_status(+state: State) -> String:
   State{legacy, serial, anchors, lifecycle, displayed} = state
   match lifecycle:
@@ -115,12 +145,12 @@ def status_document(message: String, font: T.Presentation) -> Doc.Document:
   Doc.Document{Doc.Element{"@browser/status", "section",
     [Doc.Property{"role", "status"}, Doc.Property{"data-frame-observation", "off"}],
     Paint.text_presentation(font), Nil{}, [Doc.Text{message}]}, "Selvedge"}
-def observed_lifecycle(+lifecycle: Lifecycle, +displayed: Maybe<&2, Content.AllocatedWorld>, +font: T.Presentation) -> Doc.Document:
+def observed_lifecycle(+lifecycle: Lifecycle, +displayed: Maybe<&2, Published>, +font: T.Presentation) -> Doc.Document:
   match lifecycle displayed:
-    case Displaying{capacity, engine} Some{world}: Doc.Document{Doc.Element{"@browser/application", "div", [Doc.Property{"class", "native-application"}], Nil{}, Nil{}, Renderer.nodes(world)}, "Selvedge"}
+    case Displaying{capacity, engine} Some{world}: Doc.Document{Doc.Element{"@browser/application", "div", [Doc.Property{"class", "native-application"}], Nil{}, Nil{}, Renderer.nodes(published_world(world))}, "Selvedge"}
     case Blocked{problem} _: status_document(problem, font)
     case _ _: status_document("Preparing interface…", font)
-def observed(+displayed: Maybe<&2, Content.AllocatedWorld>, +lifecycle: Lifecycle, +font: T.Presentation) -> Doc.Document:
+def observed(+displayed: Maybe<&2, Published>, +lifecycle: Lifecycle, +font: T.Presentation) -> Doc.Document:
   observed_lifecycle(lifecycle, displayed, font)
 def observe(+state: State) -> Doc.Document:
   State{+legacy, serial, anchors, lifecycle, displayed} = state
@@ -128,12 +158,12 @@ def observe(+state: State) -> Doc.Document:
   observed(displayed, lifecycle, T.Presentation{T.Body{}, T.Regular{}, F.scale(font)})
 def published_document(ready: Bool, +state: State) -> Publication:
   match ready:
-    case True{}: Publish{displayed_generation(state), observe(state)}
-    case False{}: Publish{0n, observe(state)}
+    case True{}: Publish{displayed_generation(state), observe(state), native_updates(state)}
+    case False{}: Publish{0n, observe(state), native_updates(state)}
 def publication_for(existing: Bool, +ready: Bool, current: Bool, state: State) -> Publication:
   match existing ready current:
-    case True{} False{} _: KeepPublished{}
-    case True{} True{} True{}: KeepPublished{}
+    case True{} False{} _: KeepPublished{native_updates(state)}
+    case True{} True{} True{}: KeepPublished{native_updates(state)}
     case _ _ _: published_document(ready, state)
 def publication(+last_published: Nat, +state: State) -> Publication:
   publication_for(Bool.not(Nat.is_eq(last_published, 0n)), display_ready(state),
@@ -152,7 +182,10 @@ def legacy_focus_ticket(state: Legacy.State) -> Nat:
 def focus_ticket(+state: State) -> Nat:
   legacy_focus_ticket(legacy(state))
 def active_scope(+state: State) -> Focus.Scope:
-  Legacy.active_focus_scope(legacy(state))
+  State{+legacy, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: Legacy.active_focus_scope(legacy)
+    case Some{Published{world, semantic, scope, basis, frame}}: scope
 def empty() -> M.World(): Legacy.empty()
 def program(+state: State) -> M.World(): Legacy.program(legacy(state))
 def code_key(+source: Code.Source, +ordinal: Nat) -> String: Legacy.code_key(source, ordinal)
@@ -302,10 +335,30 @@ def accept(+rebuild: Bool, +value: Legacy.Decision, +state: State) -> Decision:
   accepted(rebuild, first, State{next, serial, anchors, lifecycle, displayed})
 def command_rejected(+ticket: Nat, +reason: String, +state: State) -> Decision: accept(True{}, Legacy.command_rejected(ticket, reason, legacy(state)), state)
 def activate(+key: String, +state: State) -> Decision: accept(True{}, Legacy.activate(key, legacy(state)), state)
-def edit_text(+key: String, +text: String, +state: State) -> Decision: accept(True{}, Legacy.edit_text(key, text, legacy(state)), state)
-def confirm_text(+key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: State) -> Decision: accept(True{}, Legacy.confirm_text(key, keyboard, composing, control, alt, shift, meta, legacy(state)), state)
-def edit_toggle(+key: String, +enabled: Bool, +state: State) -> Decision: accept(True{}, Legacy.edit_toggle(key, enabled, legacy(state)), state)
-def attach(+key: String, +file: Services.File, +state: State) -> Decision: accept(True{}, Legacy.attach(key, file, legacy(state)), state)
+def edit_text_owned(+owned: Bool, +key: String, +text: String, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: accept(True{}, Legacy.edit_text(key, text, legacy(state)), state)
+
+def edit_text(+key: String, +text: String, +state: State) -> Decision: edit_text_owned(field_owned(key, state), key, text, state)
+def confirm_text_owned(+owned: Bool, +key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: accept(True{}, Legacy.confirm_text(key, keyboard, composing, control, alt, shift, meta, legacy(state)), state)
+
+def confirm_text(+key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: State) -> Decision: confirm_text_owned(field_owned(key, state), key, keyboard, composing, control, alt, shift, meta, state)
+def edit_toggle_owned(+owned: Bool, +key: String, +enabled: Bool, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: accept(True{}, Legacy.edit_toggle(key, enabled, legacy(state)), state)
+
+def edit_toggle(+key: String, +enabled: Bool, +state: State) -> Decision: edit_toggle_owned(field_owned(key, state), key, enabled, state)
+def attach_owned(+owned: Bool, +key: String, +file: Services.File, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: accept(True{}, Legacy.attach(key, file, legacy(state)), state)
+
+def attach(+key: String, +file: Services.File, +state: State) -> Decision: attach_owned(field_owned(key, state), key, file, state)
 def place(+key: String, +target: String, +state: State) -> Decision: accept(True{}, Legacy.place(key, target, legacy(state)), state)
 def connect(+credential: String, +state: State) -> Decision: accept(True{}, Legacy.connect(credential, legacy(state)), state)
 def directories_completed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directories_completed(ticket, ok, body, legacy(state)), state)
@@ -316,15 +369,31 @@ def streams(+body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.str
 def directory_listed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directory_listed(ticket, ok, body, legacy(state)), state)
 def measurements(+observation: F.Observation, +state: State) -> Decision:
   accept(True{}, Legacy.measurements(observation, legacy(state)), state)
+def frame_forward_ready(+ready: Bool, +state: State, +frame: Rendered.Frame) -> Decision:
+  match ready:
+    case False{}: Decision{state, Nil{}}
+    case True{}: accept(False{}, Legacy.native(Web.FrameObserved{semantic_generation(legacy(state)), frame}, legacy(state)), state)
+def frame_forward(+state: State, +frame: Rendered.Frame) -> Decision:
+  frame_forward_ready(display_ready(state), state, frame)
+def frame_capture(+frame: Rendered.Frame, state: State) -> State:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: State{legacy, serial, anchors, lifecycle, None{}}
+    case Some{Published{world, semantic, scope, basis, old}}:
+      State{legacy, serial, anchors, lifecycle, Some{Published{world, semantic, scope, basis, Some{frame}}}}
+def frame_owned(+received: Nat, +state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: False{}
+    case Some{published}: Nat.is_eq(received, displayed_generation(state))
 def received_frame(+owned: Bool, +frame: Rendered.Frame, +state: State) -> Decision:
   match owned:
     case False{}: Decision{state, Nil{}}
-    case True{}:
-      accept(False{}, Legacy.native(Web.FrameObserved{semantic_generation(legacy(state)), frame}, legacy(state)), state)
+    case True{}: frame_forward(frame_capture(frame, state), frame)
 def step(+input: Legacy.Input, +state: State) -> Decision:
   match input:
     case Legacy.Native{Web.FrameObserved{generation, frame}}:
-      received_frame(display_ready(state) && Nat.is_eq(generation, displayed_generation(state)), frame, state)
+      received_frame(frame_owned(generation, state), frame, state)
     case Legacy.Native{+input}: accept(source_changed(input), Legacy.native(input, legacy(state)), state)
     case other: accept(True{}, Legacy.step(other, legacy(state)), state)
 def outside_result(+result: Legacy.OutsideDecision, +state: State) -> OutsideDecision:
@@ -335,13 +404,45 @@ def outside_event(+identity: String, +state: State) -> OutsideDecision:
 def key_result(+key: String, +result: Legacy.KeyResult, +state: State) -> KeyResult:
   Legacy.KeyResult{handled, decision} = result
   KeyResult{handled, accept(handled && String.eq(key, "Escape"), decision, state)}
-def key_ready(+ready: Bool, +key: String, +shift: Bool, +state: State) -> KeyResult:
-  match ready:
-    case False{}: KeyResult{False{}, Decision{state, Nil{}}}
-    case True{}:
-      key_result(key, Legacy.ready_key_event(key, shift, legacy(state)), state)
-def key_event(+key: String, +shift: Bool, +state: State) -> KeyResult:
-  key_ready(display_ready(state), key, shift, state)
+def observed_eligible(found: Maybe<&2, Rendered.Element>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit}}: ((visible && enabled) && tab_stop) && keyboard
+def published_order_eligible(eligible: Bool, key: String, tail: +List<String>) -> +List<String>:
+  match eligible:
+    case False{}: tail
+    case True{}: key <> tail
+def published_order(order: +List<String>, +basis: NativeFields.Basis, +elements: +List<Rendered.Element>) -> +List<String>:
+  match order:
+    case Nil{}: Nil{}
+    case Con{+key, rest}:
+      published_order_eligible(NativeFields.control_owned(basis, key) && observed_eligible(Rendered.find_element(elements, key)), key, published_order(rest, basis, elements))
+def published_cycle(scope: Focus.Scope, basis: NativeFields.Basis, frame: Maybe<&2, Rendered.Frame>, reverse: Bool) -> Maybe<&2, String>:
+  match frame:
+    case None{}: None{}
+    case Some{Rendered.Frame{viewport, elements, focused, order}}: Focus.cycle(scope, published_order(order, basis, elements), focused, reverse)
+def published_escape(found: Maybe<&2, Legacy.DismissTarget>, +state: State) -> KeyResult:
+  match found:
+    case None{}: KeyResult{False{}, Decision{state, Nil{}}}
+    case Some{Legacy.DismissTarget{identity, input, outside, +escape}}:
+      KeyResult{escape, accept(escape, Legacy.dismiss_permitted(escape && Legacy.outside_layer_owned(identity, Legacy.current_layer_key(legacy(state))), input, legacy(state)), state)}
+def published_key_kind(tab: Bool, escape: Bool, shift: Bool, scope: Focus.Scope, basis: NativeFields.Basis, semantic: UI.Surface, frame: Maybe<&2, Rendered.Frame>, +state: State) -> KeyResult:
+  match tab escape:
+    case True{} _: KeyResult{True{}, accept(False{}, Legacy.cycle_found(published_cycle(scope, basis, frame, shift), legacy(state)), state)}
+    case False{} True{}: published_escape(Legacy.dismiss_target(UI.active_nodes(semantic)), state)
+    case False{} False{}: KeyResult{False{}, Decision{state, Nil{}}}
+def published_key(+key: String, shift: Bool, +scope: Focus.Scope, basis: NativeFields.Basis, semantic: UI.Surface, frame: Maybe<&2, Rendered.Frame>, +state: State) -> KeyResult:
+  match scope:
+    case Focus.Document{}: KeyResult{False{}, Decision{state, Nil{}}}
+    case Focus.Temporary{identity, initial, restore}:
+      published_key_kind(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, scope, basis, semantic, frame, state)
+def key_captured(+key: String, +shift: Bool, +state: State) -> KeyResult:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: KeyResult{False{}, Decision{state, Nil{}}}
+    case Some{Published{world, semantic, scope, basis, frame}}: published_key(key, shift, scope, basis, semantic, frame, state)
+def key_event(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame, +state: State) -> KeyResult:
+  key_captured(key, shift, decision_state(received_frame(frame_owned(received, state), frame, state)))
 def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State) -> Decision:
   match status:
     case World.Rejected{reason}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
@@ -394,4 +495,8 @@ def remeasure(+state: State) -> Decision:
 def key_decision(result: KeyResult) -> Decision:
   KeyResult{handled, decision} = result
   decision
-def key_input(+key: String, +shift: Bool, +state: State) -> Decision: key_decision(key_event(key, shift, state))
+def key_input(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame, +state: State) -> Decision: key_decision(key_event(key, shift, received, frame, state))
+
+def key_handled(result: KeyResult) -> Bool:
+  KeyResult{handled, decision} = result
+  handled
