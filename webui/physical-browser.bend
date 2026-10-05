@@ -124,10 +124,18 @@ def displayed_generation(+state: State) -> Nat:
   match displayed:
     case None{}: 0n
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}: generation
+def realization_status(realization: Rendered.State) -> String:
+  match realization:
+    case Rendered.AwaitingFrame{generation}: "awaiting-frame"
+    case Rendered.Realized{generation, frame}: "ready"
+    case Rendered.Unmet{generation, frame, violations}: "unmet"
+def legacy_render_status(state: Legacy.State) -> String:
+  Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, next, pending} = state
+  realization_status(realization)
 def render_status(+state: State) -> String:
   State{legacy, serial, anchors, lifecycle, displayed} = state
   match lifecycle:
-    case Displaying{capacity, engine}: "ready"
+    case Displaying{capacity, engine}: legacy_render_status(legacy)
     case Blocked{reason}: "blocked"
     case _: "waiting"
 def physical_plan(+state: State) -> Maybe<&2, Plan.Plan>:
@@ -307,8 +315,12 @@ def calibrated(+body: Maybe<&2, T.Metric>, +index: Nat, +state: State) -> Search
   match body:
     case None{}: Stopped{Decision{set_lifecycle(state, WaitingFont{}), Nil{}}}
     case Some{metric}: calibrated_body(metric, index, state)
+def font_candidate(font: F.State, +index: Nat, +state: State) -> Search:
+  match font:
+    case F.Failed{generation, scale}: Stopped{Decision{set_lifecycle(state, Blocked{"Font measurements could not be validated."}), Nil{}}}
+    case other: calibrated(F.body(other), index, state)
 def one_candidate(+index: Nat, +state: State) -> Search:
-  calibrated(F.body(current_font(legacy(state))), index, state)
+  font_candidate(current_font(legacy(state)), index, state)
 def search_step(search: Search) -> Search:
   match search:
     case Stopped{decision}: Stopped{decision}
@@ -372,7 +384,14 @@ def measurements(+observation: F.Observation, +state: State) -> Decision:
 def frame_forward_ready(+ready: Bool, +state: State, +frame: Rendered.Frame) -> Decision:
   match ready:
     case False{}: Decision{state, Nil{}}
-    case True{}: accept(False{}, Legacy.native(Web.FrameObserved{semantic_generation(legacy(state)), frame}, legacy(state)), state)
+    case True{}:
+      State{+stored, serial, anchors, lifecycle, displayed} = state
+      match displayed:
+        case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}}, Nil{}}
+        case Some{+value}:
+          Published{world, semantic, scope, basis, old} = value
+          accept(False{}, Legacy.observe_frame(semantic_generation(stored), semantic, frame, stored),
+            State{stored, serial, anchors, lifecycle, Some{value}})
 def frame_forward(+state: State, +frame: Rendered.Frame) -> Decision:
   frame_forward_ready(display_ready(state), state, frame)
 def frame_capture(+frame: Rendered.Frame, state: State) -> State:

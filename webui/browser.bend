@@ -83,7 +83,7 @@ def mask_meaning(blocked: Bool, meaning: UI.Meaning) -> UI.Meaning:
   match blocked meaning:
     case True{} UI.ComposerAction{subject, input, availability}: UI.ComposerAction{subject, input, View.Unavailable{"Request pending"}}
     case True{} UI.Activate{input, availability}: UI.Activate{input, View.Unavailable{"Request pending"}}
-    case True{} UI.Choice{selected, description, input, availability}: UI.Choice{selected, description, input, View.Unavailable{"Request pending"}}
+    case True{} UI.Choice{kind, icon, selected, description, input, availability}: UI.Choice{kind, icon, selected, description, input, View.Unavailable{"Request pending"}}
     case _ other: other
 def mask_nodes(nodes: +List<UI.Node>, +pending: +List<Pending>) -> +List<UI.Node>:
   match nodes:
@@ -274,8 +274,9 @@ def finish(decision: Web.Decision, sequence: Nat, next: Nat, pending: +List<Pend
   Web.Decision{+web, Core.Decision{core, reply, runtime, interaction, services, durable}, effects} = decision
   collected_finish(collect(interaction, origin, State{web, sequence, next, pending}), effects, services)
 
-def native_frame(received: Nat, frame: Rendered.Frame, web: Web.State, sequence: Nat, next: Nat, +pending: +List<Pending>) -> Decision:
-  finish(Web.step(Web.FrameObserved{received, frame}, web), sequence, next, pending, "")
+def observe_frame(received: Nat, surface: UI.Surface, frame: Rendered.Frame, state: State) -> Decision:
+  State{web, sequence, next, pending} = state
+  finish(Web.observe_frame(received, surface, frame, web), sequence, next, pending, "")
 
 def native_element(blocked: Bool, +key: String, gesture: UI.Gesture, state: State) -> Decision:
   match blocked:
@@ -286,8 +287,6 @@ def native_element(blocked: Bool, +key: String, gesture: UI.Gesture, state: Stat
 def native_state(state: State, event: Web.Input) -> Decision:
   State{+web, sequence, next, +pending} = state
   match event:
-    case Web.FrameObserved{received, frame}:
-      native_frame(received, frame, web, sequence, next, pending)
     case Web.ElementInput{+key, gesture}:
       native_element(busy(pending, key), key, gesture, State{web, sequence, next, pending})
     case +other: finish(Web.step(other, web), sequence, next, pending, origin(other))

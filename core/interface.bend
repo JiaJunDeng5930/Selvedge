@@ -62,6 +62,10 @@ type BoardGrouping is Data:
   SecondaryActions{}
   PrimaryAction{}
 
+type ChoiceKind is Data:
+  SingleChoice{}
+  MultipleChoice{}
+
 type Meaning is Data:
   LayerRegion{dismiss: Core.Input, outside: Bool, escape: Bool}
   DirectoryBrowserLocation{value: String}
@@ -76,7 +80,7 @@ type Meaning is Data:
   DirectoryRow{path: String, primary: Bool}
   ContextSummary{observation: Context.Observation}
   ChoiceGroup{}
-  Choice{selected: Bool, description: String, input: Core.Input, availability: V.Availability}
+  Choice{kind: ChoiceKind, icon: Maybe<&2, String>, selected: Bool, description: String, input: Core.Input, availability: V.Availability}
   PageRegion{region: Composition.Region, position: Composition.Position}
   BoardLane{stage: B.Stage, count: Nat}
   CardArchive{count: Nat}
@@ -837,16 +841,24 @@ def view_choices(+filter: B.Filter, +parent: String, +state: Core.State) -> +Lis
   [view_choice("all", "全部", filter, parent, state), view_choice("assigned", "已分配", filter, parent, state),
    view_choice("unassigned", "未分配", filter, parent, state)]
 
+def finite_choice_control(kind: ChoiceKind, icon: Maybe<&2, String>, +selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
+  Core.Control{+identity, label, prominence, input, availability} = control
+  selected_node(selected, Node{parent ++ "/" ++ identity, identity, label, action_role(prominence), Choice{kind, icon, selected, description, input, availability}, Nil{}})
+
+def filter_option_declaration(+choice: J.Json, +category: String, filter: B.Filter) -> V.ControlDeclaration:
+  +value = J.text(J.get(choice, "value"))
+  V.ControlDeclaration{"filter/" ++ category ++ "/" ++ value, J.text(J.get(choice, "label")), V.Secondary{},
+    U.FilterBoard{toggle_filter(category, value, filter)}, V.Available{}}
+
+def filter_option_node(+choice: J.Json, +category: String, +filter: B.Filter, parent: String, state: Core.State) -> Node:
+  finite_choice_control(MultipleChoice{}, Some{J.text(J.get(choice, "icon"))},
+    Schema.contains(BoardFilter.values(category, filter), J.text(J.get(choice, "value"))), "",
+    Core.control(state, filter_option_declaration(choice, category, filter)), parent)
+
 def filter_option_nodes(+choices: +List<J.Json>, +category: String, +filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
   match choices:
     case Nil{}: Nil{}
-    case Con{+choice, rest}:
-      +value = J.text(J.get(choice, "value"))
-      +label = J.text(J.get(choice, "label"))
-      +declaration: V.ControlDeclaration = V.ControlDeclaration{"filter/" ++ category ++ "/" ++ value, label, V.Secondary{},
-        U.FilterBoard{toggle_filter(category, value, filter)}, V.Available{}}
-      selected_node(Schema.contains(BoardFilter.values(category, filter), value), declared(parent, declaration, state)) <>
-        filter_option_nodes(rest, category, filter, parent, state)
+    case Con{choice, rest}: filter_option_node(choice, category, filter, parent, state) <> filter_option_nodes(rest, category, filter, parent, state)
 
 def filter_group(+category: String, label: String, +choices: +List<J.Json>, +filter: B.Filter, +parent: String, +state: Core.State) -> Node:
   region(parent, "filter/" ++ category, label, Section{}, filter_option_nodes(choices, category, filter, parent ++ "/filter/" ++ category, state))
@@ -933,7 +945,7 @@ def selected_effort(same: Bool, effort: String, policy: Reasoning.Policy) -> Str
     case False{}: Reasoning.default_selection(policy)
 def choice_control(selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, Button{}, Choice{selected, description, input, availability}, Nil{}}
+  Node{parent ++ "/" ++ identity, identity, label, Button{}, Choice{SingleChoice{}, None{}, selected, description, input, availability}, Nil{}}
 
 def declared_choice(selected: Bool, description: String, declaration: V.ControlDeclaration, parent: String, state: Core.State) -> Node:
   choice_control(selected, description, Core.control(state, declaration), parent)
@@ -1222,7 +1234,7 @@ def committed_context_nodes(context: Maybe<&2, Context.EffectiveContext>, +paren
 
 def project_picker_control(control: Core.Control, selected: Bool, description: String, parent: String) -> Node:
   Core.Control{+key, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ key, key, label, Button{}, Choice{selected, description, input, availability}, Nil{}}
+  Node{parent ++ "/" ++ key, key, label, Button{}, Choice{SingleChoice{}, None{}, selected, description, input, availability}, Nil{}}
 
 def project_picker_choice(declaration: V.ControlDeclaration, selected: Bool, description: String, parent: String, state: Core.State) -> Node:
   project_picker_control(Core.control(state, declaration), selected, description, parent)
@@ -1488,7 +1500,7 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case ComposerAction{subject, input, availability} Press{}: when_available(available(availability), input)
     case Activate{input, availability} Press{}: when_available(available(availability), input)
     case PanelToggle{expanded, input, availability} Press{}: when_available(available(availability), input)
-    case Choice{selected, description, input, availability} Press{}: when_available(available(availability), input)
+    case Choice{kind, icon, selected, description, input, availability} Press{}: when_available(available(availability), input)
     case Edit{+editor, +field, Forms.DisplayOnly{}, +value, choices} Change{+next}: None{}
     case Edit{+editor, +field, entry, +value, choices} Change{+next}: Some{Core.EditField{editor, field, next}}
     case SearchChoices{query} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
@@ -1617,7 +1629,7 @@ def focusable(meaning: Meaning) -> Bool:
     case Activate{input, availability}: available(availability)
     case PanelToggle{expanded, input, availability}: available(availability)
     case LayerRegion{dismiss, outside, escape}: True{}
-    case Choice{selected, description, input, availability}: available(availability)
+    case Choice{kind, icon, selected, description, input, availability}: available(availability)
     case Edit{editor, field, Forms.DisplayOnly{}, value, choices}: False{}
     case Edit{editor, field, Forms.FileCollection{}, value, choices}: False{}
     case Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: False{}

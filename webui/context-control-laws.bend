@@ -19,12 +19,12 @@ def page_observation(content: Core.Scene) -> Maybe<&2, Context.Observation>:
 
 type Requirements is Type:
   Requirements{
-    choice_binding: @+key:String -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Binding.binding(Controls.represent(key, UI.Choice{selected, description, input, availability}, label, role, context)) == UI.Activate{input, availability} : UI.Meaning},
-    choice_interactive: @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.interactive(UI.Choice{selected, description, input, availability}) == True{} : Bool},
-    choice_enabled: @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.required_enabled(UI.Choice{selected, description, input, availability}) == Observed.enabled(availability) : Bool},
-    choice_observed_tabs: @+key:String -> @semantic:String -> @+label:String -> @role:UI.Role -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> ->
-      {Observed.expected_tabs([UI.Node{key, semantic, label, role, UI.Choice{selected, description, input, availability}, Nil{}}], elements) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, key)), key, Nil{}) : +List<String>},
+    choice_binding: @+key:String -> @kind:UI.ChoiceKind -> @icon:Maybe<&2, String> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Binding.binding(Controls.represent(key, UI.Choice{kind, icon, selected, description, input, availability}, label, role, context)) == UI.Activate{input, availability} : UI.Meaning},
+    choice_interactive: @kind:UI.ChoiceKind -> @icon:Maybe<&2, String> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.interactive(UI.Choice{kind, icon, selected, description, input, availability}) == True{} : Bool},
+    choice_enabled: @kind:UI.ChoiceKind -> @icon:Maybe<&2, String> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.required_enabled(UI.Choice{kind, icon, selected, description, input, availability}) == Observed.enabled(availability) : Bool},
+    choice_observed_tabs: @+key:String -> @semantic:String -> @+label:String -> @role:UI.Role -> @kind:UI.ChoiceKind -> @icon:Maybe<&2, String> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> ->
+      {Observed.expected_tabs([UI.Node{key, semantic, label, role, UI.Choice{kind, icon, selected, description, input, availability}, Nil{}}], elements) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, key)), key, Nil{}) : +List<String>},
     workspace_label: @+label:String -> @expanded:Bool -> {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
     permissions_label: @+label:String -> @current:Controls.Face -> @+execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face},
     initial_execution: @+content:Core.Scene -> {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2,Context.Observation>},

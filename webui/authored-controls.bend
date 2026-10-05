@@ -132,9 +132,10 @@ def face_members(+value: Controls.Face, +key: String, +parent: Design.Style, +ge
       [caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value)), glyph(key ++ "/chevron", disclosure_icon(expanded), parent, face_icon_size(geometry))]
     case Controls.PermissionFace{filesystem, network, approval}:
       [glyph(key ++ "/filesystem", filesystem, parent, face_icon_size(geometry)), glyph(key ++ "/network", network, parent, face_icon_size(geometry)), glyph(key ++ "/approval", approval, parent, face_icon_size(geometry))]
-    case Controls.ChoiceFace{text, details, checked}:
+    case Controls.ChoiceFace{text, details, icon, checked}:
+      List.append(&2, Source.Node, leading_icon(icon, key, parent, face_icon_size(geometry)),
       [Source.Box{key ++ "/text", Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, parent_gap(parent)), Nil{}, List.append(&2, Source.Node, [caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value))], face_description(details, key, parent))},
-       Source.Box{key ++ "/selection", Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}]
+       Source.Box{key ++ "/selection", Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
 
 def face(key: String, value: Controls.Face, parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
   face_members(value, key, parent, geometry)
@@ -155,6 +156,8 @@ def behavior(value: Controls.Behavior) -> +List<Source.Attribute>:
     case Controls.Toggle{pressed}: [Source.AriaAttribute{"pressed", FieldOptions.boolean(pressed)}]
     case Controls.Radio{checked}: [Source.RoleAttribute{"menuitemradio"}, Source.AriaAttribute{"checked", FieldOptions.boolean(checked)}]
     case Controls.ChoiceRadio{checked}: [Source.RoleAttribute{"radio"}, Source.AriaAttribute{"checked", FieldOptions.boolean(checked)}]
+    case Controls.MenuCheckbox{checked}: [Source.RoleAttribute{"menuitemcheckbox"}, Source.AriaAttribute{"checked", FieldOptions.boolean(checked)}]
+    case Controls.ChoiceCheckbox{checked}: [Source.RoleAttribute{"checkbox"}, Source.AriaAttribute{"checked", FieldOptions.boolean(checked)}]
     case Controls.Disclosure{expanded}: [Source.AriaAttribute{"expanded", FieldOptions.boolean(expanded)}]
     case Controls.Popup{menu, expanded}: [Source.AriaAttribute{"haspopup", "true"}, Source.AriaAttribute{"expanded", FieldOptions.boolean(expanded)}]
     case Controls.Destination{current}: [Source.AriaAttribute{"current", FieldOptions.boolean(current)}]
@@ -174,12 +177,12 @@ def feedback(value: Controls.Feedback) -> +List<Source.Attribute>:
 
 def action_width(value: Controls.Face, visual: Design.Style) -> Model.AxisSize:
   match value:
-    case Controls.ChoiceFace{text, description, checked}: Model.StretchSize{}
+    case Controls.ChoiceFace{text, description, icon, checked}: Model.StretchSize{}
     case _: Factory.natural_width(visual)
 
 def action_alignment(value: Controls.Face) -> Spatial.Alignment:
   match value:
-    case Controls.ChoiceFace{text, description, checked}: Spatial.Leading{}
+    case Controls.ChoiceFace{text, description, icon, checked}: Spatial.Leading{}
     case Controls.PickerFace{leading, text}: Spatial.Leading{}
     case _: Spatial.Centered{}
 

@@ -114,12 +114,12 @@ def priority_choices() -> +List<J.Json>:
 def profile_choices(+profiles: +List<D.Profile>) -> +List<J.Json>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{D.Profile{+key, provider, model, policy}, rest}: choice(key, key, "bot") <> profile_choices(rest)
+    case Con{D.Profile{+key, provider, model, policy}, rest}: choice(key, model, "bot") <> profile_choices(rest)
 
 def profile_owners(+profiles: +List<D.Profile>) -> +List<J.Json>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{D.Profile{+key, provider, model, policy}, rest}: choice("profile/" ++ key, key, "bot") <> profile_owners(rest)
+    case Con{D.Profile{+key, provider, model, policy}, rest}: choice("profile/" ++ key, model, "bot") <> profile_owners(rest)
 
 def agent_owners(+agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<J.Json>:
   match agents:

@@ -113,7 +113,7 @@ def editor_enabled(core: Core.State, owner: U.Editor, capacity: View.Capacity) -
 def layout_for(application: E.Application, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Effect>:
   E.Application{program, E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
   match route:
-    case U.Conversation{+task}: [Scroll{task, E.reader_generation(E.reader(readers, task)), Reading.layout(E.reader_position(E.reader(readers, task)), bookmark(Finite.find(~Reading.Bookmark, bookmarks, task)))}]
+    case U.Conversation{+task}: wrap_scroll(Reading.layout(E.reader_position(E.reader(readers, task)), bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))), task, E.reader_generation(E.reader(readers, task)))
     case _: Nil{}
 
 def focus_effects(effects: +List<E.Effect>, +ticket: Nat) -> +List<Effect>:

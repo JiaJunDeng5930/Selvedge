@@ -1,4 +1,5 @@
 import Base
+import ../../core/interface.bend as UI
 import ../context-control-laws.bend as Rule
 import ../../core/SYSTEM.bend as Core
 import ../../core/ui-world.bend as View
@@ -14,10 +15,10 @@ def initial_execution(+content: Core.Scene) ->
 
 def Rule.evidence():
   Rule.Requirements{
-    +key => +selected => description => +input => +availability => +label => role => context => BindingProof.choice_retains_binding(key, selected, description, input, availability, label, role, context),
-    +selected => description => +input => +availability => {==},
-    +selected => description => +input => +availability => {==},
-    +key => semantic => +label => role => +selected => description => +input => +availability => +elements => {==},
+    +key => kind => icon => +selected => description => +input => +availability => +label => role => context => BindingProof.choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context),
+    kind => icon => +selected => description => +input => +availability => {==},
+    kind => icon => +selected => description => +input => +availability => {==},
+    +key => semantic => +label => role => kind => icon => +selected => description => +input => +availability => +elements => {==},
     +label => expanded => {==},
     +label => current => +execution => {==},
     initial_execution,

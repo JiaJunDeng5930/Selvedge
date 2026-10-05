@@ -49,8 +49,8 @@ type InputGroup is Data:
   DeliveryInput{selected: U.Delivery, send: ControlDeclaration, steer: ControlDeclaration}
   ProjectNameInput{name: String}
   ProjectWorkspaceInput{workspace: D.Workspace, controls: WorkspaceControls}
-  CardContentInput{value: B.Draft, projects: +List<ProjectChoice>, agents: +List<Finite.Entry(B.AgentProfile)>,
-    stages: +List<B.Stage>, priorities: +List<B.Priority>, owners: +List<B.Owner>}
+  CardContentInput{value: B.Draft, projects: +List<ProjectChoice>,
+    stages: +List<B.Stage>, priorities: +List<B.Priority>, owners: +List<Forms.ChoiceValue>}
   CardAssistanceInput{enabled: Bool, profile: String, choices: +List<D.Profile>}
   AgentIdentityInput{name: String, instructions: String, concurrency: Nat}
   ForkInput{count: Nat, messages: +List<String>}
@@ -503,6 +503,31 @@ def delivery_controls(+task: Nat, selected: U.Delivery) -> InputGroup:
     ControlDeclaration{"choose-send/" ++ Nat.show(task), U.delivery_caption(U.Send{}), Secondary{}, U.EditDraft{U.MessageEditor{task}, U.ChooseDelivery{U.Send{}}}, Available{}},
     ControlDeclaration{"choose-steer/" ++ Nat.show(task), U.delivery_caption(U.Steer{}), Secondary{}, U.EditDraft{U.MessageEditor{task}, U.ChooseDelivery{U.Steer{}}}, Available{}}}
 
+def face_profile_name(found: Maybe<&2, D.Profile>, +key: String) -> String:
+  match found:
+    case None{}: "配置 " ++ key ++ " 不可用"
+    case Some{D.Profile{key, provider, name, reasoning}}: name
+
+def face_agent_name(found: Maybe<&2, B.AgentProfile>, id: Nat) -> String:
+  match found:
+    case None{}: "智能体 #" ++ Nat.show(id) ++ " 不可用"
+    case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}}: name
+
+def face_owner(+owner: B.Owner, +world: M.World()) -> String:
+  match owner:
+    case B.Unassigned{}: "未分配"
+    case B.Self{}: "我"
+    case B.Profile{+key}: face_profile_name(D.find_profile(Board.profiles(world), key), key)
+    case B.Agent{+id}: face_agent_name(B.find_agent(Board.registry(world), id), id)
+
+def card_owner_choice(+owner: B.Owner, world: M.World()) -> Forms.ChoiceValue:
+  Forms.ChoiceValue{B.owner_name(owner), face_owner(owner, world)}
+
+def card_owner_choices(owners: +List<B.Owner>, +world: M.World()) -> +List<Forms.ChoiceValue>:
+  match owners:
+    case Nil{}: Nil{}
+    case Con{owner, rest}: card_owner_choice(owner, world) <> card_owner_choices(rest, world)
+
 def agent_owners(agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<B.Owner>:
   match agents:
     case Nil{}: Nil{}
@@ -522,8 +547,8 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<InputGroup>:
     case U.Message{task, message, delivery}: [MessageInput{message}, delivery_controls(task, delivery)]
     case U.Project{id, name, +workspace}: [ProjectNameInput{name}, ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
-      CardContentInput{value, projects(world), agents(Board.registry(world)), B.stages(),
-        [B.NoPriority{}, B.Low{}, B.Medium{}, B.High{}, B.Urgent{}], B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world))))} <> capture_inputs(id, assist, profile, world)
+      CardContentInput{value, projects(world), B.stages(),
+        [B.NoPriority{}, B.Low{}, B.Medium{}, B.High{}, B.Urgent{}], card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
       [AgentIdentityInput{name, instructions, concurrency}, ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.AgentEditor{id}, context, world)]
     case U.Fork{task, count, messages, context}: [ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, world)]
@@ -783,23 +808,6 @@ def face_project(found: Maybe<&2, Nat>, +world: M.World()) -> String:
   match found:
     case None{}: ""
     case Some{+id}: face_project_name(Projects.find(Projects.registry(F.State(), world), id), id)
-
-def face_profile_name(found: Maybe<&2, D.Profile>, +key: String) -> String:
-  match found:
-    case None{}: "配置 " ++ key ++ " 不可用"
-    case Some{D.Profile{key, provider, name, reasoning}}: name
-
-def face_agent_name(found: Maybe<&2, B.AgentProfile>, id: Nat) -> String:
-  match found:
-    case None{}: "智能体 #" ++ Nat.show(id) ++ " 不可用"
-    case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}}: name
-
-def face_owner(+owner: B.Owner, +world: M.World()) -> String:
-  match owner:
-    case B.Unassigned{}: "未分配"
-    case B.Self{}: "我"
-    case B.Profile{+key}: face_profile_name(D.find_profile(Board.profiles(world), key), key)
-    case B.Agent{+id}: face_agent_name(B.find_agent(Board.registry(world), id), id)
 
 def elapsed_label_days(recent: Bool, +seconds: U32) -> String:
   match recent:

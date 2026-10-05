@@ -19,7 +19,7 @@ def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alig
     case Controls.SingleLineFace{text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.IconTextFace{icon, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.PickerFace{leading, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, slot}: {==}
-    case Controls.ChoiceFace{text, description, checked} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
+    case Controls.ChoiceFace{text, description, icon, checked} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.DisclosureFace{text, expanded} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.PermissionFace{filesystem, network, approval} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
 

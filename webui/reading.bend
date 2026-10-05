@@ -14,6 +14,7 @@ type Event is Data:
 
 type Effect is Data:
   LeaveViewport{}
+  CancelAnchorObservation{}
   AlignLatest{animate: Bool}
   PreserveAnchor{anchor: Physical.Anchor}
   MeasureAnchor{}
@@ -27,10 +28,10 @@ def anchor_effect(anchor: Maybe<&2, Physical.Anchor>) -> Effect:
     case None{}: MeasureAnchor{}
     case Some{value}: PreserveAnchor{value}
 
-def layout(intent: U.ReadingIntent, bookmark: Bookmark) -> Effect:
+def layout(intent: U.ReadingIntent, bookmark: Bookmark) -> +List<Effect>:
   match intent bookmark:
-    case U.FollowLatest{} Bookmark{anchor}: AlignLatest{False{}}
-    case U.ReadHistory{} Bookmark{anchor}: anchor_effect(anchor)
+    case U.FollowLatest{} Bookmark{anchor}: [CancelAnchorObservation{}, AlignLatest{False{}}]
+    case U.ReadHistory{} Bookmark{anchor}: [anchor_effect(anchor)]
 
 def reserve(height: F32, viewport: F32) -> F32:
   F32.min(F32.max(height, 0.0), F32.max(viewport, 0.0))
@@ -39,8 +40,8 @@ def step(event: Event, intent: U.ReadingIntent, +bookmark: Bookmark, reduced_mot
   match event:
     case BeginUserScroll{}: Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]}
     case ReadHistory{anchor}: Decision{Bookmark{Some{anchor}}, Some{U.ReadHistory{}}, [LeaveViewport{}]}
-    case FollowLatest{}: Decision{Bookmark{None{}}, Some{U.FollowLatest{}}, [AlignLatest{Bool.not(reduced_motion)}]}
-    case LayoutChanged{height, viewport}: Decision{bookmark, None{}, [ReserveComposer{reserve(height, viewport)}, layout(intent, bookmark)]}
+    case FollowLatest{}: Decision{Bookmark{None{}}, Some{U.FollowLatest{}}, [CancelAnchorObservation{}, AlignLatest{Bool.not(reduced_motion)}]}
+    case LayoutChanged{height, viewport}: Decision{bookmark, None{}, List.append(&2, Effect, [ReserveComposer{reserve(height, viewport)}], layout(intent, bookmark))}
     case AnchorObserved{anchor}: Decision{Bookmark{Some{anchor}}, None{}, Nil{}}
 
 # A content/composer resize cannot invent follow-latest intent. The saved anchor

@@ -17,22 +17,22 @@ def content_preserves_arrangement(+value: D.Style, content: E.ContentArea) ->
   {==}
 
 def actual_choice_geometry(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {Rule.actual_geometry(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry}:
+  {Rule.actual_geometry(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
 def actual_choice_layout(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout}:
+  {C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
 def actual_choice_mark_contains_icon(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {Nat.is_le(Rule.mark_icon_extent(C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context))), Rule.mark_extent(C.choice_layout(C.make_choice(key, selected, description, input, availability, label, role, context)))) == True{} : Bool}:
+  {Nat.is_le(Rule.mark_icon_extent(C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context))), Rule.mark_extent(C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)))) == True{} : Bool}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
 def selection_keeps_allocation(+key: String, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {C.choice_layout(C.make_choice(key, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout}:
+  {C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
@@ -42,16 +42,53 @@ def flow_assigned(+value: D.Style, +flow: SpatialModel.Flow) ->
   {==}
 
 def choice_style_normalization(+value: D.Style, +size: C.Geometry, label: String, description: Maybe<&2, String>, selected: Bool) ->
-  {Rule.choice_style_metrics(A.action_style(value, C.ChoiceFace{label, description, selected}, size)) == (8n, SpatialModel.ChoiceFlow{}) : (Nat & SpatialModel.Flow)}:
+  {Rule.choice_style_metrics(A.action_style(value, C.ChoiceFace{label, description, None{}, selected}, size)) == (8n, SpatialModel.ChoiceFlow{}) : (Nat & SpatialModel.Flow)}:
   D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
   C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} = size
   {==}
 
 def actual_choice_normalization(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String,
   +role: UI.Role, +context: C.Context, +fallback: D.Style, +typography: T.Presentation) -> Rule.actual_choice_normalization_law(key, selected, description, input, availability, label, role, context, fallback, typography):
-  C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
-  +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-  choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+  match context:
+    case C.Context{C.PageArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.NavigationArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.ComposerArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.ToolbarArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.CodeArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.ActivityArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.ApprovalArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.MenuArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.DialogArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.CollectionArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.CardArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.BoardViewArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.BoardLaneArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
 
 def Rule.evidence():
   Rule.Requirements{

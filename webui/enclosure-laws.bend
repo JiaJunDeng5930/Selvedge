@@ -49,7 +49,7 @@ type Requirements is Type:
     state_allocation: @+value:D.Style -> @+space:E.ContentArea -> {interaction(A.with_content_area(value, space)) == interaction(value) : D.ControlStates},
     icon_layout: @+icon:C.Icon -> {C.layout_content_area(C.content_layout(C.IconFace{icon})) == E.area(E.IconControl{}) : E.ContentArea},
     text_layout: @+text:String -> {C.layout_content_area(C.content_layout(C.TextFace{text})) == E.area(E.TextControl{}) : E.ContentArea},
-    option_layout: @+text:String -> @+selected:Bool -> {C.layout_content_area(C.content_layout(C.ChoiceFace{text, None{}, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
+    option_layout: @+text:String -> @+selected:Bool -> {C.layout_content_area(C.content_layout(C.ChoiceFace{text, None{}, None{}, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
     embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.area(E.Field{}) : E.ContentArea}}
 
 law evidence:

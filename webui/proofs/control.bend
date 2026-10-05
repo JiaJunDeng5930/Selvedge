@@ -27,9 +27,9 @@ def panel_toggle_retains_binding(+key: String, expanded: Bool, +input: Core.Inpu
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
-def choice_retains_binding(+key: String, selected: Bool, description: String, +input: Core.Input, +availability: View.Availability,
+def choice_retains_binding(+key: String, kind: UI.ChoiceKind, icon: Maybe<&2, String>, selected: Bool, description: String, +input: Core.Input, +availability: View.Availability,
   label: String, role: UI.Role, context: Controls.Context) ->
-  {Rule.binding(Controls.make_choice(key, selected, description, input, availability, label, role, context)) ==
+  {Rule.binding(Controls.make_choice(key, kind, icon, selected, description, input, availability, label, role, context)) ==
     UI.Activate{input, availability} : UI.Meaning}:
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
@@ -72,7 +72,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
-    case UI.Choice{selected, description, input, availability}: choice_retains_binding(key, selected, description, input, availability, label, role, context)
+    case UI.Choice{kind, icon, selected, description, input, availability}: choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context)
     case UI.ProjectGroup{project, selected, expanded}: {==}
     case UI.TaskRow{task, status, selected}: {==}
     case UI.ProjectChooser{selected}: {==}

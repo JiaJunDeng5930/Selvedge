@@ -468,11 +468,22 @@ function applyReading(physical) {
       markReadingCorrection(surface);
       // An instant move to the current offset cancels an earlier smooth correction.
       surface.scrollTo({ top: surface.scrollTop, left: surface.scrollLeft, behavior: 'instant' }); break;
-    case 'AlignLatest':
-      if (!currentReadingMeasurement(surface)) {
-        readingUserOwned.delete(surface); markReadingCorrection(surface);
-        surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+    case 'CancelAnchorObservation': {
+      const pending = currentReadingMeasurement(surface);
+      if (pending) {
+        if (pending.frame !== null) cancelAnimationFrame(pending.frame);
+        retireReadingMeasurement(surface, pending);
+        pending.pointers.clear();
       }
+      for (const [pointerId, ownerSurface] of readingPointers) {
+        if (ownerSurface === surface) readingPointers.delete(pointerId);
+      }
+      readingUserOwned.delete(surface);
+      break;
+    }
+    case 'AlignLatest':
+      markReadingCorrection(surface);
+      surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
       break;
     case 'PreserveAnchor': {
       if (currentReadingMeasurement(surface)) break;

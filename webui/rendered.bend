@@ -46,7 +46,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
     case UI.ComposerAction{subject, input, availability}: True{}
     case UI.Activate{input, availability}: True{}
     case UI.PanelToggle{expanded, input, availability}: True{}
-    case UI.Choice{selected, description, input, availability}: True{}
+    case UI.Choice{kind, icon, selected, description, input, availability}: True{}
     case UI.Edit{editor, field, entry, value, choices}: field_control(entry)
     case UI.SearchChoices{query}: True{}
     case UI.EnterCredential{entered}: True{}
@@ -62,7 +62,7 @@ def required_enabled(meaning: UI.Meaning) -> Bool:
     case UI.ComposerAction{subject, input, availability}: enabled(availability)
     case UI.Activate{input, availability}: enabled(availability)
     case UI.PanelToggle{expanded, input, availability}: enabled(availability)
-    case UI.Choice{selected, description, input, availability}: enabled(availability)
+    case UI.Choice{kind, icon, selected, description, input, availability}: enabled(availability)
     case UI.ReceiveFile{editor, enabled}: enabled
     case UI.BoardProfile{automatic, selected, choices, enabled}: enabled
     case other: interactive(other)

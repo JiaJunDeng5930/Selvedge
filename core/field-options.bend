@@ -119,11 +119,6 @@ def project_options(values: +List<View.ProjectChoice>) -> +List<Forms.ChoiceValu
     case Nil{}: Nil{}
     case Con{View.ProjectChoice{id, name, workspace}, rest}: option(Nat.show(id), name) <> project_options(rest)
 
-def owner_options(values: +List<Board.Owner>) -> +List<Forms.ChoiceValue>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{+value, rest}: option(Board.owner_name(value), Board.owner_name(value)) <> owner_options(rest)
-
 def origin_options(value: Forms.Observed) -> +List<Forms.ChoiceValue>:
   match value:
     case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: origin_option_values(origin)
@@ -139,10 +134,10 @@ def assistance_options(field: String, profiles: +List<Domain.Profile>) -> +List<
     case "assistance-profile": option("", "使用看板默认模型") <> profile_options(profiles)
     case _: Nil{}
 
-def card_options(field: String, projects: +List<View.ProjectChoice>, owners: +List<Board.Owner>) -> +List<Forms.ChoiceValue>:
+def card_options(field: String, projects: +List<View.ProjectChoice>, owners: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
   match field:
     case "card-project": option("", "No project") <> project_options(projects)
-    case "card-owner": owner_options(owners)
+    case "card-owner": owners
     case _: Nil{}
 
 def stage_options(values: +List<Board.Stage>) -> +List<Forms.ChoiceValue>:
@@ -193,7 +188,7 @@ def group_options(field: String, value: View.InputGroup) -> +List<Forms.ChoiceVa
     case View.ModelInput{profile, reasoning, choices}: model_group_options(field, profile, choices)
     case View.CardAssistanceInput{enabled, profile, choices}: assistance_options(field, choices)
     case View.ExecutionInput{configuration, preview, workspace, projects, reviewers}: execution_options(field, configuration, preview, projects, reviewers)
-    case View.CardContentInput{value, projects, agents, stages, priorities, owners}: card_options(field, projects, owners)
+    case View.CardContentInput{value, projects, stages, priorities, owners}: card_options(field, projects, owners)
     case _: Nil{}
 
 def enriched_options(+field: String, values: +List<View.InputGroup>) -> +List<Forms.ChoiceValue>:

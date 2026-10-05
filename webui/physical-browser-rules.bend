@@ -3,6 +3,10 @@ import ./focus.bend as Focus
 import ./native-fields.bend as Native
 import ../core/interface.bend as UI
 import Base
+import ./platform.bend as Platform
+import ./design.bend as Design
+import ./font-observation.bend as F
+import ./typography.bend as T
 import ./physical-browser.bend as Browser
 import ./browser.bend as Legacy
 import ./MODEL.bend as Web
@@ -61,3 +65,60 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law forwarded_frame_uses_published_surface:
+  for +stored: Legacy.State
+  for +serial: Nat
+  for +anchors: +List<Shell.Anchor>
+  for +lifecycle: Browser.Lifecycle
+  for +world: Content.AllocatedWorld
+  for +semantic: UI.Surface
+  for +scope: Focus.Scope
+  for +basis: Native.Basis
+  for +old: Maybe<&2, Rendered.Frame>
+  for +frame: Rendered.Frame
+  {Browser.frame_forward_ready(True{}, Browser.State{stored, serial, anchors, lifecycle,
+    Some{Browser.Published{world, semantic, scope, basis, old}}}, frame) ==
+    Browser.accept(False{}, Legacy.observe_frame(Browser.semantic_generation(stored), semantic, frame, stored),
+      Browser.State{stored, serial, anchors, lifecycle, Some{Browser.Published{world, semantic, scope, basis, old}}}) : Browser.Decision}
+
+law failed_font_candidate_blocked:
+  for +application: Platform.State
+  for +generation: Nat
+  for +realization: Rendered.State
+  for +environment: Design.Environment
+  for +font_generation: Nat
+  for +scale: T.Scale
+  for +sequence: Nat
+  for +ticket: Nat
+  for +pending: +List<Legacy.Pending>
+  for +serial: Nat
+  for +anchors: +List<Shell.Anchor>
+  for +lifecycle: Browser.Lifecycle
+  for +displayed: Maybe<&2, Browser.Published>
+  for +index: Nat
+  {Browser.one_candidate(index, Browser.State{Legacy.State{Web.State{application, generation, realization,
+    environment, F.Failed{font_generation, scale}}, sequence, ticket, pending}, serial, anchors, lifecycle, displayed}) ==
+    Browser.Stopped{Browser.Decision{Browser.State{Legacy.State{Web.State{application, generation, realization,
+      environment, F.Failed{font_generation, scale}}, sequence, ticket, pending}, serial, anchors,
+      Browser.Blocked{"Font measurements could not be validated."}, displayed}, Nil{}}} : Browser.Search}
+
+law unmet_frame_status:
+  for +application: Platform.State
+  for +generation: Nat
+  for +frame_generation: Nat
+  for +frame: Rendered.Frame
+  for +violations: +List<Rendered.Violation>
+  for +environment: Design.Environment
+  for +font: F.State
+  for +sequence: Nat
+  for +ticket: Nat
+  for +pending: +List<Legacy.Pending>
+  for +serial: Nat
+  for +anchors: +List<Shell.Anchor>
+  for +capacity: View.Capacity
+  for +engine: World.Engine
+  for +displayed: Maybe<&2, Browser.Published>
+  {Browser.render_status(Browser.State{Legacy.State{Web.State{application, generation,
+    Rendered.Unmet{frame_generation, frame, violations}, environment, font}, sequence, ticket, pending},
+    serial, anchors, Browser.Displaying{capacity, engine}, displayed}) == "unmet" : String}

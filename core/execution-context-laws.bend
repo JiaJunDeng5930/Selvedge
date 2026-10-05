@@ -35,12 +35,12 @@ def directory_fact(value: UI.Node) -> Maybe<&2, DirectoryFact>:
 
 def choice_input(value: UI.Node) -> Maybe<&2, Core.Input>:
   match value:
-    case UI.Node{key, semantic, label, role, UI.Choice{selected, description, input, availability}, children}: Some{input}
+    case UI.Node{key, semantic, label, role, UI.Choice{kind, icon, selected, description, input, availability}, children}: Some{input}
     case _: None{}
 
 def choice_selection(value: UI.Node) -> Maybe<&2, Bool>:
   match value:
-    case UI.Node{key, semantic, label, role, UI.Choice{selected, description, input, availability}, children}: Some{selected}
+    case UI.Node{key, semantic, label, role, UI.Choice{kind, icon, selected, description, input, availability}, children}: Some{selected}
     case _: None{}
 
 def tree_focusable(nodes: +List<UI.Node>) -> Bool:
@@ -81,7 +81,7 @@ type ChoiceCaption is Data:
 
 def choice_caption(value: UI.Node) -> Maybe<&2, ChoiceCaption>:
   match value:
-    case UI.Node{key, semantic, label, role, UI.Choice{selected, description, input, availability}, children}: Some{ChoiceCaption{label, description}}
+    case UI.Node{key, semantic, label, role, UI.Choice{kind, icon, selected, description, input, availability}, children}: Some{ChoiceCaption{label, description}}
     case _: None{}
 
 def network_pair(value: UI.Node) -> Sigma<&2, &2, Maybe<&2, Bool>, (_ => Maybe<&2, Bool>)>:
@@ -118,8 +118,8 @@ type Requirements is Type:
     admitted_task_identity: @+task:D.Task -> {effective_task(Context.effective(task)) == D.task_id(task) : Nat},
     passive_directory: @path:String -> @primary:Bool -> @gesture:UI.Gesture -> {UI.bind(UI.DirectoryRow{path, primary}, gesture) == None{} : Maybe<&2, Core.Input>},
     passive_summary: @value:Context.Observation -> @gesture:UI.Gesture -> {UI.bind(UI.ContextSummary{value}, gesture) == None{} : Maybe<&2, Core.Input>},
-    available_choice: @selected:Bool -> @description:String -> @+input:Core.Input -> {UI.bind(UI.Choice{selected, description, input, V.Available{}}, UI.Press{}) == Some{input} : Maybe<&2, Core.Input>},
-    unavailable_choice: @selected:Bool -> @description:String -> @input:Core.Input -> @reason:String -> {UI.bind(UI.Choice{selected, description, input, V.Unavailable{reason}}, UI.Press{}) == None{} : Maybe<&2, Core.Input>},
+    available_choice: @selected:Bool -> @description:String -> @+input:Core.Input -> {UI.bind(UI.Choice{UI.SingleChoice{}, None{}, selected, description, input, V.Available{}}, UI.Press{}) == Some{input} : Maybe<&2, Core.Input>},
+    unavailable_choice: @selected:Bool -> @description:String -> @input:Core.Input -> @reason:String -> {UI.bind(UI.Choice{UI.SingleChoice{}, None{}, selected, description, input, V.Unavailable{reason}}, UI.Press{}) == None{} : Maybe<&2, Core.Input>},
     draft_footer: @+editor:U.Editor -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
       {V.draft_context_footer(editor, observation, profiles) ==
         [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/" ++ U.editor_key(editor), V.observation_workspace(observation), V.Secondary{},

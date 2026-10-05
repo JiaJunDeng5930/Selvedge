@@ -104,7 +104,7 @@ def frame_silent(received: Nat, frame: Rendered.Frame, application: Platform.Sta
   generation: Nat, realization: Rendered.State, environment: Design.Environment, font: F.State) ->
   {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
     Model.Decision{
-      Model.State{application, generation, Model.production_frame(Nat.is_eq(generation, received), generation, frame, realization), environment, font},
+      Model.State{application, generation, realization, environment, font},
       Platform.unchanged(Rule.model_core(application)), Nil{}} : Model.Decision}:
   match application:
     case Platform.State{Core.State{application, services}, platform}: {==}
@@ -115,22 +115,7 @@ def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.S
   {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
     Model.Decision{Model.State{application, generation, realization, environment, font},
       Platform.unchanged(Rule.model_core(application)), Nil{}} : Model.Decision}:
-  Platform.State{core, platform} = application
-  Equal.trans(Model.Decision,
-    Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}),
-    Model.Decision{Model.State{application, generation,
-      Model.production_frame(Nat.is_eq(generation, received), generation, frame, realization), environment, font},
-      Platform.unchanged(core), Nil{}},
-    Model.Decision{Model.State{application, generation, realization, environment, font}, Platform.unchanged(core), Nil{}},
-    frame_silent(received, frame, application, generation, realization, environment, font),
-    Equal.cong(Rendered.State, Model.Decision,
-      (frame_state => Model.Decision{Model.State{application, generation, frame_state, environment, font},
-        Platform.unchanged(core), Nil{}}),
-      Model.production_frame(Nat.is_eq(generation, received), generation, frame, realization),
-      realization,
-      Equal.cong(Bool, Rendered.State,
-        (owned => Model.production_frame(owned, generation, frame, realization)),
-        Nat.is_eq(generation, received), False{}, stale)))
+  frame_silent(received, frame, application, generation, realization, environment, font)
 
 def stale_reading(application: E.Application, services: Services.State, platform: Platform.Platform,
   task: Nat, generation: Nat, event: Reading.Event,
@@ -161,29 +146,29 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
   bookmark_value = Equal.cong(Maybe<&2, Reading.Bookmark>, Reading.Bookmark,
     Platform.bookmark, Finite.find(~Reading.Bookmark, bookmarks, task),
     Some{Reading.Bookmark{Some{anchor}}}, bookmark_observed)
-  layout_position = Equal.cong(U.ReadingIntent, Reading.Effect,
+  layout_position = Equal.cong(U.ReadingIntent, +List<Reading.Effect>,
     (position => Reading.layout(position, Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task)))),
     E.reader_position(reader), U.ReadHistory{}, position_observed)
-  layout_bookmark = Equal.cong(Reading.Bookmark, Reading.Effect,
+  layout_bookmark = Equal.cong(Reading.Bookmark, +List<Reading.Effect>,
     (bookmark => Reading.layout(U.ReadHistory{}, bookmark)),
     Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task)),
     Reading.Bookmark{Some{anchor}}, bookmark_value)
-  layout_effect = Equal.trans(Reading.Effect,
+  layout_effect = Equal.trans(+List<Reading.Effect>,
     Reading.layout(E.reader_position(reader), Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))),
     Reading.layout(U.ReadHistory{}, Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))),
     Reading.layout(U.ReadHistory{}, Reading.Bookmark{Some{anchor}}),
     layout_position, layout_bookmark)
-  layout_preserves = Equal.trans(Reading.Effect,
+  layout_preserves = Equal.trans(+List<Reading.Effect>,
     Reading.layout(E.reader_position(reader), Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))),
     Reading.layout(U.ReadHistory{}, Reading.Bookmark{Some{anchor}}),
-    Reading.PreserveAnchor{anchor}, layout_effect, Rules_reading_rules.history_layout(anchor))
+    [Reading.PreserveAnchor{anchor}], layout_effect, Rules_reading_rules.history_layout(anchor))
   generation_effect = Equal.cong(Nat, +List<Platform.Effect>,
     (value => [Platform.Scroll{task, value, Reading.PreserveAnchor{anchor}}]),
     E.reader_generation(reader), generation, generation_observed)
-  effect = Equal.cong(Reading.Effect, +List<Platform.Effect>,
-    (value => [Platform.Scroll{task, E.reader_generation(reader), value}]),
+  effect = Equal.cong(+List<Reading.Effect>, +List<Platform.Effect>,
+    (value => Platform.wrap_scroll(value, task, E.reader_generation(reader))),
     Reading.layout(E.reader_position(reader), Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))),
-    Reading.PreserveAnchor{anchor}, layout_preserves)
+    [Reading.PreserveAnchor{anchor}], layout_preserves)
   Equal.trans(+List<Platform.Effect>,
     Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks),
     [Platform.Scroll{task, E.reader_generation(reader), Reading.PreserveAnchor{anchor}}],
@@ -642,19 +627,19 @@ def Rule.evidence():
     application => services => platform => task => generation => event => inactive =>
       stale_reading(application, services, platform, task, generation, event, inactive),
     height => viewport => anchor => reduced =>
-      Equal.cong(Reading.Effect, Reading.Decision,
-        (effect => Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
-          [Reading.ReserveComposer{Reading.reserve(height, viewport)}, effect]}),
+      Equal.cong(+List<Reading.Effect>, Reading.Decision,
+        (effects => Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
+          Reading.ReserveComposer{Reading.reserve(height, viewport)} <> effects}),
         Reading.layout(U.ReadHistory{}, Reading.Bookmark{Some{anchor}}),
-        Reading.PreserveAnchor{anchor},
+        [Reading.PreserveAnchor{anchor}],
         Rules_reading_rules.history_layout(anchor))
     ,
     height => viewport => reduced =>
-      Equal.cong(Reading.Effect, Reading.Decision,
-        (effect => Reading.Decision{Reading.Bookmark{None{}}, None{},
-          [Reading.ReserveComposer{Reading.reserve(height, viewport)}, effect]}),
+      Equal.cong(+List<Reading.Effect>, Reading.Decision,
+        (effects => Reading.Decision{Reading.Bookmark{None{}}, None{},
+          Reading.ReserveComposer{Reading.reserve(height, viewport)} <> effects}),
         Reading.layout(U.ReadHistory{}, Reading.Bookmark{None{}}),
-        Reading.MeasureAnchor{},
+        [Reading.MeasureAnchor{}],
         Rules_reading_rules.missing_history_anchor())
     ,
     bookmark => reduced => {==},

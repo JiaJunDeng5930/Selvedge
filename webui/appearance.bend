@@ -354,7 +354,7 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
-    case Controls.ChoiceFace{label, description, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
+    case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
 
 def action_style_insets(value: Design.Style, +geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat, content_height: Nat) -> Design.Style:
   Design.Style{+text, +style_chrome, alignment, flow, overflow, +content_frame, old_height, maximum_width_percent, states} = value
@@ -371,7 +371,7 @@ def action_content_style(value: Design.Style, layout: Controls.ContentLayout, ge
 def action_flow(face: Controls.Face, layout: Controls.ContentLayout) -> SpatialModel.Flow:
   match face layout:
     case Controls.SingleLineFace{text} _: SpatialModel.BlockFlow{}
-    case Controls.ChoiceFace{text, description, checked} _: SpatialModel.ChoiceFlow{}
+    case Controls.ChoiceFace{text, description, icon, checked} _: SpatialModel.ChoiceFlow{}
     case _ Controls.ContentLayout{alignment, content_area, gap}: SpatialModel.InlineControlFlow{alignment}
 
 def with_flow(value: Design.Style, flow: SpatialModel.Flow) -> Design.Style:
@@ -390,6 +390,8 @@ def selection_style(value: Design.Style, behavior: Controls.Behavior, +typograph
   match behavior:
     case Controls.Radio{selected}: choice_button(selected, Design.style_text(value))
     case Controls.ChoiceRadio{selected}: choice_button(selected, Design.style_text(value))
+    case Controls.MenuCheckbox{selected}: choice_button(selected, Design.style_text(value))
+    case Controls.ChoiceCheckbox{selected}: choice_button(selected, Design.style_text(value))
     case Controls.Toggle{selected}: choice_button(selected, Design.style_text(value))
     case _: value
 

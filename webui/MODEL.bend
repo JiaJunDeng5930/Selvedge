@@ -115,11 +115,17 @@ def production_typography(+state: State, +observation: F.Observation) -> Decisio
   production_typography_owned(Nat.is_eq(F.generation(font), received), application, generation, realization,
     environment, font, F.Observation{received, metrics})
 
-def production_frame(owned: Bool, generation: Nat, frame: Rendered.Frame,
-  previous: Rendered.State) -> Rendered.State:
-  match owned:
-    case True{}: Rendered.Realized{generation, frame}
-    case False{}: previous
+def idle_state(state: State) -> Decision:
+  State{application, generation, realization, environment, font} = state
+  idle(application, generation, realization, environment, font)
+
+def observe_frame(received: Nat, surface: UI.Surface, frame: Rendered.Frame, state: State) -> Decision:
+  State{application, +generation, realization, environment, font} = state
+  idle(application, generation, Rendered.observe(generation, received, surface, frame, realization), environment, font)
+
+def decision_realization(decision: Decision) -> Rendered.State:
+  Decision{State{application, generation, realization, environment, font}, product, effects} = decision
+  realization
 
 def production_dispatch(state: State, input: Input) -> Decision:
   State{+application, +generation, +realization, +environment, +font} = state
@@ -138,7 +144,7 @@ def production_dispatch(state: State, input: Input) -> Decision:
       production_commit(Platform.after_core(Product.step(Product.Element{capacity(model_platform(application)), key, gesture},
         model_core(application)), model_platform(application)), (generation + 1n : Nat), environment, font)
     case FrameObserved{+received, frame}:
-      idle(application, generation, production_frame(Nat.is_eq(generation, received), generation, frame, realization), environment, font)
+      idle(application, generation, realization, environment, font)
     case TypographyObserved{observation}:
       production_typography(State{application, generation, realization, environment, font}, observation)
 

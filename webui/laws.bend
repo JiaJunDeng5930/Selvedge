@@ -154,7 +154,7 @@ type Requirements is Type:
       @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
       {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
         Model.Decision{Model.State{application, generation,
-          Model.production_frame(Nat.is_eq(generation, received), generation, frame, realization), environment, font},
+          realization, environment, font},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_frame: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
       @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
@@ -178,7 +178,7 @@ type Requirements is Type:
             [Reading.ReserveComposer{Reading.reserve(height, viewport)}, Reading.MeasureAnchor{}]} : Reading.Decision},
     follow_latest_layout: @bookmark:Reading.Bookmark -> @reduced:Bool ->
       {Reading.step(Reading.FollowLatest{}, U.ReadHistory{}, bookmark, reduced) ==
-          Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.AlignLatest{Bool.not(reduced)}]} :
+          Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.CancelAnchorObservation{}, Reading.AlignLatest{Bool.not(reduced)}]} :
           Reading.Decision},
     layout_after_product: @program:M.World() -> @session:E.Session -> @task:Nat -> @generation:Nat ->
       @disclosures:+List<E.Disclosure> -> @bookmarks:+List<Finite.Entry(Reading.Bookmark)> -> @anchor:Physical.Anchor ->

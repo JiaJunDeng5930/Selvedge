@@ -420,7 +420,7 @@ def regular_content(+key: String, +label: String, +role: UI.Role, +meaning: UI.M
     case UI.ComposerAction{subject, input, availability}: AuthoredControls.action(key, visual, representation)
     case UI.PanelToggle{expanded, input, availability}: AuthoredControls.action(key, visual, representation)
     case UI.Activate{input, availability}: AuthoredControls.action(key, visual, representation)
-    case UI.Choice{selected, description, input, availability}: AuthoredControls.action(key, visual, representation)
+    case UI.Choice{kind, icon, selected, description, input, availability}: AuthoredControls.action(key, visual, representation)
     case UI.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
     case UI.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", status}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
     case UI.ProjectChooser{selected}: box(key, Source.Div{}, role_style(visual, role), chooser_selection(selected), content)

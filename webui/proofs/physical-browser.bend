@@ -83,3 +83,12 @@ def Rule.evidence():
     +key => +left => +top => +width => +height => +state => anchor_preserves_program(key, left, top, width, height, state),
     +last_published => +state => existing => waiting => publication_preserves_existing(last_published, state, existing, waiting),
     +last_published => +state => existing => ready => current => publication_current(last_published, state, existing, ready, current)}
+
+
+def Rule.forwarded_frame_uses_published_surface(stored, serial, anchors, lifecycle, world, semantic, scope, basis, old, frame): {==}
+
+def Rule.failed_font_candidate_blocked(application, generation, realization, environment, font_generation, scale,
+  sequence, ticket, pending, serial, anchors, lifecycle, displayed, index): {==}
+
+def Rule.unmet_frame_status(application, generation, frame_generation, frame, violations, environment, font,
+  sequence, ticket, pending, serial, anchors, capacity, engine, displayed): {==}

@@ -5,7 +5,7 @@ import ./space.bend as Space
 import ./typography.bend as Typography
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
-import ../core/user-input.bend as User
+import ../core/user-input.bend as UserInput
 import ../core/user-experience.bend as Experience
 import ../core/ui-world.bend as View
 import ../core/form-fields.bend as Forms
@@ -30,6 +30,11 @@ type Icon is Data:
   Sidebar{}
   SidebarClose{}
   Folder{}
+  Tag{}
+  User{}
+  Bot{}
+  Status{stage: Board.Stage}
+  Priority{priority: Board.Priority}
   Conversation{}
   Columns{}
   Agents{}
@@ -81,7 +86,7 @@ type Area is Data:
 type Selection is Data:
   NoSelection{}
   ModelSelection{profile: String}
-  DeliverySelection{delivery: User.Delivery}
+  DeliverySelection{delivery: UserInput.Delivery}
 
 type SourceFamily is Data:
   Unscoped{}
@@ -100,7 +105,7 @@ type Face is Data:
   # Render the value and a trailing chevron, with room reserved for both.
   PickerFace{leading: Maybe<&2, Icon>, text: String}
   # Every option reserves the check column, including unselected options.
-  ChoiceFace{text: String, description: Maybe<&2, String>, checked: Bool}
+  ChoiceFace{text: String, description: Maybe<&2, String>, icon: Maybe<&2, Icon>, checked: Bool}
   DisclosureFace{text: String, expanded: Bool}
   PermissionFace{filesystem: Icon, network: Icon, approval: Icon}
 
@@ -117,6 +122,8 @@ type Behavior is Data:
   Toggle{pressed: Bool}
   Radio{checked: Bool}
   ChoiceRadio{checked: Bool}
+  MenuCheckbox{checked: Bool}
+  ChoiceCheckbox{checked: Bool}
   Disclosure{expanded: Bool}
   Popup{menu: Bool, expanded: Bool}
   Destination{current: Bool}
@@ -142,7 +149,7 @@ def content_layout(face: Face) -> ContentLayout:
   match face:
     case IconFace{icon}: ContentLayout{SpatialModel.CenterContents{}, Enclosure.area(Enclosure.IconControl{}), 0n}
     case SingleLineFace{text}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.ambient(0n, 0n), 0n}
-    case ChoiceFace{text, description, checked}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
+    case ChoiceFace{text, description, icon, checked}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
     case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
 
 type IconPaint is Data:
@@ -364,10 +371,10 @@ def panel_open(layers: +List<View.Layer>, +trigger: String) -> Bool:
     case Con{View.Layer{kind, content, attention, restore, close}, rest}:
       String.eq(restore, trigger) || panel_open(rest, trigger)
 
-def same_delivery(left: User.Delivery, right: User.Delivery) -> Bool:
+def same_delivery(left: UserInput.Delivery, right: UserInput.Delivery) -> Bool:
   match left right:
-    case User.Send{} User.Send{}: True{}
-    case User.Steer{} User.Steer{}: True{}
+    case UserInput.Send{} UserInput.Send{}: True{}
+    case UserInput.Steer{} UserInput.Steer{}: True{}
     case _ _: False{}
 
 def same_appearance(left: Services.Appearance, right: Services.Appearance) -> Bool:
@@ -377,46 +384,46 @@ def same_appearance(left: Services.Appearance, right: Services.Appearance) -> Bo
     case Services.DarkAppearance{} Services.DarkAppearance{}: True{}
     case _ _: False{}
 
-def selected_edit(edit: User.Edit, selection: Selection) -> Purpose:
+def selected_edit(edit: UserInput.Edit, selection: Selection) -> Purpose:
   match edit selection:
-    case User.ChooseModel{profile, reasoning} ModelSelection{current}:
+    case UserInput.ChooseModel{profile, reasoning} ModelSelection{current}:
       SelectedOption{String.eq(profile, current)}
-    case User.ChooseDelivery{delivery} DeliverySelection{current}:
+    case UserInput.ChooseDelivery{delivery} DeliverySelection{current}:
       SelectedOption{same_delivery(delivery, current)}
-    case User.ConfigureContext{change} _: ResetDefaults{}
+    case UserInput.ConfigureContext{change} _: ResetDefaults{}
     case _ _: NamedAction{}
 
-def submit_purpose(editor: User.Editor) -> Purpose:
+def submit_purpose(editor: UserInput.Editor) -> Purpose:
   match editor:
-    case User.NewTaskEditor{}: MessageSubmission{}
-    case User.MessageEditor{task}: MessageSubmission{}
+    case UserInput.NewTaskEditor{}: MessageSubmission{}
+    case UserInput.MessageEditor{task}: MessageSubmission{}
     case _: NamedAction{}
 
-def route_icon(route: User.Route) -> Icon:
+def route_icon(route: UserInput.Route) -> Icon:
   match route:
-    case User.Start{}: Plus{}
-    case User.Conversation{task}: Conversation{}
-    case User.ProjectHome{project}: Folder{}
-    case User.ProjectCollection{}: Folder{}
-    case User.TaskBoard{}: Columns{}
-    case User.AgentCollection{}: Agents{}
+    case UserInput.Start{}: Plus{}
+    case UserInput.Conversation{task}: Conversation{}
+    case UserInput.ProjectHome{project}: Folder{}
+    case UserInput.ProjectCollection{}: Folder{}
+    case UserInput.TaskBoard{}: Columns{}
+    case UserInput.AgentCollection{}: Agents{}
 
-def panel_purpose(panel: User.Panel, expanded: Bool) -> Purpose:
+def panel_purpose(panel: UserInput.Panel, expanded: Bool) -> Purpose:
   match panel:
-    case User.CardDetails{card}: OpenPanel{Inspector{}, False{}, expanded}
-    case User.ObjectActions{subject}: MoreActions{expanded}
-    case User.BoardSettings{}: OpenPanel{Settings{}, False{}, expanded}
-    case User.BoardFilters{}: OpenPanel{FilterFunnel{}, False{}, expanded}
-    case User.ModelPicker{editor}: ChooseValue{expanded}
-    case User.DeliveryPicker{task}: ChooseValue{expanded}
-    case User.ProjectPicker{}: ChooseValue{expanded}
-    case User.WorkspaceConfiguration{editor}: WorkspacePicker{expanded}
-    case User.PermissionsConfiguration{editor}: ChooseValue{expanded}
-    case User.TaskContext{task}: OpenPanel{Inspector{}, False{}, expanded}
-    case User.TaskDetails{task}: OpenPanel{Inspector{}, False{}, expanded}
-    case User.ArchivedCards{}: OpenPanel{ArchiveBox{}, False{}, expanded}
-    case User.EditObject{editor}: OpenPanel{Pencil{}, False{}, expanded}
-    case User.Confirm{command, title, destination}: OpenPanel{Warning{}, False{}, expanded}
+    case UserInput.CardDetails{card}: OpenPanel{Inspector{}, False{}, expanded}
+    case UserInput.ObjectActions{subject}: MoreActions{expanded}
+    case UserInput.BoardSettings{}: OpenPanel{Settings{}, False{}, expanded}
+    case UserInput.BoardFilters{}: OpenPanel{FilterFunnel{}, False{}, expanded}
+    case UserInput.ModelPicker{editor}: ChooseValue{expanded}
+    case UserInput.DeliveryPicker{task}: ChooseValue{expanded}
+    case UserInput.ProjectPicker{}: ChooseValue{expanded}
+    case UserInput.WorkspaceConfiguration{editor}: WorkspacePicker{expanded}
+    case UserInput.PermissionsConfiguration{editor}: ChooseValue{expanded}
+    case UserInput.TaskContext{task}: OpenPanel{Inspector{}, False{}, expanded}
+    case UserInput.TaskDetails{task}: OpenPanel{Inspector{}, False{}, expanded}
+    case UserInput.ArchivedCards{}: OpenPanel{ArchiveBox{}, False{}, expanded}
+    case UserInput.EditObject{editor}: OpenPanel{Pencil{}, False{}, expanded}
+    case UserInput.Confirm{command, title, destination}: OpenPanel{Warning{}, False{}, expanded}
 
 def task_control(control: Domain.Control) -> Purpose:
   match control:
@@ -437,39 +444,39 @@ def board_command(command: Board.Command) -> Purpose:
     case Board.Regenerate{id, revision, profile, now}: Regenerate{}
     case _: NamedAction{}
 
-def action_purpose(+key: String, action: User.Action, selection: Selection, +layers: +List<View.Layer>) -> Purpose:
+def action_purpose(+key: String, action: UserInput.Action, selection: Selection, +layers: +List<View.Layer>) -> Purpose:
   match action:
-    case User.Submit{editor}: submit_purpose(editor)
-    case User.Navigate{route}: NavigateTo{route_icon(route)}
-    case User.BeginTask{None{}}: CreateItem{}
-    case User.BeginTask{Some{project}}: ProjectTaskCreation{}
-    case User.EditProject{None{}}: CreateItem{}
-    case User.EditProject{Some{project}}: EditItem{}
-    case User.NewCard{stage}: CreateItem{}
-    case User.EditCard{card}: EditItem{}
-    case User.EditAgent{None{}}: CreateItem{}
-    case User.EditAgent{Some{agent}}: EditItem{}
-    case User.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, key)}
-    case User.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, key)}
-    case User.ControlTask{task, control}: task_control(control)
-    case User.CancelOperation{task, operation}: AbortOperation{}
-    case User.ReviewApproval{task, operation, allow, reason}: ApprovalDecision{allow}
-    case User.DeleteProject{project}: DeleteItem{}
-    case User.BoardCommand{command}: board_command(command)
-    case User.OpenPanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
-    case User.TogglePanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
-    case User.ClosePanel{}: Dismiss{}
-    case User.ConfirmAction{}: NamedAction{}
-    case User.SelectProject{project}: NamedAction{}
-    case User.ToggleProjectGroup{project}: NamedAction{}
+    case UserInput.Submit{editor}: submit_purpose(editor)
+    case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
+    case UserInput.BeginTask{None{}}: CreateItem{}
+    case UserInput.BeginTask{Some{project}}: ProjectTaskCreation{}
+    case UserInput.EditProject{None{}}: CreateItem{}
+    case UserInput.EditProject{Some{project}}: EditItem{}
+    case UserInput.NewCard{stage}: CreateItem{}
+    case UserInput.EditCard{card}: EditItem{}
+    case UserInput.EditAgent{None{}}: CreateItem{}
+    case UserInput.EditAgent{Some{agent}}: EditItem{}
+    case UserInput.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, key)}
+    case UserInput.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, key)}
+    case UserInput.ControlTask{task, control}: task_control(control)
+    case UserInput.CancelOperation{task, operation}: AbortOperation{}
+    case UserInput.ReviewApproval{task, operation, allow, reason}: ApprovalDecision{allow}
+    case UserInput.DeleteProject{project}: DeleteItem{}
+    case UserInput.BoardCommand{command}: board_command(command)
+    case UserInput.OpenPanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
+    case UserInput.TogglePanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
+    case UserInput.ClosePanel{}: Dismiss{}
+    case UserInput.ConfirmAction{}: NamedAction{}
+    case UserInput.SelectProject{project}: NamedAction{}
+    case UserInput.ToggleProjectGroup{project}: NamedAction{}
 
-def user_purpose(key: String, input: User.Input, selection: Selection, layers: +List<View.Layer>) -> Purpose:
+def user_purpose(key: String, input: UserInput.Input, selection: Selection, layers: +List<View.Layer>) -> Purpose:
   match input:
-    case User.Activate{action}: action_purpose(key, action, selection, layers)
-    case User.EditDraft{editor, edit}: selected_edit(edit, selection)
-    case User.ReadTimeline{task, generation, intent}: Latest{}
-    case User.SetDisclosure{task, group, occurrence, expanded}: ShowActivity{Bool.not(expanded)}
-    case User.SetNavigation{expanded}: ToggleNavigation{Bool.not(expanded)}
+    case UserInput.Activate{action}: action_purpose(key, action, selection, layers)
+    case UserInput.EditDraft{editor, edit}: selected_edit(edit, selection)
+    case UserInput.ReadTimeline{task, generation, intent}: Latest{}
+    case UserInput.SetDisclosure{task, group, occurrence, expanded}: ShowActivity{Bool.not(expanded)}
+    case UserInput.SetNavigation{expanded}: ToggleNavigation{Bool.not(expanded)}
     case _: NamedAction{}
 
 def copy_state(code: Maybe<&2, Code.Scene>) -> Code.CopyState:
@@ -594,14 +601,14 @@ def contextual_face(+purpose: Purpose, label: String, +area: Area) -> Face:
     case EditItem{} CardArea{}: TextFace{label}
     case ChooseValue{expanded} _: PickerFace{None{}, label}
     case WorkspacePicker{expanded} _: PickerFace{Some{Folder{}}, label}
-    case SelectedOption{checked} _: ChoiceFace{label, None{}, checked}
+    case SelectedOption{checked} _: ChoiceFace{label, None{}, None{}, checked}
     case ShowActivity{expanded} _: DisclosureFace{label, expanded}
     case _ _: named_face(purpose_icon(purpose), label, icon_only(purpose, area))
 
 def menu_face(purpose: Purpose, label: String) -> Face:
   match purpose:
     case Dismiss{}: IconFace{CloseCross{}}
-    case SelectedOption{checked}: ChoiceFace{label, None{}, checked}
+    case SelectedOption{checked}: ChoiceFace{label, None{}, None{}, checked}
     case ChooseValue{expanded}: PickerFace{None{}, label}
     case ShowActivity{expanded}: DisclosureFace{label, expanded}
     case _: named_face(purpose_icon(purpose), label, False{})
@@ -613,9 +620,9 @@ def face_for(purpose: Purpose, label: String, area: Area) -> Face:
 
 def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -> Face:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.ClosePanel{}}}}: TextFace{label}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
-    case Core.ApplicationInput{Experience.UserInput{User.EditDraft{editor, User.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: TextFace{label}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.EditDraft{editor, UserInput.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
       IconFace{CloseCross{}}
     case _: face_for(purpose, label, area)
 
@@ -707,7 +714,7 @@ def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
 
 def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match face:
-    case ChoiceFace{text, description, checked}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
+    case ChoiceFace{text, description, icon, checked}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
     case other: geometry_nonchoice(purpose, other, area)
 
 
@@ -750,10 +757,10 @@ def permission_face(observation: Maybe<&2, Workspace.Observation>) -> Face:
       permission_values_face(sandbox, Workspace.approval_choice(approval))
     case _: IconFace{Warning{}}
 
-def delivery_name(delivery: User.Delivery) -> String:
+def delivery_name(delivery: UserInput.Delivery) -> String:
   match delivery:
-    case User.Send{}: "Send a new message"
-    case User.Steer{}: "Steer the running task"
+    case UserInput.Send{}: "Send a new message"
+    case UserInput.Steer{}: "Steer the running task"
 
 def composer_face(subject: View.ComposerSubject, label: String, current: Face,
   execution: Maybe<&2, Workspace.Observation>) -> Face:
@@ -761,8 +768,8 @@ def composer_face(subject: View.ComposerSubject, label: String, current: Face,
     case View.ModelSubject{}: current
     case View.WorkspaceSubject{}: PickerFace{Some{Folder{}}, label}
     case View.PermissionsSubject{}: permission_face(execution)
-    case View.DeliverySubject{User.Send{}}: IconFace{ArrowUp{}}
-    case View.DeliverySubject{User.Steer{}}: IconFace{Branch{}}
+    case View.DeliverySubject{UserInput.Send{}}: IconFace{ArrowUp{}}
+    case View.DeliverySubject{UserInput.Steer{}}: IconFace{Branch{}}
 
 def composer_name(subject: View.ComposerSubject, label: String) -> String:
   match subject:
@@ -797,7 +804,7 @@ def make_action(+key: String, +input: Core.Input, +availability: View.Availabili
 
 def panel_toggle_face(input: Core.Input, expanded: Bool, fallback: Face) -> Face:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.TogglePanel{User.TaskDetails{task}, trigger}}}}:
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.TogglePanel{UserInput.TaskDetails{task}, trigger}}}}:
       IconFace{inspector_icon(expanded)}
     case _: fallback
 
@@ -825,18 +832,47 @@ def choice_description_for(empty: Bool, value: String) -> Maybe<&2, String>:
 def choice_description(+value: String) -> Maybe<&2, String>:
   choice_description_for(String.eq(value, ""), value)
 
-def choice_action(+selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
+def classification_icon(value: Maybe<&2, String>) -> Maybe<&2, Icon>:
+  match value:
+    case None{}: None{}
+    case Some{symbol}:
+      match symbol:
+        case "folder": Some{Folder{}}
+        case "tag": Some{Tag{}}
+        case "user": Some{User{}}
+        case "bot": Some{Bot{}}
+        case "status/backlog": Some{Status{Board.Backlog{}}}
+        case "status/todo": Some{Status{Board.Todo{}}}
+        case "status/in_progress": Some{Status{Board.InProgress{}}}
+        case "status/in_review": Some{Status{Board.InReview{}}}
+        case "status/done": Some{Status{Board.Completed{}}}
+        case "status/blocked": Some{Status{Board.Blocked{}}}
+        case "priority/none": Some{Priority{Board.NoPriority{}}}
+        case "priority/low": Some{Priority{Board.Low{}}}
+        case "priority/medium": Some{Priority{Board.Medium{}}}
+        case "priority/high": Some{Priority{Board.High{}}}
+        case "priority/urgent": Some{Priority{Board.Urgent{}}}
+        case _: None{}
+
+def choice_behavior(kind: UI.ChoiceKind, area: Area, selected: Bool) -> Behavior:
+  match kind area:
+    case UI.SingleChoice{} MenuArea{}: Radio{selected}
+    case UI.SingleChoice{} _: ChoiceRadio{selected}
+    case UI.MultipleChoice{} MenuArea{}: MenuCheckbox{selected}
+    case UI.MultipleChoice{} _: ChoiceCheckbox{selected}
+
+def choice_action(kind: UI.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
   match value:
     case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
-      +actual_face: Face = ChoiceFace{name, description, selected}
-      Action{input, availability, name, actual_face, ChoiceRadio{selected}, geometry_for(purpose, actual_face, area), placement, help, feedback}
+      +actual_face: Face = ChoiceFace{name, description, icon, selected}
+      Action{input, availability, name, actual_face, choice_behavior(kind, area, selected), geometry_for(purpose, actual_face, area), placement, help, feedback}
     case other: other
 
-def make_choice(+key: String, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
+def make_choice(+key: String, kind: UI.ChoiceKind, icon: Maybe<&2, String>, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
   label: String, role: UI.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-  choice_action(selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
+  choice_action(kind, classification_icon(icon), selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
 
 type ChoiceContentLayout is Data:
   ChoiceContentLayout{text_gap: Nat, mark_extent: Nat, mark_icon_extent: Nat}
@@ -904,18 +940,18 @@ type ProjectControl is Data:
 
 def project_control_input(input: Core.Input) -> ProjectControl:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{project}}}}: ProjectDisclosure{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.SelectProject{project}}}}: ProjectName{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.BeginTask{project}}}}: ProjectCreate{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{User.ProjectSubject{project}}, trigger}}}}: ProjectMore{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{project}}}}: ProjectDisclosure{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{project}}}}: ProjectName{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{project}}}}: ProjectCreate{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{project}}, trigger}}}}: ProjectMore{}
     case _: ProjectOther{}
 
 def project_control_matches(input: Core.Input, project: Nat) -> Bool:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{id}}}}: Nat.is_eq(id, project)
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.SelectProject{Some{id}}}}}: Nat.is_eq(id, project)
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.BeginTask{Some{id}}}}}: Nat.is_eq(id, project)
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{User.ProjectSubject{id}}, trigger}}}}: Nat.is_eq(id, project)
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{id}}}}: Nat.is_eq(id, project)
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{Some{id}}}}}: Nat.is_eq(id, project)
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{Some{id}}}}}: Nat.is_eq(id, project)
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{id}}, trigger}}}}: Nat.is_eq(id, project)
     case _: False{}
 
 def disclosure_glyph(expanded: Bool) -> Icon:
@@ -953,13 +989,13 @@ def project_presentation(matches: Bool, +kind: ProjectControl, +expanded: Bool, 
 
 def task_presentation(input: Core.Input, task: Nat, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.Navigate{User.Conversation{id}}}}}:
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Conversation{id}}}}}:
       project_presentation(Nat.is_eq(id, task), ProjectName{}, False{}, name, face, behavior, geometry)
     case _: ActionPresentation{face, behavior, geometry}
 
 def chooser_presentation(input: Core.Input, +name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}: ActionPresentation{PickerFace{Some{Folder{}}, name}, behavior, geometry}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: ActionPresentation{PickerFace{Some{Folder{}}, name}, behavior, geometry}
     case _: ActionPresentation{face, behavior, geometry}
 
 def contextual_source_presentation(area: Area, source_family: SourceFamily, +input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
@@ -972,12 +1008,12 @@ def contextual_source_presentation(area: Area, source_family: SourceFamily, +inp
 
 def uses_source_presentation(input: Core.Input) -> Bool:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{project}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.SelectProject{project}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.BeginTask{project}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{User.ProjectSubject{project}}, trigger}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.Navigate{User.Conversation{task}}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}: True{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{project}}}}: True{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{project}}}}: True{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{project}}}}: True{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{project}}, trigger}}}}: True{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Conversation{task}}}}}: True{}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: True{}
     case _: False{}
 
 def dispatch_source_presentation(enabled: Bool, area: Area, source_family: SourceFamily, input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
@@ -1010,18 +1046,18 @@ def same_disclosure_state(first: Bool, second: Bool) -> Bool:
 def summary_declaration(children: +List<UI.Node>, task: Nat, group: Nat, occurrence: Nat, expanded: Bool, caption: String) -> SourceContent:
   match children:
     case Con{UI.Node{key, semantic, label, role,
-      UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
+      UI.Activate{Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
       summary_target(Nat.is_eq(task, actual_task) && (Nat.is_eq(group, actual_group) &&
         (Nat.is_eq(occurrence, actual_occurrence) && same_disclosure_state(expanded, actual_expanded))), caption)
     case _: OrdinaryContent{}
 
 def source_content_input(input: Core.Input, area: Area, family: SourceFamily, face: Face) -> SourceContent:
   match input area family face:
-    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.CardDetails{target}, trigger}}}}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.CardDetails{target}, trigger}}}}
       CardArea{} SourceFamily{UI.Node{key, semantic, label, role,
       UI.MovableCard{destinations, View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
         title_target(Nat.is_eq(id, target), title)
-    case Core.ApplicationInput{Experience.UserInput{User.SetDisclosure{task, group, occurrence, requested}}}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{task, group, occurrence, requested}}}
       ActivityArea{} SourceFamily{UI.Node{key, semantic, label, UI.Activity{}, UI.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
         summary_declaration(children, task, group, occurrence, requested, label)
     case _ _ _ _: OrdinaryContent{}
@@ -1080,7 +1116,7 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
     case UI.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
-    case UI.Choice{selected, description, input, availability}: make_choice(key, selected, description, input, availability, label, role, context)
+    case UI.Choice{kind, icon, selected, description, input, availability}: make_choice(key, kind, icon, selected, description, input, availability, label, role, context)
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
     case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
     case UI.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))

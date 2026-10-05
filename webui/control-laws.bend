@@ -33,7 +33,7 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
     case UI.ContextSummary{observation}: UI.Region{}
     case UI.ChoiceGroup{}: UI.Region{}
     case UI.ComposerAction{subject, input, availability}: UI.Activate{input, availability}
-    case UI.Choice{selected, description, input, availability}: UI.Activate{input, availability}
+    case UI.Choice{kind, icon, selected, description, input, availability}: UI.Activate{input, availability}
     case UI.BoardLane{stage, count}: UI.Region{}
     case UI.CardArchive{count}: UI.Region{}
     case UI.BoardGroup{grouping}: UI.Region{}
@@ -105,7 +105,7 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
     case Controls.SingleLineFace{text}: Some{text}
     case Controls.IconTextFace{icon, text}: Some{text}
     case Controls.PickerFace{icon, text}: Some{text}
-    case Controls.ChoiceFace{text, description, checked}: Some{text}
+    case Controls.ChoiceFace{text, description, icon, checked}: Some{text}
     case Controls.DisclosureFace{text, expanded}: Some{text}
     case Controls.PermissionFace{filesystem, network, approval}: None{}
 
@@ -202,7 +202,7 @@ type Requirements is Type:
       {Controls.geometry_for(Controls.CopyCode{state}, Controls.face_for(Controls.CopyCode{state}, "Copy code", Controls.CodeArea{}), Controls.CodeArea{}) ==
         Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n} : Controls.Geometry},
     radio_reserves_check: @label:String -> @checked:Bool ->
-      {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, None{}, checked}, Controls.MenuArea{}) ==
+      {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, None{}, None{}, checked}, Controls.MenuArea{}) ==
         Controls.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : Controls.Geometry},
     model_option_marks_current: @+key:String -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
       @+current:String -> @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> ->
@@ -210,14 +210,14 @@ type Requirements is Type:
       {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
           User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
           Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
-          Some{Choice{Controls.ChoiceFace{label, None{}, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
+          Some{Choice{Controls.ChoiceFace{label, None{}, None{}, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
     delivery_option_marks_current: @+key:String -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
           User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
           Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
-          Some{Choice{Controls.ChoiceFace{label, None{}, Controls.same_delivery(delivery, current)},
+          Some{Choice{Controls.ChoiceFace{label, None{}, None{}, Controls.same_delivery(delivery, current)},
             Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
     approval_keeps_label: @key:String -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
       @availability:View.Availability -> @+label:String -> @role:UI.Role -> @selection:Controls.Selection ->
