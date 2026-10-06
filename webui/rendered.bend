@@ -167,7 +167,7 @@ def nodes(entries: +List<UI.Node>, +inherited: Bool, +elements: +List<Element>, 
 def tab_stop(found: Maybe<&2, Element>) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: enabled && tab
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: enabled && tab && (visible || scroll)
 
 def tab_entry(included: Bool, key: String, rest: +List<String>) -> +List<String>:
   match included:

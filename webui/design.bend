@@ -25,28 +25,17 @@ type Environment is Data:
   Environment{viewport: Viewport, system_dark: Bool, root_font_size_milli: Nat}
 
 type MainStructure is Data:
-  CreationStructure{}
-  ConversationStructure{}
-  OverviewStructure{organization: Composition.Body}
-  BoardStructure{}
-  UnavailableStructure{}
+  MainStructure{measure: Composition.Measure, organization: Composition.Body}
 
 def main_structure(recipe: Composition.Recipe) -> MainStructure:
   Composition.Recipe{measure, heading, body, composer, decisions, latest} = recipe
-  match body:
-    case Composition.CenteredCreation{}: CreationStructure{}
-    case Composition.ChronologicalReading{}: ConversationStructure{}
-    case Composition.ProjectSections{}: OverviewStructure{Composition.ProjectSections{}}
-    case Composition.ProjectRows{}: OverviewStructure{Composition.ProjectRows{}}
-    case Composition.AgentRows{}: OverviewStructure{Composition.AgentRows{}}
-    case Composition.StageColumns{}: BoardStructure{}
-    case Composition.UnavailableNotice{}: UnavailableStructure{}
+  MainStructure{measure, body}
 
 type LayoutParameters is Data:
   LayoutParameters{navigation_width: Nat, main_minimum_width: Nat, details_width: Nat,
     reading_maximum_width: Nat, overview_maximum_width: Nat, toolbar_height: Nat,
     input_minimum_height: Nat, input_maximum_height: Nat, input_line_height: Nat,
-    creation_balanced_minimum_height: Nat}
+    creation_balanced_minimum_height: Nat, lane_minimum_width: Nat}
 
 type NodePlacement is Data:
   NodePlacement{key: String, bounds: SpatialModel.Box}
@@ -102,23 +91,23 @@ def semantic_surface(surface: Surface) -> UI.Surface:
   UI.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
 
 def navigation_width(value: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
   navigation
 
 def main_minimum_width(value: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = value
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
   main
 
 def reading_maximum_width(+parameters: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = parameters
   reading
 
 def overview_maximum_width(+parameters: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = parameters
   overview
 
 def input_maximum_height(+parameters: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = parameters
   maximum
 
 def style_text(style: Style) -> T.Presentation:
@@ -135,22 +124,30 @@ def style_frame(value: Style) -> Enclosure.Frame:
 
 def parameter_values(values: Maybe<&2, +List<Nat>>) -> Maybe<&2, LayoutParameters>:
   match values:
-    case Some{Con{navigation, Con{main, Con{details, Con{reading, Con{overview, Con{toolbar, Con{minimum, Con{maximum, Con{leading, Con{creation, Nil{}}}}}}}}}}}}:
-      Some{LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation}}
+    case Some{Con{navigation, Con{main, Con{details, Con{reading, Con{overview, Con{toolbar, Con{minimum, Con{maximum, Con{leading, Con{creation, Con{lane, Nil{}}}}}}}}}}}}}:
+      Some{LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane}}
     case _: None{}
 
-def parameters(+scale: T.Scale, body: T.Metric) -> Maybe<&2, LayoutParameters>:
-  T.Metric{key, minimum, preferred, height, +advance} = body
-  +leading: NaturalSize.Calculation = NaturalSize.Maximum{NaturalSize.Value{T.resolved_line_height(T.resolve(NaturalSize.limit(), T.Body{}, T.Regular{}, scale))}, NaturalSize.Value{height}}
+def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> +List<NaturalSize.Calculation>:
+  +leading: NaturalSize.Calculation = NaturalSize.Maximum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Body{}, T.Regular{}, scale))}, NaturalSize.Value{height}}
   +toolbar: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(46n, scale), NaturalSize.Sum{leading, T.scaling_calculation(26n, scale)}}
   +input_minimum: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(44n, scale), NaturalSize.Sum{leading, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(12n, scale)}}}
   balanced: NaturalSize.Calculation = NaturalSize.Sum{toolbar, NaturalSize.Product{NaturalSize.Value{2n},
-    NaturalSize.Sum{NaturalSize.Value{T.resolved_line_height(T.resolve(NaturalSize.limit(), T.Display{}, T.Regular{}, scale))},
+    NaturalSize.Sum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Display{}, T.Regular{}, scale))},
       NaturalSize.Sum{input_minimum, NaturalSize.Sum{T.scaling_calculation(32n, scale), NaturalSize.Product{NaturalSize.Value{3n}, T.scaling_calculation(16n, scale)}}}}}}
-  parameter_values(NaturalSize.evaluate_all(NaturalSize.limit(), [
+  [
     T.scaling_calculation(275n, scale),
     NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{64n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}},
     T.scaling_calculation(360n, scale),
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
-    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced]))
+    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}}]
+
+
+def parameters(+capacity: Nat, scale: T.Scale, body: T.Metric) -> Maybe<&2, LayoutParameters>:
+  T.Metric{key, minimum, preferred, height, advance} = body
+  parameter_values(NaturalSize.evaluate_all(capacity, parameter_calculations(capacity, scale, height, advance)))
+
+def lane_minimum_width(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
+  lane

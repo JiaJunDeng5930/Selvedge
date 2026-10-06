@@ -24,8 +24,32 @@ def percentage_conflict(+extent: Maybe<&2, Nat>, +minimum: Nat) -> Bool:
     case None{}: True{}
     case Some{cap}: Bool.not(Nat.is_le(minimum, cap))
 
+def capped_stretch_dimension(+minimum: Nat, maximum: Nat) -> Space.Dimension:
+  Space.Fit{minimum, Nat.sub(maximum, minimum), 0n}
+
+def rejected(result: Maybe<&2, Space.Dimension>) -> Bool:
+  match result:
+    case None{}: True{}
+    case Some{dimension}: False{}
+
+def allocated_width(result: Maybe<&2, Space.Dimension>, room: Nat) -> Maybe<&2, Nat>:
+  match result:
+    case None{}: None{}
+    case Some{dimension}: Some{Space.choose(dimension, room)}
+
 type Requirements<-A: Data, -E: Data> is Type:
   Requirements{
+    capped_stretch_accepted: @+minimum:Nat -> @preferred:Nat -> @offered:Nat -> @+maximum:Nat ->
+      @fits:{Nat.is_le(minimum, maximum) == True{} : Bool} ->
+      {Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered) == Some{capped_stretch_dimension(minimum, maximum)} : Maybe<&2, Space.Dimension>},
+    capped_stretch_rejected: @+minimum:Nat -> @preferred:Nat -> @offered:Nat -> @+maximum:Nat ->
+      {rejected(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered)) == Bool.not(Nat.is_le(minimum, maximum)) : Bool},
+    capped_stretch_width: @+minimum:Nat -> @preferred:Nat -> @offered:Nat -> @+maximum:Nat -> @+room:Nat ->
+      @+fits:{Nat.is_le(minimum, maximum) == True{} : Bool} -> @room_fits:{Nat.is_le(minimum, room) == True{} : Bool} ->
+      {allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room) == Some{Nat.min(room, maximum)} : Maybe<&2, Nat>},
+    capped_stretch_attained: @+minimum:Nat -> @preferred:Nat -> @offered:Nat -> @+maximum:Nat -> @+room:Nat ->
+      @+fits:{Nat.is_le(minimum, maximum) == True{} : Bool} -> @+room_fits:{Nat.is_le(maximum, room) == True{} : Bool} ->
+      {allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room) == Some{maximum} : Maybe<&2, Nat>},
     preferred_floor: @+tree:Model.Tree<A, E> ->
       {preferred_covers_minimum(Model.demand(~A, ~E, tree)) == True{} : Bool},
     children_participate: @+trees:+List<Model.Tree<A, E>> -> @+direction:Model.Direction -> @+gap:Nat ->

@@ -272,8 +272,66 @@ def capped_conflict(+minimum: Nat, +preferred: Nat, +offered: Nat, +maximum_perc
   {Model.materialize(Model.CappedNaturalSize{maximum_percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
   capped_extent_conflict(Model.percentage_extent(offered, maximum_percent), minimum, preferred, conflict)
 
+def capped_stretch_accepted(+minimum: Nat, preferred: Nat, offered: Nat, +maximum: Nat,
+  fits: {Nat.is_le(minimum, maximum) == True{} : Bool}) ->
+  {Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered) == Some{ModelRules.capped_stretch_dimension(minimum, maximum)} : Maybe<&2, Space.Dimension>}:
+  Equal.cong(Bool, Maybe<&2, Space.Dimension>, (valid => Model.accept_dimension(valid, ModelRules.capped_stretch_dimension(minimum, maximum))), Nat.is_le(minimum, maximum), True{}, fits)
+
+def capped_stretch_rejected_checked(+fits: Bool, dimension: Space.Dimension) ->
+  {ModelRules.rejected(Model.accept_dimension(fits, dimension)) == Bool.not(fits) : Bool}:
+  match fits:
+    case False{}: {==}
+    case True{}: {==}
+
+def capped_stretch_rejected(+minimum: Nat, preferred: Nat, offered: Nat, +maximum: Nat) ->
+  {ModelRules.rejected(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered)) == Bool.not(Nat.is_le(minimum, maximum)) : Bool}:
+  capped_stretch_rejected_checked(Nat.is_le(minimum, maximum), ModelRules.capped_stretch_dimension(minimum, maximum))
+
+def capped_stretch_balance(+minimum: Nat, +maximum: Nat,
+  fits: {Nat.is_le(minimum, maximum) == True{} : Bool}) ->
+  {Nat.add(minimum, Nat.sub(maximum, minimum)) == maximum : Nat}:
+  lower_fits = Equal.trans(Bool, Nat.is_le(Nat.add(minimum, 0n), maximum), Nat.is_le(minimum, maximum), True{},
+    Equal.cong(Nat, Bool, (n => Nat.is_le(n, maximum)), Nat.add(minimum, 0n), minimum, Alg.nat_add_zero(minimum)), fits)
+  Order.second({Nat.is_le(0n, Nat.sub(maximum, minimum)) == True{} : Bool},
+    {Nat.add(minimum, Nat.sub(maximum, minimum)) == maximum : Nat}, Order.residual(minimum, 0n, maximum, lower_fits))
+
+# The base library defines minimum but exports no commutation or selection law.
+def minimum_commutes(+left: Nat, +right: Nat) -> {Nat.min(left, right) == Nat.min(right, left) : Nat}:
+  match left right:
+    case 0n 0n: {==}
+    case 0n 1n+b: {==}
+    case 1n+a 0n: {==}
+    case 1n+a 1n+b: Equal.cong(Nat, Nat, (n => 1n+n), Nat.min(a, b), Nat.min(b, a), minimum_commutes(a, b))
+
+def minimum_attained(+maximum: Nat, +room: Nat,
+  fits: {Nat.is_le(maximum, room) == True{} : Bool}) -> {Nat.min(maximum, room) == maximum : Nat}:
+  match maximum room:
+    case 0n _: {==}
+    case 1n+a 0n: Logic.impossible({Nat.min(1n+a, 0n) == 1n+a : Nat}, fits)
+    case 1n+a 1n+b: Equal.cong(Nat, Nat, (n => 1n+n), Nat.min(a, b), a, minimum_attained(a, b, fits))
+
+def capped_stretch_width(+minimum: Nat, preferred: Nat, offered: Nat, +maximum: Nat, +room: Nat,
+  +fits: {Nat.is_le(minimum, maximum) == True{} : Bool}, room_fits: {Nat.is_le(minimum, room) == True{} : Bool}) ->
+  {ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room) == Some{Nat.min(room, maximum)} : Maybe<&2, Nat>}:
+  accepted = Equal.cong(Maybe<&2, Space.Dimension>, Maybe<&2, Nat>, (result => ModelRules.allocated_width(result, room)),
+    Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), Some{ModelRules.capped_stretch_dimension(minimum, maximum)}, capped_stretch_accepted(minimum, preferred, offered, maximum, fits))
+  bounded = Equal.cong(Nat, Maybe<&2, Nat>, (cap => Some{Nat.min(cap, room)}), Nat.add(minimum, Nat.sub(maximum, minimum)), maximum, capped_stretch_balance(minimum, maximum, fits))
+  Equal.trans(Maybe<&2, Nat>, ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room),
+    Some{Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, Some{Nat.min(room, maximum)}, accepted,
+    Equal.trans(Maybe<&2, Nat>, Some{Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, Some{Nat.min(maximum, room)}, Some{Nat.min(room, maximum)}, bounded,
+      Equal.cong(Nat, Maybe<&2, Nat>, (n => Some{n}), Nat.min(maximum, room), Nat.min(room, maximum), minimum_commutes(maximum, room))))
+
+def capped_stretch_attained(+minimum: Nat, preferred: Nat, offered: Nat, +maximum: Nat, +room: Nat,
+  +fits: {Nat.is_le(minimum, maximum) == True{} : Bool}, +room_fits: {Nat.is_le(maximum, room) == True{} : Bool}) ->
+  {ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room) == Some{maximum} : Maybe<&2, Nat>}:
+  Equal.trans(Maybe<&2, Nat>, ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room), Some{Nat.min(room, maximum)}, Some{maximum},
+    capped_stretch_width(minimum, preferred, offered, maximum, room, fits, Order.le_trans(minimum, maximum, room, fits, room_fits)),
+    Equal.cong(Nat, Maybe<&2, Nat>, (n => Some{n}), Nat.min(room, maximum), maximum,
+      Equal.trans(Nat, Nat.min(room, maximum), Nat.min(maximum, room), maximum, minimum_commutes(room, maximum), minimum_attained(maximum, room, room_fits))))
+
 def ModelRules.evidence(A, E):
   ModelRules.Requirements{
+    capped_stretch_accepted, capped_stretch_rejected, capped_stretch_width, capped_stretch_attained,
     (tree => preferred_content(~A, ~E, tree <> Nil{}, Model.Horizontal{}, 0n)),
     (trees => direction => gap => children_content(~A, ~E, trees, direction, gap)),
     (content => rule => first => remaining => enabled => operable(~E, content, rule, first, remaining, enabled)),

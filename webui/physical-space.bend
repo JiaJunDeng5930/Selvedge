@@ -6,6 +6,7 @@ import ./enclosure.bend as Enclosure
 type AxisSize is Data:
   NaturalSize{}
   StretchSize{}
+  CappedStretchSize{maximum: Nat}
   ExactSize{extent: Nat}
   LimitedSize{minimum: Nat, preferred_extra: Nat, maximum_extra: Nat}
   PercentSize{percent: Nat}
@@ -204,6 +205,7 @@ def materialize(+size: AxisSize, +minimum: Nat, +preferred: Nat, offered: Nat) -
   match size:
     case NaturalSize{}: Some{Space.Fit{minimum, Nat.sub(Nat.max(minimum, preferred), minimum), 0n}}
     case StretchSize{}: Some{Space.Fill{minimum}}
+    case CappedStretchSize{maximum}: accept_dimension(Nat.is_le(minimum, maximum), Space.Fit{minimum, Nat.sub(maximum, minimum), 0n})
     case ExactSize{+extent}: accept_dimension(Nat.is_le(minimum, extent), Space.Rigid{extent})
     case LimitedSize{+authored_minimum, +preferred_extra, maximum_extra}:
       +maximum = Nat.add(Nat.add(authored_minimum, preferred_extra), maximum_extra)

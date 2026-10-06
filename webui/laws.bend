@@ -19,6 +19,8 @@ import ./interaction.bend as Physical
 import ./platform.bend as Platform
 import ./reading.bend as Reading
 import ./rendered.bend as Rendered
+import ./paint-rules.bend as PaintRules
+import ./physical-renderer-rules.bend as RendererRules
 
 
 def model_core(application: Platform.State) -> Core.State:
@@ -124,7 +126,9 @@ def decision_capacity(decision: Platform.Decision) -> View.Capacity:
   platform_capacity(platform)
 
 type Requirements is Type:
-  Requirements{reflow_same: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
+  Requirements{paint: PaintRules.Requirements,
+    physical_renderer: RendererRules.Requirements,
+    reflow_same: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
       @same:{Platform.same_capacity(decision_capacity(decision), capacity) == True{} : Bool} ->
       {Platform.reflow_capacity(decision, capacity) == decision : Platform.Decision},
     stale_typography: @+application: Platform.State -> @+generation: Nat -> @+realization: Rendered.State -> @+environment: Design.Environment -> @+font: F.State -> @+received: Nat -> @+metrics: +List<T.Metric> -> @stale: {Nat.is_eq(F.generation(font), received) == False{} : Bool} -> {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, Model.State{application, generation, realization, environment, font}) ==

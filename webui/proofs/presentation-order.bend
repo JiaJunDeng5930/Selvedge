@@ -1,3 +1,5 @@
+import ../../bendlib/proofs/logic.bend as Logic
+import ../../core/ui-identity.bend as UIIdentity
 import Base
 import ../../bendlib/proofs/algebra.bend as Alg
 import ../presentation-order-laws.bend as Rule
@@ -587,3 +589,64 @@ def Rule.evidence():
     value => children => node_with_children_preserves_payload(value, children),
     surface => ordered_surface_preserves_content_scope(surface),
     environment => +application => generation => realization => font => {==}}
+
+def Rule.base_classifier(key, role): {==}
+
+def Rule.navigation_role(key): {==}
+
+def Rule.navigation_precedence(key, role): {==}
+
+def Rule.remaining_region(key, role): {==}
+
+def Rule.main_precedence(key): {==}
+
+def Rule.footer_region(): {==}
+
+def Rule.other_region(): {==}
+
+def Rule.base_partition_navigation(node, navigation, footer, main, other): {==}
+
+def Rule.base_partition_footer(node, navigation, footer, main, other): {==}
+
+def Rule.base_partition_main(node, navigation, footer, main, other): {==}
+
+def Rule.base_partition_other(node, navigation, footer, main, other): {==}
+
+def Rule.base_partition_empty(): {==}
+
+def Rule.base_partition_step(key, semantic, label, role, meaning, children, rest): {==}
+
+def Rule.base_region_order(navigation, footer, main, other): {==}
+
+def Rule.ordered_base_partition(values): {==}
+
+def Rule.ordered_surface_base(content, base, overlays, scope): {==}
+
+def Rule.remaining_role_classification(key, role, belongs):
+  match role:
+    case UI.Navigation{}: {==}
+    case UI.NavigationHeader{}: {==}
+    case UI.Main{}: Logic.impossible({Order.base_region_role(key, UI.Main{}) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}, belongs)
+    case UI.Heading{}: {==}
+    case UI.PrimaryButton{}: {==}
+    case UI.DestructiveButton{}: {==}
+    case UI.SelectedButton{}: {==}
+    case UI.ComposerActions{}: {==}
+    case UI.Timeline{}: {==}
+    case UI.Activity{}: {==}
+    case UI.UserMessage{}: {==}
+    case UI.AssistantMessage{}: {==}
+    case UI.Composer{}: {==}
+    case UI.Approval{}: {==}
+    case UI.Toolbar{}: {==}
+    case UI.CodeBlock{}: {==}
+    case UI.ApprovalQueue{}: {==}
+    case UI.Section{}: {==}
+    case UI.Dialog{}: {==}
+    case UI.Menu{}: {==}
+    case UI.Details{}: {==}
+    case UI.Card{}: {==}
+    case UI.Button{}: {==}
+    case UI.Field{}: {==}
+    case UI.Content{}: {==}
+    case UI.Alert{}: {==}

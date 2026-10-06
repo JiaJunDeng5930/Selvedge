@@ -10,6 +10,9 @@ import ./design.bend as Design
 import ./surfaces.bend as Surfaces
 import ./appearance.bend as Appearance
 import ./controls.bend as Controls
+import ../core/user-input.bend as U
+import ../core/form-fields.bend as Forms
+import ../BOARD.bend as Board
 
 def configured_appearance(surface: UI.Surface) -> Services.Appearance:
   UI.Surface{content, base, overlays, active_scope} = surface
@@ -39,6 +42,21 @@ def first_text(values: +List<Design.Node>) -> Maybe<&2, T.Presentation>:
     case Nil{}: None{}
     case Con{Design.Node{key, semantic, label, role, meaning, style, representation, children}, rest}: Some{Design.style_text(style)}
 
+def primary_heading_tier(in_main: Bool) -> T.Tier:
+  match in_main:
+    case True{}: T.Title{}
+    case False{}: T.Section{}
+
+def heading_tier(in_main: Bool, start: Bool) -> T.Tier:
+  match in_main start:
+    case True{} True{}: T.Display{}
+    case True{} False{}: T.Title{}
+    case False{} _: T.Section{}
+
+def lane_output(value: Design.Style) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, Design.SurfacePaint{Surfaces.Lane{Surfaces.Neutral{}}, Surfaces.Rest{}}, border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{Enclosure.Inset{Enclosure.Lane{}}, arrangement}, minimum, maximum, states}
+
 type Requirements is Type:
   Requirements{
     action_geometry_minimum: @+value:Design.Style -> @+face:Controls.Face -> @+geometry:Controls.Geometry ->
@@ -52,10 +70,22 @@ type Requirements is Type:
         Some{Design.style_text(Appearance.prepared_style(key,semantic,role,meaning,Controls.enter(UI.Node{key,semantic,label,role,meaning,Nil{}},context),
           Controls.represent(key,meaning,label,role,Controls.enter(UI.Node{key,semantic,label,role,meaning,Nil{}},context)),
           Appearance.information_role(role,meaning,inherited,Appearance.enters_main(role,in_main),start)))} : Maybe<&2,T.Presentation>},
+    multiline_field_role: @editor:U.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
+      {Appearance.information_role(UI.Field{}, UI.Edit{editor, field, Forms.Multiline{}, value, choices}, inherited, in_main, start) == T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
+    code_surface_role: @text:String -> @inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
+      {Appearance.information_role(UI.CodeBlock{}, UI.ReadOnly{text}, inherited, in_main, start) == T.Presentation{T.CodeBody{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
     start_heading_role: @inherited:T.Presentation -> @text:String ->
       {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,True{},True{}) == T.Presentation{T.Display{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
     regular_heading_role: @inherited:T.Presentation -> @text:String -> @in_main:Bool ->
-      {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+      {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+    heading_tier_total: @in_main:Bool -> @start:Bool ->
+      {Appearance.heading_tier(in_main,start) == heading_tier(in_main,start) : T.Tier},
+    secondary_heading_role: @inherited:T.Presentation -> @text:String -> @start:Bool ->
+      {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+    lane_style_output: @value:Design.Style ->
+      {Appearance.lane_style(value) == lane_output(value) : Design.Style},
+    board_lane_production: @key:UIIdentity.Key -> @stage:Board.Stage -> @count:Nat -> @context:Controls.Context -> @representation:Controls.Representation -> @value:Design.Style -> @typography:T.Presentation ->
+      {Appearance.final_style(key,UI.BoardLane{stage,count},context,representation,value,typography) == lane_output(value) : Design.Style},
     content_inherits: @inherited:T.Presentation -> @text:String -> @in_main:Bool -> @start:Bool ->
       {Appearance.information_role(UI.Content{},UI.ReadOnly{text},inherited,in_main,start) == inherited : T.Presentation},
     nodes_preserve_semantics: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @values:+List<UI.Node> -> @context:Controls.Context ->

@@ -8,6 +8,10 @@ import ./render.bend as RenderProof
 import ../model-rules.bend as Rule
 import ../platform.bend as Platform
 
+def Rule.resolved_scope_focus(ticket, previous, current, surface): {==}
+
+def Rule.platform_scope_focus(ticket, previous, current, rest, surface): {==}
+
 def Rule.production_commit_preserves_product(decision, generation, environment, font):
   match decision:
     case Platform.Decision{product, platform, effects}: {==}

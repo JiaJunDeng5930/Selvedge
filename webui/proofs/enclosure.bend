@@ -28,6 +28,7 @@ def positive(+profile: E.Profile) ->
     case E.CodeBlock{}: {==}
     case E.Lane{}: {==}
     case E.ArchiveGroup{}: {==}
+    case E.PageContent{}: {==}
 
 def action_insets(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat, content_height: Nat) ->
   {Rule.area(A.action_style_insets(value, geometry, space, gap, content_height)) == space : E.ContentArea}:
@@ -61,8 +62,10 @@ def state_allocation(+value: D.Style, +space: E.ContentArea) ->
   E.Frame{old_area, old_arrangement} = content_frame
   {==}
 
+def page_content() -> Rule.page_content(): {==}
+
 def Rule.evidence():
-  Rule.Requirements{positive, +width => +height => +border => +space => {==}, +width => +height => +profile => {==}, action_insets, layout_copied, +value => +face => +geometry =>
+  Rule.Requirements{page_content(), positive, +width => +height => +border => +space => {==}, +width => +height => +profile => {==}, action_insets, layout_copied, +value => +face => +geometry =>
       Equal.trans(E.ContentArea, Rule.area(A.action_style(value, face, geometry)),
         Rule.area(A.action_content_style(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, D.style_text(value), geometry))), C.layout_content_area(C.content_layout(face)),
         flow_preserves_area(A.action_content_style(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, D.style_text(value), geometry)), A.action_flow(face, C.content_layout(face))),

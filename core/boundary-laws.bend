@@ -10,6 +10,8 @@ import ./code-block.bend as Code
 import ./live-output.bend as Live
 import ./user-context.bend as Context
 import ./user-input.bend as U
+import ./SYSTEM.bend as Core
+import ./user-experience.bend as E
 
 type SettingsFields is Data:
   SettingsFields{workspace: J.Json, guidance: J.Json, project_id: J.Json,
@@ -29,6 +31,24 @@ def settings_observations_law(-config: Context.Configuration, -workspace: D.Work
 
 type Requirements is Type:
   Requirements{
+    accepted_auth: @+access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @ticket:Nat ->
+      @owned:{Services.expected_access(access, ticket) == True{} : Bool} ->
+      {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}) ==
+        Services.Decision{Services.State{Services.Connected{}, "", False{}, appearance, next, transfers, preview, picker}, [Services.SessionReady{}]} : Services.Decision},
+    failed_auth: @access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @reason:String ->
+      {Services.authentication(True{}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Fail{reason}) ==
+        Services.Decision{Services.State{Services.CredentialRejected{reason}, "", True{}, appearance, next, transfers, preview, picker}, Nil{}} : Services.Decision},
+    unowned_auth: @+state:Services.State -> @result:Result<&2, &2, String, Unit> ->
+      {Services.authentication(False{}, state, result) == Services.Decision{state, Nil{}} : Services.Decision},
+    readiness_attention: @access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @+application:E.Application ->
+      {Core.service_result(Services.authentication(True{}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}), application) ==
+        Core.Decision{Core.State{application, Services.State{Services.Connected{}, "", False{}, appearance, next, transfers, preview, picker}}, D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : Core.Decision},
+    failed_auth_no_attention: @access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @reason:String -> @application:E.Application ->
+      {Core.service_result(Services.authentication(True{}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Fail{reason}), application) ==
+        Core.application_result_with_services(E.unchanged(application), Services.State{Services.CredentialRejected{reason}, "", True{}, appearance, next, transfers, preview, picker}, Nil{}) : Core.Decision},
+    unowned_auth_no_attention: @state:Services.State -> @result:Result<&2, &2, String, Unit> -> @application:E.Application ->
+      {Core.service_result(Services.authentication(False{}, state, result), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : Core.Decision},
+    readiness_is_internal: {Core.external_effect(Services.SessionReady{}) == False{} : Bool},
     stale_auth: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
       @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
       @preview:Services.Preview -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->

@@ -23,6 +23,13 @@ def intro_chooser(value: View.CreationIntroduction) -> View.ControlDeclaration:
   View.CreationIntroduction{heading, summary, context, project, chooser} = value
   chooser
 
+def picker_nodes(+values: +List<View.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: Core.State) -> Type:
+  {Interface.project_choice_nodes(values, selected, parent, state) ==
+    [Interface.Node{Identity.Part{parent, "choices"}, "project/choices", "Projects", Interface.Section{}, Interface.ChoiceGroup{},
+      Interface.project_picker_choice(View.control("project/select/none", "No project", U.SelectProject{None{}}), View.same_project(selected, None{}), "Use environment defaults", parent, state) <>
+        Interface.project_registered_choices(values, selected, parent, state)},
+     Interface.declared(parent, View.control("project/create", "New project", U.EditProject{None{}}), state)] : +List<Interface.Node>}
+
 type Requirements is Type:
   Requirements{
     switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() ->
@@ -73,11 +80,7 @@ type Requirements is Type:
       {E.project_collapsed(E.toggle_project_navigation(id, E.NavigationState{intent, List.append(&2, Nat, prefix, other <> suffix)}), other) == True{} : Bool},
     toggle_preserves_visibility: @+id:Nat -> @+intent:E.NavigationIntent -> @collapsed:+List<Nat> ->
       {E.navigation_visibility(E.toggle_project_navigation(id, E.NavigationState{intent, collapsed})) == intent : E.NavigationIntent},
-    picker_complete_nodes: @+values:+List<View.ProjectChoice> -> @+selected:Maybe<&2, Nat> -> @+parent: Identity.Key -> @+state:Core.State ->
-      {Interface.project_choice_nodes(values, selected, parent, state) ==
-        Interface.project_picker_choice(View.control("project/select/none", "No project", U.SelectProject{None{}}), View.same_project(selected, None{}), "Use environment defaults", parent, state) <>
-          List.append(&2, Interface.Node, Interface.project_registered_choices(values, selected, parent, state),
-            [Interface.declared(parent, View.control("project/create", "New project", U.EditProject{None{}}), state)]) : +List<Interface.Node>},
+    picker_complete_nodes: @+values:+List<View.ProjectChoice> -> @+selected:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:Core.State -> picker_nodes(values, selected, parent, state),
     chooser_activation: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {intro_chooser(View.creation_introduction_fields(context, world)) ==
         View.ControlDeclaration{"composer/project", View.project_choice_label(View.creation_selected_project(context, world)), View.Secondary{},

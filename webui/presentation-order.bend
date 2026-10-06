@@ -1,6 +1,60 @@
+import ../core/ui-identity.bend as UIIdentity
 import Base
 import ../core/interface.bend as UI
 import ./controls.bend as Controls
+
+type BaseRegion is Data:
+  NavigationRegion{}
+  MainRegion{}
+  NavigationFooterRegion{}
+  OtherRegion{}
+
+type BaseParts is Data:
+  BaseParts{navigation: +List<UI.Node>, footer: +List<UI.Node>, main: +List<UI.Node>, other: +List<UI.Node>}
+
+def is_navigation(+key: UIIdentity.Key, role: UI.Role) -> Bool:
+  match role:
+    case UI.Navigation{}: True{}
+    case _: UIIdentity.same(key, UIIdentity.part(UIIdentity.place("/navigation"), "navigation/toggle"))
+
+def footer_region(found: Bool) -> BaseRegion:
+  match found:
+    case True{}: NavigationFooterRegion{}
+    case False{}: OtherRegion{}
+
+def base_region_role(key: UIIdentity.Key, role: UI.Role) -> BaseRegion:
+  match role:
+    case UI.Main{}: MainRegion{}
+    case _: footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open")))
+
+def base_region_navigation(found: Bool, key: UIIdentity.Key, role: UI.Role) -> BaseRegion:
+  match found:
+    case True{}: NavigationRegion{}
+    case False{}: base_region_role(key, role)
+
+def base_region(+key: UIIdentity.Key, +role: UI.Role) -> BaseRegion:
+  base_region_navigation(is_navigation(key, role), key, role)
+
+def prepend_base(region: BaseRegion, node: UI.Node, parts: BaseParts) -> BaseParts:
+  match region parts:
+    case NavigationRegion{} BaseParts{navigation, footer, main, other}: BaseParts{node <> navigation, footer, main, other}
+    case NavigationFooterRegion{} BaseParts{navigation, footer, main, other}: BaseParts{navigation, node <> footer, main, other}
+    case MainRegion{} BaseParts{navigation, footer, main, other}: BaseParts{navigation, footer, node <> main, other}
+    case OtherRegion{} BaseParts{navigation, footer, main, other}: BaseParts{navigation, footer, main, node <> other}
+
+def partition_base(values: +List<UI.Node>) -> BaseParts:
+  match values:
+    case Nil{}: BaseParts{Nil{}, Nil{}, Nil{}, Nil{}}
+    case Con{+node, rest}:
+      UI.Node{key, semantic, label, role, meaning, children} = node
+      prepend_base(base_region(key, role), node, partition_base(rest))
+
+def flatten_base(parts: BaseParts) -> +List<UI.Node>:
+  BaseParts{navigation, footer, main, other} = parts
+  List.append(&2, UI.Node, navigation, List.append(&2, UI.Node, footer, List.append(&2, UI.Node, main, other)))
+
+def ordered_base(values: +List<UI.Node>) -> +List<UI.Node>:
+  flatten_base(partition_base(values))
 
 type DialogParts is Data:
   DialogParts{header: +List<UI.Node>, body: +List<UI.Node>}
@@ -63,4 +117,4 @@ def ordered_nodes(values: +List<UI.Node>, +context: Controls.Context) -> +List<U
 def ordered_surface(surface: UI.Surface) -> UI.Surface:
   UI.Surface{+content, base, overlays, active_scope} = surface
   +context = Controls.initial(content)
-  UI.Surface{content, ordered_nodes(base, context), ordered_nodes(overlays, context), active_scope}
+  UI.Surface{content, ordered_base(ordered_nodes(base, context)), ordered_nodes(overlays, context), active_scope}

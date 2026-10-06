@@ -32,3 +32,39 @@ def foreground_uses_rest_channel(chrome: Design.Chrome) -> Rule.foreground_chann
 
 def Rule.evidence():
   Rule.Requirements{background_uses_rest_channel, foreground_uses_rest_channel, attributes_consume_control_states, rendered_controls_consume_control_states}
+
+def Rule.keyboard_activation_total(event):
+  match event:
+    case Doc.Activate{key}: {==}
+    case Doc.EditText{key}: {==}
+    case Doc.ConfirmText{key}: {==}
+    case Doc.EditToggle{key}: {==}
+    case Doc.SelectFiles{key}: {==}
+    case Doc.DragCard{key}: {==}
+    case Doc.DropCard{key}: {==}
+    case Doc.PlaceCard{key, target}: {==}
+    case Doc.SelectDestination{key}: {==}
+
+def Rule.keyboard_activation_empty(): {==}
+def Rule.keyboard_activation_cons(first,remaining): {==}
+def Rule.keyboard_control_display_only(): {==}
+def Rule.keyboard_control_operable(first,remaining,enabled): {==}
+
+def Rule.keyboard_attribute_projection(active,interaction,name):
+  match active:
+    case True{}: {==}
+    case False{}: {==}
+
+def Rule.nonnative_attribute_projection(attrs,name,interaction): {==}
+
+def Rule.control_attribute_projection(tag,attrs,name,interaction):
+  match tag:
+    case Source.Button{}: {==}
+    case Source.Summary{}: {==}
+    case Source.ArticleControl{}: {==}
+    case Source.DivControl{}: {==}
+    case Source.SectionControl{}: {==}
+    case Source.SpanControl{}: {==}
+
+def Rule.source_control_interaction(key,tag,style,attrs,name,enabled,first,remaining,children): {==}
+def Rule.rendered_control_projection(capacity,key,tag,style,attrs,name,enabled,first,remaining,original_children,font,interaction,styles,children,native): {==}

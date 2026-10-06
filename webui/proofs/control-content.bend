@@ -23,8 +23,23 @@ def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alig
     case Controls.DisclosureFace{text, expanded} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.PermissionFace{filesystem, network, approval} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
 
+def Rule.picker_caption_single_line(leading,text): {==}
+def Rule.disclosure_caption_single_line(text,expanded): {==}
+
+def Rule.picker_face_caption(key,text,parent,leading,geometry):
+  match leading:
+    case None{}: {==}
+    case Some{icon}: {==}
+
+def Rule.disclosure_face_caption(key,text,parent,expanded,geometry): {==}
+
 def Rule.evidence():
   Rule.Requirements{
+    text => description => icon => checked => {==},
+    {==},
+    text => {==},
+    +key => +text => +parent => description => icon => checked => {==},
+    +key => +text => +parent => {==},
     filesystem => network => approval => {==},
     icon => {==},
     +leading => label => {==},

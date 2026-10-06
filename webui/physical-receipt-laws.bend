@@ -24,15 +24,15 @@ def authored_claim(+source: Source.Node, +index: Nat, +capacity: View.Capacity, 
     Browser.State{legacy, serial, anchors, lifecycle, displayed}, semantic) ==
     Browser.selected(World.plan(World.initial(Content.Snapshot{(serial + 1n : Nat), Browser.feedback_root(source, Browser.pending(legacy), font), font}, viewport)),
       index, capacity, World.initial(Content.Snapshot{(serial + 1n : Nat), Browser.feedback_root(source, Browser.pending(legacy), font), font}, viewport),
-      Browser.State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic) : Browser.Search}
+      Browser.State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n) : Browser.Search}
 
 def measurement_claim(+legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>,
   +index: Nat, +capacity: View.Capacity, +engine: World.Engine,
-  +displayed: Maybe<&2, Browser.Published>, +tokens: +List<String>, +semantic: UI.Surface) -> Type:
-  {Browser.measured_pending(tokens, Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic}, displayed}) ==
+  +displayed: Maybe<&2, Browser.Published>, +tokens: +List<String>, +semantic: UI.Surface, +round: Nat) -> Type:
+  {Browser.measured_pending(tokens, Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic, round}, displayed}) ==
     Browser.receipt_selection(World.receipt_status(World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine)),
       index, capacity, World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine),
-      Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic}, displayed}, semantic) : Browser.Decision}
+      Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic, round}, displayed}, semantic, (round + 1n : Nat)) : Browser.Decision}
 
 type Requirements is Type:
   Requirements{
@@ -43,19 +43,19 @@ type Requirements is Type:
     authored: @+source:Source.Node -> @+index:Nat -> @+capacity:View.Capacity -> @+font:T.Presentation -> @+viewport:Spatial.Box ->
       @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+lifecycle:Browser.Lifecycle ->
       @+displayed:Maybe<&2, Browser.Published> -> @+semantic:UI.Surface -> authored_claim(source, index, capacity, font, viewport, legacy, serial, anchors, lifecycle, displayed, semantic),
-    awaiting: @generation:Nat -> @first:Plan.Job -> @remaining:+List<Plan.Job> -> @index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @state:Browser.State -> @semantic:UI.Surface ->
-      {Browser.selected(Plan.Awaiting{generation, first, remaining}, index, capacity, engine, state, semantic) ==
-        Browser.Stopped{Browser.Decision{Browser.set_lifecycle(state, Browser.Measuring{index, capacity, engine, semantic}), Nil{}}} : Browser.Search},
+    awaiting: @generation:Nat -> @first:Plan.Job -> @remaining:+List<Plan.Job> -> @index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @state:Browser.State -> @semantic:UI.Surface -> @round:Nat ->
+      {Browser.selected(Plan.Awaiting{generation, first, remaining}, index, capacity, engine, state, semantic, round) ==
+        Browser.Stopped{Browser.Decision{Browser.set_lifecycle(state, Browser.Measuring{index, capacity, engine, semantic, round}), Nil{}}} : Browser.Search},
     measured: @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+index:Nat ->
       @+capacity:View.Capacity -> @+engine:World.Engine -> @+displayed:Maybe<&2, Browser.Published> ->
-      @+tokens:+List<String> -> @+semantic:UI.Surface ->
-      measurement_claim(legacy, serial, anchors, index, capacity, engine, displayed, tokens, semantic),
+      @+tokens:+List<String> -> @+semantic:UI.Surface -> @+round:Nat ->
+      measurement_claim(legacy, serial, anchors, index, capacity, engine, displayed, tokens, semantic, round),
     remeasure: @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+index:Nat ->
-      @+capacity:View.Capacity -> @+engine:World.Engine -> @+displayed:Maybe<&2, Browser.Published> -> @+semantic:UI.Surface ->
-      {Browser.remeasure(Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic}, displayed}) ==
-        Browser.refreeze(index, capacity, engine, Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic}, displayed}, semantic) : Browser.Decision},
-    ready: @world:Content.AllocatedWorld -> @index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @state:Browser.State -> @semantic:UI.Surface ->
-      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic) == Browser.Stopped{Browser.admit(world, capacity, engine, state, semantic)} : Browser.Search}}
+      @+capacity:View.Capacity -> @+engine:World.Engine -> @+displayed:Maybe<&2, Browser.Published> -> @+semantic:UI.Surface -> @+round:Nat ->
+      {Browser.remeasure(Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic, round}, displayed}) ==
+        Browser.refreeze(index, capacity, engine, Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic, round}, displayed}, semantic) : Browser.Decision},
+    ready: @world:Content.AllocatedWorld -> @index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @state:Browser.State -> @semantic:UI.Surface -> @round:Nat ->
+      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.Stopped{Browser.admit(world, capacity, engine, state, semantic)} : Browser.Search}}
 
 law evidence:
   Requirements

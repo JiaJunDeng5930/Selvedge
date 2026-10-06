@@ -115,10 +115,13 @@ type Face is Data:
 def caption_wrapping(face: Face) -> Typography.Wrapping:
   match face:
     case SingleLineFace{text}: Typography.SingleLine{}
+    case PickerFace{leading, text}: Typography.SingleLine{}
+    case DisclosureFace{text, expanded}: Typography.SingleLine{}
+    case ChoiceFace{text, description, icon, checked}: Typography.NormalWords{}
     case _: Typography.NormalAnywhere{}
 
 def description_wrapping() -> Typography.Wrapping:
-  Typography.NormalAnywhere{}
+  Typography.NormalWords{}
 
 type Behavior is Data:
   Push{}

@@ -18,6 +18,7 @@ type Profile is Data:
   CodeBlock{}
   Lane{}
   ArchiveGroup{}
+  PageContent{}
 
 type Insets is Data:
   Insets{inline: Nat, block: Nat}
@@ -53,6 +54,7 @@ def spacing(profile: Profile) -> Insets:
     case CodeBlock{}: Insets{12n, 12n}
     case Lane{}: Insets{8n, 8n}
     case ArchiveGroup{}: Insets{2n, 2n}
+    case PageContent{}: Insets{24n, 24n}
 
 def area(profile: Profile) -> ContentArea:
   Inset{profile}

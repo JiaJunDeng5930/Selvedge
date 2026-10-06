@@ -20,7 +20,7 @@ def Rule.evidence():
   Rule.Requirements{
     +world => capacity => +legacy => +semantic => publication(world, capacity, legacy, semantic),
     +source => +index => +capacity => +font => +viewport => +legacy => +serial => +anchors => +lifecycle => +displayed => +semantic => {==},
-    generation => first => remaining => index => capacity => engine => state => semantic => {==},
-    +legacy => +serial => +anchors => +index => +capacity => +engine => +displayed => +tokens => +semantic => {==},
-    +legacy => +serial => +anchors => +index => +capacity => +engine => +displayed => +semantic => {==},
-    world => index => capacity => engine => state => semantic => {==}}
+    generation => first => remaining => index => capacity => engine => state => semantic => round => {==},
+    +legacy => +serial => +anchors => +index => +capacity => +engine => +displayed => +tokens => +semantic => +round => {==},
+    +legacy => +serial => +anchors => +index => +capacity => +engine => +displayed => +semantic => +round => {==},
+    world => index => capacity => engine => state => semantic => round => {==}}

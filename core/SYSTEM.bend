@@ -106,21 +106,37 @@ def service_effects(effects: +List<Services.Effect>, application: E.Application)
     case Con{Services.AttachToDraft{editor, +file}, rest}:
       service_effects(rest, attached(edit_attachment(editor, Some{file}, file_id(file), application)))
     case Con{Services.DirectoryChosen{editor, path}, rest}: service_effects(rest, directory_chosen(editor, path, application))
+    case Con{Services.SessionReady{}, rest}: service_effects(rest, application)
     case Con{other, rest}: service_effects(rest, application)
 
 def external_effect(effect: Services.Effect) -> Bool:
   match effect:
     case Services.AttachToDraft{editor, file}: False{}
     case Services.DirectoryChosen{editor, path}: False{}
+    case Services.SessionReady{}: False{}
     case _: True{}
 
 def application_result_with_services(decision: E.Decision, services: Services.State, effects: +List<Services.Effect>) -> Decision:
   E.Decision{application, reply, runtime, interaction, durable} = decision
   Decision{State{application, services}, reply, runtime, interaction, effects, durable}
 
+def session_attention(application: E.Application) -> String:
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  attention
+
+def service_interactions(effects: +List<Services.Effect>, +application: E.Application) -> +List<E.Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{Services.SessionReady{}, rest}: E.Attend{session_attention(application)} <> service_interactions(rest, application)
+    case Con{other, rest}: service_interactions(rest, application)
+
+def service_attention(decision: E.Decision, effects: +List<Services.Effect>) -> E.Decision:
+  E.Decision{+application, reply, runtime, interaction, durable} = decision
+  E.Decision{application, reply, runtime, service_interactions(effects, application), durable}
+
 def service_result(decision: Services.Decision, application: E.Application) -> Decision:
   Services.Decision{services, +effects} = decision
-  application_result_with_services(E.unchanged(service_effects(effects, application)), services,
+  application_result_with_services(service_attention(E.unchanged(service_effects(effects, application)), effects), services,
     List.filter(~Services.Effect, external_effect, effects))
 
 def command_offline(command: Maybe<&2, M.Command>, access: Services.Access) -> Bool:

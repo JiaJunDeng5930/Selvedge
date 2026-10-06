@@ -478,8 +478,13 @@ def source_header_style(+key: UIIdentity.Key, family: Controls.SourceFamily, val
     case _: value
 
 
+def lane_style(value: Design.Style) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, surface(Surfaces.Lane{Surfaces.Neutral{}}, Surfaces.Rest{}), border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{Enclosure.area(Enclosure.Lane{}), arrangement}, minimum, maximum, states}
+
 def family_style(+key: UIIdentity.Key, meaning: UI.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
+    case UI.BoardLane{stage, count}: lane_style(value)
     case UI.ProjectGroup{project, selected, expanded}: project_group_style(typography)
     case UI.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
     case UI.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
@@ -528,11 +533,12 @@ def enters_main(role: UI.Role, inherited: Bool) -> Bool:
 def heading_tier(in_main: Bool, start: Bool) -> T.Tier:
   match in_main start:
     case True{} True{}: T.Display{}
-    case _ _: T.Section{}
+    case True{} False{}: T.Title{}
+    case False{} _: T.Section{}
 
 def field_tier(meaning: UI.Meaning) -> T.Tier:
   match meaning:
-    case UI.Edit{editor, field, Forms.Multiline{}, value, choices}: T.CodeBody{}
+    case UI.Edit{editor, field, Forms.Multiline{}, value, choices}: T.Body{}
     case _: T.Body{}
 
 def information_role_fields(role: UI.Role, +meaning: UI.Meaning, inherited: T.Presentation, in_main: Bool, start: Bool, +scale: T.Scale) -> T.Presentation:

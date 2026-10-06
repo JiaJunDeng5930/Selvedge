@@ -56,11 +56,13 @@ def resolved_content_focus(owned: Bool, ticket: Nat, owner: String, identity: St
     case True{}: [PlatformEffect{Platform.Focus{ticket, Focus.Content{owner, identity}}}]
     case False{}: Nil{}
 
-def resolved_effect(effect: Platform.Effect, surface: UI.Surface) -> +List<Effect>:
+def resolved_effect(effect: Platform.Effect, +surface: UI.Surface) -> +List<Effect>:
   match effect:
     case Platform.Focus{ticket, Focus.Product{target}}: resolved_focus(ticket, UI.focus_target(surface, target))
     case Platform.Focus{ticket, Focus.Content{+owner, identity}}:
       resolved_content_focus(Platform.found_content_owner(UI.find_node(UI.active_nodes(surface), owner)), ticket, owner, identity)
+    case Platform.ScopeFocus{ticket, previous, current}:
+      resolved_focus(ticket, UI.focus_target(surface, Focus.scope_target(previous, current, surface)))
     case other: [PlatformEffect{other}]
 def platform_effects(effects: +List<Platform.Effect>, +surface: UI.Surface) -> +List<Effect>:
   match effects:

@@ -74,7 +74,7 @@ def rich_styles_at(+capacity: Nat, +font: T.Presentation, +policy: Source.RichPo
   +insets = Enclosure.frame_content(frame)
   +inline = Enclosure.inline(insets)
   +block = Enclosure.block(insets)
-  properties(properties(Paint.rich_properties_at(capacity, font), Paint.rich_resolved("--rich-code", T.resolve_presentation(capacity, code_text))), properties(properties(Paint.text_presentation_at(capacity, T.with_tier(font, T.Body{})), code_chrome(surface)),
+  properties(properties(Paint.rich_properties_at(capacity, font), Paint.rich_resolved("--rich-code", T.resolve_presentation(capacity, code_text))), properties(properties(Paint.text_presentation_at(capacity, font), code_chrome(surface)),
     [Paint.property("--physical-code-padding-inline", Paint.px(inline)), Paint.property("--physical-code-padding-block", Paint.px(block)),
      Paint.property("--physical-code-gap", Paint.px(Enclosure.frame_gap(frame))),
      Paint.property("--physical-toolbar-height", Paint.px(toolbar_height)), Paint.property("--physical-block-gap", Paint.px(block_gap)),
@@ -166,14 +166,27 @@ def control_tabindex(+interaction: Model.Interaction<Doc.Event>) -> String:
     case Model.Operable{first, remaining, True{}}: "0"
     case Model.Operable{first, remaining, False{}}: "-1"
 
+def keyboard_control(interaction: Model.Interaction<Doc.Event>) -> Bool:
+  match interaction:
+    case Model.DisplayOnly{}: False{}
+    case Model.Operable{first, remaining, enabled}: Doc.keyboard_activations(first <> remaining)
+
+def keyboard_control_attributes(active: Bool, +interaction: Model.Interaction<Doc.Event>, name: String) -> +List<Doc.Property>:
+  match active:
+    case True{}: [Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)]
+    case False{}: [Paint.property("tabindex", "-1"), Paint.property("aria-label", name)]
+
+def nonnative_control_attributes(+attrs: +List<Source.Attribute>, +name: String, +interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
+  properties(attributes(attrs), properties(keyboard_control_attributes(keyboard_control(interaction), interaction, name), availability(interaction, False{})))
+
 def control_attribute_details(+tag: Source.ControlTag, +attrs: +List<Source.Attribute>, +name: String, +interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
   match tag:
     case Source.Button{}: properties(attributes(attrs), Paint.property("type", "button") <> Paint.property("aria-label", name) <> availability(interaction, True{}))
     case Source.Summary{}: properties(attributes(attrs), Paint.property("aria-label", name) <> availability(interaction, False{}))
-    case Source.ArticleControl{}: properties(attributes(attrs), properties([Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)], availability(interaction, False{})))
-    case Source.DivControl{}: properties(attributes(attrs), properties([Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)], availability(interaction, False{})))
-    case Source.SectionControl{}: properties(attributes(attrs), properties([Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)], availability(interaction, False{})))
-    case Source.SpanControl{}: properties(attributes(attrs), properties([Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)], availability(interaction, False{})))
+    case Source.ArticleControl{}: nonnative_control_attributes(attrs, name, interaction)
+    case Source.DivControl{}: nonnative_control_attributes(attrs, name, interaction)
+    case Source.SectionControl{}: nonnative_control_attributes(attrs, name, interaction)
+    case Source.SpanControl{}: nonnative_control_attributes(attrs, name, interaction)
 
 def control_attributes(+tag: Source.ControlTag, +attrs: +List<Source.Attribute>, +name: String, +interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
   Paint.property("class", "native-control") <> control_attribute_details(tag, attrs, name, interaction)
@@ -324,18 +337,21 @@ def leaf(+value: Content.Value, +physical_key: String, +bounds: Spatial.Box, +co
   +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +owned: +List<Owned>) -> Doc.Node:
   leaf_at(NaturalSize.limit(), value, physical_key, bounds, content_canvas, rule, interaction, styles, owned)
 
-def container(+value: Content.Value, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
+def container_at(+capacity: Nat, +value: Content.Value, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
   match value:
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +original_children}, +font}:
-      Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, children}
+      Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, children}
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +original_children}, +font}:
-      Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles(value), control_visual(style))), event_list(interaction), children}
+      Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), control_visual(style))), event_list(interaction), children}
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +original_children}, +font}:
-      choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", attributes(attrs), properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
+      choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", attributes(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: diagnostic(key, "text-as-container")
     case Content.Value{Source.Glyph{+key, +picture, +style}, +font}: diagnostic(key, "glyph-as-container")
     case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}: diagnostic(key, "field-as-container")
     case Content.Value{Source.RichText{+key, +style, +content, +attachments, +native_owner}, +font}: diagnostic(key, "rich-text-as-container")
+
+def container(+value: Content.Value, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
+  container_at(NaturalSize.limit(), value, interaction, styles, children, native)
 
 # Positional metric keys never replace authored DOM keys.
 def forest(+values: +List<Allocation.AllocatedTree<Content.Value, Doc.Event>>, +origin: Spatial.Box, +fixed: Bool, +native: Bool, +owned: +List<Owned>) -> +List<Doc.Node>:
@@ -462,6 +478,38 @@ def emit_world(+tree: Allocation.AllocatedTree<Content.Value, Doc.Event>, +roots
     case False{}: [diagnostic(UIIdentity.place("physical-world"), "native-attachment-missing-rich-owner")]
     case True{}: forest([tree], Spatial.Box{0n, 0n, 0n, 0n}, True{}, False{}, List.append(&2, Owned, native_roots(roots), native_policies(policies, tree)))
 
+# Theme aliases must resolve on the same document root as their imported tokens.
+def theme_attribute(matches: Bool, value: String, fallback: +List<Doc.Property>) -> +List<Doc.Property>:
+  match matches:
+    case True{}: [Doc.Property{"data-theme", value}]
+    case False{}: fallback
+
+def root_theme_attributes(values: +List<Source.Attribute>) -> +List<Doc.Property>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Source.DataAttribute{name, value}, rest}:
+      theme_attribute(String.eq(name, "theme"), value, root_theme_attributes(rest))
+    case Con{other, rest}: root_theme_attributes(rest)
+
+def source_root_theme(node: Source.Node) -> +List<Doc.Property>:
+  match node:
+    case Source.Box{key, tag, style, attrs, children}: root_theme_attributes(attrs)
+    case Source.Control{key, tag, style, attrs, name, enabled, first, rest, children}: Nil{}
+    case Source.NativeAttachment{key, target, attrs, style, children}: Nil{}
+    case Source.Text{key, value, choice, wrapping}: Nil{}
+    case Source.Glyph{key, drawing, style}: Nil{}
+    case Source.Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, rest}: Nil{}
+    case Source.RichText{key, style, content, attachments, owner}: Nil{}
+
+def root_theme(snapshot: Content.Snapshot) -> Doc.Node:
+  Content.Snapshot{generation, source, font} = snapshot
+  Doc.TargetProperties{"@browser/root-theme", "@document/root", source_root_theme(source), Nil{}}
+
+def projected_world(+snapshot: Content.Snapshot, +tree: Allocation.AllocatedTree<Content.Value, Doc.Event>, +roots: +List<Content.AllocatedNative>, +policies: +List<Content.NativePolicy>, +valid: Bool) -> +List<Doc.Node>:
+  match valid:
+    case False{}: emit_world(tree, roots, policies, False{})
+    case True{}: root_theme(snapshot) <> emit_world(tree, roots, policies, True{})
+
 def nodes(+world: Content.AllocatedWorld) -> +List<Doc.Node>:
   Content.AllocatedWorld{+snapshot, +tree, +roots, +policies} = world
-  emit_world(tree, roots, policies, native_roots_valid(roots, tree) && native_policies_valid(policies, tree))
+  projected_world(snapshot, tree, roots, policies, native_roots_valid(roots, tree) && native_policies_valid(policies, tree))

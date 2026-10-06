@@ -5,6 +5,8 @@ import ../ui-world.bend as View
 import ../../bendlib/domain.bend as D
 import ../../bendlib/association-map.bend as Finite
 import ../../bendlib/stdlib.bend as Std
+import ../ui-identity.bend as Identity
+import ../SYSTEM.bend as Core
 
 def registered_choices_complete(+entries: +List<Finite.Entry(D.Project)>) ->
   {List.length(&2, View.ProjectChoice, View.project_choices(entries)) == List.length(&2, Finite.Entry(D.Project), entries) : Nat}:
@@ -77,6 +79,9 @@ def toggle_retains_case(hit: Bool, +prefix: +List<Nat>, +other: Nat, +suffix: +L
       %backwards : {Bool.or(Nat.is_eq(id, other), _) == True{} : Bool}
       Std.orb_true_r(Nat.is_eq(id, other))
 
+def picker_complete_nodes(+values: +List<View.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: Core.State) -> Rule.picker_nodes(values, selected, parent, state):
+  {==}
+
 def Rule.evidence():
   Rule.Requirements{
     +origin => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => world => {==},
@@ -95,7 +100,7 @@ def Rule.evidence():
     prefix => other => suffix => id => distinct => deletion_retains_other(prefix, other, suffix, id, distinct),
     +intent => +prefix => +other => +suffix => +id => distinct => toggle_retains_case(E.project_collapsed(E.NavigationState{intent, List.append(&2, Nat, prefix, other <> suffix)}, id), prefix, other, suffix, id, distinct),
     +id => +intent => collapsed => {==},
-    +values => +selected => +parent => +state => {==},
+    picker_complete_nodes,
     +context => +world => {==},
     +query => +world => +route => +drafts => +readers => +trigger => +initial => previous => +layer_occurrence => +rest => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
     +id => name => workspace => +selected => +expanded => +tasks => +open => +create => +toggle => +more => +parent => +state => {==},

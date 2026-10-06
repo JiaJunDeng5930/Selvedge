@@ -71,3 +71,98 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+def activation_expected(event: Doc.Event) -> Bool:
+  match event:
+    case Doc.Activate{key}: True{}
+    case _: False{}
+
+def keyboard_attributes_expected(active: Bool, interaction: Model.Interaction<Doc.Event>, name: String) -> +List<Doc.Property>:
+  match active:
+    case True{}: [Paint.property("tabindex", Renderer.control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)]
+    case False{}: [Paint.property("tabindex", "-1"), Paint.property("aria-label", name)]
+
+def control_attributes_expected(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String, interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
+  match tag:
+    case Source.Button{}: Renderer.properties(Renderer.attributes(attrs), Paint.property("type", "button") <> Paint.property("aria-label", name) <> Renderer.availability(interaction, True{}))
+    case Source.Summary{}: Renderer.properties(Renderer.attributes(attrs), Paint.property("aria-label", name) <> Renderer.availability(interaction, False{}))
+    case _: Renderer.nonnative_control_attributes(attrs, name, interaction)
+
+law keyboard_activation_total:
+  for event: Doc.Event
+  {Doc.keyboard_activation(event) == activation_expected(event) : Bool}
+
+law keyboard_activation_empty:
+  {Doc.keyboard_activations(Nil{}) == False{} : Bool}
+
+law keyboard_activation_cons:
+  for +first: Doc.Event
+  for +remaining: +List<Doc.Event>
+  {Doc.keyboard_activations(first <> remaining) == Bool.or(Doc.keyboard_activation(first), Doc.keyboard_activations(remaining)) : Bool}
+
+law keyboard_control_display_only:
+  {Renderer.keyboard_control(Model.DisplayOnly{}) == False{} : Bool}
+
+law keyboard_control_operable:
+  for first: Doc.Event
+  for remaining: +List<Doc.Event>
+  for enabled: Bool
+  {Renderer.keyboard_control(Model.Operable{first,remaining,enabled}) == Doc.keyboard_activations(first <> remaining) : Bool}
+
+law keyboard_attribute_projection:
+  for +active: Bool
+  for +interaction: Model.Interaction<Doc.Event>
+  for +name: String
+  {Renderer.keyboard_control_attributes(active,interaction,name) == keyboard_attributes_expected(active,interaction,name) : +List<Doc.Property>}
+
+law nonnative_attribute_projection:
+  for +attrs: +List<Source.Attribute>
+  for +name: String
+  for +interaction: Model.Interaction<Doc.Event>
+  {Renderer.nonnative_control_attributes(attrs,name,interaction) == Renderer.properties(Renderer.attributes(attrs), Renderer.properties(Renderer.keyboard_control_attributes(Renderer.keyboard_control(interaction),interaction,name), Renderer.availability(interaction,False{}))) : +List<Doc.Property>}
+
+law control_attribute_projection:
+  for +tag: Source.ControlTag
+  for +attrs: +List<Source.Attribute>
+  for +name: String
+  for +interaction: Model.Interaction<Doc.Event>
+  {Renderer.control_attribute_details(tag,attrs,name,interaction) == control_attributes_expected(tag,attrs,name,interaction) : +List<Doc.Property>}
+
+law source_control_interaction:
+  for key: UIIdentity.Key
+  for tag: Source.ControlTag
+  for style: Source.Style
+  for attrs: +List<Source.Attribute>
+  for name: String
+  for +enabled: Bool
+  for +first: Doc.Event
+  for +remaining: +List<Doc.Event>
+  for children: +List<Source.Node>
+  {Source.interaction_of(Source.Control{key,tag,style,attrs,name,enabled,first,remaining,children}) == Model.Operable{first,remaining,enabled} : Model.Interaction<Doc.Event>}
+
+def rendered_control_claim(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.ControlTag, +style: Source.Style,
+  +attrs: +List<Source.Attribute>, +name: String, +enabled: Bool, +first: Doc.Event,
+  +remaining: +List<Doc.Event>, +original_children: +List<Source.Node>, +font: T.Presentation,
+  +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, native: Bool) -> Type:
+  {Renderer.container_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font},interaction,styles,children,native) ==
+    Doc.Element{UIIdentity.encode(key),Source.control_tag_name(tag),Renderer.control_attributes(tag,attrs,name,interaction),
+      Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font}),Renderer.control_visual(style))),
+      Renderer.event_list(interaction),children} : Doc.Node}
+
+law rendered_control_projection:
+  for capacity: Nat
+  for key: UIIdentity.Key
+  for tag: Source.ControlTag
+  for style: Source.Style
+  for attrs: +List<Source.Attribute>
+  for name: String
+  for enabled: Bool
+  for first: Doc.Event
+  for remaining: +List<Doc.Event>
+  for original_children: +List<Source.Node>
+  for font: T.Presentation
+  for interaction: Model.Interaction<Doc.Event>
+  for styles: +List<Doc.Property>
+  for children: +List<Doc.Node>
+  for native: Bool
+  rendered_control_claim(capacity,key,tag,style,attrs,name,enabled,first,remaining,original_children,font,interaction,styles,children,native)

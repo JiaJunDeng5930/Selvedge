@@ -134,7 +134,7 @@ def section_caption(+empty: Bool, +key: UIIdentity.Key, +label: String, +visual:
 def caption(+key: UIIdentity.Key, +label: String, +role: UI.Role, +visual: Design.Style) -> +List<Source.Node>:
   match role:
     case UI.NavigationHeader{}: [Source.Box{UIIdentity.part(key, "@brand"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"navigation-brand", ""}], [text(UIIdentity.part(UIIdentity.part(key, "@brand"), "text"), label, visual, T.Section{}, T.Medium{})]}]
-    case UI.Heading{}: [text(UIIdentity.part(key, "@title"), label, visual, T.Body{}, T.Regular{})]
+    case UI.Heading{}: [Factory.text(UIIdentity.part(key, "@title"), label, Source.ExplicitFont{Design.style_text(visual)}, T.NormalAnywhere{})]
     case UI.Section{}:
       section_caption(String.is_empty(label), key, label, visual)
     case _: Nil{}
@@ -227,6 +227,14 @@ def position_style(+visual: Design.Style, +position: Composition.Position) -> So
   match position:
     case Composition.BodyPosition{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
     case _: Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{})
+
+def region_style(+visual: Design.Style, region: Composition.Region, position: Composition.Position) -> Source.Style:
+  match region:
+    case Composition.BoardControls{}:
+      Factory.with_direction(Factory.style(Appearance.with_arrangement(visual, Enclosure.SeparateFrames{Enclosure.ComposerControls{}}), Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Model.ResponsiveHorizontal{})
+    case Composition.BoardStages{}:
+      Factory.with_direction(Factory.style(Appearance.with_arrangement(visual, Enclosure.SeparateFrames{Enclosure.BoardColumns{}}), Model.StretchSize{}, Model.StretchSize{}, Model.ScrollHorizontally{}), Model.Horizontal{})
+    case _: position_style(visual, position)
 
 def context_kind(+value: Context.Observation) -> String:
   match value:
@@ -361,7 +369,7 @@ def scroll_content(+value: Source.Style) -> Source.Style:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, Model.ScrollVertically{}, position}, font, chrome, states}
 
 def lane(+key: UIIdentity.Key, +label: String, +stage: Board.Stage, +count: Nat, +visual: Design.Style, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
-  Source.Control{key, Source.SectionControl{}, Factory.with_direction(Factory.style(visual, Model.LimitedSize{Design.main_minimum_width(parameters), 0n, Design.main_minimum_width(parameters)}, Model.StretchSize{}, Model.Confined{}), Model.Vertical{}), [Source.DataAttribute{"board-stage", Board.stage_name(stage)}, Source.DataAttribute{"board-count", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{},
+  Source.Control{key, Source.SectionControl{}, Factory.with_direction(Factory.style(visual, Model.LimitedSize{Design.lane_minimum_width(parameters), 0n, Design.lane_minimum_width(parameters)}, Model.StretchSize{}, Model.Confined{}), Model.Vertical{}), [Source.DataAttribute{"board-stage", Board.stage_name(stage)}, Source.DataAttribute{"board-count", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{},
     [box(UIIdentity.part(key, "@heading"), Source.Header{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.DataAttribute{"board-lane-heading", ""}],
       [group(UIIdentity.part(key, "@heading-leading"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, [box(UIIdentity.part(key, "@stage-mark"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"board-stage-mark", Board.stage_name(stage)}, Source.AriaAttribute{"hidden", "true"}], Nil{}), text(UIIdentity.part(key, "@title"), label, visual, T.Support{}, T.Medium{}), text(UIIdentity.part(key, "@count"), Nat.show(count), visual, T.Support{}, T.Regular{})]), group(UIIdentity.part(key, "@heading-trailing"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, lane_children(children, True{}, stage))]),
      box(UIIdentity.part(key, "@cards"), Source.Div{}, scroll_content(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, AuthoredControls.parent_gap(visual))), [Source.DataAttribute{"board-cards", ""}], append(empty_lane(count, key, visual), lane_children(children, False{}, stage)))]}
@@ -448,8 +456,8 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meani
     case UI.DirectoryRow{path, primary}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"primary", FieldOptions.boolean(primary)}], [box(UIIdentity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)])
     case UI.ContextSummary{observation}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"context-kind", context_kind(observation)}], text(UIIdentity.part(key, "provenance"), label, visual, T.Support{}, T.Regular{}) <> content)
     case UI.ChoiceGroup{}: box(key, Source.Section{}, role_style(visual, role), [Source.RoleAttribute{"radiogroup"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "label"), label, visual, T.Support{}, T.Regular{}) <> content)
-    case UI.PageRegion{region, position}: box(key, Source.Div{}, position_style(visual, position), [Source.DataAttribute{"page-position", position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content)
-    case UI.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollHorizontally{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
+    case UI.PageRegion{region, position}: box(key, Source.Div{}, region_style(visual, region, position), [Source.DataAttribute{"page-position", position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content)
+    case UI.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
     case UI.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
     case UI.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}
     case UI.MovableCard{destinations, face}: card(key, face, visual, children, representation, parameters, AuthoredControls.has_available_destination(destinations))
@@ -466,7 +474,7 @@ def dialog_operation(+meaning: UI.Meaning) -> Bool:
     case UI.Activate{input, availability}: True{}
     case UI.ComposerAction{subject, input, availability}: True{}
     case UI.PanelToggle{expanded, input, availability}: True{}
-    case UI.Choice{kind, icon, selected, description, input, availability}: True{}
+    case UI.Choice{kind, icon, selected, description, input, availability}: False{}
     case _: False{}
 
 # Only a contiguous operation suffix belongs in the footer; earlier controls
@@ -660,3 +668,9 @@ def base(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Resu
 def overlays(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Result:
   Design.Surface{content, theme, base, overlays, active_scope} = surface
   overlay_forest(forest(overlays, parameters), active_scope)
+
+
+def layout_of_lane(node: Source.Node) -> Maybe<&2, Source.Style>:
+  match node:
+    case Source.Control{key, tag, style, attributes, label, enabled, event, events, children}: Some{style}
+    case _: None{}

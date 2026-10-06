@@ -4,7 +4,7 @@ import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
-import { tokenizeJsonValue } from './json-tokens.mjs';
+import { parseJson, tokenizeJsonValue } from './json-tokens.mjs';
 
 const value = ($, fields = {}) => ({ $, ...fields });
 const bool = enabled => Boolean(enabled);
@@ -173,6 +173,9 @@ function render() {
     default: throw new TypeError(`Unknown publication ${publication.$}`);
   }
   renderer.synchronizeFields(publication.fields);
+  root.dataset.renderInspection = JSON.stringify(decodeBendValue(Bend.render_inspection(state)));
+  root.dataset.renderStatus = Bend.render_status(state);
+  root.dataset.renderViolations = JSON.stringify(decodeBendValue(list(Bend.render_violations(state))));
   schedulePhysical();
   for (const effect of effects) Promise.resolve(execute(effect)).catch(error => console.error(error));
 }
@@ -205,9 +208,9 @@ function geometryChanged() {
 }
 function schedulePhysical() {
   if (disposed) return;
-  const plan = Bend.physical_plan(state);
-  physicalQueued = plan.$ === 'Some' && plan.value.$ === 'Awaiting'
-    ? { plan: plan.value, generation: Bend.requested_generation(state), revision: physicalRevision } : null;
+  const request = Bend.measurement_request(state);
+  physicalQueued = request.$ === 'Some'
+    ? { plan: request.value.plan, ticket: request.value.ticket, revision: physicalRevision } : null;
   if (!physicalQueued || physicalActive || physicalScheduled) return;
   physicalScheduled = true;
   queueMicrotask(runPhysical);
@@ -222,10 +225,10 @@ async function runPhysical() {
     // Streaming can supersede this generation; Bend receives the old ticket and decides acceptance.
     const receipt = await physicalMeasurer.measure(batch.plan);
     if (disposed || batch.revision !== physicalRevision) return;
-    commit(Bend.physical_measured(batch.generation, linked(tokenizeJsonValue(JSON.parse(receipt))), state));
+    commit(Bend.physical_measured(batch.ticket, linked(tokenizeJsonValue(parseJson(receipt))), state));
   } catch (error) {
     if (!disposed && batch.revision === physicalRevision && error.name !== 'AbortError') {
-      commit(Bend.physical_measurement_failed(batch.generation, String(error), state));
+      commit(Bend.physical_measurement_failed(batch.ticket, String(error), state));
     }
   } finally {
     physicalActive = false;
@@ -654,10 +657,10 @@ root.addEventListener('focusin', () => {
   if (!anchor) { platform(value('FocusObserved', { identity: owner(document.activeElement) })); return; }
   if (renderedGeneration === null) return;
   const generation = renderedGeneration;
-  const owner = nativeContentOwner(anchor);
+  const contentOwner = nativeContentOwner(anchor);
   const identity = anchor.dataset.nativeLinkKey;
   native(value('FrameObserved', { generation, frame: frame() }));
-  commit(Bend.native_focus_observed(generation, owner, identity, state));
+  commit(Bend.native_focus_observed(generation, contentOwner, identity, state));
 });
 window.addEventListener('pagehide', () => {
   disposed = true;

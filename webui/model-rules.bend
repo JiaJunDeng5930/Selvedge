@@ -7,6 +7,26 @@ import ./MODEL.bend as Model
 import ./design.bend as Design
 import ./font-observation.bend as F
 import ./platform.bend as Platform
+import ./focus.bend as Focus
+
+law resolved_scope_focus:
+  for +ticket: Nat
+  for +previous: Focus.Scope
+  for +current: Focus.Scope
+  for +surface: UI.Surface
+  {Model.resolved_effect(Platform.ScopeFocus{ticket, previous, current}, surface) ==
+    Model.resolved_focus(ticket, UI.focus_target(surface, Focus.scope_target(previous, current, surface))) : +List<Model.Effect>}
+
+law platform_scope_focus:
+  for +ticket: Nat
+  for +previous: Focus.Scope
+  for +current: Focus.Scope
+  for +rest: +List<Platform.Effect>
+  for +surface: UI.Surface
+  {Model.platform_effects(Platform.ScopeFocus{ticket, previous, current} <> rest, surface) ==
+    List.append(&2, Model.Effect,
+      Model.resolved_focus(ticket, UI.focus_target(surface, Focus.scope_target(previous, current, surface))),
+      Model.platform_effects(rest, surface)) : +List<Model.Effect>}
 
 law production_commit_preserves_product:
   for +decision: Platform.Decision

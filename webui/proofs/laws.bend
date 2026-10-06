@@ -21,6 +21,10 @@ import ../reading.bend as Reading
 import ../rendered.bend as Rendered
 
 import ../laws.bend as Rule
+import ../paint-rules.bend as PaintRules
+import ../physical-renderer-rules.bend as RendererRules
+import ./paint.bend as ProofPaint
+import ./physical-renderer.bend as ProofRenderer
 import ../../bendlib/proofs/logic.bend as Logic
 import ../editor-rules.bend as Rules_editor_rules
 import ../model-rules.bend as Rules_model_rules
@@ -725,7 +729,7 @@ def stale_reading(+application: E.Application, +services: Services.State, +platf
       stale_reading_raw(application, services, platform, task, generation, event, inactive)),
     Rules_platform.realized_empty(Platform.unchanged(Core.State{application, services}), platform))
 def Rule.evidence():
-  Rule.Requirements{reflow_same, +application => +generation => +realization => +environment => +font => +received => +metrics => stale =>
+  Rule.Requirements{PaintRules.evidence(), RendererRules.evidence(),reflow_same, +application => +generation => +realization => +environment => +font => +received => +metrics => stale =>
       Equal.cong(Bool, Model.Decision,
         (owned => Model.production_typography_owned(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
         Nat.is_eq(F.generation(font), received), False{}, stale)

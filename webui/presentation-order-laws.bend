@@ -126,3 +126,106 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law base_classifier:
+  for +key: UIIdentity.Key
+  for +role: UI.Role
+  {Order.base_region(key, role) == Order.base_region_navigation(Order.is_navigation(key, role), key, role) : Order.BaseRegion}
+
+law navigation_role:
+  for +key: UIIdentity.Key
+  {Order.base_region(key, UI.Navigation{}) == Order.NavigationRegion{} : Order.BaseRegion}
+
+law navigation_precedence:
+  for +key: UIIdentity.Key
+  for +role: UI.Role
+  {Order.base_region_navigation(True{}, key, role) == Order.NavigationRegion{} : Order.BaseRegion}
+
+law remaining_region:
+  for +key: UIIdentity.Key
+  for +role: UI.Role
+  {Order.base_region_navigation(False{}, key, role) == Order.base_region_role(key, role) : Order.BaseRegion}
+
+law main_precedence:
+  for +key: UIIdentity.Key
+  {Order.base_region_role(key, UI.Main{}) == Order.MainRegion{} : Order.BaseRegion}
+
+law footer_region:
+  {Order.footer_region(True{}) == Order.NavigationFooterRegion{} : Order.BaseRegion}
+
+law other_region:
+  {Order.footer_region(False{}) == Order.OtherRegion{} : Order.BaseRegion}
+
+law base_partition_navigation:
+  for +node: UI.Node
+  for +navigation: +List<UI.Node>
+  for +footer: +List<UI.Node>
+  for +main: +List<UI.Node>
+  for +other: +List<UI.Node>
+  {Order.prepend_base(Order.NavigationRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{node <> navigation, footer, main, other} : Order.BaseParts}
+
+law base_partition_footer:
+  for +node: UI.Node
+  for +navigation: +List<UI.Node>
+  for +footer: +List<UI.Node>
+  for +main: +List<UI.Node>
+  for +other: +List<UI.Node>
+  {Order.prepend_base(Order.NavigationFooterRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, node <> footer, main, other} : Order.BaseParts}
+
+law base_partition_main:
+  for +node: UI.Node
+  for +navigation: +List<UI.Node>
+  for +footer: +List<UI.Node>
+  for +main: +List<UI.Node>
+  for +other: +List<UI.Node>
+  {Order.prepend_base(Order.MainRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, footer, node <> main, other} : Order.BaseParts}
+
+law base_partition_other:
+  for +node: UI.Node
+  for +navigation: +List<UI.Node>
+  for +footer: +List<UI.Node>
+  for +main: +List<UI.Node>
+  for +other: +List<UI.Node>
+  {Order.prepend_base(Order.OtherRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, footer, main, node <> other} : Order.BaseParts}
+
+law base_partition_empty:
+  {Order.partition_base(Nil{}) == Order.BaseParts{Nil{}, Nil{}, Nil{}, Nil{}} : Order.BaseParts}
+
+law base_partition_step:
+  for +key: UIIdentity.Key
+  for +semantic: String
+  for +label: String
+  for +role: UI.Role
+  for +meaning: UI.Meaning
+  for +children: +List<UI.Node>
+  for +rest: +List<UI.Node>
+  {Order.partition_base(UI.Node{key, semantic, label, role, meaning, children} <> rest) == Order.prepend_base(Order.base_region(key, role), UI.Node{key, semantic, label, role, meaning, children}, Order.partition_base(rest)) : Order.BaseParts}
+
+law base_region_order:
+  for +navigation: +List<UI.Node>
+  for +footer: +List<UI.Node>
+  for +main: +List<UI.Node>
+  for +other: +List<UI.Node>
+  {Order.flatten_base(Order.BaseParts{navigation, footer, main, other}) == List.append(&2, UI.Node, navigation, List.append(&2, UI.Node, footer, List.append(&2, UI.Node, main, other))) : +List<UI.Node>}
+
+law ordered_base_partition:
+  for +values: +List<UI.Node>
+  {Order.ordered_base(values) == Order.flatten_base(Order.partition_base(values)) : +List<UI.Node>}
+
+law ordered_surface_base:
+  for +content: Core.Scene
+  for +base: +List<UI.Node>
+  for +overlays: +List<UI.Node>
+  for +scope: Maybe<&2, String>
+  {Order.ordered_surface(UI.Surface{content, base, overlays, scope}) == UI.Surface{content, Order.ordered_base(Order.ordered_nodes(base, Controls.initial(content))), Order.ordered_nodes(overlays, Controls.initial(content)), scope} : UI.Surface}
+
+def non_main_role(role: UI.Role) -> Bool:
+  match role:
+    case UI.Main{}: False{}
+    case _: True{}
+
+law remaining_role_classification:
+  for +key: UIIdentity.Key
+  for +role: UI.Role
+  for belongs: {non_main_role(role) == True{} : Bool}
+  {Order.base_region_role(key, role) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}

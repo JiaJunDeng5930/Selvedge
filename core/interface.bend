@@ -1333,8 +1333,10 @@ def project_registered_choices(values: +List<V.ProjectChoice>, +selected: Maybe<
         project_registered_choices(rest, selected, parent, state)
 
 def project_choice_nodes(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
-  project_picker_choice(V.control("project/select/none", "No project", U.SelectProject{None{}}), V.same_project(selected, None{}), "Use environment defaults", parent, state) <>
-    List.append(&2, Node, project_registered_choices(values, selected, parent, state), [declared(parent, V.control("project/create", "New project", U.EditProject{None{}}), state)])
+  [Node{Identity.Part{parent, "choices"}, "project/choices", "Projects", Section{}, ChoiceGroup{},
+    project_picker_choice(V.control("project/select/none", "No project", U.SelectProject{None{}}), V.same_project(selected, None{}), "Use environment defaults", parent, state) <>
+      project_registered_choices(values, selected, parent, state)},
+   declared(parent, V.control("project/create", "New project", U.EditProject{None{}}), state)]
 
 def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match view:

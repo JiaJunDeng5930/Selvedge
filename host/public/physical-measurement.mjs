@@ -79,17 +79,28 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
       return result;
     } finally { signal.removeEventListener('abort', abort); }
   }
+  function destroyContainer() {
+    if (frame !== null) window.cancelAnimationFrame(frame);
+    frame = null;
+    for (const probe of probes.values()) {
+      probe.observer?.disconnect(); probe.renderer.dispose(); probe.root.remove();
+    }
+    probes.clear(); container?.remove(); container = null;
+  }
   function ensureContainer() {
-    if (container) return;
-    if (!surface.isConnected || !window?.getComputedStyle) throw new Error('Physical measurement requires an attached document');
+    if (!surface.isConnected || !document.body?.isConnected || !window?.getComputedStyle) {
+      throw new Error('Physical measurement requires an attached document');
+    }
     const scope = surface.matches('.native-application') ? surface : surface.querySelector('.native-application') ?? surface;
+    if (container && !container.isConnected) destroyContainer();
+    if (container) { container.className = scope.className; return; }
     container = document.createElement('div');
     container.className = scope.className;
     container.setAttribute('aria-hidden', 'true');
     container.setAttribute('inert', '');
     container.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;display:block;margin:0;padding:0;border:0;min-width:0;max-width:none;min-height:0;max-height:none;height:auto;box-sizing:content-box;';
-    // NOTE: A descendant of the real application scope inherits its active theme and font variables.
-    scope.appendChild(container);
+    // NOTE: Body owns probes independently of renderer reconciliation; root theme and explicit probe fonts preserve their context.
+    document.body.appendChild(container);
   }
   function changed(probe) {
     if (!probe.content || !probe.baseline || active || disposed) return;
@@ -145,12 +156,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
   function cancel() {
     revision++;
     controller.abort(); controller = new AbortController();
-    if (frame !== null) window.cancelAnimationFrame(frame);
-    frame = null;
-    for (const probe of probes.values()) {
-      probe.observer?.disconnect(); probe.renderer.dispose(); probe.root.remove();
-    }
-    probes.clear(); container?.remove(); container = null;
+    destroyContainer();
   }
   return {
     async measure(rawPlan) {

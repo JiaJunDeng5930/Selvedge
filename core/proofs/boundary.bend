@@ -7,6 +7,8 @@ import ../code-block.bend as Code
 import ../live-output.bend as Live
 import ../user-context.bend as Context
 import ../boundary-laws.bend as Rule
+import ../SYSTEM.bend as Core
+import ../user-experience.bend as E
 
 def settings_fields_without_project(+previous:Maybe<&2, D.Workspace>, +sandbox:Maybe<&2, D.Sandbox>,
   +approval:Maybe<&2, Context.ApprovalChoice>, +workspace:D.Workspace, +guidance:D.ProjectContext) ->
@@ -76,6 +78,14 @@ def stale_code_expiry(+identity: Code.Identity, source: String, +wrap: Bool, +co
 
 def Rule.evidence():
   Rule.Requirements{
+    +access => credential => settings_open => appearance => next => +transfers => preview => picker => ticket => owned =>
+      Equal.cong(Bool, Services.Decision, owned => Services.authentication(owned, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}), Services.expected_access(access, ticket), True{}, owned),
+    access => credential => settings_open => appearance => next => transfers => preview => picker => reason => {==},
+    +state => result => {==},
+    access => credential => settings_open => appearance => next => transfers => preview => picker => +application => {==},
+    access => credential => settings_open => appearance => next => transfers => preview => picker => reason => application => {==},
+    state => result => application => {==},
+    {==},
     access => credential => settings_open => appearance => next => transfers => preview => ticket => result => stale =>
       Equal.cong(Bool, Services.Decision,
         owned => Services.authentication(owned,

@@ -36,10 +36,15 @@ import ../core/user-experience.bend as E
 import ../UI.bend as Product
 import ../bendlib/json.bend as J
 
+type MeasurementTicket is Data:
+  MeasurementTicket{generation: Nat, round: Nat}
+type MeasurementRequest is Data:
+  MeasurementRequest{ticket: MeasurementTicket, plan: Plan.Plan}
+
 type Lifecycle is Data:
   WaitingEnvironment{}
   WaitingFont{}
-  Measuring{candidate_index: Nat, capacity: View.Capacity, engine: World.Engine, semantic: UI.Surface}
+  Measuring{candidate_index: Nat, capacity: View.Capacity, engine: World.Engine, semantic: UI.Surface, round: Nat}
   Displaying{capacity: View.Capacity, engine: World.Engine, semantic: UI.Surface}
   Blocked{problem: String}
 
@@ -53,6 +58,53 @@ type State is Data:
   State{legacy: Legacy.State, generation: Nat, anchors: +List<Shell.Anchor>, lifecycle: Lifecycle,
     displayed: Maybe<&2, Published>}
 
+
+type RenderInspection is Data:
+  RenderInspection{frame: Maybe<&2, Rendered.Frame>, expected_tabs: Maybe<&2, +List<String>>,
+    native_valid: Maybe<&2, Bool>, current_layer: Maybe<&2, String>, dismiss_target: Maybe<&2, Legacy.DismissTarget>}
+
+def realization_frame(realization: Rendered.State) -> Maybe<&2, Rendered.Frame>:
+  match realization:
+    case Rendered.AwaitingFrame{generation}: None{}
+    case Rendered.Realized{generation, frame}: Some{frame}
+    case Rendered.Unmet{generation, frame, violations}: Some{frame}
+
+def inspect_frame(frame: Maybe<&2, Rendered.Frame>, +active: +List<UI.Node>, +layer: Maybe<&2, String>, +dismiss: Maybe<&2, Legacy.DismissTarget>) -> RenderInspection:
+  match frame:
+    case None{}: RenderInspection{None{}, None{}, None{}, layer, dismiss}
+    case Some{+observed}:
+      Rendered.Frame{viewport, elements, focused, tabs, native_focus} = observed
+      RenderInspection{Some{observed}, Some{Rendered.expected_tabs(active, elements, native_focus)},
+        Some{Rendered.native_valid(native_focus, active, elements)}, layer, dismiss}
+
+def inspect_published(frame: Maybe<&2, Rendered.Frame>, +layer: Maybe<&2, String>, displayed: Maybe<&2, Published>) -> RenderInspection:
+  match displayed:
+    case None{}: RenderInspection{frame, None{}, None{}, layer, None{}}
+    case Some{Published{world, semantic, scope, basis, published_frame}}:
+      +active = UI.active_nodes(semantic)
+      +dismiss = Legacy.dismiss_target(active)
+      inspect_frame(frame, active, layer, dismiss)
+
+def render_inspection(state: State) -> RenderInspection:
+  State{+stored, serial, anchors, lifecycle, displayed} = state
+  Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt} = stored
+  inspect_published(realization_frame(realization), Legacy.current_layer_key(stored), displayed)
+
+def pending_frame_effects_for(lifecycle: Lifecycle, realization: Rendered.State, displayed: Maybe<&2, Published>) -> +List<Legacy.Effect>:
+  match lifecycle:
+    case Displaying{capacity, engine, semantic}:
+      match realization:
+        case Rendered.AwaitingFrame{generation}:
+          match displayed:
+            case Some{Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
+              [Legacy.BrowserEffect{Web.MeasureFrame{physical_generation}}]
+            case None{}: Nil{}
+        case _: Nil{}
+    case _: Nil{}
+
+def pending_frame_effects(+state: State) -> +List<Legacy.Effect>:
+  State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, lifecycle, displayed} = state
+  pending_frame_effects_for(lifecycle, realization, displayed)
 
 type Publication is Data:
   KeepPublished{fields: +List<NativeFields.Update>}
@@ -142,17 +194,22 @@ def render_status(+state: State) -> String:
     case Displaying{capacity, engine, semantic}: legacy_render_status(legacy)
     case Blocked{reason}: "blocked"
     case _: "waiting"
-def physical_plan(+state: State) -> Maybe<&2, Plan.Plan>:
+def render_violations(state: State) -> +List<Rendered.Violation>:
+  State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, lifecycle, displayed} = state
+  match realization:
+    case Rendered.Unmet{generation, frame, violations}: violations
+    case _: Nil{}
+def measurement_request_plan(plan: Plan.Plan, generation: Nat, round: Nat) -> Maybe<&2, MeasurementRequest>:
+  match plan:
+    case Plan.Awaiting{plan_generation, first, remaining}:
+      Some{MeasurementRequest{MeasurementTicket{generation, round}, Plan.Awaiting{plan_generation, first, remaining}}}
+    case other: None{}
+def measurement_request(+state: State) -> Maybe<&2, MeasurementRequest>:
   State{legacy, serial, anchors, lifecycle, displayed} = state
   match lifecycle:
-    case Measuring{index, capacity, engine, semantic}: Some{World.plan(engine)}
-    case _: None{}
-def requested_generation(+state: State) -> Nat:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
-  match lifecycle:
-    case Measuring{index, capacity, engine, semantic}: World.snapshot_generation(World.snapshot(engine))
-    case Displaying{capacity, engine, semantic}: World.snapshot_generation(World.snapshot(engine))
-    case _: 0n
+    case Measuring{index, capacity, +engine, semantic, round}:
+      measurement_request_plan(World.plan(engine), World.snapshot_generation(World.snapshot(engine)), round)
+    case other: None{}
 def status_document_at(capacity: Nat, message: String, font: T.Presentation) -> Doc.Document:
   Doc.Document{Doc.Element{"@browser/status", "section",
     [Doc.Property{"role", "status"}, Doc.Property{"data-frame-observation", "off"}],
@@ -178,21 +235,28 @@ def observed_lifecycle(+lifecycle: Lifecycle, +displayed: Maybe<&2, Published>, 
   observed_lifecycle_at(NaturalSize.limit(), lifecycle, displayed, font)
 def observed(+displayed: Maybe<&2, Published>, +lifecycle: Lifecycle, +font: T.Presentation) -> Doc.Document:
   observed_lifecycle(lifecycle, displayed, font)
-def observe(+state: State) -> Doc.Document:
+def observe(+capacity: Nat, +state: State) -> Doc.Document:
   State{+legacy, serial, anchors, lifecycle, displayed} = state
   Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt} = legacy
-  observed(displayed, lifecycle, T.Presentation{T.Body{}, T.Regular{}, F.scale(font)})
-def published_document(ready: Bool, +state: State) -> Publication:
+  observed_lifecycle_at(capacity, lifecycle, displayed, T.Presentation{T.Body{}, T.Regular{}, F.scale(font)})
+def published_document_at(+capacity: Nat, ready: Bool, +state: State) -> Publication:
   match ready:
-    case True{}: Publish{displayed_generation(state), observe(state), native_updates(state)}
-    case False{}: Publish{0n, observe(state), native_updates(state)}
-def publication_for(existing: Bool, +ready: Bool, current: Bool, state: State) -> Publication:
+    case True{}: Publish{displayed_generation(state), observe(capacity, state), native_updates(state)}
+    case False{}: Publish{0n, observe(capacity, state), native_updates(state)}
+def publication_policy_at(+capacity: Nat, existing: Bool, +ready: Bool, current: Bool, state: State) -> Publication:
   match existing ready current:
     case True{} False{} _: KeepPublished{native_updates(state)}
     case True{} True{} True{}: KeepPublished{native_updates(state)}
-    case _ _ _: published_document(ready, state)
-def publication(+last_published: Nat, +state: State) -> Publication:
-  publication_for(Bool.not(Nat.is_eq(last_published, 0n)), display_ready(state),
+    case _ _ _: published_document_at(capacity, ready, state)
+def publication_lifecycle_at(+capacity: Nat, lifecycle: Lifecycle, existing: Bool, ready: Bool, current: Bool, state: State) -> Publication:
+  match lifecycle:
+    case Blocked{problem}: published_document_at(capacity, False{}, state)
+    case other: publication_policy_at(capacity, existing, ready, current, state)
+def publication_for_at(+capacity: Nat, existing: Bool, ready: Bool, current: Bool, +state: State) -> Publication:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  publication_lifecycle_at(capacity, lifecycle, existing, ready, current, state)
+def publication(+capacity: Nat, +last_published: Nat, +state: State) -> Publication:
+  publication_for_at(capacity, Bool.not(Nat.is_eq(last_published, 0n)), display_ready(state),
     Nat.is_eq(displayed_generation(state), last_published), state)
 def probe_document(+job: Plan.Job) -> Doc.Document: Probe.document(job)
 def probe_target_keys(+request: Content.Request) -> +List<String>: Probe.target_keys(request)
@@ -254,10 +318,10 @@ def retry_candidate(+more: Bool, +index: Nat, +state: State) -> Search:
   match more:
     case True{}: Searching{(index + 1n : Nat), state}
     case False{}: Stopped{no_candidate(state)}
-def selected(+outcome: Plan.Plan, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: UI.Surface) -> Search:
+def selected(+outcome: Plan.Plan, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: UI.Surface, round: Nat) -> Search:
   match outcome:
     case Plan.Ready{world}: Stopped{admit(world, capacity, engine, state, semantic)}
-    case Plan.Awaiting{generation, first, remaining}: Stopped{Decision{set_lifecycle(state, Measuring{index, capacity, engine, semantic}), Nil{}}}
+    case Plan.Awaiting{generation, first, remaining}: Stopped{Decision{set_lifecycle(state, Measuring{index, capacity, engine, semantic, round}), Nil{}}}
     case Plan.Invalid{error}: Stopped{Decision{set_lifecycle(state, Blocked{"Physical source or receipt is invalid"}), Nil{}}}
     case Plan.Infeasible{failure}: retry_candidate(Nat.is_lt(index, 3n), index, state)
 def surface_layers(surface: UI.Surface) -> +List<View.Layer>:
@@ -316,7 +380,7 @@ def feedback_root(+source: Source.Node, +entries: +List<Legacy.Pending>, +font: 
 def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: Spatial.Box, +state: State, +semantic: UI.Surface) -> Search:
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), feedback_root(source, pending(legacy), font), font}, viewport)
-  selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic)
+  selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)
 def authored(+result: Shell.Result, +index: Nat, +capacity: View.Capacity, +font: T.Presentation,
   +viewport: Spatial.Box, +state: State, +semantic: UI.Surface) -> Search:
   match result:
@@ -336,7 +400,7 @@ def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, +index
       authored(Shell.source(surface, parameters, capacity, layers, anchors, presentation),
         index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed}, semantic)
 def calibrated_body(metric: T.Metric, +index: Nat, +state: State) -> Search:
-  calibrated_parameters(Design.parameters(F.scale(current_font(legacy(state))), metric), index, state)
+  calibrated_parameters(Design.parameters(NaturalSize.limit(), F.scale(current_font(legacy(state))), metric), index, state)
 
 def calibrated(+body: Maybe<&2, T.Metric>, +index: Nat, +state: State) -> Search:
   match body:
@@ -365,7 +429,7 @@ def build(index: Nat, state: State) -> Decision:
   finish_search(search_run(4n, Searching{index, state}))
 def accepted(+rebuild: Bool, +first: +List<Legacy.Effect>, +state: State) -> Decision:
   match rebuild:
-    case False{}: Decision{state, first}
+    case False{}: Decision{state, List.append(&2, Legacy.Effect, first, pending_frame_effects(state))}
     case True{}:
       append(first, build(0n, state))
 def accept(+rebuild: Bool, +value: Legacy.Decision, +state: State) -> Decision:
@@ -651,33 +715,34 @@ def key_captured(+key: String, +shift: Bool, +state: State) -> KeyResult:
     case Some{Published{world, semantic, scope, basis, frame}}: published_key(key, shift, scope, basis, semantic, frame, state)
 def key_event(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame, +state: State) -> KeyResult:
   key_captured(key, shift, decision_state(received_frame(frame_owned(received, state), frame, state)))
-def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: UI.Surface) -> Decision:
+def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: UI.Surface, round: Nat) -> Decision:
   match status:
     case World.Rejected{reason}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
-    case _: finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine, state, semantic)))
+    case _: finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine, state, semantic, round)))
 def measured_pending(+receipts: +List<String>, +state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic}, displayed}:
+    case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic, +round}, displayed}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
-      receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic}, displayed}, semantic)
+      receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}, semantic, (round + 1n : Nat))
     case other: Decision{other, Nil{}}
 def measured_current(+owned: Bool, +receipts: +List<String>, +state: State) -> Decision:
   match owned:
     case False{}: Decision{state, Nil{}}
     case True{}: measured_pending(receipts, state)
-def measurement_owned(+generation: Nat, state: State) -> Bool:
+def measurement_owned(ticket: MeasurementTicket, state: State) -> Bool:
+  MeasurementTicket{generation, received_round} = ticket
   State{legacy, serial, anchors, lifecycle, displayed} = state
   match lifecycle:
-    case Measuring{index, capacity, engine, semantic}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine)))
+    case Measuring{index, capacity, engine, semantic, round}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) && Nat.is_eq(received_round, round)
     case _: False{}
 def measurement_failed(+owned: Bool, +reason: String, +state: State) -> Decision:
   match owned:
     case False{}: Decision{state, Nil{}}
     case True{}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
-def physical_measurement_failed(+generation: Nat, +reason: String, +state: State) -> Decision:
-  measurement_failed(measurement_owned(generation, state), reason, state)
-def physical_measured(+generation: Nat, +receipts: +List<String>, +state: State) -> Decision:
-  measured_current(measurement_owned(generation, state), receipts, state)
+def physical_measurement_failed(+ticket: MeasurementTicket, +reason: String, +state: State) -> Decision:
+  measurement_failed(measurement_owned(ticket, state), reason, state)
+def physical_measured(+ticket: MeasurementTicket, +receipts: +List<String>, +state: State) -> Decision:
+  measured_current(measurement_owned(ticket, state), receipts, state)
 def capacity_index(capacity: View.Capacity) -> Nat:
   match capacity:
     case View.Capacity{True{}, True{}}: 0n
@@ -688,7 +753,7 @@ def refrozen_source(source: Source.Node, font: T.Presentation, viewport: Spatial
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), source, font}, viewport)
   finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine,
-    State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic)))
+    State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)))
 def refrozen(snapshot: Content.Snapshot, viewport: Spatial.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: UI.Surface) -> Decision:
   Content.Snapshot{old, source, font} = snapshot
   refrozen_source(source, font, viewport, index, capacity, state, semantic)
@@ -697,7 +762,7 @@ def refreeze(+index: Nat, +capacity: View.Capacity, +engine: World.Engine, +stat
   refrozen(World.snapshot(engine), World.viewport(engine), index, capacity, State{legacy, serial, anchors, lifecycle, displayed}, semantic)
 def remeasure(+state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic}, displayed}: refreeze(index, capacity, engine, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic}, displayed}, semantic)
+    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}: refreeze(index, capacity, engine, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}, semantic)
     case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed}: refreeze(capacity_index(capacity), capacity, engine, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed}, semantic)
     case other: Decision{other, Nil{}}
 def key_decision(result: KeyResult) -> Decision:

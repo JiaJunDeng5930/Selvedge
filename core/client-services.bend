@@ -69,6 +69,7 @@ type Input is Data:
   CloseDirectoryPicker{}
 
 type Effect is Data:
+  SessionReady{}
   Authenticate{ticket: Nat, credential: String}
   StoreAppearance{appearance: Appearance}
   Upload{ticket: Nat, file: File}
@@ -111,7 +112,7 @@ def authentication(owned: Bool, state: State, result: Result<&2, &2, String, Uni
     case True{}:
       State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = state
       match result:
-        case Done{unit}: Decision{State{Connected{}, "", False{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
+        case Done{unit}: Decision{State{Connected{}, "", False{}, appearance, next, transfers, preview, directory_picker}, [SessionReady{}]}
         case Fail{reason}: Decision{State{CredentialRejected{reason}, "", True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
 
 def expected_access(access: Access, ticket: Nat) -> Bool:

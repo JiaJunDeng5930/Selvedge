@@ -17,6 +17,23 @@ type Event is Data:
   PlaceCard{key: String, target: String}
   SelectDestination{key: String}
 
+def keyboard_activation(event: Event) -> Bool:
+  match event:
+    case Activate{key}: True{}
+    case EditText{key}: False{}
+    case ConfirmText{key}: False{}
+    case EditToggle{key}: False{}
+    case SelectFiles{key}: False{}
+    case DragCard{key}: False{}
+    case DropCard{key}: False{}
+    case PlaceCard{key, target}: False{}
+    case SelectDestination{key}: False{}
+
+def keyboard_activations(events: +List<Event>) -> Bool:
+  match events:
+    case Nil{}: False{}
+    case Con{first, remaining}: Bool.or(keyboard_activation(first), keyboard_activations(remaining))
+
 type Node is Data:
   Element{key: String, tag: String, attributes: +List<Property>,
     styles: +List<Property>, events: +List<Event>, children: +List<Node>}

@@ -45,3 +45,14 @@ def dialog_reading_order(+children: +List<Authored.Child>) -> Rule.dialog_readin
           (tail => Authored.append(Authored.ordinary(nodes), tail)),
           Authored.append(Authored.dialog_body(rest), Authored.dialog_actions(rest)),
           Rule.dialog_reading_content(rest), tail_evidence))
+
+def Rule.choice_content(kind, classification, selected, description, input, availability):
+  {==}
+
+def Rule.choice_group_content():
+  {==}
+
+def Rule.choice_group_partition(key, control, choices, action_key, action_control, actions, input, availability):
+  Equal.cong(+List<Source.Node>, Authored.DialogParts,
+    (tail => Authored.BodyAndActions{Authored.ordinary(choices), tail}),
+    List.append(&2, Source.Node, Authored.ordinary(actions), Nil{}), Authored.ordinary(actions), Std.app_nil_r(Source.Node, Authored.ordinary(actions)))
