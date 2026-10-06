@@ -1,4 +1,6 @@
 import Base
+import ./reading-binding.bend as ReadingBinding
+import ../core/ui-identity.bend as Identity
 import ../bendlib/stdlib.bend as Std
 import ./spatial.bend as Spatial
 import ./enclosure.bend as Enclosure
@@ -64,6 +66,8 @@ type NativeFieldKind is Data:
   SecretField{}
 
 type Attribute is Data:
+  ReadingAttribute{binding: ReadingBinding.Binding}
+  EditorBindingAttribute{key: Identity.Key}
   DataAttribute{name: String, value: String}
   AriaAttribute{name: String, value: String}
   RoleAttribute{value: String}
@@ -118,19 +122,19 @@ type NativeTarget is Data:
   CodeBodyTarget{identity: Code.Identity, wrap: Bool}
 
 type Node is Data:
-  NativeAttachment{key: String, target: NativeTarget, attributes: +List<Attribute>,
+  NativeAttachment{key: Identity.Key, target: NativeTarget, attributes: +List<Attribute>,
     style: Style, children: +List<Node>}
 
-  Box{key: String, tag: BoxTag, style: Style, attributes: +List<Attribute>, children: +List<Node>}
-  Control{key: String, tag: ControlTag, style: Style, attributes: +List<Attribute>,
+  Box{key: Identity.Key, tag: BoxTag, style: Style, attributes: +List<Attribute>, children: +List<Node>}
+  Control{key: Identity.Key, tag: ControlTag, style: Style, attributes: +List<Attribute>,
     accessible_name: String, enabled: Bool, first_event: Doc.Event,
     remaining_events: +List<Doc.Event>, children: +List<Node>}
-  Text{key: String, value: String, font: FontChoice, wrapping: T.Wrapping}
-  Glyph{key: String, drawing: Drawing, style: Style}
-  Field{key: String, kind: NativeFieldKind, style: Style, attributes: +List<Attribute>,
+  Text{key: Identity.Key, value: String, font: FontChoice, wrapping: T.Wrapping}
+  Glyph{key: Identity.Key, drawing: Drawing, style: Style}
+  Field{key: Identity.Key, kind: NativeFieldKind, style: Style, attributes: +List<Attribute>,
     value: String, placeholder: String, options: +List<Choice>, policy: FieldPolicy,
     accessible_name: String, enabled: Bool, first_event: Doc.Event, remaining_events: +List<Doc.Event>}
-  RichText{key: String, style: Style, content: RichContent, attachments: +List<Node>}
+  RichText{key: Identity.Key, style: Style, content: RichContent, attachments: +List<Node>, native_owner: Maybe<&2, String>}
 
 def resolve_font(choice: FontChoice, parent: T.Presentation) -> T.Presentation:
   match choice:
@@ -175,27 +179,30 @@ def control_tag_name(tag: ControlTag) -> String:
     case SectionControl{}: "section"
     case SpanControl{}: "span"
 
-def encode_attribute(attribute: Attribute) -> Doc.Property:
+def attribute_properties(attribute: Attribute) -> +List<Doc.Property>:
   match attribute:
-    case DataAttribute{name, value}: Doc.Property{"data-" ++ name, value}
-    case AriaAttribute{name, value}: Doc.Property{"aria-" ++ name, value}
-    case RoleAttribute{value}: Doc.Property{"role", value}
-    case TitleAttribute{value}: Doc.Property{"title", value}
-    case TabIndexAttribute{value}: Doc.Property{"tabindex", value}
-    case ValueAttribute{value}: Doc.Property{"value", value}
-    case CheckedAttribute{}: Doc.Property{"checked", ""}
-    case OpenAttribute{}: Doc.Property{"open", ""}
-    case DraggableAttribute{value}: Doc.Property{"draggable", value}
-    case InertAttribute{}: Doc.Property{"inert", ""}
+    case ReadingAttribute{ReadingBinding.Binding{ReadingBinding.Context{task, generation}, part}}:
+      [Doc.Property{"data-reading-task", Nat.show(task)}, Doc.Property{"data-reading-generation", Nat.show(generation)}, Doc.Property{"data-reading-" ++ ReadingBinding.part_name(part), ""}]
+    case EditorBindingAttribute{key}: [Doc.Property{"data-native-editor-key", Identity.encode(key)}]
+    case DataAttribute{name, value}: [Doc.Property{"data-" ++ name, value}]
+    case AriaAttribute{name, value}: [Doc.Property{"aria-" ++ name, value}]
+    case RoleAttribute{value}: [Doc.Property{"role", value}]
+    case TitleAttribute{value}: [Doc.Property{"title", value}]
+    case TabIndexAttribute{value}: [Doc.Property{"tabindex", value}]
+    case ValueAttribute{value}: [Doc.Property{"value", value}]
+    case CheckedAttribute{}: [Doc.Property{"checked", ""}]
+    case OpenAttribute{}: [Doc.Property{"open", ""}]
+    case DraggableAttribute{value}: [Doc.Property{"draggable", value}]
+    case InertAttribute{}: [Doc.Property{"inert", ""}]
 
-def key_of(node: Node) -> String:
+def key_of(node: Node) -> Identity.Key:
   match node:
     case Box{key, tag, style, attributes, children}: key
     case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: key
     case Text{key, value, font, wrapping}: key
     case Glyph{key, drawing, style}: key
     case Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: key
-    case RichText{key, style, content, attachments}: key
+    case RichText{key, style, content, attachments, native_owner}: key
     case NativeAttachment{key, target, attributes, style, children}: key
 
 def children_of(node: Node) -> +List<Node>:
@@ -205,7 +212,7 @@ def children_of(node: Node) -> +List<Node>:
     case Text{key, value, font, wrapping}: Nil{}
     case Glyph{key, drawing, style}: Nil{}
     case Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: Nil{}
-    case RichText{key, style, content, attachments}: attachments
+    case RichText{key, style, content, attachments, native_owner}: attachments
     case NativeAttachment{key, target, attributes, style, children}: children
 
 def events_of(node: Node) -> +List<Doc.Event>:
@@ -215,7 +222,7 @@ def events_of(node: Node) -> +List<Doc.Event>:
     case Text{key, value, font, wrapping}: Nil{}
     case Glyph{key, drawing, style}: Nil{}
     case Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: first_event <> remaining_events
-    case RichText{key, style, content, attachments}: Nil{}
+    case RichText{key, style, content, attachments, native_owner}: Nil{}
     case NativeAttachment{key, target, attributes, style, children}: Nil{}
 
 def interaction_of(node: Node) -> Model.Interaction<Doc.Event>:
@@ -225,7 +232,7 @@ def interaction_of(node: Node) -> Model.Interaction<Doc.Event>:
     case Text{key, value, font, wrapping}: Model.DisplayOnly{}
     case Glyph{key, drawing, style}: Model.DisplayOnly{}
     case Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: Model.Operable{first_event, remaining_events, enabled}
-    case RichText{key, style, content, attachments}: Model.DisplayOnly{}
+    case RichText{key, style, content, attachments, native_owner}: Model.DisplayOnly{}
     case NativeAttachment{key, target, attributes, style, children}: Model.DisplayOnly{}
 
 def drawing_paint_valid(paint: DrawingPaint) -> Bool:
@@ -233,14 +240,10 @@ def drawing_paint_valid(paint: DrawingPaint) -> Bool:
     case FilledDrawing{}: True{}
     case StrokedDrawing{weight_tenths}: Nat.is_le(1n, weight_tenths)
 
-def drawing_extent(drawing: Drawing) -> Enclosure.Extent:
-  Drawing{view_box, paths, width, height, paint} = drawing
-  Enclosure.Extent{width, height}
-
 def target_key(target: NativeTarget) -> String:
   match target:
-    case ToolbarTarget{identity}: Code.key(identity) ++ "/toolbar"
-    case CodeBodyTarget{identity, wrap}: Code.key(identity) ++ "/code"
+    case ToolbarTarget{identity}: Code.dom_key(identity) ++ "/toolbar"
+    case CodeBodyTarget{identity, wrap}: Code.dom_key(identity) ++ "/code"
 
 def field_policy_valid(policy: FieldPolicy) -> Bool:
   FieldPolicy{minimum_columns, +minimum_lines, maximum_lines} = policy

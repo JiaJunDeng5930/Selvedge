@@ -151,3 +151,7 @@ def frame_gap(value: Frame) -> Nat:
 def extent_height(value: Extent) -> Nat:
   Extent{width, height} = value
   height
+
+def extent_width(value: Extent) -> Nat:
+  Extent{width, height} = value
+  width

@@ -83,7 +83,7 @@ def Rule.evidence():
     +project => +application => {==},
     expanded => intent => +collapsed => {==},
     intent => +collapsed => {==},
-    +project => +world => +route => +drafts => +readers => +layers => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => {==},
+    +project => +world => +route => +drafts => +readers => +layers => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
     +id => drafts => +world => {==},
     +drafts => +world => {==},
     entries => registered_choices_complete(entries),
@@ -97,10 +97,10 @@ def Rule.evidence():
     +id => +intent => collapsed => {==},
     +values => +selected => +parent => +state => {==},
     +context => +world => {==},
-    +query => +world => +route => +drafts => +readers => +trigger => +initial => previous => +rest => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => {==},
+    +query => +world => +route => +drafts => +readers => +trigger => +initial => previous => +layer_occurrence => +rest => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
     +id => name => workspace => +selected => +expanded => +tasks => +open => +create => +toggle => +more => +parent => +state => {==},
     context => {==},
     +parent => state => {==},
     +first => +rest => +parent => +state => {==},
-    +project => +world => route => +revision => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => +feedback => +directory_entry => +rest => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => {==},
-    +project => +world => route => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => {==}}
+    +project => +world => route => +revision => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => +feedback => +directory_entry => +rest => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
+    +project => +world => route => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==}}

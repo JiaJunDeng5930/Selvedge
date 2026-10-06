@@ -61,22 +61,24 @@ law retag_generation:
   {F.generation(F.retag(state, generation)) == generation : Nat}
 
 law pending_request:
+  for capacity: Nat
   for generation: Nat
   for scale: T.Scale
-  {F.request(F.Pending{generation, scale}, Nil{}) == F.Plan{generation,
-    [T.spec(T.Probe{"@font/body", "0", T.resolved(T.Presentation{T.Body{}, T.Regular{}, scale}),
-      T.WrapWords{}, None{}, "0"})]} : F.Plan}
+  {F.request_at(capacity, F.Pending{generation, scale}, Nil{}) == F.Plan{generation,
+    [T.body_spec_at(capacity, scale)]} : F.Plan}
 
 law ready_request:
+  for capacity: Nat
   for generation: Nat
   for scale: T.Scale
   for metric: T.Metric
-  {F.request(F.Ready{generation, scale, metric, Nil{}}, Nil{}) == F.Plan{generation, Nil{}} : F.Plan}
+  {F.request_at(capacity, F.Ready{generation, scale, metric, Nil{}}, Nil{}) == F.Plan{generation, Nil{}} : F.Plan}
 
 law failed_request:
+  for capacity: Nat
   for generation: Nat
   for scale: T.Scale
-  {F.request(F.Failed{generation, scale}, Nil{}) == F.Plan{generation, Nil{}} : F.Plan}
+  {F.request_at(capacity, F.Failed{generation, scale}, Nil{}) == F.Plan{generation, Nil{}} : F.Plan}
 
 law begin_scale:
   for generation: Nat

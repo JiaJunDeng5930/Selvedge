@@ -50,10 +50,6 @@ type Requirements is Type:
       {Interface.content(UI.observe(capacity, state)) == Core.observe(capacity, state) : Core.Scene},
     timeline: @+reader:E.Reader -> @+task:D.Task -> @+world:M.World() ->
       {ConversationSpec.timeline_sources(Conversation.timeline(reader, task, world)) == D.history_messages(D.task_history(task), Nil{}) : +List<D.Message>},
-    grouped_history: @+messages:+List<D.Message> -> @+offset:Nat ->
-      {ConversationSpec.sources(Conversation.groups(messages, offset)) == messages : +List<D.Message>},
-    visible_history: @+groups:+List<Conversation.Group> -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->
-      {ConversationSpec.visible_sources(Conversation.visible(groups, task, disclosures)) == ConversationSpec.sources(groups) : +List<D.Message>},
     displayed_text: @+messages:+List<D.Message> -> @+offset:Nat -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->
       ConversationSpec.visible_text_agreement(Conversation.visible(Conversation.groups(messages, offset), task, disclosures)),
     draft_identity: @+task:Nat -> @+text:U.Text -> @previous:U.Delivery -> @+selected:U.Delivery -> @world:M.World() ->

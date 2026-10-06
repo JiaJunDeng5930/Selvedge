@@ -1,3 +1,4 @@
+import ../../core/ui-identity.bend as UIIdentity
 import Base
 import ../project-presentation-laws.bend as Rule
 import ../design.bend as Design
@@ -20,15 +21,15 @@ def chooser_draft_observation(+id: Nat, +fallback: Design.Style) -> Rule.chooser
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = fallback
   {==}
 
-def project_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> Rule.project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
+def project_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> Rule.project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def task_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: String, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
+def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: String, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def chooser_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
+def chooser_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 

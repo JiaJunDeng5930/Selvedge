@@ -4,6 +4,7 @@ import ../../MODEL.bend as M
 import ../../PROGRAM.bend as Program
 import ../../bendlib/component.bend as C
 import ../../bendlib/json.bend as J
+import ../../bendlib/command-codec.bend as CommandCodec
 import ../user-experience.bend as E
 import ../user-input.bend as U
 import ./submission.bend as SubmissionProof
@@ -11,7 +12,7 @@ import ./submission.bend as SubmissionProof
 def native_decision(+decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.runtime_observation(E.native_result(decision, session, None{}, durable)) == decision : M.Decision()}:
   C.Decision{program, reply, effects} = decision
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   {==}
 
 def runtime_input(+input: M.Input, +program: M.World(), session: E.Session) ->
@@ -33,11 +34,11 @@ def confirmation_result_refinement(owned: Bool, +result: J.Json, destination: U.
     case False{}: {==}
     case True{}: accepted_confirmation_refinement(J.boolean(J.get(result, "ok")), result, destination, application)
 
-def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Command, +trigger: String) ->
-  {E.confirmation_owned(layers, command, trigger) == Rule.confirmation_spec(layers, command, trigger) : Bool}:
+def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Command, +trigger: String, +occurrence: Nat) ->
+  {E.confirmation_owned(layers, command, trigger, occurrence) == Rule.confirmation_spec(layers, command, trigger, occurrence) : Bool}:
   match layers:
     case Nil{}: {==}
-    case Con{E.Layer{panel, current_trigger, target, query}, rest}:
+    case Con{E.Layer{panel, current_trigger, target, query, layer_occurrence}, rest}:
       match panel:
         case U.Confirm{current, title, destination}: {==}
         case U.ProjectPicker{}: {==}
@@ -59,30 +60,26 @@ def completed_refinement(+completion: E.Completion, +program: M.World(), +result
   match completion:
     case E.DirectCompletion{}: {==}
     case E.DraftCompletion{draft}: {==}
-    case E.ConfirmationCompletion{command, trigger, destination}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-      +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}, program)}
+    case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
+      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+      +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, program)}
       Equal.trans(E.Decision,
-        E.complete_confirmation(E.confirmation_owned(layers, command, trigger), result, destination, updated),
-        E.complete_confirmation(Rule.confirmation_spec(layers, command, trigger), result, destination, updated),
-        Rule.confirmation_result_spec(Rule.confirmation_spec(layers, command, trigger), result, destination, updated),
+        E.complete_confirmation(E.confirmation_owned(layers, command, trigger, occurrence), result, destination, updated),
+        E.complete_confirmation(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
+        Rule.confirmation_result_spec(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
         Equal.cong(Bool, E.Decision, (owned => E.complete_confirmation(owned, result, destination, updated)),
-          E.confirmation_owned(layers, command, trigger), Rule.confirmation_spec(layers, command, trigger),
-          confirmation_identity_refinement(layers, command, trigger)),
-        confirmation_result_refinement(Rule.confirmation_spec(layers, command, trigger), result, destination, updated))
+          E.confirmation_owned(layers, command, trigger, occurrence), Rule.confirmation_spec(layers, command, trigger, occurrence),
+          confirmation_identity_refinement(layers, command, trigger, occurrence)),
+        confirmation_result_refinement(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated))
 
 def Rule.command_evidence():
   Rule.CommandRequirements{
     completion => program => result => session => previous => completed_refinement(completion, program, result, session, previous),
     +command => +application => +submitted => {==},
     +program => +session => previous => {==},
-    +program => +result => +session => previous =>
-        {==}
 
       # The submitted snapshot is settled only if its editor still has that revision;
       # the existing submission laws establish acceptance, refusal and stale ownership.
-    ,
-    +program => +result => +draft => +session => previous => {==},
     +program => +result => +draft => +session => previous => absent => SubmissionProof.stale_native(draft, program, result, Nil{}, E.retain_previews(session, program), False{}, absent),
     +result => destination => application => accepted =>
       Equal.cong(Bool, E.Decision,
@@ -96,6 +93,11 @@ def Rule.command_evidence():
     ,
     result => destination => application =>
         {==}
+
+    , +current => title => destination => +current_trigger => target => query => +current_occurrence => rest => +command => +trigger => +occurrence => stale =>
+      Equal.cong(Bool, Bool,
+        (same => same && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))),
+        Nat.is_eq(current_occurrence, occurrence), False{}, stale)
 
       # The receipt contract independently selects the local completion behavior.
 

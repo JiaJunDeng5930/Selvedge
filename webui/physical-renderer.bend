@@ -1,4 +1,6 @@
 import Base
+import ../core/code-block.bend as Code
+import ../core/ui-identity.bend as UIIdentity
 import ./physical-content.bend as Content
 import ./physical-allocation.bend as Allocation
 import ./physical-space.bend as Model
@@ -9,6 +11,7 @@ import ./typography.bend as T
 import ./design.bend as Design
 import ./paint.bend as Paint
 import ./document.bend as Doc
+import ./natural-size.bend as NaturalSize
 
 def choose(~A: Data, +condition: Bool, +yes: A, +no: A) -> A:
   match condition:
@@ -24,7 +27,7 @@ def properties(+first: +List<Doc.Property>, +second: +List<Doc.Property>) -> +Li
 def attributes(+values: +List<Source.Attribute>) -> +List<Doc.Property>:
   match values:
     case Nil{}: Nil{}
-    case Con{+value, +rest}: Source.encode_attribute(value) <> attributes(rest)
+    case Con{+value, +rest}: List.append(&2, Doc.Property, Source.attribute_properties(value), attributes(rest))
 
 def wrapping(+value: T.Wrapping) -> +List<Doc.Property>:
   [Paint.property("white-space", T.white_space(value)), Paint.property("overflow-wrap", T.overflow_wrap(value)),
@@ -34,6 +37,11 @@ def code_wrapping(+value: Bool) -> T.Wrapping:
   match value:
     case True{}: T.WrapAnywhere{}
     case False{}: T.ScrollableCode{}
+
+def text_attributes(wrapping: T.Wrapping, text: String) -> +List<Doc.Property>:
+  match wrapping:
+    case T.SingleLine{}: [Doc.Property{"title", text}]
+    case _: Nil{}
 
 def code_properties(+values: +List<Doc.Property>) -> +List<Doc.Property>:
   match values:
@@ -46,21 +54,27 @@ def shadow(+value: Bool) -> +List<Doc.Property>:
     case True{}: [Paint.property("box-shadow", "var(--shadow-sm)")]
     case False{}: Nil{}
 
-def chrome(+value: Design.Chrome) -> +List<Doc.Property>:
+def chrome_with_channels(foreground_key: String, background_key: String, +value: Design.Chrome) -> +List<Doc.Property>:
   Design.Chrome{+foreground, +background, +border, +width, +radius, +cast_shadow} = value
-  properties([Paint.property("color", Paint.paint(foreground)), Paint.property("background", Paint.paint(background)),
+  properties([Paint.property(foreground_key, Paint.paint(foreground)), Paint.property(background_key, Paint.paint(background)),
     Paint.property("border-color", Paint.paint(border)), Paint.property("border-radius", Paint.px(radius))], shadow(cast_shadow))
+
+def chrome(+value: Design.Chrome) -> +List<Doc.Property>:
+  chrome_with_channels("color", "background", value)
+
+def control_chrome(+value: Design.Chrome) -> +List<Doc.Property>:
+  chrome_with_channels("--native-rest-color", "--native-rest-background", value)
 
 def code_chrome(+value: Design.Chrome) -> +List<Doc.Property>:
   Design.Chrome{foreground, background, border, width, radius, cast_shadow} = value
   properties(code_properties(chrome(value)), [Paint.property("--physical-code-border-width", Paint.px(width))])
 
-def rich_styles(+font: T.Presentation, +policy: Source.RichPolicy) -> +List<Doc.Property>:
+def rich_styles_at(+capacity: Nat, +font: T.Presentation, +policy: Source.RichPolicy) -> +List<Doc.Property>:
   Source.RichPolicy{Source.CodeSurface{+frame, +surface}, +toolbar_height, +block_gap, +list_indent, +code_text, +wrap} = policy
   +insets = Enclosure.frame_content(frame)
   +inline = Enclosure.inline(insets)
   +block = Enclosure.block(insets)
-  properties(properties(Paint.rich_properties(font), Paint.rich_resolved("--rich-code", T.resolved(code_text))), properties(properties(Paint.text_presentation(T.with_tier(font, T.Body{})), code_chrome(surface)),
+  properties(properties(Paint.rich_properties_at(capacity, font), Paint.rich_resolved("--rich-code", T.resolve_presentation(capacity, code_text))), properties(properties(Paint.text_presentation_at(capacity, T.with_tier(font, T.Body{})), code_chrome(surface)),
     [Paint.property("--physical-code-padding-inline", Paint.px(inline)), Paint.property("--physical-code-padding-block", Paint.px(block)),
      Paint.property("--physical-code-gap", Paint.px(Enclosure.frame_gap(frame))),
      Paint.property("--physical-toolbar-height", Paint.px(toolbar_height)), Paint.property("--physical-block-gap", Paint.px(block_gap)),
@@ -69,19 +83,34 @@ def rich_styles(+font: T.Presentation, +policy: Source.RichPolicy) -> +List<Doc.
      Paint.property("--physical-code-overflow-wrap", T.overflow_wrap(code_wrapping(wrap)))]))
 
 # Measurement and emission share primitive typography, without outer geometry.
-def primitive_styles(+value: Content.Value) -> +List<Doc.Property>:
+
+def rich_styles(+font: T.Presentation, +policy: Source.RichPolicy) -> +List<Doc.Property>:
+  rich_styles_at(NaturalSize.limit(), font, policy)
+
+def content_node(value: Content.Value) -> Source.Node:
+  Content.Value{node, font} = value
+  node
+
+def primitive_styles_at(+capacity: Nat, +value: Content.Value) -> +List<Doc.Property>:
   match value:
-    case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: properties(Paint.text_presentation(font), wrapping(wrap))
-    case Content.Value{Source.RichText{+key, +style, Source.RichContent{+source, +text, +policy}, +attachments}, +font}: rich_styles(font, policy)
-    case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}: Paint.text_presentation(font)
-    case Content.Value{Source.Glyph{+key, +drawing, +style}, +font}: Paint.text_presentation(font)
-    case Content.Value{Source.Box{+key, +tag, +style, +attrs, +children}, +font}: Paint.text_presentation(font)
-    case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +children}, +font}: Paint.text_presentation(font)
-    case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +children}, +font}: Paint.text_presentation(font)
+    case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: properties(Paint.text_presentation_at(capacity, font), wrapping(wrap))
+    case Content.Value{Source.RichText{+key, +style, Source.RichContent{+source, +text, +policy}, +attachments, +native_owner}, +font}: rich_styles_at(capacity, font, policy)
+    case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}: Paint.text_presentation_at(capacity, font)
+    case Content.Value{Source.Glyph{+key, +drawing, +style}, +font}: Paint.text_presentation_at(capacity, font)
+    case Content.Value{Source.Box{+key, +tag, +style, +attrs, +children}, +font}: Paint.text_presentation_at(capacity, font)
+    case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +children}, +font}: Paint.text_presentation_at(capacity, font)
+    case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +children}, +font}: Paint.text_presentation_at(capacity, font)
+
+def primitive_styles(+value: Content.Value) -> +List<Doc.Property>:
+  primitive_styles_at(NaturalSize.limit(), value)
 
 def visual(+style: Source.Style) -> +List<Doc.Property>:
   Source.Style{+layout, +font, +surface, +states} = style
   properties(chrome(surface), Paint.states_style(states))
+
+def control_visual(+style: Source.Style) -> +List<Doc.Property>:
+  Source.Style{+layout, +font, +surface, +states} = style
+  properties(control_chrome(surface), Paint.states_style(states))
 
 def overflow(+value: Model.Scroll) -> +List<Doc.Property>:
   match value:
@@ -106,18 +135,18 @@ def child_origin(+bounds: Spatial.Box, +rule: Model.Rule) -> Spatial.Box:
   Model.Rule{+direction, +main, +cross, +frame, +border, +width_rule, +height_rule, +minimum, +scroll, position} = rule
   Spatial.Box{Nat.add(left, border), Nat.add(top, border), Nat.sub(width, Nat.mul(2n, border)), Nat.sub(height, Nat.mul(2n, border))}
 
-def canvas(+key: String, +extent: Enclosure.Extent, +rule: Model.Rule, +children: +List<Doc.Node>) -> Doc.Node:
+def canvas(+key: UIIdentity.Key, +extent: Enclosure.Extent, +rule: Model.Rule, +children: +List<Doc.Node>) -> Doc.Node:
   Enclosure.Extent{+width, +height} = extent
   Model.Rule{+direction, +main, +cross, +frame, +border, +width_rule, +height_rule, +minimum, +scroll, position} = rule
   +insets = Enclosure.frame_content(frame)
-  Doc.Element{key ++ "/physical-canvas", "div", Nil{},
+  Doc.Element{UIIdentity.encode(UIIdentity.part(key, "physical-canvas")), "div", Nil{},
     [Paint.property("position", "relative"), Paint.property("display", "block"), Paint.property("margin", "0"), Paint.property("padding", "0"),
      Paint.property("border", "0"), Paint.property("box-sizing", "border-box"),
      Paint.property("width", Paint.px(Nat.add(width, Nat.mul(2n, Enclosure.inline(insets))))),
      Paint.property("height", Paint.px(Nat.add(height, Nat.mul(2n, Enclosure.block(insets)))))], Nil{}, children}
 
-def diagnostic(+key: String, +reason: String) -> Doc.Node:
-  Doc.Element{key ++ "/invalid-physical-world", "div", [Paint.property("data-physical-error", reason)], Nil{}, Nil{}, [Doc.Text{"Invalid physical world: " ++ reason}]}
+def diagnostic(+key: UIIdentity.Key, +reason: String) -> Doc.Node:
+  Doc.Element{UIIdentity.encode(UIIdentity.part(key, "invalid-physical-world")), "div", [Paint.property("data-physical-error", reason)], Nil{}, Nil{}, [Doc.Text{"Invalid physical world: " ++ reason}]}
 
 def event_list(+value: Model.Interaction<Doc.Event>) -> +List<Doc.Event>:
   match value:
@@ -137,7 +166,7 @@ def control_tabindex(+interaction: Model.Interaction<Doc.Event>) -> String:
     case Model.Operable{first, remaining, True{}}: "0"
     case Model.Operable{first, remaining, False{}}: "-1"
 
-def control_attributes(+tag: Source.ControlTag, +attrs: +List<Source.Attribute>, +name: String, +interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
+def control_attribute_details(+tag: Source.ControlTag, +attrs: +List<Source.Attribute>, +name: String, +interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
   match tag:
     case Source.Button{}: properties(attributes(attrs), Paint.property("type", "button") <> Paint.property("aria-label", name) <> availability(interaction, True{}))
     case Source.Summary{}: properties(attributes(attrs), Paint.property("aria-label", name) <> availability(interaction, False{}))
@@ -146,11 +175,14 @@ def control_attributes(+tag: Source.ControlTag, +attrs: +List<Source.Attribute>,
     case Source.SectionControl{}: properties(attributes(attrs), properties([Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)], availability(interaction, False{})))
     case Source.SpanControl{}: properties(attributes(attrs), properties([Paint.property("tabindex", control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)], availability(interaction, False{})))
 
-def choices(+values: +List<Source.Choice>, +key: String) -> +List<Doc.Node>:
+def control_attributes(+tag: Source.ControlTag, +attrs: +List<Source.Attribute>, +name: String, +interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
+  Paint.property("class", "native-control") <> control_attribute_details(tag, attrs, name, interaction)
+
+def choices(+values: +List<Source.Choice>, +key: UIIdentity.Key) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Source.Choice{+value, +label, +selected}, +rest}:
-      Doc.Element{key ++ "/option/" ++ value, "option", Paint.property("value", value) <> choose(+List<Doc.Property>, selected, [Paint.property("selected", "")], Nil{}), Nil{}, Nil{}, [Doc.Text{label}]} <> choices(rest, key)
+      Doc.Element{UIIdentity.encode(UIIdentity.entity(key, "option", value)), "option", Paint.property("value", value) <> choose(+List<Doc.Property>, selected, [Paint.property("selected", "")], Nil{}), Nil{}, Nil{}, [Doc.Text{label}]} <> choices(rest, key)
 
 def field_tag(+kind: Source.NativeFieldKind) -> String:
   match kind:
@@ -185,7 +217,7 @@ def file_attributes(+values: +List<Source.Attribute>) -> +List<Doc.Property>:
   match values:
     case Nil{}: Nil{}
     case Con{Source.ValueAttribute{value}, rest}: file_attributes(rest)
-    case Con{other, rest}: Source.encode_attribute(other) <> file_attributes(rest)
+    case Con{other, rest}: List.append(&2, Doc.Property, Source.attribute_properties(other), file_attributes(rest))
 
 def field_authored(+kind: Source.NativeFieldKind, +values: +List<Source.Attribute>) -> +List<Doc.Property>:
   match kind:
@@ -233,11 +265,11 @@ def drawing_block_alignment(direction: Model.Direction, main: Spatial.Alignment,
     case Model.Layered{}: main
     case Model.ResponsiveHorizontal{}: cross
 
-def paths(+values: +List<Source.DrawingPath>, +key: String) -> +List<Doc.Node>:
+def paths(+values: +List<Source.DrawingPath>, +key: UIIdentity.Key) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Source.DrawingPath{+data}, +rest}:
-      Doc.Element{key ++ "/path/" ++ data, "path", [Paint.property("d", data)], Nil{}, Nil{}, Nil{}} <> paths(rest, key)
+      Doc.Element{UIIdentity.encode(UIIdentity.entity(key, "drawing-path", data)), "path", [Paint.property("d", data)], Nil{}, Nil{}, Nil{}} <> paths(rest, key)
 
 def drawing_paint(paint: Source.DrawingPaint) -> +List<Doc.Property>:
   match paint:
@@ -247,7 +279,7 @@ def drawing_paint(paint: Source.DrawingPaint) -> +List<Doc.Property>:
        Paint.property("stroke-width", Nat.show(Nat.div(weight_tenths, 10n)) ++ "." ++ Nat.show(Nat.mod(weight_tenths, 10n))),
        Paint.property("stroke-linecap", "round"), Paint.property("stroke-linejoin", "round")]
 
-def drawing(+key: String, +value: Source.Drawing, +bounds: Spatial.Box, +rule: Model.Rule) -> Doc.Node:
+def drawing(+key: UIIdentity.Key, +value: Source.Drawing, +bounds: Spatial.Box, +rule: Model.Rule) -> Doc.Node:
   Source.Drawing{+view_box, +path_values, +width, +height, paint} = value
   Spatial.Box{+left, +top, +outer_width, +outer_height} = bounds
   Model.Rule{+direction, +main, +cross, +frame, +border, +width_rule, +height_rule, +minimum, +scroll, position} = rule
@@ -255,51 +287,55 @@ def drawing(+key: String, +value: Source.Drawing, +bounds: Spatial.Box, +rule: M
   +inner_width = Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, Enclosure.inline(insets))))
   +inner_height = Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, Enclosure.block(insets))))
   choose(Doc.Node, Nat.is_le(width, inner_width) && Nat.is_le(height, inner_height),
-    Doc.Element{key ++ "/svg", "svg", Paint.property("viewBox", view_box) <> Paint.property("aria-hidden", "true") <> drawing_paint(paint),
+    Doc.Element{UIIdentity.encode(UIIdentity.part(key, "svg")), "svg", Paint.property("viewBox", view_box) <> Paint.property("aria-hidden", "true") <> drawing_paint(paint),
       [Paint.property("position", "absolute"), Paint.property("left", Paint.px(Nat.add(Enclosure.inline(insets), drawing_offset(drawing_inline_alignment(direction, main, cross), inner_width, width)))),
        Paint.property("top", Paint.px(Nat.add(Enclosure.block(insets), drawing_offset(drawing_block_alignment(direction, main, cross), inner_height, height)))), Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height))], Nil{}, paths(path_values, key)},
     diagnostic(key, "drawing-exceeds-allocated-content"))
 
 # The allocator has already excluded border and frame from this content extent.
-def rich_content_frame(+key: String, extent: Enclosure.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> Doc.Node:
+def rich_content_frame(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> Doc.Node:
   Enclosure.Extent{width, height} = extent
   Model.Rule{direction, main, cross, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
   +insets = Enclosure.frame_content(frame)
-  Doc.Element{key ++ "/content", "div", Nil{},
+  Doc.Element{UIIdentity.encode(UIIdentity.part(key, "content")), "div", Nil{},
     [Paint.property("position", "absolute"), Paint.property("left", Paint.px(Enclosure.inline(insets))),
      Paint.property("top", Paint.px(Enclosure.block(insets))), Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height)),
      Paint.property("margin", "0"), Paint.property("padding", "0"), Paint.property("border", "0"), Paint.property("box-sizing", "border-box")], Nil{}, children}
 
-def leaf(+value: Content.Value, +physical_key: String, +bounds: Spatial.Box, +content_canvas: Enclosure.Extent, +rule: Model.Rule,
+def leaf_at(+capacity: Nat, +value: Content.Value, +physical_key: String, +bounds: Spatial.Box, +content_canvas: Enclosure.Extent, +rule: Model.Rule,
   +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +owned: +List<Owned>) -> Doc.Node:
   match value:
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}:
-      Doc.Element{key, "span", Nil{}, properties(styles, properties(primitive_styles(value), [Paint.property("text-overflow", "ellipsis")])), Nil{}, [Doc.Text{text}]}
+      Doc.Element{UIIdentity.encode(key), "span", text_attributes(wrap, text), properties(styles, properties(primitive_styles_at(capacity, value), [Paint.property("text-overflow", "ellipsis")])), Nil{}, [Doc.Text{text}]}
     case Content.Value{Source.Glyph{+key, +picture, +style}, +font}:
-      Doc.Element{key, "span", Nil{}, properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, [drawing(key, picture, bounds, rule)]}
+      Doc.Element{UIIdentity.encode(key), "span", Nil{}, properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, [drawing(key, picture, bounds, rule)]}
     case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}:
-      Doc.Element{key, field_tag(kind), properties(field_authored(kind, attrs), properties(field_attributes(kind, text),
+      Doc.Element{UIIdentity.encode(key), field_tag(kind), properties(field_authored(kind, attrs), properties(field_attributes(kind, text),
         properties([Paint.property("class", "native-control"), Paint.property("placeholder", placeholder), Paint.property("aria-label", name)], availability(interaction, True{})))),
-        properties(styles, properties(primitive_styles(value), properties(visual(style), field_padding(rule)))), event_list(interaction), choices(options, key)}
-    case Content.Value{Source.RichText{+key, +style, Source.RichContent{+source, +text, +policy}, +attachments}, +font}:
-      Doc.Element{key, "div", [Paint.property("class", "physical-markdown")], properties(styles, properties(primitive_styles(value), visual(style))), Nil{},
-        [rich_content_frame(key, content_canvas, rule, Doc.Markdown{key ++ "/markdown", source, text} <> owned_nodes(owned, physical_key))]}
+        properties(styles, properties(primitive_styles_at(capacity, value), properties(visual(style), field_padding(rule)))), event_list(interaction), choices(options, key)}
+    case Content.Value{Source.RichText{+key, +style, Source.RichContent{+source, +text, +policy}, +attachments, +native_owner}, +font}:
+      Doc.Element{UIIdentity.encode(key), "div", [Paint.property("class", "physical-markdown")], properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{},
+        [rich_content_frame(key, content_canvas, rule, Doc.Markdown{UIIdentity.encode(UIIdentity.part(key, "markdown")), source, text, native_owner} <> owned_nodes(owned, physical_key))]}
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +children}, +font}: diagnostic(key, "box-as-leaf")
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +children}, +font}: diagnostic(key, "control-as-leaf")
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +children}, +font}: diagnostic(key, "native-attachment-as-leaf")
 
+def leaf(+value: Content.Value, +physical_key: String, +bounds: Spatial.Box, +content_canvas: Enclosure.Extent, +rule: Model.Rule,
+  +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +owned: +List<Owned>) -> Doc.Node:
+  leaf_at(NaturalSize.limit(), value, physical_key, bounds, content_canvas, rule, interaction, styles, owned)
+
 def container(+value: Content.Value, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
   match value:
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +original_children}, +font}:
-      Doc.Element{key, Source.box_tag_name(tag), attributes(attrs), properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, children}
+      Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, children}
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +original_children}, +font}:
-      Doc.Element{key, Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles(value), visual(style))), event_list(interaction), children}
+      Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles(value), control_visual(style))), event_list(interaction), children}
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +original_children}, +font}:
-      choose(Doc.Node, native, Doc.Element{key, "div", attributes(attrs), properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
+      choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", attributes(attrs), properties(styles, properties(primitive_styles(value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: diagnostic(key, "text-as-container")
     case Content.Value{Source.Glyph{+key, +picture, +style}, +font}: diagnostic(key, "glyph-as-container")
     case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}: diagnostic(key, "field-as-container")
-    case Content.Value{Source.RichText{+key, +style, +content, +attachments}, +font}: diagnostic(key, "rich-text-as-container")
+    case Content.Value{Source.RichText{+key, +style, +content, +attachments, +native_owner}, +font}: diagnostic(key, "rich-text-as-container")
 
 # Positional metric keys never replace authored DOM keys.
 def forest(+values: +List<Allocation.AllocatedTree<Content.Value, Doc.Event>>, +origin: Spatial.Box, +fixed: Bool, +native: Bool, +owned: +List<Owned>) -> +List<Doc.Node>:
@@ -309,7 +345,7 @@ def forest(+values: +List<Allocation.AllocatedTree<Content.Value, Doc.Event>>, +
       leaf(value, key, bounds, extent, rule, interaction, box_styles(bounds, origin, fixed, rule), owned) <> forest(rest, origin, fixed, native, owned)
     case Con{Allocation.AllocatedContainer{+key, +value, +interaction, +rule, +bounds, +extent, +direction, +children}, +rest}:
       container(value, interaction, box_styles(bounds, origin, fixed, rule),
-        [canvas(key, extent, rule, forest(children, child_origin(bounds, rule), False{}, native, owned))], native) <> forest(rest, origin, fixed, native, owned)
+        [canvas(Source.key_of(content_node(value)), extent, rule, forest(children, child_origin(bounds, rule), False{}, native, owned))], native) <> forest(rest, origin, fixed, native, owned)
 
 def rich_union(+first: Maybe<&2, Source.RichPolicy>, +second: Maybe<&2, Source.RichPolicy>) -> Maybe<&2, Source.RichPolicy>:
   match first:
@@ -319,7 +355,7 @@ def rich_union(+first: Maybe<&2, Source.RichPolicy>, +second: Maybe<&2, Source.R
 def find_rich(+values: +List<Allocation.AllocatedTree<Content.Value, Doc.Event>>, +owner: String) -> Maybe<&2, Source.RichPolicy>:
   match values:
     case Nil{}: None{}
-    case Con{Allocation.AllocatedLeaf{+key, Content.Value{Source.RichText{+label, +style, Source.RichContent{+source, +text, +policy}, +attachments}, +font}, +interaction, +rule, +demand, +height, +bounds, +canvas}, +rest}:
+    case Con{Allocation.AllocatedLeaf{+key, Content.Value{Source.RichText{+label, +style, Source.RichContent{+source, +text, +policy}, +attachments, +native_owner}, +font}, +interaction, +rule, +demand, +height, +bounds, +canvas}, +rest}:
       choose(Maybe<&2, Source.RichPolicy>, String.eq(key, owner), Some{policy}, find_rich(rest, owner))
     case Con{Allocation.AllocatedLeaf{+key, +value, +interaction, +rule, +demand, +height, +bounds, +canvas}, +rest}: find_rich(rest, owner)
     case Con{Allocation.AllocatedContainer{+key, +value, +interaction, +rule, +bounds, +canvas, +direction, +children}, +rest}:
@@ -362,20 +398,25 @@ def native_attributes(value: Content.Value) -> +List<Doc.Property>:
     case Content.Value{Source.Box{key, tag, style, attrs, children}, font}: attributes(attrs)
     case Content.Value{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, font}: attributes(attrs)
     case Content.Value{Source.Text{key, text, choice, wrap}, font}: Nil{}
-    case Content.Value{Source.RichText{key, style, content, attachments}, font}: Nil{}
+    case Content.Value{Source.RichText{key, style, content, attachments, native_owner}, font}: Nil{}
     case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}: attributes(attrs)
     case Content.Value{Source.Glyph{key, drawing, style}, font}: Nil{}
 
+def native_target_identity(target: Source.NativeTarget) -> UIIdentity.Key:
+  match target:
+    case Source.ToolbarTarget{identity}: UIIdentity.part(Code.ui_identity(identity), "toolbar")
+    case Source.CodeBodyTarget{identity, wrap}: UIIdentity.part(Code.ui_identity(identity), "code")
+
 def allocated_native_properties(+owner: String, +target: Source.NativeTarget, +tree: Allocation.AllocatedTree<Content.Value, Doc.Event>) -> Owned:
   +value: Content.Value = native_value(tree)
-  Owned{owner, Doc.TargetProperties{owner ++ "/" ++ Source.target_key(target), Source.target_key(target),
+  Owned{owner, Doc.TargetProperties{UIIdentity.encode(UIIdentity.part(native_target_identity(target), "properties")), Source.target_key(target),
     native_attributes(value), properties(primitive_styles(value), native_box_properties(native_origin(tree)))}}
 
 def native_roots(+values: +List<Content.AllocatedNative>) -> +List<Owned>:
   match values:
     case Nil{}: Nil{}
     case Con{Content.AllocatedNative{+owner, +target, +tree}, +rest}:
-      allocated_native_properties(owner, target, tree) <> Owned{owner, Doc.Portal{owner ++ "/" ++ Source.target_key(target), Source.target_key(target), forest([tree], native_origin(tree), False{}, True{}, Nil{})}} <> native_roots(rest)
+      allocated_native_properties(owner, target, tree) <> Owned{owner, Doc.Portal{UIIdentity.encode(UIIdentity.part(native_target_identity(target), "portal")), Source.target_key(target), forest([tree], native_origin(tree), False{}, True{}, Nil{})}} <> native_roots(rest)
 
 # Bound code bodies carry their block's state; RichPolicy remains only the
 # default for code fences that have not acquired a native target policy.
@@ -389,7 +430,7 @@ def native_style(+value: Source.ResolvedStyle, target: Source.NativeTarget) -> +
   properties(Paint.text_presentation(font), properties(chrome(surface), properties(Paint.states_style(states), native_wrapping(target))))
 
 def native_policy_document(+owner: String, +target: Source.NativeTarget, +attrs: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Owned:
-  Owned{owner, Doc.TargetProperties{owner ++ "/" ++ Source.target_key(target), Source.target_key(target), attributes(attrs), native_style(style, target)}}
+  Owned{owner, Doc.TargetProperties{UIIdentity.encode(UIIdentity.part(native_target_identity(target), "properties")), Source.target_key(target), attributes(attrs), native_style(style, target)}}
 
 def policy_documents(values: +List<Content.NativePolicy>) -> +List<Owned>:
   match values:
@@ -407,7 +448,7 @@ def native_documents(+roots: +List<Content.AllocatedNative>, +policies: +List<Co
 
 def native_policy(+owner: String, +target: Source.NativeTarget, +attrs: +List<Source.Attribute>, +style: Source.ResolvedStyle, +policy: Maybe<&2, Source.RichPolicy>) -> Owned:
   match policy:
-    case None{}: Owned{owner, diagnostic(owner, "native-policy-missing-rich-owner")}
+    case None{}: Owned{owner, diagnostic(native_target_identity(target), "native-policy-missing-rich-owner")}
     case Some{+rich}: native_policy_document(owner, target, attrs, style)
 
 def native_policies(+values: +List<Content.NativePolicy>, +tree: Allocation.AllocatedTree<Content.Value, Doc.Event>) -> +List<Owned>:
@@ -418,7 +459,7 @@ def native_policies(+values: +List<Content.NativePolicy>, +tree: Allocation.Allo
 
 def emit_world(+tree: Allocation.AllocatedTree<Content.Value, Doc.Event>, +roots: +List<Content.AllocatedNative>, +policies: +List<Content.NativePolicy>, +valid: Bool) -> +List<Doc.Node>:
   match valid:
-    case False{}: [diagnostic("physical-world", "native-attachment-missing-rich-owner")]
+    case False{}: [diagnostic(UIIdentity.place("physical-world"), "native-attachment-missing-rich-owner")]
     case True{}: forest([tree], Spatial.Box{0n, 0n, 0n, 0n}, True{}, False{}, List.append(&2, Owned, native_roots(roots), native_policies(policies, tree)))
 
 def nodes(+world: Content.AllocatedWorld) -> +List<Doc.Node>:

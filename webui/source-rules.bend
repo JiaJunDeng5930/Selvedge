@@ -49,7 +49,7 @@ def operation_is_structurally_present(+node: Source.Node) -> Type:
       {Source.events_of(node) == Nil{} : +List<Doc.Event>}
     case Source.NativeAttachment{key, target, attributes, style, children}:
       {Source.events_of(node) == Nil{} : +List<Doc.Event>}
-    case Source.RichText{key, style, content, attachments}:
+    case Source.RichText{key, style, content, attachments, native_owner}:
       {Source.events_of(node) == Nil{} : +List<Doc.Event>}
 
 # Native code geometry belongs to its rich-content policy. A body policy may

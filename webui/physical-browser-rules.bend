@@ -1,3 +1,4 @@
+import ./anchor-geometry.bend as AnchorGeometry
 import ./native-fields-rules.bend as NativeRules
 import ./focus.bend as Focus
 import ./native-fields.bend as Native
@@ -23,10 +24,10 @@ def stale_frames_claim(+received: Nat, +frame: Rendered.Frame, +state: Browser.S
   {Browser.step(Legacy.Native{Web.FrameObserved{received, frame}}, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
 def stale_measurements_claim(+received: Nat, +tokens: +List<String>, +state: Browser.State) -> Type:
   {Browser.physical_measured(received, tokens, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
-def ready_document_claim(+legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld) -> Type:
-  {Browser.observe(Browser.State{legacy, serial, anchors, Browser.Displaying{capacity, engine}, Some{Browser.published(world, capacity, legacy)}}) ==
+def ready_document_claim(+legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: UI.Surface) -> Type:
+  {Browser.observe(Browser.State{legacy, serial, anchors, Browser.Displaying{capacity, engine, semantic}, Some{Browser.published(world, capacity, legacy, semantic)}}) ==
     Doc.Document{Doc.Element{"@browser/application", "div", [Doc.Property{"class", "native-application"}], Nil{}, Nil{}, Renderer.nodes(world)}, "Selvedge"} : Doc.Document}
-def anchor_preserves_program_claim(+key: String, +left: Nat, +top: Nat, +width: Nat, +height: Nat, +state: Browser.State) -> Type:
+def anchor_preserves_program_claim(+key: String, +left: AnchorGeometry.Origin, +top: AnchorGeometry.Origin, +width: Nat, +height: Nat, +state: Browser.State) -> Type:
   {Browser.program(Browser.decision_state(Browser.capture_anchor(key, left, top, width, height, state))) == Browser.program(state) : M.World()}
 
 
@@ -40,12 +41,12 @@ def frame_capture_program_claim(+frame: Rendered.Frame, +state: Browser.State) -
 def document_keyboard_claim(+key: String, +shift: Bool, +basis: Native.Basis, +semantic: UI.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
   {Browser.published_key(key, shift, Focus.Document{}, basis, semantic, frame, state) == Browser.KeyResult{False{}, Browser.Decision{state, Nil{}}} : Browser.KeyResult}
 
-def temporary_tab_claim(+shift: Bool, +identity: String, +initial: String, +restore: String, +basis: Native.Basis, +semantic: UI.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
-  {Browser.key_handled(Browser.published_key("Tab", shift, Focus.Temporary{identity, initial, restore}, basis, semantic, frame, state)) == True{} : Bool}
+def temporary_tab_claim(+shift: Bool, +identity: String, +initial: String, +restore: String, +occurrence: Maybe<&2, Nat>, +basis: Native.Basis, +semantic: UI.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
+  {Browser.key_handled(Browser.published_key("Tab", shift, Focus.Temporary{identity, initial, restore, occurrence}, basis, semantic, frame, state)) == True{} : Bool}
 
 type Requirements is Type:
   Requirements{
-    temporary_tab: @+shift:Bool -> @+identity:String -> @+initial:String -> @+restore:String -> @+basis:Native.Basis -> @+semantic:UI.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> temporary_tab_claim(shift, identity, initial, restore, basis, semantic, frame, state),
+    temporary_tab: @+shift:Bool -> @+identity:String -> @+initial:String -> @+restore:String -> @+occurrence:Maybe<&2, Nat> -> @+basis:Native.Basis -> @+semantic:UI.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> temporary_tab_claim(shift, identity, initial, restore, occurrence, basis, semantic, frame, state),
     native_fields: NativeRules.Requirements,
     frame_capture_program: @+frame:Rendered.Frame -> @+state:Browser.State -> frame_capture_program_claim(frame, state),
     document_keyboard: @+key:String -> @+shift:Bool -> @+basis:Native.Basis -> @+semantic:UI.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> document_keyboard_claim(key, shift, basis, semantic, frame, state),
@@ -53,8 +54,8 @@ type Requirements is Type:
       {Browser.frame_owned(received, state) == False{} : Bool} -> stale_frames_claim(received, frame, state),
     stale_measurements: @+received:Nat -> @+tokens:+List<String> -> @+state:Browser.State ->
       {Browser.measurement_owned(received, state) == False{} : Bool} -> stale_measurements_claim(received, tokens, state),
-    ready_document: @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+world:Content.AllocatedWorld -> ready_document_claim(legacy, serial, anchors, capacity, engine, world),
-    anchor_preserves_program: @+key:String -> @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat -> @+state:Browser.State -> anchor_preserves_program_claim(key, left, top, width, height, state),
+    ready_document: @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+world:Content.AllocatedWorld -> @+semantic:UI.Surface -> ready_document_claim(legacy, serial, anchors, capacity, engine, world, semantic),
+    anchor_preserves_program: @+key:String -> @+left:AnchorGeometry.Origin -> @+top:AnchorGeometry.Origin -> @+width:Nat -> @+height:Nat -> @+state:Browser.State -> anchor_preserves_program_claim(key, left, top, width, height, state),
     publication_preserves_existing: @+last_published:Nat -> @+state:Browser.State ->
       {Bool.not(Nat.is_eq(last_published, 0n)) == True{} : Bool} ->
       {Browser.display_ready(state) == False{} : Bool} -> publication_preserves_existing_claim(last_published, state),
@@ -98,12 +99,13 @@ law failed_font_candidate_blocked:
   for +displayed: Maybe<&2, Browser.Published>
   for +index: Nat
   {Browser.one_candidate(index, Browser.State{Legacy.State{Web.State{application, generation, realization,
-    environment, F.Failed{font_generation, scale}}, sequence, ticket, pending}, serial, anchors, lifecycle, displayed}) ==
+    environment, F.Failed{font_generation, scale}}, sequence, ticket, pending, None{}}, serial, anchors, lifecycle, displayed}) ==
     Browser.Stopped{Browser.Decision{Browser.State{Legacy.State{Web.State{application, generation, realization,
-      environment, F.Failed{font_generation, scale}}, sequence, ticket, pending}, serial, anchors,
+      environment, F.Failed{font_generation, scale}}, sequence, ticket, pending, None{}}, serial, anchors,
       Browser.Blocked{"Font measurements could not be validated."}, displayed}, Nil{}}} : Browser.Search}
 
 law unmet_frame_status:
+  for +semantic: UI.Surface
   for +application: Platform.State
   for +generation: Nat
   for +frame_generation: Nat
@@ -120,5 +122,44 @@ law unmet_frame_status:
   for +engine: World.Engine
   for +displayed: Maybe<&2, Browser.Published>
   {Browser.render_status(Browser.State{Legacy.State{Web.State{application, generation,
-    Rendered.Unmet{frame_generation, frame, violations}, environment, font}, sequence, ticket, pending},
-    serial, anchors, Browser.Displaying{capacity, engine}, displayed}) == "unmet" : String}
+    Rendered.Unmet{frame_generation, frame, violations}, environment, font}, sequence, ticket, pending, None{}},
+    serial, anchors, Browser.Displaying{capacity, engine, semantic}, displayed}) == "unmet" : String}
+
+
+def element_enabled(element: Rendered.Element) -> Bool:
+  Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit} = element
+  enabled
+
+def element_reachable(element: Rendered.Element) -> Bool:
+  Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit} = element
+  visible || scroll
+
+law enabled_reachable_tab_member:
+  for +element: Rendered.Element
+  for admitted: {element_enabled(element) == True{} : Bool}
+  for reachable: {element_reachable(element) == True{} : Bool}
+  {Browser.observed_eligible(Some{element}) == True{} : Bool}
+
+
+law rejected_native_focus_preserves_state:
+  for +generation: Nat
+  for +owner: String
+  for +identity: String
+  for +state: Browser.State
+  for rejected: {Browser.native_observation_owned(generation, owner, identity, state) == False{} : Bool}
+  {Browser.native_focus_observed(generation, owner, identity, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law missing_native_frame_rejects:
+  for semantic: UI.Surface
+  for owner: String
+  for identity: String
+  {Browser.native_frame_owned(None{}, semantic, owner, identity) == False{} : Bool}
+
+
+law stale_native_focus_preserves_state:
+  for +generation: Nat
+  for +owner: String
+  for +identity: String
+  for +state: Browser.State
+  for stale: {Browser.frame_owned(generation, state) == False{} : Bool}
+  {Browser.native_focus_observed(generation, owner, identity, state) == Browser.Decision{state, Nil{}} : Browser.Decision}

@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
@@ -10,6 +11,7 @@ import ./surfaces.bend as Surfaces
 import ./controls.bend as Controls
 import ./editor-layout.bend as EditorLayout
 import ./typography.bend as T
+import ./natural-size.bend as NaturalSize
 import ../core/ui-world.bend as View
 import ../core/composition.bend as Composition
 
@@ -167,28 +169,35 @@ def widget_field_style(widget: Controls.Widget, entry: Forms.Entry, +typography:
     case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}, typography), Enclosure.area(Enclosure.Field{}))
     case _: ordinary_field_style(entry, typography)
 
-def text_line_height(value: T.Presentation) -> Nat:
-  T.resolved_line_height(T.resolved(value))
+def text_line_height(capacity: Nat, value: T.Presentation) -> Nat:
+  T.resolved_line_height(T.resolve_presentation(capacity, value))
 def frame_content_area(value: Enclosure.Frame) -> Enclosure.ContentArea:
   Enclosure.Frame{area, arrangement} = value
   area
 
-def field_values(value: Design.Style, +border: Nat, minimum: Nat, radius: Nat) -> Design.Style:
+def style_content_area(value: Design.Style) -> Enclosure.ContentArea:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  frame_content_area(frame)
+
+def field_required_extent(capacity: Nat, +value: Design.Style, border: Nat) -> Enclosure.Extent:
+  Enclosure.required_extent(0n, text_line_height(capacity, Design.style_text(value)), border, style_content_area(value))
+
+def field_values(capacity: Nat, +value: Design.Style, +border: Nat, minimum: Nat, radius: Nat) -> Design.Style:
   Design.Style{+text, Design.Chrome{foreground, background, border_paint, old_border, old_radius, shadow}, alignment, flow, overflow, +frame, old_minimum, maximum, states} = value
-  required = Enclosure.extent_height(Enclosure.required_extent(0n, text_line_height(text), border, frame_content_area(frame)))
+  required = Enclosure.extent_height(field_required_extent(capacity, value, border))
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, radius, shadow}, alignment, flow, overflow, frame, Nat.max(minimum, required), maximum, states}
 
 def work_title_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
-  field_values(value, 0n, minimum, radius)
+  field_values(NaturalSize.limit(), value, 0n, minimum, radius)
 
 def work_description_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
-  field_values(value, 0n, 110n, radius)
+  field_values(NaturalSize.limit(), value, 0n, 110n, radius)
 
 def message_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
-  field_values(value, 0n, 44n, radius)
+  field_values(NaturalSize.limit(), value, 0n, 44n, radius)
 
 def normalize_text_field(kind: EditorLayout.FieldKind, value: Design.Style) -> Design.Style:
   match kind:
@@ -208,7 +217,7 @@ def normalize_field(kind: EditorLayout.FieldKind, widget: Controls.Widget, value
     case _: value
 
 def search_field_style(+typography: T.Presentation) -> Design.Style:
-  field_values(with_content_area(field_surface(Surfaces.Inset{}, typography), Enclosure.area(Enclosure.SearchField{})), 1n, 32n, 6n)
+  field_values(NaturalSize.limit(), with_content_area(field_surface(Surfaces.Inset{}, typography), Enclosure.area(Enclosure.SearchField{})), 1n, 32n, 6n)
 
 def field_style(meaning: UI.Meaning, +typography: T.Presentation) -> Design.Style:
   match meaning:
@@ -317,20 +326,11 @@ def layout_inline_inset(layout: Controls.ContentLayout) -> Nat:
   Controls.ContentLayout{alignment, content_area, gap} = layout
   Enclosure.inline(content_area)
 
-def face_padding(face: Controls.Face) -> Nat:
-  layout_inline_inset(Controls.content_layout(face))
-
-
-
 def chrome_border_width(value: Design.Chrome) -> Nat:
   Design.Chrome{foreground, background, border, border_width, radius, shadow} = value
   border_width
 
 
-
-def style_content_area(value: Design.Style) -> Enclosure.ContentArea:
-  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
-  frame_content_area(frame)
 
 def style_border_width(value: Design.Style) -> Nat:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
@@ -342,18 +342,18 @@ def geometry_icon_size(value: Controls.Geometry) -> Nat:
 
 def choice_intrinsic_height(description: Maybe<&2, String>, +text: T.Presentation, layout: Controls.ChoiceContentLayout) -> Nat:
   match description layout:
-    case None{} Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}: Nat.max(mark_icon_extent, text_line_height(text))
-    case Some{description} Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}: Nat.max(mark_icon_extent, (text_line_height(text) + text_gap + text_line_height(T.supporting(text)) : Nat))
+    case None{} Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}: Nat.max(mark_icon_extent, text_line_height(NaturalSize.limit(), text))
+    case Some{description} Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}: Nat.max(mark_icon_extent, (text_line_height(NaturalSize.limit(), text) + text_gap + text_line_height(NaturalSize.limit(), T.supporting(text)) : Nat))
 
 def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geometry: Controls.Geometry) -> Nat:
   match face:
     case Controls.IconFace{icon}: geometry_icon_size(geometry)
     case Controls.PermissionFace{filesystem, network, approval}: geometry_icon_size(geometry)
-    case Controls.TextFace{label}: text_line_height(text)
-    case Controls.SingleLineFace{label}: text_line_height(text)
-    case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
-    case Controls.PickerFace{leading, label}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
-    case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(text), geometry_icon_size(geometry))
+    case Controls.TextFace{label}: text_line_height(NaturalSize.limit(), text)
+    case Controls.SingleLineFace{label}: text_line_height(NaturalSize.limit(), text)
+    case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
+    case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
+    case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
 
 def action_style_insets(value: Design.Style, +geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat, content_height: Nat) -> Design.Style:
@@ -448,7 +448,7 @@ def project_label_style(value: Design.Style) -> Design.Style:
 def chooser_embedded_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style:
   Design.Style{old_text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
   +text = old_text
-  fields(text, chrome, alignment, flow, overflow, 0n, 4n, 4n, Nat.max(minimum, (text_line_height(text) + 8n : Nat)), maximum, states)
+  fields(text, chrome, alignment, flow, overflow, 0n, 4n, 4n, Nat.max(minimum, (text_line_height(NaturalSize.limit(), text) + 8n : Nat)), maximum, states)
 
 def chooser_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style:
   chooser_embedded_style(selected, embedded_control(value))
@@ -470,15 +470,15 @@ def project_group_style(+typography: T.Presentation) -> Design.Style:
 def choice_group_style(value: Design.Style) -> Design.Style:
   with_arrangement(with_flow(value, SpatialModel.ColumnFlow{}), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
 
-def source_header_style(+key: String, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
+def source_header_style(+key: UIIdentity.Key, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match family:
     case Controls.SourceFamily{+node}:
       UI.Node{+owner, semantic, label, role, source, children} = node
-      source_style(String.eq(key, owner ++ "/actions"), Controls.SourceFamily{node}, value, typography)
+      source_style(UIIdentity.same(key, UIIdentity.part(owner, "actions")), Controls.SourceFamily{node}, value, typography)
     case _: value
 
 
-def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
+def family_style(+key: UIIdentity.Key, meaning: UI.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
     case UI.ProjectGroup{project, selected, expanded}: project_group_style(typography)
     case UI.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
@@ -510,7 +510,7 @@ def source_action_style(meaning: UI.Meaning, context: Controls.Context, +represe
     case UI.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case _: value
 
-def final_style(key: String, +meaning: UI.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
+def final_style(key: UIIdentity.Key, +meaning: UI.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   +family_style_value = family_style(key, meaning, Controls.source_reference(context), representation, value, typography)
   source_action_style(meaning, context, representation, family_style_value)
 
@@ -569,7 +569,7 @@ def alert_style(role: UI.Role, value: Design.Style) -> Design.Style:
         Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, SpatialModel.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
     case _: value
 
-def prepared_style(+key: String, semantic: String, +role: UI.Role, +meaning: UI.Meaning,
+def prepared_style(+key: UIIdentity.Key, semantic: String, +role: UI.Role, +meaning: UI.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
   alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))
 

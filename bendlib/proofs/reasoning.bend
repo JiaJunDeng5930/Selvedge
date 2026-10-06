@@ -1,5 +1,5 @@
 import Base
-import ../reasoning-laws.bend as Local
+import ./reasoning-locality.bend as Local
 import ../../FEATURES.bend as F
 import ../component.bend as C
 import ../domain.bend as D

@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ./space.bend as Space
@@ -14,6 +15,7 @@ import ../core/code-block.bend as Code
 import ../core/user-context.bend as Workspace
 import ../bendlib/domain.bend as Domain
 import ../BOARD.bend as Board
+import ../bendlib/board-filter.bend as Filter
 
 # The visible face never determines the command. The binding below is retained
 # from the product observation, including unavailable actions and their reasons.
@@ -31,6 +33,7 @@ type Icon is Data:
   SidebarClose{}
   Folder{}
   Tag{}
+  Clock{}
   User{}
   Bot{}
   Status{stage: Board.Stage}
@@ -133,15 +136,6 @@ type Geometry is Data:
     radius: Nat, leading_slot: Nat}
 
 # Icon controls expose the square footprint consumed by layout and rendering.
-def face_demand(face: Face, demand: Space.Demand) -> Space.Demand:
-  match face:
-    case IconFace{icon}:
-      Space.Demand{Enclosure.Extent{width, height}, Enclosure.Extent{preferred_width, preferred_height}} = demand
-      +minimum = Nat.max(width, height)
-      +preferred = Nat.max(preferred_width, preferred_height)
-      Space.Demand{Enclosure.Extent{minimum, minimum}, Enclosure.Extent{preferred, preferred}}
-    case _: demand
-
 type ContentLayout is Data:
   ContentLayout{alignment: SpatialModel.ContentAlignment, content_area: Enclosure.ContentArea, gap: Nat}
 
@@ -151,18 +145,6 @@ def content_layout(face: Face) -> ContentLayout:
     case SingleLineFace{text}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.ambient(0n, 0n), 0n}
     case ChoiceFace{text, description, icon, checked}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
     case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
-
-type IconPaint is Data:
-  FilledIcon{}
-  StrokedIcon{}
-
-def icon_paint(icon: Icon) -> IconPaint:
-  match icon:
-    case ArrowUp{}: FilledIcon{}
-    case Hand{}: FilledIcon{}
-    case Shield{}: FilledIcon{}
-    case ShieldCode{}: FilledIcon{}
-    case _: StrokedIcon{}
 
 type Placement is Data:
   InFlow{}
@@ -314,11 +296,11 @@ def select_layer(same: Bool, found: Selection, inherited: Selection) -> Selectio
     case True{}: found
     case False{}: inherited
 
-def selection_at(layers: +List<View.Layer>, +key: String, inherited: Selection) -> Selection:
+def selection_at(layers: +List<View.Layer>, +key: UIIdentity.Key, inherited: Selection) -> Selection:
   match layers:
     case Nil{}: inherited
     case Con{View.Layer{kind, content, initial_attention, restore, close}, rest}:
-      select_layer(String.eq(UI.layer_key(initial_attention), key), layer_selection(content),
+      select_layer(UIIdentity.same(UI.layer_key(initial_attention), key), layer_selection(content),
         selection_at(rest, key, inherited))
 
 def code_at(meaning: UI.Meaning, inherited: Maybe<&2, Code.Scene>) -> Maybe<&2, Code.Scene>:
@@ -444,7 +426,7 @@ def board_command(command: Board.Command) -> Purpose:
     case Board.Regenerate{id, revision, profile, now}: Regenerate{}
     case _: NamedAction{}
 
-def action_purpose(+key: String, action: UserInput.Action, selection: Selection, +layers: +List<View.Layer>) -> Purpose:
+def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Selection, +layers: +List<View.Layer>) -> Purpose:
   match action:
     case UserInput.Submit{editor}: submit_purpose(editor)
     case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
@@ -456,21 +438,21 @@ def action_purpose(+key: String, action: UserInput.Action, selection: Selection,
     case UserInput.EditCard{card}: EditItem{}
     case UserInput.EditAgent{None{}}: CreateItem{}
     case UserInput.EditAgent{Some{agent}}: EditItem{}
-    case UserInput.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, key)}
-    case UserInput.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, key)}
+    case UserInput.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, UIIdentity.encode(key))}
+    case UserInput.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, UIIdentity.encode(key))}
     case UserInput.ControlTask{task, control}: task_control(control)
     case UserInput.CancelOperation{task, operation}: AbortOperation{}
     case UserInput.ReviewApproval{task, operation, allow, reason}: ApprovalDecision{allow}
     case UserInput.DeleteProject{project}: DeleteItem{}
     case UserInput.BoardCommand{command}: board_command(command)
-    case UserInput.OpenPanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
-    case UserInput.TogglePanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
+    case UserInput.OpenPanel{panel, trigger}: panel_purpose(panel, panel_open(layers, UIIdentity.encode(key)))
+    case UserInput.TogglePanel{panel, trigger}: panel_purpose(panel, panel_open(layers, UIIdentity.encode(key)))
     case UserInput.ClosePanel{}: Dismiss{}
     case UserInput.ConfirmAction{}: NamedAction{}
     case UserInput.SelectProject{project}: NamedAction{}
     case UserInput.ToggleProjectGroup{project}: NamedAction{}
 
-def user_purpose(key: String, input: UserInput.Input, selection: Selection, layers: +List<View.Layer>) -> Purpose:
+def user_purpose(key: UIIdentity.Key, input: UserInput.Input, selection: Selection, layers: +List<View.Layer>) -> Purpose:
   match input:
     case UserInput.Activate{action}: action_purpose(key, action, selection, layers)
     case UserInput.EditDraft{editor, edit}: selected_edit(edit, selection)
@@ -510,7 +492,7 @@ def service_purpose(input: Services.Input, appearance: Services.Appearance, acce
     case Services.Connect{}: Connect{access}
     case _: NamedAction{}
 
-def purpose_fields(key: String, event: Core.Input, selection: Selection, code: Maybe<&2, Code.Scene>,
+def purpose_fields(key: UIIdentity.Key, event: Core.Input, selection: Selection, code: Maybe<&2, Code.Scene>,
   appearance: Services.Appearance, access: Services.Access, settings_open: Bool, layers: +List<View.Layer>) -> Purpose:
   match event:
     case Core.ApplicationInput{Experience.UserInput{input}}: user_purpose(key, input, selection, layers)
@@ -554,9 +536,9 @@ def purpose_icon(purpose: Purpose) -> Maybe<&2, Icon>:
     case PinItem{pinned}: Some{Pin{}}
     case Regenerate{}: Some{Refresh{}}
     case CopyCode{Code.CopyIdle{}}: Some{CopySheets{}}
-    case CopyCode{Code.CopyPending{}}: Some{Spinner{}}
-    case CopyCode{Code.CopySucceeded{}}: Some{Check{}}
-    case CopyCode{Code.CopyFailed{}}: Some{Warning{}}
+    case CopyCode{Code.CopyPending{ticket}}: Some{Spinner{}}
+    case CopyCode{Code.CopySucceeded{ticket}}: Some{Check{}}
+    case CopyCode{Code.CopyFailed{ticket}}: Some{Warning{}}
     case WrapCode{enabled}: Some{WrapLines{}}
     case Latest{}: Some{ArrowDown{}}
     case ToggleNavigation{expanded}: Some{navigation_icon(expanded)}
@@ -660,9 +642,9 @@ def name_for(purpose: Purpose, label: String) -> String:
 
 def feedback_for(purpose: Purpose) -> Feedback:
   match purpose:
-    case CopyCode{Code.CopyPending{}}: Working{"Copying code"}
-    case CopyCode{Code.CopySucceeded{}}: Succeeded{"Code copied"}
-    case CopyCode{Code.CopyFailed{}}: Failed{"Could not copy code"}
+    case CopyCode{Code.CopyPending{ticket}}: Working{"Copying code"}
+    case CopyCode{Code.CopySucceeded{ticket}}: Succeeded{"Code copied"}
+    case CopyCode{Code.CopyFailed{ticket}}: Failed{"Could not copy code"}
     case Connect{Services.Connecting{ticket}}: Working{"Connecting"}
     case Connect{Services.CredentialRejected{reason}}: Failed{reason}
     case Connect{Services.ConnectionLost{reason}}: Failed{reason}
@@ -752,7 +734,7 @@ def permission_values_face(sandbox: Domain.Sandbox, approval: Workspace.Approval
 def permission_face(observation: Maybe<&2, Workspace.Observation>) -> Face:
   match observation:
     case Some{Workspace.DraftExecution{Workspace.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}:
-      permission_values_face(View.execution_sandbox(sandbox), Workspace.observed_approval(approval))
+      permission_values_face(Workspace.unwrap_sandbox(sandbox), Workspace.observed_approval(approval))
     case Some{Workspace.CommittedExecution{Workspace.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, access}}}:
       permission_values_face(sandbox, Workspace.approval_choice(approval))
     case _: IconFace{Warning{}}
@@ -796,7 +778,7 @@ def action_for_purpose(+intent: Purpose, +area: Area, +input: Core.Input,
     contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
 
-def make_action(+key: String, +input: Core.Input, +availability: View.Availability, label: String,
+def make_action(+key: UIIdentity.Key, +input: Core.Input, +availability: View.Availability, label: String,
   role: UI.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
@@ -815,11 +797,11 @@ def panel_toggle_fields(+expanded: Bool, value: Representation) -> Representatio
         geometry, placement, help, feedback}
     case _: value
 
-def make_panel_toggle(key: String, expanded: Bool, input: Core.Input, availability: View.Availability,
+def make_panel_toggle(key: UIIdentity.Key, expanded: Bool, input: Core.Input, availability: View.Availability,
   label: String, role: UI.Role, context: Context) -> Representation:
   panel_toggle_fields(expanded, make_action(key, input, availability, label, role, context))
 
-def make_composer_action(key: String, subject: View.ComposerSubject, input: Core.Input,
+def make_composer_action(key: UIIdentity.Key, subject: View.ComposerSubject, input: Core.Input,
   availability: View.Availability, +label: String, role: UI.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
   composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
@@ -832,27 +814,20 @@ def choice_description_for(empty: Bool, value: String) -> Maybe<&2, String>:
 def choice_description(+value: String) -> Maybe<&2, String>:
   choice_description_for(String.eq(value, ""), value)
 
-def classification_icon(value: Maybe<&2, String>) -> Maybe<&2, Icon>:
-  match value:
+def classification_glyph(classification: Filter.Classification) -> Icon:
+  match classification:
+    case Filter.TaskStage{stage}: Status{stage}
+    case Filter.TaskPriority{priority}: Priority{priority}
+    case Filter.Project{}: Folder{}
+    case Filter.Person{}: User{}
+    case Filter.Agent{}: Bot{}
+    case Filter.Label{}: Tag{}
+    case Filter.Updated{}: Clock{}
+
+def classification_icon(classification: Maybe<&2, Filter.Classification>) -> Maybe<&2, Icon>:
+  match classification:
     case None{}: None{}
-    case Some{symbol}:
-      match symbol:
-        case "folder": Some{Folder{}}
-        case "tag": Some{Tag{}}
-        case "user": Some{User{}}
-        case "bot": Some{Bot{}}
-        case "status/backlog": Some{Status{Board.Backlog{}}}
-        case "status/todo": Some{Status{Board.Todo{}}}
-        case "status/in_progress": Some{Status{Board.InProgress{}}}
-        case "status/in_review": Some{Status{Board.InReview{}}}
-        case "status/done": Some{Status{Board.Completed{}}}
-        case "status/blocked": Some{Status{Board.Blocked{}}}
-        case "priority/none": Some{Priority{Board.NoPriority{}}}
-        case "priority/low": Some{Priority{Board.Low{}}}
-        case "priority/medium": Some{Priority{Board.Medium{}}}
-        case "priority/high": Some{Priority{Board.High{}}}
-        case "priority/urgent": Some{Priority{Board.Urgent{}}}
-        case _: None{}
+    case Some{value}: Some{classification_glyph(value)}
 
 def choice_behavior(kind: UI.ChoiceKind, area: Area, selected: Bool) -> Behavior:
   match kind area:
@@ -868,11 +843,11 @@ def choice_action(kind: UI.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, d
       Action{input, availability, name, actual_face, choice_behavior(kind, area, selected), geometry_for(purpose, actual_face, area), placement, help, feedback}
     case other: other
 
-def make_choice(+key: String, kind: UI.ChoiceKind, icon: Maybe<&2, String>, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
+def make_choice(+key: UIIdentity.Key, kind: UI.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
   label: String, role: UI.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-  choice_action(kind, classification_icon(icon), selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
+  choice_action(kind, classification_icon(classification), selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
 
 type ChoiceContentLayout is Data:
   ChoiceContentLayout{text_gap: Nat, mark_extent: Nat, mark_icon_extent: Nat}
@@ -1107,16 +1082,16 @@ def source_action(area: Area, source_family: SourceFamily, value: Representation
       presented_action(input, availability, name, source_presentation(area, source_family, input, name, face, behavior, geometry), placement, help, feedback)
     case _: value
 
-def represent_action(key: String, +input: Core.Input, availability: View.Availability, label: String, role: UI.Role, +context: Context) -> Representation:
+def represent_action(key: UIIdentity.Key, +input: Core.Input, availability: View.Availability, label: String, role: UI.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, open, layers, execution, +source_family} = context
   source_action(area, source_family, make_action(key, input, availability, label, role, context))
 
-def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, +context: Context) -> Representation:
+def represent(key: UIIdentity.Key, +meaning: UI.Meaning, +label: String, role: UI.Role, +context: Context) -> Representation:
   match meaning:
     case UI.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case UI.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
-    case UI.Choice{kind, icon, selected, description, input, availability}: make_choice(key, kind, icon, selected, description, input, availability, label, role, context)
+    case UI.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
     case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
     case UI.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
@@ -1144,10 +1119,6 @@ def geometry_minimum_width(value: Geometry) -> Nat:
 def geometry_minimum_height(value: Geometry) -> Nat:
   Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading} = value
   height
-
-def geometry_preferred_width(value: Geometry) -> Nat:
-  Geometry{Space.Demand{minimum, Enclosure.Extent{width, height}}, icon, radius, leading} = value
-  width
 
 def geometry_preferred_height(value: Geometry) -> Nat:
   Geometry{Space.Demand{minimum, Enclosure.Extent{width, height}}, icon, radius, leading} = value

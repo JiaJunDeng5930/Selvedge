@@ -12,36 +12,6 @@ import ../appearance.bend as Appearance
 import ../controls.bend as Controls
 import ./enclosure.bend as ImportedEnclosure
 
-def nodes_preserve_keys_at(values: +List<UI.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
-  {Rule.appearance_keys(Appearance.nodes_at(values, context, typography, in_main, start)) == Rule.source_keys(values) : +List<Rule.Keyed>}:
-  match values:
-    case Nil{}: {==}
-    case Con{UI.Node{+key, +semantic, +label, +role, +meaning, +children}, +rest}:
-      +local = Controls.enter(UI.Node{key, semantic, label, role, meaning, children}, context)
-      +inside = Appearance.enters_main(role, in_main)
-      +inherited_text = Appearance.information_role(role, meaning, typography, inside, start)
-      +child_text = Design.style_text(Appearance.prepared_style(key, semantic, role, meaning, local,
-        Controls.represent(key, meaning, label, role, local), inherited_text))
-      +children_step = Equal.cong(+List<Rule.Keyed>, +List<Rule.Keyed>,
-        (child_keys => Con{Rule.Keyed{key, child_keys},
-          Rule.appearance_keys(Appearance.nodes_at(rest, context, typography, in_main, start))}),
-        Rule.appearance_keys(Appearance.nodes_at(children, local, child_text, inside, start)), Rule.source_keys(children),
-        nodes_preserve_keys_at(children, local, child_text, inside, start))
-      +rest_step = Equal.cong(+List<Rule.Keyed>, +List<Rule.Keyed>,
-        (rest_keys => Con{Rule.Keyed{key, Rule.source_keys(children)}, rest_keys}),
-        Rule.appearance_keys(Appearance.nodes_at(rest, context, typography, in_main, start)), Rule.source_keys(rest),
-        nodes_preserve_keys_at(rest, context, typography, in_main, start))
-      +components = Equal.trans(+List<Rule.Keyed>,
-        Con{Rule.Keyed{key, Rule.appearance_keys(Appearance.nodes_at(children, local, child_text, inside, start))},
-          Rule.appearance_keys(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{Rule.Keyed{key, Rule.source_keys(children)}, Rule.appearance_keys(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{Rule.Keyed{key, Rule.source_keys(children)}, Rule.source_keys(rest)}, children_step, rest_step)
-      Equal.trans(+List<Rule.Keyed>,
-        Rule.appearance_keys(Appearance.nodes_at(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, context, typography, in_main, start)),
-        Con{Rule.Keyed{key, Rule.appearance_keys(Appearance.nodes_at(children, local, child_text, inside, start))},
-          Rule.appearance_keys(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{Rule.Keyed{key, Rule.source_keys(children)}, Rule.source_keys(rest)}, {==}, components)
-
 def nodes_preserve_semantics_at(values: +List<UI.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
   {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<UI.Node>}:
   match values:
@@ -163,19 +133,18 @@ def action_minimum_fits_content(+value: Design.Style, +face: Controls.Face, +geo
   Equal.trans(Bool, Nat.is_ge(Design.style_minimum_height(Appearance.action_style(value, face, geometry)), required), Nat.is_ge(Nat.max(Controls.geometry_minimum_height(geometry), required), required), True{},
     Equal.cong(Nat, Bool, (height => Nat.is_ge(height, required)), Design.style_minimum_height(Appearance.action_style(value, face, geometry)), Nat.max(Controls.geometry_minimum_height(geometry), required), action_minimum_formula(value, face, geometry)), Nat.max_ge_r(Controls.geometry_minimum_height(geometry), required))
 
-def field_minimum_fits_content(+value: Design.Style, +border: Nat, minimum: Nat, radius: Nat) ->
-  {Nat.is_ge(Design.style_minimum_height(Appearance.field_values(value, border, minimum, radius)),
-    Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.text_line_height(Design.style_text(value)), border, Appearance.style_content_area(value)))) == True{} : Bool}:
+def field_minimum_fits_content(+capacity: Nat, +value: Design.Style, +border: Nat, minimum: Nat, radius: Nat) ->
+  {Nat.is_ge(Design.style_minimum_height(Appearance.field_values(capacity, value, border, minimum, radius)),
+    Enclosure.extent_height(Appearance.field_required_extent(capacity, value, border))) == True{} : Bool}:
   match value:
     case Design.Style{+text, Design.Chrome{foreground, background, paint, old_border, old_radius, shadow}, alignment, flow, overflow, +frame, old_minimum, maximum, states}:
-      Nat.max_ge_r(minimum, Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.text_line_height(text), border, Appearance.frame_content_area(frame))))
+      Nat.max_ge_r(minimum, Enclosure.extent_height(Appearance.field_required_extent(capacity, value, border)))
 
 def Rule.evidence():
   Rule.Requirements{action_minimum_retains_geometry, action_minimum_fits_content, field_minimum_fits_content,
     +key => +semantic => +label => +role => +meaning => +context => +inherited => +in_main => +start => {==},
     inherited => text => {==}, inherited => text => in_main => regular_heading_role(inherited,text,in_main), inherited => text => in_main => start => {==},
     +typography => +in_main => +start => values => context => nodes_preserve_semantics_at(values, context, typography, in_main, start),
-    +typography => +in_main => +start => values => context => nodes_preserve_keys_at(values, context, typography, in_main, start),
     +scale => surface => system_dark => present_uses_configured_appearance(surface, system_dark, scale),
     system_dark => light_appearance_wins(system_dark),
     system_dark => dark_appearance_wins(system_dark),

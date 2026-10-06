@@ -1,14 +1,15 @@
 import ../../bendlib/proofs/equality.bend as EqualityProof
 import Base
+import ../../core/ui-identity.bend as UIIdentity
 import ../../core/interface.bend as UI
 import ../../core/SYSTEM.bend as Core
 import ../../core/user-input.bend as U
 import ../../core/user-experience.bend as E
 import ../persistent-trigger-laws.bend as Rule
 
-def removed_step(same: Bool, +current: String, +semantic: String, +label: String,
+def removed_step(same: Bool, +current: UIIdentity.Key, +semantic: String, +label: String,
   +role: UI.Role, +meaning: UI.Meaning, +children: +List<UI.Node>, +rest: +List<UI.Node>, +key: String,
-  same_key: {String.eq(current, key) == same : Bool},
+  same_key: {String.eq(UIIdentity.encode(current), key) == same : Bool},
   children_removed: {Rule.occurrences(UI.without_node(children, key), key) == 0n : Nat},
   rest_removed: {Rule.occurrences(UI.without_node(rest, key), key) == 0n : Nat}) ->
   {Rule.occurrences(UI.retain_node(Bool.not(same),
@@ -17,10 +18,10 @@ def removed_step(same: Bool, +current: String, +semantic: String, +label: String
     case True{}: rest_removed
     case False{}:
       Equal.trans(Nat,
-        Nat.add(Rule.bit(String.eq(current, key)), Nat.add(Rule.occurrences(UI.without_node(children, key), key), Rule.occurrences(UI.without_node(rest, key), key))),
+        Nat.add(Rule.bit(String.eq(UIIdentity.encode(current), key)), Nat.add(Rule.occurrences(UI.without_node(children, key), key), Rule.occurrences(UI.without_node(rest, key), key))),
         Nat.add(0n, Nat.add(Rule.occurrences(UI.without_node(children, key), key), Rule.occurrences(UI.without_node(rest, key), key))), 0n,
         Equal.cong(Bool, Nat, (value => Nat.add(Rule.bit(value), Nat.add(Rule.occurrences(UI.without_node(children, key), key), Rule.occurrences(UI.without_node(rest, key), key)))),
-          String.eq(current, key), False{}, same_key),
+          String.eq(UIIdentity.encode(current), key), False{}, same_key),
       Equal.trans(Nat,
         Nat.add(0n, Nat.add(Rule.occurrences(UI.without_node(children, key), key), Rule.occurrences(UI.without_node(rest, key), key))),
         Nat.add(0n, Nat.add(0n, Rule.occurrences(UI.without_node(rest, key), key))), 0n,
@@ -34,7 +35,7 @@ def removed_occurrences(nodes: +List<UI.Node>, +key: String) ->
   match nodes:
     case Nil{}: {==}
     case Con{UI.Node{+current, semantic, label, role, meaning, +children}, +rest}:
-      removed_step(String.eq(current, key), current, semantic, label, role, meaning, children, rest, key, {==}, removed_occurrences(children, key), removed_occurrences(rest, key))
+      removed_step(String.eq(UIIdentity.encode(current), key), current, semantic, label, role, meaning, children, rest, key, {==}, removed_occurrences(children, key), removed_occurrences(rest, key))
 
 def actual_relocation(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
   +key: String, +node: UI.Node, +target: Nat,
@@ -43,35 +44,35 @@ def actual_relocation(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +Lis
   Equal.cong(Maybe<&2, UI.Node>, UI.Surface,
     (value => UI.relocate_found_trigger(value, target, scene, base, overlays)), UI.find_node(base, key), Some{node}, found)
 
-def valid_exactly_once(+scene: Core.Scene, +base: +List<UI.Node>, +key: String, +semantic: String,
-  +label: String, +role: UI.Role, +meaning: UI.Meaning, +owner: String, +layer_semantic: String,
+def valid_exactly_once(+scene: Core.Scene, +base: +List<UI.Node>, +key: UIIdentity.Key, +semantic: String,
+  +label: String, +role: UI.Role, +meaning: UI.Meaning, +owner: UIIdentity.Key, +layer_semantic: String,
   +title: String, +policy: UI.Meaning, +body: +List<UI.Node>, +rest: +List<UI.Node>,
-  distinct: {String.eq(owner, key) == False{} : Bool},
-  fresh: {Nat.add(Rule.occurrences(body, key), Rule.occurrences(rest, key)) == 0n : Nat}) ->
+  distinct: {String.eq(UIIdentity.encode(owner), UIIdentity.encode(key)) == False{} : Bool},
+  fresh: {Nat.add(Rule.occurrences(body, UIIdentity.encode(key)), Rule.occurrences(rest, UIIdentity.encode(key))) == 0n : Nat}) ->
   {Rule.surface_occurrences(UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}},
-    scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key) == 1n : Nat}:
+    scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), UIIdentity.encode(key)) == 1n : Nat}:
   Equal.trans(Nat,
-    Nat.add(Rule.occurrences(UI.without_node(base, key), key),
-      Nat.add(Rule.bit(String.eq(owner, key)), Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key)))),
-    Nat.add(0n, Nat.add(Rule.bit(String.eq(owner, key)), Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key)))), 1n,
+    Nat.add(Rule.occurrences(UI.without_node(base, UIIdentity.encode(key)), UIIdentity.encode(key)),
+      Nat.add(Rule.bit(String.eq(UIIdentity.encode(owner), UIIdentity.encode(key))), Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key))))),
+    Nat.add(0n, Nat.add(Rule.bit(String.eq(UIIdentity.encode(owner), UIIdentity.encode(key))), Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key))))), 1n,
     Equal.cong(Nat, Nat, (count => Nat.add(count,
-      Nat.add(Rule.bit(String.eq(owner, key)), Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key))))),
-      Rule.occurrences(UI.without_node(base, key), key), 0n, removed_occurrences(base, key)),
+      Nat.add(Rule.bit(String.eq(UIIdentity.encode(owner), UIIdentity.encode(key))), Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key)))))),
+      Rule.occurrences(UI.without_node(base, UIIdentity.encode(key)), UIIdentity.encode(key)), 0n, removed_occurrences(base, UIIdentity.encode(key))),
     Equal.trans(Nat,
-      Nat.add(0n, Nat.add(Rule.bit(String.eq(owner, key)), Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key)))),
-      Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key)))), 1n,
-      Equal.cong(Bool, Nat, (same => Nat.add(0n, Nat.add(Rule.bit(same), Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key))))),
-        String.eq(owner, key), False{}, distinct),
+      Nat.add(0n, Nat.add(Rule.bit(String.eq(UIIdentity.encode(owner), UIIdentity.encode(key))), Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key))))),
+      Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key))))), 1n,
+      Equal.cong(Bool, Nat, (same => Nat.add(0n, Nat.add(Rule.bit(same), Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key)))))),
+        String.eq(UIIdentity.encode(owner), UIIdentity.encode(key)), False{}, distinct),
       Equal.trans(Nat,
-        Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(String.eq(key, key)), Rule.occurrences(body, key)), Rule.occurrences(rest, key)))),
-        Nat.add(1n, Nat.add(Rule.occurrences(body, key), Rule.occurrences(rest, key))), 1n,
-        Equal.cong(Bool, Nat, (same => Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(same), Rule.occurrences(body, key)), Rule.occurrences(rest, key))))),
-          String.eq(key, key), True{}, EqualityProof.same_string(key)),
+        Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(String.eq(UIIdentity.encode(key), UIIdentity.encode(key))), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key))))),
+        Nat.add(1n, Nat.add(Rule.occurrences(body, UIIdentity.encode(key)), Rule.occurrences(rest, UIIdentity.encode(key)))), 1n,
+        Equal.cong(Bool, Nat, (same => Nat.add(0n, Nat.add(0n, Nat.add(Nat.add(Rule.bit(same), Rule.occurrences(body, UIIdentity.encode(key))), Rule.occurrences(rest, UIIdentity.encode(key)))))),
+          String.eq(UIIdentity.encode(key), UIIdentity.encode(key)), True{}, EqualityProof.same_string(UIIdentity.encode(key))),
         Equal.cong(Nat, Nat, (count => Nat.add(1n, count)),
-          Nat.add(Rule.occurrences(body, key), Rule.occurrences(rest, key)), 0n, fresh))))
+          Nat.add(Rule.occurrences(body, UIIdentity.encode(key)), Rule.occurrences(rest, UIIdentity.encode(key))), 0n, fresh))))
 
 def accepted_same_node(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +key: String, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning,
+  +key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning,
   +children: +List<UI.Node>, +target: Nat,
   accepted: {UI.persistent_trigger_source(meaning, target) == True{} : Bool}) ->
   {UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, children}}, target, scene, base, overlays) ==
@@ -81,7 +82,7 @@ def accepted_same_node(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +Li
     UI.persistent_trigger_source(meaning, target), True{}, accepted)
 
 def rejected_source_stays(+scene: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +key: String, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning,
+  +key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning,
   +children: +List<UI.Node>, +target: Nat,
   rejected: {UI.persistent_trigger_source(meaning, target) == False{} : Bool}) ->
   {UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, children}}, target, scene, base, overlays) ==
@@ -108,10 +109,10 @@ def Rule.evidence():
     , +scene => +base => +key => +semantic => +label => +role => +meaning => +owner => +layer_semantic => +title => +policy => +body => +rest => +target => accepted => distinct => fresh =>
       Equal.trans(Nat,
         Rule.surface_occurrences(UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target,
-          scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key),
+          scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), UIIdentity.encode(key)),
         Rule.surface_occurrences(UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}},
-          scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), key), 1n,
-        Equal.cong(UI.Surface, Nat, (surface => Rule.surface_occurrences(surface, key)),
+          scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest), UIIdentity.encode(key)), 1n,
+        Equal.cong(UI.Surface, Nat, (surface => Rule.surface_occurrences(surface, UIIdentity.encode(key))),
           UI.relocate_found_trigger(Some{UI.Node{key, semantic, label, role, meaning, Nil{}}}, target, scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest),
           UI.relocate_valid_trigger(True{}, UI.Node{key, semantic, label, role, meaning, Nil{}}, scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest),
           accepted_same_node(scene, base, UI.Node{owner, layer_semantic, title, UI.Dialog{}, policy, body} <> rest,

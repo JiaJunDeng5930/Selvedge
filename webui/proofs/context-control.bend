@@ -18,7 +18,7 @@ def Rule.evidence():
     +key => kind => icon => +selected => description => +input => +availability => +label => role => context => BindingProof.choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context),
     kind => icon => +selected => description => +input => +availability => {==},
     kind => icon => +selected => description => +input => +availability => {==},
-    +key => semantic => +label => role => kind => icon => +selected => description => +input => +availability => +elements => {==},
+    +key => semantic => +label => role => kind => icon => +selected => description => +input => +availability => +elements => +native_focus => {==},
     +label => expanded => {==},
     +label => current => +execution => {==},
     initial_execution,

@@ -28,7 +28,7 @@ type Input is Data:
   LiveOutput{observation: Live.Observation}
   CodeSource{identity: Code.Identity, source: String}
   ClipboardCompleted{identity: Code.Identity, ticket: Nat, success: Bool}
-  ClipboardFeedbackExpired{identity: Code.Identity}
+  ClipboardFeedbackExpired{identity: Code.Identity, ticket: Nat}
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
   Disconnected{reason: String}
   Uploaded{ticket: Nat, result: Result<&2, &2, String, B.Attachment>}
@@ -55,7 +55,7 @@ def step(input: Input, state: Core.State) -> Core.Decision:
     case LiveOutput{observation}: Core.step(Core.ApplicationInput{E.PreviewObserved{observation}}, state)
     case CodeSource{identity, source}: Core.step(Core.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{source}}}, state)
     case ClipboardCompleted{identity, ticket, success}: Core.step(Core.ApplicationInput{E.ContentInput{identity, Code.Copied{ticket, success}}}, state)
-    case ClipboardFeedbackExpired{identity}: Core.step(Core.ApplicationInput{E.ContentInput{identity, Code.ExpireFeedback{}}}, state)
+    case ClipboardFeedbackExpired{identity, ticket}: Core.step(Core.ApplicationInput{E.ContentInput{identity, Code.ExpireFeedback{ticket}}}, state)
     case Authenticated{ticket, result}: Core.step(Core.ServiceInput{Services.Authenticated{ticket, result}}, state)
     case Disconnected{reason}: Core.step(Core.ServiceInput{Services.Disconnected{reason}}, state)
     case Uploaded{ticket, result}: Core.step(Core.ServiceInput{Services.Uploaded{ticket, result}}, state)

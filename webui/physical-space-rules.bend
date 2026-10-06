@@ -19,6 +19,11 @@ def child_minima_participate(~A: Data, ~E: Data, trees: +List<Model.Tree<A, E>>,
       extent_contains(required, Model.minimum_demand(Model.demand(~A, ~E, tree))) &&
         child_minima_participate(~A, ~E, rest, required)
 
+def percentage_conflict(+extent: Maybe<&2, Nat>, +minimum: Nat) -> Bool:
+  match extent:
+    case None{}: True{}
+    case Some{cap}: Bool.not(Nat.is_le(minimum, cap))
+
 type Requirements<-A: Data, -E: Data> is Type:
   Requirements{
     preferred_floor: @+tree:Model.Tree<A, E> ->
@@ -33,8 +38,14 @@ type Requirements<-A: Data, -E: Data> is Type:
     exact_conflict: @+minimum:Nat -> @preferred:Nat -> @offered:Nat -> @+extent:Nat ->
       @conflict:{Nat.is_le(minimum, extent) == False{} : Bool} ->
       {Model.materialize(Model.ExactSize{extent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>},
+    invalid_percent: @+minimum:Nat -> @preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @invalid:{Nat.is_le(percent, 100n) == False{} : Bool} ->
+      {Model.materialize(Model.PercentSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>},
+    invalid_cap: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @invalid:{Nat.is_le(percent, 100n) == False{} : Bool} ->
+      {Model.materialize(Model.CappedNaturalSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>},
     capped_conflict: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+maximum_percent:Nat ->
-      @conflict:{(Bool.not(Nat.is_le(maximum_percent, 100n)) || Bool.not(Nat.is_le(minimum, Nat.div(Nat.mul(offered, maximum_percent), 100n)))) == True{} : Bool} ->
+      @conflict:{percentage_conflict(Model.percentage_extent(offered, maximum_percent), minimum) == True{} : Bool} ->
       {Model.materialize(Model.CappedNaturalSize{maximum_percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}}
 
 law evidence:

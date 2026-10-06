@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./physical-plan.bend as Plan
 import ./physical-content.bend as Content
 import ./physical-renderer.bend as Renderer
@@ -33,6 +34,24 @@ def field_width(purpose: Content.Purpose) -> +List<Doc.Property>:
     case Content.Natural{}: Nil{}
     case Content.AtWidth{width}: [Paint.property("width", "100%")]
 
+def field_content_attributes_match(textarea: Bool) -> +List<Doc.Property>:
+  match textarea:
+    case True{}: [Paint.property("data-physical-field-content", "")]
+    case False{}: Nil{}
+def field_content_attributes(kind: Source.NativeFieldKind) -> +List<Doc.Property>:
+  field_content_attributes_match(String.eq(Renderer.field_tag(kind), "textarea"))
+
+def field_content_styles_match(textarea: Bool) -> +List<Doc.Property>:
+  match textarea:
+    case True{}:
+      # The native scroll area owns text height, independently of default rows.
+      [Paint.property("height", "0px"), Paint.property("min-height", "0px"),
+       Paint.property("overflow", "hidden"), Paint.property("resize", "none")]
+    case False{}: Nil{}
+
+def field_content_styles(kind: Source.NativeFieldKind) -> +List<Doc.Property>:
+  field_content_styles_match(String.eq(Renderer.field_tag(kind), "textarea"))
+
 def disabled(enabled: Bool) -> +List<Doc.Property>:
   match enabled:
     case True{}: Nil{}
@@ -49,21 +68,21 @@ def primitive_value(+value: Content.Value, +key: String, +purpose: Content.Purpo
   match value:
     case Content.Value{Source.Text{source_key, +text, choice, wrap}, font}:
       Doc.Element{key, "div", attributes, root_styles(value), Nil{},
-        [Doc.Element{key ++ "/text", "span", Nil{}, Nil{}, Nil{}, [Doc.Text{text}]}]}
+        [Doc.Element{UIIdentity.encode(UIIdentity.part(source_key, "text")), "span", Nil{}, Nil{}, Nil{}, [Doc.Text{text}]}]}
     case Content.Value{Source.Field{source_key, +kind, style, +attrs, +text, +placeholder, +options, policy, +name, +enabled, first, remaining}, font}:
       Doc.Element{key, "div", attributes, root_styles(value), Nil{},
-        [Doc.Element{key ++ "/field", Renderer.field_tag(kind),
-          Renderer.properties(Renderer.field_authored(kind, attrs), Renderer.properties(Renderer.field_attributes(kind, text),
+        [Doc.Element{UIIdentity.encode(UIIdentity.part(source_key, "field")), Renderer.field_tag(kind),
+          Renderer.properties(field_content_attributes(kind), Renderer.properties(Renderer.field_authored(kind, attrs), Renderer.properties(Renderer.field_attributes(kind, text),
             Renderer.properties([Paint.property("class", "native-control"), Paint.property("placeholder", placeholder),
-              Paint.property("aria-label", name), Paint.property("tabindex", "-1")], disabled(enabled)))),
-          Renderer.properties(Renderer.primitive_styles(value), Renderer.properties(field_width(purpose),
+              Paint.property("aria-label", name), Paint.property("tabindex", "-1")], disabled(enabled))))),
+          Renderer.properties(field_content_styles(kind), Renderer.properties(Renderer.primitive_styles(value), Renderer.properties(field_width(purpose),
             [Paint.property("display", "block"), Paint.property("margin", "0"), Paint.property("border", "0"),
-             Paint.property("padding", "0"), Paint.property("appearance", "none"), Paint.property("box-sizing", "border-box")])),
-          Nil{}, Renderer.choices(options, key ++ "/field")}]}
-    case Content.Value{Source.RichText{source_key, style, Source.RichContent{+source, +text, policy}, attachments}, font}:
+             Paint.property("padding", "0"), Paint.property("appearance", "none"), Paint.property("box-sizing", "border-box")]))),
+          Nil{}, Renderer.choices(options, UIIdentity.part(source_key, "field"))}]}
+    case Content.Value{Source.RichText{source_key, style, Source.RichContent{+source, +text, policy}, attachments, native_owner}, font}:
       # Original Code.Source gives parser targets and native portals the same owner.
       Doc.Element{key, "div", Paint.property("class", "physical-markdown") <> attributes, root_styles(value), Nil{},
-        Doc.Markdown{key ++ "/markdown", source, text} <> Renderer.native_documents(roots, policies)}
+        Doc.Markdown{UIIdentity.encode(UIIdentity.part(source_key, "markdown")), source, text, native_owner} <> Renderer.native_documents(roots, policies)}
     case Content.Value{Source.Glyph{source_key, drawing, style}, font}:
       unsupported(key, "glyph", attributes, root_styles(value))
     case Content.Value{Source.Box{source_key, tag, style, attrs, children}, font}:

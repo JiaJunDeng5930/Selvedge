@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./source.bend as Source
 import ./design.bend as Design
 import ./physical-space.bend as Model
@@ -50,11 +51,6 @@ def with_minimum(value: Source.Style, minimum: Enclosure.Extent) -> Source.Style
   Source.Style{Source.Layout{direction, main, cross, frame, width, height,
     Model.extent_max(existing, minimum), scroll, position}, font, chrome, states}
 
-def with_axes(value: Source.Style, width: Model.AxisSize, height: Model.AxisSize) -> Source.Style:
-  Source.Style{layout, font, chrome, states} = value
-  Source.Layout{direction, main, cross, frame, old_width, old_height, minimum, scroll, position} = layout
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}
-
 def with_font(value: Source.Style, font: Source.FontChoice) -> Source.Style:
   Source.Style{layout, old_font, chrome, states} = value
   Source.Style{layout, font, chrome, states}
@@ -95,14 +91,10 @@ def content_style(parent: Design.Style, direction: Model.Direction, width: Model
     Source.ExplicitFont{text}, Design.Chrome{foreground, Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}},
     Design.Passive{}}
 
-def text(key: String, value: String, font: Source.FontChoice, wrapping: T.Wrapping) -> Source.Node:
+def text(key: UIIdentity.Key, value: String, font: Source.FontChoice, wrapping: T.Wrapping) -> Source.Node:
   Source.Text{key, value, font, wrapping}
 
-def binding_attributes(key: String) -> +List<Source.Attribute>:
-  Source.DataAttribute{"native-key", key} <> Nil{}
+def binding_attributes(key: UIIdentity.Key) -> +List<Source.Attribute>:
+  Source.DataAttribute{"native-key", UIIdentity.encode(key)} <> Nil{}
 
 # Placement changes retain the complete authored style and enclosure contract.
-def with_position(value: Source.Style, position: Spatial.Position) -> Source.Style:
-  Source.Style{layout, font, chrome, states} = value
-  Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, old_position} = layout
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}

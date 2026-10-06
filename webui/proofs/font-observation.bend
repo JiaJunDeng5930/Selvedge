@@ -85,13 +85,13 @@ def Rule.retag_generation(state, generation):
     case F.Ready{old, scale, body, +content_cache}: {==}
     case F.Failed{old, scale}: {==}
 
-def Rule.pending_request(generation, scale):
+def Rule.pending_request(capacity, generation, scale):
   {==}
 
-def Rule.ready_request(generation, scale, metric):
+def Rule.ready_request(capacity, generation, scale, metric):
   {==}
 
-def Rule.failed_request(generation, scale):
+def Rule.failed_request(capacity, generation, scale):
   {==}
 
 def Rule.begin_scale(generation, root):

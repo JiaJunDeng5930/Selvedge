@@ -1,4 +1,5 @@
 import Base
+import ../COMMANDS.bend as Commands
 import ../MODEL.bend as M
 import ../bendlib/domain.bend as D
 import ../BOARD.bend as B
@@ -275,15 +276,31 @@ def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
 
-def effort_for_same(same: Bool, previous: String, selected: String) -> String:
-  match same:
-    case True{}: previous
-    case False{}: selected
+def permitted_model_edit(permitted: Bool, profile: String, reasoning: String) -> Maybe<&2, U.Edit>:
+  match permitted:
+    case True{}: Some{U.ChooseModel{profile, reasoning}}
+    case False{}: None{}
 
-def sandbox_value(value: Context.SandboxValue) -> D.Sandbox:
-  match value:
-    case Context.InheritedSandbox{value}: value
-    case Context.ChosenSandbox{value}: value
+def selected_profile_effort(permitted: Bool, previous: String, profile: D.Profile) -> String:
+  match permitted:
+    case True{}: previous
+    case False{}: D.profile_default(profile)
+
+def profile_change(found: Maybe<&2, D.Profile>, +previous: String) -> Maybe<&2, U.Edit>:
+  match found:
+    case None{}: None{}
+    case Some{D.Profile{+key, provider, name, policy, options}}:
+      +profile: D.Profile = D.Profile{key, provider, name, policy, options}
+      +selected: String = selected_profile_effort(D.profile_permitted(profile, previous), previous, profile)
+      permitted_model_edit(D.profile_permitted(profile, selected), key, selected)
+
+def reasoning_change(found: Maybe<&2, D.Profile>, requested: String) -> Maybe<&2, U.Edit>:
+  match found:
+    case None{}: None{}
+    case Some{D.Profile{+key, provider, name, policy, options}}:
+      +profile: D.Profile = D.Profile{key, provider, name, policy, options}
+      +selected = D.profile_selection(requested, profile)
+      permitted_model_edit(D.profile_permitted(profile, selected), key, selected)
 
 def sandbox_field(field: Field, new_mode: D.SandboxMode, new_network: Bool, mode: D.SandboxMode, network: Bool) -> Maybe<&2, U.Edit>:
   match field:
@@ -299,12 +316,12 @@ def update_sandbox(field: Field, requested: D.Sandbox, current: D.Sandbox) -> Ma
 def context_sandbox(preview: Context.Preview, field: Field, requested: D.Sandbox) -> Maybe<&2, U.Edit>:
   match preview:
     case Context.ContextUnavailable{reason}: None{}
-    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: update_sandbox(field, requested, sandbox_value(sandbox))
+    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: update_sandbox(field, requested, Context.unwrap_sandbox(sandbox))
 
 def configured_edit(field: Field, value: Value, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Maybe<&2, U.Edit>:
   match field value:
-    case ModelProfile{} Model{+selected, effort}: Some{U.ChooseModel{selected, effort_for_same(String.eq(selected, profile), reasoning, effort)}}
-    case ReasoningEffort{} Model{+selected, effort}: Some{U.ChooseModel{profile, effort}}
+    case ModelProfile{} Model{+selected, effort}: profile_change(D.find_profile(Commands.configured(Commands.settings(world)), selected), reasoning)
+    case ReasoningEffort{} Model{selected, effort}: reasoning_change(D.find_profile(Commands.configured(Commands.settings(world)), profile), effort)
     case SandboxMode{} ContextChange{Context.SetSandbox{sandbox}}: context_sandbox(Context.preview(config, world), SandboxMode{}, sandbox)
     case NetworkAccess{} ContextChange{Context.SetSandbox{sandbox}}: context_sandbox(Context.preview(config, world), NetworkAccess{}, sandbox)
     case other next: edit(other, next)

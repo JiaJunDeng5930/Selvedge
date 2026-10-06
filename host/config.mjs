@@ -138,5 +138,9 @@ export async function loadConfig({ home, filename } = {}) {
 
 export function profileCatalog(config) {
   return Object.entries(config.profiles).map(([key, profile]) => ({ key, provider: profile.provider, name: profile.model,
+    reasoning_options: profile.model_info?.supported_reasoning_levels?.length ? {
+      default: profile.model_info.default_reasoning_level ?? null,
+      values: profile.model_info.supported_reasoning_levels.map(level => level.effort),
+    } : null,
     ...(profile.adaptive_reasoning ? { adaptive_reasoning: profile.adaptive_reasoning } : {}) }));
 }

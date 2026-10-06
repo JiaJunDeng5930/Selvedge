@@ -1,4 +1,6 @@
 import Base
+import ./natural-size.bend as NaturalSize
+import ../core/ui-identity.bend as UIIdentity
 import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ./surfaces.bend as Surfaces
@@ -81,7 +83,7 @@ type Style is Data:
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Node is Data:
-  Node{key: String, semantic: String, label: String, role: UI.Role,
+  Node{key: UIIdentity.Key, semantic: String, label: String, role: UI.Role,
     meaning: UI.Meaning, style: Style, control: Controls.Representation,
     children: +List<Node>}
 
@@ -131,13 +133,24 @@ def style_frame(value: Style) -> Enclosure.Frame:
   Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
   frame
 
-def parameters(+scale: T.Scale, body: T.Metric) -> LayoutParameters:
+def parameter_values(values: Maybe<&2, +List<Nat>>) -> Maybe<&2, LayoutParameters>:
+  match values:
+    case Some{Con{navigation, Con{main, Con{details, Con{reading, Con{overview, Con{toolbar, Con{minimum, Con{maximum, Con{leading, Con{creation, Nil{}}}}}}}}}}}}:
+      Some{LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation}}
+    case _: None{}
+
+def parameters(+scale: T.Scale, body: T.Metric) -> Maybe<&2, LayoutParameters>:
   T.Metric{key, minimum, preferred, height, +advance} = body
-  +leading = Nat.max(T.resolved_line_height(T.resolve(T.Body{}, T.Regular{}, scale)), height)
-  +toolbar = Nat.max(T.scaled(46n, scale), Nat.add(leading, T.scaled(26n, scale)))
-  +input_minimum = Nat.max(T.scaled(44n, scale), Nat.add(leading, Nat.mul(2n, T.scaled(12n, scale))))
-  balanced = Nat.add(toolbar, Nat.mul(2n, Nat.add(T.resolved_line_height(T.resolve(T.Display{}, T.Regular{}, scale)),
-    Nat.add(input_minimum, Nat.add(T.scaled(32n, scale), Nat.mul(3n, T.scaled(16n, scale)))))))
-  LayoutParameters{T.scaled(275n, scale), Nat.add(T.reading_width(advance, 64n), Nat.mul(2n, T.scaled(16n, scale))),
-    T.scaled(360n, scale), T.reading_width(advance, 96n), T.reading_width(advance, 144n), toolbar,
-    input_minimum, Nat.max(T.scaled(240n, scale), input_minimum), leading, balanced}
+  +leading: NaturalSize.Calculation = NaturalSize.Maximum{NaturalSize.Value{T.resolved_line_height(T.resolve(NaturalSize.limit(), T.Body{}, T.Regular{}, scale))}, NaturalSize.Value{height}}
+  +toolbar: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(46n, scale), NaturalSize.Sum{leading, T.scaling_calculation(26n, scale)}}
+  +input_minimum: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(44n, scale), NaturalSize.Sum{leading, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(12n, scale)}}}
+  balanced: NaturalSize.Calculation = NaturalSize.Sum{toolbar, NaturalSize.Product{NaturalSize.Value{2n},
+    NaturalSize.Sum{NaturalSize.Value{T.resolved_line_height(T.resolve(NaturalSize.limit(), T.Display{}, T.Regular{}, scale))},
+      NaturalSize.Sum{input_minimum, NaturalSize.Sum{T.scaling_calculation(32n, scale), NaturalSize.Product{NaturalSize.Value{3n}, T.scaling_calculation(16n, scale)}}}}}}
+  parameter_values(NaturalSize.evaluate_all(NaturalSize.limit(), [
+    T.scaling_calculation(275n, scale),
+    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{64n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}},
+    T.scaling_calculation(360n, scale),
+    NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
+    NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
+    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced]))

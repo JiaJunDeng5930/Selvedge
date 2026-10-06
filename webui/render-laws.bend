@@ -9,11 +9,6 @@ def clear(faults: +List<Rendered.Violation>) -> Bool:
     case Nil{}: True{}
     case Con{fault, rest}: False{}
 
-def bool_goal(P: Type, value: Bool) -> Type:
-  match value:
-    case False{}: Unit
-    case True{}: P
-
 def realized_tag(state: Rendered.State) -> Bool:
   match state:
     case Rendered.Realized{generation, frame}: True{}

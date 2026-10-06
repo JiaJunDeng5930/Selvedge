@@ -79,7 +79,6 @@ def Rule.evidence():
     +typography => +meaning => {==},
     +typography => +meaning => {==},
     +typography => +meaning => {==},
-    +typography => +meaning => {==},
     +typography => +meaning => canvas(meaning, typography),
-    +typography => {==}, {==}, {==}, {==}, state_allocation, +icon => {==}, +text => {==}, +text => +selected => {==},
+    +typography => {==}, {==}, {==}, {==}, state_allocation, +text => {==}, +text => +selected => {==},
     +typography => {==}}

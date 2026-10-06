@@ -54,9 +54,9 @@ def project_id(context: D.TaskContext) -> Maybe<&2, Nat>:
   D.TaskContext{workspace, sandbox, approval, project_id} = context
   project_id
 
-def valid_reviewer_profile(profile: D.Profile) -> Bool:
-  D.Profile{key, provider, name, reasoning} = profile
-  D.nonempty(key) && D.nonempty(provider) && D.nonempty(name) && Bool.not(Reasoning.automatic(reasoning))
+def valid_reviewer_profile(+profile: D.Profile) -> Bool:
+  D.profile_valid(profile) && Bool.not(Reasoning.automatic(D.profile_reasoning(profile))) &&
+    D.profile_permitted(profile, D.profile_default(profile))
 
 def valid_approval(policy: D.ApprovalPolicy) -> Bool:
   match policy:
@@ -146,7 +146,7 @@ def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      D.Profile{key, provider, name, reasoning} = profile
+      D.Profile{key, provider, name, reasoning, options} = profile
       selected_approval(J.text(J.get(value, "mode")), J.text_or(J.get(value, "reviewer_profile"), key), profiles)
 
 def retained_guidance(same: Bool, guidance: D.ProjectContext) -> D.ProjectContext:
@@ -208,9 +208,9 @@ def roots_within(children: +List<String>, +parents: +List<String>) -> Bool:
     case Con{child, rest}: covered(child, parents) && roots_within(rest, parents)
 
 def profile_same(a: D.Profile, b: D.Profile) -> Bool:
-  D.Profile{key_a, provider_a, name_a, reasoning_a} = a
-  D.Profile{key_b, provider_b, name_b, reasoning_b} = b
-  String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b) && Reasoning.same(reasoning_a, reasoning_b)
+  D.Profile{key_a, provider_a, name_a, reasoning_a, options_a} = a
+  D.Profile{key_b, provider_b, name_b, reasoning_b, options_b} = b
+  String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b) && Reasoning.same(reasoning_a, reasoning_b) && D.reasoning_options_same(options_a, options_b)
 
 def review_no_broader(child: D.ApprovalPolicy, parent: D.ApprovalPolicy) -> Bool:
   match child parent:

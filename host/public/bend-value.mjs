@@ -1,3 +1,11 @@
+/** Validate observations against Bend's immediate Nat representation. */
+export function observedNatNumber(number, name) {
+  if (!Number.isSafeInteger(number) || number < 0 || number > 281474976710655) {
+    throw new TypeError(`Invalid ${name}`);
+  }
+  return number;
+}
+
 /** Transport compiler values without maintaining a domain schema. */
 export function encodeBendValue(value) {
   if (typeof value === 'bigint') return { $: '$bigint', value: value.toString() };

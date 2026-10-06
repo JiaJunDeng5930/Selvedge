@@ -2,6 +2,7 @@ import Base
 import ./document.bend as Doc
 import ./design.bend as Design
 import ./typography.bend as T
+import ./natural-size.bend as NaturalSize
 import ./surfaces.bend as Surfaces
 
 def property(name: String, value: String) -> Doc.Property:
@@ -15,6 +16,10 @@ def px(value: Nat) -> String:
 def surface_color(value: Surfaces.Color) -> String:
   match value:
     case Surfaces.Clear{}: "transparent"
+    case Surfaces.NeutralWash{strength}:
+      +opacity = Surfaces.wash_opacity(strength)
+      # The inactive imported scheme selector expands to whitespace.
+      "var(--lightningcss-light, rgba(0, 0, 0, " ++ opacity ++ "))var(--lightningcss-dark, rgba(255, 255, 255, " ++ opacity ++ "))"
     case Surfaces.Token{name}: "var(" ++ name ++ ")"
     case Surfaces.Blend{foreground, percent, background}:
       "color-mix(in srgb, var(" ++ foreground ++ ") " ++ Nat.show(percent) ++ "%, var(" ++ background ++ "))"
@@ -37,26 +42,32 @@ def text_properties(+value: T.TextStyle) -> +List<Doc.Property>:
   [property("font-family", T.font_family(T.resolved_font(value))), property("font-size", px(T.resolved_size(value))),
    property("line-height", px(T.resolved_line_height(value))), property("font-weight", Nat.show(T.resolved_weight(value)))]
 
-def text_presentation(value: T.Presentation) -> +List<Doc.Property>:
-  text_properties(T.resolved(value))
+def text_presentation_at(capacity: Nat, value: T.Presentation) -> +List<Doc.Property>:
+  text_properties(T.resolve_presentation(capacity, value))
 
-def part_text(+parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
-  text_presentation(T.with_emphasis(T.with_tier(parent, tier), emphasis))
+def text_presentation(value: T.Presentation) -> +List<Doc.Property>:
+  text_presentation_at(NaturalSize.limit(), value)
 
 def rich_resolved(+prefix: String, +value: T.TextStyle) -> +List<Doc.Property>:
   [property(prefix ++ "-size", px(T.resolved_size(value))), property(prefix ++ "-line", px(T.resolved_line_height(value))),
    property(prefix ++ "-weight", Nat.show(T.resolved_weight(value))), property(prefix ++ "-font", T.font_family(T.resolved_font(value)))]
 
+def rich_role_at(capacity: Nat, prefix: String, parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
+  rich_resolved(prefix, T.resolve_presentation(capacity, T.with_emphasis(T.with_tier(parent, tier), emphasis)))
+
 def rich_role(prefix: String, parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
-  rich_resolved(prefix, T.resolved(T.with_emphasis(T.with_tier(parent, tier), emphasis)))
+  rich_role_at(NaturalSize.limit(), prefix, parent, tier, emphasis)
+
+def rich_properties_at(+capacity: Nat, +parent: T.Presentation) -> +List<Doc.Property>:
+  List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-title", parent, T.Title{}, T.Strong{}),
+    List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-section", parent, T.Section{}, T.Medium{}),
+      List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-body", parent, T.Body{}, T.Regular{}),
+        List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-support", parent, T.Support{}, T.Medium{}),
+          List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-code", parent, T.CodeBody{}, T.Regular{}),
+            rich_role_at(capacity, "--rich-body-strong", parent, T.Body{}, T.Strong{}))))))
 
 def rich_properties(+parent: T.Presentation) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, rich_role("--rich-title", parent, T.Title{}, T.Strong{}),
-    List.append(&2, Doc.Property, rich_role("--rich-section", parent, T.Section{}, T.Medium{}),
-      List.append(&2, Doc.Property, rich_role("--rich-body", parent, T.Body{}, T.Regular{}),
-        List.append(&2, Doc.Property, rich_role("--rich-support", parent, T.Support{}, T.Medium{}),
-          List.append(&2, Doc.Property, rich_role("--rich-code", parent, T.CodeBody{}, T.Regular{}),
-            rich_role("--rich-body-strong", parent, T.Body{}, T.Strong{}))))))
+  rich_properties_at(NaturalSize.limit(), parent)
 
 def states_style(value: Design.ControlStates) -> +List<Doc.Property>:
   match value:

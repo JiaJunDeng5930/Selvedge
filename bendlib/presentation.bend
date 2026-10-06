@@ -12,7 +12,7 @@ import ./tasks.bend as T
 import ./reasoning-context.bend as ReasoningContext
 
 def model_json(model: D.Model) -> J.Json:
-  D.Model{D.Profile{profile, provider, name, policy}, reasoning, project} = model
+  D.Model{D.Profile{profile, provider, name, policy, options}, reasoning, project} = model
   J.Object{[J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}},
     J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"adaptive_reasoning", Reasoning.json(policy)},
     J.Field{"project", D.project_json(project)}]}
@@ -64,10 +64,10 @@ def effect(effect: M.Effect()) -> J.Json:
     case Effects.ExecuteTool{task_id, ticket, tool, call, context, access}:
       J.Object{[J.Field{"kind", J.Text{"tool"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"tool", D.tool_json(tool)}, J.Field{"call", T.call_json(call)}, J.Field{"execution", D.execution_json(context, access)}]}
-    case Effects.RequestApproval{task_id, ticket, D.Profile{key, provider, name, policy}, call, context, history}:
+    case Effects.RequestApproval{task_id, ticket, D.Profile{+key, +provider, +name, policy, options}, call, context, history}:
       J.Object{[J.Field{"kind", J.Text{"approval"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", J.Object{[J.Field{"profile", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}},
-          J.Field{"reasoning", J.Text{"medium"}}, J.Field{"project", J.Null{}}]}},
+          J.Field{"reasoning", J.Text{D.profile_default(D.Profile{key, provider, name, policy, options})}}, J.Field{"project", J.Null{}}]}},
         J.Field{"instructions", J.Text{Approvals.instructions()}}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"call", T.call_json(call)}, J.Field{"user_requests", J.Array{Approvals.user_requests(4n, history)}}]}
     case Effects.CancelTask{task_id}:

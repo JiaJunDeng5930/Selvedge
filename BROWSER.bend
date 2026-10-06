@@ -1,9 +1,11 @@
+import ./webui/anchor-geometry.bend as AnchorGeometry
 import ./webui/native-fields.bend as NativeFields
 import ./webui/rendered.bend as Rendered
 import ./webui/focus.bend as Focus
 import ./webui/physical-plan.bend as Plan
 import ./webui/physical-content.bend as Content
 import ./webui/browser.bend as Legacy
+import ./webui/code-observation.bend as CodeObservation
 import Base
 import ./MODEL.bend as M
 import ./webui/document.bend as Document
@@ -31,7 +33,7 @@ def program(state: Browser.State) -> M.World(): Browser.program(state)
 def connect(credential: String, state: Browser.State) -> Browser.Decision: Browser.connect(credential, state)
 def directories_completed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directories_completed(ticket, ok, body, state)
 def code_key(source: Code.Source, ordinal: Nat) -> String: Browser.code_key(source, ordinal)
-def code_source(source: Code.Source, ordinal: Nat, text: String, state: Browser.State) -> Browser.Decision: Browser.code_source(source, ordinal, text, state)
+def code_sources(generation: Nat, observations: +List<CodeObservation.Observation>, state: Browser.State) -> Browser.Decision: Browser.code_sources(generation, observations, state)
 
 def editor_event(key: String, event: Editor.Event, state: Browser.State) -> Browser.Decision: Browser.editor_event(key, event, state)
 def reading(task: Nat, generation: Nat, event: Reading.Event, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
@@ -69,7 +71,7 @@ def physical_measured(generation: Nat, receipts: +List<String>, state: Browser.S
 
 def physical_measurement_failed(generation: Nat, reason: String, state: Browser.State) -> Browser.Decision: Browser.physical_measurement_failed(generation, reason, state)
 
-def capture_anchor(key: String, left: Nat, top: Nat, width: Nat, height: Nat, state: Browser.State) -> Browser.Decision: Browser.capture_anchor(key, left, top, width, height, state)
+def capture_anchor(key: String, left: AnchorGeometry.Origin, top: AnchorGeometry.Origin, width: Nat, height: Nat, state: Browser.State) -> Browser.Decision: Browser.capture_anchor(key, left, top, width, height, state)
 
 def remeasure(state: Browser.State) -> Browser.Decision: Browser.remeasure(state)
 
@@ -81,3 +83,8 @@ def publication(last_published: Nat, state: Browser.State) -> Browser.Publicatio
 
 def field_session_initial() -> NativeFields.Record: NativeFields.initial()
 def field_session_step(event: NativeFields.Event, record: NativeFields.Record) -> NativeFields.Decision: NativeFields.step(event, record)
+
+def native_focus_observed(generation: Nat, owner: String, identity: String, state: Browser.State) -> Browser.Decision: Browser.native_focus_observed(generation, owner, identity, state)
+
+
+def code_dom_key(source: Code.Source, ordinal: Nat) -> String: Code.dom_key(Code.Identity{source, ordinal})

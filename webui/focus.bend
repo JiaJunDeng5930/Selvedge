@@ -6,80 +6,119 @@ import ../core/user-input.bend as U
 import ../core/ui-world.bend as View
 import ../core/client-services.bend as Services
 
+type Target is Data:
+  Product{identity: String}
+  Content{owner: String, identity: String}
+
+def target_key(target: Target) -> String:
+  match target:
+    case Product{identity}: identity
+    case Content{owner, identity}: identity
+
 type Scope is Data:
   Document{}
-  Temporary{identity: String, initial: String, restore: String}
+  Temporary{identity: String, initial: String, restore: String, occurrence: Maybe<&2, Nat>}
 
 def identity(scope: Scope) -> String:
   match scope:
     case Document{}: "document"
-    case Temporary{id, initial, restore}: id
+    case Temporary{id, initial, restore, occurrence}: id
 
 def initial(scope: Scope) -> String:
   match scope:
     case Document{}: "page-heading"
-    case Temporary{id, target, restore}: target
+    case Temporary{id, target, restore, occurrence}: target
 
 def restore(scope: Scope) -> String:
   match scope:
     case Document{}: "page-heading"
-    case Temporary{id, target, trigger}: trigger
+    case Temporary{id, target, trigger, occurrence}: trigger
 
 def details_scope(beside: Bool, initial: String, trigger: String) -> Scope:
   match beside:
     case True{}: Document{}
-    case False{}: Temporary{"task-details", initial, trigger}
+    case False{}: Temporary{"task-details", initial, trigger, None{}}
 
 def panel_scope(panel: U.Panel, initial: String, trigger: String, beside: Bool) -> Scope:
   match panel:
     case U.TaskDetails{task}: details_scope(beside, initial, trigger)
-    case other: Temporary{E.panel_target(other), initial, trigger}
+    case other: Temporary{E.panel_target(other), initial, trigger, None{}}
+
+def scope_occurrence(scope: Scope, occurrence: Nat) -> Scope:
+  match scope:
+    case Document{}: Document{}
+    case Temporary{identity, initial, restore, old_occurrence}: Temporary{identity, initial, restore, Some{occurrence}}
 
 def layer_scope(layers: +List<E.Layer>, beside: Bool) -> Scope:
   match layers:
     case Nil{}: Document{}
-    case Con{E.Layer{panel, trigger, initial, query}, rest}: panel_scope(panel, initial, trigger, beside)
+    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence}, rest}: scope_occurrence(panel_scope(panel, initial, trigger, beside), layer_occurrence)
 
 def settings_scope(open: Bool, fallback: Scope) -> Scope:
   match open:
-    case True{}: Temporary{"settings", "settings/credential", "settings/open"}
+    case True{}: Temporary{"settings", "settings/credential", "settings/open", None{}}
     case False{}: fallback
 
 def preview_scope(preview: Services.Preview, fallback: Scope) -> Scope:
   match preview:
     case Services.NoPreview{}: fallback
-    case Services.LoadingPreview{ticket, file, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger}
-    case Services.ReadyPreview{file, resource, image, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger}
-    case Services.FailedPreview{file, reason, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger}
+    case Services.LoadingPreview{ticket, file, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger, None{}}
+    case Services.ReadyPreview{file, resource, image, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger, None{}}
+    case Services.FailedPreview{file, reason, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger, None{}}
 
 def directory_scope(picker: Services.DirectoryPicker, fallback: Scope) -> Scope:
   match picker:
     case Services.NoDirectoryPicker{}: fallback
-    case Services.ReadyDirectory{ticket, editor, catalog, location, trigger}: Temporary{"directory-picker", "directory-picker/location", trigger}
-    case Services.LoadingDirectory{ticket, editor, path, trigger}: Temporary{"directory-picker", "directory-picker", trigger}
-    case Services.FailedDirectory{ticket, editor, path, reason, trigger}: Temporary{"directory-picker", "directory-picker", trigger}
+    case Services.ReadyDirectory{ticket, editor, catalog, location, trigger}: Temporary{"directory-picker", "directory-picker/location", trigger, None{}}
+    case Services.LoadingDirectory{ticket, editor, path, trigger}: Temporary{"directory-picker", "directory-picker", trigger, None{}}
+    case Services.FailedDirectory{ticket, editor, path, reason, trigger}: Temporary{"directory-picker", "directory-picker", trigger, None{}}
 
 def logical_scope(state: Core.State, capacity: View.Capacity) -> Scope:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}},
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}},
     Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} = state
   View.Capacity{navigation_beside, details_beside} = capacity
   preview_scope(preview, directory_scope(directory_picker, settings_scope(settings, layer_scope(layers, details_beside))))
 
+def scope_occurrence_of(scope: Scope) -> Maybe<&2, Nat>:
+  match scope:
+    case Document{}: None{}
+    case Temporary{identity, initial, restore, occurrence}: occurrence
+
+def same_occurrence(previous: Maybe<&2, Nat>, current: Maybe<&2, Nat>) -> Bool:
+  match previous current:
+    case None{} None{}: True{}
+    case Some{previous} Some{current}: Nat.is_eq(previous, current)
+    case _ _: False{}
+
 def changed(previous: Scope, current: Scope) -> Bool:
-  Bool.not(String.eq(identity(previous), identity(current)))
+  match previous current:
+    case Document{} Document{}: False{}
+    case Temporary{previous, old_initial, old_restore, old_occurrence} Temporary{current, initial, restore, occurrence}:
+      Bool.not(String.eq(previous, current) && same_occurrence(old_occurrence, occurrence))
+    case _ _: True{}
 
 def invalid_retained(scope: Scope, eligible: Bool) -> Bool:
   match scope:
     case Document{}: False{}
-    case Temporary{identity, initial, restore}: Bool.not(eligible)
+    case Temporary{identity, initial, restore, occurrence}: Bool.not(eligible)
 
 def transition(previous: Scope, +current: Scope, eligible: Bool) -> Bool:
   changed(previous, current) || invalid_retained(current, eligible)
 
-def change_target(previous: Scope, current: Scope) -> String:
+def scope_restore_target(found: Maybe<&2, String>, initial: String) -> String:
+  match found:
+    case Some{key}: key
+    case None{}: initial
+
+def temporary_scope_target(previous: Scope, initial: String, surface: UI.Surface) -> String:
+  match previous:
+    case Document{}: initial
+    case Temporary{old_id, old_initial, restore, occurrence}:
+      scope_restore_target(UI.matching_focus(UI.active_nodes(surface), restore), initial)
+def scope_target(previous: Scope, current: Scope, surface: UI.Surface) -> String:
   match current:
     case Document{}: restore(previous)
-    case Temporary{id, initial, trigger}: initial
+    case Temporary{id, initial, trigger, occurrence}: temporary_scope_target(previous, initial, surface)
 
 def permits_composer(scope: Scope) -> Bool:
   match scope:
@@ -91,10 +130,13 @@ def resolved_target(found: Maybe<&2, String>) -> String:
     case Some{key}: key
     case None{}: ""
 
-def choose_scope(active: Maybe<&2, String>, surface: UI.Surface, +scope: Scope) -> Scope:
+def choose_scope_occurrence(occurrence: Maybe<&2, Nat>, active: Maybe<&2, String>, +surface: UI.Surface, +scope: Scope) -> Scope:
   match active:
     case None{}: Document{}
-    case Some{key}: Temporary{key, resolved_target(UI.focus_target(surface, initial(scope))), restore(scope)}
+    case Some{key}: Temporary{key, resolved_target(UI.focus_target(surface, initial(scope))), resolved_target(UI.all_focus_target(surface, restore(scope))), occurrence}
+
+def choose_scope(active: Maybe<&2, String>, surface: UI.Surface, +scope: Scope) -> Scope:
+  choose_scope_occurrence(scope_occurrence_of(scope), active, surface, scope)
 
 def realized_scope(+surface: UI.Surface, scope: Scope) -> Scope:
   UI.Surface{content, base, overlays, +active} = surface
@@ -148,4 +190,4 @@ def cycle_focused(focused: Maybe<&2, String>, +order: +List<String>, reverse: Bo
 def cycle(scope: Scope, order: +List<String>, focused: Maybe<&2, String>, reverse: Bool) -> Maybe<&2, String>:
   match scope:
     case Document{}: None{}
-    case Temporary{identity, initial, restore}: cycle_focused(focused, order, reverse)
+    case Temporary{identity, initial, restore, occurrence}: cycle_focused(focused, order, reverse)

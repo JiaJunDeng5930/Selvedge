@@ -136,13 +136,9 @@ def block_size(rule: Model.Rule) -> Model.AxisSize:
   Model.Rule{direction, main_alignment, cross_alignment, frame, border, width, height, minimum, scroll, position} = rule
   height
 
-def extent_width(extent: Enclosure.Extent) -> Nat:
-  Enclosure.Extent{width, height} = extent
-  width
-
 def axis_extent(+axis: Axis, extent: Enclosure.Extent) -> Nat:
   match axis:
-    case InlineAxis{}: extent_width(extent)
+    case InlineAxis{}: Enclosure.extent_width(extent)
     case BlockAxis{}: Enclosure.extent_height(extent)
 
 def inline_inset(rule: Model.Rule) -> Nat:

@@ -194,7 +194,7 @@ def queued_cards(+state: B.State) -> +List<Finite.Entry(B.Card)>:
     by_priority(List.filter(~Finite.Entry(B.Card), (entry => pin_group(False{}, entry)), B.cards(state))))
 
 def drafting_profile(profile: D.Profile) -> Bool:
-  D.Profile{key, provider, name, policy} = profile
+  D.Profile{key, provider, name, policy, options} = profile
   Bool.not(String.eq(provider, "echo")) && Bool.not(Reasoning.automatic(policy))
 
 def ordinary(found: Maybe<&2, D.Profile>) -> Bool:

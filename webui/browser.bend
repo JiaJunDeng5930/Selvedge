@@ -1,4 +1,7 @@
+import ./presentation-order.bend as Order
+import ../core/operation-receipt.bend as Receipt
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ../MODEL.bend as M
 import ../UI.bend as Product
 import ../BOARD.bend as Board
@@ -32,7 +35,7 @@ type RequestStatus is Data:
 type Pending is Data:
   Pending{ticket: Nat, completion: E.Completion, command: J.Json, origin: String, status: RequestStatus}
 type State is Data:
-  State{web: Web.State, sequence: Nat, next_ticket: Nat, pending: +List<Pending>}
+  State{web: Web.State, sequence: Nat, next_ticket: Nat, pending: +List<Pending>, receipt: Maybe<&2, Receipt.Receipt>}
 type Input is Data:
   Native{input: Web.Input}
   Snapshot{sequence: Nat, program: M.World()}
@@ -55,9 +58,9 @@ type KeyResult is Data:
   KeyResult{handled: Bool, decision: Decision}
 
 def initial(program: M.World(), sequence: Nat) -> State:
-  State{Web.initial(program), sequence, 0n, Nil{}}
+  State{Web.initial(program), sequence, 0n, Nil{}, None{}}
 def program(state: State) -> M.World():
-  State{Web.State{Platform.State{Core.State{E.Application{program, session}, services}, platform}, generation, realization, environment, font}, sequence, next, pending} = state
+  State{Web.State{Platform.State{Core.State{E.Application{program, session}, services}, platform}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
   program
 
 def choose_found(same: Bool, entry: Pending, rest: Maybe<&2, Pending>) -> Maybe<&2, Pending>:
@@ -89,7 +92,7 @@ def mask_nodes(nodes: +List<UI.Node>, +pending: +List<Pending>) -> +List<UI.Node
   match nodes:
     case Nil{}: Nil{}
     case Con{UI.Node{+key, semantic, label, role, meaning, children}, rest}:
-      UI.Node{key, semantic, label, role, mask_meaning(busy(pending, key), meaning), mask_nodes(children, pending)} <> mask_nodes(rest, pending)
+      UI.Node{key, semantic, label, role, mask_meaning(busy(pending, UIIdentity.encode(key)), meaning), mask_nodes(children, pending)} <> mask_nodes(rest, pending)
 def mask_surface(surface: UI.Surface, +pending: +List<Pending>) -> UI.Surface:
   UI.Surface{content, base, overlays, scope} = surface
   UI.Surface{content, mask_nodes(base, pending), mask_nodes(overlays, pending), scope}
@@ -111,7 +114,7 @@ def origin(input: Web.Input) -> String:
 def empty() -> M.World():
   M.initial()
 def code_key(source: Code.Source, ordinal: Nat) -> String:
-  Code.key(Code.Identity{source, ordinal})
+  Code.dom_key(Code.Identity{source, ordinal})
 def prefer_key(found: Maybe<&2, String>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
   match found:
     case Some{key}: Some{key}
@@ -119,13 +122,13 @@ def prefer_key(found: Maybe<&2, String>, fallback: Maybe<&2, String>) -> Maybe<&
 def credential_key(nodes: +List<UI.Node>) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
-    case Con{UI.Node{key, semantic, label, role, UI.EnterCredential{entered}, children}, rest}: Some{key}
+    case Con{UI.Node{key, semantic, label, role, UI.EnterCredential{entered}, children}, rest}: Some{UIIdentity.encode(key)}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}: prefer_key(credential_key(children), credential_key(rest))
 def connect_key(nodes: +List<UI.Node>) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
-    case Con{UI.Node{key, semantic, label, role, UI.ComposerAction{subject, Core.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{key}
-    case Con{UI.Node{key, semantic, label, role, UI.Activate{Core.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{key}
+    case Con{UI.Node{key, semantic, label, role, UI.ComposerAction{subject, Core.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{UIIdentity.encode(key)}
+    case Con{UI.Node{key, semantic, label, role, UI.Activate{Core.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{UIIdentity.encode(key)}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}: prefer_key(connect_key(children), connect_key(rest))
 def choose_removed(same: Bool, entry: Pending, rest: +List<Pending>) -> +List<Pending>:
   match same:
@@ -141,8 +144,8 @@ def request_ready(duplicate: Bool, +command: J.Json, completion: E.Completion, o
   match duplicate:
     case True{}: Decision{state, Nil{}}
     case False{}:
-      State{web, sequence, +next, pending} = state
-      Decision{State{web, sequence, (next + 1n : Nat), List.append(&2, Pending, pending, [Pending{next, completion, command, origin, AwaitingReceipt{}}])}, [Command{next, command}]}
+      State{web, sequence, +next, pending, receipt} = state
+      Decision{State{web, sequence, (next + 1n : Nat), List.append(&2, Pending, pending, [Pending{next, completion, command, origin, AwaitingReceipt{}}]), None{}}, [Command{next, command}]}
 def count_gesture(value: Maybe<&2, Nat>) -> Maybe<&2, UI.Gesture>:
   match value:
     case None{}: None{}
@@ -158,9 +161,13 @@ def entry_text(entry: Forms.Entry, text: String) -> Maybe<&2, UI.Gesture>:
 def collected_finish(decision: Decision, web: +List<Web.Effect>, services: +List<Services.Effect>) -> Decision:
   Decision{state, requests} = decision
   Decision{state, List.append(&2, Effect, wrap_web(web), List.append(&2, Effect, requests, wrap_services(services)))}
-def nodes(state: State) -> +List<UI.Node>:
-  State{web, sequence, next, pending} = state
-  UI.active_nodes(mask_surface(Web.observed_surface(web), pending))
+def semantic_surface(+capacity: View.Capacity, state: State) -> UI.Surface:
+  State{Web.State{Platform.State{core, platform}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
+  Order.ordered_surface(mask_surface(UI.with_receipt(UI.observe(capacity, core), receipt), pending))
+
+def nodes(+state: State) -> +List<UI.Node>:
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
+  UI.active_nodes(semantic_surface(capacity, state))
 def found_node(+key: String, state: State) -> Maybe<&2, UI.Node>:
   UI.find_node(nodes(state), key)
 def stream_parts(parts: +List<J.Json>) -> +List<Live.Part>:
@@ -192,10 +199,6 @@ def origin_gesture(parts: +List<String>) -> Maybe<&2, UI.Gesture>:
     case Con{"parent", Con{id, Nil{}}}: parent_origin(Nat.read(id))
     case Con{"project-for-parent", Con{task, Con{project, Nil{}}}}: project_parent_origin(Nat.read(task), Nat.read(project))
     case _: None{}
-def sandbox_value(value: Context.SandboxValue) -> D.Sandbox:
-  match value:
-    case Context.InheritedSandbox{sandbox}: sandbox
-    case Context.ChosenSandbox{sandbox}: sandbox
 def sandbox_mode(sandbox: D.Sandbox, text: String) -> Maybe<&2, UI.Gesture>:
   D.Sandbox{mode, network} = sandbox
   match text:
@@ -204,7 +207,7 @@ def sandbox_mode(sandbox: D.Sandbox, text: String) -> Maybe<&2, UI.Gesture>:
     case _: None{}
 def sandbox_gesture(value: Forms.Observed, text: String) -> Maybe<&2, UI.Gesture>:
   match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: sandbox_mode(sandbox_value(sandbox), text)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: sandbox_mode(Context.unwrap_sandbox(sandbox), text)
     case _: None{}
 def model_field(profile: String, reasoning: String, text: String, effort: Bool) -> Maybe<&2, UI.Gesture>:
   match effort:
@@ -228,7 +231,7 @@ def optional_text(text: String) -> Maybe<&2, String>:
     case "": None{}
     case text: Some{text}
 def current_draft(state: State, editor: U.Editor) -> Maybe<&2, U.Draft>:
-  State{Web.State{Platform.State{Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services}, platform}, generation, realization, environment, font}, sequence, ticket, requests} = state
+  State{Web.State{Platform.State{Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services}, platform}, generation, realization, environment, font}, sequence, ticket, requests, receipt} = state
   E.find_draft(drafts, editor)
 def retained_messages(messages: Maybe<&2, +List<String>>, fallback: +List<String>) -> +List<String>:
   match messages:
@@ -246,11 +249,11 @@ def network_gesture(sandbox: D.Sandbox, enabled: Bool) -> Maybe<&2, UI.Gesture>:
 def toggle_gesture(found: Maybe<&2, UI.Node>, enabled: Bool) -> Maybe<&2, UI.Gesture>:
   match found:
     case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{previous, profile}, choices}, children}}: Some{UI.Change{Forms.Assistance{enabled, profile}}}
-    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, choices}, children}}: network_gesture(sandbox_value(sandbox), enabled)
+    case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, choices}, children}}: network_gesture(Context.unwrap_sandbox(sandbox), enabled)
     case Some{UI.Node{key, semantic, label, role, UI.Edit{editor, field, entry, Forms.ToggleValue{previous}, choices}, children}}: Some{UI.Change{Forms.Toggle{enabled}}}
     case _: None{}
 def pending_of(state: State) -> +List<Pending>:
-  State{web, sequence, next, pending} = state
+  State{web, sequence, next, pending, receipt} = state
   pending
 
 def request_payload(command: M.Command) -> J.Json:
@@ -270,26 +273,26 @@ def collect_loop(interaction: +List<E.Effect>, +origin: String, accumulator: Dec
       collect_loop(rest, origin, append_decision(effects, collect_one(effect, origin, state)))
 def collect(interaction: +List<E.Effect>, origin: String, state: State) -> Decision:
   collect_loop(interaction, origin, Decision{state, Nil{}})
-def finish(decision: Web.Decision, sequence: Nat, next: Nat, pending: +List<Pending>, origin: String) -> Decision:
+def finish(decision: Web.Decision, sequence: Nat, next: Nat, pending: +List<Pending>, origin: String, receipt: Maybe<&2, Receipt.Receipt>) -> Decision:
   Web.Decision{+web, Core.Decision{core, reply, runtime, interaction, services, durable}, effects} = decision
-  collected_finish(collect(interaction, origin, State{web, sequence, next, pending}), effects, services)
+  collected_finish(collect(interaction, origin, State{web, sequence, next, pending, receipt}), effects, services)
 
 def observe_frame(received: Nat, surface: UI.Surface, frame: Rendered.Frame, state: State) -> Decision:
-  State{web, sequence, next, pending} = state
-  finish(Web.observe_frame(received, surface, frame, web), sequence, next, pending, "")
+  State{web, sequence, next, pending, receipt} = state
+  finish(Web.observe_frame(received, surface, frame, web), sequence, next, pending, "", receipt)
 
 def native_element(blocked: Bool, +key: String, gesture: UI.Gesture, state: State) -> Decision:
   match blocked:
     case True{}: Decision{state, Nil{}}
     case False{}:
-      State{web, sequence, next, pending} = state
-      finish(Web.step(Web.ElementInput{key, gesture}, web), sequence, next, pending, key)
+      State{web, sequence, next, pending, receipt} = state
+      finish(Web.step(Web.ElementInput{key, gesture}, web), sequence, next, pending, key, receipt)
 def native_state(state: State, event: Web.Input) -> Decision:
-  State{+web, sequence, next, +pending} = state
+  State{+web, sequence, next, +pending, receipt} = state
   match event:
     case Web.ElementInput{+key, gesture}:
-      native_element(busy(pending, key), key, gesture, State{web, sequence, next, pending})
-    case +other: finish(Web.step(other, web), sequence, next, pending, origin(other))
+      native_element(busy(pending, key), key, gesture, State{web, sequence, next, pending, receipt})
+    case +other: finish(Web.step(other, web), sequence, next, pending, origin(other), receipt)
 def native(event: Web.Input, +state: State) -> Decision:
   native_state(state, event)
 def product_input(input: Product.Input, state: State) -> Decision:
@@ -413,17 +416,17 @@ def snapshot_new(newer: Bool, sequence: Nat, world: M.World(), state: State) -> 
   match newer:
     case False{}: Decision{state, Nil{}}
     case True{}:
-      State{web, current, next, pending} = state
-      product_input(Product.ProgramObserved{world}, State{web, sequence, next, pending})
+      State{web, current, next, pending, receipt} = state
+      product_input(Product.ProgramObserved{world}, State{web, sequence, next, pending, receipt})
 def snapshot(+sequence: Nat, program: M.World(), +state: State) -> Decision:
-  State{web, current, next, pending} = state
+  State{web, current, next, pending, receipt} = state
   snapshot_new(Nat.is_lt(current, sequence), sequence, program, state)
 def settle_new(+ticket: Nat, received: Nat, supplied: M.World(), reply: J.Json, completion: E.Completion, state: State) -> Decision:
-  State{web, current, next, pending} = state
-  product_input(Product.CommandCompleted{supplied, reply, completion}, State{web, received, next, remove(pending, ticket)})
+  State{web, current, next, pending, receipt} = state
+  product_input(Product.CommandCompleted{supplied, reply, completion}, State{web, received, next, remove(pending, ticket), receipt})
 def settle_old(+ticket: Nat, reply: J.Json, completion: E.Completion, state: State) -> Decision:
-  State{+web, +current, +next, +pending} = state
-  product_input(Product.CommandCompleted{program(State{web, current, next, pending}), reply, completion}, State{web, current, next, remove(pending, ticket)})
+  State{+web, +current, +next, +pending, +receipt} = state
+  product_input(Product.CommandCompleted{program(State{web, current, next, pending, receipt}), reply, completion}, State{web, current, next, remove(pending, ticket), receipt})
 def complete_new(newer: Bool, ticket: Nat, received: Nat, supplied: M.World(), reply: J.Json, completion: E.Completion, state: State) -> Decision:
   match newer:
     case True{}: settle_new(ticket, received, supplied, reply, completion, state)
@@ -456,17 +459,25 @@ def streams(body: J.Json, state: State) -> Decision:
   streams_fold(J.items(J.get(body, "streams")), product_input(Product.LiveOutput{Live.ConnectionEnded{}}, state))
 
 def complete_ticket(ticket: Nat, +received: Nat, supplied: M.World(), reply: J.Json, completion: E.Completion, state: State) -> Decision:
-  State{web, +current, next, pending} = state
-  complete_new(Nat.is_lt(current, received), ticket, received, supplied, reply, completion, State{web, current, next, pending})
+  State{web, +current, next, pending, receipt} = state
+  complete_new(Nat.is_lt(current, received), ticket, received, supplied, reply, completion, State{web, current, next, pending, receipt})
 
-def completed(found: Maybe<&2, Pending>, received: Nat, supplied: M.World(), reply: J.Json, +state: State) -> Decision:
+def receipt_decision(receipt: Maybe<&2, Receipt.Receipt>, decision: Decision) -> Decision:
+  Decision{State{web, sequence, next, pending, previous}, effects} = decision
+  Decision{State{web, sequence, next, pending, receipt}, effects}
+def completion_receipt(completion: E.Completion, receipt: Maybe<&2, Receipt.Receipt>, decision: Decision) -> Decision:
+  match completion:
+    case E.DraftCompletion{draft}: decision
+    case _: receipt_decision(receipt, decision)
+
+def completed(found: Maybe<&2, Pending>, received: Nat, supplied: M.World(), +reply: J.Json, +state: State) -> Decision:
   match found:
     case None{}: Decision{state, Nil{}}
-    case Some{Pending{+ticket, completion, text, origin, status}}:
-      complete_ticket(ticket, received, supplied, reply, completion, state)
+    case Some{Pending{+ticket, +completion, text, +origin, status}}:
+      completion_receipt(completion, Receipt.from_reply(ticket, origin, reply), complete_ticket(ticket, received, supplied, reply, completion, state))
 def received_completion(+ticket: Nat, received: Nat, world: M.World(), reply: J.Json, state: State) -> Decision:
-  State{web, sequence, next, +pending} = state
-  completed(find(pending, ticket), received, world, reply, State{web, sequence, next, pending})
+  State{web, sequence, next, +pending, receipt} = state
+  completed(find(pending, ticket), received, world, reply, State{web, sequence, next, pending, receipt})
 def ticket_of(pending: Pending) -> Nat:
   Pending{ticket, completion, command, origin, status} = pending
   ticket
@@ -484,18 +495,18 @@ def uncertain_pending(pending: +List<Pending>, +ticket: Nat, +reason: String) ->
       mark_uncertain(Nat.is_eq(ticket_of(entry), ticket), entry, reason) <> uncertain_pending(rest, ticket, reason)
 
 def failed_completion(ticket: Nat, error: String, state: State) -> Decision:
-  State{web, sequence, next, pending} = state
-  Decision{State{web, sequence, next, uncertain_pending(pending, ticket, error)}, Nil{}}
+  State{web, sequence, next, pending, receipt} = state
+  Decision{State{web, sequence, next, uncertain_pending(pending, ticket, error), receipt}, Nil{}}
 
-def rejected_pending(found: Maybe<&2, Pending>, reason: String, state: State) -> Decision:
+def rejected_pending(found: Maybe<&2, Pending>, +reason: String, state: State) -> Decision:
   match found:
     case None{}: Decision{state, Nil{}}
-    case Some{Pending{ticket, completion, command, origin, status}}:
-      settle_old(ticket, D.failure("command_not_submitted", reason), completion, state)
+    case Some{Pending{+ticket, +completion, command, +origin, status}}:
+      completion_receipt(completion, Receipt.from_reply(ticket, origin, D.failure("command_not_submitted", reason)), settle_old(ticket, D.failure("command_not_submitted", reason), completion, state))
 
 def command_rejected(+ticket: Nat, reason: String, state: State) -> Decision:
-  State{web, sequence, next, +pending} = state
-  rejected_pending(find(pending, ticket), reason, State{web, sequence, next, pending})
+  State{web, sequence, next, +pending, receipt} = state
+  rejected_pending(find(pending, ticket), reason, State{web, sequence, next, pending, receipt})
 
 def step(event: Input, state: State) -> Decision:
   match event:
@@ -600,7 +611,7 @@ def dismiss_target(values: +List<UI.Node>) -> Maybe<&2, DismissTarget>:
   match values:
     case Nil{}: None{}
     case Con{UI.Node{key, semantic, label, role, UI.LayerRegion{input, outside, escape}, children}, rest}:
-      Some{DismissTarget{key, input, outside, escape}}
+      Some{DismissTarget{UIIdentity.encode(key), input, outside, escape}}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
       first_dismiss_target(dismiss_target(children), dismiss_target(rest))
 
@@ -610,18 +621,13 @@ def dismiss_permitted(allowed: Bool, input: Core.Input, state: State) -> Decisio
     case True{}: product_input(Product.InterfaceInput{input}, state)
 
 def active_focus_scope(state: State) -> Focus.Scope:
-  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
   scope
 
 def outside_layer_owned(+identity: String, key: Maybe<&2, String>) -> Bool:
   match key:
     case None{}: False{}
     case Some{current}: String.eq(identity, current)
-
-def same_temporary(+identity: String, scope: Focus.Scope) -> Bool:
-  match scope:
-    case Focus.Document{}: False{}
-    case Focus.Temporary{current, initial, restore}: String.eq(identity, current)
 
 # NOTE: A refused dismissal must discard the candidate and its effects so
 # the browser can retain the original pointer action without committing work.
@@ -636,7 +642,7 @@ def semantic_layer_key(surface: UI.Surface) -> Maybe<&2, String>:
 
 def outside_closed(identity: String, candidate: Decision) -> Bool:
   Decision{next, effects} = candidate
-  State{web, sequence, ticket, pending} = next
+  State{web, sequence, ticket, pending, receipt} = next
   Bool.not(outside_layer_owned(identity, semantic_layer_key(Web.observed_surface(web))))
 
 def outside_transition(+identity: String, +candidate: Decision, state: State) -> OutsideDecision:
@@ -645,7 +651,7 @@ def outside_transition(+identity: String, +candidate: Decision, state: State) ->
 def outside_scoped(scope: Focus.Scope, input: Core.Input, +state: State) -> OutsideDecision:
   match scope:
     case Focus.Document{}: OutsideDecision{False{}, Decision{state, Nil{}}}
-    case Focus.Temporary{identity, initial, restore}:
+    case Focus.Temporary{identity, initial, restore, occurrence}:
       outside_transition(identity, product_input(Product.InterfaceInput{input}, state), state)
 
 def outside_permitted(allowed: Bool, input: Core.Input, +state: State) -> OutsideDecision:
@@ -660,7 +666,7 @@ def outside_target(+identity: String, found: Maybe<&2, DismissTarget>, current_l
       outside_permitted((String.eq(identity, key) && outside) && outside_layer_owned(identity, current_layer), input, state)
 
 def current_layer_key(state: State) -> Maybe<&2, String>:
-  State{web, sequence, next, pending} = state
+  State{web, sequence, next, pending, receipt} = state
   semantic_layer_key(Web.observed_surface(web))
 
 def outside_event(+identity: String, +state: State) -> OutsideDecision:
@@ -676,17 +682,22 @@ def accepts_escape(found: Maybe<&2, DismissTarget>) -> Bool:
     case None{}: False{}
     case Some{DismissTarget{key, input, outside, escape}}: escape
 
-def cycle_found(found: Maybe<&2, String>, state: State) -> Decision:
+def cycle_target_found(found: Maybe<&2, Focus.Target>, state: State) -> Decision:
   match found:
     case None{}: Decision{state, Nil{}}
     case Some{target}:
-      State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, +ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
-      Decision{State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, (ticket + 1n : Nat), reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending},
+      State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, +ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
+      Decision{State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, (ticket + 1n : Nat), reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending, receipt},
         [BrowserEffect{Web.PlatformEffect{Platform.Focus{(ticket + 1n : Nat), target}}}]}
+
+def cycle_found(found: Maybe<&2, String>, state: State) -> Decision:
+  match found:
+    case None{}: Decision{state, Nil{}}
+    case Some{identity}: cycle_target_found(Some{Focus.Product{identity}}, state)
 
 def frame_cycle(realization: Rendered.State, scope: Focus.Scope, reverse: Bool) -> Maybe<&2, String>:
   match realization:
-    case Rendered.Realized{generation, Rendered.Frame{viewport, elements, focused, order}}:
+    case Rendered.Realized{generation, Rendered.Frame{viewport, elements, focused, order, +native_focus}}:
       Focus.cycle(scope, order, focused, reverse)
     case _: None{}
 
@@ -699,20 +710,20 @@ def temporary_action(scope: Focus.Scope, tab: Bool, escape: Bool, reverse: Bool,
 def key_scoped(scope: Focus.Scope, tab: Bool, escape: Bool, reverse: Bool, realization: Rendered.State, state: State) -> Decision:
   match scope:
     case Focus.Document{}: Decision{state, Nil{}}
-    case Focus.Temporary{identity, initial, restore}:
-      temporary_action(Focus.Temporary{identity, initial, restore}, tab, escape, reverse, realization, state)
+    case Focus.Temporary{identity, initial, restore, occurrence}:
+      temporary_action(Focus.Temporary{identity, initial, restore, occurrence}, tab, escape, reverse, realization, state)
 
 def temporary_key(tab: Bool, escape: Bool, reverse: Bool, +state: State) -> Decision:
-  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
   key_scoped(scope, tab, escape, reverse, realization, state)
 
 def key_handled(scope: Focus.Scope, +key: String, escape: Bool) -> Bool:
   match scope:
     case Focus.Document{}: False{}
-    case Focus.Temporary{identity, initial, restore}: String.eq(key, "Tab") || (String.eq(key, "Escape") && escape)
+    case Focus.Temporary{identity, initial, restore, occurrence}: String.eq(key, "Tab") || (String.eq(key, "Escape") && escape)
 
 def ready_key_event(+key: String, shift: Bool, +state: State) -> KeyResult:
-  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending} = state
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, pending, receipt} = state
   KeyResult{key_handled(scope, key, accepts_escape(dismiss_target(nodes(state)))), temporary_key(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, state)}
 
 def key_result_decision(result: KeyResult) -> Decision:
@@ -729,3 +740,10 @@ def measurements(observation: F.Observation, state: State) -> Decision:
 def key_event(key: String, shift: Bool, +state: State) -> KeyResult:
   ready_key_event(key, shift, state)
 
+
+def operation_receipt(state: State) -> Maybe<&2, Receipt.Receipt>:
+  State{web, sequence, next, pending, receipt} = state
+  receipt
+def decision_receipt(decision: Decision) -> Maybe<&2, Receipt.Receipt>:
+  Decision{state, effects} = decision
+  operation_receipt(state)

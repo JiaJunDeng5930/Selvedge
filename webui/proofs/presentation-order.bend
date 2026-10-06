@@ -581,7 +581,7 @@ def Rule.evidence():
           Rule.count_by(Rule.CountAll{}, values), List.length(&2, UI.Node, values),
           partition_count_preserved(Rule.CountAll{}, values, context), count_all_is_length(values)))
     ,
-    +target => +values => +context => partition_count_preserved(Rule.CountKey{UI.node_key(target)}, values, context),
+    +target => +values => +context => partition_count_preserved(Rule.CountKey{Rule.count_key(target)}, values, context),
     values => role => context => ordered_children_matches_specification(values, role, context),
     values => context => dialog_order_idempotent(values, context),
     value => children => node_with_children_preserves_payload(value, children),

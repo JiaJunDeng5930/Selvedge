@@ -1,4 +1,5 @@
 import Base
+import ./ui-identity.bend as Identity
 import ../MODEL.bend as M
 import ../bendlib/domain.bend as D
 import ../bendlib/json.bend as J
@@ -29,7 +30,7 @@ type Requirements is Type:
       @absent:{Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) == None{} : Maybe<&2, Interface.Node>} ->
       {UI.step(UI.Element{capacity, key, gesture}, state) == quiet_decision(state) : Core.Decision},
     disabled_element: @capacity:View.Capacity -> @+state:Core.State -> @key:String -> @+input:Core.Input ->
-      @reason:String -> @node_key:String -> @semantic:String -> @label:String -> @role:Interface.Role -> @+children:+List<Interface.Node> ->
+      @reason:String -> @node_key: Identity.Key -> @semantic:String -> @label:String -> @role:Interface.Role -> @+children:+List<Interface.Node> ->
       @found:{Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) ==
         Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Unavailable{reason}}, children}} : Maybe<&2, Interface.Node>} ->
       {UI.step(UI.Element{capacity, key, Interface.Press{}}, state) == quiet_decision(state) : Core.Decision},
@@ -40,20 +41,20 @@ type Requirements is Type:
       {receipt(UI.step(UI.Element{capacity, key, gesture}, state)) ==
         receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, gesture), state)) : Receipt},
     available_element: @capacity:View.Capacity -> @+state:Core.State -> @key:String -> @+input:Core.Input ->
-      @node_key:String -> @semantic:String -> @label:String -> @role:Interface.Role -> @+children:+List<Interface.Node> ->
+      @node_key: Identity.Key -> @semantic:String -> @label:String -> @role:Interface.Role -> @+children:+List<Interface.Node> ->
       @found:{Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) ==
         Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Available{}}, children}} : Maybe<&2, Interface.Node>} ->
       {receipt(UI.step(UI.Element{capacity, key, Interface.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt},
     existing_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
       @present:{Interface.layer_present(previous, E.panel_target(panel)) == True{} : Bool} ->
-      {Interface.record_layer(E.Layer{panel, trigger, initial_attention, query} <> rest, previous, origin) ==
-        E.Layer{panel, trigger, initial_attention, query} <> rest : +List<E.Layer>},
+      {Interface.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence} <> rest, previous, origin) ==
+        E.Layer{panel, trigger, initial_attention, query, layer_occurrence} <> rest : +List<E.Layer>},
     new_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
       @absent:{Interface.layer_present(previous, E.panel_target(panel)) == False{} : Bool} ->
-      {Interface.record_layer(E.Layer{panel, trigger, initial_attention, query} <> rest, previous, origin) ==
-        E.Layer{panel, origin, initial_attention, query} <> rest : +List<E.Layer>}}
+      {Interface.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence} <> rest, previous, origin) ==
+        E.Layer{panel, origin, initial_attention, query, layer_occurrence} <> rest : +List<E.Layer>}}
 
 law evidence:
   Requirements

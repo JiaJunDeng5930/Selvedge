@@ -1,4 +1,5 @@
 import Base
+import ./ui-identity.bend as Identity
 import ./composition.bend as Composition
 import ./interface.bend as Interface
 import ./ui-world.bend as View
@@ -47,9 +48,9 @@ def task_title_text(value: View.TaskScene) -> String:
   View.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
   title
 
-def task_title_key(value: View.TaskScene, parent: String) -> String:
+def task_title_key(value: View.TaskScene, parent: Identity.Key) -> Identity.Key:
   View.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
-  parent ++ "/task/" ++ Nat.show(id)
+  Identity.Entity{parent, "task", Nat.show(id)}
 
 def project_title_text(value: View.ProjectScene) -> String:
   View.ProjectScene{id, name, workspace, guidance, tasks, actions} = value
@@ -100,7 +101,7 @@ def surface_base(value: Interface.Surface) -> +List<Interface.Node>:
 def navigation_head(values: +List<Interface.Node>) -> Interface.Node:
   match values:
     case Con{node, rest}: node
-    case Nil{}: Interface.Node{"", "", "", Interface.Section{}, Interface.Region{}, Nil{}}
+    case Nil{}: Interface.Node{Identity.Place{""}, "", "", Interface.Section{}, Interface.Region{}, Nil{}}
 
 def content_navigation(value: Core.Scene) -> View.Navigation:
   Core.Scene{View.Scene{nav, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = value
@@ -118,9 +119,9 @@ def owned_page_context(page: View.Page) -> Maybe<&2, Conversation.Identity>:
 type Requirements is Type:
   Requirements{
     page_payload: @+page:View.Page -> @+state:Core.State ->
-      {Interface.page(page, state) == Interface.Node{"/main", "main", "Content", Interface.Main{}, Interface.PageContext{owned_page_context(page)}, Interface.page_contents(page, "/main", state)} : Interface.Node},
+      {Interface.page(page, state) == Interface.Node{Identity.Place{"/main"}, "main", "Content", Interface.Main{}, Interface.PageContext{owned_page_context(page)}, Interface.page_contents(page, Identity.Place{"/main"}, state)} : Interface.Node},
     collapsed_navigation_single: @+toggle: View.ControlDeclaration -> @expanded: Bool -> @create: View.ControlDeclaration -> @destinations: +List<View.ControlDeclaration> -> @projects: +List<View.ProjectEntry> -> @tasks: +List<View.TaskEntry> -> @+state: Core.State -> {Interface.base_navigation_at(View.CollapsedNavigation{}, View.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
-    [Interface.declared("/navigation", toggle, state)] : +List<Interface.Node>},
+    [Interface.declared(Identity.Place{"/navigation"}, toggle, state)] : +List<Interface.Node>},
     collapsed_assembly: @+content: Core.Scene -> @+state: Core.State -> @collapsed: {content_navigation_placement(content) == View.CollapsedNavigation{} : View.NavigationPlacement} -> {navigation_head(surface_base(Interface.assemble(content, state))) ==
     navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node},
 
@@ -132,35 +133,35 @@ type Requirements is Type:
         layer_label(Interface.layers([View.Layer{kind, content, second, restore, close}], state)) : Maybe<&2, String>},
     attention_identity: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @+restore:String -> @+close:View.Dismissal -> @+state:Core.State ->
       {layer_semantic(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{initial} : Maybe<&2, String>},
-    page_sequence: @+page:View.Page -> @+parent:String -> @+state:Core.State ->
+    page_sequence: @+page:View.Page -> @+parent: Identity.Key -> @+state:Core.State ->
       {observed_regions(Interface.page_contents(page, parent, state)) == required_regions(page) : +List<Composition.PositionedRegion>},
-    only_regions: @+page:View.Page -> @+parent:String -> @+state:Core.State ->
+    only_regions: @+page:View.Page -> @+parent: Identity.Key -> @+state:Core.State ->
       {only_regions(Interface.page_contents(page, parent, state)) == True{} : Bool},
-    projects_title: @+projects:+List<View.ProjectScene> -> @+create:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+    projects_title: @+projects:+List<View.ProjectScene> -> @+create:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.ProjectsPage{projects, create}, parent, state), Composition.CollectionTitle{}) ==
         Some{[Interface.region(parent, "heading", "Projects", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
-    agents_title: @+agents:+List<View.AgentScene> -> @+create:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+    agents_title: @+agents:+List<View.AgentScene> -> @+create:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.AgentsPage{agents, create}, parent, state), Composition.CollectionTitle{}) ==
         Some{[Interface.region(parent, "heading", "Agents", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
     board_title: @+filter:B.Filter -> @+columns:+List<View.BoardColumn> -> @+create:View.ControlDeclaration -> @working:Nat ->
-      @+settings:View.ControlDeclaration -> @+filters:View.ControlDeclaration -> @+archive:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+      @+settings:View.ControlDeclaration -> @+filters:View.ControlDeclaration -> @+archive:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
         Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
-    creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+choose:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+    creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+choose:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
-        Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>},
-    task_title: @+value:View.TaskScene -> @+parent:String -> @+state:Core.State ->
+        Some{[Interface.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>},
+    task_title: @+value:View.TaskScene -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
         Some{[Interface.region(task_title_key(value, parent), "heading", task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
-    project_title: @+value:View.ProjectScene -> @+parent:String -> @+state:Core.State ->
+    project_title: @+value:View.ProjectScene -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.ProjectPage{value}, parent, state), Composition.ProjectTitle{}) ==
         Some{[Interface.region(parent, "heading", project_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
     passive: @region:Composition.Region -> @position:Composition.Position -> @gesture:Interface.Gesture ->
       {Interface.bind(Interface.PageRegion{region, position}, gesture) == None{} : Maybe<&2, Core.Input>},
-    children: @+parent:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+nodes:+List<Interface.Node> ->
+    children: @+parent: Identity.Key -> @+region:Composition.Region -> @+position:Composition.Position -> @+nodes:+List<Interface.Node> ->
       {region_children(Interface.page_region(parent, region, position, nodes)) == nodes : +List<Interface.Node>},
-    identity: @+parent:String -> @+region:Composition.Region -> @+position:Composition.Position -> @+nodes:+List<Interface.Node> ->
-      {Interface.node_key(Interface.page_region(parent, region, position, nodes)) == parent ++ "/region/" ++ Composition.region_name(region) : String}
+    identity: @+parent: Identity.Key -> @+region:Composition.Region -> @+position:Composition.Position -> @+nodes:+List<Interface.Node> ->
+      {Interface.node_key(Interface.page_region(parent, region, position, nodes)) == Identity.encode(Identity.Part{Identity.Part{parent, "region"}, Composition.region_name(region)}) : String}
   }
 
 law evidence:

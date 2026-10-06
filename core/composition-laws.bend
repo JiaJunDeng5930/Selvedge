@@ -1,4 +1,6 @@
 import Base
+import ./code-block.bend as Code
+import ./ui-identity.bend as Identity
 import ./composition.bend as Composition
 import ./page-region-laws.bend as PageRegions
 import ./ui-world.bend as View
@@ -14,7 +16,7 @@ import ./client-services.bend as Services
 import ../bendlib/board-state.bend as Board
 
 type SpeechProjection is Data:
-  SpeechProjection{key: String, semantic: String, label: String, role: Interface.Role, meaning: Interface.Meaning}
+  SpeechProjection{key: Identity.Key, semantic: String, label: String, role: Interface.Role, meaning: Interface.Meaning}
 
 type Requirements is Type:
   Requirements{
@@ -31,18 +33,18 @@ type Requirements is Type:
       {Composition.recipe(View.page_composition(View.MissingObject{message})) ==
         Composition.Recipe{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.UnavailableNotice{},
           Composition.NoComposer{}, Composition.NoDecisions{}, Composition.NoLatest{}} : Composition.Recipe},
-    action_prominence: @parent:String -> @control:Core.Control ->
+    action_prominence: @parent: Identity.Key -> @control:Core.Control ->
       {Interface.action(parent, control) == expected_action(parent, control) : Interface.Node},
     visible_speaker: @+id:Nat -> @speaker:Conversation.Speaker -> @text:String -> @source:D.Message ->
-      @+task:Nat -> @+parent:String -> @+state:Core.State ->
+      @+task:Nat -> @+parent: Identity.Key -> @+state:Core.State ->
       {first_speech_projection(Interface.groups([Conversation.VisibleSpeech{id, speaker, text, source}], task, parent, state)) ==
-        Some{SpeechProjection{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message",
-          expected_speaker_role(speaker), Interface.ReadOnly{text}}} : Maybe<&2, SpeechProjection>},
-    activity_payload: @+id:Nat -> @attention:Maybe<&2, Nat> -> @+expanded:Bool -> @summary:String -> @audit:+List<Conversation.AuditFace> -> @expand:U.Input -> @collapse:U.Input -> @+task:Nat -> @+parent:String -> @+state:Core.State ->
+        Some{SpeechProjection{Identity.Entity{parent, "message", Nat.show(id)}, "message/" ++ Nat.show(id), "Message",
+          expected_speaker_role(speaker), Interface.RichText{Code.Message{task, id}, text}}} : Maybe<&2, SpeechProjection>},
+    activity_payload: @+id:Nat -> @attention:Maybe<&2, Nat> -> @+expanded:Bool -> @summary:String -> @audit:+List<Conversation.AuditFace> -> @expand:U.Input -> @collapse:U.Input -> @+task:Nat -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.groups([Conversation.VisibleActivity{id, attention, expanded, summary, audit, expand, collapse}], task, parent, state) ==
-        [Interface.Node{parent ++ "/activity/" ++ Nat.show(id), "activity/" ++ Nat.show(id), summary, Interface.Activity{}, Interface.ActivityContent{expanded, audit},
-          [Interface.user_action(parent ++ "/activity/" ++ Nat.show(id), "disclosure", Interface.disclosure_label(expanded), Interface.disclosure_input(expanded, expand, collapse), True{}, state)]}] : +List<Interface.Node>},
-    composer_tree: @view:Maybe<&2, View.ComposerScene> -> @+parent:String -> @+state:Core.State ->
+        [Interface.Node{Identity.Entity{parent, "activity", Nat.show(id)}, "activity/" ++ Nat.show(id), summary, Interface.Activity{}, Interface.ActivityContent{expanded, audit},
+          [Interface.user_action(Identity.Entity{parent, "activity", Nat.show(id)}, "disclosure", Interface.disclosure_label(expanded), Interface.disclosure_input(expanded, expand, collapse), True{}, state)]}] : +List<Interface.Node>},
+    composer_tree: @view:Maybe<&2, View.ComposerScene> -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.composer(view, parent, state) == Interface.expected_composer(view, parent, state) : +List<Interface.Node>},
     structure_order: @recipe:Composition.Recipe ->
       {Composition.structure(recipe) == expected_structure(recipe) : Composition.Structure},
@@ -51,13 +53,13 @@ type Requirements is Type:
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> ->
       @+context:Maybe<&2, Context.Preview> -> @submit:View.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> @+world:M.World() ->
       {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
-    creation_page: @+input:Maybe<&2, View.ComposerScene> -> @+parent:String -> @+world:M.World() ->
+    creation_page: @+input:Maybe<&2, View.ComposerScene> -> @+parent: Identity.Key -> @+world:M.World() ->
       @+session:Experience.Session -> @+services:Services.State ->
       {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
         List.append(&2, Interface.Node,
           Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
           Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>},
-    context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent:String -> @+state:Core.State ->
+    context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.controls(declaration <> rest, parent, state) == Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->
       {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
@@ -104,9 +106,9 @@ def expected_action_role(prominence: View.Prominence) -> Interface.Role:
     case View.Destructive{}: Interface.DestructiveButton{}
     case View.Secondary{}: Interface.Button{}
 
-def expected_action(parent: String, control: Core.Control) -> Interface.Node:
+def expected_action(parent: Identity.Key, control: Core.Control) -> Interface.Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Interface.Node{parent ++ "/" ++ identity, identity, label, expected_action_role(prominence),
+  Interface.Node{Identity.Part{parent, identity}, identity, label, expected_action_role(prominence),
     Interface.Activate{input, availability}, Nil{}}
 
 def expected_speaker_role(speaker: Conversation.Speaker) -> Interface.Role:

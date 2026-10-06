@@ -81,10 +81,10 @@ def project(left: D.ProjectContext, right: D.ProjectContext) -> Bool:
 
 def model(left: D.Model, right: D.Model) -> Bool:
   match left right:
-    case D.Model{D.Profile{key_a, provider_a, name_a, policy_a}, reasoning_a, project_a}
-         D.Model{D.Profile{key_b, provider_b, name_b, policy_b}, reasoning_b, project_b}:
+    case D.Model{D.Profile{key_a, provider_a, name_a, policy_a, options_a}, reasoning_a, project_a}
+         D.Model{D.Profile{key_b, provider_b, name_b, policy_b, options_b}, reasoning_b, project_b}:
       string_equal(key_a, key_b) && string_equal(provider_a, provider_b) &&
-        string_equal(name_a, name_b) && Reasoning.same(policy_a, policy_b) && string_equal(reasoning_a, reasoning_b) && project(project_a, project_b)
+        string_equal(name_a, name_b) && Reasoning.same(policy_a, policy_b) && D.reasoning_options_same(options_a, options_b) && string_equal(reasoning_a, reasoning_b) && project(project_a, project_b)
 
 def tool(budget: Nat, left: D.Tool, right: D.Tool) -> Bool:
   match left right:

@@ -210,33 +210,14 @@ instructions. Restarting captures new guidance for subsequently created tasks.
 Nested module guidance is read on demand. Repository text remains task context,
 not privileged system authority.
 
-`stop` lets already accepted tools settle. `interrupt` cancels current work,
-closes outstanding calls with explicit cancellation/unknown-outcome results,
-and retains queued input. A later `send` resumes the task. `archive` remains
-permanent. These controls also appear in the browser from the native model.
-
-`send` retains queued follow-ups. `steer` replaces the current model request and
-undispatched accepted calls with immediate input, preserving independent running
-operations and queued follow-ups. `cancel_operation` cancels one operation rather
-than the whole task; the model can also call this tool. Neither operation undoes
-side effects. Late or duplicate results cannot reacquire a consumed ticket.
+These controls also appear in the browser from the native model.
 
 ```bash
 bun host/cli.mjs steer --task-id 0 --message 'Prioritize this instruction.'
 bun host/cli.mjs cancel_operation --task-id 0 --operation-id 12
 ```
 
-An operation is reported as `running` only when another model request needs its
-status. Fast completions remain ordinary function outputs. Later completion of
-an announced operation is a separate `operation_result`, never a second final
-function output. Forks inherit context, not operation ownership; restart records
-unknown outcomes instead of repeating external commands.
-
-Long contexts are summarized automatically with no in-flight operations. Oversized
-partial context waits for the remaining results, so a summary cannot erase an
-event received after its snapshot. The model
-receives a checkpoint and its subsequent history; `read`/`read_task` still expose
-the complete original record. On an active idle task, `compact` requests a summary
+On an active idle task, `compact` requests a summary
 without starting another assistant turn. A supplied summary requires no provider
 and also works on stopped or frozen idle tasks:
 

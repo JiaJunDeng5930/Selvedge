@@ -12,6 +12,9 @@ import ../browser-laws.bend as Rule
 import ./laws.bend as Proof_laws
 import ../../core/interface-program-rules.bend as Rules_interface_program_rules
 
+import ../../core/interface.bend as UI
+import ../presentation-order.bend as Order
+
 def removed_choice_absent(+same: Bool, +entry: Browser.Pending,
   +rest: +List<Browser.Pending>, +ticket: Nat,
   matching: {Nat.is_eq(Browser.ticket_of(entry), ticket) == same : Bool},
@@ -42,9 +45,9 @@ def consumed_ticket(+pending: +List<Browser.Pending>, +ticket: Nat) ->
 def stale_snapshot(+received: Nat, +world: M.World(), +state: Browser.State,
   stale: {Nat.is_lt(Rule.sequence(state), received) == False{} : Bool}) ->
   {Browser.snapshot(received, world, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
-  Browser.State{web, current, next, pending} = state
+  Browser.State{web, current, next, pending, receipt} = state
   Equal.cong(Bool, Browser.Decision,
-    (newer => Browser.snapshot_new(newer, received, world, Browser.State{web, current, next, pending})),
+    (newer => Browser.snapshot_new(newer, received, world, Browser.State{web, current, next, pending, receipt})),
     Nat.is_lt(current, received), False{}, stale)
 
 def uncertain_entry_ticket(hit: Bool, entry: Browser.Pending, reason: String) ->
@@ -87,7 +90,7 @@ def receipt_input(observation: F.Observation, state: Browser.State) ->
 
 def finish_unchanged_transport(web: Web.State, core: Core.State, effects: +List<Web.Effect>, sequence: Nat,
   next: Nat, pending: +List<Browser.Pending>, origin: String) ->
-  {Rule.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin)) ==
+  {Rule.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin, None{})) ==
     (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))}:
   match core:
     case Core.State{application, services}: {==}
@@ -95,16 +98,21 @@ def finish_unchanged_transport(web: Web.State, core: Core.State, effects: +List<
 def finished_receipt_transport(decision: Web.Decision, +core: Core.State,
   unchanged: {Web.product(decision) == Platform.unchanged(core) : Core.Decision},
   +sequence: Nat, +next: Nat, +pending: +List<Browser.Pending>, +origin: String) ->
-  {Rule.transport(Browser.finish(decision, sequence, next, pending, origin)) == (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))}:
+  {Rule.transport(Browser.finish(decision, sequence, next, pending, origin, None{})) == (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))}:
   Web.Decision{+web, +product, +effects} = decision
   Equal.trans((Nat & (Nat & +List<Browser.Pending>)),
-    Rule.transport(Browser.finish(Web.Decision{web, product, effects}, sequence, next, pending, origin)),
-    Rule.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin)),
+    Rule.transport(Browser.finish(Web.Decision{web, product, effects}, sequence, next, pending, origin, None{})),
+    Rule.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin, None{})),
     (sequence, (next, pending)),
     Equal.cong(Core.Decision, (Nat & (Nat & +List<Browser.Pending>)),
-      (current => Rule.transport(Browser.finish(Web.Decision{web, current, effects}, sequence, next, pending, origin))),
+      (current => Rule.transport(Browser.finish(Web.Decision{web, current, effects}, sequence, next, pending, origin, None{}))),
       product, Platform.unchanged(core), unchanged),
     finish_unchanged_transport(web, core, effects, sequence, next, pending, origin))
+
+def nodes_current_surface(+web: Web.State, sequence: Nat, next: Nat, +pending: +List<Browser.Pending>) ->
+  {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == UI.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<UI.Node>}:
+  match web:
+    case Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}: {==}
 
 def Rule.evidence():
   Rule.Requirements{
@@ -113,7 +121,7 @@ def Rule.evidence():
         Interaction.model_core(Interaction.model_application(web)), Proof_laws.typography_product(web, observation), sequence, next, pending, ""),
     finish_unchanged_transport,
     receipt_input,
-    +web => sequence => next => +pending => {==},
+    +web => sequence => next => +pending => nodes_current_surface(web, sequence, next, pending),
     Rules_interface_program_rules.interface_evidence(),
     +input => +state => {==},
     input => +state => {==},

@@ -1,3 +1,4 @@
+import ../core/operation-receipt.bend as Receipt
 import Base
 import ./request.bend as Request
 import ./browser.bend as Browser
@@ -64,14 +65,14 @@ type Requirements is Type:
     settlement: @ticket:Nat -> @completion:E.Completion -> @command:J.Json -> @origin:String -> @status:Browser.RequestStatus ->
       @reason:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
       {Browser.rejected_pending(Some{Browser.Pending{ticket, completion, command, origin, status}}, reason,
-          Browser.State{web, sequence, next, pending}) ==
-          Browser.product_input(Product.CommandCompleted{Browser.program(Browser.State{web, sequence, next, pending}),
+          Browser.State{web, sequence, next, pending, None{}}) ==
+          Browser.completion_receipt(completion, Receipt.from_reply(ticket, origin, D.failure("command_not_submitted", reason)), Browser.product_input(Product.CommandCompleted{Browser.program(Browser.State{web, sequence, next, pending, None{}}),
             D.failure("command_not_submitted", reason), completion},
-            Browser.State{web, sequence, next, Browser.remove(pending, ticket)}) : Browser.Decision},
+            Browser.State{web, sequence, next, Browser.remove(pending, ticket), None{}})) : Browser.Decision},
     stale: @+ticket:Nat -> @reason:String -> @+pending:+List<Browser.Pending> -> @web:Web.State -> @sequence:Nat -> @next:Nat ->
       @absent:{Browser.find(pending, ticket) == None{} : Maybe<&2, Browser.Pending>} ->
-      {Browser.command_rejected(ticket, reason, Browser.State{web, sequence, next, pending}) ==
-        Browser.Decision{Browser.State{web, sequence, next, pending}, Nil{}} : Browser.Decision},
+      {Browser.command_rejected(ticket, reason, Browser.State{web, sequence, next, pending, None{}}) ==
+        Browser.Decision{Browser.State{web, sequence, next, pending, None{}}, Nil{}} : Browser.Decision},
     consumed: @+pending:+List<Browser.Pending> -> @+ticket:Nat -> {Browser.owns_ticket(Browser.remove(pending, ticket), ticket) == False{} : Bool},
     other_pending: @+entry:Browser.Pending -> @+rest:+List<Browser.Pending> -> @+ticket:Nat ->
       @distinct:{Nat.is_eq(Browser.ticket_of(entry), ticket) == False{} : Bool} ->
@@ -81,8 +82,8 @@ type Requirements is Type:
           D.failure("command_not_submitted", reason)) ==
           U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft},
     uncertain: @ticket:Nat -> @reason:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      {Browser.failed_completion(ticket, reason, Browser.State{web, sequence, next, pending}) ==
-        Browser.Decision{Browser.State{web, sequence, next, Browser.uncertain_pending(pending, ticket, reason)}, Nil{}} : Browser.Decision},
+      {Browser.failed_completion(ticket, reason, Browser.State{web, sequence, next, pending, None{}}) ==
+        Browser.Decision{Browser.State{web, sequence, next, Browser.uncertain_pending(pending, ticket, reason), None{}}, Nil{}} : Browser.Decision},
     other_command: @id:Nat -> @message:String -> {Browser.request_payload(M.Send{id, message}) == Codec.command_json(M.Send{id, message}) : J.Json}}
 
 law evidence:

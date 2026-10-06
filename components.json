@@ -14,7 +14,6 @@
     "bendlib/json.bend",
     "bendlib/operations.bend",
     "bendlib/reasoning-context.bend",
-    "bendlib/reasoning-laws.bend",
     "bendlib/reasoning-spec.bend",
     "bendlib/reasoning.bend",
     "bendlib/results.bend",
@@ -106,7 +105,10 @@
       "core/user-context.bend",
       "core/user-conversation.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend",
+      "core/operation-receipt.bend",
+      "core/operation-parameters.bend"
     ],
     "core/user-experience-laws.bend": [
       "MODEL.bend",
@@ -172,7 +174,8 @@
       "MODEL.bend",
       "bendlib/domain.bend",
       "bendlib/json.bend",
-      "core/user-context.bend"
+      "core/user-context.bend",
+      "COMMANDS.bend"
     ],
     "core/laws.bend": [
       "MODEL.bend",
@@ -187,16 +190,20 @@
       "bendlib/domain.bend",
       "bendlib/json.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "bendlib/tasks.bend"
     ],
-    "core/code-block.bend": [],
+    "core/code-block.bend": [
+      "core/ui-identity.bend"
+    ],
     "core/composition.bend": [],
     "core/form-fields.bend": [
       "BOARD.bend",
       "MODEL.bend",
       "bendlib/domain.bend",
       "core/user-context.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "COMMANDS.bend"
     ],
     "core/ui-world.bend": [
       "BOARD.bend",
@@ -244,7 +251,8 @@
       "core/form-fields.bend",
       "core/interface.bend",
       "core/ui-world.bend",
-      "webui/interaction.bend"
+      "webui/interaction.bend",
+      "core/ui-identity.bend"
     ],
     "webui/reading.bend": [
       "core/user-input.bend",
@@ -286,7 +294,9 @@
       "webui/enclosure.bend",
       "webui/surfaces.bend",
       "webui/typography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend",
+      "webui/natural-size.bend"
     ],
     "webui/design.bend": [
       "core/SYSTEM.bend",
@@ -296,7 +306,9 @@
       "webui/enclosure.bend",
       "webui/surfaces.bend",
       "webui/typography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend",
+      "webui/natural-size.bend"
     ],
     "webui/MODEL.bend": [
       "MODEL.bend",
@@ -309,7 +321,9 @@
       "webui/font-observation.bend",
       "webui/platform.bend",
       "webui/presentation-order.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "webui/focus.bend",
+      "webui/code-observation.bend"
     ],
     "core/boundary-laws.bend": [
       "BOARD.bend",
@@ -337,7 +351,9 @@
       "core/user-context.bend",
       "core/user-conversation.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend",
+      "core/code-block.bend"
     ],
     "core/surface-laws.bend": [
       "MODEL.bend",
@@ -350,7 +366,8 @@
       "core/laws.bend",
       "core/ui-world.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "core/session-laws.bend": [
       "BOARD.bend",
@@ -387,7 +404,8 @@
       "webui/enclosure.bend",
       "webui/surfaces.bend",
       "webui/typography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend"
     ],
     "webui/laws.bend": [
       "MODEL.bend",
@@ -429,7 +447,8 @@
     "webui/render-contract.bend": [
       "core/interface.bend",
       "webui/interaction.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "core/ui-identity.bend"
     ],
     "webui/controls.bend": [
       "BOARD.bend",
@@ -446,7 +465,9 @@
       "webui/enclosure.bend",
       "webui/space.bend",
       "webui/typography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend",
+      "bendlib/board-filter.bend"
     ],
     "webui/control-laws.bend": [
       "bendlib/domain.bend",
@@ -462,7 +483,8 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/space.bend",
-      "webui/typography.bend"
+      "webui/typography.bend",
+      "core/ui-identity.bend"
     ],
     "KERNEL.bend": [
       "MODEL.bend",
@@ -485,7 +507,9 @@
       "webui/physical-content.bend",
       "webui/physical-browser.bend",
       "webui/native-fields.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "webui/code-observation.bend",
+      "webui/anchor-geometry.bend"
     ],
     "bendlib/proofs/ui.bend": [
       "bendlib/architecture.bend",
@@ -512,7 +536,15 @@
       "bendlib/conversation-spec.bend",
       "bendlib/domain.bend",
       "core/user-conversation.bend",
-      "core/user-experience.bend"
+      "core/user-experience.bend",
+      "core/ui-identity.bend",
+      "MODEL.bend",
+      "bendlib/json.bend",
+      "core/interface.bend",
+      "core/SYSTEM.bend",
+      "core/user-input.bend",
+      "bendlib/tasks.bend",
+      "core/operation-parameters.bend"
     ],
     "core/page-region-laws.bend": [
       "BOARD.bend",
@@ -524,7 +556,8 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-conversation.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/browser.bend": [
       "BOARD.bend",
@@ -551,7 +584,10 @@
       "webui/platform.bend",
       "webui/reading.bend",
       "webui/rendered.bend",
-      "webui/request.bend"
+      "webui/request.bend",
+      "webui/presentation-order.bend",
+      "core/operation-receipt.bend",
+      "core/ui-identity.bend"
     ],
     "core/board-presentation-laws.bend": [
       "BOARD.bend",
@@ -566,7 +602,8 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/presentation-order-laws.bend": [
       "core/SYSTEM.bend",
@@ -577,7 +614,8 @@
       "webui/font-observation.bend",
       "webui/platform.bend",
       "webui/presentation-order.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "core/ui-identity.bend"
     ],
     "webui/presentation-order.bend": [
       "core/interface.bend",
@@ -593,7 +631,8 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/dock-laws.bend": [
       "core/user-input.bend",
@@ -606,7 +645,8 @@
       "core/interface.bend",
       "core/user-input.bend",
       "webui/browser.bend",
-      "webui/controls.bend"
+      "webui/controls.bend",
+      "core/ui-identity.bend"
     ],
     "webui/dialog-spatial-laws.bend": [
       "core/form-fields.bend",
@@ -621,14 +661,9 @@
       "webui/typography.bend"
     ],
     "webui/editor-layout.bend": [
-      "core/SYSTEM.bend",
       "core/form-fields.bend",
       "core/interface.bend",
-      "core/user-experience.bend",
-      "core/user-input.bend",
-      "webui/controls.bend",
-      "webui/design.bend",
-      "webui/document.bend"
+      "core/user-input.bend"
     ],
     "core/execution-context-laws.bend": [
       "COMMANDS.bend",
@@ -645,7 +680,8 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "core/project-interaction-laws.bend": [
       "BOARD.bend",
@@ -661,7 +697,8 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/context-control-laws.bend": [
       "bendlib/domain.bend",
@@ -672,7 +709,9 @@
       "core/user-input.bend",
       "webui/control-laws.bend",
       "webui/controls.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "core/ui-identity.bend",
+      "bendlib/board-filter.bend"
     ],
     "webui/project-presentation-laws.bend": [
       "core/SYSTEM.bend",
@@ -690,7 +729,8 @@
       "webui/space.bend",
       "webui/typography.bend",
       "webui/iconography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend"
     ],
     "webui/document.bend": [
       "core/code-block.bend"
@@ -704,7 +744,8 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/directory-entry-laws.bend": [
       "core/SYSTEM.bend",
@@ -714,14 +755,17 @@
       "core/interface.bend",
       "core/user-input.bend",
       "webui/browser.bend",
-      "webui/controls.bend"
+      "webui/controls.bend",
+      "core/ui-identity.bend"
     ],
     "webui/focus-retention-laws.bend": [
       "core/SYSTEM.bend",
       "core/interface.bend",
       "core/user-experience.bend",
       "webui/focus.bend",
-      "webui/platform.bend"
+      "webui/platform.bend",
+      "core/ui-identity.bend",
+      "core/ui-world.bend"
     ],
     "core/submission-feedback-laws.bend": [
       "bendlib/json.bend",
@@ -731,7 +775,8 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/submission-feedback-laws.bend": [
       "core/interface.bend"
@@ -783,7 +828,9 @@
       "webui/focus.bend",
       "webui/font-observation.bend",
       "webui/platform.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "webui/presentation-order.bend",
+      "webui/laws.bend"
     ],
     "webui/request-laws.bend": [
       "BOARD.bend",
@@ -798,7 +845,8 @@
       "core/user-input.bend",
       "webui/MODEL.bend",
       "webui/browser.bend",
-      "webui/request.bend"
+      "webui/request.bend",
+      "core/operation-receipt.bend"
     ],
     "webui/request.bend": [
       "bendlib/json.bend"
@@ -824,7 +872,8 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/surfaces.bend",
-      "webui/typography.bend"
+      "webui/typography.bend",
+      "webui/paint.bend"
     ],
     "webui/enclosure.bend": [],
     "webui/enclosure-laws.bend": [
@@ -846,7 +895,8 @@
       "webui/enclosure.bend",
       "webui/space.bend",
       "webui/typography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend"
     ],
     "webui/dismissal-laws.bend": [
       "UI.bend",
@@ -859,7 +909,8 @@
       "core/user-input.bend",
       "webui/browser.bend",
       "webui/controls.bend",
-      "webui/focus.bend"
+      "webui/focus.bend",
+      "core/ui-identity.bend"
     ],
     "webui/fact-content-laws.bend": [
       "webui/design.bend",
@@ -879,7 +930,8 @@
       "webui/typography.bend"
     ],
     "webui/font-observation.bend": [
-      "webui/typography.bend"
+      "webui/typography.bend",
+      "webui/natural-size.bend"
     ],
     "webui/space-laws.bend": [
       "bendlib/stdlib.bend",
@@ -891,7 +943,9 @@
     "webui/typography-laws.bend": [
       "webui/typography.bend"
     ],
-    "webui/typography.bend": [],
+    "webui/typography.bend": [
+      "webui/natural-size.bend"
+    ],
     "webui/container-space-laws.bend": [
       "webui/space-laws.bend",
       "webui/space.bend"
@@ -905,7 +959,13 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend",
+      "COMMANDS.bend",
+      "MODEL.bend",
+      "bendlib/domain.bend",
+      "REASONING.bend",
+      "core/form-fields.bend"
     ],
     "core/proofs/board-capability.bend": [
       "BOARD.bend",
@@ -928,7 +988,8 @@
       "core/interface.bend",
       "core/ui-world.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "core/proofs/boundary.bend": [
       "bendlib/association-map.bend",
@@ -953,14 +1014,25 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-conversation.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend",
+      "core/code-block.bend"
     ],
     "core/proofs/conversation-presentation.bend": [
       "bendlib/domain.bend",
       "bendlib/proofs/conversation.bend",
       "core/conversation-presentation-laws.bend",
       "core/user-conversation.bend",
-      "core/user-experience.bend"
+      "core/user-experience.bend",
+      "core/ui-identity.bend",
+      "MODEL.bend",
+      "bendlib/json.bend",
+      "core/interface.bend",
+      "core/SYSTEM.bend",
+      "core/user-input.bend",
+      "bendlib/stdlib.bend",
+      "bendlib/json-render-rules.bend",
+      "bendlib/proofs/json-render.bend"
     ],
     "core/proofs/directory-entry.bend": [
       "MODEL.bend",
@@ -985,7 +1057,8 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "core/proofs/interface-program.bend": [
       "core/interface-program-rules.bend"
@@ -994,7 +1067,9 @@
       "core/SYSTEM.bend",
       "core/interface-rules.bend",
       "core/interface.bend",
-      "core/ui-world.bend"
+      "core/ui-world.bend",
+      "bendlib/domain.bend",
+      "core/form-fields.bend"
     ],
     "core/proofs/laws.bend": [
       "MODEL.bend",
@@ -1014,7 +1089,8 @@
       "core/page-region-laws.bend",
       "core/ui-world.bend",
       "core/user-conversation.bend",
-      "core/user-experience.bend"
+      "core/user-experience.bend",
+      "core/ui-identity.bend"
     ],
     "core/proofs/project-interaction.bend": [
       "bendlib/association-map.bend",
@@ -1045,7 +1121,8 @@
       "core/interface.bend",
       "core/submission-feedback-laws.bend",
       "core/ui-world.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "core/proofs/submission.bend": [
       "BOARD.bend",
@@ -1066,7 +1143,8 @@
       "core/interface.bend",
       "core/surface-laws.bend",
       "core/ui-world.bend",
-      "core/user-experience.bend"
+      "core/user-experience.bend",
+      "core/ui-identity.bend"
     ],
     "core/proofs/user-experience.bend": [
       "MODEL.bend",
@@ -1076,7 +1154,8 @@
       "core/proofs/submission.bend",
       "core/user-experience-laws.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "bendlib/command-codec.bend"
     ],
     "webui/editor-rules.bend": [
       "core/user-input.bend",
@@ -1084,7 +1163,10 @@
       "webui/interaction.bend"
     ],
     "webui/focus-rules.bend": [
-      "webui/focus.bend"
+      "webui/focus.bend",
+      "core/SYSTEM.bend",
+      "core/interface.bend",
+      "core/ui-identity.bend"
     ],
     "webui/model-rules.bend": [
       "core/SYSTEM.bend",
@@ -1101,7 +1183,9 @@
       "core/ui-world.bend",
       "core/user-input.bend",
       "webui/editor.bend",
-      "webui/platform.bend"
+      "webui/platform.bend",
+      "webui/focus.bend",
+      "core/interface.bend"
     ],
     "webui/proofs/appearance.bend": [
       "core/SYSTEM.bend",
@@ -1129,7 +1213,9 @@
       "webui/laws.bend",
       "webui/platform.bend",
       "webui/proofs/laws.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "core/interface.bend",
+      "webui/presentation-order.bend"
     ],
     "webui/proofs/container-space.bend": [
       "webui/container-space-laws.bend",
@@ -1171,7 +1257,9 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/space.bend",
-      "webui/typography.bend"
+      "webui/typography.bend",
+      "core/ui-identity.bend",
+      "bendlib/board-filter.bend"
     ],
     "webui/proofs/dialog-spatial.bend": [
       "core/interface.bend",
@@ -1225,7 +1313,9 @@
     ],
     "webui/proofs/focus.bend": [
       "webui/focus-rules.bend",
-      "webui/focus.bend"
+      "webui/focus.bend",
+      "core/interface.bend",
+      "core/ui-identity.bend"
     ],
     "webui/proofs/font-observation.bend": [
       "webui/font-observation-laws.bend",
@@ -1246,7 +1336,8 @@
       "webui/frame-relation-laws.bend",
       "webui/space.bend",
       "webui/typography.bend",
-      "webui/spatial.bend"
+      "webui/spatial.bend",
+      "core/ui-identity.bend"
     ],
     "webui/proofs/laws.bend": [
       "MODEL.bend",
@@ -1273,7 +1364,9 @@
       "webui/reading.bend",
       "webui/rendered.bend",
       "webui/typography.bend",
-      "webui/proofs/space.bend"
+      "webui/proofs/platform.bend",
+      "webui/platform-rules.bend",
+      "bendlib/proofs/logic.bend"
     ],
     "webui/proofs/model.bend": [
       "webui/MODEL.bend",
@@ -1291,12 +1384,15 @@
       "core/user-experience.bend",
       "core/user-input.bend",
       "webui/persistent-trigger-laws.bend",
-      "bendlib/proofs/equality.bend"
+      "bendlib/proofs/equality.bend",
+      "core/ui-identity.bend"
     ],
     "webui/proofs/platform.bend": [
       "core/SYSTEM.bend",
       "webui/platform-rules.bend",
-      "webui/platform.bend"
+      "webui/platform.bend",
+      "webui/focus.bend",
+      "core/interface.bend"
     ],
     "webui/proofs/presentation-order.bend": [
       "bendlib/proofs/algebra.bend",
@@ -1317,8 +1413,8 @@
       "webui/model-rules.bend",
       "webui/platform.bend",
       "webui/presentation-laws.bend",
-      "webui/proofs/space.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "bendlib/proofs/logic.bend"
     ],
     "webui/proofs/project-presentation.bend": [
       "core/SYSTEM.bend",
@@ -1326,19 +1422,21 @@
       "core/ui-world.bend",
       "webui/controls.bend",
       "webui/design.bend",
-      "webui/project-presentation-laws.bend"
+      "webui/project-presentation-laws.bend",
+      "core/ui-identity.bend"
     ],
     "webui/proofs/reading.bend": [
       "webui/reading-rules.bend",
       "webui/reading.bend"
     ],
     "webui/proofs/render.bend": [
-      "bendlib/stdlib.bend",
       "core/interface.bend",
       "webui/interaction.bend",
       "webui/render-contract.bend",
       "webui/render-laws.bend",
-      "webui/rendered.bend"
+      "webui/rendered.bend",
+      "core/ui-identity.bend",
+      "bendlib/proofs/logic.bend"
     ],
     "webui/proofs/rendered.bend": [
       "webui/rendered-rules.bend",
@@ -1360,7 +1458,8 @@
       "bendlib/proofs/algebra.bend",
       "bendlib/stdlib.bend",
       "webui/space-laws.bend",
-      "webui/space.bend"
+      "webui/space.bend",
+      "bendlib/proofs/logic.bend"
     ],
     "webui/proofs/submission-feedback.bend": [
       "webui/submission-feedback-laws.bend"
@@ -1375,9 +1474,10 @@
       "webui/typography.bend"
     ],
     "webui/proofs/typography.bend": [
-      "bendlib/stdlib.bend",
       "webui/typography-laws.bend",
-      "webui/typography.bend"
+      "webui/typography.bend",
+      "bendlib/proofs/logic.bend",
+      "webui/natural-size.bend"
     ],
     "webui/reading-rules.bend": [
       "core/user-input.bend",
@@ -1396,7 +1496,8 @@
       "webui/source.bend",
       "webui/authored-controls.bend",
       "core/interface.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "core/ui-identity.bend"
     ],
     "webui/native-fields-rules.bend": [
       "webui/native-fields.bend",
@@ -1430,9 +1531,9 @@
       "core/field-options.bend",
       "MODEL.bend",
       "BOARD.bend",
-      "bendlib/json.bend",
       "bendlib/schema.bend",
-      "bendlib/board-filter.bend"
+      "bendlib/board-filter.bend",
+      "core/ui-identity.bend"
     ],
     "core/proofs/choice.bend": [
       "core/choice-rules.bend",
@@ -1440,9 +1541,9 @@
       "core/SYSTEM.bend",
       "core/ui-world.bend",
       "BOARD.bend",
-      "bendlib/json.bend",
       "bendlib/schema.bend",
-      "bendlib/board-filter.bend"
+      "bendlib/board-filter.bend",
+      "core/ui-identity.bend"
     ],
     "webui/choice-rules.bend": [
       "webui/controls.bend",
@@ -1454,7 +1555,9 @@
       "core/interface.bend",
       "core/SYSTEM.bend",
       "core/ui-world.bend",
-      "core/field-options.bend"
+      "core/field-options.bend",
+      "core/ui-identity.bend",
+      "bendlib/board-filter.bend"
     ],
     "webui/proofs/choice.bend": [
       "webui/choice-rules.bend",
@@ -1467,7 +1570,377 @@
       "core/interface.bend",
       "core/SYSTEM.bend",
       "core/ui-world.bend",
-      "core/field-options.bend"
+      "core/field-options.bend",
+      "core/ui-identity.bend",
+      "bendlib/board-filter.bend"
+    ],
+    "bendlib/json-render-rules.bend": [
+      "bendlib/json.bend"
+    ],
+    "bendlib/proofs/json-render.bend": [
+      "bendlib/json.bend",
+      "bendlib/json-render-rules.bend",
+      "bendlib/proofs/logic.bend"
+    ],
+    "core/execution-permissions-laws.bend": [
+      "bendlib/domain.bend",
+      "core/user-context.bend",
+      "core/ui-world.bend",
+      "core/interface.bend"
+    ],
+    "core/operation-receipt-rules.bend": [
+      "core/ui-identity.bend",
+      "core/operation-receipt.bend",
+      "core/interface.bend",
+      "core/SYSTEM.bend",
+      "core/user-conversation.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend"
+    ],
+    "core/operation-receipt.bend": [
+      "bendlib/json.bend"
+    ],
+    "core/proofs/execution-permissions.bend": [
+      "core/execution-permissions-laws.bend",
+      "core/user-context.bend",
+      "core/ui-world.bend",
+      "bendlib/domain.bend"
+    ],
+    "core/proofs/operation-receipt.bend": [
+      "core/operation-receipt-rules.bend"
+    ],
+    "core/proofs/ui-identity.bend": [
+      "bendlib/json.bend",
+      "core/ui-identity.bend",
+      "core/ui-identity-laws.bend"
+    ],
+    "core/ui-identity-laws.bend": [
+      "bendlib/json.bend",
+      "core/ui-identity.bend"
+    ],
+    "core/ui-identity.bend": [
+      "bendlib/json.bend"
+    ],
+    "webui/browser-receipt-laws.bend": [
+      "webui/browser.bend",
+      "MODEL.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend",
+      "core/operation-receipt.bend"
+    ],
+    "webui/code-observation-rules.bend": [
+      "webui/code-observation.bend",
+      "webui/physical-browser.bend",
+      "webui/physical-content.bend",
+      "webui/browser.bend",
+      "webui/MODEL.bend",
+      "webui/platform.bend",
+      "webui/source.bend",
+      "UI.bend",
+      "core/SYSTEM.bend",
+      "core/user-experience.bend",
+      "core/code-block.bend",
+      "webui/authored.bend",
+      "webui/design.bend",
+      "core/interface.bend",
+      "core/ui-identity.bend",
+      "core/live-output.bend"
+    ],
+    "webui/code-observation.bend": [
+      "core/code-block.bend"
+    ],
+    "webui/physical-receipt-laws.bend": [
+      "webui/physical-browser.bend",
+      "webui/browser.bend",
+      "webui/physical-world.bend",
+      "webui/physical-content.bend",
+      "webui/physical-plan.bend",
+      "webui/source.bend",
+      "webui/authored-shell.bend",
+      "webui/typography.bend",
+      "webui/spatial.bend",
+      "webui/focus.bend",
+      "webui/native-fields.bend",
+      "core/interface.bend",
+      "core/ui-world.bend"
+    ],
+    "webui/proofs/browser-receipt.bend": [
+      "webui/browser.bend",
+      "webui/browser-receipt-laws.bend",
+      "core/operation-receipt.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend",
+      "MODEL.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend"
+    ],
+    "webui/proofs/code-observation.bend": [
+      "webui/code-observation.bend",
+      "webui/code-observation-rules.bend",
+      "webui/physical-browser.bend",
+      "webui/physical-content.bend",
+      "webui/browser.bend",
+      "webui/MODEL.bend",
+      "core/code-block.bend",
+      "webui/source.bend"
+    ],
+    "webui/proofs/physical-receipt.bend": [
+      "webui/physical-receipt-laws.bend",
+      "webui/physical-content.bend",
+      "webui/physical-browser.bend",
+      "webui/browser.bend",
+      "webui/focus.bend",
+      "webui/native-fields.bend",
+      "core/interface.bend",
+      "core/ui-world.bend"
+    ],
+    "webui/proofs/task-details.bend": [
+      "core/ui-identity.bend",
+      "webui/task-details-laws.bend",
+      "webui/design.bend",
+      "webui/authored.bend",
+      "webui/source.bend",
+      "webui/physical-space.bend",
+      "webui/typography.bend"
+    ],
+    "webui/proofs/text-space.bend": [
+      "webui/text-space-rules.bend",
+      "webui/physical-source.bend",
+      "webui/physical-content.bend",
+      "webui/typography.bend",
+      "webui/proofs/space.bend"
+    ],
+    "webui/task-details-laws.bend": [
+      "core/ui-identity.bend",
+      "REASONING.bend",
+      "core/ui-world.bend",
+      "core/user-context.bend",
+      "core/field-options.bend",
+      "bendlib/domain.bend",
+      "bendlib/tasks.bend",
+      "bendlib/json.bend",
+      "webui/authored.bend",
+      "webui/source.bend",
+      "webui/design.bend",
+      "webui/physical-space.bend",
+      "webui/typography.bend"
+    ],
+    "webui/text-space-rules.bend": [
+      "core/ui-identity.bend",
+      "webui/physical-source.bend",
+      "webui/physical-renderer.bend",
+      "webui/physical-content.bend",
+      "webui/physical-space.bend",
+      "webui/source.bend",
+      "webui/typography.bend",
+      "webui/space.bend",
+      "webui/enclosure.bend",
+      "webui/spatial.bend",
+      "webui/document.bend",
+      "webui/paint.bend"
+    ],
+    "webui/proofs/physical-content.bend": [
+      "webui/physical-content-rules.bend"
+    ],
+    "webui/authored-containment-rules.bend": [
+      "core/ui-identity.bend",
+      "core/interface.bend",
+      "core/user-conversation.bend",
+      "webui/authored.bend",
+      "webui/source.bend",
+      "webui/reading-binding.bend",
+      "webui/design.bend",
+      "webui/controls.bend",
+      "webui/enclosure.bend",
+      "webui/physical-space.bend",
+      "webui/document.bend",
+      "webui/physical-renderer.bend",
+      "webui/authored-primitives.bend"
+    ],
+    "webui/physical-control-rules.bend": [
+      "core/ui-identity.bend",
+      "webui/document.bend",
+      "webui/source.bend",
+      "webui/physical-content.bend",
+      "webui/physical-space.bend",
+      "webui/physical-renderer.bend",
+      "webui/typography.bend",
+      "webui/design.bend",
+      "webui/paint.bend"
+    ],
+    "webui/proofs/authored-containment.bend": [
+      "core/ui-identity.bend",
+      "core/interface.bend",
+      "core/user-conversation.bend",
+      "webui/authored.bend",
+      "webui/source.bend",
+      "webui/reading-binding.bend",
+      "webui/design.bend",
+      "webui/controls.bend",
+      "webui/enclosure.bend",
+      "webui/physical-space.bend",
+      "webui/document.bend",
+      "webui/physical-renderer.bend",
+      "webui/authored-primitives.bend",
+      "webui/authored-containment-rules.bend"
+    ],
+    "webui/proofs/physical-control.bend": [
+      "core/ui-identity.bend",
+      "webui/document.bend",
+      "webui/source.bend",
+      "webui/physical-space.bend",
+      "webui/typography.bend",
+      "webui/physical-control-rules.bend",
+      "webui/design.bend"
+    ],
+    "webui/reading-binding.bend": [],
+    "bendlib/profile-rules.bend": [
+      "bendlib/domain.bend",
+      "REASONING.bend"
+    ],
+    "bendlib/proofs/profiles.bend": [
+      "bendlib/domain.bend",
+      "bendlib/profile-rules.bend",
+      "REASONING.bend",
+      "bendlib/proofs/logic.bend"
+    ],
+    "bendlib/proofs/logic.bend": [
+      "bendlib/stdlib.bend"
+    ],
+    "webui/editor-binding-rules.bend": [
+      "core/ui-identity.bend",
+      "core/user-input.bend",
+      "core/form-fields.bend",
+      "core/interface.bend",
+      "webui/source.bend",
+      "webui/authored-controls.bend",
+      "webui/document.bend"
+    ],
+    "webui/proofs/editor-binding.bend": [
+      "webui/editor-binding-rules.bend"
+    ],
+    "webui/natural-size-rules.bend": [
+      "webui/natural-size.bend"
+    ],
+    "webui/natural-size.bend": [],
+    "webui/proofs/natural-size.bend": [
+      "webui/natural-size.bend",
+      "webui/natural-size-rules.bend"
+    ],
+    "webui/anchor-geometry-rules.bend": [
+      "webui/anchor-geometry.bend",
+      "webui/spatial.bend"
+    ],
+    "webui/anchor-geometry.bend": [
+      "webui/spatial.bend"
+    ],
+    "webui/proofs/anchor-geometry.bend": [
+      "webui/anchor-geometry-rules.bend"
+    ],
+    "webui/proofs/recovery.bend": [
+      "webui/recovery-rules.bend"
+    ],
+    "webui/recovery-rules.bend": [
+      "webui/physical-browser.bend",
+      "webui/browser.bend",
+      "webui/MODEL.bend",
+      "webui/document.bend",
+      "webui/paint.bend",
+      "webui/typography.bend"
+    ],
+    "core/operation-parameters.bend": [],
+    "PROOF.bend": [
+      "bendlib/feature-laws.bend",
+      "LAWS.bend",
+      "bendlib/architecture.bend",
+      "CONCEPTS.bend",
+      "bendlib/proofs/algebra.bend",
+      "bendlib/proofs/commit.bend",
+      "bendlib/proofs/execution.bend",
+      "bendlib/proofs/frontend.bend",
+      "bendlib/proofs/observations.bend",
+      "bendlib/proofs/protocol.bend",
+      "bendlib/proofs/safety.bend",
+      "bendlib/proofs/tasks.bend",
+      "bendlib/proofs/traces.bend",
+      "bendlib/proofs/operations.bend",
+      "core/proofs/surface.bend",
+      "core/proofs/session.bend",
+      "core/proofs/boundary.bend",
+      "core/proofs/page-region.bend",
+      "core/proofs/interface.bend",
+      "core/proofs/composition.bend",
+      "core/proofs/conversation-presentation.bend",
+      "core/proofs/board-presentation.bend",
+      "core/proofs/board-capability.bend",
+      "core/proofs/execution-context.bend",
+      "core/proofs/project-interaction.bend",
+      "core/proofs/directory-entry.bend",
+      "core/proofs/submission-feedback.bend",
+      "bendlib/proofs/ui.bend",
+      "bendlib/proofs/plugins.bend",
+      "bendlib/proofs/results.bend",
+      "bendlib/proofs/reachability.bend",
+      "bendlib/workspace-architecture.bend",
+      "bendlib/proofs/workspaces.bend",
+      "bendlib/approval-architecture.bend",
+      "bendlib/proofs/approvals.bend",
+      "bendlib/reasoning-architecture.bend",
+      "bendlib/proofs/reasoning.bend",
+      "bendlib/board-architecture.bend",
+      "bendlib/proofs/board.bend",
+      "core/interface-program-rules.bend",
+      "core/proofs/interface-program.bend",
+      "bendlib/json-render-rules.bend",
+      "bendlib/proofs/json-render.bend",
+      "bendlib/profile-rules.bend",
+      "bendlib/proofs/profiles.bend",
+      "bendlib/proofs/locality.bend"
+    ],
+    "bendlib/proofs/feature-frame.bend": [
+      "FEATURES.bend",
+      "BOARD.bend",
+      "bendlib/component.bend"
+    ],
+    "bendlib/proofs/locality.bend": [
+      "bendlib/proofs/task-storage.bend",
+      "bendlib/proofs/feature-frame.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/proofs/reasoning-locality.bend",
+      "FEATURES.bend",
+      "BOARD.bend",
+      "MODEL.bend",
+      "bendlib/board-state.bend",
+      "bendlib/locality.bend"
+    ],
+    "bendlib/proofs/reasoning-locality.bend": [
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/effects.bend",
+      "REASONING.bend",
+      "bendlib/reasoning.bend",
+      "bendlib/reasoning-spec.bend",
+      "bendlib/reasoning-context.bend",
+      "bendlib/operations.bend"
+    ],
+    "bendlib/proofs/task-storage.bend": [
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/tasks.bend",
+      "bendlib/task-laws.bend"
+    ],
+    "webui/dialog-content-rules.bend": [
+      "webui/authored.bend",
+      "webui/source.bend"
+    ],
+    "webui/proofs/dialog-content.bend": [
+      "bendlib/stdlib.bend",
+      "webui/authored.bend",
+      "webui/source.bend",
+      "webui/dialog-content-rules.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

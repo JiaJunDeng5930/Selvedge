@@ -144,7 +144,7 @@ def targets(queries: +List<Query>, +native_roots: +List<Content.NativeRoot>, +pr
 def rich_owner(values: +List<Model.Tree<Content.Value, Doc.Event>>, +owner: String) -> Bool:
   match values:
     case Nil{}: False{}
-    case Con{Model.Leaf{key, Content.Value{Source.RichText{label, style, content, attachments}, font}, interaction, rule, demand, height}, rest}:
+    case Con{Model.Leaf{key, Content.Value{Source.RichText{label, style, content, attachments, native_owner}, font}, interaction, rule, demand, height}, rest}:
       String.eq(key, owner) || rich_owner(rest, owner)
     case Con{Model.Leaf{key, value, interaction, rule, demand, height}, rest}: rich_owner(rest, owner)
     case Con{Model.Container{key, value, interaction, rule, children}, rest}: rich_owner(children, owner) || rich_owner(rest, owner)
@@ -163,7 +163,7 @@ def request_key(request: Content.Request) -> String:
 
 def rich_request(request: Content.Request) -> Bool:
   match request:
-    case Content.Request{generation, key, Content.Value{Source.RichText{label, style, content, attachments}, font}, Content.AtWidth{width}, native_roots, native_policies}: True{}
+    case Content.Request{generation, key, Content.Value{Source.RichText{label, style, content, attachments, native_owner}, font}, Content.AtWidth{width}, native_roots, native_policies}: True{}
     case Content.Request{generation, key, value, purpose, native_roots, native_policies}: False{}
 
 def owned_resolution(+prepared: Content.Prepared, +generation: Nat, +owner: String, +purpose: Content.Purpose, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, all_roots: +List<Content.NativeRoot>, all_policies: +List<Content.NativePolicy>) -> Result:

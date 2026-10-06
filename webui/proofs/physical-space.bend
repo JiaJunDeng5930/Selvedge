@@ -6,6 +6,7 @@ import ../space.bend as Space
 import ../enclosure.bend as Enclosure
 import ../../bendlib/proofs/algebra.bend as Alg
 import ./space.bend as Order
+import ../../bendlib/proofs/logic.bend as Logic
 
 def and_left(+a: Bool, +b: Bool, evidence: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
   Order.first({a == True{} : Bool}, {b == True{} : Bool}, Order.and_parts(a, b, evidence))
@@ -215,7 +216,7 @@ def lower_conflict(+minimum: Nat, +authored: Nat, +maximum: Nat,
   conflict: {Nat.is_le(minimum, maximum) == False{} : Bool}) ->
   {Nat.is_le(Nat.max(minimum, authored), maximum) == False{} : Bool}:
   match minimum authored maximum:
-    case 0n _ _: Order.impossible({Nat.is_le(Nat.max(0n, authored), maximum) == False{} : Bool},
+    case 0n _ _: Logic.impossible({Nat.is_le(Nat.max(0n, authored), maximum) == False{} : Bool},
       Equal.trans(Bool, False{}, Nat.is_le(0n, maximum), True{}, Equal.sym(Bool, Nat.is_le(0n, maximum), False{}, conflict), Order.zero_le(maximum)))
     case 1n+a 0n _: conflict
     case 1n+a 1n+b 0n: {==}
@@ -235,23 +236,41 @@ def limited_conflict(+minimum: Nat, +preferred: Nat, offered: Nat, +authored: Na
   Equal.cong(Bool, Maybe<&2, Space.Dimension>, (fits => Model.accept_dimension(fits, Space.Fit{lower, Nat.sub(chosen, lower), Nat.sub(maximum, chosen)})),
     Nat.is_le(lower, maximum), False{}, lower_conflict(minimum, authored, maximum, conflict))
 
-def capped_rejected(+percent_fits: Bool, +minimum_fits: Bool, +dimension: Space.Dimension,
-  conflict: {(Bool.not(percent_fits) || Bool.not(minimum_fits)) == True{} : Bool}) ->
-  {Model.accept_dimension(percent_fits && minimum_fits, dimension) == None{} : Maybe<&2, Space.Dimension>}:
-  match percent_fits minimum_fits:
-    case False{} False{}: {==}
-    case False{} True{}: {==}
-    case True{} False{}: {==}
-    case True{} True{}: Order.impossible(
-      {Model.accept_dimension(True{} && True{}, dimension) == None{} : Maybe<&2, Space.Dimension>}, conflict)
+def invalid_percent(+minimum: Nat, preferred: Nat, +offered: Nat, +percent: Nat,
+  invalid: {Nat.is_le(percent, 100n) == False{} : Bool}) ->
+  {Model.materialize(Model.PercentSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
+  Equal.cong(Bool, Maybe<&2, Space.Dimension>,
+    (valid => Model.percentage_dimension(Model.percentage_checked(valid, offered, percent), minimum)),
+    Nat.is_le(percent, 100n), False{}, invalid)
+
+def invalid_cap(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: Nat,
+  invalid: {Nat.is_le(percent, 100n) == False{} : Bool}) ->
+  {Model.materialize(Model.CappedNaturalSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
+  Equal.cong(Bool, Maybe<&2, Space.Dimension>,
+    (valid => Model.capped_dimension(Model.percentage_checked(valid, offered, percent), minimum, preferred)),
+    Nat.is_le(percent, 100n), False{}, invalid)
+
+def capped_rejected(+fits: Bool, +dimension: Space.Dimension,
+  conflict: {Bool.not(fits) == True{} : Bool}) ->
+  {Model.accept_dimension(fits, dimension) == None{} : Maybe<&2, Space.Dimension>}:
+  match fits:
+    case False{}: {==}
+    case True{}: Logic.impossible(
+      {Model.accept_dimension(True{}, dimension) == None{} : Maybe<&2, Space.Dimension>}, conflict)
+
+def capped_extent_conflict(+extent: Maybe<&2, Nat>, +minimum: Nat, +preferred: Nat,
+  conflict: {ModelRules.percentage_conflict(extent, minimum) == True{} : Bool}) ->
+  {Model.capped_dimension(extent, minimum, preferred) == None{} : Maybe<&2, Space.Dimension>}:
+  match extent:
+    case None{}: {==}
+    case Some{+cap}:
+      +chosen = Nat.min(cap, Nat.max(minimum, preferred))
+      capped_rejected(Nat.is_le(minimum, cap), Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)}, conflict)
 
 def capped_conflict(+minimum: Nat, +preferred: Nat, +offered: Nat, +maximum_percent: Nat,
-  conflict: {(Bool.not(Nat.is_le(maximum_percent, 100n)) || Bool.not(Nat.is_le(minimum, Nat.div(Nat.mul(offered, maximum_percent), 100n)))) == True{} : Bool}) ->
+  conflict: {ModelRules.percentage_conflict(Model.percentage_extent(offered, maximum_percent), minimum) == True{} : Bool}) ->
   {Model.materialize(Model.CappedNaturalSize{maximum_percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
-  +cap = Nat.div(Nat.mul(offered, maximum_percent), 100n)
-  +chosen = Nat.min(cap, Nat.max(minimum, preferred))
-  capped_rejected(Nat.is_le(maximum_percent, 100n), Nat.is_le(minimum, cap),
-    Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)}, conflict)
+  capped_extent_conflict(Model.percentage_extent(offered, maximum_percent), minimum, preferred, conflict)
 
 def ModelRules.evidence(A, E):
   ModelRules.Requirements{
@@ -260,4 +279,6 @@ def ModelRules.evidence(A, E):
     (content => rule => first => remaining => enabled => operable(~E, content, rule, first, remaining, enabled)),
     (minimum => preferred => offered => authored => extra => maximum_extra => conflict => limited_conflict(minimum, preferred, offered, authored, extra, maximum_extra, conflict)),
     (minimum => preferred => offered => extent => conflict => exact_conflict(minimum, preferred, offered, extent, conflict)),
+    (minimum => preferred => offered => percent => invalid => invalid_percent(minimum, preferred, offered, percent, invalid)),
+    (minimum => preferred => offered => percent => invalid => invalid_cap(minimum, preferred, offered, percent, invalid)),
     (minimum => preferred => offered => maximum_percent => conflict => capped_conflict(minimum, preferred, offered, maximum_percent, conflict))}

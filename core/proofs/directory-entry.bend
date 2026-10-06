@@ -46,3 +46,11 @@ def Rule.directory_picker_requirements():
         (allowed => Core.directory_chosen_accepted(allowed, editor, path, application)),
         Core.accepts_directory(editor, application), True{}, accepted)
     }
+
+
+def Rule.directory_identity_requirements():
+  Rule.DirectoryIdentityRequirements{
+    +path => primary => choose => remove => +parent => state => {==},
+    +path => control => +parent => state => {==},
+    path => primary => choose => remove => +parent => state => other => name => {==},
+    path => primary => choose => remove => +parent => state => other => name => {==}}

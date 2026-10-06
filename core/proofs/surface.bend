@@ -1,5 +1,6 @@
 import ../surface-laws.bend as Rule
 import Base
+import ../ui-identity.bend as Identity
 import ../../UI.bend as UI
 import ../SYSTEM.bend as Core
 import ../interface.bend as Interface
@@ -19,7 +20,7 @@ def resolve_absent(+surface: Interface.Surface, +key: String, +gesture: Interfac
     Interface.find_node(Interface.active_nodes(surface), key), None{}, absent)
 
 def resolve_unavailable(+surface: Interface.Surface, +key: String, +input: Core.Input, +reason: String,
-  +node_key: String, +semantic: String, +label: String, +role: Interface.Role,
+  +node_key: Identity.Key, +semantic: String, +label: String, +role: Interface.Role,
   +children: +List<Interface.Node>,
   found: {Interface.find_node(Interface.active_nodes(surface), key) ==
     Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Unavailable{reason}}, children}} : Maybe<&2, Interface.Node>}) ->
@@ -37,7 +38,7 @@ def resolve_unavailable(+surface: Interface.Surface, +key: String, +input: Core.
     {==})
 
 def resolve_available(+surface: Interface.Surface, +key: String, +input: Core.Input,
-  +node_key: String, +semantic: String, +label: String, +role: Interface.Role,
+  +node_key: Identity.Key, +semantic: String, +label: String, +role: Interface.Role,
   +children: +List<Interface.Node>,
   found: {Interface.find_node(Interface.active_nodes(surface), key) ==
     Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Available{}}, children}} : Maybe<&2, Interface.Node>}) ->
@@ -79,7 +80,7 @@ def receipt_source(+decision: Core.Decision, previous: +List<E.Layer>, origin: S
 def receipt_record_source(+before: Core.State, key: String, +decision: Core.Decision) ->
   {Rule.receipt(Interface.record_source(before, key, decision)) == Rule.receipt(decision) : Rule.Receipt}:
   Core.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention,
-    navigation, filter, now, next, pending, previews, code}}, services} = before
+    navigation, filter, now, next, pending, previews, code, next_layer}}, services} = before
   receipt_source(decision, layers, Interface.origin(layers, key))
 
 def receipt_navigation_closed(+decision: Core.Decision) ->
@@ -155,13 +156,13 @@ def Rule.evidence():
           Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), Some{input},
           resolve_available(UI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +rest => present =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +rest => present =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query} <> rest,
+        unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence} <> rest,
         Interface.layer_present(previous, E.panel_target(panel)), True{}, present)
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +rest => absent =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +rest => absent =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query} <> rest,
+        unchanged => E.Layer{panel, Interface.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence} <> rest,
         Interface.layer_present(previous, E.panel_target(panel)), False{}, absent)
     }

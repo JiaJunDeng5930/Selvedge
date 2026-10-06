@@ -14,10 +14,10 @@ def runtime_observation(decision: E.Decision) -> M.Decision():
 # The human-facing system retains the entire existing execution decision:
 # post-state, reply and ordered effects. Session behavior cannot replace it.
 
-def confirmation_spec(layers: +List<E.Layer>, +command: M.Command, +trigger: String) -> Bool:
+def confirmation_spec(layers: +List<E.Layer>, +command: M.Command, +trigger: String, occurrence: Nat) -> Bool:
   match layers:
-    case Con{E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query}, rest}:
-      String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command))
+    case Con{E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence}, rest}:
+      Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
 def accepted_confirmation_spec(ok: Bool, +result: J.Json, destination: U.Route, application: E.Application) -> E.Decision:
@@ -36,9 +36,9 @@ def completion_spec(completion: E.Completion, +program: M.World(), +result: J.Js
     case E.DraftCompletion{+draft}:
       E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
         E.Application{program, E.settle(draft, result, E.retain_previews(session, program))}), result, Nil{}, False{})
-    case E.ConfirmationCompletion{command, trigger, destination}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-      confirmation_result_spec(confirmation_spec(layers, command, trigger), result, destination, E.Application{program, E.retain_previews(session, program)})
+    case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
+      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+      confirmation_result_spec(confirmation_spec(layers, command, trigger, occurrence), result, destination, E.Application{program, E.retain_previews(session, program)})
 
 type CommandRequirements is Type:
   CommandRequirements{
@@ -50,12 +50,6 @@ type CommandRequirements is Type:
           [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision},
     observation: @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
       {E.step(E.ProgramObserved{program}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision},
-    direct: @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
-      {E.step(E.CommandCompleted{program, result, E.DirectCompletion{}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
-    draft: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
-      {E.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) ==
-        E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
-          E.Application{program, E.settle(draft, result, E.retain_previews(session, program))}), result, Nil{}, False{}) : E.Decision},
     stale: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
       @absent:{E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool} ->
       {E.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
@@ -66,7 +60,10 @@ type CommandRequirements is Type:
       @ok:{J.boolean(J.get(result, "ok")) == False{} : Bool} ->
       {E.complete_confirmation(True{}, result, destination, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision},
     replaced: @result:J.Json -> @destination:U.Route -> @application:E.Application ->
-      {E.complete_confirmation(False{}, result, destination, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision}
+      {E.complete_confirmation(False{}, result, destination, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision},
+    stale_occurrence: @+current:M.Command -> @title:String -> @destination:U.Route -> @+current_trigger:String -> @target:String -> @query:String -> @+current_occurrence:Nat -> @rest:+List<E.Layer> -> @+command:M.Command -> @+trigger:String -> @+occurrence:Nat ->
+      @stale:{Nat.is_eq(current_occurrence, occurrence) == False{} : Bool} ->
+      {E.confirmation_owned(E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, current_occurrence} <> rest, command, trigger, occurrence) == False{} : Bool}
   }
 
 law command_evidence:

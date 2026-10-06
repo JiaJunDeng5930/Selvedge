@@ -235,7 +235,7 @@ def selected_fields(editor: Maybe<&2, EditorScene>, selection: FieldSelection) -
 def profile_label(profile: Maybe<&2, D.Profile>, fallback: String) -> String:
   match profile:
     case None{}: "Choose model"
-    case Some{D.Profile{key, provider, name, reasoning}}: name
+    case Some{D.Profile{key, provider, name, reasoning, options}}: name
 
 def execution_project_source(found: Maybe<&2, D.Project>, project: Nat) -> String:
   match found:
@@ -295,15 +295,10 @@ def execution_workspace_summary(value: D.Workspace) -> String:
   D.Workspace{roots, primary} = value
   execution_folder(primary, List.length(&2, String, roots))
 
-def execution_sandbox(value: Context.SandboxValue) -> D.Sandbox:
-  match value:
-    case Context.InheritedSandbox{sandbox}: sandbox
-    case Context.ChosenSandbox{sandbox}: sandbox
-
 def automatic_review_summary(found: Maybe<&2, D.Profile>, key: String) -> String:
   match found:
     case None{}: "Automatic review unavailable: " ++ key
-    case Some{D.Profile{id, provider, name, reasoning}}: "Automatic review: " ++ name
+    case Some{D.Profile{id, provider, name, reasoning, options}}: "Automatic review: " ++ name
 
 def execution_approval_summary(value: Context.ApprovalChoice, reviewer: Maybe<&2, D.Profile>) -> String:
   match value:
@@ -347,8 +342,9 @@ def observation_workspace(observation: Context.Observation) -> String:
 def observation_permissions(observation: Context.Observation, profiles: +List<D.Profile>) -> String:
   match observation:
     case Context.DraftExecution{Context.ContextUnavailable{reason}}: "Permissions unavailable: " ++ reason
-    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: execution_permissions_summary(execution_sandbox(sandbox), value_approval_summary(approval, profiles))
-    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}: execution_permissions_summary(sandbox, policy_approval_summary(approval))
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: "Configured: " ++ execution_permissions_summary(Context.unwrap_sandbox(sandbox), value_approval_summary(approval, profiles))
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, +access}}:
+      Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ policy_approval_summary(approval)
 
 def committed_context(found: Maybe<&2, D.Task>) -> Maybe<&2, Context.EffectiveContext>:
   match found:
@@ -506,7 +502,7 @@ def delivery_controls(+task: Nat, selected: U.Delivery) -> InputGroup:
 def face_profile_name(found: Maybe<&2, D.Profile>, +key: String) -> String:
   match found:
     case None{}: "配置 " ++ key ++ " 不可用"
-    case Some{D.Profile{key, provider, name, reasoning}}: name
+    case Some{D.Profile{key, provider, name, reasoning, options}}: name
 
 def face_agent_name(found: Maybe<&2, B.AgentProfile>, id: Nat) -> String:
   match found:
@@ -536,7 +532,7 @@ def agent_owners(agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<B.Owner>:
 def profile_owners(profiles: +List<D.Profile>, rest: +List<B.Owner>) -> +List<B.Owner>:
   match profiles:
     case Nil{}: rest
-    case Con{D.Profile{key, provider, name, policy}, tail}: B.Profile{key} <> profile_owners(tail, rest)
+    case Con{D.Profile{key, provider, name, policy, options}, tail}: B.Profile{key} <> profile_owners(tail, rest)
 def capture_inputs(id: Maybe<&2, Nat>, assist: Bool, profile: String, world: M.World()) -> +List<InputGroup>:
   match id:
     case None{}: [CardAssistanceInput{assist, profile, Board.profiles(world)}]
@@ -548,7 +544,7 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<InputGroup>:
     case U.Project{id, name, +workspace}: [ProjectNameInput{name}, ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       CardContentInput{value, projects(world), B.stages(),
-        [B.NoPriority{}, B.Low{}, B.Medium{}, B.High{}, B.Urgent{}], card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
+        B.priorities(), card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
       [AgentIdentityInput{name, instructions, concurrency}, ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.AgentEditor{id}, context, world)]
     case U.Fork{task, count, messages, context}: [ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, world)]
@@ -574,7 +570,7 @@ def preparation_availability(workspace: Maybe<&2, D.Workspace>, body: U.Body, no
 
 def submit_availability(blocked: Bool, +body: U.Body, now: U32, world: M.World()) -> Availability:
   match blocked:
-    case True{}: Unavailable{"Wait for the pending submission"}
+    case True{}: Unavailable{"Submission is pending or the context origin or model selection is invalid"}
     case False{}: preparation_availability(U.required_workspace(body), body, now, world)
 
 def editor_scene(draft: U.Draft, pending: +List<E.Pending>, now: U32, +world: M.World()) -> EditorScene:
@@ -583,7 +579,7 @@ def editor_scene(draft: U.Draft, pending: +List<E.Pending>, now: U32, +world: M.
   +waiting = E.busy(pending, identity)
   EditorScene{identity, revision, input_groups(body, world), Forms.structure(body),
     ControlDeclaration{"submit/" ++ U.editor_key(identity), submit_label(body), Primary{}, U.Activate{U.Submit{identity}},
-      submit_availability(waiting || Bool.not(U.valid_origin(body)), body, now, world)}, feedback, waiting}
+      submit_availability(waiting || Bool.not(U.valid_origin(body)) || Bool.not(U.model_permitted(body, world)), body, now, world)}, feedback, waiting}
 
 def found_composer(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U32, +world: M.World()) -> Maybe<&2, ComposerScene>:
   match found:
@@ -591,7 +587,7 @@ def found_composer(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U3
     case Some{U.Draft{revision, +body, feedback, directory_entry}}: composer_scene(body, editor_scene(U.Draft{revision, body, feedback, directory_entry}, pending, now, world), world)
 
 def composer(identity: U.Editor, session: E.Session, world: M.World()) -> Maybe<&2, ComposerScene>:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   found_composer(E.find_draft(drafts, identity), pending, now, world)
 
 def action_availability(command: Maybe<&2, M.Command>, world: M.World()) -> Availability:
@@ -608,7 +604,7 @@ def optional_editor(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U
     case Some{draft}: Some{editor_scene(draft, pending, now, world)}
 
 def editor(identity: U.Editor, session: E.Session, world: M.World()) -> Maybe<&2, EditorScene>:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   optional_editor(E.find_draft(drafts, identity), pending, now, world)
 
 
@@ -641,7 +637,7 @@ def route_project(route: U.Route, drafts: +List<U.Draft>, +world: M.World()) -> 
     case _: None{}
 
 def active_project(route: U.Route, session: E.Session, world: M.World()) -> Maybe<&2, Nat>:
-  E.Session{r, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{r, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   route_project(route, drafts, world)
 
 def same_project(left: Maybe<&2, Nat>, right: Maybe<&2, Nat>) -> Bool:
@@ -686,7 +682,7 @@ def project_entries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Tas
     case Con{(id, project), rest}: project_entry(id, project, tasks, route, selected, navigation) <> project_entries(rest, tasks, route, selected, navigation)
 
 def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.Session) -> Navigation:
-  E.Session{r, drafts, readers, layers, attention, +nav, filter, now, next, pending, previews, code} = session
+  E.Session{r, drafts, readers, layers, attention, +nav, filter, now, next, pending, previews, code, next_layer} = session
   Navigation{expanded, control("new-task", "新任务", U.BeginTask{None{}}),
     [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}})],
     project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, active_project(route, session, world), nav), task_entries(project_tasks(Commands.entries(world), None{}), route),
@@ -706,7 +702,7 @@ def task_actions(+id: Nat, +world: M.World()) -> TaskActions:
     control("fork/" ++ Nat.show(id), "Fork", U.ForkTask{id}), control("compact/" ++ Nat.show(id), "Compact", U.CompactTask{id})]}
 
 def task_scene(+task: D.Task, +session: E.Session, +world: M.World()) -> TaskScene:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   +id = D.task_id(task)
   TaskScene{id, Conversation.title(task), Conversation.status(task), Context.effective(task), ConversationWorld.timeline(E.reader(readers, id), task, world), Live.for_task(Live.retained(previews, world), id),
     composer(U.MessageEditor{id}, session, world), task_details(task), task_actions(id, world)}
@@ -861,7 +857,7 @@ def page(+route: U.Route, +session: E.Session, +world: M.World()) -> Page:
     case U.ProjectHome{+id}: project_page(Projects.find(Projects.registry(F.State(), world), id), id, route, world)
     case U.ProjectCollection{}: ProjectsPage{project_scenes(Projects.entries(Projects.registry(F.State(), world)), route, world), control("project/new", "New project", U.EditProject{None{}})}
     case U.TaskBoard{}:
-      E.Session{old_route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
+      E.Session{old_route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
       board_page(Board.registry(world), filter, route, now, world)
     case U.AgentCollection{}: AgentsPage{agent_scenes(agents(Board.registry(world)), world), control("agent/new", "New agent", U.EditAgent{None{}})}
 
@@ -904,7 +900,7 @@ def subject_controls(subject: U.Subject, now: U32, +world: M.World()) -> +List<C
     case U.AgentSubject{+id}: agent_menu(Finite.find(~B.AgentProfile, agents(Board.registry(world)), id), id, world)
 
 def subject_actions(subject: U.Subject, session: E.Session, world: M.World()) -> +List<ControlDeclaration>:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   subject_controls(subject, now, world)
 
 def board_settings(board: B.State, +world: M.World()) -> LayerContent:
@@ -920,18 +916,18 @@ def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> LayerContent:
   match panel:
     case U.ProjectPicker{}:
-      E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code} = session
+      E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer} = session
       ProjectSelection{"", draft_project(E.find_draft(drafts, U.NewTaskEditor{}), world), project_choices(Projects.entries(Projects.registry(F.State(), world)))}
     case U.ObjectActions{subject}: ObjectActions{subject_actions(subject, session, world)}
     case U.ArchivedCards{}:
-      E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
+      E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
       ArchivedCards{archived_cards(Board.registry(world), route, now, world)}
     case U.CardDetails{+card}:
-      E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code} = session
+      E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer} = session
       CardDetails{found_card_details(B.find(Board.registry(world), card), card, route, now, world)}
     case U.BoardSettings{}: board_settings(Board.registry(world), world)
     case U.BoardFilters{}:
-      E.Session{route, drafts, readers, layers, attention, navigation, +filter, now, next, pending, previews, code_blocks} = session
+      E.Session{route, drafts, readers, layers, attention, navigation, +filter, now, next, pending, previews, code_blocks, next_layer} = session
       BoardFilters{filter}
     case U.EditObject{id}: ObjectEditor{editor(id, session, world)}
     case U.TaskDetails{task}: ExecutionDetails{optional_task(Tasks.find(Commands.entries(world), task), session, world)}
@@ -959,7 +955,7 @@ def layer_kind(panel: U.Panel, beside: Bool) -> LayerKind:
     case _: ModalDialog{}
 
 def profile_matches(profile: D.Profile, query: String) -> Bool:
-  D.Profile{key, provider, name, policy} = profile
+  D.Profile{key, provider, name, policy, options} = profile
   String.contains(String.to_lower(key ++ " " ++ name), String.to_lower(String.trim(query)))
 
 def keep_profile(matches: Bool, profile: D.Profile, rest: +List<D.Profile>) -> +List<D.Profile>:
@@ -1019,7 +1015,7 @@ def layer_dismissal(panel: U.Panel, trigger: String) -> Dismissal:
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, +trigger, initial, +query}, rest}:
+    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence}, rest}:
       Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:
@@ -1074,7 +1070,7 @@ def finish_scene(navigation: Navigation, +main: Page, +layers: +List<Layer>, bes
 
 def observe_session(capacity: Capacity, +program: M.World(), +session: E.Session) -> Scene:
   Capacity{+navigation_beside, details_beside} = capacity
-  E.Session{+route, drafts, readers, open_layers, focus, +expanded, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{+route, drafts, readers, open_layers, focus, +expanded, filter, now, next, pending, previews, code_blocks, next_layer} = session
   +visible = navigation_visible(E.navigation_visibility(expanded), navigation_beside)
   +main = page(route, session, program)
   finish_scene(navigation(visible, route, program, session), main, layers(open_layers, session, program, details_beside), navigation_beside, visible, focus)

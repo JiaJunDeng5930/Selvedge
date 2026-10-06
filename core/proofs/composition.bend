@@ -1,6 +1,8 @@
 import ../composition-laws.bend as Rule
 import ../interface-rules.bend as InterfaceRules
 import Base
+import ../code-block.bend as Code
+import ../ui-identity.bend as Identity
 import ../composition.bend as Composition
 import ../page-region-laws.bend as PageRegions
 import ../ui-world.bend as View
@@ -46,7 +48,7 @@ def task_recipe_evidence(task: View.TaskScene)
   Conversation.Timeline{task_id, generation, groups, operations, approvals, reading, return_to_latest} = timeline
   task_recipe_components_evidence(composer, approvals, return_to_latest)
 
-def action_evidence(parent: String, control: Core.Control)
+def action_evidence(parent: Identity.Key, control: Core.Control)
   -> {Interface.action(parent, control) == Rule.expected_action(parent, control) : Interface.Node}:
   match control:
     case Core.Control{+identity, label, View.Primary{}, input, availability}: {==}
@@ -54,10 +56,10 @@ def action_evidence(parent: String, control: Core.Control)
     case Core.Control{+identity, label, View.Secondary{}, input, availability}: {==}
 
 def visible_speaker_evidence(+id: Nat, speaker: Conversation.Speaker, +text: String, +source: D.Message,
-    +task: Nat, +parent: String, +state: Core.State)
+    +task: Nat, +parent: Identity.Key, +state: Core.State)
   -> {Rule.first_speech_projection(Interface.groups([Conversation.VisibleSpeech{id, speaker, text, source}], task, parent, state)) ==
-      Some{Rule.SpeechProjection{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message",
-        Rule.expected_speaker_role(speaker), Interface.ReadOnly{text}}} : Maybe<&2, Rule.SpeechProjection>}:
+      Some{Rule.SpeechProjection{Identity.Entity{parent, "message", Nat.show(id)}, "message/" ++ Nat.show(id), "Message",
+        Rule.expected_speaker_role(speaker), Interface.RichText{Code.Message{task, id}, text}}} : Maybe<&2, Rule.SpeechProjection>}:
   match speaker:
     case Conversation.UserSpeech{}: {==}
     case Conversation.AssistantSpeech{}: {==}

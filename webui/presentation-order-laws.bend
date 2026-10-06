@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ./MODEL.bend as Model
@@ -10,7 +11,7 @@ import ./rendered.bend as Rendered
 import ./font-observation.bend as F
 
 type NodePayload is Data:
-  NodePayload{key: String, semantic: String, label: String, role: UI.Role, meaning: UI.Meaning}
+  NodePayload{key: UIIdentity.Key, semantic: String, label: String, role: UI.Role, meaning: UI.Meaning}
 
 type SurfacePayload is Data:
   SurfacePayload{content: Core.Scene, scope: Maybe<&2, String>}
@@ -77,14 +78,18 @@ def occurrence_step(included: Bool, rest: Nat) -> Nat:
     case True{}: Nat.add(1n, rest)
     case False{}: rest
 
+def count_key(node: UI.Node) -> UIIdentity.Key:
+  UI.Node{key, semantic, label, role, meaning, children} = node
+  key
+
 type CountPredicate is Data:
   CountAll{}
-  CountKey{key: String}
+  CountKey{key: UIIdentity.Key}
 
 def count_matches(predicate: CountPredicate, value: UI.Node) -> Bool:
   match predicate:
     case CountAll{}: True{}
-    case CountKey{key}: String.eq(UI.node_key(value), key)
+    case CountKey{key}: String.eq(UI.node_key(value), UIIdentity.encode(key))
 
 def count_by(+predicate: CountPredicate, values: +List<UI.Node>) -> Nat:
   match values:
@@ -101,9 +106,9 @@ type Requirements is Type:
       {List.length(&2, UI.Node, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
         List.length(&2, UI.Node, values) : Nat},
     dialog_partition_occurrences: @target:UI.Node -> @values:+List<UI.Node> -> @context:Controls.Context ->
-      {count_by(CountKey{UI.node_key(target)},
+      {count_by(CountKey{count_key(target)},
           Order.ordered_dialog_children(Order.partition_dialog_children(values, context))) ==
-        count_by(CountKey{UI.node_key(target)}, values) : Nat},
+        count_by(CountKey{count_key(target)}, values) : Nat},
     ordered_children_reference: @values:+List<UI.Node> -> @role:UI.Role -> @context:Controls.Context ->
       {Order.ordered_children(role, values, context) == specified_children(role, values, context) : +List<UI.Node>},
     dialog_order_idempotent: @values:+List<UI.Node> -> @context:Controls.Context ->

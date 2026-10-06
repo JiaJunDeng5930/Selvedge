@@ -9,7 +9,7 @@ import ../physical-allocation-population-rules.bend as Population
 import ./physical-allocation-population.bend as PopulationProof
 import ../space.bend as Space
 import ../space-laws.bend as SpaceLaws
-import ./space.bend as Order
+import ../../bendlib/proofs/logic.bend as Logic
 
 # The partial source observes only fields consumed by production. A failed or
 # pending child makes the enclosing computation incapable of a ready result.
@@ -323,12 +323,12 @@ def finish_completed(~A: Data, ~E: Data, +state: Allocation.WidthState<A, E>, +k
   Rule.source_claim(~A, ~E, expected, Allocation.finish_width_iteration(~A, ~E, state, key, width, budget)):
   match state:
     case Allocation.WidthDone{+result}: outcome_preserved(~A, ~E, result, expected, proof)
-    case Allocation.WidthVisit{tree, extent, offset, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.WidthMinimumChecked{fits, tree, extent, offset, rule, lower, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.WidthLeafHeight{sample, leaf_key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.WidthContainerPlan{plan, container_key, value, interaction, rule, outer_width, offset, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.WidthChildren{remaining, container_key, value, interaction, rule, outer_width, offset, direction, previous, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.WidthComplete{result, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.WidthVisit{tree, extent, offset, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.WidthMinimumChecked{fits, tree, extent, offset, rule, lower, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.WidthLeafHeight{sample, leaf_key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.WidthContainerPlan{plan, container_key, value, interaction, rule, outer_width, offset, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.WidthChildren{remaining, container_key, value, interaction, rule, outer_width, offset, direction, previous, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.WidthComplete{result, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.WidthFailure{Allocation.Failure{key, Allocation.InlineAxis{}, budget, width, Allocation.AllocationBoundExceeded{budget}}}), complete)
 
 def measure_preserved(~A: Data, ~E: Data, +tree: Model.Tree<A, E>, +width: Nat, +offset: Nat, +samples: +List<Model.HeightSample>) ->
   Rule.source_claim(~A, ~E, tree, Allocation.measure_at(~A, ~E, tree, width, offset, samples)):

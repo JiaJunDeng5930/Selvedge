@@ -180,7 +180,7 @@ def agent_settings(found: Maybe<&2, D.Profile>, agent: B.AgentProfile, +world: M
     case Some{+profile}:
       B.AgentProfile{revision, name, key, +reasoning, instructions, settings, concurrency} = agent
       C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins}, limits, projects}, +board} = world
-      Reasoning.permitted(D.profile_reasoning(profile), Reasoning.selection(reasoning, D.profile_reasoning(profile))) &&
+      D.profile_permitted(profile, D.profile_selection(reasoning, profile)) &&
         agent_selection(Workspace.resolve(settings, Workspace.defaults(guidance), guidance, profile, profiles))
 
 def agent_valid(+agent: B.AgentProfile, +world: M.World()) -> Bool:

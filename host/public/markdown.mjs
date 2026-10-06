@@ -91,6 +91,47 @@ export function safeHref(value) {
   } catch { return null; }
 }
 
+const HTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+const MATHML_NAMESPACE = 'http://www.w3.org/1998/Math/MathML';
+const FORMATTER_MATHML_ELEMENTS = new Set(['math', 'semantics', 'annotation', 'mrow', 'mi', 'mo', 'mn', 'ms', 'mtext', 'mspace', 'msup', 'msub', 'msubsup', 'mfrac', 'msqrt', 'mroot', 'mover', 'munder', 'munderover', 'mtable', 'mtr', 'mtd', 'mpadded', 'mstyle', 'menclose', 'mphantom']);
+const FORMATTER_HTML_ATTRIBUTES = new Set(['class']);
+const FORMATTER_MATHML_ATTRIBUTES = new Set(['class', 'display', 'encoding', 'mathvariant', 'stretchy', 'fence', 'separator', 'accent', 'accentunder', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'linethickness', 'scriptlevel', 'displaystyle', 'notation', 'width', 'height', 'depth', 'lspace', 'rspace', 'minsize', 'maxsize', 'mathcolor', 'mathbackground', 'voffset', 'linebreak', 'columnlines', 'rowlines', 'largeop', 'mathsize']);
+const FORMATTER_MATHML_STYLE_PROPERTIES = ['text-shadow', 'border'];
+const UNSAFE_FORMATTER_STYLE_VALUE = /url\s*\(|expression\s*\(|var\s*\(|@|\\|[\u0000-\u001f\u007f]/i;
+
+function copyMathMLStyle(source, result, document) {
+  // KaTeX emits these two presentation properties; other CSS stays outside the fragment boundary.
+  const parsedStyle = document.createElement('span').style;
+  parsedStyle.cssText = source.getAttribute('style') ?? '';
+  for (const property of FORMATTER_MATHML_STYLE_PROPERTIES) {
+    const value = parsedStyle.getPropertyValue(property);
+    if (value && !UNSAFE_FORMATTER_STYLE_VALUE.test(value)) result.style.setProperty(property, value);
+  }
+}
+
+function cleanFormatterFragment(source, document) {
+  if (source.nodeType === 3) return document.createTextNode(source.textContent);
+  const mathml = source.namespaceURI === MATHML_NAMESPACE;
+  const allowed = source.nodeType === 1 && (mathml
+    ? FORMATTER_MATHML_ELEMENTS.has(source.localName)
+    : source.namespaceURI === HTML_NAMESPACE && source.localName === 'span');
+  if (!allowed) return document.createTextNode(source.textContent ?? '');
+  const result = document.createElementNS(source.namespaceURI, source.localName);
+  const attributes = mathml ? FORMATTER_MATHML_ATTRIBUTES : FORMATTER_HTML_ATTRIBUTES;
+  for (const attribute of source.attributes) {
+    if (mathml && attribute.name === 'xmlns' && attribute.value === MATHML_NAMESPACE
+        && (attribute.namespaceURI === null || attribute.namespaceURI === 'http://www.w3.org/2000/xmlns/')) {
+      result.setAttribute('xmlns', MATHML_NAMESPACE);
+      continue;
+    }
+    if (attribute.namespaceURI !== null) continue;
+    if (attributes.has(attribute.name)) result.setAttribute(attribute.name, attribute.value);
+  }
+  if (mathml) copyMathMLStyle(source, result, document);
+  for (const child of source.childNodes) result.append(cleanFormatterFragment(child, document));
+  return result;
+}
+
 let worker;
 let serial = 0;
 const jobs = new Map();
@@ -156,18 +197,7 @@ function decorate(node, kind, text, language, alive, signal, onChange) {
           // Only trusted formatter output is parsed, never raw model HTML. A
           // second allowlist keeps formatter output a non-interactive fragment.
           const parsed = new DOMParser().parseFromString(markup, 'text/html');
-          const allowed = new Set(['span', 'math', 'semantics', 'annotation', 'mrow', 'mi', 'mo', 'mn', 'ms', 'mtext', 'mspace', 'msup', 'msub', 'msubsup', 'mfrac', 'msqrt', 'mroot', 'mover', 'munder', 'munderover', 'mtable', 'mtr', 'mtd', 'mpadded', 'mstyle', 'menclose', 'mphantom']);
-          const clean = source => {
-            if (source.nodeType === 3) return node.ownerDocument.createTextNode(source.textContent);
-            if (source.nodeType !== 1 || !allowed.has(source.localName)) return node.ownerDocument.createTextNode(source.textContent ?? '');
-            const result = node.ownerDocument.createElementNS(source.namespaceURI, source.localName);
-            for (const attribute of source.attributes) {
-              if (['class', 'display', 'encoding', 'mathvariant', 'stretchy', 'fence', 'separator', 'accent', 'accentunder', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'linethickness', 'scriptlevel', 'displaystyle', 'width', 'height', 'depth', 'lspace', 'rspace', 'minsize', 'maxsize'].includes(attribute.name)) result.setAttribute(attribute.name, attribute.value);
-            }
-            for (const child of source.childNodes) result.append(clean(child));
-            return result;
-          };
-          const children = [...parsed.body.childNodes].map(clean);
+          const children = [...parsed.body.childNodes].map(source => cleanFormatterFragment(source, node.ownerDocument));
           const changed = node.dataset.decorated !== kind || node.childNodes.length !== children.length
             || children.some((child, index) => !child.isEqualNode(node.childNodes[index]));
           if (changed) {
@@ -214,13 +244,18 @@ export class Markdown {
     };
     const document = root.ownerDocument;
     const stack = [{ node: root, type: smd.DOCUMENT }];
-    const close = () => {
+    const close = (completed) => {
       if (stack.length <= 1) return;
       const entry = stack.pop();
       delete entry.node.dataset.pending;
       if (stack.length === 1) { entry.node.dataset.stable = 'true'; this.stableBlocks++; }
       const kind = [smd.CODE_BLOCK, smd.CODE_FENCE].includes(entry.type) ? 'code'
         : [smd.EQUATION_BLOCK, smd.EQUATION_INLINE].includes(entry.type) ? 'math' : null;
+      if (kind === 'math' && !completed) {
+        const source = entry.equation.opener + (entry.equation.openingNewline ? '\n' : '') + entry.node.textContent;
+        entry.node.replaceWith(document.createTextNode(source));
+        return;
+      }
       if (kind) {
         const pending = decorate(entry.node, kind, entry.node.textContent, entry.node.dataset.language,
           () => !this.disposed, this.decorationController.signal, () => options.onChange?.());
@@ -230,7 +265,7 @@ export class Markdown {
     };
     const sink = {
       data: null,
-      add_token: (_, type) => {
+      add_token: (_, type, equation) => {
         if (type === smd.DOCUMENT) return;
         let parent = stack.at(-1).node;
         let node;
@@ -257,9 +292,9 @@ export class Markdown {
           parent.append(node);
         }
         node.dataset.pending = 'true';
-        stack.push({ node, type });
+        stack.push({ node, type, equation });
       },
-      end_token: close,
+      end_token: () => close(true),
       add_text: (_, text) => {
         const node = stack.at(-1).node;
         // Append to the same text node, preserving selection and bounding the
@@ -281,7 +316,7 @@ export class Markdown {
     const parser = smd.parser(sink);
     this.buffer = new PacedText(chunk => { smd.parser_write(parser, chunk); reportCode(); options.onChange?.(); }, () => {
       smd.parser_end(parser);
-      while (stack.length > 1) close();
+      while (stack.length > 1) close(false);
       reportCode(); options.onChange?.();
       this.parserEnded = true;
       this.settleIfFinished();

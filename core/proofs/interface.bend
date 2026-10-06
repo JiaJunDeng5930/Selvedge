@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/domain.bend as D
+import ../form-fields.bend as Forms
 import ../SYSTEM.bend as Core
 import ../interface-rules.bend as Rule
 import ../interface.bend as Model
@@ -52,3 +54,37 @@ def Rule.placement_filtered_destination_accepted(key, semantic, label, role, des
 
 def Rule.placement_rejected_destination(key, semantic, label, role, destinations, face, children, target, surface, rejected):
   rejected
+
+
+def Rule.fixed_reasoning_catalogue_entry(key, provider, name, options):
+  {==}
+
+def Rule.fixed_reasoning_open_entry(key, provider, name):
+  {==}
+
+def Rule.retained_profile_effort(profile, previous, permitted):
+  Equal.cong(Bool, String, accepted => Forms.selected_profile_effort(accepted, previous, profile),
+    D.profile_permitted(profile, previous), True{}, permitted)
+
+def Rule.reset_profile_effort(profile, previous, denied):
+  Equal.cong(Bool, String, accepted => Forms.selected_profile_effort(accepted, previous, profile),
+    D.profile_permitted(profile, previous), False{}, denied)
+
+def Rule.rejected_reasoning_edit(profile, reasoning):
+  {==}
+
+def Rule.accepted_reasoning_edit(profile, reasoning):
+  {==}
+
+def Rule.selected_model_permission(profile, reasoning):
+  {==}
+
+def Rule.rejected_profile_choice():
+  {==}
+
+
+def Rule.new_task_model_permission(message, profile, reasoning, context, world):
+  {==}
+
+def Rule.agent_model_permission(agent, revision, name, profile, reasoning, instructions, context, concurrency, world):
+  {==}

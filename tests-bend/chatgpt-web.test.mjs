@@ -46,7 +46,7 @@ test('web profiles use their own endpoint, token and fixed effort catalog', () =
     const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: { web: { provider: 'chatgpt-web', model: `chatgpt-web/${effort}` } } });
     assert.equal(config.profiles.web.endpoint, 'http://127.0.0.1:8787/v1/responses');
     assert.equal(config.profiles.web.api_key_env, 'CHATGPT_WEB_TOKEN');
-    assert.deepEqual(profileCatalog(config), [{ key: 'web', provider: 'chatgpt-web', name: `chatgpt-web/${effort}` }]);
+    assert.deepEqual(profileCatalog(config), [{ key: 'web', provider: 'chatgpt-web', name: `chatgpt-web/${effort}`, reasoning_options: null }]);
   }
   for (const extra of [{ model: 'gpt-native' }, { endpoint: 'http://127.0.0.1:8787/responses' },
     { endpoint: 'http://127.0.0.1:8787/v1/responses?token=secret' }, { api_key_env: 'bad-name' },

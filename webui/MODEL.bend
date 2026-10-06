@@ -5,11 +5,13 @@ import ../core/SYSTEM.bend as Core
 import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
 import ./platform.bend as Platform
+import ./focus.bend as Focus
 import ./rendered.bend as Rendered
 import ./design.bend as Design
 import ./appearance.bend as Appearance
 import ./font-observation.bend as F
 import ./presentation-order.bend as Order
+import ./code-observation.bend as CodeObservation
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -21,6 +23,8 @@ type Input is Data:
   EnvironmentObserved{environment: Design.Environment}
   ElementInput{key: String, gesture: UI.Gesture}
   FrameObserved{generation: Nat, frame: Rendered.Frame}
+  NativeFocusObserved{generation: Nat, owner: String, identity: String}
+  CodeSourcesObserved{generation: Nat, observations: +List<CodeObservation.Observation>}
   TypographyObserved{observation: F.Observation}
 
 type Effect is Data:
@@ -45,20 +49,23 @@ def surface(state: Platform.State) -> UI.Surface:
 def resolved_focus(ticket: Nat, target: Maybe<&2, String>) -> +List<Effect>:
   match target:
     case None{}: Nil{}
-    case Some{key}: [PlatformEffect{Platform.Focus{ticket, key}}]
+    case Some{key}: [PlatformEffect{Platform.Focus{ticket, Focus.Product{key}}}]
+
+def resolved_content_focus(owned: Bool, ticket: Nat, owner: String, identity: String) -> +List<Effect>:
+  match owned:
+    case True{}: [PlatformEffect{Platform.Focus{ticket, Focus.Content{owner, identity}}}]
+    case False{}: Nil{}
 
 def resolved_effect(effect: Platform.Effect, surface: UI.Surface) -> +List<Effect>:
   match effect:
-    case Platform.Focus{ticket, target}: resolved_focus(ticket, UI.focus_target(surface, target))
+    case Platform.Focus{ticket, Focus.Product{target}}: resolved_focus(ticket, UI.focus_target(surface, target))
+    case Platform.Focus{ticket, Focus.Content{+owner, identity}}:
+      resolved_content_focus(Platform.found_content_owner(UI.find_node(UI.active_nodes(surface), owner)), ticket, owner, identity)
     case other: [PlatformEffect{other}]
 def platform_effects(effects: +List<Platform.Effect>, +surface: UI.Surface) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
     case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
-
-def environment_viewport(environment: Design.Environment) -> Design.Viewport:
-  Design.Environment{viewport, system_dark, root_font_size_milli} = environment
-  viewport
 
 def environment_root(environment: Design.Environment) -> Nat:
   Design.Environment{viewport, system_dark, root_font_size_milli} = environment
@@ -143,6 +150,8 @@ def production_dispatch(state: State, input: Input) -> Decision:
     case ElementInput{key, gesture}:
       production_commit(Platform.after_core(Product.step(Product.Element{capacity(model_platform(application)), key, gesture},
         model_core(application)), model_platform(application)), (generation + 1n : Nat), environment, font)
+    case NativeFocusObserved{received, owner, identity}: idle(application, generation, realization, environment, font)
+    case CodeSourcesObserved{received, observations}: idle(application, generation, realization, environment, font)
     case FrameObserved{+received, frame}:
       idle(application, generation, realization, environment, font)
     case TypographyObserved{observation}:

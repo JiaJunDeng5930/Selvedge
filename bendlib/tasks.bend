@@ -181,7 +181,7 @@ def phase_name(phase: D.Phase) -> String:
     case D.SummaryPending{ticket, resume}: "summary_pending"
 
 def summary(task: D.Task) -> J.Json:
-  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy, options}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},

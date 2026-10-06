@@ -26,8 +26,6 @@ def Architecture.surface():
     input => program => session => services => CoreLawsProof.runtime_input(input, program, session, services),
     capacity => +state => InterfaceRules.assembled_content(Core.observe(capacity, state), state),
     reader => task => world => Conversation.timeline_history(reader, task, world),
-    messages => offset => Conversation.grouped_history(messages, offset),
-    groups => task => disclosures => Conversation.visible_history(groups, task, disclosures),
     messages => offset => task => disclosures => Conversation.observed_text(messages, offset, task, disclosures),
     task => text => previous => selected => world => {==},
     directory_entry => revision => body => feedback => submitted => reply => {==},

@@ -178,6 +178,28 @@ def accept_dimension(+fits: Bool, value: Space.Dimension) -> Maybe<&2, Space.Dim
     case False{}: None{}
     case True{}: Some{value}
 
+# Reject invalid percentages before evaluating quotient/remainder arithmetic.
+def percentage_checked(+valid: Bool, +offered: Nat, +percent: Nat) -> Maybe<&2, Nat>:
+  match valid:
+    case False{}: None{}
+    case True{}:
+      Some{Nat.add(Nat.mul(Nat.div(offered, 100n), percent), Nat.div(Nat.mul(Nat.mod(offered, 100n), percent), 100n))}
+
+def percentage_extent(+offered: Nat, +percent: Nat) -> Maybe<&2, Nat>:
+  percentage_checked(Nat.is_le(percent, 100n), offered, percent)
+
+def percentage_dimension(+extent: Maybe<&2, Nat>, +minimum: Nat) -> Maybe<&2, Space.Dimension>:
+  match extent:
+    case None{}: None{}
+    case Some{+extent}: accept_dimension(Nat.is_le(minimum, extent), Space.Rigid{extent})
+
+def capped_dimension(+extent: Maybe<&2, Nat>, +minimum: Nat, +preferred: Nat) -> Maybe<&2, Space.Dimension>:
+  match extent:
+    case None{}: None{}
+    case Some{+cap}:
+      +chosen = Nat.min(cap, Nat.max(minimum, preferred))
+      accept_dimension(Nat.is_le(minimum, cap), Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)})
+
 def materialize(+size: AxisSize, +minimum: Nat, +preferred: Nat, offered: Nat) -> Maybe<&2, Space.Dimension>:
   match size:
     case NaturalSize{}: Some{Space.Fit{minimum, Nat.sub(Nat.max(minimum, preferred), minimum), 0n}}
@@ -188,11 +210,5 @@ def materialize(+size: AxisSize, +minimum: Nat, +preferred: Nat, offered: Nat) -
       +lower = Nat.max(minimum, authored_minimum)
       +chosen = Nat.min(maximum, Nat.max(lower, preferred))
       accept_dimension(Nat.is_le(lower, maximum), Space.Fit{lower, Nat.sub(chosen, lower), Nat.sub(maximum, chosen)})
-    case PercentSize{+percent}:
-      +extent = Nat.div(Nat.mul(offered, percent), 100n)
-      accept_dimension(Nat.is_le(percent, 100n) && Nat.is_le(minimum, extent), Space.Rigid{extent})
-    case CappedNaturalSize{+maximum_percent}:
-      +cap = Nat.div(Nat.mul(offered, maximum_percent), 100n)
-      +chosen = Nat.min(cap, Nat.max(minimum, preferred))
-      accept_dimension(Nat.is_le(maximum_percent, 100n) && Nat.is_le(minimum, cap),
-        Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)})
+    case PercentSize{+percent}: percentage_dimension(percentage_extent(offered, percent), minimum)
+    case CappedNaturalSize{+maximum_percent}: capped_dimension(percentage_extent(offered, maximum_percent), minimum, preferred)

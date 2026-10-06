@@ -19,6 +19,7 @@ export class Renderer {
     this.composing = new WeakSet();
     this.deferred = [];
     this.document = null;
+    this.generation = null;
     this.isolated = isolated;
     this.disposed = false;
   }
@@ -42,7 +43,7 @@ export class Renderer {
       const instances = [...this.records.values()].flatMap(record => record.markdown ? [record.markdown] : []);
       if ((await Promise.all(instances.map(markdown => markdown.whenSettled()))).some(done => !done) || this.disposed) return false;
       // NOTE: Parser-owned anchors must exist before declarative portals and target properties can be replayed.
-      if (this.document) this.render(this.document);
+      if (this.document) this.render(this.document, this.generation);
       const current = [...this.records.values()].flatMap(record => record.markdown ? [record.markdown] : []);
       if (current.length === instances.length && current.every((markdown, index) => markdown === instances[index])) return true;
     }
@@ -196,16 +197,23 @@ export class Renderer {
       this.children(record.node, value.children, key, record.node.namespaceURI === svg && value.tag !== 'foreignObject' ? svg : undefined);
       this.controlledValue(record);
     } else {
+      if (value.native_owner.$ === 'Some') record.node.dataset.nativeContentOwner = value.native_owner.value;
+      else delete record.node.dataset.nativeContentOwner;
       const source = value.source.$ === 'Some' ? value.source.value : null;
       const owner = source ? this.callbacks.codeKey(source, 0n) : null;
       if (!record.markdown || record.text !== value.value || record.owner !== owner) {
         record.markdown?.dispose();
         for (const target of record.targets ?? []) this.targets.delete(target);
         record.node.replaceChildren(); record.targets = [];
+        // NOTE: Parsing is paced; retain the publication that supplied this parser's input.
+        record.parseGeneration = this.generation;
         record.markdown = new Markdown(record.node, {
           smooth: false,
           codeKey: source ? ordinal => this.callbacks.codeKey(source, ordinal) : undefined,
-          codeSource: source ? (ordinal, text) => this.callbacks.codeSource(source, ordinal, text) : undefined,
+          codeSource: source ? (ordinal, text) => {
+            const generation = record.parseGeneration;
+            if (generation !== null) this.callbacks.codeSource(source, ordinal, text, generation, record.text);
+          } : undefined,
           target: (target, node) => { this.targets.set(target, node); record.targets.push(target); },
           onChange: () => this.callbacks.changed?.(),
         });
@@ -216,9 +224,10 @@ export class Renderer {
     }
     return record.node;
   }
-  render(document) {
+  render(document, generation = null) {
     if (this.disposed) throw new Error('Renderer is disposed');
     this.document = document;
+    this.generation = generation;
     this.used = new Set(); this.deferred = [];
     if (!this.isolated) this.root.ownerDocument.title = document.title;
     const node = this.node(document.root, 'root');

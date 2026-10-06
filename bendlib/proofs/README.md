@@ -1,11 +1,11 @@
 # Local proof boundaries
 
-The component-local providers `../task-laws.bend` and `../reasoning-laws.bend`
+The component-local providers `task-storage.bend` and `reasoning-locality.bend`
 quantify over unknown surrounding state and effect types. The application
 reasoning provider reuses those proof values. `../feature-laws.bend` composes
 feature refinement with explicit evidence for task creation, and
 `../locality.bend` binds update and preservation guarantees to production dispatch,
-storage functions. `../feature-frame.bend` supplies board storage evidence.
+storage functions. `feature-frame.bend` supplies board storage evidence.
 
 Client proofs use the storage operation instead of expanding its concrete task
 list reconstruction. The locality replacement fixture changes that reconstruction

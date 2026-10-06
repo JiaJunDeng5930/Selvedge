@@ -18,15 +18,15 @@ def provider_speech(+assistant: Bool, +index: Nat, +value: J.Json, +tail: +List<
   {Spec.sources(Actual.provider_speech(assistant, index, value, tail)) == D.ModelContext{value} <> Spec.sources(tail) : +List<D.Message>}:
   match assistant:
     case True{}: {==}
-    case False{}: audit_prepend(index, False{}, D.ModelContext{value}, tail)
+    case False{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
 
 def provider_group(+kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>) ->
   {Spec.sources(Actual.provider_group(kind, index, value, tail)) == D.ModelContext{value} <> Spec.sources(tail) : +List<D.Message>}:
   match kind:
     case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
-    case Content.ReasoningContext{}: audit_prepend(index, False{}, D.ModelContext{value}, tail)
-    case Content.CompactionContext{}: audit_prepend(index, False{}, D.ModelContext{value}, tail)
-    case Content.OtherContext{}: audit_prepend(index, False{}, D.ModelContext{value}, tail)
+    case Content.ReasoningContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+    case Content.CompactionContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+    case Content.OtherContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
 
 def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
   {Spec.sources(Actual.prepend(message, index, tail)) == message <> Spec.sources(tail) : +List<D.Message>}:
@@ -34,18 +34,42 @@ def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
     case D.UserMessage{text}: {==}
     case D.AssistantMessage{text}: {==}
     case D.ModelContext{value}: provider_group(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail)
-    case D.FailureMessage{text}: audit_prepend(index, True{}, D.FailureMessage{text}, tail)
-    case D.FunctionOutput{id, value, error}: audit_prepend(index, error, D.FunctionOutput{id, value, error}, tail)
-    case D.OperationResult{ticket, id, tool, value, error}: audit_prepend(index, error, D.OperationResult{ticket, id, tool, value, error}, tail)
-    case D.ToolReceipt{task, operation, call, value, error}: audit_prepend(index, error, D.ToolReceipt{task, operation, call, value, error}, tail)
-    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: audit_prepend(index, Actual.approval_failed(outcome), D.ApprovalRecord{task, operation, call, reviewer, outcome}, tail)
-    case D.HookRecord{task, call, plugin, outcome}: audit_prepend(index, Actual.hook_failed(outcome), D.HookRecord{task, call, plugin, outcome}, tail)
-    case D.AfterRecord{task, operation, plugin, outcome}: audit_prepend(index, Actual.after_failed(outcome), D.AfterRecord{task, operation, plugin, outcome}, tail)
-    case D.FunctionCall{call}: audit_prepend(index, False{}, D.FunctionCall{call}, tail)
-    case D.ContextCheckpoint{summary}: audit_prepend(index, False{}, D.ContextCheckpoint{summary}, tail)
-    case D.ReasoningRecord{owner, effort, remaining, sampling}: audit_prepend(index, False{}, D.ReasoningRecord{owner, effort, remaining, sampling}, tail)
-    case D.ConfigurationUpdate{effort}: audit_prepend(index, False{}, D.ConfigurationUpdate{effort}, tail)
-    case D.ForkResult{task, call, branch}: audit_prepend(index, False{}, D.ForkResult{task, call, branch}, tail)
+    case D.FunctionCall{call}:
+      +audit_message: D.Message = D.FunctionCall{call}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.FunctionOutput{call_id, value, error}:
+      +audit_message: D.Message = D.FunctionOutput{call_id, value, error}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.OperationResult{ticket, call_id, tool, value, error}:
+      +audit_message: D.Message = D.OperationResult{ticket, call_id, tool, value, error}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.FailureMessage{text}:
+      +audit_message: D.Message = D.FailureMessage{text}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.ContextCheckpoint{summary}:
+      +audit_message: D.Message = D.ContextCheckpoint{summary}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.ReasoningRecord{owner, effort, remaining, sampling}:
+      +audit_message: D.Message = D.ReasoningRecord{owner, effort, remaining, sampling}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.ConfigurationUpdate{effort}:
+      +audit_message: D.Message = D.ConfigurationUpdate{effort}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.HookRecord{task_id, call_id, plugin, outcome}:
+      +audit_message: D.Message = D.HookRecord{task_id, call_id, plugin, outcome}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.ToolReceipt{task_id, operation_id, call, value, error}:
+      +audit_message: D.Message = D.ToolReceipt{task_id, operation_id, call, value, error}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.AfterRecord{task_id, operation_id, plugin, outcome}:
+      +audit_message: D.Message = D.AfterRecord{task_id, operation_id, plugin, outcome}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.ApprovalRecord{task_id, operation_id, call, reviewer, outcome}:
+      +audit_message: D.Message = D.ApprovalRecord{task_id, operation_id, call, reviewer, outcome}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
+    case D.ForkResult{task_id, call_id, branch}:
+      +audit_message: D.Message = D.ForkResult{task_id, call_id, branch}
+      audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
 
 def grouped_history(+messages: +List<D.Message>, +index: Nat) ->
   {Spec.sources(Actual.groups(messages, index)) == messages : +List<D.Message>}:
@@ -89,15 +113,15 @@ def provider_speech_text(+assistant: Bool, +index: Nat, +value: J.Json, +tail: +
   Spec.text_agreement(Actual.provider_speech(assistant, index, value, tail)):
   match assistant:
     case True{}: ({==}, evidence)
-    case False{}: audit_text(index, False{}, D.ModelContext{value}, tail, evidence)
+    case False{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
 
 def provider_group_text(+kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
   Spec.text_agreement(Actual.provider_group(kind, index, value, tail)):
   match kind:
     case Content.SpeechContext{}: provider_speech_text(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail, evidence)
-    case Content.ReasoningContext{}: audit_text(index, False{}, D.ModelContext{value}, tail, evidence)
-    case Content.CompactionContext{}: audit_text(index, False{}, D.ModelContext{value}, tail, evidence)
-    case Content.OtherContext{}: audit_text(index, False{}, D.ModelContext{value}, tail, evidence)
+    case Content.ReasoningContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
+    case Content.CompactionContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
+    case Content.OtherContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
 
 def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
   Spec.text_agreement(Actual.prepend(message, index, tail)):
@@ -105,18 +129,42 @@ def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, e
     case D.UserMessage{text}: ({==}, evidence)
     case D.AssistantMessage{text}: ({==}, evidence)
     case D.ModelContext{value}: provider_group_text(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail, evidence)
-    case D.FailureMessage{text}: audit_text(index, True{}, D.FailureMessage{text}, tail, evidence)
-    case D.FunctionOutput{id, value, error}: audit_text(index, error, D.FunctionOutput{id, value, error}, tail, evidence)
-    case D.OperationResult{ticket, id, tool, value, error}: audit_text(index, error, D.OperationResult{ticket, id, tool, value, error}, tail, evidence)
-    case D.ToolReceipt{task, operation, call, value, error}: audit_text(index, error, D.ToolReceipt{task, operation, call, value, error}, tail, evidence)
-    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: audit_text(index, Actual.approval_failed(outcome), D.ApprovalRecord{task, operation, call, reviewer, outcome}, tail, evidence)
-    case D.HookRecord{task, call, plugin, outcome}: audit_text(index, Actual.hook_failed(outcome), D.HookRecord{task, call, plugin, outcome}, tail, evidence)
-    case D.AfterRecord{task, operation, plugin, outcome}: audit_text(index, Actual.after_failed(outcome), D.AfterRecord{task, operation, plugin, outcome}, tail, evidence)
-    case D.FunctionCall{call}: audit_text(index, False{}, D.FunctionCall{call}, tail, evidence)
-    case D.ContextCheckpoint{summary}: audit_text(index, False{}, D.ContextCheckpoint{summary}, tail, evidence)
-    case D.ReasoningRecord{owner, effort, remaining, sampling}: audit_text(index, False{}, D.ReasoningRecord{owner, effort, remaining, sampling}, tail, evidence)
-    case D.ConfigurationUpdate{effort}: audit_text(index, False{}, D.ConfigurationUpdate{effort}, tail, evidence)
-    case D.ForkResult{task, call, branch}: audit_text(index, False{}, D.ForkResult{task, call, branch}, tail, evidence)
+    case D.FunctionCall{call}:
+      +audit_message: D.Message = D.FunctionCall{call}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.FunctionOutput{call_id, value, error}:
+      +audit_message: D.Message = D.FunctionOutput{call_id, value, error}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.OperationResult{ticket, call_id, tool, value, error}:
+      +audit_message: D.Message = D.OperationResult{ticket, call_id, tool, value, error}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.FailureMessage{text}:
+      +audit_message: D.Message = D.FailureMessage{text}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.ContextCheckpoint{summary}:
+      +audit_message: D.Message = D.ContextCheckpoint{summary}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.ReasoningRecord{owner, effort, remaining, sampling}:
+      +audit_message: D.Message = D.ReasoningRecord{owner, effort, remaining, sampling}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.ConfigurationUpdate{effort}:
+      +audit_message: D.Message = D.ConfigurationUpdate{effort}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.HookRecord{task_id, call_id, plugin, outcome}:
+      +audit_message: D.Message = D.HookRecord{task_id, call_id, plugin, outcome}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.ToolReceipt{task_id, operation_id, call, value, error}:
+      +audit_message: D.Message = D.ToolReceipt{task_id, operation_id, call, value, error}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.AfterRecord{task_id, operation_id, plugin, outcome}:
+      +audit_message: D.Message = D.AfterRecord{task_id, operation_id, plugin, outcome}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.ApprovalRecord{task_id, operation_id, call, reviewer, outcome}:
+      +audit_message: D.Message = D.ApprovalRecord{task_id, operation_id, call, reviewer, outcome}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
+    case D.ForkResult{task_id, call_id, branch}:
+      +audit_message: D.Message = D.ForkResult{task_id, call_id, branch}
+      audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
 
 def displayed_text(+messages: +List<D.Message>, +index: Nat) -> Spec.text_agreement(Actual.groups(messages, index)):
   match messages:

@@ -32,10 +32,25 @@ type Phase is Data:
   Hovered{}
   Pressed{}
 
+type WashStrength is Data:
+  SubtleWash{}
+  EmphasizedWash{}
+
 type Color is Data:
   Clear{}
+  NeutralWash{strength: WashStrength}
   Token{name: String}
   Blend{foreground: String, percent: Nat, background: String}
+
+def wash_opacity(strength: WashStrength) -> String:
+  match strength:
+    case SubtleWash{}: "0.05"
+    case EmphasizedWash{}: "0.10"
+
+def wash_percent(strength: WashStrength) -> Nat:
+  match strength:
+    case SubtleWash{}: 5n
+    case EmphasizedWash{}: 10n
 
 def text_token(value: TextTone) -> String:
   match value:
@@ -79,8 +94,8 @@ def choice_background(selected: Bool, phase: Phase) -> Color:
   match selected phase:
     case False{} Rest{}: Clear{}
     case False{} Hovered{}: Token{"--color-token-list-hover-background"}
-    case True{} Rest{}: Token{"--color-background-segmented-selected"}
-    case True{} Hovered{}: Token{"--color-background-segmented-selected-hover"}
+    case True{} Rest{}: NeutralWash{SubtleWash{}}
+    case True{} Hovered{}: NeutralWash{EmphasizedWash{}}
     case _ Pressed{}: Token{"--app-color-background-button-tertiary-active"}
 
 def lane_background(value: Tone) -> Color:

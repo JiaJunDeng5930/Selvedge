@@ -21,8 +21,8 @@ The semantic interface is in [../UI.bend](../UI.bend) and
 [../core/interface.bend](../core/interface.bend). Feature command encoding is in
 [feature-codec.bend](feature-codec.bend).
 
-`task-laws.bend` and `reasoning-laws.bend` prove actual task-component behavior for
-arbitrary surrounding types. `feature-frame.bend` supplies board storage evidence;
+`proofs/task-storage.bend` and `proofs/reasoning-locality.bend` prove actual task-component behavior for
+arbitrary surrounding types. `proofs/feature-frame.bend` supplies board storage evidence;
 `locality.bend` is the production locality entry. Pure execution
 modules do not import their proof providers, so mutation tests can independently
 check that an erroneous implementation remains type-correct.
@@ -100,12 +100,3 @@ Run `npm run check` for the proof gate and `npm test` for compiler/protocol prob
 host components, end-to-end behavior and proof-infrastructure mutations. Internal
 semantic examples already covered by proofs are not duplicated as unit tests;
 see `../tests-bend/README.md`. Changing a Bend source changes the journal identity.
-
-`operations.bend` owns execution and result-callback rights, running announcements
-and non-replayable interrupted outcomes. Task control and operation ownership are a
-product: finishing one tool must not overwrite an unrelated pending model request.
-A coalescing notification bit retains results that arrive during a model turn.
-Summary eligibility excludes live operations; oversized partial context waits,
-then summarizes after settlement. Forks inherit context with explicit nonownership
-notices, never the parent's rights. `steer` and `cancel_operation` have separate
-native command meanings and separately scoped cancellation effects.

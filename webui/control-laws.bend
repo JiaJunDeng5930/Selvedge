@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./space.bend as Space
 import ./typography.bend as T
 import ../core/interface.bend as UI
@@ -15,7 +16,7 @@ import ./design.bend as Design
 import ./appearance.bend as Appearance
 
 type BoundNode is Data:
-  BoundNode{key: String, binding: UI.Meaning, children: +List<BoundNode>}
+  BoundNode{key: UIIdentity.Key, binding: UI.Meaning, children: +List<BoundNode>}
 
 type Bindings is Data:
   Bindings{base: +List<BoundNode>, overlays: +List<BoundNode>}
@@ -38,6 +39,7 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
     case UI.CardArchive{count}: UI.Region{}
     case UI.BoardGroup{grouping}: UI.Region{}
     case UI.ReadOnly{text}: UI.Region{}
+    case UI.RichText{source, value}: UI.Region{}
     case UI.TaskFacts{details}: UI.Region{}
     case UI.CodeFacts{view}: UI.Region{}
     case UI.ActivityContent{expanded, audit}: UI.Region{}
@@ -88,12 +90,12 @@ def expected_message(+editor: User.Editor, +availability: View.Availability, +la
     Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}, Controls.ComposerEnd{},
     expected_icon_help(availability, label), Controls.Quiet{}}
 
-def message_uses_arrow_law(-key: String, -task: Nat, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+def message_uses_arrow_law(-key: UIIdentity.Key, -task: Nat, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
       label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
       expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation}
 
-def creation_uses_arrow_law(-key: String, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+def creation_uses_arrow_law(-key: UIIdentity.Key, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
       label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
       expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation}
@@ -145,19 +147,19 @@ def declared_action_face(node: UI.Node, context: Controls.Context) -> Maybe<&2, 
   UI.Node{key, semantic, label, role, meaning, children} = node
   action_face(Controls.represent(key, meaning, label, role, context))
 
-def root_removal_faces(roots: +List<View.WorkspaceRoot>, +parent: String, +state: Core.State,
+def root_removal_faces(roots: +List<View.WorkspaceRoot>, +parent: UIIdentity.Key, +state: Core.State,
   +context: Controls.Context) -> +List<Maybe<&2, Controls.Face>>:
   match roots:
     case Nil{}: Nil{}
     case Con{View.WorkspaceRoot{path, primary, choose, remove}, rest}:
       declared_action_face(UI.declared(parent, remove, state), context) <> root_removal_faces(rest, parent, state, context)
 
-def workspace_removal_faces(workspace: View.WorkspaceControls, parent: String, state: Core.State,
+def workspace_removal_faces(workspace: View.WorkspaceControls, parent: UIIdentity.Key, state: Core.State,
   context: Controls.Context) -> +List<Maybe<&2, Controls.Face>>:
   View.WorkspaceControls{editor, roots, inherit} = workspace
   root_removal_faces(roots, parent, state, context)
 
-def approval_keeps_label_law(-key: String, -task: Nat, -operation: Nat, -allow: Bool, -reason: String, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+def approval_keeps_label_law(-key: UIIdentity.Key, -task: Nat, -operation: Nat, -allow: Bool, -reason: String, -availability: View.Availability, -label: String, -role: UI.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {action_text(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
       User.Activate{User.ReviewApproval{task, operation, allow, reason}}}}, availability}, label, role,
       Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
@@ -188,11 +190,11 @@ type Requirements is Type:
   Requirements{
     present_retains_bindings: @+scale:T.Scale -> @surface:UI.Surface -> @system_dark:Bool ->
       {visual_bindings(Appearance.present(surface, system_dark, scale)) == surface_bindings(surface) : Bindings},
-    message_uses_arrow: @+key:String -> @task:Nat -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
+    message_uses_arrow: @+key:UIIdentity.Key -> @task:Nat -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       message_uses_arrow_law(key, task, availability, label, role, selection, code, appearance, access, open, layers),
-    creation_uses_arrow: @+key:String -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
+    creation_uses_arrow: @+key:UIIdentity.Key -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       creation_uses_arrow_law(key, availability, label, role, selection, code, appearance, access, open, layers),
@@ -204,14 +206,14 @@ type Requirements is Type:
     radio_reserves_check: @label:String -> @checked:Bool ->
       {Controls.geometry_for(Controls.SelectedOption{checked}, Controls.ChoiceFace{label, None{}, None{}, checked}, Controls.MenuArea{}) ==
         Controls.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : Controls.Geometry},
-    model_option_marks_current: @+key:String -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
+    model_option_marks_current: @+key:UIIdentity.Key -> @editor:User.Editor -> @+profile:String -> @reasoning:String ->
       @+current:String -> @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> ->
       @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
           User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
           Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
           Some{Choice{Controls.ChoiceFace{label, None{}, None{}, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
-    delivery_option_marks_current: @+key:String -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
+    delivery_option_marks_current: @+key:UIIdentity.Key -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:UI.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, UI.Activate{Core.ApplicationInput{Experience.UserInput{
@@ -219,7 +221,7 @@ type Requirements is Type:
           Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
           Some{Choice{Controls.ChoiceFace{label, None{}, None{}, Controls.same_delivery(delivery, current)},
             Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
-    approval_keeps_label: @key:String -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
+    approval_keeps_label: @key:UIIdentity.Key -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
       @availability:View.Availability -> @+label:String -> @role:UI.Role -> @selection:Controls.Selection ->
       @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       approval_keeps_label_law(key, task, operation, allow, reason, availability, label, role, selection, code, appearance, access, open, layers),
@@ -233,13 +235,13 @@ type Requirements is Type:
       {Controls.face_for(Controls.OpenPanel{Controls.Settings{}, False{}, expanded}, label, Controls.PageArea{}) == Controls.IconFace{Controls.Settings{}} : Controls.Face},
     introduction_uses_context_label: @expanded:Bool -> @+label:String ->
       {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    directory_removal_uses_cross: @+parent:String -> @+editor:User.Editor -> @+path:String ->
+    directory_removal_uses_cross: @+parent:UIIdentity.Key -> @+editor:User.Editor -> @+path:String ->
       @primary:Maybe<&2, String> -> @state:Core.State -> @context:Controls.Context ->
       {workspace_removal_faces(View.workspace_controls(Domain.Workspace{[path], primary}, editor, None{}),
         parent, state, context) == [Some{Controls.IconFace{Controls.CloseCross{}}}] : +List<Maybe<&2, Controls.Face>>},
-    directory_parent_has_no_control: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+    directory_parent_has_no_control: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}, label, role, context) == Controls.NoControl{} : Controls.Representation},
-    file_parent_has_no_control: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+    file_parent_has_no_control: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Controls.represent(key, UI.Edit{editor, field, Forms.FileCollection{}, value, choices}, label, role, context) == Controls.NoControl{} : Controls.Representation}
   }
 

@@ -1,4 +1,5 @@
 import Base
+import ./ui-identity.bend as Identity
 import ../MODEL.bend as M
 import ../REASONING.bend as Reasoning
 import ../COMMANDS.bend as Commands
@@ -58,7 +59,7 @@ def workspace_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
   -origin: Context.Origin, -project: Maybe<&2, Nat>, -workspace: Context.WorkspaceValue,
   -sandbox: Context.SandboxValue, -approval: Context.ApprovalValue,
   -guidance: Context.GuidancePreview, -controls: V.WorkspaceControls,
-  -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: String,
+  -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: Identity.Key,
   -state: Core.State) -> Type:
   {first_context(UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
     Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
@@ -67,7 +68,7 @@ def permissions_menu_source_law(-editor: U.Editor, -config: Context.Configuratio
   -origin: Context.Origin, -project: Maybe<&2, Nat>, -workspace: Context.WorkspaceValue,
   -sandbox: Context.SandboxValue, -approval: Context.ApprovalValue,
   -guidance: Context.GuidancePreview, -controls: V.WorkspaceControls,
-  -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: String,
+  -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: Identity.Key,
   -state: Core.State) -> Type:
   {first_context(UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
     Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
@@ -91,7 +92,7 @@ def network_pair(value: UI.Node) -> Sigma<&2, &2, Maybe<&2, Bool>, (_ => Maybe<&
 
 type Requirements is Type:
   Requirements{
-    committed_project_node_world: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @session:E.Session -> @services:Services.State -> @parent:String ->
+    committed_project_node_world: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @session:E.Session -> @services:Services.State -> @parent: Identity.Key ->
       {UI.node_label(UI.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == UI.committed_project_text(project, world) : String},
     committed_source_label: @task:Nat -> @context:D.TaskContext -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess -> @world:M.World() ->
       {V.execution_source_summary(Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}, world) == "Task settings" : String},
@@ -101,20 +102,20 @@ type Requirements is Type:
     committed_project_lookup: @+id:Nat -> @+world:M.World() ->
       {UI.committed_project_text(Some{id}, world) == UI.committed_project_name(Projects.find(Projects.registry(F.State(), world), id), id) : String},
     projectless_context: @world:M.World() -> {UI.committed_project_text(None{}, world) == "Projectless task" : String},
-    primary_directory_no_duplicate: @primary:Maybe<&2, String> -> @parent:String ->
+    primary_directory_no_duplicate: @primary:Maybe<&2, String> -> @parent: Identity.Key ->
       {UI.committed_working_directory_extra(True{}, primary, parent) == Nil{} : +List<UI.Node>},
-    absent_primary_directory_fact: @+parent:String ->
-      {UI.committed_working_directory_extra(False{}, None{}, parent) == [UI.Node{parent ++ "/working-directory", "context/working-directory", "No working directory", UI.Content{}, UI.ReadOnly{"No working directory"}, Nil{}}] : +List<UI.Node>},
-    network_group_selection: @mode:D.SandboxMode -> @+network:Bool -> @editor:U.Editor -> @parent:String -> @state:Core.State ->
+    absent_primary_directory_fact: @+parent: Identity.Key ->
+      {UI.committed_working_directory_extra(False{}, None{}, parent) == [UI.Node{Identity.Part{parent, "working-directory"}, "context/working-directory", "No working directory", UI.Content{}, UI.ReadOnly{"No working directory"}, Nil{}}] : +List<UI.Node>},
+    network_group_selection: @mode:D.SandboxMode -> @+network:Bool -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State ->
       {network_pair(UI.network_choices(D.Sandbox{mode, network}, editor, parent, state)) == (Some{Bool.not(network)}, Some{network}) : Sigma<&2, &2, Maybe<&2, Bool>, (_ => Maybe<&2, Bool>)>},
-    filesystem_write_caption: @current:D.SandboxMode -> @network:Bool -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.sandbox_choice(D.WorkspaceWrite{}, current, network, editor, parent, state)) == Some{ChoiceCaption{"Workspace write", "Allow edits in the working directories."}} : Maybe<&2, ChoiceCaption>},
-    filesystem_read_caption: @current:D.SandboxMode -> @network:Bool -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.sandbox_choice(D.ReadOnly{}, current, network, editor, parent, state)) == Some{ChoiceCaption{"Read only", "Read files without modifying them."}} : Maybe<&2, ChoiceCaption>},
-    network_disabled_caption: @mode:D.SandboxMode -> @current:Bool -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.network_choice(mode, current, False{}, editor, parent, state)) == Some{ChoiceCaption{"Disabled", "Keep network access off."}} : Maybe<&2, ChoiceCaption>},
-    network_enabled_caption: @mode:D.SandboxMode -> @current:Bool -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.network_choice(mode, current, True{}, editor, parent, state)) == Some{ChoiceCaption{"Enabled", "Allow network access."}} : Maybe<&2, ChoiceCaption>},
-    ask_caption: @current:Context.ApprovalChoice -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.approval_choice_node(Context.Ask{}, current, None{}, editor, parent, state)) == Some{ChoiceCaption{"Ask", "Ask before running actions that require approval."}} : Maybe<&2, ChoiceCaption>},
-    unrestricted_caption: @current:Context.ApprovalChoice -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.approval_choice_node(Context.Unrestricted{}, current, None{}, editor, parent, state)) == Some{ChoiceCaption{"Unrestricted", "Run actions without approval prompts."}} : Maybe<&2, ChoiceCaption>},
-    automatic_caption: @+key:String -> @provider:String -> @+name:String -> @reasoning:Reasoning.Policy -> @current:Context.ApprovalChoice -> @editor:U.Editor -> @parent:String -> @state:Core.State -> {choice_caption(UI.approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, reasoning}}, editor, parent, state)) == Some{ChoiceCaption{"Automatic review: " ++ name, "Use this model to review approval requests."}} : Maybe<&2, ChoiceCaption>},
-    unavailable_profile_caption: @+key:String -> {V.automatic_review_summary(None{}, key) == "Automatic review unavailable: " ++ key : String},
+    filesystem_write_caption: @current:D.SandboxMode -> @network:Bool -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.sandbox_choice(D.WorkspaceWrite{}, current, network, editor, parent, state)) == Some{ChoiceCaption{"Workspace write", "Allow edits in the working directories."}} : Maybe<&2, ChoiceCaption>},
+    filesystem_read_caption: @current:D.SandboxMode -> @network:Bool -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.sandbox_choice(D.ReadOnly{}, current, network, editor, parent, state)) == Some{ChoiceCaption{"Read only", "Read files without modifying them."}} : Maybe<&2, ChoiceCaption>},
+    network_disabled_caption: @mode:D.SandboxMode -> @current:Bool -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.network_choice(mode, current, False{}, editor, parent, state)) == Some{ChoiceCaption{"Disabled", "Keep network access off."}} : Maybe<&2, ChoiceCaption>},
+    network_enabled_caption: @mode:D.SandboxMode -> @current:Bool -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.network_choice(mode, current, True{}, editor, parent, state)) == Some{ChoiceCaption{"Enabled", "Allow network access."}} : Maybe<&2, ChoiceCaption>},
+    ask_caption: @current:Context.ApprovalChoice -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.approval_choice_node(Context.Ask{}, current, None{}, editor, parent, state)) == Some{ChoiceCaption{"Ask", "Ask before running actions that require approval."}} : Maybe<&2, ChoiceCaption>},
+    unrestricted_caption: @current:Context.ApprovalChoice -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.approval_choice_node(Context.Unrestricted{}, current, None{}, editor, parent, state)) == Some{ChoiceCaption{"Unrestricted", "Run actions without approval prompts."}} : Maybe<&2, ChoiceCaption>},
+    automatic_caption: @+key: String -> @provider:String -> @+name:String -> @reasoning:Reasoning.Policy -> @options:Maybe<&2, D.ReasoningOptions> -> @current:Context.ApprovalChoice -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State -> {choice_caption(UI.approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, reasoning, options}}, editor, parent, state)) == Some{ChoiceCaption{"Automatic review: " ++ name, "Use this model to review approval requests."}} : Maybe<&2, ChoiceCaption>},
+    unavailable_profile_caption: @+key: String -> {V.automatic_review_summary(None{}, key) == "Automatic review unavailable: " ++ key: String},
     admitted_task_identity: @+task:D.Task -> {effective_task(Context.effective(task)) == D.task_id(task) : Nat},
     passive_directory: @path:String -> @primary:Bool -> @gesture:UI.Gesture -> {UI.bind(UI.DirectoryRow{path, primary}, gesture) == None{} : Maybe<&2, Core.Input>},
     passive_summary: @value:Context.Observation -> @gesture:UI.Gesture -> {UI.bind(UI.ContextSummary{value}, gesture) == None{} : Maybe<&2, Core.Input>},
@@ -132,14 +133,14 @@ type Requirements is Type:
           U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/workspace/message/" ++ Nat.show(task)}}, V.Available{}}},
          V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), V.observation_permissions(observation, profiles), V.Secondary{},
           U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>},
-    workspace_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent:String -> @state:Core.State ->
+    workspace_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent: Identity.Key -> @state:Core.State ->
       workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
-    permissions_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent:String -> @state:Core.State ->
+    permissions_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent: Identity.Key -> @state:Core.State ->
       permissions_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
-    unavailable_workspace: @+reason:String -> @config:Context.Configuration -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @editor:U.Editor -> @+parent:String -> @state:Core.State ->
-      {UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) == [UI.Node{parent ++ "/unavailable", "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>},
-    unavailable_permissions: @+reason:String -> @config:Context.Configuration -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @editor:U.Editor -> @+parent:String -> @state:Core.State ->
-      {UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) == [UI.Node{parent ++ "/unavailable", "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>},
+    unavailable_workspace: @+reason:String -> @config:Context.Configuration -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @editor:U.Editor -> @+parent: Identity.Key -> @state:Core.State ->
+      {UI.workspace_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) == [UI.Node{Identity.Part{parent, "unavailable"}, "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>},
+    unavailable_permissions: @+reason:String -> @config:Context.Configuration -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @editor:U.Editor -> @+parent: Identity.Key -> @state:Core.State ->
+      {UI.permission_menu_group(editor, V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}, parent, state) == [UI.Node{Identity.Part{parent, "unavailable"}, "context/unavailable", reason, UI.Content{}, UI.ReadOnly{reason}, Nil{}}] : +List<UI.Node>},
     overridden_workspace_reset: @+workspace:D.Workspace -> @+editor:U.Editor -> {V.workspace_inheritance(Some{workspace}, editor) == Some{V.ControlDeclaration{"inherit-workspace/" ++ U.editor_key(editor), "Use inherited workspace", V.Secondary{}, U.EditDraft{editor, U.ConfigureContext{Context.UseDefaultWorkspace{}}}, V.Available{}}} : Maybe<&2, V.ControlDeclaration>},
     overridden_sandbox_reset: @origin:Context.Origin -> @workspace:Maybe<&2, D.Workspace> -> @sandbox:D.Sandbox -> @approval:Maybe<&2, Context.ApprovalChoice> -> {UI.reset_change(Context.Configuration{origin, workspace, Some{sandbox}, approval}, Forms.SandboxMode{}) == Some{Context.UseDefaultSandbox{}} : Maybe<&2, Context.Change>},
     overridden_approval_reset: @origin:Context.Origin -> @workspace:Maybe<&2, D.Workspace> -> @sandbox:Maybe<&2, D.Sandbox> -> @approval:Context.ApprovalChoice -> {UI.reset_change(Context.Configuration{origin, workspace, sandbox, Some{approval}}, Forms.ApprovalPolicy{}) == Some{Context.UseDefaultApproval{}} : Maybe<&2, Context.Change>},
@@ -148,9 +149,9 @@ type Requirements is Type:
     committed_source: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @+world:M.World() ->
       {composer_context(V.composer_scene(U.Message{task, message, delivery}, scene, world)) == V.committed_observation(V.committed_context(Tasks.find(Commands.entries(world), task))) : Maybe<&2, Context.Observation>},
     admitted_contract: @+task:D.Task -> {V.committed_context(Some{task}) == Some{Context.effective(task)} : Maybe<&2, Context.EffectiveContext>},
-    retained_source: @+value:Context.Observation -> @parent:String -> @state:Core.State ->
+    retained_source: @+value:Context.Observation -> @parent: Identity.Key -> @state:Core.State ->
       {node_context(UI.context_summary_node(value, parent, state)) == Some{value} : Maybe<&2, Context.Observation>},
-    directory_label: @+path:String -> @+primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @parent:String -> @state:Core.State ->
+    directory_label: @+path:String -> @+primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @parent: Identity.Key -> @state:Core.State ->
       {directory_fact(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)) == Some{DirectoryFact{path, path, primary}} : Maybe<&2, DirectoryFact>},
     directory_commands: @+path:String -> @+rest:+List<String> -> @+primary:Maybe<&2, String> -> @+editor:U.Editor ->
       {V.root_controls(path <> rest, primary, editor) ==
@@ -160,17 +161,17 @@ type Requirements is Type:
           V.ControlDeclaration{"remove-root/" ++ U.editor_key(editor) ++ "/" ++ path, "Remove directory", V.Secondary{},
             U.EditDraft{editor, U.EditWorkspace{Context.RemoveRoot{path}}}, V.Available{}}} <>
           V.root_controls(rest, primary, editor) : +List<V.WorkspaceRoot>},
-    filesystem_preserves_network: @+mode:D.SandboxMode -> @current:D.SandboxMode -> @+network:Bool -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->
+    filesystem_preserves_network: @+mode:D.SandboxMode -> @current:D.SandboxMode -> @+network:Bool -> @+editor:U.Editor -> @parent: Identity.Key -> @state:Core.State ->
       {choice_input(UI.sandbox_choice(mode, current, network, editor, parent, state)) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}}}} : Maybe<&2, Core.Input>},
-    network_preserves_filesystem: @+mode:D.SandboxMode -> @current:Bool -> @+target:Bool -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->
+    network_preserves_filesystem: @+mode:D.SandboxMode -> @current:Bool -> @+target:Bool -> @+editor:U.Editor -> @parent: Identity.Key -> @state:Core.State ->
       {choice_input(UI.network_choice(mode, current, target, editor, parent, state)) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, target}}}}}}} : Maybe<&2, Core.Input>},
-    network_selected: @mode:D.SandboxMode -> @+current:Bool -> @+target:Bool -> @editor:U.Editor -> @parent:String -> @state:Core.State ->
+    network_selected: @mode:D.SandboxMode -> @+current:Bool -> @+target:Bool -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State ->
       {choice_selection(UI.network_choice(mode, current, target, editor, parent, state)) == Some{Cmp.is_eq(Bool.cmp(current, target))} : Maybe<&2, Bool>},
-    approval_action: @+choice:Context.ApprovalChoice -> @current:Context.ApprovalChoice -> @reviewer:Maybe<&2, D.Profile> -> @+editor:U.Editor -> @parent:String -> @state:Core.State ->
+    approval_action: @+choice:Context.ApprovalChoice -> @current:Context.ApprovalChoice -> @reviewer:Maybe<&2, D.Profile> -> @+editor:U.Editor -> @parent: Identity.Key -> @state:Core.State ->
       {choice_input(UI.approval_choice_node(choice, current, reviewer, editor, parent, state)) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetApproval{choice}}}}}} : Maybe<&2, Core.Input>},
     approval_normalization: @+policy:D.ApprovalPolicy ->
       {Context.observed_approval(Context.InheritedApproval{policy}) == Context.observed_approval(Context.ChosenApproval{Context.approval_choice(policy)}) : Context.ApprovalChoice},
-    automatic_selection: @+current:String -> @+next:String -> @reviewer:Maybe<&2, D.Profile> -> @editor:U.Editor -> @parent:String -> @state:Core.State ->
+    automatic_selection: @+current:String -> @+next:String -> @reviewer:Maybe<&2, D.Profile> -> @editor:U.Editor -> @parent: Identity.Key -> @state:Core.State ->
       {choice_selection(UI.approval_choice_node(Context.AutomaticReview{next}, Context.AutomaticReview{current}, reviewer, editor, parent, state)) == Some{String.eq(current, next)} : Maybe<&2, Bool>},
     ask_codec: {Context.approval_option(Context.observed_approval(Context.InheritedApproval{D.AskForApproval{}})) == "ask" : String},
     unrestricted_codec: {Context.approval_option(Context.observed_approval(Context.InheritedApproval{D.FullAccess{}})) == "full-access" : String},
@@ -189,7 +190,7 @@ type Requirements is Type:
     inherited_approval_reset: @origin:Context.Origin -> @workspace:Maybe<&2, D.Workspace> -> @sandbox:Maybe<&2, D.Sandbox> ->
       {UI.reset_change(Context.Configuration{origin, workspace, sandbox, None{}}, Forms.ApprovalPolicy{}) == None{} : Maybe<&2, Context.Change>},
     shared_sandbox_reset: @config:Context.Configuration -> {UI.reset_change(config, Forms.NetworkAccess{}) == None{} : Maybe<&2, Context.Change>},
-    committed_read_only: @+context:Maybe<&2, Context.EffectiveContext> -> @+parent:String -> @+state:Core.State ->
+    committed_read_only: @+context:Maybe<&2, Context.EffectiveContext> -> @+parent: Identity.Key -> @+state:Core.State ->
       {tree_focusable(UI.committed_context_nodes(context, parent, state)) == False{} : Bool},
     workspace_layer: @+editor:U.Editor -> @+session:E.Session -> @+world:M.World() ->
       {V.layer_content(U.WorkspaceConfiguration{editor}, session, world) == V.WorkspaceSettings{editor, V.selected_fields(V.editor(editor, session, world), V.ExecutionFields{})} : V.LayerContent},

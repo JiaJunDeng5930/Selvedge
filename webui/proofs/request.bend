@@ -85,10 +85,10 @@ def rejected_world(completion: E.Completion, reason: String, +program: M.World()
   match completion:
     case E.DirectCompletion{}: {==}
     case E.DraftCompletion{draft}: {==}
-    case E.ConfirmationCompletion{command, trigger, destination}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code} = session
-      confirmation_failed_world(E.confirmation_owned(layers, command, trigger), reason, destination, program,
-        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}, program))
+    case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
+      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer} = session
+      confirmation_failed_world(E.confirmation_owned(layers, command, trigger, occurrence), reason, destination, program,
+        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}, program))
 
 def omission_step(+same: Bool, +name: String, +value: J.Json, +rest: +List<J.Field>,
   matching: {String.eq(name, "guidance") == same : Bool},
@@ -118,6 +118,6 @@ def Rule.evidence():
     ,
     ticket => completion => command => origin => status => reason => web => sequence => next => pending => {==}, +ticket => reason => +pending => web => sequence => next => stale =>
       Equal.cong(Maybe<&2, Browser.Pending>, Browser.Decision,
-        (found => Browser.rejected_pending(found, reason, Browser.State{web, sequence, next, pending})),
+        (found => Browser.rejected_pending(found, reason, Browser.State{web, sequence, next, pending, None{}})),
         Browser.find(pending, ticket), None{}, stale)
     , +pending => +ticket => Proof_browser.consumed_ticket(pending, ticket), unrelated_pending, revision => body => feedback => directory_entry => submitted => reason => {==}, ticket => reason => web => sequence => next => pending => {==}, id => message => {==}}

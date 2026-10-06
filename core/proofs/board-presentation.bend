@@ -1,5 +1,6 @@
 import ../board-presentation-laws.bend as Rule
 import Base
+import ../ui-identity.bend as Identity
 import ../../MODEL.bend as M
 import ../../BOARD.bend as B
 import ../../FEATURES.bend as F
@@ -82,7 +83,7 @@ def card_scenes_keep_ids(+entries: +List<Finite.Entry(B.Card)>, +route: U.Route,
           Equal.cong(+List<Nat>, +List<Nat>, (tail => id <> tail), Rule.card_scene_ids(View.card_scenes(rest, route, now, world)),
             Rule.board_entry_ids(rest), card_scenes_keep_ids(rest, route, now, world))))
 
-def card_roots_keep_length(+entries: +List<View.CardScene>, +parent: String, +state: Core.State) ->
+def card_roots_keep_length(+entries: +List<View.CardScene>, +parent: Identity.Key, +state: Core.State) ->
   {List.length(&2, Interface.Node, Interface.cards(entries, parent, state)) == List.length(&2, View.CardScene, entries) : Nat}:
   match entries:
     case Nil{}: {==}
@@ -92,16 +93,16 @@ def card_roots_keep_length(+entries: +List<View.CardScene>, +parent: String, +st
         List.length(&2, View.CardScene, rest), card_roots_keep_length(rest, parent, state))
 
 def lane_children_are_create_plus_cards(stage: B.Stage, +entries: +List<View.CardScene>, +create: View.ControlDeclaration,
-  +parent: String, +state: Core.State) ->
+  +parent: Identity.Key, +state: Core.State) ->
   {Rule.first_lane_child_count(Interface.columns([View.BoardColumn{stage, entries, create}], parent, state)) ==
     Some{(1n + List.length(&2, View.CardScene, entries) : Nat)} : Maybe<&2, Nat>}:
-  +lane_key = parent ++ "/" ++ B.stage_name(stage)
+  +lane_key: Identity.Key = Identity.Part{parent, B.stage_name(stage)}
   children_count = card_roots_keep_length(entries, lane_key, state)
   Equal.cong(Nat, Maybe<&2, Nat>, (cards => Some{(1n + cards : Nat)}),
     List.length(&2, Interface.Node, Interface.cards(entries, lane_key, state)),
     List.length(&2, View.CardScene, entries), children_count)
 
-def selected_work_child_identity(selected: Bool, +node: Interface.Node, +parent: String, rest: +List<Interface.Node>) ->
+def selected_work_child_identity(selected: Bool, +node: Interface.Node, +parent: Identity.Key, rest: +List<Interface.Node>) ->
   {Rule.work_status_child_key(Interface.board_group(parent, "work-status", Interface.WorkStatus{}, [Interface.selected_node(selected, node)]) <> rest) ==
     Some{Interface.node_key(node)} : Maybe<&2, String>}:
   match selected:
@@ -114,13 +115,13 @@ def selected_work_child_identity(selected: Bool, +node: Interface.Node, +parent:
 
 def board_toolbar_work_status_identity(+filter: B.Filter, working: Nat, create: View.ControlDeclaration,
   settings: View.ControlDeclaration, filters: View.ControlDeclaration, archive: View.ControlDeclaration,
-  +parent: String, +state: Core.State) ->
+  +parent: Identity.Key, +state: Core.State) ->
   {Rule.work_status_child_key(Interface.board_toolbar(filter, working, create, settings, filters, archive, parent, state)) ==
-    Some{(parent ++ "/work-status") ++ "/view/working"} : Maybe<&2, String>}:
+    Some{Identity.encode(Identity.Part{Identity.Part{parent, "work-status"}, "view/working"})} : Maybe<&2, String>}:
   B.Filter{+view, search, status, priority, date, assignee, creator, project, labels} = filter
   Core.State{application, services} = state
   selected_work_child_identity(String.eq(view, "working"),
-    Interface.declared(parent ++ "/work-status",
+    Interface.declared(Identity.Part{parent, "work-status"},
       View.ControlDeclaration{"view/working", "正在运行的任务 " ++ Nat.show(working), View.Secondary{},
         U.FilterBoard{B.Filter{"working", search, status, priority, date, assignee, creator, project, labels}}, View.Available{}},
       Core.State{application, services}), parent,
@@ -133,15 +134,15 @@ def navigation_header_keeps_brand(+navigation: View.Navigation, +state: Core.Sta
   {Rule.navigation_header_label(Interface.navigation(navigation, state)) == Some{"Selvedge"} : Maybe<&2, String>}:
   View.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, stored_navigation,
-    filter, now, next, pending, previews, code}}, services} = state
+    filter, now, next, pending, previews, code, next_layer}}, services} = state
   {==}
 
 def navigation_header_contains_only_toggle(+navigation: View.Navigation, +state: Core.State) ->
   {Rule.navigation_header_children(Interface.navigation(navigation, state)) ==
-    Some{[Interface.declared("/navigation", Rule.navigation_toggle_control(navigation), state)]} : Maybe<&2, +List<Interface.Node>>}:
+    Some{[Interface.declared(Identity.Place{"/navigation"}, Rule.navigation_toggle_control(navigation), state)]} : Maybe<&2, +List<Interface.Node>>}:
   View.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, stored_navigation,
-    filter, now, next, pending, previews, code}}, services} = state
+    filter, now, next, pending, previews, code, next_layer}}, services} = state
   {==}
 
 def display_cards_are_pinned_partition(+board: B.State) ->
@@ -202,49 +203,49 @@ def label_toggle_preserves_other_facets(+value: String, +filter: B.Filter) ->
 
 def board_route_selects_board_nav(+world: M.World(), +session: E.Session) ->
   {Rule.board_navigation_selected(U.TaskBoard{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def projects_route_selects_projects_nav(+world: M.World(), +session: E.Session) ->
   {Rule.projects_navigation_selected(U.ProjectCollection{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def agents_route_selects_agents_nav(+world: M.World(), +session: E.Session) ->
   {Rule.agents_navigation_selected(U.AgentCollection{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def start_route_selects_create_nav(+world: M.World(), +session: E.Session) ->
   {Rule.create_navigation_selected(U.Start{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def board_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.projects_navigation_selected(U.TaskBoard{}, world, session), Rule.agents_navigation_selected(U.TaskBoard{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def projects_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.board_navigation_selected(U.ProjectCollection{}, world, session), Rule.agents_navigation_selected(U.ProjectCollection{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def agents_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.board_navigation_selected(U.AgentCollection{}, world, session), Rule.projects_navigation_selected(U.AgentCollection{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
 def start_route_rejects_destination_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.board_navigation_selected(U.Start{}, world, session), Rule.projects_navigation_selected(U.Start{}, world, session), Rule.agents_navigation_selected(U.Start{}, world, session)) ==
     (False{}, (False{}, False{})) : Bool & (Bool & Bool)}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
   {==}
 
-def selected_declaration_role_tracks_predicate(+route: U.Route, +parent: String,
+def selected_declaration_role_tracks_predicate(+route: U.Route, +parent: Identity.Key,
   declaration: View.ControlDeclaration, +state: Core.State) ->
   {Interface.node_role(Interface.selected_declaration(route, parent, declaration, state)) ==
     Interface.node_role(Interface.selected_node(Interface.navigation_action_selected(route, Rule.declaration_input(declaration)),

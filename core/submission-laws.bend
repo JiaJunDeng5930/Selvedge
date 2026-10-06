@@ -11,11 +11,11 @@ import ./code-block.bend as Content
 import ./live-output.bend as Live
 
 def pending_entries(application: E.Application) -> +List<E.Pending>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer}} = application
   pending
 
 def session_drafts(+session: E.Session) -> +List<U.Draft>:
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   drafts
 
 def application_drafts(+application: E.Application) -> +List<U.Draft>:
@@ -60,12 +60,12 @@ type Requirements is Type:
     preparation_snapshot: @+program:M.World() -> @route:U.Route -> @+drafts:+List<U.Draft> ->
       @+readers:+List<Finite.Entry(E.Reader)> -> @+layers:+List<E.Layer> -> @attention:String ->
       @navigation:E.NavigationState -> @filter:B.Filter -> @now:U32 -> @next:Nat ->
-      @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code_blocks:+List<Content.Block> ->
+      @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code_blocks:+List<Content.Block> -> @next_layer:Nat ->
       @+workspace:D.Workspace -> @+draft:U.Draft ->
       {E.prepare(E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-          now, next, pending, previews, code_blocks}}, Some{workspace}, draft) ==
+          now, next, pending, previews, code_blocks, next_layer}}, Some{workspace}, draft) ==
         E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-          now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks}},
+          now, (next + 1n : Nat), E.Pending{next, draft, now} <> pending, previews, code_blocks, next_layer}},
           D.success(J.Null{}), Nil{}, [E.ObserveDirectories{next, workspace}], False{}} : E.Decision}
   }
 

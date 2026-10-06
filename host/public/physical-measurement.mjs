@@ -1,13 +1,8 @@
-import { decodeBendValue } from './bend-value.mjs';
+import { decodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 
 function natural(value, name) {
-  if (typeof value === 'bigint') {
-    if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) throw new TypeError(`Invalid ${name}`);
-    return Number(value);
-  }
-  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`Invalid ${name}`);
-  return value;
+  return observedNatNumber(typeof value === 'bigint' ? Number(value) : value, name);
 }
 function extent(value, name) {
   if (!Number.isFinite(value) || value < 0) throw new TypeError(`Invalid observed ${name}`);
@@ -31,6 +26,20 @@ function contentBox(node, window) {
     width: Math.max(0, box.width - horizontal - pixels('border-left-width') - pixels('border-right-width')),
     height: Math.max(0, Math.max(box.height - pixels('border-top-width') - pixels('border-bottom-width'), node.scrollHeight) - vertical),
   };
+}
+function multilineContentHeight(owner, window) {
+  const field = Array.from(owner.children).find(child =>
+    child.localName === 'textarea' && child.hasAttribute('data-physical-field-content'));
+  if (!field) return contentBox(owner, window).height;
+  const scrollHeight = extent(field.scrollHeight, 'multiline content scroll height');
+  const style = window.getComputedStyle(field);
+  let padding = 0;
+  for (const property of ['padding-top', 'padding-bottom']) {
+    const value = Number.parseFloat(style.getPropertyValue(property));
+    if (!Number.isFinite(value) || value < 0) throw new Error(`Unavailable multiline content ${property}`);
+    padding += value;
+  }
+  return Math.max(0, scrollHeight - padding);
 }
 function sizeSignature(node) {
   const box = node.getBoundingClientRect();
@@ -187,7 +196,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
             const preferred = extent(contentBox(content, window).width, 'preferred width');
             imposeWidth(content, width === null ? 'max-content' : width);
             measurements.push({ key: request.key, width, minimum_width: minimum, preferred_width: preferred,
-              content_height: extent(contentBox(content, window).height, 'content height'), reference_advance: referenceAdvance(content) });
+              content_height: extent(multilineContentHeight(content, window), 'content height'), reference_advance: referenceAdvance(content) });
           }
           if (width !== null) {
             for (const target of list(bend.probe_target_keys(request))) {

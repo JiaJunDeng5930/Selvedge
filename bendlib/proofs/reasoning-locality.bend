@@ -1,15 +1,13 @@
 import Base
-import ./component.bend as C
-import ./domain.bend as D
-import ./effects.bend as Effects
-import ../REASONING.bend as R
-import ./reasoning.bend as Actual
-import ./reasoning-spec.bend as Spec
-import ./reasoning-context.bend as Context
-import ./operations.bend as Ops
+import ../component.bend as C
+import ../domain.bend as D
+import ../effects.bend as Effects
+import ../../REASONING.bend as R
+import ../reasoning.bend as Actual
+import ../reasoning-spec.bend as Spec
+import ../reasoning-context.bend as Context
+import ../operations.bend as Ops
 
-# The application instantiates these production proofs without exposing the
-# representation or constructors of the surrounding state and effect types.
 def route_meaning(+policy: R.Policy, +lease: R.Lease) ->
   {Actual.route(policy, lease) == R.requirement(policy, lease) : R.Plan}:
   match policy lease:

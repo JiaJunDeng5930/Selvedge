@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { encodeBendValue } from './public/bend-value.mjs';
 import { Service, CommandNotSubmitted } from './service.mjs';
@@ -9,18 +9,30 @@ import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment, BOARD_FILE_LIMIT } from './board-files.mjs';
 
-const assets = new Map([
-  ['/', ['index.html', 'text/html; charset=utf-8']],
-  ['/bootstrap.mjs', ['bootstrap.mjs', 'text/javascript; charset=utf-8']],
-  ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
-  ['/generated/browser-model.mjs', ['generated/browser-model.mjs', 'text/javascript; charset=utf-8']],
-  ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
-  ...['bend-value.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
-    'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
-    .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
-  ['/style.css', ['style.css', 'text/css; charset=utf-8']],
-  ['/vendor/desktop-tokens.css', ['vendor/desktop-tokens.css', 'text/css; charset=utf-8']],
-]);
+async function publicAssets(directory, prefix = '') {
+  const assets = new Map();
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const name = encodeURIComponent(entry.name);
+    const file = `${prefix}${name}`;
+    if (entry.isDirectory()) {
+      for (const [pathname, resource] of await publicAssets(new URL(`${name}/`, directory), `${file}/`)) {
+        assets.set(pathname, resource);
+      }
+    } else if (entry.isFile()) {
+      const extension = path.extname(entry.name);
+      const contentType = extension === '.html' ? 'text/html; charset=utf-8'
+        : extension === '.mjs' ? 'text/javascript; charset=utf-8'
+        : extension === '.css' ? 'text/css; charset=utf-8' : null;
+      if (contentType) assets.set(`/${file}`, [file, contentType]);
+    }
+  }
+  return assets;
+}
+
+// NOTE: Request paths select fixed resources; they never become filesystem paths.
+const assets = await publicAssets(new URL('./public/', import.meta.url));
+if (!assets.has('/index.html')) throw new Error('Browser index.html is missing');
+assets.set('/', assets.get('/index.html'));
 
 export async function startServer(options) {
   const service = await Service.open(options);
@@ -134,6 +146,8 @@ export async function startServer(options) {
       response.flushHeaders();
       clients.add(response);
       response.once('close', () => clients.delete(response));
+      // Capture active streams before this synchronous subscription yields to notices.
+      sendEvent(response, { type: 'stream-state', streams: service.browserStreams() });
       // Reconnection needs the current durable revision, not every historical
       // UI invalidation. The authenticated event page retains exact cursors.
       sendEvent(response, { type: 'commit', sequence: service.journal.sequence });

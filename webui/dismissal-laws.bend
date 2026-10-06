@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ../core/SYSTEM.bend as Core
 import ../UI.bend as Product
 import ../core/interface.bend as UI
@@ -12,15 +13,15 @@ import ./focus.bend as Focus
 import ./controls.bend as Controls
 
 def application_layers(application: E.Application) -> +List<E.Layer>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   layers
 
 # The complete result fixes all unaffected state and the ordered attention effect.
 
 def closed_application(+application: E.Application, panel: U.Panel, +trigger: String) -> E.Decision:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   E.Decision{E.Application{program, E.Session{route, drafts, readers, E.without_panel(layers, E.panel_target(panel)), trigger,
-    navigation, filter, now, next, pending, previews, code_blocks}}, D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}
+    navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}
 
 type Requirements is Type:
   Requirements{
@@ -37,8 +38,8 @@ type Requirements is Type:
       {UI.layers([View.Layer{kind, content, initial, restore, dismissal}], state) ==
           [UI.Node{UI.layer_key(initial), initial, View.layer_title(content), UI.layer_role(kind), UI.dismissal_meaning(dismissal),
             UI.layer_content(content, UI.layer_key(initial), state)}] : +List<UI.Node>},
-    observed_policy: @+key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @+input:Core.Input -> @+outside:Bool -> @+escape:Bool -> @children:+List<UI.Node> -> @rest:+List<UI.Node> ->
-      {Browser.dismiss_target(UI.Node{key, semantic, label, role, UI.LayerRegion{input, outside, escape}, children} <> rest) == Some{Browser.DismissTarget{key, input, outside, escape}} : Maybe<&2, Browser.DismissTarget>},
+    observed_policy: @+key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:UI.Role -> @+input:Core.Input -> @+outside:Bool -> @+escape:Bool -> @children:+List<UI.Node> -> @rest:+List<UI.Node> ->
+      {Browser.dismiss_target(UI.Node{key, semantic, label, role, UI.LayerRegion{input, outside, escape}, children} <> rest) == Some{Browser.DismissTarget{UIIdentity.encode(key), input, outside, escape}} : Maybe<&2, Browser.DismissTarget>},
     outside_absent: @+identity:String -> @+state:Browser.State -> {Browser.outside_target(identity, None{}, Browser.current_layer_key(state), state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision},
     outside_persistent: @+identity:String -> @+key:String -> @input:Core.Input -> @escape:Bool -> @+state:Browser.State -> {Browser.outside_target(identity, Some{Browser.DismissTarget{key, input, False{}, escape}}, Browser.current_layer_key(state), state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision},
     outside_stale: @+identity:String -> @+key:String -> @+input:Core.Input -> @+outside:Bool -> @escape:Bool -> @+state:Browser.State -> @stale:{String.eq(identity, key) == False{} : Bool} ->
@@ -50,7 +51,7 @@ type Requirements is Type:
     outside_production: @+identity:String -> @+state:Browser.State -> {Browser.outside_event(identity, state) == Browser.outside_target(identity, Browser.dismiss_target(Browser.nodes(state)), Browser.current_layer_key(state), state) : Browser.OutsideDecision},
     outside_policy: @+identity:String -> @+key:String -> @+input:Core.Input -> @+outside:Bool -> @escape:Bool -> @+state:Browser.State -> {Browser.outside_target(identity, Some{Browser.DismissTarget{key, input, outside, escape}}, Browser.current_layer_key(state), state) == Browser.outside_permitted((String.eq(identity, key) && outside) && Browser.outside_layer_owned(identity, Browser.current_layer_key(state)), input, state) : Browser.OutsideDecision},
     outside_document: @input:Core.Input -> @+state:Browser.State -> {Browser.outside_scoped(Focus.Document{}, input, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision},
-    outside_temporary: @+identity:String -> @initial:String -> @restore:String -> @+input:Core.Input -> @+state:Browser.State -> {Browser.outside_scoped(Focus.Temporary{identity, initial, restore}, input, state) == Browser.outside_transition(identity, Browser.product_input(Product.InterfaceInput{input}, state), state) : Browser.OutsideDecision},
+    outside_temporary: @+identity:String -> @initial:String -> @restore:String -> @occurrence:Maybe<&2, Nat> -> @+input:Core.Input -> @+state:Browser.State -> {Browser.outside_scoped(Focus.Temporary{identity, initial, restore, occurrence}, input, state) == Browser.outside_transition(identity, Browser.product_input(Product.InterfaceInput{input}, state), state) : Browser.OutsideDecision},
     outside_transition_dispatch: @+identity:String -> @+candidate:Browser.Decision -> @+state:Browser.State -> @closed:{Browser.outside_closed(identity, candidate) == True{} : Bool} -> {Browser.outside_transition(identity, candidate, state) == Browser.OutsideDecision{True{}, candidate} : Browser.OutsideDecision},
     outside_transition_refusal: @+identity:String -> @+candidate:Browser.Decision -> @+state:Browser.State -> @retained:{Browser.outside_closed(identity, candidate) == False{} : Bool} -> {Browser.outside_transition(identity, candidate, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision},
     outside_completed_dispatch: @+candidate:Browser.Decision -> @state:Browser.State -> {Browser.outside_completed(True{}, candidate, state) == Browser.OutsideDecision{True{}, candidate} : Browser.OutsideDecision},

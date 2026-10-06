@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ../core/interface.bend as UI
 import ./interaction.bend as Geometry
 import ./rendered.bend as Rendered
@@ -88,8 +89,8 @@ def node_exists(found: Maybe<&2, UI.Node>) -> Bool:
 
 def node_valid(node: UI.Node, inherited: Bool, elements: +List<Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   UI.Node{+key, semantic, label, +role, +meaning, children} = node
-  node_geometry_valid(Rendered.find_element(elements, key), Rendered.interactive(meaning),
-    meaning, role, key, inherited || Rendered.persistent(role), viewport)
+  node_geometry_valid(Rendered.find_element(elements, UIIdentity.encode(key)), Rendered.interactive(meaning),
+    meaning, role, UIIdentity.encode(key), inherited || Rendered.persistent(role), viewport)
 
 def child_persistent(inherited: Bool, +role: UI.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   inherited || Rendered.persistent(role) || Rendered.code_in_view(role, found, viewport)
@@ -99,15 +100,15 @@ def all_nodes(entries: +List<UI.Node>, +inherited: Bool, +elements: +List<Render
     case Nil{}: True{}
     case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, rest}:
       node_valid(UI.Node{key, semantic, label, role, meaning, children}, inherited, elements, viewport) &&
-      (all_nodes(children, child_persistent(inherited, role, Rendered.find_element(elements, key), viewport), elements, viewport) &&
+      (all_nodes(children, child_persistent(inherited, role, Rendered.find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport) &&
        all_nodes(rest, inherited, elements, viewport))
 
-def focus(owned: Maybe<&2, String>, active: +List<UI.Node>, elements: +List<Rendered.Element>, viewport: Geometry.Rect) -> Bool:
+def focus(owned: Maybe<&2, String>, active: +List<UI.Node>, +elements: +List<Rendered.Element>, viewport: Geometry.Rect, +native_focus: +List<Rendered.NativeFocus>) -> Bool:
   match owned:
     case None{}: True{}
     case Some{+key}:
       Rendered.focus_visible(Rendered.find_element(elements, key), viewport) &&
-      node_exists(UI.find_node(active, key))
+      Rendered.focus_owned(active, elements, native_focus, key)
 
 def required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) -> Bool:
   match scope:
@@ -132,13 +133,13 @@ def non_overlapping(elements: +List<Rendered.Element>) -> Bool:
       disjoint_from(first, rest) && non_overlapping(rest)
 
 def valid_parts(+active: +List<UI.Node>, frame: Rendered.Frame) -> Bool:
-  Rendered.Frame{+viewport, +elements, +focused, +tab_order} = frame
+  Rendered.Frame{+viewport, +elements, +focused, +tab_order, +native_focus} = frame
   all_nodes(active, False{}, elements, viewport) &&
-  (focus(focused, active, elements, viewport) &&
-   (Rendered.same_order(Rendered.expected_tabs(active, elements), tab_order) &&
+  (focus(focused, active, elements, viewport, native_focus) &&
+   (Rendered.tabs_valid(active, elements, native_focus, tab_order) &&
     non_overlapping(Rendered.actionable_elements(active, elements))))
 
 def valid(+surface: UI.Surface, +frame: Rendered.Frame) -> Bool:
   UI.Surface{content, base, overlays, +scope} = surface
-  Rendered.Frame{viewport, elements, +focused, tab_order} = frame
+  Rendered.Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
   valid_parts(UI.active_nodes(surface), frame) && required_focus(scope, focused)

@@ -1,5 +1,6 @@
 import ../page-region-laws.bend as Rule
 import Base
+import ../ui-identity.bend as Identity
 import ../composition.bend as Composition
 import ../interface.bend as Interface
 import ../ui-world.bend as View
@@ -9,7 +10,7 @@ import ../user-experience.bend as Experience
 import ../../bendlib/domain.bend as D
 
 # Only direct page regions participate; an entry's ordinary heading is never promoted.
-def page_sequence(+page: View.Page, +parent: String, +state: Core.State) ->
+def page_sequence(+page: View.Page, +parent: Identity.Key, +state: Core.State) ->
   {Rule.observed_regions(Interface.page_contents(page, parent, state)) == Rule.required_regions(page) : +List<Composition.PositionedRegion>}:
   match page:
     case View.StartPage{None{}}:
@@ -32,7 +33,7 @@ def page_sequence(+page: View.Page, +parent: String, +state: Core.State) ->
     case View.AgentsPage{agents, create}: {==}
     case View.MissingObject{message}: {==}
 
-def page_only_regions(+page: View.Page, +parent: String, +state: Core.State) ->
+def page_only_regions(+page: View.Page, +parent: Identity.Key, +state: Core.State) ->
   {Rule.only_regions(Interface.page_contents(page, parent, state)) == True{} : Bool}:
   match page:
     case View.StartPage{None{}}:
@@ -55,13 +56,13 @@ def page_only_regions(+page: View.Page, +parent: String, +state: Core.State) ->
     case View.AgentsPage{agents, create}: {==}
     case View.MissingObject{message}: {==}
 
-def task_title(+value: View.TaskScene, +parent: String, +state: Core.State) ->
+def task_title(+value: View.TaskScene, +parent: Identity.Key, +state: Core.State) ->
   {Rule.find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
     Some{[Interface.region(Rule.task_title_key(value, parent), "heading", Rule.task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
   match value:
     case View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, approvals, reading, latest}, previews, composer, details, View.TaskActions{detail, overflow}}: {==}
 
-def project_title(+value: View.ProjectScene, +parent: String, +state: Core.State) ->
+def project_title(+value: View.ProjectScene, +parent: Identity.Key, +state: Core.State) ->
   {Rule.find_region(Interface.page_contents(View.ProjectPage{value}, parent, state), Composition.ProjectTitle{}) ==
     Some{[Interface.region(parent, "heading", Rule.project_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
   match value:
@@ -106,7 +107,7 @@ def collapsed_assembly(+content: Core.Scene, +state: Core.State,
         placement, View.CollapsedNavigation{}, collapsed)
 
 def page_payload(+page: View.Page, +state: Core.State) ->
-  {Interface.page(page, state) == Interface.Node{"/main", "main", "Content", Interface.Main{}, Interface.PageContext{Rule.owned_page_context(page)}, Interface.page_contents(page, "/main", state)} : Interface.Node}:
+  {Interface.page(page, state) == Interface.Node{Identity.Place{"/main"}, "main", "Content", Interface.Main{}, Interface.PageContext{Rule.owned_page_context(page)}, Interface.page_contents(page, Identity.Place{"/main"}, state)} : Interface.Node}:
   match page:
     case View.StartPage{composer}: {==}
     case View.TaskPage{View.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: {==}

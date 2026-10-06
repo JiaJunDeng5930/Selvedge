@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ../core/form-fields.bend as Forms
 import ../core/field-options.bend as Options
 import ../core/interface.bend as UI
@@ -37,21 +38,21 @@ type Requirements is Type:
     labels_edit: @values:+List<String> ->
       {Forms.edit(Forms.CardLabels{}, Forms.Strings{values}) ==
     Some{User.WriteCard{Board.Patch{None{}, None{}, None{}, None{}, None{}, None{}, Some{values}, None{}}}} : Maybe<&2, User.Edit>},
-    labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+    labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Controls.represent(key, UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label, role, context) ==
           Controls.Input{UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
             Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})} : Controls.Representation},
     labels_observation: @values:+List<String> ->
       {Options.observed(Forms.TextsValue{values}) == Options.joined(values) : String},
-    assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+    assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Controls.represent(key, UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
           Controls.Input{UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:String -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+    assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Controls.represent(key, UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
           Controls.Input{UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:String -> @semantic:String -> @label:String -> @role:UI.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<UI.Node> -> @enabled:Bool ->
+    assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:UI.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<UI.Node> -> @enabled:Bool ->
       {Browser.toggle_gesture(Some{UI.Node{key, semantic, label, role,
           UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==
           Some{UI.Change{Forms.Assistance{enabled, profile}}} : Maybe<&2, UI.Gesture>},
@@ -71,7 +72,7 @@ type Requirements is Type:
       {Options.field_options(Forms.CardStage{}, value) == Options.stage_options(Board.stages()) : +List<Forms.ChoiceValue>},
     priority_choices_binding: @value:Forms.Observed ->
       {Options.field_options(Forms.CardPriority{}, value) ==
-        Options.priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}]) : +List<Forms.ChoiceValue>}}
+        Options.priority_options(Board.priorities()) : +List<Forms.ChoiceValue>}}
 
 law evidence:
   Requirements

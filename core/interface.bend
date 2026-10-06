@@ -1,4 +1,7 @@
 import Base
+import ./operation-parameters.bend as OperationParameters
+import ./ui-identity.bend as Identity
+import ./operation-receipt.bend as Receipt
 import ../MODEL.bend as M
 import ../COMMANDS.bend as Commands
 import ../BOARD.bend as B
@@ -80,13 +83,14 @@ type Meaning is Data:
   DirectoryRow{path: String, primary: Bool}
   ContextSummary{observation: Context.Observation}
   ChoiceGroup{}
-  Choice{kind: ChoiceKind, icon: Maybe<&2, String>, selected: Bool, description: String, input: Core.Input, availability: V.Availability}
+  Choice{kind: ChoiceKind, classification: Maybe<&2, BoardFilter.Classification>, selected: Bool, description: String, input: Core.Input, availability: V.Availability}
   PageRegion{region: Composition.Region, position: Composition.Position}
   BoardLane{stage: B.Stage, count: Nat}
   CardArchive{count: Nat}
   BoardSearch{filter: B.Filter}
   BoardGroup{grouping: BoardGrouping}
   ReadOnly{text: String}
+  RichText{source: Code.Source, value: String}
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
   Activate{input: Core.Input, availability: V.Availability}
@@ -99,11 +103,11 @@ type Meaning is Data:
   BoardProfile{automatic: Bool, selected: String, choices: +List<D.Profile>, enabled: Bool}
 
 type Node is Data:
-  Node{key: String, semantic: String, label: String, role: Role, meaning: Meaning, children: +List<Node>}
+  Node{key: Identity.Key, semantic: String, label: String, role: Role, meaning: Meaning, children: +List<Node>}
 
 def node_key(node: Node) -> String:
   Node{key, semantic, label, role, meaning, children} = node
-  key
+  Identity.encode(key)
 
 def node_role(node: Node) -> Role:
   Node{key, semantic, label, role, meaning, children} = node
@@ -119,6 +123,35 @@ def node_label(node: Node) -> String:
 type Surface is Data:
   Surface{content: Core.Scene, base: +List<Node>, overlays: +List<Node>, active_scope: Maybe<&2, String>}
 
+def receipt_notice(receipt: Receipt.Receipt) -> Node:
+  Receipt.Receipt{ticket, origin, code, message} = receipt
+  Node{Identity.Entity{Identity.Place{"@browser"}, "receipt", Nat.show(ticket)}, "operation-receipt", "Operation failed", Alert{}, ReadOnly{code ++ ": " ++ message}, Nil{}}
+def receipt_join(nested_result: (Bool & +List<Node>), following_result: (Bool & +List<Node>), original_rest: +List<Node>, key: Identity.Key, semantic: String, label: String, role: Role, meaning: Meaning) -> (Bool & +List<Node>):
+  (found, nested) = nested_result
+  match found:
+    case True{}:
+      (True{}, Node{key, semantic, label, role, meaning, nested} <> original_rest)
+    case False{}:
+      (following_found, following) = following_result
+      (following_found, Node{key, semantic, label, role, meaning, nested} <> following)
+def receipt_search(nodes: +List<Node>, +receipt: Receipt.Receipt) -> (Bool & +List<Node>):
+  match nodes:
+    case Nil{}: (False{}, Nil{})
+    case Con{Node{key, semantic, label, role, PageContext{conversation}, children}, rest}:
+      (True{}, Node{key, semantic, label, role, PageContext{conversation}, receipt_notice(receipt) <> children} <> rest)
+    case Con{Node{key, semantic, label, role, meaning, children}, +rest}:
+      receipt_join(receipt_search(children, receipt), receipt_search(rest, receipt), rest, key, semantic, label, role, meaning)
+def receipt_surface(result: (Bool & +List<Node>), content: Core.Scene, overlays: +List<Node>, scope: Maybe<&2, String>) -> Surface:
+  (found, nodes) = result
+  Surface{content, nodes, overlays, scope}
+def receipt_surface_search(surface: Surface, value: Receipt.Receipt) -> Surface:
+  Surface{content, base, overlays, scope} = surface
+  receipt_surface(receipt_search(base, value), content, overlays, scope)
+def with_receipt(surface: Surface, receipt: Maybe<&2, Receipt.Receipt>) -> Surface:
+  match receipt:
+    case None{}: surface
+    case Some{value}: receipt_surface_search(surface, value)
+
 type Gesture is Data:
   Place{target: String}
   Press{}
@@ -131,8 +164,8 @@ type Gesture is Data:
   ConfirmDirectory{}
   SelectBoardProfile{profile: String}
 
-def region(parent: String, +identity: String, label: String, role: Role, children: +List<Node>) -> Node:
-  Node{parent ++ "/" ++ identity, identity, label, role, Region{}, children}
+def region(parent: Identity.Key, +identity: String, label: String, role: Role, children: +List<Node>) -> Node:
+  Node{Identity.Part{parent, identity}, identity, label, role, Region{}, children}
 
 def action_role(prominence: V.Prominence) -> Role:
   match prominence:
@@ -140,9 +173,9 @@ def action_role(prominence: V.Prominence) -> Role:
     case V.Destructive{}: DestructiveButton{}
     case V.Secondary{}: Button{}
 
-def action(parent: String, control: Core.Control) -> Node:
+def action(parent: Identity.Key, control: Core.Control) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, action_role(prominence), Activate{input, availability}, Nil{}}
+  Node{Identity.Part{parent, identity}, identity, label, action_role(prominence), Activate{input, availability}, Nil{}}
 
 def replace_role(node: Node, role: Role) -> Node:
   Node{key, semantic, label, old_role, meaning, children} = node
@@ -153,23 +186,23 @@ def selected_node(selected: Bool, node: Node) -> Node:
     case True{}: replace_role(node, SelectedButton{})
     case False{}: node
 
-def declared_panel_toggle_layers(parent: String, control: Core.Control, panel: U.Panel, layers: +List<E.Layer>) -> Node:
+def declared_panel_toggle_layers(parent: Identity.Key, control: Core.Control, panel: U.Panel, layers: +List<E.Layer>) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, action_role(prominence),
+  Node{Identity.Part{parent, identity}, identity, label, action_role(prominence),
     PanelToggle{E.panel_present(layers, E.panel_target(panel)), input, availability}, Nil{}}
 
-def declared_panel_toggle(parent: String, control: Core.Control, panel: U.Panel, state: Core.State) -> Node:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}, services} = state
+def declared_panel_toggle(parent: Identity.Key, control: Core.Control, panel: U.Panel, state: Core.State) -> Node:
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, services} = state
   declared_panel_toggle_layers(parent, control, panel, layers)
 
-def declared(parent: String, +declaration: V.ControlDeclaration, +state: Core.State) -> Node:
+def declared(parent: Identity.Key, +declaration: V.ControlDeclaration, +state: Core.State) -> Node:
   match declaration:
     case V.ControlDeclaration{identity, label, prominence, U.Activate{U.TogglePanel{+panel, trigger}}, availability}:
       declared_panel_toggle(parent, Core.control(state,
         V.ControlDeclaration{identity, label, prominence, U.Activate{U.TogglePanel{panel, trigger}}, availability}), panel, state)
     case other: action(parent, Core.control(state, other))
 
-def controls(values: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+def controls(values: +List<V.ControlDeclaration>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{control, rest}: declared(parent, control, state) <> controls(rest, parent, state)
@@ -179,38 +212,38 @@ def availability(enabled: Bool) -> V.Availability:
     case True{}: V.Available{}
     case False{}: V.Unavailable{"Unavailable in the current state"}
 
-def product_action(parent: String, identity: String, label: String, input: Core.Input, enabled: Bool) -> Node:
+def product_action(parent: Identity.Key, identity: String, label: String, input: Core.Input, enabled: Bool) -> Node:
   action(parent, Core.Control{identity, label, V.Secondary{}, input, availability(enabled)})
 
-def user_action(parent: String, identity: String, label: String, input: U.Input, enabled: Bool, state: Core.State) -> Node:
+def user_action(parent: Identity.Key, identity: String, label: String, input: U.Input, enabled: Bool, state: Core.State) -> Node:
   declared(parent, V.ControlDeclaration{identity, label, V.Secondary{}, input, availability(enabled)}, state)
 
-def more(+subject: U.Subject, parent: String, state: Core.State) -> Node:
+def more(+subject: U.Subject, parent: Identity.Key, state: Core.State) -> Node:
   declared(parent, V.control("more/" ++ U.subject_key(subject), "More actions",
     U.OpenPanel{U.ObjectActions{subject}, "more/" ++ U.subject_key(subject)}), state)
 
-def task_entries(entries: +List<V.TaskEntry>, +parent: String, +state: Core.State) -> +List<Node>:
+def task_entries(entries: +List<V.TaskEntry>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match entries:
     case Nil{}: Nil{}
     case Con{V.TaskEntry{+id, title, +status, +selected, open}, rest}:
-      Node{parent ++ "/task/" ++ Nat.show(id), "task-row", "", Section{}, TaskRow{id, status, selected},
-        [selected_node(selected, declared(parent ++ "/task/" ++ Nat.show(id), open, state)),
-         Node{parent ++ "/task/" ++ Nat.show(id) ++ "/status", "task-status", "Task status", Content{}, ReadOnly{status}, Nil{}}]} <> task_entries(rest, parent, state)
+      Node{Identity.Entity{parent, "task", Nat.show(id)}, "task-row", "", Section{}, TaskRow{id, status, selected},
+        [selected_node(selected, declared(Identity.Entity{parent, "task", Nat.show(id)}, open, state)),
+         Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", Content{}, ReadOnly{status}, Nil{}}]} <> task_entries(rest, parent, state)
 
-def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskEntry>, parent: String, state: Core.State) -> +List<Node>:
+def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskEntry>, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match expanded:
     case False{}: Nil{}
     case True{}: task_entries(tasks, parent, state)
 
-def project_entries(entries: +List<V.ProjectEntry>, +parent: String, +state: Core.State) -> +List<Node>:
+def project_entries(entries: +List<V.ProjectEntry>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match entries:
     case Nil{}: Nil{}
     case Con{V.ProjectEntry{+id, name, workspace, +selected, +expanded, tasks, open, create, toggle, more}, rest}:
-      Node{parent ++ "/project/" ++ Nat.show(id), "project-group", "", Section{}, ProjectGroup{id, selected, expanded},
-        region(parent ++ "/project/" ++ Nat.show(id), "actions", "", Section{},
-          [declared(parent ++ "/project/" ++ Nat.show(id), toggle, state), selected_node(selected, declared(parent ++ "/project/" ++ Nat.show(id), open, state)),
-           declared(parent ++ "/project/" ++ Nat.show(id), create, state), declared(parent ++ "/project/" ++ Nat.show(id), more, state)]) <>
-        disclosed_tasks(expanded, tasks, parent ++ "/project/" ++ Nat.show(id), state)} <> project_entries(rest, parent, state)
+      Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", Section{}, ProjectGroup{id, selected, expanded},
+        region(Identity.Entity{parent, "project", Nat.show(id)}, "actions", "", Section{},
+          [declared(Identity.Entity{parent, "project", Nat.show(id)}, toggle, state), selected_node(selected, declared(Identity.Entity{parent, "project", Nat.show(id)}, open, state)),
+           declared(Identity.Entity{parent, "project", Nat.show(id)}, create, state), declared(Identity.Entity{parent, "project", Nat.show(id)}, more, state)]) <>
+        disclosed_tasks(expanded, tasks, Identity.Entity{parent, "project", Nat.show(id)}, state)} <> project_entries(rest, parent, state)
 
 def same_route(left: U.Route, right: U.Route) -> Bool:
   match left right:
@@ -233,11 +266,11 @@ def navigation_action_selected(+route: U.Route, input: U.Input) -> Bool:
     case U.Activate{U.BeginTask{None{}}}: is_start_route(route)
     case _: False{}
 
-def selected_declaration(+route: U.Route, +parent: String, declaration: V.ControlDeclaration, +state: Core.State) -> Node:
+def selected_declaration(+route: U.Route, +parent: Identity.Key, declaration: V.ControlDeclaration, +state: Core.State) -> Node:
   V.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
   selected_node(navigation_action_selected(route, input), declared(parent, declaration, state))
 
-def selected_controls(+route: U.Route, +values: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+def selected_controls(+route: U.Route, +values: +List<V.ControlDeclaration>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{value, rest}: selected_declaration(route, parent, value, state) <> selected_controls(route, rest, parent, state)
@@ -246,16 +279,16 @@ def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclar
   match expanded:
     case False{}: Nil{}
     case True{}:
-      selected_declaration(route, "/navigation", create, state) <> List.append(&2, Node, selected_controls(route, destinations, "/navigation", state),
-        List.append(&2, Node, project_entries(projects, "/navigation", state), task_entries(tasks, "/navigation", state)))
+      selected_declaration(route, Identity.Place{"/navigation"}, create, state) <> List.append(&2, Node, selected_controls(route, destinations, Identity.Place{"/navigation"}, state),
+        List.append(&2, Node, project_entries(projects, Identity.Place{"/navigation"}, state), task_entries(tasks, Identity.Place{"/navigation"}, state)))
 
 def navigation(view: V.Navigation, +state: Core.State) -> Node:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
-  Core.State{E.Application{world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
-  +header: Node = Node{"/navigation/header", "navigation-header", "Selvedge", NavigationHeader{}, Region{},
-    [declared("/navigation", toggle, state)]}
-  region("", "navigation", "Navigation", Navigation{}, header <>
-    navigation_contents(expanded, route, create, destinations, projects, tasks, state))
+  Core.State{E.Application{world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  +header: Node = Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Selvedge", NavigationHeader{}, Region{},
+    [declared(Identity.Place{"/navigation"}, toggle, state)]}
+  Node{Identity.Place{"/navigation"}, "navigation", "Navigation", Navigation{}, Region{}, header <>
+    navigation_contents(expanded, route, create, destinations, projects, tasks, state)}
 
 def observed_field(found: Maybe<&2, U.Draft>, field: Forms.Field, world: M.World()) -> Forms.Observed:
   match found:
@@ -263,18 +296,17 @@ def observed_field(found: Maybe<&2, U.Draft>, field: Forms.Field, world: M.World
     case Some{U.Draft{revision, body, feedback, directory_entry}}: Forms.observed(body, field, world)
 
 def field_value(state: Core.State, editor: U.Editor, field: Forms.Field) -> Forms.Observed:
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
   observed_field(E.find_draft(drafts, editor), field, world)
 
-def attachment_nodes(files: +List<B.Attachment>, +editor: U.Editor, +parent: String) -> +List<Node>:
+def attachment_nodes(files: +List<B.Attachment>, +editor: U.Editor, +parent: Identity.Key) -> +List<Node>:
   match files:
     case Nil{}: Nil{}
     case Con{B.Attachment{+id, +name, mime, path, bytes}, rest}:
-      region(parent, id, name, Section{},
-        [product_action(parent ++ "/" ++ id, "preview", "Preview " ++ name, Core.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, parent ++ "/" ++ id ++ "/preview"}}, True{}),
-         product_action(parent ++ "/" ++ id, "remove", "Remove " ++ name, Core.RemoveAttachment{editor, id}, True{})]) <> attachment_nodes(rest, editor, parent)
+      Node{Identity.Entity{parent, "attachment", id}, id, name, Section{}, Region{}, [product_action(Identity.Entity{parent, "attachment", id}, "preview", "Preview " ++ name, Core.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, Identity.encode(Identity.Part{Identity.Entity{parent, "attachment", id}, "preview"})}}, True{}),
+         product_action(Identity.Entity{parent, "attachment", id}, "remove", "Remove " ++ name, Core.RemoveAttachment{editor, id}, True{})]} <> attachment_nodes(rest, editor, parent)
 
-def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: String) -> +List<Node>:
+def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: Identity.Key) -> +List<Node>:
   match value:
     case Services.Uploading{editor, file}:
       [product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Cancel upload", Core.ServiceInput{Services.CancelUpload{ticket}}, True{})]
@@ -282,12 +314,12 @@ def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: String) -
       [product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", Core.ServiceInput{Services.RetryUpload{ticket}}, True{}),
        product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Remove failed upload", Core.ServiceInput{Services.CancelUpload{ticket}}, True{})]
 
-def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: String) -> +List<Node>:
+def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: Identity.Key) -> +List<Node>:
   match owned:
     case False{}: Nil{}
     case True{}: transfer_controls(ticket, value, parent)
 
-def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Editor, +parent: String) -> +List<Node>:
+def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Editor, +parent: Identity.Key) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{(ticket, +value), rest}:
@@ -298,9 +330,9 @@ def files_observed(value: Forms.Observed) -> +List<B.Attachment>:
     case Forms.AttachmentsValue{files}: files
     case _: Nil{}
 
-def file_field(+editor: U.Editor, +parent: String, state: Core.State) -> +List<Node>:
+def file_field(+editor: U.Editor, +parent: Identity.Key, state: Core.State) -> +List<Node>:
   Core.State{application, Services.State{+access, credential, settings, appearance, next, +transfers, preview, directory_picker}} = state
-  Node{parent ++ "/add", "attachment/add", "Add attachment", Field{}, ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
+  Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", Field{}, ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
     List.append(&2, Node, attachment_nodes(files_observed(field_value(state, editor, Forms.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
 
 def workspace_value(value: Context.WorkspaceValue) -> D.Workspace:
@@ -319,27 +351,27 @@ def workspace_observed(value: Forms.Observed) -> Maybe<&2, D.Workspace>:
     case Forms.ContextValue{value}: context_workspace(value)
     case _: None{}
 
-def directory_primary_controls(primary: Bool, control: V.ControlDeclaration, parent: String, state: Core.State) -> +List<Node>:
+def directory_primary_controls(primary: Bool, control: V.ControlDeclaration, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match primary:
-    case True{}: [Node{parent ++ "/primary", "directory/primary", "Primary working directory", Content{}, ReadOnly{"Primary working directory"}, Nil{}}]
+    case True{}: [Node{Identity.Part{parent, "primary"}, "directory/primary", "Primary working directory", Content{}, ReadOnly{"Primary working directory"}, Nil{}}]
     case False{}: [declared(parent, control, state)]
 
-def directory_node(value: V.WorkspaceRoot, parent: String, +state: Core.State) -> Node:
+def directory_node(value: V.WorkspaceRoot, parent: Identity.Key, +state: Core.State) -> Node:
   V.WorkspaceRoot{+path, +primary, choose, remove} = value
-  +key = parent ++ "/directory/" ++ path
+  +key : Identity.Key = Identity.Entity{parent, "directory", path}
   Node{key, "directory/" ++ path, path, Content{}, DirectoryRow{path, primary},
     List.append(&2, Node, directory_primary_controls(primary, choose, key, state), [declared(key, remove, state)])}
 
-def directory_root_nodes(roots: +List<V.WorkspaceRoot>, +parent: String, +state: Core.State) -> +List<Node>:
+def directory_root_nodes(roots: +List<V.WorkspaceRoot>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match roots:
     case Nil{}: Nil{}
     case Con{root, rest}: directory_node(root, parent, state) <> directory_root_nodes(rest, parent, state)
 
-def directory_controls(controls: V.WorkspaceControls, parent: String, state: Core.State) -> +List<Node>:
+def directory_controls(controls: V.WorkspaceControls, parent: Identity.Key, state: Core.State) -> +List<Node>:
   V.WorkspaceControls{identity, roots, inherit} = controls
   directory_root_nodes(roots, parent, state)
 
-def directory_values(found: Maybe<&2, D.Workspace>, +editor: U.Editor, parent: String, state: Core.State) -> +List<Node>:
+def directory_values(found: Maybe<&2, D.Workspace>, +editor: U.Editor, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match found:
     case None{}: Nil{}
     case Some{workspace}: directory_controls(V.workspace_controls(workspace, editor, None{}), parent, state)
@@ -350,7 +382,7 @@ def draft_directory(found: Maybe<&2, U.Draft>) -> String:
     case Some{draft}: U.directory_entry(draft)
 
 def pending_directory(state: Core.State, editor: U.Editor) -> String:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
   draft_directory(E.find_draft(drafts, editor))
 
 def directory_can_confirm(found: Maybe<&2, U.Draft>) -> Bool:
@@ -359,10 +391,10 @@ def directory_can_confirm(found: Maybe<&2, U.Draft>) -> Bool:
     case Some{draft}: U.can_confirm_directory(draft)
 
 def directory_ready(state: Core.State, editor: U.Editor) -> Bool:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
   directory_can_confirm(E.find_draft(drafts, editor))
 
-def directory_confirm(+editor: U.Editor, parent: String, +state: Core.State) -> Node:
+def directory_confirm(+editor: U.Editor, parent: Identity.Key, +state: Core.State) -> Node:
   user_action(parent, "workspace/confirm", "Add folder", U.EditDraft{editor, U.ConfirmDirectory{}}, directory_ready(state, editor), state)
 
 def browse_workspace(workspace: Maybe<&2, D.Workspace>) -> String:
@@ -386,18 +418,18 @@ def application_of(state: Core.State) -> E.Application:
   Core.State{application, services} = state
   application
 
-def directory_browse(+editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+def directory_browse(+editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> Node:
   product_action(parent, "workspace/browse", "Browse folders",
-    Core.ServiceInput{Services.OpenDirectoryPicker{editor, browse_start(editor, state), parent ++ "/workspace/browse"}},
+    Core.ServiceInput{Services.OpenDirectoryPicker{editor, browse_start(editor, state), Identity.encode(Identity.Part{parent, "workspace/browse"})}},
     Core.accepts_directory(editor, application_of(state)))
 
-def field_children(field: Forms.Field, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def field_children(field: Forms.Field, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match field:
     case Forms.CardAttachments{}: file_field(editor, parent, state)
     case Forms.WorkspaceDirectories{}:
-      Node{parent ++ "/instruction", "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", Content{},
+      Node{Identity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", Content{},
         ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
-      Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
+      Node{Identity.Part{parent, "add"}, "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
       directory_confirm(editor, parent, state) <>
       directory_browse(editor, parent, state) <>
         directory_values(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state)
@@ -408,10 +440,15 @@ def policy_entry(policy: Reasoning.Policy) -> Forms.Entry:
     case Reasoning.Fixed{}: Forms.SingleLine{}
     case _: Forms.DisplayOnly{}
 
+def profile_effort_entry(profile: D.Profile) -> Forms.Entry:
+  match profile:
+    case D.Profile{key, provider, name, Reasoning.Fixed{}, Some{options}}: Forms.Choice{}
+    case D.Profile{key, provider, name, policy, options}: policy_entry(policy)
+
 def effort_entry(profile: Maybe<&2, D.Profile>) -> Forms.Entry:
   match profile:
     case None{}: Forms.DisplayOnly{}
-    case Some{D.Profile{key, provider, name, policy}}: policy_entry(policy)
+    case Some{profile}: profile_effort_entry(profile)
 
 def field_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, world: M.World()) -> Forms.Entry:
   match field value:
@@ -428,11 +465,11 @@ def entry_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observed,
     case Forms.MultipleChoices{}: FieldOptions.choices(field, value, groups)
     case _: Nil{}
 
-def field_node(+field: Forms.FieldScene, +editor: U.Editor, +parent: String, +state: Core.State, groups: +List<V.InputGroup>) -> Node:
+def field_node(+field: Forms.FieldScene, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, groups: +List<V.InputGroup>) -> Node:
   Forms.FieldScene{+field, label, entry} = field
   +observed = field_value(state, editor, field)
   +resolved_entry = actual_entry(field, entry, observed, state)
-  Node{parent ++ "/" ++ Forms.key(field), Forms.key(field), label, Field{}, Edit{editor, field, resolved_entry, observed, entry_choices(resolved_entry, field, observed, groups)}, field_children(field, editor, parent ++ "/" ++ Forms.key(field), state)}
+  Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, Field{}, Edit{editor, field, resolved_entry, observed, entry_choices(resolved_entry, field, observed, groups)}, field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)}
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
@@ -457,103 +494,146 @@ def reset_change(config: Context.Configuration, field: Forms.Field) -> Maybe<&2,
   Context.Configuration{origin, workspace, sandbox, approval} = config
   reset_fields(field, workspace, sandbox, approval)
 
-def reset_control(change: Maybe<&2, Context.Change>, editor: U.Editor, field: Forms.Field, label: String, parent: String, state: Core.State) -> +List<Node>:
+def reset_control(change: Maybe<&2, Context.Change>, editor: U.Editor, field: Forms.Field, label: String, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match change:
     case None{}: Nil{}
     case Some{change}: [user_action(parent, "default/" ++ Forms.key(field), "Use defaults for " ++ label, U.EditDraft{editor, U.ConfigureContext{change}}, True{}, state)]
 
-def configured_reset(config: Maybe<&2, Context.Configuration>, editor: U.Editor, +field: Forms.Field, label: String, parent: String, state: Core.State) -> +List<Node>:
+def configured_reset(config: Maybe<&2, Context.Configuration>, editor: U.Editor, +field: Forms.Field, label: String, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match config:
     case None{}: Nil{}
     case Some{value}: reset_control(reset_change(value, field), editor, field, label, parent, state)
 
-def field_resets(+field: Forms.FieldScene, +editor: U.Editor, parent: String, +state: Core.State) -> +List<Node>:
+def field_resets(+field: Forms.FieldScene, +editor: U.Editor, parent: Identity.Key, +state: Core.State) -> +List<Node>:
   Forms.FieldScene{+field, label, entry} = field
-  Core.State{E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  Core.State{E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
   configured_reset(draft_configuration(E.find_draft(drafts, editor)), editor, field, label, parent, state)
-def fields(values: +List<Forms.FieldScene>, +editor: U.Editor, +parent: String, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
+def fields(values: +List<Forms.FieldScene>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{+field, rest}: field_node(field, editor, parent, state, groups) <> List.append(&2, Node, field_resets(field, editor, parent, state), fields(rest, editor, parent, state, groups))
 
-def sections(values: +List<Forms.Section>, +editor: U.Editor, +parent: String, +ordinal: Nat, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
+def sections(values: +List<Forms.Section>, +editor: U.Editor, +parent: Identity.Key, +ordinal: Nat, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Forms.Section{title, entries}, rest}:
-      region(parent, "section/" ++ Nat.show(ordinal), title, Section{}, fields(entries, editor, parent ++ "/section/" ++ Nat.show(ordinal), state, groups)) <>
+      Node{Identity.Entity{parent, "section", Nat.show(ordinal)}, "section/" ++ Nat.show(ordinal), title, Section{}, Region{}, fields(entries, editor, Identity.Entity{parent, "section", Nat.show(ordinal)}, state, groups)} <>
         sections(rest, editor, parent, (ordinal + 1n : Nat), state, groups)
 
-def feedback_nodes(+parent: String, feedback: U.Feedback) -> +List<Node>:
+def feedback_nodes(+parent: Identity.Key, feedback: U.Feedback) -> +List<Node>:
   match feedback:
-    case U.Rejected{revision, +reason}: [Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Alert{}, ReadOnly{reason}, Nil{}}]
+    case U.Rejected{revision, +reason}: [Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", Alert{}, ReadOnly{reason}, Nil{}}]
     case _: Nil{}
 
-def editor(view: Maybe<&2, V.EditorScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def editor(view: Maybe<&2, V.EditorScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match view:
     case None{}: Nil{}
     case Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}:
       List.append(&2, Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, Node, feedback_nodes(parent, feedback), [declared(parent, submit, state)]))
 
-def composer_control_resolved(subject: V.ComposerSubject, parent: String, control: Core.Control) -> Node:
+def composer_control_resolved(subject: V.ComposerSubject, parent: Identity.Key, control: Core.Control) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, action_role(prominence), ComposerAction{subject, input, availability}, Nil{}}
+  Node{Identity.Part{parent, identity}, identity, label, action_role(prominence), ComposerAction{subject, input, availability}, Nil{}}
 
-def composer_control(parent: String, value: V.ComposerControl, state: Core.State) -> Node:
+def composer_control(parent: Identity.Key, value: V.ComposerControl, state: Core.State) -> Node:
   V.ComposerControl{subject, declaration} = value
   composer_control_resolved(subject, parent, Core.control(state, declaration))
 
-def composer_controls(values: +List<V.ComposerControl>, +parent: String, +state: Core.State) -> +List<Node>:
+def composer_controls(values: +List<V.ComposerControl>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{control, rest}: composer_control(parent, control, state) <> composer_controls(rest, parent, state)
 
-def composer_choices(footer: +List<V.ComposerControl>, +parent: String, +state: Core.State) -> +List<Node>:
+def composer_choices(footer: +List<V.ComposerControl>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match footer:
     case Nil{}: Nil{}
     case Con{first, rest}:
       [region(parent, "choices", "Choices", Toolbar{}, composer_controls(first <> rest, parent, state))]
 
-def composer_actions(footer: +List<V.ComposerControl>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+def composer_actions(footer: +List<V.ComposerControl>, submit: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
   region(parent, "actions", "Actions", ComposerActions{},
     List.append(&2, Node, composer_choices(footer, parent, state), [declared(parent, submit, state)]))
 
-def expected_composer_choices(footer: +List<V.ComposerControl>, +parent: String, +state: Core.State) -> +List<Node>:
+def expected_composer_choices(footer: +List<V.ComposerControl>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match footer:
     case Nil{}: Nil{}
     case Con{first, rest}:
-      [Node{parent ++ "/choices", "choices", "Choices", Toolbar{}, Region{}, composer_controls(first <> rest, parent, state)}]
+      [Node{Identity.Part{parent, "choices"}, "choices", "Choices", Toolbar{}, Region{}, composer_controls(first <> rest, parent, state)}]
 
-def expected_composer_actions(footer: +List<V.ComposerControl>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
-  Node{parent ++ "/actions", "actions", "Actions", ComposerActions{}, Region{},
+def expected_composer_actions(footer: +List<V.ComposerControl>, submit: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
+  Node{Identity.Part{parent, "actions"}, "actions", "Actions", ComposerActions{}, Region{},
     List.append(&2, Node, expected_composer_choices(footer, parent, state), [declared(parent, submit, state)])}
 
-def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match view:
     case None{}: Nil{}
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
-      +key = parent ++ "/composer/" ++ U.editor_key(identity)
+      +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       [Node{key, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{},
         field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
           List.append(&2, Node, feedback_nodes(key, feedback), [expected_composer_actions(footer, submit, key, state)])}]
 
-def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match view:
     case None{}: Nil{}
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
-      +composer_key = parent ++ "/composer/" ++ U.editor_key(identity)
-      [region(parent, "composer/" ++ U.editor_key(identity), "Message", Composer{},
-        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state, Nil{}) <>
-          List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)]))]
+      +composer_key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
+      [Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{}, field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state, Nil{}) <>
+          List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)])}]
 
-def approvals(values: +List<Conversation.DecisionRequest>, +parent: String, +state: Core.State) -> +List<Node>:
+def approval_fact(+parent: Identity.Key, +key: String, +label: String, text: String) -> Node:
+  Node{Identity.Part{parent, key}, key, label, Content{}, ReadOnly{text}, Nil{}}
+
+def approval_serialized(result: Result<&2, &2, String, String>) -> String:
+  match result:
+    case Done{text}: text
+    case Fail{reason}: "Serialization failed: " ++ reason
+
+def approval_value(value: J.Json) -> String:
+  match value:
+    case J.Text{text}: text
+    case other: approval_serialized(J.show(other))
+
+def approval_argument_label(name: String) -> String:
+  OperationParameters.label(name)
+
+def approval_fields(fields: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) -> +List<Node>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{name, value}, rest}:
+      approval_fact(parent, "argument/" ++ Nat.show(index), approval_argument_label(name), approval_value(value)) <>
+        approval_fields(rest, (index + 1n : Nat), parent)
+
+def approval_arguments(arguments: J.Json, parent: Identity.Key) -> +List<Node>:
+  match arguments:
+    case J.Object{fields}: approval_fields(fields, 0n, parent)
+    case other: [approval_fact(parent, "arguments", "Arguments", approval_value(other))]
+
+def approval_directory(context: D.TaskContext, parent: Identity.Key) -> +List<Node>:
+  D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
+  match primary:
+    case None{}: Nil{}
+    case Some{path}: [approval_fact(parent, "default-directory", "Default working directory", path)]
+
+def approval_metadata(call: D.Call, context: D.TaskContext, +parent: Identity.Key) -> +List<Node>:
+  D.Call{id, name, arguments} = call
+  approval_fact(parent, "tool", "Tool", name) <>
+    List.append(&2, Node, approval_arguments(arguments, parent), approval_directory(context, parent))
+
+def approval_reviewer(reviewer: D.Profile, parent: Identity.Key) -> Node:
+  D.Profile{key, provider, name, reasoning, options} = reviewer
+  approval_fact(parent, "reviewer", "Reviewer model", name)
+
+def approvals(values: +List<Conversation.DecisionRequest>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{Conversation.HumanDecision{+operation, call, approve, deny, +enabled}, rest}:
-      region(parent, "approval/" ++ Nat.show(operation), "Approval required", Approval{},
-        [user_action(parent ++ "/approval/" ++ Nat.show(operation), "approve", "Approve once", approve, enabled, state),
-         user_action(parent ++ "/approval/" ++ Nat.show(operation), "deny", "Deny", deny, enabled, state)]) <> approvals(rest, parent, state)
-    case Con{Conversation.AutomaticDecision{+operation, call, reviewer}, rest}:
-      region(parent, "approval/" ++ Nat.show(operation), "Automatic review", Approval{}, Nil{}) <> approvals(rest, parent, state)
+    case Con{Conversation.HumanDecision{+operation, call, context, approve, deny, +enabled}, rest}:
+      Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Approval required", Approval{}, Region{}, List.append(&2, Node, approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+          [user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "approve", "Approve once", approve, enabled, state),
+           user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "deny", "Deny", deny, enabled, state)])} <> approvals(rest, parent, state)
+    case Con{Conversation.AutomaticDecision{+operation, call, context, reviewer}, rest}:
+      Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", Approval{}, Region{}, List.append(&2, Node, approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+          [approval_reviewer(reviewer, Identity.Entity{parent, "approval", Nat.show(operation)})])} <> approvals(rest, parent, state)
 
 def disclosure_label(expanded: Bool) -> String:
   match expanded:
@@ -569,18 +649,18 @@ def application(state: Core.State) -> E.Application:
   Core.State{application, services} = state
   application
 
-def code_region(value: Code.Scene, +parent: String) -> Node:
+def code_region(value: Code.Scene, +parent: Identity.Key) -> Node:
   Code.Scene{+identity, literal, wrap, copy, +enabled, controls} = value
-  Node{parent ++ "/" ++ Code.key(identity), Code.key(identity), "Code", CodeBlock{}, CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}},
-    [product_action(parent ++ "/" ++ Code.key(identity), "copy", "Copy code", Core.ApplicationInput{E.ContentInput{identity, Code.Copy{}}}, enabled),
-     product_action(parent ++ "/" ++ Code.key(identity), "wrap", "Toggle word wrap", Core.ApplicationInput{E.ContentInput{identity, Code.ToggleWrap{}}}, True{})]}
+  Node{Code.ui_identity(identity), Code.key(identity), "Code", CodeBlock{}, CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}},
+    [product_action(Code.ui_identity(identity), "copy", "Copy code", Core.ApplicationInput{E.ContentInput{identity, Code.Copy{}}}, enabled),
+     product_action(Code.ui_identity(identity), "wrap", "Toggle word wrap", Core.ApplicationInput{E.ContentInput{identity, Code.ToggleWrap{}}}, True{})]}
 
-def code_node(owned: Bool, value: Code.Scene, parent: String) -> +List<Node>:
+def code_node(owned: Bool, value: Code.Scene, parent: Identity.Key) -> +List<Node>:
   match owned:
     case False{}: Nil{}
     case True{}: [code_region(value, parent)]
 
-def code_nodes(values: +List<Code.Scene>, +source: Code.Source, +parent: String) -> +List<Node>:
+def code_nodes(values: +List<Code.Scene>, +source: Code.Source, +parent: Identity.Key) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Code.Scene{+identity, literal, wrap, copy, enabled, controls}, rest}:
@@ -590,62 +670,62 @@ def speaker_role(speaker: Conversation.Speaker) -> Role:
     case Conversation.UserSpeech{}: UserMessage{}
     case Conversation.AssistantSpeech{}: AssistantMessage{}
 
-def groups(values: +List<Conversation.VisibleGroup>, +task: Nat, +parent: String, +state: Core.State) -> +List<Node>:
+def groups(values: +List<Conversation.VisibleGroup>, +task: Nat, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Conversation.VisibleSpeech{+id, speaker, text, source}, rest}:
-      Node{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message", speaker_role(speaker), ReadOnly{text}, code_nodes(Core.code_scenes(application(state)), Code.Message{task, id}, parent ++ "/message/" ++ Nat.show(id))} <> groups(rest, task, parent, state)
+      Node{Identity.Entity{parent, "message", Nat.show(id)}, "message/" ++ Nat.show(id), "Message", speaker_role(speaker), RichText{Code.Message{task, id}, text}, code_nodes(Core.code_scenes(application(state)), Code.Message{task, id}, Identity.Entity{parent, "message", Nat.show(id)})} <> groups(rest, task, parent, state)
     case Con{Conversation.VisibleActivity{+id, attention, +expanded, summary, audit, expand, collapse}, rest}:
-      Node{parent ++ "/activity/" ++ Nat.show(id), "activity/" ++ Nat.show(id), summary, Activity{}, ActivityContent{expanded, audit},
-        [user_action(parent ++ "/activity/" ++ Nat.show(id), "disclosure", disclosure_label(expanded), disclosure_input(expanded, expand, collapse), True{}, state)]} <> groups(rest, task, parent, state)
+      Node{Identity.Entity{parent, "activity", Nat.show(id)}, "activity/" ++ Nat.show(id), summary, Activity{}, ActivityContent{expanded, audit},
+        [user_action(Identity.Entity{parent, "activity", Nat.show(id)}, "disclosure", disclosure_label(expanded), disclosure_input(expanded, expand, collapse), True{}, state)]} <> groups(rest, task, parent, state)
 
-def latest(input: Maybe<&2, U.Input>, parent: String, state: Core.State) -> +List<Node>:
+def latest(input: Maybe<&2, U.Input>, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match input:
     case None{}: Nil{}
     case Some{input}: [user_action(parent, "latest", "Return to latest", input, True{}, state)]
 
-def operations(values: +List<Conversation.LiveOperation>, +parent: String, +state: Core.State) -> +List<Node>:
+def operations(values: +List<Conversation.LiveOperation>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Conversation.LiveOperation{id, body, cancel, enabled}, rest}:
       user_action(parent, "cancel/" ++ Nat.show(id), "Cancel operation", cancel, enabled, state) <> operations(rest, parent, state)
 
-def approval_queue(values: +List<Conversation.DecisionRequest>, +parent: String, state: Core.State) -> +List<Node>:
+def approval_queue(values: +List<Conversation.DecisionRequest>, +parent: Identity.Key, state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case other: [region(parent, "pending-decisions", "Pending approvals", ApprovalQueue{}, approvals(other, parent ++ "/pending-decisions", state))]
-def live_parts(parts: +List<Live.Part>, +task: Nat, +operation: Nat, +parent: String, +state: Core.State) -> +List<Node>:
+    case other: [region(parent, "pending-decisions", "Pending approvals", ApprovalQueue{}, approvals(other, Identity.Part{parent, "pending-decisions"}, state))]
+def live_parts(parts: +List<Live.Part>, +task: Nat, +operation: Nat, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match parts:
     case Nil{}: Nil{}
     case Con{Live.Part{+index, text}, rest}:
-      Node{parent ++ "/part/" ++ Nat.show(index), "stream/part/" ++ Nat.show(index), "Agent output", Content{}, ReadOnly{text}, code_nodes(Core.code_scenes(application(state)), Code.StreamingPart{task, operation, index}, parent ++ "/part/" ++ Nat.show(index))} <> live_parts(rest, task, operation, parent, state)
+      Node{Identity.Entity{parent, "part", Nat.show(index)}, "stream/part/" ++ Nat.show(index), "Agent output", Content{}, RichText{Code.StreamingPart{task, operation, index}, text}, code_nodes(Core.code_scenes(application(state)), Code.StreamingPart{task, operation, index}, Identity.Entity{parent, "part", Nat.show(index)})} <> live_parts(rest, task, operation, parent, state)
 
-def live_outputs(outputs: +List<Live.Output>, +parent: String, +state: Core.State) -> +List<Node>:
+def live_outputs(outputs: +List<Live.Output>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match outputs:
     case Nil{}: Nil{}
     case Con{Live.Output{task, +operation, parts}, rest}:
-      region(parent, "stream/" ++ Nat.show(operation), "Agent output", Content{}, live_parts(parts, task, operation, parent ++ "/stream/" ++ Nat.show(operation), state)) <> live_outputs(rest, parent, state)
+      Node{Identity.Entity{parent, "stream", Nat.show(operation)}, "stream/" ++ Nat.show(operation), "Agent output", Content{}, Region{}, live_parts(parts, task, operation, Identity.Entity{parent, "stream", Nat.show(operation)}, state)} <> live_outputs(rest, parent, state)
 
-def project(view: V.ProjectScene, +parent: String, +state: Core.State) -> +List<Node>:
+def project(view: V.ProjectScene, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   V.ProjectScene{id, name, workspace, guidance, tasks, actions} = view
-  region(parent, "heading", name, Heading{}, controls(actions, parent ++ "/heading", state)) <> task_entries(tasks, parent, state)
+  region(parent, "heading", name, Heading{}, controls(actions, Identity.Part{parent, "heading"}, state)) <> task_entries(tasks, parent, state)
 
-def projects(values: +List<V.ProjectScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def projects(values: +List<V.ProjectScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   Core.State{E.Application{+world, +session}, services} = state
-  E.Session{+route, drafts, readers, layers, focus, +navigation, filter, now, next, pending, previews, code} = session
+  E.Session{+route, drafts, readers, layers, focus, +navigation, filter, now, next, pending, previews, code, next_layer} = session
   project_entries(V.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, V.active_project(route, session, world), navigation), parent, state)
 
-def project_collection_entries(values: +List<V.ProjectScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def project_collection_entries(values: +List<V.ProjectScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}:
-      [Node{parent ++ "/projects/empty", "projects/empty", "", Content{},
+      [Node{Identity.Part{Identity.Part{parent, "projects"}, "empty"}, "projects/empty", "", Content{},
         ReadOnly{"Create a project to group tasks and choose default working folders."}, Nil{}}]
     case Con{first, rest}: projects(Con{first, rest}, parent, state)
 
 def placement_target(stage: B.Stage, before: Maybe<&2, Nat>) -> String:
   match before:
-    case None{}: "/main/" ++ B.stage_name(stage)
-    case Some{id}: "/main/" ++ B.stage_name(stage) ++ "/card/" ++ Nat.show(id)
+    case None{}: Identity.encode(Identity.Part{Identity.Place{"/main"}, B.stage_name(stage)})
+    case Some{id}: Identity.encode(Identity.Entity{Identity.Part{Identity.Place{"/main"}, B.stage_name(stage)}, "card", Nat.show(id)})
 
 def placement_control(target: String, control: Core.Control) -> Placement:
   Core.Control{identity, label, prominence, input, availability} = control
@@ -658,94 +738,93 @@ def placements_at(values: +List<V.MoveDestination>, +id: Nat, +revision: Nat, +n
       placement_control(placement_target(stage, before), Core.control(state, V.board_control("move", label, B.Move{id, revision, stage, before, now}, world))) <> placements_at(rest, id, revision, now, world, state)
 
 def placements(values: +List<V.MoveDestination>, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
   placements_at(values, id, revision, now, world, state)
 
 def archive_placement(archived: Bool, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
   match archived:
     case True{}: Nil{}
     case False{}:
-      Core.State{E.Application{+world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
-      [placement_control("/main/archive-destination", Core.control(state, V.board_control("archive", "归档任务", B.Archive{id, revision, True{}, now}, world)))]
+      Core.State{E.Application{+world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+      [placement_control(Identity.encode(Identity.Part{Identity.Place{"/main"}, "archive-destination"}), Core.control(state, V.board_control("archive", "归档任务", B.Archive{id, revision, True{}, now}, world)))]
 
-def card(view: V.CardScene, +parent: String, +state: Core.State) -> Node:
+def card(view: V.CardScene, +parent: Identity.Key, +state: Core.State) -> Node:
   V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
-  Node{parent ++ "/card/" ++ Nat.show(id), "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, MovableCard{List.append(&2, Placement, placements(destinations, id, B.revision(value), state), archive_placement(B.archived(value), id, B.revision(value), state)), V.card_face(id, value, now, world)},
-    [declared(parent ++ "/card/" ++ Nat.show(id), open, state), more(U.CardSubject{id}, parent ++ "/card/" ++ Nat.show(id), state)]}
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  Node{Identity.Entity{parent, "card", Nat.show(id)}, "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, MovableCard{List.append(&2, Placement, placements(destinations, id, B.revision(value), state), archive_placement(B.archived(value), id, B.revision(value), state)), V.card_face(id, value, now, world)},
+    [declared(Identity.Entity{parent, "card", Nat.show(id)}, open, state), more(U.CardSubject{id}, Identity.Entity{parent, "card", Nat.show(id)}, state)]}
 
-def cards(values: +List<V.CardScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def cards(values: +List<V.CardScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{value, rest}: card(value, parent, state) <> cards(rest, parent, state)
 
-def board_lane(+stage: B.Stage, +parent: String, count: Nat, +children: +List<Node>) -> Node:
-  +key = parent ++ "/" ++ B.stage_name(stage)
+def board_lane(+stage: B.Stage, +parent: Identity.Key, count: Nat, +children: +List<Node>) -> Node:
+  +key : Identity.Key = Identity.Part{parent, B.stage_name(stage)}
   Node{key, B.stage_name(stage), B.stage_label(stage), Section{}, BoardLane{stage, count}, children}
 
-def columns(values: +List<V.BoardColumn>, +parent: String, +state: Core.State) -> +List<Node>:
+def columns(values: +List<V.BoardColumn>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.BoardColumn{+stage, +entries, create}, rest}:
-      +key = parent ++ "/" ++ B.stage_name(stage)
+      +key : Identity.Key = Identity.Part{parent, B.stage_name(stage)}
       +lane_children: +List<Node> = List.append(&2, Node, [declared(key, create, state)], cards(entries, key, state))
       +lane: Node = board_lane(stage, parent, List.length(&2, V.CardScene, entries), lane_children)
       lane <> columns(rest, parent, state)
 
-def project_fact(+key: String, +label: String, text: String) -> Node:
-  Node{key, key, label, Content{}, ReadOnly{label ++ "\n" ++ text}, Nil{}}
+def project_fact(+key: Identity.Key, +label: String, text: String) -> Node:
+  Node{key, Identity.encode(key), label, Content{}, ReadOnly{label ++ "\n" ++ text}, Nil{}}
 
-def agent_observation(+id: Nat, value: B.AgentProfile, edit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+def agent_observation(+id: Nat, value: B.AgentProfile, edit: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
   B.AgentProfile{revision, +name, profile, reasoning, instructions, settings, concurrency} = value
   Core.State{E.Application{+world, session}, services} = state
-  +key = parent ++ "/agent/" ++ Nat.show(id)
-  region(parent, "agent/" ++ Nat.show(id), name, Section{},
-    [project_fact(key ++ "/profile", "模型", profile), project_fact(key ++ "/reasoning", "推理", reasoning),
-     project_fact(key ++ "/instructions", "指令", instructions), project_fact(key ++ "/concurrency", "并发上限", Nat.show(concurrency)),
-     project_fact(key ++ "/active", "工作中", Nat.show(Board.active_for(B.cards(Board.registry(world)), B.Agent{id}, world))),
-     declared(key, edit, state), more(U.AgentSubject{id}, key, state)])
+  +key : Identity.Key = Identity.Entity{parent, "agent", Nat.show(id)}
+  Node{Identity.Entity{parent, "agent", Nat.show(id)}, "agent/" ++ Nat.show(id), name, Section{}, Region{}, [project_fact(Identity.Part{key, "profile"}, "模型", profile), project_fact(Identity.Part{key, "reasoning"}, "推理", reasoning),
+     project_fact(Identity.Part{key, "instructions"}, "指令", instructions), project_fact(Identity.Part{key, "concurrency"}, "并发上限", Nat.show(concurrency)),
+     project_fact(Identity.Part{key, "active"}, "工作中", Nat.show(Board.active_for(B.cards(Board.registry(world)), B.Agent{id}, world))),
+     declared(key, edit, state), more(U.AgentSubject{id}, key, state)]}
 
-def agents(values: +List<V.AgentScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def agents(values: +List<V.AgentScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.AgentScene{+id, value, edit, remove}, rest}:
       agent_observation(id, value, edit, parent, state) <> agents(rest, parent, state)
 
-def page_region(+parent: String, +part: Composition.Region, position: Composition.Position, children: +List<Node>) -> Node:
+def page_region(+parent: Identity.Key, +part: Composition.Region, position: Composition.Position, children: +List<Node>) -> Node:
   +name = Composition.region_name(part)
-  Node{parent ++ "/region/" ++ name, name, "", Section{}, PageRegion{part, position}, children}
+  Node{Identity.Part{Identity.Part{parent, "region"}, name}, name, "", Section{}, PageRegion{part, position}, children}
 
-def page_composer(+input: Maybe<&2, V.ComposerScene>, +parent: String, +owner: String, +state: Core.State, +position: Composition.Position) -> +List<Node>:
+def page_composer(+input: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +owner: Identity.Key, +state: Core.State, +position: Composition.Position) -> +List<Node>:
   match input:
     case None{}: Nil{}
     case Some{scene}: [page_region(parent, Composition.ComposerInput{}, position, composer(Some{scene}, owner, state))]
 
-def page_latest(+input: Maybe<&2, U.Input>, +parent: String, +owner: String, +state: Core.State) -> +List<Node>:
+def page_latest(+input: Maybe<&2, U.Input>, +parent: Identity.Key, +owner: Identity.Key, +state: Core.State) -> +List<Node>:
   match input:
     case None{}: Nil{}
     case Some{value}: [page_region(parent, Composition.LatestAction{}, Composition.DockPosition{}, latest(Some{value}, owner, state))]
 
-def page_approvals(+values: +List<Conversation.DecisionRequest>, +parent: String, +owner: String, +state: Core.State) -> +List<Node>:
+def page_approvals(+values: +List<Conversation.DecisionRequest>, +parent: Identity.Key, +owner: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{first, rest}: [page_region(parent, Composition.ApprovalDecisions{}, Composition.DockPosition{}, approval_queue(first <> rest, owner, state))]
 
-def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timeline, previews: +List<Live.Output>, input: Maybe<&2, V.ComposerScene>, actions: V.TaskActions, +parent: String, +state: Core.State) -> +List<Node>:
+def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timeline, previews: +List<Live.Output>, input: Maybe<&2, V.ComposerScene>, actions: V.TaskActions, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   Conversation.Timeline{task, generation, groups_value, live, decisions, reading, return_latest} = page_timeline
   V.TaskActions{detail, overflow} = actions
-  +owner = parent ++ "/task/" ++ Nat.show(id)
+  +owner : Identity.Key = Identity.Entity{parent, "task", Nat.show(id)}
   page_region(parent, Composition.ConversationTitle{}, Composition.HeadingPosition{},
     [region(owner, "heading", title, Heading{}, Nil{})]) <>
   page_region(parent, Composition.TaskActions{}, Composition.HeadingPosition{},
-    [declared(owner ++ "/heading", detail, state), more(U.TaskSubject{id}, owner ++ "/heading", state)]) <>
+    [declared(Identity.Part{owner, "heading"}, detail, state), more(U.TaskSubject{id}, Identity.Part{owner, "heading"}, state)]) <>
   page_region(parent, Composition.TimelineContent{}, Composition.BodyPosition{},
-    [region(owner, "timeline", "Conversation", Timeline{}, groups(groups_value, id, owner ++ "/timeline", state))]) <>
+    [region(owner, "timeline", "Conversation", Timeline{}, groups(groups_value, id, Identity.Part{owner, "timeline"}, state))]) <>
   page_region(parent, Composition.StreamingOutput{}, Composition.BodyPosition{},
     List.append(&2, Node, live_outputs(previews, owner, state), operations(live, owner, state))) <>
   List.append(&2, Node, page_latest(return_latest, parent, owner, state),
     List.append(&2, Node, page_approvals(decisions, parent, owner, state), page_composer(input, parent, owner, state, Composition.DockPosition{})))
 
-def task_page(value: V.TaskScene, parent: String, state: Core.State) -> +List<Node>:
+def task_page(value: V.TaskScene, parent: Identity.Key, state: Core.State) -> +List<Node>:
   V.TaskScene{id, title, status, context, page_timeline, previews, input, details, actions} = value
   task_page_fields(id, title, page_timeline, previews, input, actions, parent, state)
 
@@ -765,13 +844,13 @@ def guidance_text(value: D.ProjectContext) -> String:
     case D.NoProject{}: "No project guidance"
     case D.ProjectContext{workspace, revision, instructions}: instructions
 
-def project_page(value: V.ProjectScene, +parent: String, +state: Core.State) -> +List<Node>:
+def project_page(value: V.ProjectScene, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   V.ProjectScene{id, +name, D.Workspace{roots, primary}, guidance, tasks, actions} = value
   [page_region(parent, Composition.ProjectTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", name, Heading{}, Nil{})]),
-   page_region(parent, Composition.ProjectActions{}, Composition.HeadingPosition{}, controls(actions, parent ++ "/heading", state)),
+   page_region(parent, Composition.ProjectActions{}, Composition.HeadingPosition{}, controls(actions, Identity.Part{parent, "heading"}, state)),
    page_region(parent, Composition.DefaultWorkspace{}, Composition.BodyPosition{},
-     [project_fact("project/default-workspace", "Default workspace", workspace_roots(roots)), project_fact("project/primary", "Primary directory", workspace_primary(primary))]),
-   page_region(parent, Composition.ProjectGuidance{}, Composition.BodyPosition{}, [project_fact("project/guidance", "Project guidance", guidance_text(guidance))]),
+     [project_fact(Identity.Part{parent, "default-workspace"}, "Default workspace", workspace_roots(roots)), project_fact(Identity.Part{parent, "primary"}, "Primary directory", workspace_primary(primary))]),
+   page_region(parent, Composition.ProjectGuidance{}, Composition.BodyPosition{}, [project_fact(Identity.Part{parent, "guidance"}, "Project guidance", guidance_text(guidance))]),
    page_region(parent, Composition.ProjectTasks{}, Composition.BodyPosition{}, task_entries(tasks, parent, state))]
 
 def available(value: V.Availability) -> Bool:
@@ -783,9 +862,9 @@ def enabled_control(control: Core.Control) -> Bool:
   Core.Control{identity, label, prominence, input, availability} = control
   available(availability)
 
-def board_profile(+automatic: Bool, +selected: String, choices: +List<D.Profile>, parent: String, +state: Core.State) -> Node:
+def board_profile(+automatic: Bool, +selected: String, choices: +List<D.Profile>, parent: Identity.Key, +state: Core.State) -> Node:
   Core.State{E.Application{+world, session}, services} = state
-  Node{parent ++ "/drafting-model", "drafting-model", "草稿模型", Field{},
+  Node{Identity.Part{parent, "drafting-model"}, "drafting-model", "草稿模型", Field{},
     BoardProfile{automatic, selected, choices, enabled_control(Core.control(state, V.board_control("board/profile", "草稿模型", B.Settings{automatic, selected}, world)))}, Nil{}}
 
 def with_search(+search: String, +filter: B.Filter) -> B.Filter:
@@ -828,89 +907,90 @@ def toggle_filter(category: String, +value: String, +filter: B.Filter) -> B.Filt
       B.Filter{view, search, status, priority, date, assignee, creator, project, toggled_filter(label, value)}
     case _ filter: filter
 
-def board_group(parent: String, +identity: String, grouping: BoardGrouping, +children: +List<Node>) -> Node:
-  Node{parent ++ "/" ++ identity, "board-group/" ++ identity, "", Toolbar{}, BoardGroup{grouping}, children}
+def board_group(parent: Identity.Key, +identity: String, grouping: BoardGrouping, +children: +List<Node>) -> Node:
+  Node{Identity.Part{parent, identity}, "board-group/" ++ identity, "", Toolbar{}, BoardGroup{grouping}, children}
 
-def view_choice(+view: String, label: String, filter: B.Filter, +parent: String, +state: Core.State) -> Node:
+def view_choice(+view: String, label: String, filter: B.Filter, +parent: Identity.Key, +state: Core.State) -> Node:
   B.Filter{current_view, search, status, priority, date, assignee, creator, project, labels} = filter
   +declaration: V.ControlDeclaration = V.ControlDeclaration{"view/" ++ view, label, V.Secondary{}, U.FilterBoard{B.Filter{view, search, status, priority, date, assignee, creator, project, labels}}, V.Available{}}
   selected_node(String.eq(current_view, view), declared(parent, declaration, state))
 
-def view_choices(+filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
+def view_choices(+filter: B.Filter, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   B.Filter{view, search, status, priority, date, assignee, creator, project, label} = filter
   [view_choice("all", "全部", filter, parent, state), view_choice("assigned", "已分配", filter, parent, state),
    view_choice("unassigned", "未分配", filter, parent, state)]
 
-def finite_choice_control(kind: ChoiceKind, icon: Maybe<&2, String>, +selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
+def finite_choice_control(kind: ChoiceKind, classification: Maybe<&2, BoardFilter.Classification>, +selected: Bool, description: String, control: Core.Control, parent: Identity.Key) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  selected_node(selected, Node{parent ++ "/" ++ identity, identity, label, action_role(prominence), Choice{kind, icon, selected, description, input, availability}, Nil{}})
+  selected_node(selected, Node{Identity.Part{parent, identity}, identity, label, action_role(prominence), Choice{kind, classification, selected, description, input, availability}, Nil{}})
 
-def filter_option_declaration(+choice: J.Json, +category: String, filter: B.Filter) -> V.ControlDeclaration:
-  +value = J.text(J.get(choice, "value"))
-  V.ControlDeclaration{"filter/" ++ category ++ "/" ++ value, J.text(J.get(choice, "label")), V.Secondary{},
+def filter_option_declaration(choice: BoardFilter.Choice, +category: String, filter: B.Filter) -> V.ControlDeclaration:
+  BoardFilter.Choice{+value, label, classification} = choice
+  V.ControlDeclaration{"filter/" ++ category ++ "/" ++ value, label, V.Secondary{},
     U.FilterBoard{toggle_filter(category, value, filter)}, V.Available{}}
 
-def filter_option_node(+choice: J.Json, +category: String, +filter: B.Filter, parent: String, state: Core.State) -> Node:
-  finite_choice_control(MultipleChoice{}, Some{J.text(J.get(choice, "icon"))},
-    Schema.contains(BoardFilter.values(category, filter), J.text(J.get(choice, "value"))), "",
-    Core.control(state, filter_option_declaration(choice, category, filter)), parent)
+def filter_option_node(+choice: BoardFilter.Choice, +category: String, +filter: B.Filter, parent: Identity.Key, state: Core.State) -> Node:
+  BoardFilter.Choice{+value, label, classification} = choice
+  finite_choice_control(MultipleChoice{}, Some{classification},
+    Schema.contains(BoardFilter.values(category, filter), value), "",
+    Core.control(state, filter_option_declaration(choice, category, filter)), Identity.Entity{parent, "filter-option", value})
 
-def filter_option_nodes(+choices: +List<J.Json>, +category: String, +filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
+def filter_option_nodes(+choices: +List<BoardFilter.Choice>, +category: String, +filter: B.Filter, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match choices:
     case Nil{}: Nil{}
     case Con{choice, rest}: filter_option_node(choice, category, filter, parent, state) <> filter_option_nodes(rest, category, filter, parent, state)
 
-def filter_group(+category: String, label: String, +choices: +List<J.Json>, +filter: B.Filter, +parent: String, +state: Core.State) -> Node:
-  region(parent, "filter/" ++ category, label, Section{}, filter_option_nodes(choices, category, filter, parent ++ "/filter/" ++ category, state))
+def filter_group(+category: String, label: String, +choices: +List<BoardFilter.Choice>, +filter: B.Filter, +parent: Identity.Key, +state: Core.State) -> Node:
+  Node{Identity.Part{Identity.Part{parent, "filter"}, category}, "filter/" ++ category, label, Section{}, Region{}, filter_option_nodes(choices, category, filter, Identity.Part{Identity.Part{parent, "filter"}, category}, state)}
 
-def board_filter_nodes(+filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
+def board_filter_nodes(+filter: B.Filter, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   Core.State{E.Application{+world, session}, services} = state
   +cards = B.cards(Board.registry(world))
   filter_group("status", "状态", BoardFilter.stages(B.stages()), filter, parent, state) <>
   filter_group("priority", "优先级", BoardFilter.priority_choices(), filter, parent, state) <>
-  filter_group("date", "更新时间", [BoardFilter.choice("1", "最近 24 小时", "clock"), BoardFilter.choice("7", "最近 7 天", "clock"), BoardFilter.choice("30", "最近 30 天", "clock")], filter, parent, state) <>
+  filter_group("date", "更新时间", [BoardFilter.choice("1", "最近 24 小时", BoardFilter.Updated{}), BoardFilter.choice("7", "最近 7 天", BoardFilter.Updated{}), BoardFilter.choice("30", "最近 30 天", BoardFilter.Updated{})], filter, parent, state) <>
   filter_group("assignee", "负责人", BoardFilter.owners(world), filter, parent, state) <>
-  filter_group("creator", "创建人", [BoardFilter.choice("self", "我", "user")], filter, parent, state) <>
+  filter_group("creator", "创建人", [BoardFilter.choice("self", "我", BoardFilter.Person{})], filter, parent, state) <>
   filter_group("project", "项目", BoardFilter.projects(world), filter, parent, state) <>
   filter_group("label", "标签", BoardFilter.label_choices(BoardFilter.collect_labels(cards, Nil{})), filter, parent, state) <>
   [declared(parent, V.ControlDeclaration{"filters/clear", "清除筛选", V.Secondary{}, U.FilterBoard{B.empty_filter()}, V.Available{}}, state)]
 
-def archive_destination(control: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
-  Core.State{E.Application{+world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
-  Node{parent ++ "/archive-destination", "archive-destination", "归档任务", Section{},
+def archive_destination(control: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
+  Core.State{E.Application{+world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  Node{Identity.Part{parent, "archive-destination"}, "archive-destination", "归档任务", Section{},
     CardArchive{List.length(&2, V.CardScene, V.archived_cards(Board.registry(world), route, now, world))}, [declared(parent, control, state)]}
 
 def board_toolbar(+filter: B.Filter, +working: Nat, create: V.ControlDeclaration, settings: V.ControlDeclaration,
-  filters: V.ControlDeclaration, archive: V.ControlDeclaration, +parent: String, +state: Core.State) -> +List<Node>:
-  [board_group(parent, "view-choices", ViewChoices{}, view_choices(filter, parent ++ "/view-choices", state)),
+  filters: V.ControlDeclaration, archive: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
+  [board_group(parent, "view-choices", ViewChoices{}, view_choices(filter, Identity.Part{parent, "view-choices"}, state)),
    board_group(parent, "search-area", SearchArea{},
-     [Node{parent ++ "/search", "board-search", "搜索任务", Field{}, BoardSearch{filter}, Nil{}}]),
+     [Node{Identity.Part{parent, "search"}, "board-search", "搜索任务", Field{}, BoardSearch{filter}, Nil{}}]),
    board_group(parent, "work-status", WorkStatus{},
-     [view_choice("working", "正在运行的任务 " ++ Nat.show(working), filter, parent ++ "/work-status", state)]),
+     [view_choice("working", "正在运行的任务 " ++ Nat.show(working), filter, Identity.Part{parent, "work-status"}, state)]),
    board_group(parent, "secondary-actions", SecondaryActions{}, [declared(parent, filters, state), declared(parent, settings, state), archive_destination(archive, parent, state)]),
    board_group(parent, "primary-action", PrimaryAction{}, [declared(parent, create, state)])]
 
-def creation_title_node(value: V.CreationIntroduction, parent: String) -> Node:
+def creation_title_node(value: V.CreationIntroduction, parent: Identity.Key) -> Node:
   V.CreationIntroduction{+heading, summary, context, project, choose} = value
-  Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Heading{}, ReadOnly{heading}, Nil{}}
+  Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, Heading{}, ReadOnly{heading}, Nil{}}
 
-def creation_project_node(value: V.CreationIntroduction, +parent: String, state: Core.State) -> Node:
+def creation_project_node(value: V.CreationIntroduction, +parent: Identity.Key, state: Core.State) -> Node:
   V.CreationIntroduction{heading, summary, context, project, choose} = value
-  Node{parent ++ "/creation/project", "project-chooser", "", Section{}, ProjectChooser{V.project_choice_id(project)}, [declared(parent, choose, state)]}
+  Node{Identity.Part{Identity.Part{parent, "creation"}, "project"}, "project-chooser", "", Section{}, ProjectChooser{V.project_choice_id(project)}, [declared(parent, choose, state)]}
 
-def creation_context_node(value: V.CreationIntroduction, parent: String) -> Node:
+def creation_context_node(value: V.CreationIntroduction, parent: Identity.Key) -> Node:
   V.CreationIntroduction{heading, summary, context, project, choose} = value
-  Node{parent ++ "/creation/introduction/creation/context", "creation/context", "Workspace configuration", Content{}, ReadOnly{summary}, Nil{}}
+  Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "context"}, "creation/context", "Workspace configuration", Content{}, ReadOnly{summary}, Nil{}}
 
-def creation_introduction_nodes(+value: V.CreationIntroduction, +parent: String, state: Core.State) -> +List<Node>:
+def creation_introduction_nodes(+value: V.CreationIntroduction, +parent: Identity.Key, state: Core.State) -> +List<Node>:
   [page_region(parent, Composition.CreationIntroduction{}, Composition.BodyPosition{}, [creation_title_node(value, parent), creation_project_node(value, parent, state)]),
    page_region(parent, Composition.CreationContext{}, Composition.BodyPosition{}, [creation_context_node(value, parent)])]
 
-def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   Core.State{E.Application{world, session}, services} = state
   List.append(&2, Node, creation_introduction_nodes(V.creation_introduction(input, world), parent, state), page_composer(input, parent, parent, state, Composition.BodyPosition{}))
 
-def page_contents(view: V.Page, +parent: String, +state: Core.State) -> +List<Node>:
+def page_contents(view: V.Page, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match view:
     case V.StartPage{input}: creation_page(input, parent, state)
     case V.TaskPage{value}: task_page(value, parent, state)
@@ -929,7 +1009,7 @@ def page_contents(view: V.Page, +parent: String, +state: Core.State) -> +List<No
        page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
        page_region(parent, Composition.AgentEntries{}, Composition.BodyPosition{}, agents(values, parent, state))]
     case V.MissingObject{message}:
-      [page_region(parent, Composition.UnavailableMessage{}, Composition.BodyPosition{}, [Node{parent ++ "/missing", "missing", "Unavailable", Content{}, ReadOnly{message}, Nil{}}])]
+      [page_region(parent, Composition.UnavailableMessage{}, Composition.BodyPosition{}, [Node{Identity.Part{parent, "missing"}, "missing", "Unavailable", Content{}, ReadOnly{message}, Nil{}}])]
 
 def page_conversation(view: V.Page) -> Maybe<&2, Conversation.Identity>:
   match view:
@@ -937,24 +1017,31 @@ def page_conversation(view: V.Page) -> Maybe<&2, Conversation.Identity>:
     case _: None{}
 
 def page(+view: V.Page, state: Core.State) -> Node:
-  Node{"/main", "main", "Content", Main{}, PageContext{page_conversation(view)}, page_contents(view, "/main", state)}
+  Node{Identity.Place{"/main"}, "main", "Content", Main{}, PageContext{page_conversation(view)}, page_contents(view, Identity.Place{"/main"}, state)}
 
-def selected_effort(same: Bool, effort: String, policy: Reasoning.Policy) -> String:
-  match same:
+def selected_effort(permitted: Bool, effort: String, profile: D.Profile) -> String:
+  match permitted:
     case True{}: effort
-    case False{}: Reasoning.default_selection(policy)
-def choice_control(selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
+    case False{}: D.profile_default(profile)
+def choice_control(selected: Bool, description: String, control: Core.Control, parent: Identity.Key) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, Button{}, Choice{SingleChoice{}, None{}, selected, description, input, availability}, Nil{}}
+  Node{Identity.Part{parent, identity}, identity, label, Button{}, Choice{SingleChoice{}, None{}, selected, description, input, availability}, Nil{}}
 
-def declared_choice(selected: Bool, description: String, declaration: V.ControlDeclaration, parent: String, state: Core.State) -> Node:
+def declared_choice(selected: Bool, description: String, declaration: V.ControlDeclaration, parent: Identity.Key, state: Core.State) -> Node:
   choice_control(selected, description, Core.control(state, declaration), parent)
 
-def model_choices(profiles: +List<D.Profile>, +selected: String, +effort: String, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def model_choice_availability(permitted: Bool) -> V.Availability:
+  match permitted:
+    case True{}: V.Available{}
+    case False{}: V.Unavailable{"The model has no permitted reasoning selection"}
+
+def model_choices(profiles: +List<D.Profile>, +selected: String, +effort: String, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{D.Profile{+key, provider, name, policy}, rest}:
-      declared_choice(String.eq(key, selected), provider, V.ControlDeclaration{"model/" ++ key, name, V.Secondary{}, U.EditDraft{editor, U.ChooseModel{key, selected_effort(String.eq(key, selected), effort, policy)}}, V.Available{}}, parent, state) <> model_choices(rest, selected, effort, editor, parent, state)
+    case Con{D.Profile{+key, +provider, +name, policy, options}, rest}:
+      +profile: D.Profile = D.Profile{key, provider, name, policy, options}
+      +selection = selected_effort(D.profile_permitted(profile, effort), effort, profile)
+      declared_choice(String.eq(key, selected), provider, V.ControlDeclaration{"model/" ++ key, name, V.Secondary{}, U.EditDraft{editor, U.ChooseModel{key, selection}}, model_choice_availability(D.profile_permitted(profile, selection))}, Identity.Entity{parent, "profile", key}, state) <> model_choices(rest, selected, effort, editor, parent, state)
 
 def delivery_selected(current: U.Delivery, candidate: U.Delivery) -> Bool:
   match current candidate:
@@ -962,7 +1049,7 @@ def delivery_selected(current: U.Delivery, candidate: U.Delivery) -> Bool:
     case U.Steer{} U.Steer{}: True{}
     case _ _: False{}
 
-def picker_fields(values: +List<V.InputGroup>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def picker_fields(values: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.ModelInput{profile, reasoning, choices}, rest}: List.append(&2, Node, model_choices(choices, profile, reasoning, editor, parent, state), picker_fields(rest, editor, parent, state))
@@ -971,11 +1058,11 @@ def picker_fields(values: +List<V.InputGroup>, +editor: U.Editor, +parent: Strin
       declared_choice(delivery_selected(selected, U.Steer{}), "Guide the current run with this message.", steer, parent, state) <> picker_fields(rest, editor, parent, state)
     case Con{other, rest}: picker_fields(rest, editor, parent, state)
 
-def execution_details(value: Maybe<&2, V.TaskScene>, parent: String) -> +List<Node>:
+def execution_details(value: Maybe<&2, V.TaskScene>, parent: Identity.Key) -> +List<Node>:
   match value:
-    case None{}: [Node{parent ++ "/missing", "missing", "Task unavailable", Content{}, ReadOnly{"The task no longer exists"}, Nil{}}]
+    case None{}: [Node{Identity.Part{parent, "missing"}, "missing", "Task unavailable", Content{}, ReadOnly{"The task no longer exists"}, Nil{}}]
     case Some{V.TaskScene{id, title, status, context, timeline, previews, composer, details, actions}}:
-      [Node{parent ++ "/execution", "execution", "Execution context", Content{}, TaskFacts{details}, Nil{}}]
+      [Node{Identity.Part{parent, "execution"}, "execution", "Execution context", Content{}, TaskFacts{details}, Nil{}}]
 def enrichment_observation(value: B.Enrichment) -> String:
   match value:
     case B.NoEnrichment{}: ""
@@ -987,42 +1074,41 @@ def detail_labels(values: +List<String>) -> String:
     case Nil{}: ""
     case Con{value, rest}: value ++ "\n" ++ detail_labels(rest)
 
-def detail_files(values: +List<B.Attachment>, +parent: String) -> +List<Node>:
+def detail_files(values: +List<B.Attachment>, +parent: Identity.Key) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{B.Attachment{+id, +name, +mime, +path, +bytes}, rest}:
-      region(parent, id, name, Section{},
-        [product_action(parent ++ "/" ++ id, "preview", "Preview " ++ name, Core.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, parent ++ "/" ++ id ++ "/preview"}}, True{})]) <>
+      Node{Identity.Entity{parent, "attachment", id}, id, name, Section{}, Region{}, [product_action(Identity.Entity{parent, "attachment", id}, "preview", "Preview " ++ name, Core.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, Identity.encode(Identity.Part{Identity.Entity{parent, "attachment", id}, "preview"})}}, True{})]} <>
         detail_files(rest, parent)
 
-def linked_card_controls(value: Maybe<&2, V.TaskEntry>, parent: String, state: Core.State) -> +List<Node>:
+def linked_card_controls(value: Maybe<&2, V.TaskEntry>, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match value:
     case None{}: Nil{}
     case Some{V.TaskEntry{id, title, status, selected, open}}: [declared(parent, open, state)]
 
-def card_error_observations(+card: B.Card, +parent: String) -> +List<Node>:
-  [project_fact(parent ++ "/enrichment", "生成", enrichment_observation(B.enrichment(card))),
-   project_fact(parent ++ "/start-error", "启动错误", B.start_error(card))]
+def card_error_observations(+card: B.Card, +parent: Identity.Key) -> +List<Node>:
+  [project_fact(Identity.Part{parent, "enrichment"}, "生成", enrichment_observation(B.enrichment(card))),
+   project_fact(Identity.Part{parent, "start-error"}, "启动错误", B.start_error(card))]
 
-def card_detail_draft(value: B.Draft, +id: Nat, +card: B.Card, actions: +List<V.ControlDeclaration>, linked: Maybe<&2, V.TaskEntry>, +parent: String, +state: Core.State) -> +List<Node>:
+def card_detail_draft(value: B.Draft, +id: Nat, +card: B.Card, actions: +List<V.ControlDeclaration>, linked: Maybe<&2, V.TaskEntry>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   B.Draft{title, description, stage, priority, owner, project, labels, files} = value
   Core.State{E.Application{+world, session}, services} = state
-  List.append(&2, Node, [project_fact(parent ++ "/identifier", "任务", B.identifier(id)), project_fact(parent ++ "/title", "标题", title),
-   project_fact(parent ++ "/description", "描述", description), project_fact(parent ++ "/stage", "状态", B.stage_label(stage)),
-   project_fact(parent ++ "/priority", "优先级", B.priority_label(priority)), project_fact(parent ++ "/owner", "负责人", V.face_owner(owner, world)),
-   project_fact(parent ++ "/project", "项目", V.face_project(project, world)), project_fact(parent ++ "/labels", "标签", detail_labels(labels)),
-   project_fact(parent ++ "/activity", "执行", Board.activity_label(Board.activity(card, world))),
+  List.append(&2, Node, [project_fact(Identity.Part{parent, "identifier"}, "任务", B.identifier(id)), project_fact(Identity.Part{parent, "title"}, "标题", title),
+   project_fact(Identity.Part{parent, "description"}, "描述", description), project_fact(Identity.Part{parent, "stage"}, "状态", B.stage_label(stage)),
+   project_fact(Identity.Part{parent, "priority"}, "优先级", B.priority_label(priority)), project_fact(Identity.Part{parent, "owner"}, "负责人", V.face_owner(owner, world)),
+   project_fact(Identity.Part{parent, "project"}, "项目", V.face_project(project, world)), project_fact(Identity.Part{parent, "labels"}, "标签", detail_labels(labels)),
+   project_fact(Identity.Part{parent, "activity"}, "执行", Board.activity_label(Board.activity(card, world))),
    declared(parent, V.control("card/edit/" ++ Nat.show(id), "编辑任务", U.EditCard{id}), state)],
-   List.append(&2, Node, card_error_observations(card, parent), List.append(&2, Node, detail_files(files, parent ++ "/attachments"),
+   List.append(&2, Node, card_error_observations(card, parent), List.append(&2, Node, detail_files(files, Identity.Part{parent, "attachments"}),
      List.append(&2, Node, linked_card_controls(linked, parent, state), controls(actions, parent, state)))))
 
-def card_details_scene(value: V.CardScene, parent: String, state: Core.State) -> +List<Node>:
+def card_details_scene(value: V.CardScene, parent: Identity.Key, state: Core.State) -> +List<Node>:
   V.CardScene{id, +card, open, actions, linked, destinations, candidates} = value
   card_detail_draft(B.draft(card), id, card, actions, linked, parent, state)
 
-def card_details_nodes(value: Maybe<&2, V.CardScene>, +parent: String, +state: Core.State) -> +List<Node>:
+def card_details_nodes(value: Maybe<&2, V.CardScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match value:
-    case None{}: [project_fact(parent ++ "/missing", "Unavailable", "The card no longer exists")]
+    case None{}: [project_fact(Identity.Part{parent, "missing"}, "Unavailable", "The card no longer exists")]
     case Some{card}: card_details_scene(card, parent, state)
 
 def context_network_text(network: Bool) -> String:
@@ -1038,16 +1124,16 @@ def observation_facts(value: Context.Observation, profiles: +List<D.Profile>) ->
   match value:
     case Context.DraftExecution{Context.ContextUnavailable{reason}}: reason
     case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
-      sandbox_facts(V.execution_sandbox(sandbox)) ++ "; " ++ V.value_approval_summary(approval, profiles)
-    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}:
-      sandbox_facts(sandbox) ++ "; " ++ V.policy_approval_summary(approval)
+      "Configured: " ++ sandbox_facts(Context.unwrap_sandbox(sandbox)) ++ "; " ++ V.value_approval_summary(approval, profiles)
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, +access}}:
+      Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ V.policy_approval_summary(approval)
 
-def context_summary_node(+value: Context.Observation, +parent: String, state: Core.State) -> Node:
+def context_summary_node(+value: Context.Observation, +parent: Identity.Key, state: Core.State) -> Node:
   Core.State{E.Application{+world, session}, services} = state
   +source = V.execution_source_summary(value, world)
   +facts = observation_facts(value, Board.profiles(world))
-  Node{parent ++ "/source", "context/source", source, Content{}, ContextSummary{value},
-    [Node{parent ++ "/source/facts", "context/facts", facts, Content{}, ReadOnly{facts}, Nil{}}]}
+  Node{Identity.Part{parent, "source"}, "context/source", source, Content{}, ContextSummary{value},
+    [Node{Identity.Part{Identity.Part{parent, "source"}, "facts"}, "context/facts", facts, Content{}, ReadOnly{facts}, Nil{}}]}
 
 def sandbox_selected(selected: D.SandboxMode, candidate: D.SandboxMode) -> Bool:
   match selected candidate:
@@ -1072,16 +1158,16 @@ def sandbox_description(mode: D.SandboxMode) -> String:
     case D.WorkspaceWrite{}: "Allow edits in the working directories."
     case D.ReadOnly{}: "Read files without modifying them."
 
-def sandbox_choice(+mode: D.SandboxMode, +current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: String, state: Core.State) -> Node:
+def sandbox_choice(+mode: D.SandboxMode, +current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: Identity.Key, state: Core.State) -> Node:
   declared_choice(sandbox_selected(current, mode), sandbox_description(mode),
     V.ControlDeclaration{"filesystem/" ++ D.sandbox_mode_name(mode), sandbox_label(mode), V.Secondary{},
       U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}, V.Available{}}, parent, state)
 
-def sandbox_choices(+sandbox: D.Sandbox, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+def sandbox_choices(+sandbox: D.Sandbox, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> Node:
   D.Sandbox{+mode, +network} = sandbox
-  Node{parent ++ "/filesystem", "permissions/filesystem", "Filesystem access", Section{}, ChoiceGroup{},
-    [sandbox_choice(D.WorkspaceWrite{}, mode, network, editor, parent ++ "/filesystem", state),
-     sandbox_choice(D.ReadOnly{}, mode, network, editor, parent ++ "/filesystem", state)]}
+  Node{Identity.Part{parent, "filesystem"}, "permissions/filesystem", "Filesystem access", Section{}, ChoiceGroup{},
+    [sandbox_choice(D.WorkspaceWrite{}, mode, network, editor, Identity.Part{parent, "filesystem"}, state),
+     sandbox_choice(D.ReadOnly{}, mode, network, editor, Identity.Part{parent, "filesystem"}, state)]}
 
 def approval_profile_key(choice: Context.ApprovalChoice) -> String:
   match choice:
@@ -1094,22 +1180,22 @@ def approval_description(choice: Context.ApprovalChoice) -> String:
     case Context.Unrestricted{}: "Run actions without approval prompts."
     case Context.AutomaticReview{profile}: "Use this model to review approval requests."
 
-def approval_choice_node(+choice: Context.ApprovalChoice, +current: Context.ApprovalChoice, reviewer: Maybe<&2, D.Profile>, editor: U.Editor, parent: String, state: Core.State) -> Node:
+def approval_choice_node(+choice: Context.ApprovalChoice, +current: Context.ApprovalChoice, reviewer: Maybe<&2, D.Profile>, editor: U.Editor, parent: Identity.Key, state: Core.State) -> Node:
   declared_choice(approval_selected(current, choice), approval_description(choice),
     V.ControlDeclaration{"approval/" ++ Context.approval_option(choice) ++ "/" ++ approval_profile_key(choice), V.execution_approval_summary(choice, reviewer), V.Secondary{},
       U.EditDraft{editor, U.ConfigureContext{Context.SetApproval{choice}}}, V.Available{}}, parent, state)
 
-def reviewer_choices(profiles: +List<D.Profile>, +current: Context.ApprovalChoice, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def reviewer_choices(profiles: +List<D.Profile>, +current: Context.ApprovalChoice, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{D.Profile{+key, provider, name, policy}, rest}:
-      approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, policy}}, editor, parent, state) <> reviewer_choices(rest, current, editor, parent, state)
+    case Con{D.Profile{+key, provider, name, policy, options}, rest}:
+      approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, policy, options}}, editor, Identity.Entity{parent, "profile", key}, state) <> reviewer_choices(rest, current, editor, parent, state)
 
-def approval_choices(+current: Context.ApprovalChoice, reviewers: +List<D.Profile>, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
-  Node{parent ++ "/approval", "permissions/approval", "Approval policy", Section{}, ChoiceGroup{},
-    approval_choice_node(Context.Ask{}, current, None{}, editor, parent ++ "/approval", state) <>
-    approval_choice_node(Context.Unrestricted{}, current, None{}, editor, parent ++ "/approval", state) <>
-    reviewer_choices(reviewers, current, editor, parent ++ "/approval", state)}
+def approval_choices(+current: Context.ApprovalChoice, reviewers: +List<D.Profile>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> Node:
+  Node{Identity.Part{parent, "approval"}, "permissions/approval", "Approval policy", Section{}, ChoiceGroup{},
+    approval_choice_node(Context.Ask{}, current, None{}, editor, Identity.Part{parent, "approval"}, state) <>
+    approval_choice_node(Context.Unrestricted{}, current, None{}, editor, Identity.Part{parent, "approval"}, state) <>
+    reviewer_choices(reviewers, current, editor, Identity.Part{parent, "approval"}, state)}
 
 def network_description(network: Bool) -> String:
   match network:
@@ -1132,55 +1218,55 @@ def network_selected(current: Bool, target: Bool) -> Bool:
     case True{} True{}: True{}
     case _ _: False{}
 
-def network_choice(+mode: D.SandboxMode, current: Bool, +target: Bool, editor: U.Editor, parent: String, state: Core.State) -> Node:
+def network_choice(+mode: D.SandboxMode, current: Bool, +target: Bool, editor: U.Editor, parent: Identity.Key, state: Core.State) -> Node:
   declared_choice(network_selected(current, target), network_description(target),
     V.ControlDeclaration{"permissions/network/" ++ network_key(target), network_label(target), V.Secondary{},
       U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, target}}}}, V.Available{}}, parent, state)
 
-def network_choices(sandbox: D.Sandbox, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+def network_choices(sandbox: D.Sandbox, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> Node:
   D.Sandbox{+mode, +network} = sandbox
-  Node{parent ++ "/network", "permissions/network", "Network access", Section{}, ChoiceGroup{},
-    [network_choice(mode, network, False{}, editor, parent ++ "/network", state),
-     network_choice(mode, network, True{}, editor, parent ++ "/network", state)]}
+  Node{Identity.Part{parent, "network"}, "permissions/network", "Network access", Section{}, ChoiceGroup{},
+    [network_choice(mode, network, False{}, editor, Identity.Part{parent, "network"}, state),
+     network_choice(mode, network, True{}, editor, Identity.Part{parent, "network"}, state)]}
 
-def unavailable_context(+reason: String, parent: String) -> +List<Node>:
-  [Node{parent ++ "/unavailable", "context/unavailable", reason, Content{}, ReadOnly{reason}, Nil{}}]
+def unavailable_context(+reason: String, parent: Identity.Key) -> +List<Node>:
+  [Node{Identity.Part{parent, "unavailable"}, "context/unavailable", reason, Content{}, ReadOnly{reason}, Nil{}}]
 
-def optional_control(value: Maybe<&2, V.ControlDeclaration>, parent: String, state: Core.State) -> +List<Node>:
+def optional_control(value: Maybe<&2, V.ControlDeclaration>, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match value:
     case None{}: Nil{}
     case Some{control}: [declared(parent, control, state)]
 
-def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: String, +state: Core.State) -> +List<Node>:
+def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match group:
     case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
     case V.ExecutionInput{config, +preview, V.WorkspaceControls{identity, roots, inherit}, projects, reviewers}:
       context_summary_node(Context.DraftExecution{preview}, parent, state) <>
-      Node{parent ++ "/instruction", "workspace/instruction", "Add directories and choose the primary working directory.", Content{}, ReadOnly{"Add directories and choose the primary working directory."}, Nil{}} <>
-      Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
+      Node{Identity.Part{parent, "instruction"}, "workspace/instruction", "Add directories and choose the primary working directory.", Content{}, ReadOnly{"Add directories and choose the primary working directory."}, Nil{}} <>
+      Node{Identity.Part{parent, "add"}, "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
       directory_confirm(editor, parent, state) <>
       directory_browse(editor, parent, state) <>
       List.append(&2, Node, directory_root_nodes(roots, parent, state), optional_control(inherit, parent, state))
     case _: Nil{}
 
-def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match groups:
     case Nil{}: Nil{}
     case Con{group, rest}: List.append(&2, Node, workspace_menu_group(editor, group, parent, state), workspace_menu(rest, editor, parent, state))
 
-def permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: String, +state: Core.State) -> +List<Node>:
+def permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match group:
     case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
     case V.ExecutionInput{+config, Context.ProspectiveContext{+origin, +project, +workspace, +sandbox, +approval, +guidance}, controls, projects, reviewers}:
       context_summary_node(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, parent, state) <>
-      sandbox_choices(V.execution_sandbox(sandbox), editor, parent, state) <>
-      network_choices(V.execution_sandbox(sandbox), editor, parent, state) <>
+      sandbox_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
+      network_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
       approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
       List.append(&2, Node, reset_control(reset_change(config, Forms.SandboxMode{}), editor, Forms.SandboxMode{}, "filesystem and network access", parent, state),
         reset_control(reset_change(config, Forms.ApprovalPolicy{}), editor, Forms.ApprovalPolicy{}, "approval policy", parent, state))
     case _: Nil{}
 
-def permission_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+def permission_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match groups:
     case Nil{}: Nil{}
     case Con{group, rest}: List.append(&2, Node, permission_menu_group(editor, group, parent, state), permission_menu(rest, editor, parent, state))
@@ -1200,31 +1286,31 @@ def committed_project_text(project: Maybe<&2, Nat>, world: M.World()) -> String:
     case None{}: "Projectless task"
     case Some{+id}: committed_project_name(Projects.find(Projects.registry(F.State(), world), id), id)
 
-def committed_project_node(project: Maybe<&2, Nat>, +parent: String, state: Core.State) -> Node:
+def committed_project_node(project: Maybe<&2, Nat>, +parent: Identity.Key, state: Core.State) -> Node:
   Core.State{E.Application{world, session}, services} = state
   +label = committed_project_text(project, world)
-  Node{parent ++ "/project", "context/project", label, Content{}, ReadOnly{label}, Nil{}}
+  Node{Identity.Part{parent, "project"}, "context/project", label, Content{}, ReadOnly{label}, Nil{}}
 
 def committed_working_directory(primary: Maybe<&2, String>) -> String:
   match primary:
     case None{}: "No working directory"
     case Some{path}: "Working directory: " ++ path
 
-def committed_working_directory_extra(covered: Bool, +primary: Maybe<&2, String>, +parent: String) -> +List<Node>:
+def committed_working_directory_extra(covered: Bool, +primary: Maybe<&2, String>, +parent: Identity.Key) -> +List<Node>:
   match covered:
     case True{}: Nil{}
     case False{}:
-      [Node{parent ++ "/working-directory", "context/working-directory", committed_working_directory(primary), Content{}, ReadOnly{committed_working_directory(primary)}, Nil{}}]
+      [Node{Identity.Part{parent, "working-directory"}, "context/working-directory", committed_working_directory(primary), Content{}, ReadOnly{committed_working_directory(primary)}, Nil{}}]
 
-def committed_directory_nodes(roots: +List<String>, +primary: Maybe<&2, String>, +parent: String) -> +List<Node>:
+def committed_directory_nodes(roots: +List<String>, +primary: Maybe<&2, String>, +parent: Identity.Key) -> +List<Node>:
   match roots:
     case Nil{}: Nil{}
     case Con{+path, rest}:
-      Node{parent ++ "/directory/" ++ path, "directory/" ++ path, path, Content{}, DirectoryRow{path, V.is_primary(primary, path)},
-        [Node{parent ++ "/directory/" ++ path ++ "/primary", "directory/primary", committed_primary_text(V.is_primary(primary, path)), Content{}, ReadOnly{committed_primary_text(V.is_primary(primary, path))}, Nil{}}]} <>
+      Node{Identity.Entity{parent, "directory", path}, "directory/" ++ path, path, Content{}, DirectoryRow{path, V.is_primary(primary, path)},
+        [Node{Identity.Part{Identity.Entity{parent, "directory", path}, "primary"}, "directory/primary", committed_primary_text(V.is_primary(primary, path)), Content{}, ReadOnly{committed_primary_text(V.is_primary(primary, path))}, Nil{}}]} <>
         committed_directory_nodes(rest, primary, parent)
 
-def committed_context_nodes(context: Maybe<&2, Context.EffectiveContext>, +parent: String, +state: Core.State) -> +List<Node>:
+def committed_context_nodes(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match context:
     case None{}: unavailable_context("Task execution context is unavailable", parent)
     case Some{Context.EffectiveContext{+task, D.TaskContext{D.Workspace{+roots, +primary}, +sandbox, +approval, +project}, +guidance, +access}}:
@@ -1232,28 +1318,28 @@ def committed_context_nodes(context: Maybe<&2, Context.EffectiveContext>, +paren
       committed_project_node(project, parent, state) <>
       List.append(&2, Node, committed_working_directory_extra(Context.member_primary(primary, roots), primary, parent), committed_directory_nodes(roots, primary, parent))
 
-def project_picker_control(control: Core.Control, selected: Bool, description: String, parent: String) -> Node:
+def project_picker_control(control: Core.Control, selected: Bool, description: String, parent: Identity.Key) -> Node:
   Core.Control{+key, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ key, key, label, Button{}, Choice{SingleChoice{}, None{}, selected, description, input, availability}, Nil{}}
+  Node{Identity.Part{parent, key}, key, label, Button{}, Choice{SingleChoice{}, None{}, selected, description, input, availability}, Nil{}}
 
-def project_picker_choice(declaration: V.ControlDeclaration, selected: Bool, description: String, parent: String, state: Core.State) -> Node:
+def project_picker_choice(declaration: V.ControlDeclaration, selected: Bool, description: String, parent: Identity.Key, state: Core.State) -> Node:
   project_picker_control(Core.control(state, declaration), selected, description, parent)
 
-def project_registered_choices(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: String, +state: Core.State) -> +List<Node>:
+def project_registered_choices(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.ProjectChoice{+id, name, +workspace}, rest}:
-      project_picker_choice(V.control("project/select/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), V.same_project(selected, Some{id}), V.project_folder_description(workspace), parent, state) <>
+      project_picker_choice(V.control("project/select/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), V.same_project(selected, Some{id}), V.project_folder_description(workspace), Identity.Entity{parent, "project", Nat.show(id)}, state) <>
         project_registered_choices(rest, selected, parent, state)
 
-def project_choice_nodes(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: String, +state: Core.State) -> +List<Node>:
+def project_choice_nodes(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   project_picker_choice(V.control("project/select/none", "No project", U.SelectProject{None{}}), V.same_project(selected, None{}), "Use environment defaults", parent, state) <>
     List.append(&2, Node, project_registered_choices(values, selected, parent, state), [declared(parent, V.control("project/create", "New project", U.EditProject{None{}}), state)])
 
-def layer_content(view: V.LayerContent, +parent: String, +state: Core.State) -> +List<Node>:
+def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match view:
     case V.ProjectSelection{query, selected, projects}:
-      Node{parent ++ "/search", "search", "Search projects", Field{}, SearchChoices{query}, Nil{}} <>
+      Node{Identity.Part{parent, "search"}, "search", "Search projects", Field{}, SearchChoices{query}, Nil{}} <>
         project_choice_nodes(projects, selected, parent, state)
     case V.ObjectActions{actions}: controls(actions, parent, state)
     case V.ArchivedCards{values}: cards(values, parent, state)
@@ -1267,7 +1353,7 @@ def layer_content(view: V.LayerContent, +parent: String, +state: Core.State) -> 
     case V.PermissionSettings{identity, values}: permission_menu(values, identity, parent, state)
     case V.CommittedContext{context}: committed_context_nodes(context, parent, state)
     case V.ModelSelection{identity, query, values}:
-      Node{parent ++ "/search", "search", "Search models", Field{}, SearchChoices{query}, Nil{}} <> picker_fields(values, identity, parent, state)
+      Node{Identity.Part{parent, "search"}, "search", "Search models", Field{}, SearchChoices{query}, Nil{}} <> picker_fields(values, identity, parent, state)
     case V.DeliverySelection{identity, values}: picker_fields(values, identity, parent, state)
     case V.ExecutionDetails{value}: execution_details(value, parent)
     case V.Confirmation{title, confirm, cancel}: [declared(parent, confirm, state), declared(parent, cancel, state)]
@@ -1278,8 +1364,8 @@ def layer_role(kind: V.LayerKind) -> Role:
     case V.AnchoredMenu{}: Menu{}
     case V.TrailingDetails{}: Details{}
 
-def layer_key(initial_attention: String) -> String:
-  "/layers/" ++ initial_attention
+def layer_key(initial_attention: String) -> Identity.Key:
+  Identity.Entity{Identity.Place{"/layers"}, "layer", initial_attention}
 
 def dismissal_meaning(value: V.Dismissal) -> Meaning:
   match value:
@@ -1296,21 +1382,21 @@ def layers(values: +List<V.Layer>, +state: Core.State) -> +List<Node>:
 def settings_visible(open: Bool, +entered: Bool, close: Core.Input, connect: Core.Input) -> +List<Node>:
   match open:
     case False{}: Nil{}
-    case True{}: [Node{"/layers/settings", "settings", "Settings", Dialog{}, LayerRegion{close, True{}, True{}},
-      [Node{"/layers/settings/credential", "settings/credential", "Access token", Field{}, EnterCredential{entered}, Nil{}},
-       product_action("/layers/settings", "connect", "Connect", connect, entered),
-       product_action("/layers/settings", "light", "Light appearance", Core.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
-       product_action("/layers/settings", "dark", "Dark appearance", Core.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
-       product_action("/layers/settings", "system", "System appearance", Core.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]}]
+    case True{}: [Node{Identity.Place{"/layers/settings"}, "settings", "Settings", Dialog{}, LayerRegion{close, True{}, True{}},
+      [Node{Identity.Part{Identity.Place{"/layers/settings"}, "credential"}, "settings/credential", "Access token", Field{}, EnterCredential{entered}, Nil{}},
+       product_action(Identity.Place{"/layers/settings"}, "connect", "Connect", connect, entered),
+       product_action(Identity.Place{"/layers/settings"}, "light", "Light appearance", Core.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
+       product_action(Identity.Place{"/layers/settings"}, "dark", "Dark appearance", Core.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
+       product_action(Identity.Place{"/layers/settings"}, "system", "System appearance", Core.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]}]
 
 def settings(view: Core.Settings) -> +List<Node>:
   Core.Settings{open, access, entered, appearance, open_action, close_action, connect_action} = view
   settings_visible(open, entered, close_action, connect_action)
 
 def preview_controls(file: B.Attachment, ready: Bool) -> +List<Node>:
-  [Node{"/layers/attachment-preview", "attachment-preview", "Attachment preview", Dialog{},
+  [Node{Identity.Place{"/layers/attachment-preview"}, "attachment-preview", "Attachment preview", Dialog{},
     LayerRegion{Core.ServiceInput{Services.ClosePreview{}}, True{}, True{}},
-    [product_action("/layers/attachment-preview", "download", "Download", Core.ServiceInput{Services.Download{file}}, ready)]}]
+    [product_action(Identity.Place{"/layers/attachment-preview"}, "download", "Download", Core.ServiceInput{Services.Download{file}}, ready)]}]
 
 def preview(value: Services.Preview) -> +List<Node>:
   match value:
@@ -1319,43 +1405,43 @@ def preview(value: Services.Preview) -> +List<Node>:
     case Services.ReadyPreview{file, resource, image, trigger}: preview_controls(file, True{})
     case Services.FailedPreview{file, reason, trigger}: preview_controls(file, False{})
 
-def directory_visit(parent: String, id: String, label: String, path: String) -> Node:
+def directory_visit(parent: Identity.Key, id: String, label: String, path: String) -> Node:
   product_action(parent, id, label, Core.ServiceInput{Services.VisitDirectory{path}}, True{})
 
 def directory_parent(parent: Maybe<&2, String>) -> +List<Node>:
   match parent:
     case None{}: Nil{}
-    case Some{path}: [directory_visit("/layers/directory-picker", "parent", "Parent folder", path)]
+    case Some{path}: [directory_visit(Identity.Place{"/layers/directory-picker"}, "parent", "Parent folder", path)]
 
 def directory_entries(values: +List<Services.DirectoryEntry>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Services.DirectoryEntry{name, +path}, rest}:
-      directory_visit("/layers/directory-picker", "entry/" ++ path, name, path) <> directory_entries(rest)
+      Node{Identity.Entity{Identity.Place{"/layers/directory-picker"}, "directory", path}, "entry/" ++ path, name, Button{}, Activate{Core.ServiceInput{Services.VisitDirectory{path}}, V.Available{}}, Nil{}} <> directory_entries(rest)
 
 def directory_truncated(truncated: Bool) -> +List<Node>:
   match truncated:
     case False{}: Nil{}
-    case True{}: [Node{"/layers/directory-picker/truncated", "directory-picker/truncated", "More folders are available", Content{},
+    case True{}: [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "truncated"}, "directory-picker/truncated", "More folders are available", Content{},
       ReadOnly{"The folder list is incomplete. Enter a path to visit another folder."}, Nil{}}]
 
 def directory_picker_content(picker: Services.DirectoryPicker) -> +List<Node>:
   match picker:
     case Services.NoDirectoryPicker{}: Nil{}
     case Services.LoadingDirectory{ticket, editor, path, trigger}:
-      [Node{"/layers/directory-picker/status", "directory-picker/status", "Loading folders", Content{}, ReadOnly{"Loading folders…"}, Nil{}}]
+      [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "status"}, "directory-picker/status", "Loading folders", Content{}, ReadOnly{"Loading folders…"}, Nil{}}]
     case Services.FailedDirectory{ticket, editor, path, reason, trigger}:
-      [Node{"/layers/directory-picker/error", "directory-picker/error", "Folder listing failed", Content{}, ReadOnly{reason}, Nil{}},
-       directory_visit("/layers/directory-picker", "retry", "Retry", path)]
+      [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "error"}, "directory-picker/error", "Folder listing failed", Content{}, ReadOnly{reason}, Nil{}},
+       directory_visit(Identity.Place{"/layers/directory-picker"}, "retry", "Retry", path)]
     case Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, +parent, entries, truncated}, location, trigger}:
-      [Node{"/layers/directory-picker/location", "directory-picker/location", "Folder path", Field{}, DirectoryBrowserLocation{location}, Nil{}},
-       product_action("/layers/directory-picker", "go", "Go", Core.ServiceInput{Services.GoDirectory{}}, True{})]
+      [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "location"}, "directory-picker/location", "Folder path", Field{}, DirectoryBrowserLocation{location}, Nil{}},
+       product_action(Identity.Place{"/layers/directory-picker"}, "go", "Go", Core.ServiceInput{Services.GoDirectory{}}, True{})]
 
 def directory_ready_content(picker: Services.DirectoryPicker) -> +List<Node>:
   match picker:
     case Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}:
       List.append(&2, Node, directory_parent(parent), List.append(&2, Node, directory_entries(entries),
-        List.append(&2, Node, directory_truncated(truncated), [Node{"/layers/directory-picker/use", "directory-picker/use", "Use this folder", PrimaryButton{},
+        List.append(&2, Node, directory_truncated(truncated), [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "use"}, "directory-picker/use", "Use this folder", PrimaryButton{},
           Activate{Core.ServiceInput{Services.ChooseDirectory{}}, V.Available{}}, Nil{}}])))
     case _: Nil{}
 
@@ -1363,22 +1449,22 @@ def directory_picker(value: Services.DirectoryPicker) -> +List<Node>:
   match value:
     case Services.NoDirectoryPicker{}: Nil{}
     case +other:
-      [Node{"/layers/directory-picker", "directory-picker", "Choose folder", Dialog{},
+      [Node{Identity.Place{"/layers/directory-picker"}, "directory-picker", "Choose folder", Dialog{},
         LayerRegion{Core.ServiceInput{Services.CloseDirectoryPicker{}}, True{}, True{}},
         List.append(&2, Node, directory_picker_content(other), directory_ready_content(other))}]
 
 def active_scope(overlays: +List<Node>) -> Maybe<&2, String>:
   match overlays:
     case Nil{}: None{}
-    case Con{Node{key, semantic, label, Dialog{}, meaning, children}, rest}: Some{key}
-    case Con{Node{key, semantic, label, Menu{}, meaning, children}, rest}: Some{key}
+    case Con{Node{key, semantic, label, Dialog{}, meaning, children}, rest}: Some{Identity.encode(key)}
+    case Con{Node{key, semantic, label, Menu{}, meaning, children}, rest}: Some{Identity.encode(key)}
     case Con{other, rest}: active_scope(rest)
 
 def finish(content: Core.Scene, base: +List<Node>, +overlays: +List<Node>) -> Surface:
   Surface{content, base, overlays, active_scope(overlays)}
 def collapsed_navigation_toggle(nav: V.Navigation, state: Core.State) -> +List<Node>:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = nav
-  [declared("/navigation", toggle, state)]
+  [declared(Identity.Place{"/navigation"}, toggle, state)]
 
 def base_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, state: Core.State) -> +List<Node>:
   match placement:
@@ -1423,7 +1509,7 @@ def without_node(nodes: +List<Node>, +key: String) -> +List<Node>:
   match nodes:
     case Nil{}: Nil{}
     case Con{Node{+current, semantic, label, role, meaning, children}, rest}:
-      retain_node(Bool.not(String.eq(current, key)),
+      retain_node(Bool.not(String.eq(Identity.encode(current), key)),
         Node{current, semantic, label, role, meaning, without_node(children, key)}, without_node(rest, key))
 
 def prepend_persistent_trigger(overlays: +List<Node>, +trigger: Node) -> +List<Node>:
@@ -1439,7 +1525,7 @@ def relocate_valid_trigger(valid: Bool, +node: Node, content: Core.Scene,
     case False{}: finish(content, base, overlays)
     case True{}:
       Node{key, semantic, label, role, meaning, children} = node
-      finish(content, without_node(base, key), prepend_persistent_trigger(overlays, node))
+      finish(content, without_node(base, Identity.encode(key)), prepend_persistent_trigger(overlays, node))
 
 def persistent_trigger_source(meaning: Meaning, target: Nat) -> Bool:
   match meaning:
@@ -1468,7 +1554,7 @@ def find_node(nodes: +List<Node>, +key: String) -> Maybe<&2, Node>:
   match nodes:
     case Nil{}: None{}
     case Con{Node{+current, semantic, label, role, meaning, +children}, rest}:
-      choose_node(String.eq(current, key), Node{current, semantic, label, role, meaning, children},
+      choose_node(String.eq(Identity.encode(current), key), Node{current, semantic, label, role, meaning, children},
         prefer_node(find_node(children, key), find_node(rest, key)))
 
 def scope_node(found: Maybe<&2, Node>) -> +List<Node>:
@@ -1500,7 +1586,7 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case ComposerAction{subject, input, availability} Press{}: when_available(available(availability), input)
     case Activate{input, availability} Press{}: when_available(available(availability), input)
     case PanelToggle{expanded, input, availability} Press{}: when_available(available(availability), input)
-    case Choice{kind, icon, selected, description, input, availability} Press{}: when_available(available(availability), input)
+    case Choice{kind, classification, selected, description, input, availability} Press{}: when_available(available(availability), input)
     case Edit{+editor, +field, Forms.DisplayOnly{}, +value, choices} Change{+next}: None{}
     case Edit{+editor, +field, entry, +value, choices} Change{+next}: Some{Core.EditField{editor, field, next}}
     case SearchChoices{query} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
@@ -1537,7 +1623,7 @@ def placement_source(source: Node, target: String) -> Maybe<&2, Core.Input>:
 
 def place(source: Maybe<&2, Node>, target: Maybe<&2, Node>) -> Maybe<&2, Core.Input>:
   match source target:
-    case Some{node} Some{Node{target, semantic, label, role, meaning, children}}: placement_source(node, target)
+    case Some{node} Some{Node{target, semantic, label, role, meaning, children}}: placement_source(node, Identity.encode(target))
     case _ _: None{}
 
 def resolve_present(+source: Node, gesture: Gesture, surface: Surface) -> Maybe<&2, Core.Input>:
@@ -1562,7 +1648,7 @@ def apply_input(input: Maybe<&2, Core.Input>, state: Core.State) -> Core.Decisio
 
 def origin(layers: +List<E.Layer>, key: String) -> String:
   match layers:
-    case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: trigger
+    case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: trigger
     case _: key
 
 def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
@@ -1573,25 +1659,25 @@ def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
 def layer_present(layers: +List<E.Layer>, +target: String) -> Bool:
   match layers:
     case Nil{}: False{}
-    case Con{E.Layer{panel, trigger, initial, query}, rest}:
+    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence}, rest}:
       String.eq(E.panel_target(panel), target) || layer_present(rest, target)
 
 def record_layer(layers: +List<E.Layer>, previous: +List<E.Layer>, origin: String) -> +List<E.Layer>:
   match layers:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, trigger, initial, query}, rest}:
-      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query} <> rest
+    case Con{E.Layer{+panel, trigger, initial, query, layer_occurrence}, rest}:
+      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query, layer_occurrence} <> rest
 
 def source_session(session: E.Session, previous: +List<E.Layer>, origin: String) -> E.Session:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code} = session
-  E.Session{route, drafts, readers, record_layer(layers, previous, origin), attention, navigation, filter, now, next, pending, previews, code}
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, record_layer(layers, previous, origin), attention, navigation, filter, now, next, pending, previews, code, next_layer}
 
 def source_decision(decision: Core.Decision, previous: +List<E.Layer>, origin: String) -> Core.Decision:
   Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
   Core.Decision{Core.State{E.Application{program, source_session(session, previous, origin)}, services}, reply, runtime, interaction, service_effects, durable}
 
 def record_source(before: Core.State, key: String, decision: Core.Decision) -> Core.Decision:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = before
+  Core.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = before
   source_decision(decision, layers, origin(layers, key))
 def navigates(input: Maybe<&2, Core.Input>) -> Bool:
   match input:
@@ -1601,8 +1687,8 @@ def navigates(input: Maybe<&2, Core.Input>) -> Bool:
     case _: False{}
 
 def dismiss_navigation(session: E.Session) -> E.Session:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code} = session
-  E.Session{route, drafts, readers, layers, attention, E.set_navigation(False{}, navigation), filter, now, next, pending, previews, code}
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, attention, E.set_navigation(False{}, navigation), filter, now, next, pending, previews, code, next_layer}
 
 def navigation_closed(decision: Core.Decision) -> Core.Decision:
   Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
@@ -1629,7 +1715,7 @@ def focusable(meaning: Meaning) -> Bool:
     case Activate{input, availability}: available(availability)
     case PanelToggle{expanded, input, availability}: available(availability)
     case LayerRegion{dismiss, outside, escape}: True{}
-    case Choice{kind, icon, selected, description, input, availability}: available(availability)
+    case Choice{kind, classification, selected, description, input, availability}: available(availability)
     case Edit{editor, field, Forms.DisplayOnly{}, value, choices}: False{}
     case Edit{editor, field, Forms.FileCollection{}, value, choices}: False{}
     case Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: False{}
@@ -1657,9 +1743,9 @@ def first_focus(nodes: +List<Node>) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
     case Con{Node{key, semantic, label, role, LayerRegion{dismiss, outside, escape}, children}, rest}:
-      preferred_key(first_focus(children), Some{key})
+      preferred_key(first_focus(children), Some{Identity.encode(key)})
     case Con{Node{key, semantic, label, role, meaning, children}, rest}:
-      candidate_focus(focusable(meaning), key, preferred_key(first_focus(children), first_focus(rest)))
+      candidate_focus(focusable(meaning), Identity.encode(key), preferred_key(first_focus(children), first_focus(rest)))
 
 def at_focus(matches: Bool, node: Node) -> Maybe<&2, String>:
   match matches:
@@ -1670,7 +1756,7 @@ def matching_focus(nodes: +List<Node>, +requested: String) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
     case Con{Node{+key, +semantic, label, role, meaning, +children}, rest}:
-      preferred_key(at_focus(String.eq(key, requested) || String.eq(semantic, requested), Node{key, semantic, label, role, meaning, children}),
+      preferred_key(at_focus(String.eq(Identity.encode(key), requested) || String.eq(semantic, requested), Node{key, semantic, label, role, meaning, children}),
         preferred_key(matching_focus(children, requested), matching_focus(rest, requested)))
 
 def relocate_trigger_key(found: Maybe<&2, String>, +target: Nat, content: Core.Scene,
@@ -1709,7 +1795,7 @@ def assemble(+content: Core.Scene, +state: Core.State) -> Surface:
   # NOTE: Saved trigger identities can alias navigation; only main owns relocation.
   +reachable = finish_reachable(content, [page(main, state)], overlays)
   with_navigation(content, base_navigation(arrangement, nav, state), reachable,
-    product_action("", "settings/open", "Settings", Core.ServiceInput{Services.OpenSettings{}}, True{}), active_scope(overlays))
+    product_action(Identity.Place{""}, "settings/open", "Settings", Core.ServiceInput{Services.OpenSettings{}}, True{}), active_scope(overlays))
 
 def observe(capacity: V.Capacity, +state: Core.State) -> Surface:
   assemble(Core.observe(capacity, state), state)
@@ -1722,6 +1808,10 @@ def focus_in(+nodes: +List<Node>, requested: String) -> Maybe<&2, String>:
 
 def focus_target(surface: Surface, requested: String) -> Maybe<&2, String>:
   focus_in(active_nodes(surface), requested)
+
+def all_focus_target(surface: Surface, requested: String) -> Maybe<&2, String>:
+  Surface{content, base, overlays, scope} = surface
+  focus_in(List.append(&2, Node, base, overlays), requested)
 
 def submits(meaning: Meaning, editor: U.Editor) -> Bool:
   match meaning:
@@ -1738,7 +1828,7 @@ def submission(nodes: +List<Node>, +editor: U.Editor) -> Maybe<&2, Node>:
 def submit_found(found: Maybe<&2, Node>, capacity: V.Capacity, state: Core.State) -> Core.Decision:
   match found:
     case None{}: apply_input(None{}, state)
-    case Some{Node{key, semantic, label, role, meaning, children}}: perform(capacity, state, key, bind(meaning, Press{}))
+    case Some{Node{key, semantic, label, role, meaning, children}}: perform(capacity, state, Identity.encode(key), bind(meaning, Press{}))
 
 def submit_composer(+capacity: V.Capacity, editor: U.Editor, +state: Core.State) -> Core.Decision:
   submit_found(submission(active_nodes(observe(capacity, state)), editor), capacity, state)

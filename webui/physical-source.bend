@@ -9,6 +9,7 @@ import ./physical-space.bend as Model
 import ./space.bend as Space
 import ./spatial.bend as Spatial
 import ./typography.bend as T
+import ./natural-size.bend as NaturalSize
 import ./enclosure.bend as Enclosure
 import ../core/code-block.bend as Code
 import ./document.bend as Doc
@@ -128,15 +129,11 @@ def toolbar_minimum(roots: +List<Content.NativeRoot>) -> Enclosure.Extent:
     case Con{Content.NativeRoot{owner_key, Source.CodeBodyTarget{identity, wrap}, tree, attributes, style}, rest}:
       toolbar_minimum(rest)
 
-def extent_width(extent: Enclosure.Extent) -> Nat:
-  Enclosure.Extent{width, height} = extent
-  width
-
 def rich_minimum(node: Source.Node, +roots: +List<Content.NativeRoot>, +observed: Nat) -> Nat:
   match node:
     case Source.RichText{key, style, Source.RichContent{source, value,
-      Source.RichPolicy{Source.CodeSurface{frame, chrome}, toolbar_height, block_gap, list_indent, code_text, wrap}}, attachments}:
-      Nat.max(observed, Nat.add(extent_width(toolbar_minimum(roots)), Nat.mul(2n, Enclosure.inline(Enclosure.frame_content(frame)))))
+      Source.RichPolicy{Source.CodeSurface{frame, chrome}, toolbar_height, block_gap, list_indent, code_text, wrap}}, attachments, native_owner}:
+      Nat.max(observed, Nat.add(Enclosure.extent_width(toolbar_minimum(roots)), Nat.mul(2n, Enclosure.inline(Enclosure.frame_content(frame)))))
     case Source.Box{key, tag, style, attributes, children}: observed
     case Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: observed
     case Source.Text{key, value, font, wrapping}: observed
@@ -160,33 +157,69 @@ def observation_advance(observation: Content.Observation) -> Nat:
   Content.Observation{generation, key, purpose, minimum_width, preferred_width, content_height, reference_advance} = observation
   reference_advance
 
-def observed_leaf(node: Source.Node, +key: String, +font: T.Presentation,
+def text_natural_dimensions(wrapping: T.Wrapping, +minimum: Nat, preferred: Nat, +height: Nat, advance: Nat) -> Space.Demand:
+  match wrapping:
+    case T.SingleLine{}:
+      # The complete single-line value remains available through its native title.
+      +visible_minimum: Nat = Nat.min(minimum, advance)
+      Space.Demand{Enclosure.Extent{visible_minimum, height}, Enclosure.Extent{Nat.max(visible_minimum, preferred), height}}
+    case _: Space.Demand{Enclosure.Extent{minimum, height}, Enclosure.Extent{preferred, height}}
+def text_natural_demand(wrapping: T.Wrapping, +observation: Content.Observation) -> Space.Demand:
+  text_natural_dimensions(wrapping, observation_minimum(observation), observation_preferred(observation), observation_height(observation), observation_advance(observation))
+
+def field_height_extent(variable: Bool, +line_floor: Nat, maximum_lines: Nat, line_height: Nat, +measured: Nat) -> Nat:
+  match variable:
+    case True{}: Nat.max(line_floor, Nat.min(Nat.mul(maximum_lines, line_height), measured))
+    case False{}: Nat.max(line_floor, measured)
+
+def field_natural_height_at(capacity: Nat, variable: Bool, policy: Source.FieldPolicy, +font: T.Presentation, +measured: Nat) -> Nat:
+  Source.FieldPolicy{columns, minimum_lines, maximum_lines} = policy
+  +line_height = T.resolved_line_height(T.resolve_presentation(capacity, font))
+  +line_floor = Nat.mul(minimum_lines, line_height)
+  field_height_extent(variable, line_floor, maximum_lines, line_height, measured)
+
+def field_natural_height(variable: Bool, policy: Source.FieldPolicy, +font: T.Presentation, +measured: Nat) -> Nat:
+  field_natural_height_at(NaturalSize.limit(), variable, policy, font, measured)
+
+# Native content remains part of the demand; multiline fields bound the viewport
+# by the same line policy used when sampling their height at an allocated width.
+def field_natural_demand_at(capacity: Nat, +kind: Source.NativeFieldKind, +policy: Source.FieldPolicy,
+  +font: T.Presentation, +observation: Content.Observation) -> Space.Demand:
+  Source.FieldPolicy{columns, minimum_lines, maximum_lines} = policy
+  +minimum_width = Nat.max(Nat.mul(columns, observation_advance(observation)), observation_minimum(observation))
+  +preferred_width = Nat.max(minimum_width, observation_preferred(observation))
+  +height = field_natural_height_at(capacity, multiline(kind), policy, font, observation_height(observation))
+  Space.Demand{Enclosure.Extent{minimum_width, height}, Enclosure.Extent{preferred_width, height}}
+
+def field_natural_demand(+kind: Source.NativeFieldKind, +policy: Source.FieldPolicy,
+  +font: T.Presentation, +observation: Content.Observation) -> Space.Demand:
+  field_natural_demand_at(NaturalSize.limit(), kind, policy, font, observation)
+
+def observed_leaf_at(capacity: Nat, node: Source.Node, +key: String, +font: T.Presentation,
   +rule: Model.Rule, +observation: Content.Observation, +roots: +List<Content.NativeRoot>,
   +policies: +List<Content.NativePolicy>) -> Forest:
   match node:
     case Source.Text{+label, +value, +choice, +wrapping}:
-      +minimum = observation_minimum(observation)
-      +preferred = observation_preferred(observation)
+      +demand = text_natural_demand(wrapping, observation)
       +height = observation_height(observation)
       +local = Content.local_value(Source.Text{label, value, choice, wrapping}, font)
       ReadyForest{[Model.Leaf{key, local, Model.DisplayOnly{}, rule,
-        Space.Demand{Enclosure.Extent{minimum, height}, Enclosure.Extent{preferred, height}},
+        demand,
         text_height(wrapping, key, height)}], roots, policies}
     case Source.Field{+label, +kind, +style, +attributes, +value, +placeholder, +options,
       Source.FieldPolicy{+columns, +lines, +maximum_lines}, +accessible_name, +enabled, +first_event, +remaining_events}:
       +policy: Source.FieldPolicy = Source.FieldPolicy{columns, lines, maximum_lines}
-      +advance = observation_advance(observation)
-      +width = Nat.mul(columns, advance)
-      +field_height_minimum = Nat.mul(T.resolved_line_height(T.resolved(font)), lines)
+      +demand = field_natural_demand_at(capacity, kind, policy, font, observation)
+      +height = Enclosure.extent_height(Model.minimum_demand(demand))
       +field: Source.Node = Source.Field{label, kind, style, attributes, value, placeholder, options,
         policy, accessible_name, enabled, first_event, remaining_events}
       ReadyForest{[Model.Leaf{key, Content.local_value(field, font), Source.interaction_of(field), rule,
-        Space.fixed_demand(width, field_height_minimum), field_height(multiline(kind), key, field_height_minimum)}], roots, policies}
-    case Source.RichText{+label, +style, +content, +attachments}:
+        demand, field_height(multiline(kind), key, height)}], roots, policies}
+    case Source.RichText{+label, +style, +content, +attachments, +native_owner}:
       +minimum = observation_minimum(observation)
       +preferred = observation_preferred(observation)
       +height = observation_height(observation)
-      +rich: Source.Node = Source.RichText{label, style, content, attachments}
+      +rich: Source.Node = Source.RichText{label, style, content, attachments, native_owner}
       +lower = rich_minimum(rich, owned_root(roots, key), minimum)
       ReadyForest{[Model.Leaf{key, Content.local_value(rich, font), Model.DisplayOnly{}, rule,
         Space.Demand{Enclosure.Extent{lower, height}, Enclosure.Extent{Nat.max(lower, preferred), height}},
@@ -195,6 +228,11 @@ def observed_leaf(node: Source.Node, +key: String, +font: T.Presentation,
     case Source.Control{label, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: InvalidForest{Content.InvalidObservation{key}}
     case Source.Glyph{label, drawing, style}: InvalidForest{Content.InvalidObservation{key}}
     case Source.NativeAttachment{label, target, attributes, style, children}: InvalidForest{Content.InvalidObservation{key}}
+
+def observed_leaf(node: Source.Node, +key: String, +font: T.Presentation,
+  +rule: Model.Rule, +observation: Content.Observation, +roots: +List<Content.NativeRoot>,
+  +policies: +List<Content.NativePolicy>) -> Forest:
+  observed_leaf_at(NaturalSize.limit(), node, key, font, rule, observation, roots, policies)
 
 def receipt(found: Maybe<&2, Content.Observation>, +request: Content.Request,
   +rule: Model.Rule, +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>) -> Forest:
@@ -335,9 +373,9 @@ def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +gen
       +resolved = Source.resolve_style(style, parent_font)
       merge(ordinary(context, field(Source.field_policy_valid(policy), node, path, resolved, generation, observations), path),
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
-    case Con{Source.RichText{+key, +style, Source.RichContent{+source, +value, +policy}, +attachments}, +rest}:
+    case Con{Source.RichText{+key, +style, Source.RichContent{+source, +value, +policy}, +attachments, +native_owner}, +rest}:
       +path = prefix ++ "/" ++ Nat.show(index)
-      +node: Source.Node = Source.RichText{key, style, Source.RichContent{source, value, policy}, attachments}
+      +node: Source.Node = Source.RichText{key, style, Source.RichContent{source, value, policy}, attachments, native_owner}
       +resolved = Source.resolve_style(style, parent_font)
       merge(ordinary(context, rich(prepare_forest(attachments, resolved_font(resolved), generation, path, 0n, RichSlots{path, source}, observations), node, path, resolved, generation, observations), path),
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
@@ -386,8 +424,8 @@ def prepare(+snapshot: Content.Snapshot, observations: +List<Content.Observation
 def height_request(node: Source.Node, +key: String, +font: T.Presentation, +generation: Nat,
   +width: Nat, +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>) -> Content.Request:
   match node:
-    case Source.RichText{label, style, content, attachments}:
-      Content.Request{generation, key, Content.local_value(Source.RichText{label, style, content, attachments}, font),
+    case Source.RichText{label, style, content, attachments, native_owner}:
+      Content.Request{generation, key, Content.local_value(Source.RichText{label, style, content, attachments, native_owner}, font),
         Content.AtWidth{width}, owned_root(roots, key), owned_policy(policies, key)}
     case Source.Text{label, value, choice, wrapping}:
       Content.Request{generation, key, Content.local_value(Source.Text{label, value, choice, wrapping}, font), Content.AtWidth{width}, Nil{}, Nil{}}
@@ -432,7 +470,7 @@ def sample_height(node: Source.Node, +font: T.Presentation, +measured: Nat) -> N
     case Source.Control{label, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: measured
     case Source.Text{label, value, choice, wrapping}: measured
     case Source.Glyph{label, drawing, style}: measured
-    case Source.RichText{label, style, content, attachments}: measured
+    case Source.RichText{label, style, content, attachments, native_owner}: measured
     case Source.NativeAttachment{label, target, attributes, style, children}: measured
 
 def sample_request(request: Content.Request, width: Nat, measured: Nat) -> +List<Model.HeightSample>:

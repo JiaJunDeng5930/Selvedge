@@ -1,4 +1,5 @@
 import Base
+import ../COMMANDS.bend as Commands
 import ../MODEL.bend as M
 import ../BOARD.bend as B
 import ../FEATURES.bend as F
@@ -334,6 +335,17 @@ def valid_origin(body: Body) -> Bool:
     case Fork{task, count, messages, Context.Configuration{origin, workspace, sandbox, approval}}: fork_origin(origin, task)
     case _: True{}
 
+
+def selected_model_permitted(found: Maybe<&2, D.Profile>, reasoning: String) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{+profile}: D.profile_permitted(profile, D.profile_selection(reasoning, profile))
+
+def model_permitted(body: Body, world: M.World()) -> Bool:
+  match body:
+    case NewTask{message, profile, reasoning, context}: selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning)
+    case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning)
+    case _: True{}
 
 def contents(draft: Draft) -> Body:
   Draft{revision, body, feedback, directory_entry} = draft

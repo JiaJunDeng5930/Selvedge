@@ -5,7 +5,7 @@ import { providerInput, responseBody } from '../host/providers.mjs';
 
 const policy = (transport = 'configuration_update', extra = {}) => ({ evaluator: 'separate-evaluator',
   efforts: ['low', 'medium', 'high'], baseline: 'medium', transport, max_lease: 10, ...extra });
-const profile = (adaptive = policy()) => ({ key: 'automatic', provider: 'responses', name: 'a-manually-configured-model', adaptive_reasoning: adaptive });
+const profile = (adaptive = policy()) => ({ key: 'automatic', provider: 'responses', name: 'a-manually-configured-model', reasoning_options: null, adaptive_reasoning: adaptive });
 const readCall = (id, task_id = 0) => ({ type: 'call', id, name: 'read_task', arguments: { task_id, after: 0, limit: 1 } });
 const effect = (decision, kind, task = 0) => {
   const found = decision.effects.find(item => item.kind === kind && item.task_id === task);
@@ -20,7 +20,7 @@ async function kernel(t, adaptive = policy()) {
   const send = async input => (await k.request(input)).value;
   const command = command => send({ kind: 'command', command });
   const configured = await send({ kind: 'configure', profiles: [
-    { key: 'fixed', provider: 'responses', name: 'ordinary-model' }, profile(adaptive),
+    { key: 'fixed', provider: 'responses', name: 'ordinary-model', reasoning_options: null }, profile(adaptive),
   ], tools: [], max_fork: 4, max_descendants: 8 });
   assert.equal(configured.reply.ok, true, JSON.stringify(configured));
   return { send, command,

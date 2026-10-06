@@ -1,7 +1,8 @@
 import Base
+import ../../bendlib/proofs/logic.bend as Logic
 import ../typography-laws.bend as Rule
 import ../typography.bend as Text
-import ../../bendlib/stdlib.bend as Std
+import ../natural-size.bend as NaturalSize
 
 def successor_zero(rest: Nat) ->
   {True{} == Nat.is_ge(rest, 0n) : Bool}:
@@ -25,49 +26,52 @@ def separated(+lower: Nat, +nominal: Nat) ->
     Nat.is_ge(Nat.max(1n+lower, nominal), 1n+lower), True{},
     strict_successor(Nat.max(1n+lower, nominal), lower), Nat.max_ge_l(1n+lower, nominal))
 
-def scaled_positive(+nominal: Nat, +scale: Text.Scale) ->
-  {Nat.is_ge(Text.scaled(nominal, scale), 1n) == True{} : Bool}:
-  Text.Scale{additional_milli} = scale
-  Nat.max_ge_l(1n, Nat.div(Nat.mul(nominal, Nat.add(1000n, additional_milli)), 1000n))
-
-def support_positive(+scale: Text.Scale) ->
-  {Nat.is_ge(Text.support_size(scale), 1n) == True{} : Bool}:
-  scaled_positive(12n, scale)
-
-def body_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Body{}, emphasis, scale)), Text.support_size(scale)) == True{} : Bool}:
-  separated(Text.support_size(scale), Text.scaled(13n, scale))
-
-def section_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Section{}, emphasis, scale)), Text.body_size(scale)) == True{} : Bool}:
-  separated(Text.body_size(scale), Text.scaled(14n, scale))
-
-def title_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Title{}, emphasis, scale)), Text.section_size(scale)) == True{} : Bool}:
-  separated(Text.section_size(scale), Text.scaled(20n, scale))
-
-def display_separation(+scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Nat.is_gt(Text.resolved_size(Text.resolve(Text.Display{}, emphasis, scale)), Text.title_size(scale)) == True{} : Bool}:
-  separated(Text.title_size(scale), Text.scaled(28n, scale))
-
-def readable_leading(+tier: Text.Tier, emphasis: Text.Emphasis, +scale: Text.Scale) ->
-  {Nat.is_ge(Text.resolved_line_height(Text.resolve(tier, emphasis, scale)), 1n+Text.resolved_size(Text.resolve(tier, emphasis, scale))) == True{} : Bool}:
-  Nat.max_ge_l(1n+Text.size(tier, scale), Text.scaled(Text.nominal_leading(tier), scale))
-
-def code_size(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Text.resolved_size(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.resolved_size(Text.resolve(Text.Body{}, emphasis, scale)) : Nat}:
+def positive_clamp(+value: Nat) ->
+  {Text.positive(value) == Nat.max(1n, value) : Nat}:
   {==}
 
-def code_leading(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Text.resolved_line_height(Text.resolve(Text.CodeBody{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(Text.Body{}, emphasis, scale)) : Nat}:
+def scaled_positive(+capacity: Nat, +nominal: Nat, +scale: Text.Scale) ->
+  {Nat.is_ge(Text.scaled(capacity, nominal, scale), 1n) == True{} : Bool}:
+  Nat.max_ge_l(1n, NaturalSize.saturated(capacity, NaturalSize.evaluate(capacity, Text.scaling_calculation(nominal, scale))))
+
+def support_positive(+capacity: Nat, +scale: Text.Scale) ->
+  {Nat.is_ge(Text.support_size(capacity, scale), 1n) == True{} : Bool}:
+  scaled_positive(capacity, 12n, scale)
+
+def body_separation(+capacity: Nat, +scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Nat.is_gt(Text.resolved_size(Text.resolve(capacity, Text.Body{}, emphasis, scale)), Text.support_size(capacity, scale)) == True{} : Bool}:
+  separated(Text.support_size(capacity, scale), Text.scaled(capacity, 13n, scale))
+
+def section_separation(+capacity: Nat, +scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Nat.is_gt(Text.resolved_size(Text.resolve(capacity, Text.Section{}, emphasis, scale)), Text.body_size(capacity, scale)) == True{} : Bool}:
+  separated(Text.body_size(capacity, scale), Text.scaled(capacity, 14n, scale))
+
+def title_separation(+capacity: Nat, +scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Nat.is_gt(Text.resolved_size(Text.resolve(capacity, Text.Title{}, emphasis, scale)), Text.section_size(capacity, scale)) == True{} : Bool}:
+  separated(Text.section_size(capacity, scale), Text.scaled(capacity, 20n, scale))
+
+def display_separation(+capacity: Nat, +scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Nat.is_gt(Text.resolved_size(Text.resolve(capacity, Text.Display{}, emphasis, scale)), Text.title_size(capacity, scale)) == True{} : Bool}:
+  separated(Text.title_size(capacity, scale), Text.scaled(capacity, 28n, scale))
+
+def readable_leading(+capacity: Nat, +tier: Text.Tier, emphasis: Text.Emphasis, +scale: Text.Scale) ->
+  {Nat.is_ge(Text.resolved_line_height(Text.resolve(capacity, tier, emphasis, scale)), 1n+Text.resolved_size(Text.resolve(capacity, tier, emphasis, scale))) == True{} : Bool}:
+  Nat.max_ge_l(1n+Text.size(capacity, tier, scale), Text.scaled(capacity, Text.nominal_leading(tier), scale))
+
+def code_size(+capacity: Nat, scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Text.resolved_size(Text.resolve(capacity, Text.CodeBody{}, emphasis, scale)) == Text.resolved_size(Text.resolve(capacity, Text.Body{}, emphasis, scale)) : Nat}:
   {==}
 
-def code_support_size(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Text.resolved_size(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.resolved_size(Text.resolve(Text.Support{}, emphasis, scale)) : Nat}:
+def code_leading(+capacity: Nat, scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Text.resolved_line_height(Text.resolve(capacity, Text.CodeBody{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(capacity, Text.Body{}, emphasis, scale)) : Nat}:
   {==}
 
-def code_support_leading(scale: Text.Scale, emphasis: Text.Emphasis) ->
-  {Text.resolved_line_height(Text.resolve(Text.CodeSupport{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(Text.Support{}, emphasis, scale)) : Nat}:
+def code_support_size(+capacity: Nat, scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Text.resolved_size(Text.resolve(capacity, Text.CodeSupport{}, emphasis, scale)) == Text.resolved_size(Text.resolve(capacity, Text.Support{}, emphasis, scale)) : Nat}:
+  {==}
+
+def code_support_leading(+capacity: Nat, scale: Text.Scale, emphasis: Text.Emphasis) ->
+  {Text.resolved_line_height(Text.resolve(capacity, Text.CodeSupport{}, emphasis, scale)) == Text.resolved_line_height(Text.resolve(capacity, Text.Support{}, emphasis, scale)) : Nat}:
   {==}
 
 def measurement_content(key: String, text: String, style: Text.TextStyle, wrapping: Text.Wrapping, available: Maybe<&2,Nat>, reference: String) ->
@@ -80,29 +84,21 @@ def measurement_wrapping(key: String, text: String, style: Text.TextStyle, +wrap
   Text.TextStyle{family,size,leading,weight} = style
   {==}
 
-def presentation_parameters(+presentation: Text.Presentation, +new_tier: Text.Tier, +new_emphasis: Text.Emphasis, +new_scale: Text.Scale) ->
+def presentation_parameters(+capacity: Nat, +presentation: Text.Presentation, +new_tier: Text.Tier, +new_emphasis: Text.Emphasis, +new_scale: Text.Scale) ->
   {Rule.presentation_fields(Text.with_tier(presentation, new_tier)) == (new_tier, (Rule.presentation_emphasis(presentation), Text.presentation_scale(presentation))) : (Text.Tier & (Text.Emphasis & Text.Scale))} &
   {Rule.presentation_fields(Text.with_emphasis(presentation, new_emphasis)) == (Rule.presentation_tier(presentation), (new_emphasis, Text.presentation_scale(presentation))) : (Text.Tier & (Text.Emphasis & Text.Scale))} &
   {Rule.presentation_fields(Text.with_scale(presentation, new_scale)) == (Rule.presentation_tier(presentation), (Rule.presentation_emphasis(presentation), new_scale)) : (Text.Tier & (Text.Emphasis & Text.Scale))} &
-  {Text.resolved(presentation) == Text.resolve(Rule.presentation_tier(presentation), Rule.presentation_emphasis(presentation), Text.presentation_scale(presentation)) : Text.TextStyle}:
+  {Text.resolve_presentation(capacity, presentation) == Text.resolve(capacity, Rule.presentation_tier(presentation), Rule.presentation_emphasis(presentation), Text.presentation_scale(presentation)) : Text.TextStyle}:
   Text.Presentation{tier, emphasis, scale} = presentation
   ({==}, {==}, {==}, {==})
-
-def admission_goal(P: Type, value: Bool) -> Type:
-  match value:
-    case False{}: Unit
-    case True{}: P
-
-def admission_impossible(P: Type, evidence: {False{} == True{} : Bool}) -> P:
-  Std.transport(Bool, False{}, (value => admission_goal(P, value)), Unit{}, True{}, Equal.sym(Bool, False{}, True{}, evidence))
 
 def admitted_flags(+keys: Bool, +widths: Bool, +height: Bool, reference: Bool,
   accepted: {Bool.and(keys, Bool.and(widths, Bool.and(height, reference))) == True{} : Bool}) ->
   {keys == True{} : Bool} & ({widths == True{} : Bool} & {height == True{} : Bool}):
   match keys widths height:
-    case False{} widths height: admission_impossible({False{} == True{} : Bool} & ({widths == True{} : Bool} & {height == True{} : Bool}), accepted)
-    case True{} False{} height: admission_impossible({True{} == True{} : Bool} & ({False{} == True{} : Bool} & {height == True{} : Bool}), accepted)
-    case True{} True{} False{}: admission_impossible({True{} == True{} : Bool} & ({True{} == True{} : Bool} & {False{} == True{} : Bool}), accepted)
+    case False{} widths height: Logic.impossible({False{} == True{} : Bool} & ({widths == True{} : Bool} & {height == True{} : Bool}), accepted)
+    case True{} False{} height: Logic.impossible({True{} == True{} : Bool} & ({False{} == True{} : Bool} & {height == True{} : Bool}), accepted)
+    case True{} True{} False{}: Logic.impossible({True{} == True{} : Bool} & ({True{} == True{} : Bool} & {False{} == True{} : Bool}), accepted)
     case True{} True{} True{}: ({==}, ({==}, {==}))
 
 def admitted_metric_boundaries(+specification: Text.MeasurementSpec, +metric: Text.Metric,
@@ -116,20 +112,22 @@ def admitted_metric_boundaries(+specification: Text.MeasurementSpec, +metric: Te
 def Rule.evidence():
   Rule.Requirements{admitted_metric_boundaries, {==}, {==},
     presentation_parameters,
+    positive_clamp,
     support_positive,
-    scale => emphasis => body_separation(scale, emphasis),
-    scale => emphasis => section_separation(scale, emphasis),
-    scale => emphasis => title_separation(scale, emphasis),
-    scale => emphasis => display_separation(scale, emphasis),
-    tier => emphasis => scale => readable_leading(tier, emphasis, scale),
-    tier => emphasis => scale => {==}, tier => emphasis => scale => {==},
-    +tier => first => second => +scale => {==},
-    +tier => first => second => +scale => {==},
-    tier => scale => {==}, tier => scale => {==}, tier => scale => {==},
-    scale => emphasis => {==}, scale => emphasis => {==},
+    +capacity => scale => emphasis => body_separation(capacity, scale, emphasis),
+    +capacity => scale => emphasis => section_separation(capacity, scale, emphasis),
+    +capacity => scale => emphasis => title_separation(capacity, scale, emphasis),
+    +capacity => scale => emphasis => display_separation(capacity, scale, emphasis),
+    +capacity => tier => emphasis => scale => readable_leading(capacity, tier, emphasis, scale),
+    +capacity => tier => emphasis => scale => {==}, +capacity => tier => emphasis => scale => {==},
+    +capacity => +tier => first => second => +scale => {==},
+    +capacity => +tier => first => second => +scale => {==},
+    +capacity => tier => scale => {==}, +capacity => tier => scale => {==}, +capacity => tier => scale => {==},
+    +capacity => scale => emphasis => {==}, +capacity => scale => emphasis => {==},
     code_size, code_leading, code_support_size, code_support_leading,
     {==}, {==},
     measurement_content,
     key => text => family => size => leading => weight => wrapping => available => reference => {==},
     measurement_wrapping,
-    advance => columns => {==}}
+    advance => columns => {==},
+    +capacity => scale => {==}}

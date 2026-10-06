@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./source.bend as Source
 import ./authored-controls.bend as Controls
 import ../core/interface.bend as UI
@@ -144,11 +145,11 @@ def collect(nodes: +List<Source.Node>, +semantic: +List<UI.Node>) -> Basis:
     case Nil{}: Basis{Nil{}, Nil{}}
     case Con{Source.Box{key, tag, style, attrs, children}, rest}: merge(collect(children, semantic), collect(rest, semantic))
     case Con{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, rest}:
-      merge(Basis{Nil{}, [key]}, merge(collect(children, semantic), collect(rest, semantic)))
+      merge(Basis{Nil{}, [UIIdentity.encode(key)]}, merge(collect(children, semantic), collect(rest, semantic)))
     case Con{Source.NativeAttachment{key, target, attrs, style, children}, rest}: merge(collect(children, semantic), collect(rest, semantic))
     case Con{Source.Field{+key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}, rest}:
-      merge(Basis{found_binding(key, kind, UI.find_node(semantic, key)), [key]}, collect(rest, semantic))
-    case Con{Source.RichText{key, style, content, attachments}, rest}: merge(collect(attachments, semantic), collect(rest, semantic))
+      merge(Basis{found_binding(UIIdentity.encode(key), kind, UI.find_node(semantic, UIIdentity.encode(key))), [UIIdentity.encode(key)]}, collect(rest, semantic))
+    case Con{Source.RichText{key, style, content, attachments, native_owner}, rest}: merge(collect(attachments, semantic), collect(rest, semantic))
     case Con{Source.Text{key, value, font, wrapping}, rest}: collect(rest, semantic)
     case Con{Source.Glyph{key, drawing, style}, rest}: collect(rest, semantic)
 def basis(source: +List<Source.Node>, semantic: UI.Surface) -> Basis: collect(source, forest(semantic))
@@ -157,7 +158,7 @@ def owned_found(found: Maybe<&2, UI.Node>, binding: Binding) -> Bool:
     case None{}: False{}
     case Some{UI.Node{current, identity, label, role, meaning, children}}:
       Binding{key, kind, semantic, original} = binding
-      (String.eq(key, current) && String.eq(semantic, identity)) && same_meaning(original, meaning)
+      (String.eq(key, UIIdentity.encode(current)) && String.eq(semantic, identity)) && same_meaning(original, meaning)
 def owned_node(binding: Binding, found: Maybe<&2, UI.Node>) -> Bool: owned_found(found, binding)
 def projected_kind(kind: Source.NativeFieldKind, +key: String, +semantic: String, +meaning: UI.Meaning) -> +List<Update>:
   match kind:

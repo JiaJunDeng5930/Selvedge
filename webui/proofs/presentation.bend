@@ -9,7 +9,7 @@ import ../rendered.bend as Rendered
 import ../font-observation.bend as F
 
 import ../presentation-laws.bend as Rule
-import ./space.bend as Proof_space
+import ../../bendlib/proofs/logic.bend as Logic
 import ../model-rules.bend as Rules_model_rules
 
 def production_commit_environment(decision: Platform.Decision, generation: Nat, +environment: Design.Environment, font: F.State) ->
@@ -41,20 +41,20 @@ def same_capacity_identity(+first: View.Capacity, +second: View.Capacity,
   same: {Platform.same_capacity(first, second) == True{} : Bool}) -> {first == second : View.Capacity}:
   match first second:
     case View.Capacity{False{}, False{}} View.Capacity{False{}, False{}}: {==}
-    case View.Capacity{False{}, False{}} View.Capacity{False{}, True{}}: Proof_space.impossible({View.Capacity{False{}, False{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
-    case View.Capacity{False{}, False{}} View.Capacity{True{}, False{}}: Proof_space.impossible({View.Capacity{False{}, False{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
-    case View.Capacity{False{}, False{}} View.Capacity{True{}, True{}}: Proof_space.impossible({View.Capacity{False{}, False{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
-    case View.Capacity{False{}, True{}} View.Capacity{False{}, False{}}: Proof_space.impossible({View.Capacity{False{}, True{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
+    case View.Capacity{False{}, False{}} View.Capacity{False{}, True{}}: Logic.impossible({View.Capacity{False{}, False{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
+    case View.Capacity{False{}, False{}} View.Capacity{True{}, False{}}: Logic.impossible({View.Capacity{False{}, False{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
+    case View.Capacity{False{}, False{}} View.Capacity{True{}, True{}}: Logic.impossible({View.Capacity{False{}, False{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
+    case View.Capacity{False{}, True{}} View.Capacity{False{}, False{}}: Logic.impossible({View.Capacity{False{}, True{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
     case View.Capacity{False{}, True{}} View.Capacity{False{}, True{}}: {==}
-    case View.Capacity{False{}, True{}} View.Capacity{True{}, False{}}: Proof_space.impossible({View.Capacity{False{}, True{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
-    case View.Capacity{False{}, True{}} View.Capacity{True{}, True{}}: Proof_space.impossible({View.Capacity{False{}, True{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
-    case View.Capacity{True{}, False{}} View.Capacity{False{}, False{}}: Proof_space.impossible({View.Capacity{True{}, False{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
-    case View.Capacity{True{}, False{}} View.Capacity{False{}, True{}}: Proof_space.impossible({View.Capacity{True{}, False{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
+    case View.Capacity{False{}, True{}} View.Capacity{True{}, False{}}: Logic.impossible({View.Capacity{False{}, True{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
+    case View.Capacity{False{}, True{}} View.Capacity{True{}, True{}}: Logic.impossible({View.Capacity{False{}, True{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
+    case View.Capacity{True{}, False{}} View.Capacity{False{}, False{}}: Logic.impossible({View.Capacity{True{}, False{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
+    case View.Capacity{True{}, False{}} View.Capacity{False{}, True{}}: Logic.impossible({View.Capacity{True{}, False{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
     case View.Capacity{True{}, False{}} View.Capacity{True{}, False{}}: {==}
-    case View.Capacity{True{}, False{}} View.Capacity{True{}, True{}}: Proof_space.impossible({View.Capacity{True{}, False{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
-    case View.Capacity{True{}, True{}} View.Capacity{False{}, False{}}: Proof_space.impossible({View.Capacity{True{}, True{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
-    case View.Capacity{True{}, True{}} View.Capacity{False{}, True{}}: Proof_space.impossible({View.Capacity{True{}, True{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
-    case View.Capacity{True{}, True{}} View.Capacity{True{}, False{}}: Proof_space.impossible({View.Capacity{True{}, True{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
+    case View.Capacity{True{}, False{}} View.Capacity{True{}, True{}}: Logic.impossible({View.Capacity{True{}, False{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
+    case View.Capacity{True{}, True{}} View.Capacity{False{}, False{}}: Logic.impossible({View.Capacity{True{}, True{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
+    case View.Capacity{True{}, True{}} View.Capacity{False{}, True{}}: Logic.impossible({View.Capacity{True{}, True{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
+    case View.Capacity{True{}, True{}} View.Capacity{True{}, False{}}: Logic.impossible({View.Capacity{True{}, True{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
     case View.Capacity{True{}, True{}} View.Capacity{True{}, True{}}: {==}
 
 def changed_capacity_actual(decision: Platform.Decision, +requested: View.Capacity) ->

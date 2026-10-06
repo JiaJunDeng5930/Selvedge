@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./spatial.bend as SpatialModel
 import ./typography.bend as T
 import ./enclosure.bend as Enclosure
@@ -9,21 +10,6 @@ import ./design.bend as Design
 import ./surfaces.bend as Surfaces
 import ./appearance.bend as Appearance
 import ./controls.bend as Controls
-
-type Keyed is Data:
-  Keyed{key: String, children: +List<Keyed>}
-
-def source_keys(values: +List<UI.Node>) -> +List<Keyed>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
-      Con{Keyed{key, source_keys(children)}, source_keys(rest)}
-
-def appearance_keys(values: +List<Design.Node>) -> +List<Keyed>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{Design.Node{key, semantic, label, role, meaning, style, control, children}, rest}:
-      Con{Keyed{key, appearance_keys(children)}, appearance_keys(rest)}
 
 def configured_appearance(surface: UI.Surface) -> Services.Appearance:
   UI.Surface{content, base, overlays, active_scope} = surface
@@ -59,9 +45,9 @@ type Requirements is Type:
       {Nat.is_ge(Design.style_minimum_height(Appearance.action_style(value, face, geometry)), Controls.geometry_minimum_height(geometry)) == True{} : Bool},
     action_content_minimum: @+value:Design.Style -> @+face:Controls.Face -> @+geometry:Controls.Geometry ->
       {Nat.is_ge(Design.style_minimum_height(Appearance.action_style(value, face, geometry)), Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Design.style_text(value), geometry), Appearance.style_border_width(value), Controls.layout_content_area(Controls.content_layout(face))))) == True{} : Bool},
-    field_content_minimum: @+value:Design.Style -> @+border:Nat -> @minimum:Nat -> @radius:Nat ->
-      {Nat.is_ge(Design.style_minimum_height(Appearance.field_values(value, border, minimum, radius)), Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.text_line_height(Design.style_text(value)), border, Appearance.style_content_area(value)))) == True{} : Bool},
-    actual_information_assignment: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+context:Controls.Context -> @+inherited:T.Presentation -> @+in_main:Bool -> @+start:Bool ->
+    field_content_minimum: @+capacity:Nat -> @+value:Design.Style -> @+border:Nat -> @minimum:Nat -> @radius:Nat ->
+      {Nat.is_ge(Design.style_minimum_height(Appearance.field_values(capacity, value, border, minimum, radius)), Enclosure.extent_height(Appearance.field_required_extent(capacity, value, border))) == True{} : Bool},
+    actual_information_assignment: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+context:Controls.Context -> @+inherited:T.Presentation -> @+in_main:Bool -> @+start:Bool ->
       {first_text(Appearance.nodes_at([UI.Node{key,semantic,label,role,meaning,Nil{}}], context, inherited, in_main, start)) ==
         Some{Design.style_text(Appearance.prepared_style(key,semantic,role,meaning,Controls.enter(UI.Node{key,semantic,label,role,meaning,Nil{}},context),
           Controls.represent(key,meaning,label,role,Controls.enter(UI.Node{key,semantic,label,role,meaning,Nil{}},context)),
@@ -74,8 +60,6 @@ type Requirements is Type:
       {Appearance.information_role(UI.Content{},UI.ReadOnly{text},inherited,in_main,start) == inherited : T.Presentation},
     nodes_preserve_semantics: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @values:+List<UI.Node> -> @context:Controls.Context ->
       {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<UI.Node>},
-    nodes_preserve_keys_at: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @+values:+List<UI.Node> -> @+context:Controls.Context ->
-      {appearance_keys(Appearance.nodes_at(values, context, typography, in_main, start)) == source_keys(values) : +List<Keyed>},
     present_uses_configured_appearance: @+scale:T.Scale -> @surface:UI.Surface -> @system_dark:Bool ->
       {presented_theme(surface, system_dark, scale) ==
         Appearance.theme(configured_appearance(surface), system_dark) : Design.Theme},

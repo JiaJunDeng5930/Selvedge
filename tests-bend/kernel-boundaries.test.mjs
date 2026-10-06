@@ -11,7 +11,7 @@ async function kernel(t, overrides = {}) {
   await k.initialize();
   const send = async input => (await k.request(input)).value;
   const command = body => send({ kind: 'command', command: body });
-  const configure = config => send({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model' }], tools: [], max_fork: 4, max_descendants: 8, ...config });
+  const configure = config => send({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8, ...config });
   assert.equal((await configure(overrides)).reply.ok, true);
   return { k, send, command, configure };
 }

@@ -74,7 +74,7 @@ def apply_edit(edit: Maybe<&2, U.Edit>, editor: U.Editor, application: E.Applica
 
 def edit_attachment(+editor: U.Editor, add: Maybe<&2, B.Attachment>, id: String, application: E.Application) -> E.Decision:
   E.Application{program, session} = application
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   apply_edit(attachment_edit(E.find_draft(drafts, editor), add, id), editor, E.Application{program, session})
 
 def attached(decision: E.Decision) -> E.Application:
@@ -87,7 +87,7 @@ def workspace_draft(found: Maybe<&2, U.Draft>) -> Bool:
     case None{}: False{}
 
 def accepts_directory(+editor: U.Editor, application: E.Application) -> Bool:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   workspace_draft(E.find_draft(drafts, editor)) && Bool.not(E.busy(pending, editor))
 
 def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, application: E.Application) -> E.Application:
@@ -147,7 +147,7 @@ def is_card_draft(found: Maybe<&2, U.Draft>) -> Bool:
     case _: False{}
 
 def accepts_files(editor: U.Editor, application: E.Application) -> Bool:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   is_card_draft(E.find_draft(drafts, editor))
 
 def add_allowed(allowed: Bool, input: Services.Input, application: E.Application, services: Services.State) -> Decision:
@@ -184,9 +184,9 @@ def edit_found(found: Maybe<&2, U.Draft>, editor: U.Editor, +field: Forms.Field,
     case Some{U.Draft{revision, +body, feedback, directory_entry}}: edit_exposed(Forms.exposed(body, field), body, editor, field, value, application)
 
 def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
-  E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   edit_found(E.find_draft(drafts, editor), editor, field, value,
-    E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}})
+    E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}})
 def dispatch(state: State, +input: Input) -> Decision:
   State{application, +services} = state
   match input:
@@ -196,7 +196,7 @@ def dispatch(state: State, +input: Input) -> Decision:
     case RemoveAttachment{editor, id}: application_result(edit_attachment(editor, None{}, id, application), services)
 
 def code_scenes(application: E.Application) -> +List<Content.Scene>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   List.foldr(~&2, ~Content.Block, ~(+List<Content.Scene>), ~(block => rest => Content.observe(block) <> rest), code_blocks, Nil{})
 def observe(capacity: View.Capacity, state: State) -> Scene:
   State{+application, Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}} = state

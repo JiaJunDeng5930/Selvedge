@@ -72,23 +72,29 @@ type Requirements is Type:
         settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}) ==
         Services.Decision{Services.State{access, credential, settings_open, appearance, next,
           transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
-    stale_copy: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @copy:Code.CopyState ->
-      @next:Nat -> @pending:Maybe<&2, Nat> -> @ticket:Nat -> @success:Bool ->
-      @stale:{Code.same_ticket(pending, ticket) == False{} : Bool} ->
-      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next, pending},
+    stale_copy: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @+copy:Code.CopyState ->
+      @next:Nat -> @ticket:Nat -> @success:Bool ->
+      @stale:{Code.same_ticket(copy, ticket) == False{} : Bool} ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next},
         Code.Copied{ticket, success}) ==
-        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, copy}, next, pending}, Nil{}} : Code.Decision},
+        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Nil{}} : Code.Decision},
+    stale_copy_expiry: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @+copy:Code.CopyState ->
+      @next:Nat -> @ticket:Nat ->
+      @stale:{Code.feedback_ticket(copy, ticket) == False{} : Bool} ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next},
+        Code.ExpireFeedback{ticket}) ==
+        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Nil{}} : Code.Decision},
     copy_snapshot: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @copy:Code.CopyState ->
-      @next:Nat -> @pending:Maybe<&2, Nat> ->
+      @next:Nat ->
       @can_copy:{Code.code_can_copy(Code.CodeView{wrap, copy}) == True{} : Bool} ->
-      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next, pending}, Code.Copy{}) ==
-        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, Code.CopyPending{}},
-          (next + 1n : Nat), Some{next}}, [Code.WriteClipboard{next, source}]} : Code.Decision},
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Code.Copy{}) ==
+        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, Code.CopyPending{next}},
+          (next + 1n : Nat)}, [Code.WriteClipboard{next, source}]} : Code.Decision},
     toggle_preserves_transfer: @+identity:Code.Identity -> @source:String -> @+wrap:Bool ->
-      @copy:Code.CopyState -> @next:Nat -> @pending:Maybe<&2, Nat> ->
-      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next, pending}, Code.ToggleWrap{}) ==
+      @copy:Code.CopyState -> @next:Nat ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Code.ToggleWrap{}) ==
         Code.Decision{Code.Block{identity, source,
-          Code.CodeView{Bool.not(wrap), copy}, next, pending}, Nil{}} : Code.Decision},
+          Code.CodeView{Bool.not(wrap), copy}, next}, Nil{}} : Code.Decision},
     effective_contract: @+model:D.Model -> @+tools:+List<D.Tool> -> @max_fork:Nat ->
       @max_descendants:Nat -> @+plugins:+List<D.Plugin> -> @+context:D.TaskContext -> @task:Nat ->
       {Context.effective_contract(D.Contract{model, tools, max_fork, max_descendants, plugins, context}, task) ==

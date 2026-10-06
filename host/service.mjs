@@ -325,6 +325,10 @@ export class Service extends EventEmitter {
     return { sequence: this.journal.sequence, program: this.journal.program };
   }
 
+  browserStreams() {
+    return structuredClone([...this.#streams.values()]);
+  }
+
   async browserCommand(command) {
     const result = await this.command(command);
     return { sequence: result.sequence, program: result.program, reply: result.reply };
@@ -335,7 +339,7 @@ export class Service extends EventEmitter {
     if (this.#closing) throw new Error('Service is stopping');
     if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
     if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
-      return { kind: 'streams', streams: structuredClone([...this.#streams.values()]) };
+      return { kind: 'streams', streams: this.browserStreams() };
     }
     if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2) {
       try {

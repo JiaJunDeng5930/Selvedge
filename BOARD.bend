@@ -121,6 +121,9 @@ def stage(value: String) -> Stage:
     case "blocked": Blocked{}
     case _: Todo{}
 
+def priorities() -> +List<Priority>:
+  [NoPriority{}, Low{}, Medium{}, High{}, Urgent{}]
+
 def priority_name(priority: Priority) -> String:
   match priority:
     case NoPriority{}: "none"

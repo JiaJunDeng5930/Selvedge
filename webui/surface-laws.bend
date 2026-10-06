@@ -1,12 +1,20 @@
 import Base
 import ./typography.bend as T
 import ./surfaces.bend as Surfaces
+import ./paint.bend as Paint
 import ./design.bend as Design
 import ./appearance.bend as Appearance
 import ./controls.bend as Controls
 import ../BOARD.bend as Board
 import ../core/interface.bend as UI
 import ../core/form-fields.bend as Forms
+
+def selected_background_wash_percent(background: Surfaces.Color) -> Nat:
+  match background:
+    case Surfaces.NeutralWash{strength}: Surfaces.wash_percent(strength)
+    case _: 0n
+def selected_wash_percent(phase: Surfaces.Phase) -> Nat:
+  selected_background_wash_percent(Surfaces.background(Surfaces.Choice{True{}}, phase))
 
 type Requirements is Type:
   Requirements{
@@ -20,8 +28,12 @@ type Requirements is Type:
     field_phase_stable: @phase:Surfaces.Phase -> {Surfaces.background(Surfaces.Field{}, phase) == Surfaces.Token{"--color-token-main-surface-primary"} : Surfaces.Color},
     embedded_field_phase_stable: @phase:Surfaces.Phase -> {Surfaces.background(Surfaces.EmbeddedField{}, phase) == Surfaces.Clear{} : Surfaces.Color},
     embedded_action_phase_stable: @phase:Surfaces.Phase -> {Surfaces.background(Surfaces.EmbeddedAction{}, phase) == Surfaces.Clear{} : Surfaces.Color},
-    selected_rest: {Surfaces.background(Surfaces.Choice{True{}}, Surfaces.Rest{}) == Surfaces.Token{"--color-background-segmented-selected"} : Surfaces.Color},
-    selected_hover: {Surfaces.background(Surfaces.Choice{True{}}, Surfaces.Hovered{}) == Surfaces.Token{"--color-background-segmented-selected-hover"} : Surfaces.Color},
+    selected_rest: {Surfaces.background(Surfaces.Choice{True{}}, Surfaces.Rest{}) == Surfaces.NeutralWash{Surfaces.SubtleWash{}} : Surfaces.Color},
+    selected_hover: {Surfaces.background(Surfaces.Choice{True{}}, Surfaces.Hovered{}) == Surfaces.NeutralWash{Surfaces.EmphasizedWash{}} : Surfaces.Color},
+    selected_rest_wash_percent: {selected_wash_percent(Surfaces.Rest{}) == 5n : Nat},
+    selected_hover_wash_percent: {selected_wash_percent(Surfaces.Hovered{}) == 10n : Nat},
+    selected_rest_native_color: {Paint.surface_color(Surfaces.background(Surfaces.Choice{True{}}, Surfaces.Rest{})) == "var(--lightningcss-light, rgba(0, 0, 0, 0.05))var(--lightningcss-dark, rgba(255, 255, 255, 0.05))" : String},
+    selected_hover_native_color: {Paint.surface_color(Surfaces.background(Surfaces.Choice{True{}}, Surfaces.Hovered{})) == "var(--lightningcss-light, rgba(0, 0, 0, 0.10))var(--lightningcss-dark, rgba(255, 255, 255, 0.10))" : String},
     unselected_rest: {Surfaces.background(Surfaces.Choice{False{}}, Surfaces.Rest{}) == Surfaces.Clear{} : Surfaces.Color},
     main_surface: @+typography:T.Presentation -> @meaning:UI.Meaning -> {Appearance.style_background(Appearance.style(UI.Main{}, meaning, typography)) == Design.SurfacePaint{Surfaces.Canvas{}, Surfaces.Rest{}} : Design.Paint},
     navigation_surface: @+typography:T.Presentation -> @meaning:UI.Meaning -> {Appearance.style_background(Appearance.style(UI.Navigation{}, meaning, typography)) == Design.SurfacePaint{Surfaces.Navigation{}, Surfaces.Rest{}} : Design.Paint},

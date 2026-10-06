@@ -1,5 +1,5 @@
 import * as Bend from './generated/browser-model.mjs';
-import { decodeBendValue, encodeBendValue } from './bend-value.mjs';
+import { decodeBendValue, encodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
@@ -44,6 +44,11 @@ let physicalActive = false;
 let physicalQueued = null;
 let physicalScheduled = false;
 let disposed = false;
+let clockTimer = null;
+let observedClock = null;
+let codeObservationGroups = new Map();
+let codeObservationScheduled = false;
+const feedbackTimers = new Set();
 let geometryFrame = null;
 let displayedGeometry = null;
 const physicalMeasurer = createPhysicalMeasurer({ surface: root, bend: Bend, onChange: geometryChanged });
@@ -73,18 +78,39 @@ const renderer = new Renderer(root, {
       default: throw new TypeError(`Unknown document event ${binding.$}`);
     }
   },
-  codeKey: (source, ordinal) => Bend.code_key(source, ordinal),
-  codeSource(source, ordinal, text) { queueMicrotask(() => commit(Bend.code_source(source, ordinal, text, state))); },
+  codeKey: (source, ordinal) => Bend.code_dom_key(source, ordinal),
+  codeSource(source, ordinal, text, generation, source_value) {
+    if (disposed) return;
+    const sourceKey = Bend.code_key(source, 0n);
+    let versions = codeObservationGroups.get(sourceKey);
+    if (!versions) { versions = new Map(); codeObservationGroups.set(sourceKey, versions); }
+    let batch = versions.get(source_value);
+    if (!batch) { batch = { generation, entries: new Map() }; versions.set(source_value, batch); }
+    batch.entries.set(Bend.code_key(source, ordinal), value('Observation', { identity: value('Identity', { source, ordinal }), text, source_value }));
+    if (!codeObservationScheduled) {
+      codeObservationScheduled = true;
+      queueMicrotask(flushCodeObservations);
+    }
+  },
   changed: geometryChanged,
 });
+function flushCodeObservations() {
+  codeObservationScheduled = false;
+  const groups = codeObservationGroups;
+  codeObservationGroups = new Map();
+  if (disposed) return;
+  // NOTE: Rendering during commit may enqueue another batch; it must retain its own observations.
+  for (const versions of groups.values()) {
+    for (const { generation, entries } of versions.values()) {
+      commit(Bend.code_sources(generation, linked([...entries.values()]), state));
+    }
+  }
+}
 function safeNumber(input, name) {
-  const number = Number(input);
-  if (!Number.isSafeInteger(number) || number < 0) throw new TypeError(`Invalid observed ${name}`);
-  return number;
+  return observedNatNumber(Number(input), `observed ${name}`);
 }
 function measuredNat(input, name) {
-  if (!Number.isSafeInteger(input) || input < 0) throw new TypeError(`Invalid measured ${name}`);
-  return BigInt(input);
+  return BigInt(observedNatNumber(input, `measured ${name}`));
 }
 function measurementSpec(spec) {
   let available_width;
@@ -136,7 +162,7 @@ function render() {
   switch (publication.$) {
     case 'KeepPublished': break;
     case 'Publish': {
-      renderer.render(publication.document);
+      renderer.render(publication.document, publication.generation);
       renderedGeneration = publication.generation > 0n ? publication.generation : null;
       // Publication establishes the baseline; only later native content reflow requests a new measurement.
       displayedGeometry = geometrySignature();
@@ -152,8 +178,12 @@ function render() {
 }
 function captureAnchor(key, node) {
   const box = node.getBoundingClientRect();
-  const nat = amount => measuredNat(Math.max(0, Math.round(amount)), 'anchor geometry');
-  commit(Bend.capture_anchor(key, nat(box.left), nat(box.top), nat(box.width), nat(box.height), state));
+  const left = Math.round(box.left); const top = Math.round(box.top);
+  const right = Math.round(box.right); const bottom = Math.round(box.bottom);
+  const origin = amount => value(amount < 0 ? 'Backward' : 'Forward', { distance: measuredNat(Math.abs(amount), 'anchor origin') });
+  const width = measuredNat(Math.max(0, right - left), 'anchor width');
+  const height = measuredNat(Math.max(0, bottom - top), 'anchor height');
+  commit(Bend.capture_anchor(key, origin(left), origin(top), width, height, state));
 }
 function geometrySignature() {
   return [...root.querySelectorAll('[data-native-key]')].filter(node => !node.closest('[aria-hidden="true"]')).map(node => {
@@ -204,11 +234,13 @@ async function runPhysical() {
 }
 function applyFocus(physical) {
   if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus = null; return; }
-  const node = renderer.target(physical.target);
+  const target = physical.target;
+  const node = target.$ === 'Product' ? renderer.target(target.identity)
+    : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
   if (!node) { pendingFocus = physical; return; }
   pendingFocus = null;
-  node.focus({ preventScroll: true });
-  platform(value('FocusApplied', { ticket: physical.ticket, identity: owner(document.activeElement) }));
+  node.focus({ preventScroll: false });
+  platform(value('FocusApplied', { ticket: physical.ticket, target }));
 }
 function commit(decision) {
   state = decision.state; render();
@@ -218,6 +250,19 @@ function step(input) { commit(Bend.step(input, state)); }
 function native(input) { step(value('Native', { input })); }
 function platform(input) { native(value('PlatformInput', { input })); }
 function product(input) { platform(value('ProductInput', { input })); }
+function observeClock() {
+  if (disposed) return;
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isSafeInteger(now) || now < 0 || now > 0xffff_ffff) {
+    throw new RangeError('The clock is outside the native board timestamp range');
+  }
+  if (now === observedClock) return;
+  product(value('Clock', { now }));
+  observedClock = now;
+}
+function clockVisibilityChanged() {
+  if (document.visibilityState === 'visible') observeClock();
+}
 async function request(url, options = {}, credential = token) {
   const response = await fetch(url, { ...options, headers: { authorization: `Bearer ${credential}`, ...options.headers } });
   const body = await response.json();
@@ -227,6 +272,7 @@ async function request(url, options = {}, credential = token) {
 function snapshot(body) {
   revision = Math.max(revision, body.sequence);
   step(value('Snapshot', { sequence: BigInt(body.sequence), program: decodeBendValue(body.program) }));
+  streamFacts();
 }
 async function refresh() { snapshot(await request('/api/browser/state')); }
 function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
@@ -268,7 +314,6 @@ async function service(effect) {
         token = effect.credential; sessionStorage.setItem('selvedge-token', token);
         snapshot(body); product(value('Authenticated', { ticket: effect.ticket, result: result(true, value('Unit')) }));
         connection?.abort(); connection = new AbortController();
-        void observeStreams().catch(error => console.error('Stream observation failed', error));
         void watch(connection.signal, token);
       } catch (error) { product(value('Authenticated', { ticket: effect.ticket, result: result(false, error.message) })); }
       break;
@@ -321,6 +366,24 @@ async function service(effect) {
 }
 const rect = node => { const r = node.getBoundingClientRect(); return value('Rect', { left: r.left, top: r.top, right: r.right, bottom: r.bottom }); };
 const owner = node => node?.closest?.('[data-native-key]')?.getAttribute('data-native-key') ?? '';
+const nativeContentOwner = node => node?.closest?.('[data-native-content-owner]')?.dataset.nativeContentOwner ?? '';
+function nativeLinks() {
+  const counts = new Map();
+  const anchors = [];
+  for (const anchor of root.querySelectorAll('a[href]')) {
+    const owner = nativeContentOwner(anchor);
+    if (!owner) { delete anchor.dataset.nativeLinkKey; continue; }
+    const href = anchor.href;
+    const group = JSON.stringify([owner, href]);
+    const ordinal = counts.get(group) ?? 0;
+    counts.set(group, ordinal + 1);
+    anchor.dataset.nativeLinkKey = JSON.stringify(['native-link', owner, href, ordinal]);
+    anchors.push(anchor);
+  }
+  return anchors;
+}
+const nativeAnchor = node => node?.closest?.('a[data-native-link-key]');
+const focusIdentity = node => nativeAnchor(node)?.dataset.nativeLinkKey ?? owner(node);
 const hasArea = bounds => bounds.right > bounds.left && bounds.bottom > bounds.top;
 function frameGeometry(node, bounds) {
   let painted = hasArea(bounds);
@@ -346,18 +409,19 @@ function frameGeometry(node, bounds) {
   const visible = painted && hasArea(intersection);
   const control = node.tabIndex >= 0 || node.matches('button,input,select,textarea,a[href],area[href],summary,[contenteditable="true"]');
   return { visible, scrollReachable: painted && control && scrollable,
-    hitOwner: visible ? owner(document.elementFromPoint((intersection.left + intersection.right) / 2, (intersection.top + intersection.bottom) / 2)) : '' };
+    hitOwner: visible ? focusIdentity(document.elementFromPoint((intersection.left + intersection.right) / 2, (intersection.top + intersection.bottom) / 2)) : '' };
 }
 function frame() {
-  const nodes = [...root.querySelectorAll('[data-native-key]')];
+  const anchors = nativeLinks();
+  const nodes = [...root.querySelectorAll('[data-native-key],a[data-native-link-key]')];
   const elements = nodes.map(node => {
     const bounds = rect(node); const geometry = frameGeometry(node, bounds);
     const enabled = !node.disabled && !node.closest('[inert]') && node.getAttribute('aria-disabled') !== 'true';
     const tab = enabled && node.tabIndex >= 0;
-    return value('Element', { key: owner(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
+    return value('Element', { key: focusIdentity(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
       center_hit_owner: geometry.hitOwner });
   });
-  const focused = owner(document.activeElement);
+  const focused = focusIdentity(document.activeElement);
   const tabOrder = nodes.filter(node => {
     if (node.tabIndex < 0 || node.disabled || node.closest('[inert],[hidden]')) return false;
     const geometry = frameGeometry(node, rect(node));
@@ -365,7 +429,8 @@ function frame() {
   });
   tabOrder.sort((a, b) => (a.tabIndex > 0 ? a.tabIndex : Infinity) - (b.tabIndex > 0 ? b.tabIndex : Infinity));
   return value('Frame', { viewport: value('Rect', { left: 0, top: 0, right: innerWidth, bottom: innerHeight }), elements: linked(elements),
-    focused: focused ? value('Some', { value: focused }) : value('None'), tab_order: linked(tabOrder.map(owner)) });
+    focused: focused ? value('Some', { value: focused }) : value('None'), tab_order: linked(tabOrder.map(focusIdentity)),
+    native_focus: linked(anchors.map(anchor => value('NativeFocus', { identity: anchor.dataset.nativeLinkKey, owner: nativeContentOwner(anchor) }))) });
 }
 function requestDisplayedFrame(generation) {
   requestAnimationFrame(() => {
@@ -386,10 +451,25 @@ async function browserEffect(effect) {
       applyFocus(physical); break;
     }
     case 'Clipboard': {
-      let success = false;
-      try { await navigator.clipboard.writeText(physical.effect.text); success = true; } catch { /* Completion preserves failure. */ }
-      product(value('ClipboardCompleted', { identity: physical.block, ticket: physical.effect.ticket, success: bool(success) }));
-      setTimeout(() => product(value('ClipboardFeedbackExpired', { identity: physical.block })), 1800); break;
+      switch (physical.effect.$) {
+        case 'WriteClipboard': {
+          let success = false;
+          try { await navigator.clipboard.writeText(physical.effect.text); success = true; } catch { /* Completion preserves failure. */ }
+          product(value('ClipboardCompleted', { identity: physical.block, ticket: physical.effect.ticket, success: bool(success) }));
+          break;
+        }
+        case 'ScheduleFeedbackExpiry': {
+          if (disposed) break;
+          const timer = setTimeout(() => {
+            feedbackTimers.delete(timer);
+            if (!disposed) product(value('ClipboardFeedbackExpired', { identity: physical.block, ticket: physical.effect.ticket }));
+          }, safeNumber(physical.effect.delay_ms, 'clipboard feedback delay'));
+          feedbackTimers.add(timer);
+          break;
+        }
+        default: throw new TypeError(`Unknown clipboard effect ${physical.effect.$}`);
+      }
+      break;
     }
     case 'Scroll': applyReading(physical); break;
     default: throw new TypeError(`Unknown platform effect ${physical.$}`);
@@ -504,6 +584,13 @@ function streamFacts() {
   commit(Bend.streams(json({ kind: 'streams', streams: facts }), state));
 }
 function streamNotice(notice) {
+  if (notice.type === 'stream-state') {
+    const restored = new Map(notice.streams.map(entry => [`${entry.task_id}:${entry.ticket}`,
+      { task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) }]));
+    streams.clear();
+    for (const [key, entry] of restored) streams.set(key, entry);
+    streamFacts(); return;
+  }
   if (!Number.isSafeInteger(notice.task_id) || !Number.isSafeInteger(notice.ticket)) return;
   const key = `${notice.task_id}:${notice.ticket}`;
   if (notice.type === 'stream_start') { streams.set(key, { task: notice.task_id, ticket: notice.ticket, parts: new Map() }); streamFacts(); return; }
@@ -513,12 +600,6 @@ function streamNotice(notice) {
   const text = notice.type === 'delta' ? (parts.get(notice.output_index) ?? '') + notice.text : notice.text;
   if (text.length > 4 * 1024 * 1024 || parts.size >= 32 && !parts.has(notice.output_index)) return;
   parts.set(notice.output_index, text); streamFacts();
-}
-async function observeStreams() {
-  const body = await post('/api/browser/observation', JSON.stringify({ kind: 'streams' }));
-  streams.clear();
-  for (const entry of body.streams) streams.set(`${entry.task_id}:${entry.ticket}`, { task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) });
-  commit(Bend.streams(json(body), state));
 }
 async function watch(signal, credential) {
   while (!signal.aborted) {
@@ -537,7 +618,6 @@ async function watch(signal, credential) {
     } catch (error) {
       if (signal.aborted) return;
       product(value('Disconnected', { reason: error.message }));
-      streams.clear(); streamFacts();
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
@@ -568,8 +648,32 @@ document.fonts.addEventListener('loadingdone', environment);
 document.fonts.addEventListener('loadingerror', environment);
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 motion.addEventListener('change', () => platform(value('MotionPreference', { reduced: bool(motion.matches) })));
-root.addEventListener('focusin', () => platform(value('FocusObserved', { identity: owner(document.activeElement) })));
-window.addEventListener('pagehide', () => { disposed = true; physicalRevision++; physicalMeasurer.dispose(); if (geometryFrame !== null) cancelAnimationFrame(geometryFrame); textMeasurer.dispose(); connection?.abort(); for (const resource of resources) URL.revokeObjectURL(resource); });
+root.addEventListener('focusin', () => {
+  nativeLinks();
+  const anchor = nativeAnchor(document.activeElement);
+  if (!anchor) { platform(value('FocusObserved', { identity: owner(document.activeElement) })); return; }
+  if (renderedGeneration === null) return;
+  const generation = renderedGeneration;
+  const owner = nativeContentOwner(anchor);
+  const identity = anchor.dataset.nativeLinkKey;
+  native(value('FrameObserved', { generation, frame: frame() }));
+  commit(Bend.native_focus_observed(generation, owner, identity, state));
+});
+window.addEventListener('pagehide', () => {
+  disposed = true;
+  codeObservationGroups.clear();
+  codeObservationScheduled = false;
+  clearInterval(clockTimer);
+  document.removeEventListener('visibilitychange', clockVisibilityChanged);
+  for (const timer of feedbackTimers) clearTimeout(timer);
+  feedbackTimers.clear();
+  physicalRevision++;
+  physicalMeasurer.dispose();
+  if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
+  textMeasurer.dispose();
+  connection?.abort();
+  for (const resource of resources) URL.revokeObjectURL(resource);
+});
 const bootEffects = [];
 for (const input of [
   environmentInput(),
@@ -580,6 +684,9 @@ for (const input of [
 }
 render();
 for (const effect of bootEffects) Promise.resolve(execute(effect)).catch(error => console.error(error));
+observeClock();
+clockTimer = setInterval(observeClock, 60_000);
+document.addEventListener('visibilitychange', clockVisibilityChanged);
 native(value('Mount'));
 const hash = new URLSearchParams(location.hash.slice(1));
 if (hash.has('token')) { token = hash.get('token'); history.replaceState(null, '', location.pathname + location.search); }
@@ -657,7 +764,7 @@ root.addEventListener('pointerdown', event => {
     const path = event.composedPath();
     const onTrigger = path.some(node => {
       const key = node?.getAttribute?.('data-native-key');
-      return key && (key === scope.restore || key.endsWith(`/${scope.restore}`));
+      return key && key === scope.restore;
     });
     if (!path.includes(layer) && !onTrigger) {
       const result = Bend.outside_event(layer.dataset.layerKey, state);

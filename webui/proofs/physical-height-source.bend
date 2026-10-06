@@ -9,7 +9,7 @@ import ../physical-allocation-population-rules.bend as Population
 import ./physical-allocation-population.bend as PopulationProof
 import ../space.bend as Space
 import ../space-laws.bend as SpaceLaws
-import ./space.bend as Order
+import ../../bendlib/proofs/logic.bend as Logic
 import ../spatial.bend as Spatial
 import ../enclosure.bend as Enclosure
 
@@ -307,11 +307,11 @@ def finish_completed(~A: Data, ~E: Data, +state: Allocation.HeightState<A, E>, +
   match state:
     case Allocation.HeightDone{Allocation.Positioned{tree}}: proof
     case Allocation.HeightDone{Allocation.PositionFailure{failure}}: {==}
-    case Allocation.HeightVisit{tree, bounds, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.HeightMinimumChecked{fits, tree, bounds, lower, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.HeightContainerPlan{plan, key, value, interaction, rule, bounds, children, direction, inner_width, left, top, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.HeightChildren{remaining, key, value, interaction, rule, bounds, canvas, direction, content_left, content_top, previous, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
-    case Allocation.HeightComplete{result, parent}: Order.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.HeightVisit{tree, bounds, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.HeightMinimumChecked{fits, tree, bounds, lower, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.HeightContainerPlan{plan, key, value, interaction, rule, bounds, children, direction, inner_width, left, top, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.HeightChildren{remaining, key, value, interaction, rule, bounds, canvas, direction, content_left, content_top, previous, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
+    case Allocation.HeightComplete{result, parent}: Logic.impossible(Rule.source_claim(~A, ~E, expected, Allocation.PositionFailure{Allocation.Failure{key, Allocation.BlockAxis{}, budget, height, Allocation.AllocationBoundExceeded{budget}}}), complete)
 
 def preserved(~A: Data, ~E: Data, +tree: Allocation.MeasuredTree<A, E>, +bounds: Spatial.Box) ->
   Rule.source_claim(~A, ~E, Allocation.source_of_measured(~A, ~E, tree), Allocation.allocate_measured(~A, ~E, tree, bounds)):

@@ -4,6 +4,8 @@ import ../core/ui-world.bend as View
 import ../core/user-input.bend as U
 import ./editor.bend as Editor
 import ./platform.bend as Model
+import ./focus.bend as Focus
+import ../core/interface.bend as UI
 
 law editing_retains_selection:
   for revision: Nat
@@ -37,3 +39,59 @@ law reflow_preserves_product:
   for +decision: Model.Decision
   for +capacity: View.Capacity
   {Model.decision_product(Model.reflow_capacity(decision, capacity)) == Model.decision_product(decision) : Core.Decision}
+
+# Product focus is resolved against the returned state; other effects retain order.
+def effects(decision: Model.Decision) -> +List<Model.Effect>:
+  Model.Decision{product, platform, result} = decision
+  result
+
+def decision_surface(decision: Model.Decision) -> UI.Surface:
+  Model.Decision{Core.Decision{core, reply, runtime, interaction, services, durable},
+    Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}, result} = decision
+  UI.observe(capacity, core)
+
+def expected_focus(found: Maybe<&2, String>, ticket: Nat) -> +List<Model.Effect>:
+  match found:
+    case None{}: Nil{}
+    case Some{key}: [Model.Focus{ticket, Focus.Product{key}}]
+
+def expected_effects(+surface: UI.Surface, source: +List<Model.Effect>) -> +List<Model.Effect>:
+  match source:
+    case Nil{}: Nil{}
+    case Con{Model.Focus{ticket, Focus.Product{requested}}, rest}:
+      List.append(&2, Model.Effect, expected_focus(UI.focus_target(surface, requested), ticket), expected_effects(surface, rest))
+    case Con{Model.ScopeFocus{ticket, previous, current}, rest}:
+      List.append(&2, Model.Effect, expected_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), expected_effects(surface, rest))
+    case Con{other, rest}: other <> expected_effects(surface, rest)
+
+law realized_preserves_product:
+  for decision: Model.Decision
+  {Model.decision_product(Model.realized_decision(decision)) == Model.decision_product(decision) : Core.Decision}
+
+law realized_empty:
+  for product: Core.Decision
+  for platform: Model.Platform
+  {Model.realized_decision(Model.Decision{product, platform, Nil{}}) == Model.Decision{product, platform, Nil{}} : Model.Decision}
+
+law step_realizes_effects:
+  for +input: Model.Input
+  for +state: Model.State
+  {effects(Model.step(input, state)) == expected_effects(decision_surface(Model.step_raw(input, state)), effects(Model.step_raw(input, state))) : +List<Model.Effect>}
+
+
+# Internal scope intents must be discharged before effects leave the platform.
+def external_effects(source: +List<Model.Effect>) -> Bool:
+  match source:
+    case Nil{}: True{}
+    case Con{Model.ScopeFocus{ticket, previous, current}, rest}: False{}
+    case Con{other, rest}: external_effects(rest)
+
+law realized_effects_are_external:
+  for +surface: UI.Surface
+  for source: +List<Model.Effect>
+  {external_effects(Model.realized_effects(surface, source)) == True{} : Bool}
+
+law actual_step_effects_are_external:
+  for input: Model.Input
+  for state: Model.State
+  {external_effects(effects(Model.step(input, state))) == True{} : Bool}

@@ -1,4 +1,5 @@
 import Base
+import ./natural-size.bend as NaturalSize
 
 # One scale constructs adjacent text sizes; prominence remains independent.
 type Font is Data:
@@ -25,34 +26,46 @@ type Emphasis is Data:
   Medium{}
   Strong{}
 
-def scaled(nominal: Nat, scale: Scale) -> Nat:
-  Scale{additional_milli} = scale
-  Nat.max(1n, Nat.div(Nat.mul(nominal, Nat.add(1000n, additional_milli)), 1000n))
+# Splitting the scale avoids an overflowing product before division.
+def scaling_calculation(+nominal: Nat, scale: Scale) -> NaturalSize.Calculation:
+  Scale{+additional_milli} = scale
+  +whole: NaturalSize.Calculation = NaturalSize.Quotient{NaturalSize.Value{additional_milli}, NaturalSize.Value{1000n}}
+  +fraction: NaturalSize.Calculation = NaturalSize.Remainder{NaturalSize.Value{additional_milli}, NaturalSize.Value{1000n}}
+  NaturalSize.Sum{NaturalSize.Sum{NaturalSize.Value{nominal},
+    NaturalSize.Product{NaturalSize.Value{nominal}, whole}},
+    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Quotient{NaturalSize.Value{nominal}, NaturalSize.Value{1000n}}, fraction},
+      NaturalSize.Quotient{NaturalSize.Product{NaturalSize.Remainder{NaturalSize.Value{nominal}, NaturalSize.Value{1000n}}, fraction}, NaturalSize.Value{1000n}}}}
 
-def support_size(scale: Scale) -> Nat:
-  scaled(12n, scale)
+def positive(value: Nat) -> Nat:
+  Nat.max(1n, value)
 
-def body_size(+scale: Scale) -> Nat:
-  Nat.max(1n+support_size(scale), scaled(13n, scale))
+def scaled(+capacity: Nat, nominal: Nat, scale: Scale) -> Nat:
+  positive(NaturalSize.saturated(capacity, NaturalSize.evaluate(capacity, scaling_calculation(nominal, scale))))
 
-def section_size(+scale: Scale) -> Nat:
-  Nat.max(1n+body_size(scale), scaled(14n, scale))
+def support_size(+capacity: Nat, scale: Scale) -> Nat:
+  scaled(capacity, 12n, scale)
 
-def title_size(+scale: Scale) -> Nat:
-  Nat.max(1n+section_size(scale), scaled(20n, scale))
+def body_size(+capacity: Nat, +scale: Scale) -> Nat:
+  Nat.max(1n+support_size(capacity, scale), scaled(capacity, 13n, scale))
 
-def display_size(+scale: Scale) -> Nat:
-  Nat.max(1n+title_size(scale), scaled(28n, scale))
+def section_size(+capacity: Nat, +scale: Scale) -> Nat:
+  Nat.max(1n+body_size(capacity, scale), scaled(capacity, 14n, scale))
 
-def size(tier: Tier, scale: Scale) -> Nat:
+def title_size(+capacity: Nat, +scale: Scale) -> Nat:
+  Nat.max(1n+section_size(capacity, scale), scaled(capacity, 20n, scale))
+
+def display_size(+capacity: Nat, +scale: Scale) -> Nat:
+  Nat.max(1n+title_size(capacity, scale), scaled(capacity, 28n, scale))
+
+def size(+capacity: Nat, tier: Tier, scale: Scale) -> Nat:
   match tier:
-    case Display{}: display_size(scale)
-    case Title{}: title_size(scale)
-    case Section{}: section_size(scale)
-    case Body{}: body_size(scale)
-    case Support{}: support_size(scale)
-    case CodeBody{}: body_size(scale)
-    case CodeSupport{}: support_size(scale)
+    case Display{}: display_size(capacity, scale)
+    case Title{}: title_size(capacity, scale)
+    case Section{}: section_size(capacity, scale)
+    case Body{}: body_size(capacity, scale)
+    case Support{}: support_size(capacity, scale)
+    case CodeBody{}: body_size(capacity, scale)
+    case CodeSupport{}: support_size(capacity, scale)
 
 def nominal_leading(tier: Tier) -> Nat:
   match tier:
@@ -76,17 +89,20 @@ def weight(emphasis: Emphasis) -> Nat:
     case Medium{}: 500n
     case Strong{}: 600n
 
-def resolve(+tier: Tier, emphasis: Emphasis, +scale: Scale) -> TextStyle:
-  +text_size = size(tier, scale)
-  TextStyle{font(tier), text_size, Nat.max(1n+text_size, scaled(nominal_leading(tier), scale)), weight(emphasis)}
+def resolve(+capacity: Nat, +tier: Tier, emphasis: Emphasis, +scale: Scale) -> TextStyle:
+  +text_size: Nat = size(capacity, tier, scale)
+  TextStyle{font(tier), text_size, Nat.max(1n+text_size, scaled(capacity, nominal_leading(tier), scale)), weight(emphasis)}
 
 # Styles retain semantic intent until rendering and measurement resolve it.
 type Presentation is Data:
   Presentation{tier: Tier, emphasis: Emphasis, scale: Scale}
 
-def resolved(value: Presentation) -> TextStyle:
+def resolve_presentation(capacity: Nat, value: Presentation) -> TextStyle:
   Presentation{tier, emphasis, scale} = value
-  resolve(tier, emphasis, scale)
+  resolve(capacity, tier, emphasis, scale)
+
+def resolved(value: Presentation) -> TextStyle:
+  resolve_presentation(NaturalSize.limit(), value)
 
 def with_tier(value: Presentation, tier: Tier) -> Presentation:
   Presentation{old_tier, emphasis, scale} = value
@@ -193,11 +209,17 @@ def spec(value: Probe) -> MeasurementSpec:
   MeasurementSpec{key, text, font_family(family), size, line_height, weight,
     white_space(wrapping), overflow_wrap(wrapping), word_break(wrapping), available_width, reference_text}
 
+def body_probe_at(capacity: Nat, scale: Scale) -> Probe:
+  Probe{"@font/body", "0", resolve_presentation(capacity, Presentation{Body{}, Regular{}, scale}), WrapWords{}, None{}, "0"}
+
 def body_probe(scale: Scale) -> Probe:
-  Probe{"@font/body", "0", resolve(Body{}, Regular{}, scale), WrapWords{}, None{}, "0"}
+  body_probe_at(NaturalSize.limit(), scale)
+
+def body_spec_at(capacity: Nat, scale: Scale) -> MeasurementSpec:
+  spec(body_probe_at(capacity, scale))
 
 def body_spec(scale: Scale) -> MeasurementSpec:
-  spec(body_probe(scale))
+  body_spec_at(NaturalSize.limit(), scale)
 
 def valid_body(metric: Metric) -> Bool:
   metric_admission("@font/body", "0", metric)

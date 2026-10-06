@@ -1,8 +1,78 @@
 import Base
+import ./operation-parameters.bend as OperationParameters
+import ./ui-identity.bend as Identity
 import ./user-conversation.bend as Actual
 import ./user-experience.bend as E
 import ../bendlib/domain.bend as D
+import ../bendlib/tasks.bend as Tasks
 import ../bendlib/conversation-spec.bend as Spec
+import ../MODEL.bend as M
+import ../bendlib/json.bend as J
+import ./interface.bend as UI
+import ./SYSTEM.bend as Core
+import ./user-input.bend as U
+
+def request_context(value: Actual.DecisionRequest) -> D.TaskContext:
+  match value:
+    case Actual.HumanDecision{operation, call, context, approve, deny, enabled}: context
+    case Actual.AutomaticDecision{operation, call, context, reviewer}: context
+
+def timeline_decisions(value: Actual.Timeline) -> +List<Actual.DecisionRequest>:
+  Actual.Timeline{task, generation, groups, operations, decisions, reading, latest} = value
+  decisions
+
+def expected_serialized_parameter(result: Result<&2, &2, String, String>) -> String:
+  match result:
+    case Done{text}: text
+    case Fail{reason}: "Serialization failed: " ++ reason
+
+def expected_parameter(value: J.Json) -> String:
+  match value:
+    case J.Text{text}: text
+    case other: expected_serialized_parameter(J.show(other))
+
+def RenderedParameter(-value: J.Json) -> Type:
+  Sigma<&2, &1, String, (text =>
+    {J.show(value) == Done{text} : Result<&2, &2, String, String>} &
+    {UI.approval_serialized(J.show(value)) == text : String})>
+
+def expected_argument_label(name: String) -> String:
+  OperationParameters.label(name)
+
+def expected_fields(fields: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) -> +List<UI.Node>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{name, value}, rest}:
+      UI.Node{Identity.Part{parent, "argument/" ++ Nat.show(index)}, "argument/" ++ Nat.show(index),
+        expected_argument_label(name), UI.Content{}, UI.ReadOnly{expected_parameter(value)}, Nil{}} <>
+        expected_fields(rest, (index + 1n : Nat), parent)
+
+def expected_arguments(arguments: J.Json, +parent: Identity.Key) -> +List<UI.Node>:
+  match arguments:
+    case J.Object{fields}: expected_fields(fields, 0n, parent)
+    case other: [UI.Node{Identity.Part{parent, "arguments"}, "arguments", "Arguments", UI.Content{}, UI.ReadOnly{expected_parameter(other)}, Nil{}}]
+
+def expected_directory(context: D.TaskContext, +parent: Identity.Key) -> +List<UI.Node>:
+  D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
+  match primary:
+    case None{}: Nil{}
+    case Some{path}: [UI.Node{Identity.Part{parent, "default-directory"}, "default-directory", "Default working directory", UI.Content{}, UI.ReadOnly{path}, Nil{}}]
+
+def expected_metadata(call: D.Call, context: D.TaskContext, +parent: Identity.Key) -> +List<UI.Node>:
+  D.Call{id, name, arguments} = call
+  UI.Node{Identity.Part{parent, "tool"}, "tool", "Tool", UI.Content{}, UI.ReadOnly{name}, Nil{}} <>
+    List.append(&2, UI.Node, expected_arguments(arguments, parent), expected_directory(context, parent))
+
+def reviewer_name(reviewer: D.Profile) -> String:
+  D.Profile{key, provider, name, reasoning, options} = reviewer
+  name
+
+def audit_message(message: D.Message) -> Bool:
+  match message:
+    case D.UserMessage{text}: False{}
+    case D.AssistantMessage{text}: False{}
+    case D.ModelContext{value}: False{}
+    case _: True{}
 
 # Comparison reflexivity is needed to bind a reader's choice to its own group.
 def activity_presentation(values: +List<Actual.VisibleGroup>) -> Bool & String:
@@ -20,6 +90,29 @@ def first_identity(values: +List<Actual.Group>) -> Maybe<&2, Nat>:
 
 type Requirements is Type:
   Requirements{
+    request_context: @+reviewer:D.ApprovalReviewer -> @id:Nat -> @call:D.Call -> @+context:D.TaskContext -> @task:Nat -> @world:M.World() ->
+      {request_context(Actual.decision(reviewer, id, call, context, task, world)) == context : D.TaskContext},
+    owning_context: @reader:E.Reader -> @+task:D.Task -> @+world:M.World() ->
+      {timeline_decisions(Actual.timeline(reader, task, world)) ==
+        Actual.decisions(D.task_operations(task), D.task_context(task), D.task_id(task), world) : +List<Actual.DecisionRequest>},
+    approval_metadata: @+call:D.Call -> @+context:D.TaskContext -> @+parent: Identity.Key ->
+      {UI.approval_metadata(call, context, parent) == expected_metadata(call, context, parent) : +List<UI.Node>},
+    serialized_parameter: @+value:J.Json -> RenderedParameter(value),
+    human_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+approve:U.Input -> @+deny:U.Input -> @+enabled:Bool -> @+parent: Identity.Key -> @+state:Core.State ->
+      {UI.approvals([Actual.HumanDecision{operation, call, context, approve, deny, enabled}], parent, state) ==
+        [UI.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Approval required", UI.Approval{}, UI.Region{}, List.append(&2, UI.Node, UI.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [UI.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "approve", "Approve once", approve, enabled, state),
+             UI.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "deny", "Deny", deny, enabled, state)])}] : +List<UI.Node>},
+    automatic_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+reviewer:D.Profile -> @+parent: Identity.Key -> @state:Core.State ->
+      {UI.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
+        [UI.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", UI.Approval{}, UI.Region{}, List.append(&2, UI.Node, UI.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [UI.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", UI.Content{},
+              UI.ReadOnly{reviewer_name(reviewer)}, Nil{}}])}] : +List<UI.Node>},
+    approval_detail: @+task:Nat -> @+operation:Nat -> @+call:D.Call -> @+reviewer:D.ApprovalReviewer -> @+outcome:D.ApprovalOutcome ->
+      {Actual.audit_detail(D.ApprovalRecord{task, operation, call, reviewer, outcome}) ==
+        Actual.json_detail(J.show(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome}))) : String},
+    audit_classification: @+message:D.Message -> @+index:Nat -> @+tail:+List<Actual.Group> -> @is_audit:{audit_message(message) == True{} : Bool} ->
+      {Actual.prepend(message, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(message), message, tail) : +List<Actual.Group>},
     disclosure: @+group:Nat -> @seen:Nat -> @+choice:Bool -> @+attention:Maybe<&2, Nat> -> @+rest:+List<E.Disclosure> ->
       {Actual.expanded(E.Disclosure{group, seen, choice} <> rest, group, attention) == choice : Bool},
     collapsed_attention: @+group:Nat -> @seen:Nat -> @+attention:Maybe<&2, Nat> -> @+entries:+List<Actual.Audit> -> @task:Nat -> @+index:Nat -> @+message:D.Message ->

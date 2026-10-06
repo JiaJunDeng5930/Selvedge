@@ -1,4 +1,5 @@
 import Base
+import ./ui-identity.bend as Identity
 import ../MODEL.bend as M
 import ../BOARD.bend as B
 import ../FEATURES.bend as F
@@ -122,7 +123,7 @@ def work_status_child_key(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
                     case Nil{}: None{}
                     case Con{child, _}:
                       match child:
-                        case Interface.Node{key, semantic, label, role, meaning, children}: Some{key}
+                        case Interface.Node{key, semantic, label, role, meaning, children}: Some{Identity.encode(key)}
                 case _: work_status_child_key(rest)
             case _: work_status_child_key(rest)
 
@@ -281,24 +282,24 @@ type Requirements is Type:
       {face_updated(View.card_face(id, card, now, world)) == View.elapsed_label(Filter.elapsed(now, B.updated(card))) : String},
     card_scene_ids: @+entries:+List<Finite.Entry(B.Card)> -> @+route:U.Route -> @+now:U32 -> @+world:M.World() ->
       {card_scene_ids(View.card_scenes(entries, route, now, world)) == board_entry_ids(entries) : +List<Nat>},
-    card_root_count: @+entries:+List<View.CardScene> -> @+parent:String -> @+state:Core.State ->
+    card_root_count: @+entries:+List<View.CardScene> -> @+parent: Identity.Key -> @+state:Core.State ->
       {List.length(&2, Interface.Node, Interface.cards(entries, parent, state)) == List.length(&2, View.CardScene, entries) : Nat},
-    lane_count: @stage:B.Stage -> @+entries:+List<View.CardScene> -> @+create:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+    lane_count: @stage:B.Stage -> @+entries:+List<View.CardScene> -> @+create:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {first_lane_card_count(Interface.columns([View.BoardColumn{stage, entries, create}], parent, state)) ==
         Some{List.length(&2, View.CardScene, entries)} : Maybe<&2, Nat>},
-    lane_children: @stage:B.Stage -> @+entries:+List<View.CardScene> -> @+create:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+    lane_children: @stage:B.Stage -> @+entries:+List<View.CardScene> -> @+create:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {first_lane_child_count(Interface.columns([View.BoardColumn{stage, entries, create}], parent, state)) ==
         Some{(1n + List.length(&2, View.CardScene, entries) : Nat)} : Maybe<&2, Nat>},
     toolbar_work_status_identity: @+filter:B.Filter -> @working:Nat -> @create:View.ControlDeclaration ->
       @settings:View.ControlDeclaration -> @filters:View.ControlDeclaration -> @archive:View.ControlDeclaration ->
-      @+parent:String -> @+state:Core.State ->
+      @+parent: Identity.Key -> @+state:Core.State ->
       {work_status_child_key(Interface.board_toolbar(filter, working, create, settings, filters, archive, parent, state)) ==
-        Some{(parent ++ "/work-status") ++ "/view/working"} : Maybe<&2, String>},
+        Some{Identity.encode(Identity.Part{Identity.Part{parent, "work-status"}, "view/working"})} : Maybe<&2, String>},
     navigation_header_brand: @+navigation:View.Navigation -> @+state:Core.State ->
       {navigation_header_label(Interface.navigation(navigation, state)) == Some{"Selvedge"} : Maybe<&2, String>},
     navigation_header_toggle: @+navigation:View.Navigation -> @+state:Core.State ->
       {navigation_header_children(Interface.navigation(navigation, state)) ==
-        Some{[Interface.declared("/navigation", navigation_toggle_control(navigation), state)]} : Maybe<&2, +List<Interface.Node>>},
+        Some{[Interface.declared(Identity.Place{"/navigation"}, navigation_toggle_control(navigation), state)]} : Maybe<&2, +List<Interface.Node>>},
     pinned_order: @+board:B.State -> {Board.display_cards(board) == pinned_partition(board) : +List<Finite.Entry(B.Card)>},
     board_column_ids: @+board:B.State -> @+filter:B.Filter -> @+route:U.Route -> @+now:U32 -> @+world:M.World() -> @target:B.Stage ->
       {board_page_column_ids(View.board_page(board, filter, route, now, world), target) ==
@@ -307,7 +308,7 @@ type Requirements is Type:
     project_missing: @+id:Nat -> @+world:M.World() ->
       @absent:{Projects.find(Projects.registry(F.State(), world), id) == None{} : Maybe<&2, D.Project>} ->
       {View.face_project(Some{id}, world) == "项目 #" ++ Nat.show(id) ++ " 不可用" : String},
-    profile_missing: @+key:String -> @+world:M.World() ->
+    profile_missing: @+key: String -> @+world:M.World() ->
       @absent:{D.find_profile(Board.profiles(world), key) == None{} : Maybe<&2, D.Profile>} ->
       {View.face_owner(B.Profile{key}, world) == "配置 " ++ key ++ " 不可用" : String},
     agent_missing: @id:Nat -> @+world:M.World() ->
@@ -350,7 +351,7 @@ type Requirements is Type:
     start_nav_mismatch: @+world:M.World() -> @+session:E.Session ->
       {(board_navigation_selected(U.Start{}, world, session), projects_navigation_selected(U.Start{}, world, session), agents_navigation_selected(U.Start{}, world, session)) ==
         (False{}, (False{}, False{})) : Bool & (Bool & Bool)},
-    selected_navigation_role: @route:U.Route -> @+parent:String -> @+declaration:View.ControlDeclaration -> @+state:Core.State ->
+    selected_navigation_role: @route:U.Route -> @+parent: Identity.Key -> @+declaration:View.ControlDeclaration -> @+state:Core.State ->
       {Interface.node_role(Interface.selected_declaration(route, parent, declaration, state)) ==
         Interface.node_role(Interface.selected_node(Interface.navigation_action_selected(route, declaration_input(declaration)),
           Interface.declared(parent, declaration, state))) : Interface.Role},

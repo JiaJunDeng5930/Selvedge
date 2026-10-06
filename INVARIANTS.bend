@@ -41,9 +41,9 @@ def missing_profile(found: Maybe<&2, D.Profile>) -> Bool:
 def unique_profiles(profiles: +List<D.Profile>) -> Bool:
   match profiles:
     case Nil{}: True{}
-    case Con{D.Profile{+key, provider, name, +policy}, +rest}:
-      D.nonempty(key) && D.nonempty(provider) && D.nonempty(name) &&
-        Reasoning.valid(policy) && missing_profile(D.find_profile(rest, key)) && unique_profiles(rest)
+    case Con{D.Profile{+key, provider, name, policy, options}, +rest}:
+      D.profile_valid(D.Profile{key, provider, name, policy, options}) &&
+        missing_profile(D.find_profile(rest, key)) && unique_profiles(rest)
 
 def project_context(project: D.ProjectContext) -> Bool:
   Workspace.valid_guidance(project)
@@ -54,10 +54,10 @@ def environment(environment: D.Environment) -> Bool:
     Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def contract(contract: D.Contract) -> Bool:
-  D.Contract{D.Model{D.Profile{key, provider, name, +policy}, +reasoning, +project}, +tools, max_fork, max_descendants, +plugins, +context} = contract
+  D.Contract{D.Model{+profile, reasoning, +project}, +tools, max_fork, max_descendants, +plugins, +context} = contract
   Workspace.valid_context(context) && Workspace.guidance_member(Workspace.primary(Workspace.workspace(context)), project) &&
-    Hooks.valid(plugins) && Hooks.routes(tools, plugins) && project_context(project) && D.nonempty(key) && D.nonempty(provider) && D.nonempty(name) &&
-    Reasoning.valid(policy) && Reasoning.permitted(policy, reasoning) &&
+    Hooks.valid(plugins) && Hooks.routes(tools, plugins) && project_context(project) &&
+    D.profile_valid(profile) && D.profile_permitted(profile, reasoning) &&
     unique_tools(tools) && Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def lineage_parent(found: Maybe<&2, D.Task>, child: Nat, tail: +List<Nat>, contract: D.Contract, budget: Nat) -> Bool:

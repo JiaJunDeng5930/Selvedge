@@ -8,16 +8,16 @@ import ../dismissal-laws.bend as Rule
 def toggle_absent(+application: E.Application, +panel: U.Panel, +trigger: String,
   absent: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == False{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == E.open_panel(panel, trigger, application) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}
   Equal.cong(Bool, E.Decision, (present => E.toggle_panel_selected(present, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), False{}, absent)
 
 def toggle_present(+application: E.Application, +panel: U.Panel, +trigger: String,
   present: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == True{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == Rule.closed_application(application, panel, trigger) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}
   Equal.cong(Bool, E.Decision, (owned => E.toggle_panel_selected(owned, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), True{}, present)
 
@@ -45,7 +45,7 @@ def Rule.evidence():
     +identity => +state => {==},
     +identity => +key => +input => +outside => escape => +state => {==},
     input => +state => {==},
-    +identity => initial => restore => +input => +state => {==},
+    +identity => initial => restore => occurrence => +input => +state => {==},
     +identity => +candidate => +state => closed => Equal.cong(Bool, Browser.OutsideDecision, (allowed => Browser.outside_completed(allowed, candidate, state)), Browser.outside_closed(identity, candidate), True{}, closed),
     +identity => +candidate => +state => retained => Equal.cong(Bool, Browser.OutsideDecision, (allowed => Browser.outside_completed(allowed, candidate, state)), Browser.outside_closed(identity, candidate), False{}, retained),
     +candidate => state => {==},

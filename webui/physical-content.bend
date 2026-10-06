@@ -17,8 +17,8 @@ def local_value(node: Source.Node, +font: T.Presentation) -> Value:
       Value{Source.Box{key, tag, style, attributes, Nil{}}, font}
     case Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}:
       Value{Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, Nil{}}, font}
-    case Source.RichText{key, style, content, attachments}:
-      Value{Source.RichText{key, style, content, Nil{}}, font}
+    case Source.RichText{key, style, content, attachments, native_owner}:
+      Value{Source.RichText{key, style, content, Nil{}, native_owner}, font}
     case Source.NativeAttachment{key, target, attributes, style, children}:
       Value{Source.NativeAttachment{key, target, attributes, style, Nil{}}, font}
     case Source.Text{key, value, choice, wrapping}:

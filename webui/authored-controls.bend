@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./source.bend as Source
 import ./authored-primitives.bend as Factory
 import ./iconography.bend as Iconography
@@ -85,25 +86,25 @@ def parent_gap(value: Design.Style) -> Nat:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = value
   Enclosure.frame_gap(frame)
 
-def glyph(key: String, icon: Controls.Icon, parent: Design.Style, +size: Nat) -> Source.Node:
+def glyph(key: UIIdentity.Key, icon: Controls.Icon, parent: Design.Style, +size: Nat) -> Source.Node:
   Source.Glyph{key, Iconography.drawing(icon, size), Factory.glyph_style(parent, size, size)}
 
-def caption(key: String, text: String, parent: Design.Style, wrapping: T.Wrapping) -> Source.Node:
+def caption(key: UIIdentity.Key, text: String, parent: Design.Style, wrapping: T.Wrapping) -> Source.Node:
   Factory.text(key, text, Source.ExplicitFont{parent_font(parent)}, wrapping)
 
-def leading_icon(value: Maybe<&2, Controls.Icon>, key: String, parent: Design.Style, size: Nat) -> +List<Source.Node>:
+def leading_icon(value: Maybe<&2, Controls.Icon>, key: UIIdentity.Key, parent: Design.Style, size: Nat) -> +List<Source.Node>:
   match value:
     case None{}: Nil{}
-    case Some{icon}: [glyph(key ++ "/leading", icon, parent, size)]
+    case Some{icon}: [glyph(UIIdentity.part(key, "leading"), icon, parent, size)]
 
-def face_description(value: Maybe<&2, String>, key: String, parent: Design.Style) -> +List<Source.Node>:
+def face_description(value: Maybe<&2, String>, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
   match value:
     case None{}: Nil{}
-    case Some{text}: [Factory.text(key ++ "/description", text, Source.ExplicitFont{T.supporting(parent_font(parent))}, Controls.description_wrapping())]
+    case Some{text}: [Factory.text(UIIdentity.part(key, "description"), text, Source.ExplicitFont{T.supporting(parent_font(parent))}, Controls.description_wrapping())]
 
-def selection(checked: Bool, key: String, parent: Design.Style, size: Nat) -> +List<Source.Node>:
+def selection(checked: Bool, key: UIIdentity.Key, parent: Design.Style, size: Nat) -> +List<Source.Node>:
   match checked:
-    case True{}: [glyph(key ++ "/check", Controls.Check{}, parent, size)]
+    case True{}: [glyph(UIIdentity.part(key, "check"), Controls.Check{}, parent, size)]
     case False{}: Nil{}
 
 def disclosure_icon(expanded: Bool) -> Controls.Icon:
@@ -119,25 +120,25 @@ def face_leading_slot(value: Controls.Geometry) -> Nat:
   Controls.Geometry{demand, size, radius, slot} = value
   slot
 
-def face_members(+value: Controls.Face, +key: String, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   match value:
-    case Controls.TextFace{text}: [caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value))]
-    case Controls.SingleLineFace{text}: [caption(key ++ "/caption", text, parent, T.SingleLine{})]
-    case Controls.IconFace{icon}: [glyph(key ++ "/icon", icon, parent, face_icon_size(geometry))]
-    case Controls.IconTextFace{icon, text}: [glyph(key ++ "/icon", icon, parent, face_icon_size(geometry)), caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value))]
+    case Controls.TextFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
+    case Controls.SingleLineFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, T.SingleLine{})]
+    case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
+    case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.PickerFace{leading, text}:
       List.append(&2, Source.Node, leading_icon(leading, key, parent, face_icon_size(geometry)),
-      [Source.Box{key ++ "/value", Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value))]}, glyph(key ++ "/chevron", Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+      [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]}, glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
     case Controls.DisclosureFace{text, expanded}:
-      [caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value)), glyph(key ++ "/chevron", disclosure_icon(expanded), parent, face_icon_size(geometry))]
+      [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value)), glyph(UIIdentity.part(key, "chevron"), disclosure_icon(expanded), parent, face_icon_size(geometry))]
     case Controls.PermissionFace{filesystem, network, approval}:
-      [glyph(key ++ "/filesystem", filesystem, parent, face_icon_size(geometry)), glyph(key ++ "/network", network, parent, face_icon_size(geometry)), glyph(key ++ "/approval", approval, parent, face_icon_size(geometry))]
+      [glyph(UIIdentity.part(key, "filesystem"), filesystem, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "network"), network, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "approval"), approval, parent, face_icon_size(geometry))]
     case Controls.ChoiceFace{text, details, icon, checked}:
       List.append(&2, Source.Node, leading_icon(icon, key, parent, face_icon_size(geometry)),
-      [Source.Box{key ++ "/text", Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, parent_gap(parent)), Nil{}, List.append(&2, Source.Node, [caption(key ++ "/caption", text, parent, Controls.caption_wrapping(value))], face_description(details, key, parent))},
-       Source.Box{key ++ "/selection", Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
+      [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, parent_gap(parent)), Nil{}, List.append(&2, Source.Node, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))], face_description(details, key, parent))},
+       Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
 
-def face(key: String, value: Controls.Face, parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
+def face(key: UIIdentity.Key, value: Controls.Face, parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
   face_members(value, key, parent, geometry)
 
 def enabled(value: View.Availability) -> Bool:
@@ -186,13 +187,13 @@ def action_alignment(value: Controls.Face) -> Spatial.Alignment:
     case Controls.PickerFace{leading, text}: Spatial.Leading{}
     case _: Spatial.Centered{}
 
-def invalid(+key: String, +visual: Design.Style, +diagnostic: String) -> Source.Node:
-  Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"invalid-source", diagnostic}], [caption(key ++ "/diagnostic", diagnostic, visual, T.NormalAnywhere{})]}
+def invalid(+key: UIIdentity.Key, +visual: Design.Style, +diagnostic: String) -> Source.Node:
+  Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"invalid-source", diagnostic}], [caption(UIIdentity.part(key, "diagnostic"), diagnostic, visual, T.NormalAnywhere{})]}
 
-def action(+key: String, +visual: Design.Style, representation: Controls.Representation) -> Source.Node:
+def action(+key: UIIdentity.Key, +visual: Design.Style, representation: Controls.Representation) -> Source.Node:
   match representation:
     case Controls.Action{input, +availability, name, +value, state, +geometry, placement, assistance, response}:
-      Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, availability_attributes(availability), List.append(&2, Source.Attribute, behavior(state), List.append(&2, Source.Attribute, help(assistance), feedback(response))))), name, enabled(availability), Doc.Activate{key}, Nil{}, face(key, value, visual, geometry)}
+      Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, availability_attributes(availability), List.append(&2, Source.Attribute, behavior(state), List.append(&2, Source.Attribute, help(assistance), feedback(response))))), name, enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, face(key, value, visual, geometry)}
     case _: invalid(key, visual, "invalid-action-representation")
 
 def field_checked(value: UI.Meaning) -> Bool:
@@ -236,8 +237,9 @@ def placeholder(widget: Controls.Widget, meaning: UI.Meaning, name: String) -> S
     case Controls.MessageInput{}: "Ask anything, or describe a task"
     case _: semantic_placeholder(meaning, name)
 
-def field_metadata(value: UI.Meaning) -> +List<Source.Attribute>:
+def field_metadata(key: UIIdentity.Key, value: UI.Meaning) -> +List<Source.Attribute>:
   match value:
+    case UI.Edit{editor, Forms.MessageText{}, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.EditorBindingAttribute{key}]
     case UI.Edit{editor, field, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(field)}]
     case _: Nil{}
 
@@ -258,16 +260,16 @@ def field_kind(value: Controls.Widget) -> Source.NativeFieldKind:
     case Controls.SecretInput{}: Source.SecretField{}
     case Controls.PlainValue{}: Source.TextField{}
 
-def field_first_event(value: Controls.Widget, key: String) -> Doc.Event:
+def field_first_event(value: Controls.Widget, key: UIIdentity.Key) -> Doc.Event:
   match value:
-    case Controls.ToggleInput{}: Doc.EditToggle{key}
-    case Controls.FileChooser{face}: Doc.SelectFiles{key}
-    case Controls.AttachmentList{}: Doc.SelectFiles{key}
-    case _: Doc.EditText{key}
+    case Controls.ToggleInput{}: Doc.EditToggle{UIIdentity.encode(key)}
+    case Controls.FileChooser{face}: Doc.SelectFiles{UIIdentity.encode(key)}
+    case Controls.AttachmentList{}: Doc.SelectFiles{UIIdentity.encode(key)}
+    case _: Doc.EditText{UIIdentity.encode(key)}
 
-def field_remaining_events(value: Controls.Widget, key: String) -> +List<Doc.Event>:
+def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.Event>:
   match value:
-    case Controls.DirectoryChooser{face}: [Doc.ConfirmText{key}]
+    case Controls.DirectoryChooser{face}: [Doc.ConfirmText{UIIdentity.encode(key)}]
     case _: Nil{}
 
 def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Design.LayoutParameters) -> Nat:
@@ -277,31 +279,31 @@ def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Desi
     case Controls.DirectoryList{}: Nat.max(1n, Nat.div(Design.input_maximum_height(parameters), Nat.max(1n, T.resolved_line_height(T.resolved(parent_font(visual))))))
     case _: 1n
 
-def label_attributes(value: Controls.LabelPlacement, key: String) -> +List<Source.Attribute>:
+def label_attributes(value: Controls.LabelPlacement, key: UIIdentity.Key) -> +List<Source.Attribute>:
   match value:
     case Controls.AccessibleOnly{}: Nil{}
-    case _: [Source.AriaAttribute{"labelledby", key ++ "/label"}]
+    case _: [Source.AriaAttribute{"labelledby", UIIdentity.encode(UIIdentity.part(key, "label"))}]
 
 def label_direction(value: Controls.LabelPlacement) -> Model.Direction:
   match value:
     case Controls.BesideInput{}: Model.Horizontal{}
     case _: Model.Vertical{}
 
-def label_field(value: Controls.LabelPlacement, +key: String, name: String, +visual: Design.Style, field: Source.Node) -> Source.Node:
+def label_field(value: Controls.LabelPlacement, +key: UIIdentity.Key, name: String, +visual: Design.Style, field: Source.Node) -> Source.Node:
   match value:
     case Controls.AccessibleOnly{}: field
     case other:
-      Source.Box{key ++ "/field-wrapper", Source.Div{}, Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
-        [Source.Box{key ++ "/label", Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(key ++ "/label/text", name, visual, T.NormalAnywhere{})]}, field]}
+      Source.Box{UIIdentity.part(key, "field-wrapper"), Source.Div{}, Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
+        [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
 
-def input_widget(+widget: Controls.Widget, +key: String, +meaning: UI.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+def input_widget(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: UI.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match widget:
     case Controls.PlainValue{}:
-      Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Factory.binding_attributes(key), [caption(key ++ "/value", node_value(meaning), visual, T.NormalAnywhere{})]}
+      Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Factory.binding_attributes(key), [caption(UIIdentity.part(key, "value"), node_value(meaning), visual, T.NormalAnywhere{})]}
     case +other:
-      label_field(placement, key, name, visual, Source.Field{key, field_kind(other), Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(placement, key), availability_attributes(availability))))), node_value(meaning), placeholder(other, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(other, visual, parameters), 1n)), name, enabled(availability), field_first_event(other, key), field_remaining_events(other, key)})
+      label_field(placement, key, name, visual, Source.Field{key, field_kind(other), Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(placement, key), availability_attributes(availability))))), node_value(meaning), placeholder(other, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(other, visual, parameters), 1n)), name, enabled(availability), field_first_event(other, key), field_remaining_events(other, key)})
 
-def input(key: String, meaning: UI.Meaning, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+def input(key: UIIdentity.Key, meaning: UI.Meaning, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
     case Controls.Input{binding, name, widget, label, availability}: input_widget(widget, key, meaning, name, label, availability, visual, parameters)
     case _: invalid(key, visual, "invalid-input-representation")
@@ -324,12 +326,12 @@ def has_available_destination(values: +List<UI.Placement>) -> Bool:
     case Con{UI.Placement{target, label, input, availability}, rest}:
       UI.available(availability) || has_available_destination(rest)
 
-def movable_choices(+key: String, +representation: Controls.Representation, +visual: Design.Style, +parameters: Design.LayoutParameters) -> Source.Node:
+def movable_choices(+key: UIIdentity.Key, +representation: Controls.Representation, +visual: Design.Style, +parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
     case Controls.Movable{+destinations, face, +name, handle, geometry, help}:
-      Source.Field{key ++ "/destinations", Source.SelectField{},
-        Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{32n, 32n}),
+      Source.Field{UIIdentity.part(key, "destinations"), Source.SelectField{},
+        Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
         Factory.binding_attributes(key), "", name,
         Source.Choice{"", name, True{}} <> placement_choices(destinations),
-        Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{key}, Nil{}}
+        Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{UIIdentity.encode(key)}, Nil{}}
     case _: invalid(key, visual, "invalid-movable-representation")

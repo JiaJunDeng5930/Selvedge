@@ -11,7 +11,7 @@ async function fixture(t, handler) {
   const kernel = new Kernel();
   t.after(() => kernel.close());
   const description = await kernel.initialize();
-  await kernel.request({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture' }], tools: [], max_fork: 4, max_descendants: 8 });
+  await kernel.request({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8 });
   const decision = (await kernel.request({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'hello' } })).value;
   const server = http.createServer((request, response) => {
     request.resume();

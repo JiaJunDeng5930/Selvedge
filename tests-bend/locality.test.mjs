@@ -160,7 +160,7 @@ test('a matching native build cache cannot bypass the actual-source boundary gat
 test('contract-preserving replacement changes only the implementation and its local proof', { timeout: 120_000 }, async t => {
   const copy = await specimen(t);
   const implementation = 'bendlib/tasks.bend';
-  const provider = 'bendlib/task-laws.bend';
+  const provider = 'bendlib/proofs/task-storage.bend';
   // Appending the empty list is extensionally identical, but the checker cannot
   // erase it on an unknown list. This deliberately challenges clients that rely
   // on unfolding storage rather than its operation boundary; it is not an
@@ -169,11 +169,11 @@ test('contract-preserving replacement changes only the implementation and its lo
     'D.State{replace(tasks, task), next_task, next_ticket, environment, limits, projects}',
     'D.State{List.append(&2, D.Task, replace(tasks, task), Nil{}), next_task, next_ticket, environment, limits, projects}'));
   checked(check(copy.directory, 'PROGRAM.bend'));
-  rejected(check(copy.directory), /task-laws.update_meaning/);
+  rejected(check(copy.directory), /task-storage.update_meaning/);
   await modify(copy.directory, provider, source => replaceDefinition(
-    source.replace('import Base\n', 'import Base\nimport ./stdlib.bend as Std\n'), 'update_meaning',
+    source.replace('import Base\n', 'import Base\nimport ../stdlib.bend as Std\n'), 'update_meaning',
     `def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
-  {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{required_update(task, state), rest} : C.Frame<D.State, R>}:
+  {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
   match state:
     case D.State{+tasks, next_task, next_ticket, environment, limits, projects}:
       Equal.cong(+List<D.Task>, C.Frame<D.State, R>,

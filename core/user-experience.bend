@@ -25,7 +25,7 @@ type Reader is Data:
   Reader{generation: Nat, position: U.ReadingIntent, disclosures: +List<Disclosure>}
 
 type Layer is Data:
-  Layer{panel: U.Panel, trigger: String, initial_attention: String, query: String}
+  Layer{panel: U.Panel, trigger: String, initial_attention: String, query: String, occurrence: Nat}
 
 type Pending is Data:
   Pending{ticket: Nat, draft: U.Draft, now: U32}
@@ -33,7 +33,7 @@ type Pending is Data:
 type Session is Data:
   Session{route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(Reader)>,
     layers: +List<Layer>, attention: String, navigation: NavigationState, filter: B.Filter,
-    now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>}
+    now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat}
 
 type NavigationIntent is Data:
   AutomaticNavigation{}
@@ -51,7 +51,7 @@ type Application is Data:
 type Completion is Data:
   DirectCompletion{}
   DraftCompletion{draft: U.Draft}
-  ConfirmationCompletion{command: M.Command, trigger: String, destination: U.Route}
+  ConfirmationCompletion{command: M.Command, trigger: String, destination: U.Route, occurrence: Nat}
 
 type Effect is Data:
   RequestCommand{command: M.Command, completion: Completion}
@@ -76,12 +76,12 @@ type Input is Data:
 def first_profile(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
     case Nil{}: ("", "")
-    case Con{D.Profile{key, provider, name, policy}, rest}: (key, Reasoning.default_selection(policy))
+    case Con{D.Profile{+key, provider, name, policy, options}, rest}: (key, D.profile_default(D.Profile{key, provider, name, policy, options}))
 
 def chooser_owns(layers: +List<Layer>, editor: U.Editor) -> Bool:
   match layers:
-    case Con{Layer{U.ModelPicker{owner}, trigger, initial, query}, rest}: U.same_editor(owner, editor)
-    case Con{Layer{U.DeliveryPicker{task}, trigger, initial, query}, rest}: U.same_editor(U.MessageEditor{task}, editor)
+    case Con{Layer{U.ModelPicker{owner}, trigger, initial, query, layer_occurrence}, rest}: U.same_editor(owner, editor)
+    case Con{Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: U.same_editor(U.MessageEditor{task}, editor)
     case _: False{}
 
 def reply(application: Application, result: J.Json) -> Decision:
@@ -96,13 +96,13 @@ def local(program: M.World(), session: Session, effects: +List<Effect>) -> Decis
 def close_layers(layers: +List<Layer>, program: M.World(), session: Session) -> Decision:
   match layers:
     case Nil{}: unchanged(Application{program, session})
-    case Con{Layer{panel, +trigger, initial, query}, rest}:
-      Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-      local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks}, [Attend{trigger}])
+    case Con{Layer{panel, +trigger, initial, query, layer_occurrence}, rest}:
+      Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+      local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, [Attend{trigger}])
 
 def close_panel(application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   close_layers(layers, program, session)
 
 def with_native(local: Decision, result: J.Json, effects: +List<M.Effect()>, durable: Bool) -> Decision:
@@ -117,7 +117,7 @@ def close_choice_owned(owned: Bool, result: Decision) -> Decision:
       with_native(close_panel(application), reply, runtime, durable)
 
 def close_choice(editor: U.Editor, +result: Decision) -> Decision:
-  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}, reply, runtime, interaction, durable} = result
+  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, reply, runtime, interaction, durable} = result
   close_choice_owned(J.boolean(J.get(reply, "ok")) && chooser_owns(layers, editor), result)
 
 def close_selected_choice(change: U.Edit, editor: U.Editor, result: Decision) -> Decision:
@@ -132,7 +132,7 @@ def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Orig
 
 def initial(+program: M.World()) -> Application:
   Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}],
-    Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}}}
+    Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n}}
 
 def select_draft(hit: Bool, value: U.Draft, rest: Maybe<&2, U.Draft>) -> Maybe<&2, U.Draft>:
   match hit:
@@ -161,8 +161,8 @@ def put_draft(+draft: U.Draft, drafts: +List<U.Draft>) -> +List<U.Draft>:
   draft <> without_draft(drafts, U.owner(body))
 
 def with_draft(session: Session, draft: U.Draft) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-  Session{route, put_draft(draft, drafts), readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  Session{route, put_draft(draft, drafts), readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}
 
 def refuse(application: Application, reason: String) -> Decision:
   reply(application, D.failure("interaction_refused", reason))
@@ -189,7 +189,7 @@ def edit_found(found: Maybe<&2, U.Draft>, change: U.Edit, +program: M.World(), s
 
 def edit(editor: U.Editor, change: U.Edit, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   edit_found(find_draft(drafts, editor), change, program, session)
 
 def reader_or_default(found: Maybe<&2, Reader>) -> Reader:
@@ -206,12 +206,12 @@ def reader_position(reader: Reader) -> U.ReadingIntent:
 
 def reading_decision(position: U.ReadingIntent, old: Reader, +task: Nat, program: M.World(), session: Session) -> Decision:
   Reader{generation, old_position, disclosures} = old
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   local(program, Session{route, drafts, (task, Reader{generation, position, disclosures}) <> Finite.remove(~Reader, readers, task),
-    layers, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
+    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
 def read(+task: Nat, intent: U.ReadingIntent, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   +old = reader(readers, task)
   reading_decision(intent, old, task, program, session)
 
@@ -258,8 +258,8 @@ def toggle_project_navigation(+id: Nat, +state: NavigationState) -> NavigationSt
   NavigationState{intent, toggle_collapsed(project_collapsed(state, id), id, collapsed)}
 
 def toggle_project(id: Nat, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}} = application
-  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code}, Nil{})
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}} = application
+  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code, next_layer}, Nil{})
 
 def new_visit(reader: Reader) -> Reader:
   Reader{generation, position, disclosures} = reader
@@ -271,9 +271,9 @@ def visit_readers(route: U.Route, +readers: +List<Finite.Entry(Reader)>) -> +Lis
     case _: readers
 
 def navigate_with_attention(+route: U.Route, +target: String, application: Application) -> Decision:
-  Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   +current_readers = visit_readers(route, readers)
-  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks},
+  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks, next_layer},
     [Attend{target}])
 
 def navigate(route: U.Route, application: Application) -> Decision:
@@ -289,7 +289,7 @@ def read_owned(owned: Bool, task: Nat, intent: U.ReadingIntent, application: App
     case False{}: unchanged(application)
 
 def read_current(+task: Nat, generation: Nat, intent: U.ReadingIntent, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   read_owned(U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task))), task, intent, application)
 
 def ensure(found: Maybe<&2, U.Draft>, fallback: U.Body, session: Session) -> Session:
@@ -302,7 +302,7 @@ def visit(route: U.Route, application: Application) -> Decision:
   match route:
     case U.Conversation{+task}:
       Application{program, +session} = application
-      Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+      Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
       navigate(U.Conversation{task}, Application{program, ensure(find_draft(drafts, U.MessageEditor{task}),
         U.Message{task, U.initial_text(""), U.Send{}}, session)})
     case other: navigate(other, application)
@@ -332,40 +332,40 @@ def keep_layer(same: Bool, layer: Layer, rest: +List<Layer>) -> +List<Layer>:
 def without_panel(layers: +List<Layer>, +identity: String) -> +List<Layer>:
   match layers:
     case Nil{}: Nil{}
-    case Con{Layer{+panel, trigger, initial, query}, rest}:
-      keep_layer(String.eq(panel_target(panel), identity), Layer{panel, trigger, initial, query}, without_panel(rest, identity))
+    case Con{Layer{+panel, trigger, initial, query, layer_occurrence}, rest}:
+      keep_layer(String.eq(panel_target(panel), identity), Layer{panel, trigger, initial, query, layer_occurrence}, without_panel(rest, identity))
 
 def open_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, +next_layer}} = application
   +target = panel_target(panel)
-  local(program, Session{route, drafts, readers, Layer{panel, trigger, target, ""} <> without_panel(layers, panel_target(panel)),
-    target, navigation, filter, now, next, pending, previews, code_blocks}, [Attend{target}])
+  local(program, Session{route, drafts, readers, Layer{panel, trigger, target, "", next_layer} <> without_panel(layers, panel_target(panel)),
+    target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat)}, [Attend{target}])
 
 def panel_present(layers: +List<Layer>, +target: String) -> Bool:
   match layers:
     case Nil{}: False{}
-    case Con{Layer{panel, trigger, initial, query}, rest}:
+    case Con{Layer{panel, trigger, initial, query, layer_occurrence}, rest}:
       String.eq(panel_target(panel), target) || panel_present(rest, target)
 
 def toggle_panel_selected(present: Bool, +panel: U.Panel, +trigger: String, application: Application) -> Decision:
   match present:
     case False{}: open_panel(panel, trigger, application)
     case True{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
       local(program, Session{route, drafts, readers, without_panel(layers, panel_target(panel)), trigger,
-        navigation, filter, now, next, pending, previews, code_blocks}, [Attend{trigger}])
+        navigation, filter, now, next, pending, previews, code_blocks, next_layer}, [Attend{trigger}])
 
 def toggle_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   toggle_panel_selected(panel_present(layers, panel_target(panel)), panel, trigger,
-    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}})
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}})
 
 def open_editor_found(found: Maybe<&2, U.Draft>, +body: U.Body, program: M.World(), session: Session) -> Decision:
   open_panel(U.EditObject{U.owner(body)}, U.editor_trigger(U.owner(body)), Application{program, ensure(found, body, session)})
 
 def open_editor(+body: U.Body, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   open_editor_found(find_draft(drafts, U.owner(body)), body, program, session)
 
 def edit_project(found: Maybe<&2, D.Project>, id: Maybe<&2, Nat>, application: Application) -> Decision:
@@ -479,7 +479,7 @@ def begin_existing(found: Maybe<&2, U.Draft>, origin: Context.Origin, applicatio
 
 def begin_task(project: Maybe<&2, Nat>, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   begin_existing(find_draft(drafts, U.NewTaskEditor{}), context_project(project), Application{program, session})
 
 def busy(pending: +List<Pending>, +editor: U.Editor) -> Bool:
@@ -508,7 +508,7 @@ def settle_found(found: Maybe<&2, U.Draft>, +revision: Nat, +result: J.Json, ses
 
 def settle(submitted: U.Draft, +result: J.Json, +session: Session) -> Session:
   U.Draft{revision, body, feedback, directory_entry} = submitted
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   settle_found(find_draft(drafts, U.owner(body)), revision, result, session)
 
 def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
@@ -518,7 +518,7 @@ def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
 
 def owns_submission(draft: U.Draft, session: Session) -> Bool:
   U.Draft{revision, body, feedback, directory_entry} = draft
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   same_revision(find_draft(drafts, U.owner(body)), revision)
 
 def follow_created(id: Maybe<&2, Nat>, application: Application) -> Decision:
@@ -535,13 +535,13 @@ def finish_at_location(editor: U.Editor, route: U.Route, layers: +List<Layer>, r
   match editor route layers:
     case U.NewTaskEditor{} U.Start{} _:
       follow_created(J.natural(J.get(J.get(result, "result"), "task_id")), application)
-    case editor _ Con{Layer{U.EditObject{current}, trigger, initial, query}, rest}:
+    case editor _ Con{Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
       finish_layer(U.same_editor(editor, current), application)
     case _ _ _: unchanged(application)
 
 def capture_open(layers: +List<Layer>) -> Bool:
   match layers:
-    case Con{Layer{U.EditObject{U.CardEditor{None{}}}, trigger, initial, query}, rest}: True{}
+    case Con{Layer{U.EditObject{U.CardEditor{None{}}}, trigger, initial, query, layer_occurrence}, rest}: True{}
     case _: False{}
 
 def capture_attention(open: Bool, application: Application) -> Decision:
@@ -552,7 +552,7 @@ def capture_attention(open: Bool, application: Application) -> Decision:
     case False{}: unchanged(application)
 
 def continue_capture(+application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   capture_attention(capture_open(layers), application)
 
 def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Json, application: Application) -> Decision:
@@ -566,7 +566,7 @@ def finish_submission(accepted_current: Bool, draft: U.Draft, result: J.Json, +a
     case False{}: unchanged(application)
     case True{}:
       U.Draft{revision, body, feedback, directory_entry} = draft
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
       finish_body(body, route, layers, result, application)
 
 def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J.Json,
@@ -578,8 +578,8 @@ def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J
         Application{program, settle(draft, result, session)}), result, effects, durable)
 
 def retain_previews(session: Session, world: M.World()) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks, next_layer}
 def native_result(decision: M.Decision(), session: Session, submitted: Maybe<&2, U.Draft>, durable: Bool) -> Decision:
   C.Decision{+program, +result, effects} = decision
   native_session(submitted, program, result, effects, retain_previews(session, program), durable)
@@ -601,18 +601,18 @@ def execute_direct(command: Maybe<&2, M.Command>, application: Application) -> D
     case Some{command}: execute(command, application, None{})
 
 def prepare(application: Application, workspace: Maybe<&2, D.Workspace>, +draft: U.Draft) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks, next_layer}} = application
   match workspace:
     case None{}:
       U.Draft{revision, body, feedback, directory_entry} = draft
-      execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}, Some{draft})
+      execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, Some{draft})
     case Some{workspace}:
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat),
-        Pending{next, draft, now} <> pending, previews, code_blocks}, [ObserveDirectories{next, workspace}])
+        Pending{next, draft, now} <> pending, previews, code_blocks, next_layer}, [ObserveDirectories{next, workspace}])
 
 def submit_ready(ready: Bool, +draft: U.Draft, application: Application) -> Decision:
   match ready:
-    case False{}: refuse(application, "Submission is pending, composition is active, or the context origin is invalid")
+    case False{}: refuse(application, "Submission is pending, composition is active, or the context origin or model selection is invalid")
     case True{}:
       U.Draft{revision, body, feedback, directory_entry} = draft
       prepare(application, U.required_workspace(body), draft)
@@ -621,12 +621,12 @@ def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decisi
   match found:
     case None{}: refuse(application, "The editor is not open")
     case Some{U.Draft{revision, +body, feedback, directory_entry}}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-      submit_ready(Bool.not(busy(pending, U.owner(body))) && U.valid_origin(body),
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+      submit_ready(Bool.not(busy(pending, U.owner(body))) && U.valid_origin(body) && U.model_permitted(body, program),
         U.Draft{revision, body, feedback, directory_entry}, application)
 
 def submit(editor: U.Editor, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   submit_found(find_draft(drafts, editor), application)
 
 def select_pending(hit: Bool, pending: Pending, rest: Maybe<&2, Pending>) -> Maybe<&2, Pending>:
@@ -650,8 +650,8 @@ def without_pending(pending: +List<Pending>, +ticket: Nat) -> +List<Pending>:
     case Con{Pending{+id, draft, now}, rest}: keep_pending(Nat.is_eq(id, ticket), Pending{id, draft, now}, without_pending(rest, ticket))
 
 def finish_preparation(ticket: Nat, application: Application) -> Application:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, without_pending(pending, ticket), previews, code_blocks}}
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, without_pending(pending, ticket), previews, code_blocks, next_layer}}
 
 def preparation_failure(draft: U.Draft, reason: String, application: Application) -> Decision:
   Application{program, session} = application
@@ -680,7 +680,7 @@ def observed_pending(found: Maybe<&2, Pending>, result: Result<&2, &2, String, C
     case Some{pending}: observation_result(result, pending, application)
 
 def observed(ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   observed_pending(find_pending(pending, ticket), result, application)
 
 
@@ -689,10 +689,10 @@ def confirmation_outcome(ok: Bool, destination: U.Route, application: Applicatio
     case True{}: navigate(destination, application)
     case False{}: unchanged(application)
 
-def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: String) -> Bool:
+def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: String, occurrence: Nat) -> Bool:
   match layers:
-    case Con{Layer{U.Confirm{current, title, destination}, current_trigger, target, query}, rest}:
-      String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command))
+    case Con{Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence}, rest}:
+      Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
 def complete_confirmation(owned: Bool, +result: J.Json, destination: U.Route, application: Application) -> Decision:
@@ -712,15 +712,15 @@ def complete_command(+program: M.World(), result: J.Json, completion: Completion
     case DraftCompletion{draft}:
       Application{previous, session} = application
       native_session(Some{draft}, program, result, Nil{}, retain_previews(session, program), False{})
-    case ConfirmationCompletion{command, trigger, destination}:
+    case ConfirmationCompletion{command, trigger, destination, occurrence}:
       Application{previous, session} = application
-      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-      complete_confirmation(confirmation_owned(layers, command, trigger), result, destination,
+      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+      complete_confirmation(confirmation_owned(layers, command, trigger, occurrence), result, destination,
         Application{program, retain_previews(session, program)})
 
 def confirm(layers: +List<Layer>, application: Application) -> Decision:
   match layers:
-    case Con{Layer{U.Confirm{+command, title, destination}, trigger, target, query}, rest}: request_command(command, ConfirmationCompletion{command, trigger, destination}, application)
+    case Con{Layer{U.Confirm{+command, title, destination}, trigger, target, query, layer_occurrence}, rest}: request_command(command, ConfirmationCompletion{command, trigger, destination, layer_occurrence}, application)
     case _: refuse(application, "No confirmation is open")
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
@@ -747,7 +747,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.TogglePanel{panel, trigger}: toggle_panel(panel, trigger, application)
     case U.ClosePanel{}: close_panel(application)
     case U.ConfirmAction{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
       confirm(layers, application)
 
 def keep_disclosure(same: Bool, value: Disclosure, rest: +List<Disclosure>) -> +List<Disclosure>:
@@ -765,9 +765,9 @@ def disclosed_reader(old: Reader, +group: Nat, occurrence: Nat, expanded: Bool) 
   Reader{generation, position, Disclosure{group, occurrence, expanded} <> without_disclosure(disclosures, group)}
 
 def disclose(+task: Nat, group: Nat, occurrence: Nat, expanded: Bool, application: Application) -> Decision:
-  Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   local(program, Session{route, drafts, (task, disclosed_reader(reader(readers, task), group, occurrence, expanded)) <> Finite.remove(~Reader, readers, task),
-    layers, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
+    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
 
 
 def navigation_focus(expanded: Bool) -> String:
@@ -775,11 +775,11 @@ def navigation_focus(expanded: Bool) -> String:
     case True{}: "new-task"
     case False{}: "navigation/toggle"
 def search_choices(query: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   match layers:
-    case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
-    case Con{Layer{panel, trigger, initial, previous}, rest}:
-      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
+    case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
+    case Con{Layer{panel, trigger, initial, previous, layer_occurrence}, rest}:
+      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
 
 def action_leaves_menu(action: U.Action) -> Bool:
   match action:
@@ -790,15 +790,15 @@ def action_leaves_menu(action: U.Action) -> Bool:
 
 def remove_action_menu(layers: +List<Layer>) -> +List<Layer>:
   match layers:
-    case Con{Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: rest
+    case Con{Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: rest
     case other: other
 
 def dismiss_action_menu(leaves: Bool, application: Application) -> Application:
   match leaves:
     case False{}: application
     case True{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks}}
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}
 
 def activate(+action: U.Action, application: Application) -> Decision:
   activate_selected(action, dismiss_action_menu(action_leaves_menu(action), application))
@@ -809,18 +809,18 @@ def user(input: U.Input, application: Application) -> Decision:
     case U.ReadTimeline{task, generation, intent}: read_current(task, generation, intent, application)
     case U.SetDisclosure{task, group, occurrence, expanded}: disclose(task, group, occurrence, expanded, application)
     case U.SetNavigation{+expanded}:
-      Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks, next_layer}} = application
       +target = navigation_focus(expanded)
-      local(program, Session{route, drafts, readers, layers, target, set_navigation(expanded, previous), filter, now, next, pending, previews, code_blocks}, [Attend{target}])
+      local(program, Session{route, drafts, readers, layers, target, set_navigation(expanded, previous), filter, now, next, pending, previews, code_blocks, next_layer}, [Attend{target}])
     case U.SearchChoices{query}: search_choices(query, application)
     case U.FilterBoard{filter}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks}} = application
-      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer}} = application
+      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
 
 
 def observe_preview(observation: Live.Observation, application: Application) -> Decision:
-  Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks}, Nil{})
+  Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks, next_layer}, Nil{})
 def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
@@ -828,13 +828,13 @@ def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity)
 
 def content_result(result: Content.Decision, +identity: Content.Identity, application: Application) -> Decision:
   Content.Decision{block, effects} = result
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block)}, content_effects(effects, identity))
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block), next_layer}, content_effects(effects, identity))
 
 def content_input(+identity: Content.Identity, input: Content.Input, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks, next_layer}} = application
   content_result(Content.step(Content.find_block(code_blocks, identity), input), identity,
-    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}})
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}})
 def step(input: Input, application: Application) -> Decision:
   match input:
     case ContentInput{identity, input}: content_input(identity, input, application)
@@ -847,5 +847,5 @@ def step(input: Input, application: Application) -> Decision:
     case CommandCompleted{program, result, completion}: complete_command(program, result, completion, application)
     case DirectoriesObserved{ticket, result}: observed(ticket, result, application)
     case ClockObserved{now}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, previous, next, pending, previews, code_blocks}} = application
-      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, previous, next, pending, previews, code_blocks, next_layer}} = application
+      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})

@@ -95,7 +95,7 @@ def options(values: +List<String>) -> +List<Forms.ChoiceValue>:
 def profile_options(values: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy}, rest}: option(id, name) <> profile_options(rest)
+    case Con{Domain.Profile{id, provider, name, policy, options}, rest}: option(id, name) <> profile_options(rest)
 
 def origin_option_values(origin: Context.Origin) -> +List<Forms.ChoiceValue>:
   match origin:
@@ -112,7 +112,7 @@ def project_origin_options(values: +List<View.ProjectChoice>) -> +List<Forms.Cho
 def reviewer_options(values: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy}, rest}: option("automatic/" ++ id, "Automatic review: " ++ name) <> reviewer_options(rest)
+    case Con{Domain.Profile{id, provider, name, policy, options}, rest}: option("automatic/" ++ id, "Automatic review: " ++ name) <> reviewer_options(rest)
 
 def project_options(values: +List<View.ProjectChoice>) -> +List<Forms.ChoiceValue>:
   match values:
@@ -126,7 +126,7 @@ def origin_options(value: Forms.Observed) -> +List<Forms.ChoiceValue>:
 
 def policy_options(policy: Reasoning.Policy) -> +List<Forms.ChoiceValue>:
   match policy:
-    case Reasoning.Fixed{}: options(["low", "medium", "high", "xhigh", "max"])
+    case Reasoning.Fixed{}: Nil{}
     case Reasoning.Adaptive{evaluator, efforts, baseline, transport, maximum}: [option("auto", "Automatic")]
 
 def assistance_options(field: String, profiles: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
@@ -134,21 +134,22 @@ def assistance_options(field: String, profiles: +List<Domain.Profile>) -> +List<
     case "assistance-profile": option("", "使用看板默认模型") <> profile_options(profiles)
     case _: Nil{}
 
-def card_options(field: String, projects: +List<View.ProjectChoice>, owners: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+def priority_options(values: +List<Board.Priority>) -> +List<Forms.ChoiceValue>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+value, rest}: option(Board.priority_name(value), Board.priority_label(value)) <> priority_options(rest)
+
+def card_options(field: String, projects: +List<View.ProjectChoice>, priorities: +List<Board.Priority>, owners: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
   match field:
     case "card-project": option("", "No project") <> project_options(projects)
     case "card-owner": owners
+    case "card-priority": priority_options(priorities)
     case _: Nil{}
 
 def stage_options(values: +List<Board.Stage>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}: option(Board.stage_name(value), Board.stage_label(value)) <> stage_options(rest)
-
-def priority_options(values: +List<Board.Priority>) -> +List<Forms.ChoiceValue>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{+value, rest}: option(Board.priority_name(value), Board.priority_label(value)) <> priority_options(rest)
 
 def field_options(field: Forms.Field, value: Forms.Observed) -> +List<Forms.ChoiceValue>:
   match field:
@@ -157,7 +158,7 @@ def field_options(field: Forms.Field, value: Forms.Observed) -> +List<Forms.Choi
     case Forms.ApprovalPolicy{}: [option("ask", "Ask for approval"), option("full-access", "Full access"), option("automatic", "Automatic review")]
     case Forms.WorkspacePrimary{}: options(primary_choices(value))
     case Forms.CardStage{}: stage_options(Board.stages())
-    case Forms.CardPriority{}: priority_options([Board.NoPriority{}, Board.Low{}, Board.Medium{}, Board.High{}, Board.Urgent{}])
+    case Forms.CardPriority{}: priority_options(Board.priorities())
     case Forms.DeliveryIntent{}: [option("send", User.delivery_caption(User.Send{})), option("steer", User.delivery_caption(User.Steer{}))]
     case _: [option(observed(value), "Current value")]
 
@@ -167,15 +168,31 @@ def execution_options(field: String, configuration: Context.Configuration, previ
     case "approval-policy": List.append(&2, Forms.ChoiceValue, [option("ask", "Ask for approval"), option("full-access", "Full access")], reviewer_options(reviewers))
     case _: Nil{}
 
-def selected_reasoning(found: Bool, policy: Reasoning.Policy, fallback: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+def permitted_option(permitted: Bool, value: Forms.ChoiceValue, rest: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+  match permitted:
+    case True{}: value <> rest
+    case False{}: rest
+
+def permitted_options(values: +List<Forms.ChoiceValue>, +profile: Domain.Profile) -> +List<Forms.ChoiceValue>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Forms.ChoiceValue{+value, label}, rest}:
+      permitted_option(Domain.profile_permitted(profile, value), Forms.ChoiceValue{value, label}, permitted_options(rest, profile))
+
+def profile_reasoning_options(+profile: Domain.Profile) -> +List<Forms.ChoiceValue>:
+  match profile:
+    case Domain.Profile{id, provider, name, Reasoning.Fixed{}, Some{Domain.ReasoningOptions{default, values}}}: permitted_options(options(values), profile)
+    case Domain.Profile{id, provider, name, policy, capability}: permitted_options(policy_options(policy), profile)
+
+def selected_reasoning(found: Bool, profile: Domain.Profile, fallback: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
   match found:
-    case True{}: policy_options(policy)
+    case True{}: profile_reasoning_options(profile)
     case False{}: fallback
 
 def reasoning_options(+profile: String, values: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy}, rest}: selected_reasoning(String.eq(id, profile), policy, reasoning_options(profile, rest))
+    case Con{Domain.Profile{+id, provider, name, policy, options}, rest}: selected_reasoning(String.eq(id, profile), Domain.Profile{id, provider, name, policy, options}, reasoning_options(profile, rest))
 
 def model_group_options(field: String, profile: String, choices: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match field:
@@ -188,7 +205,7 @@ def group_options(field: String, value: View.InputGroup) -> +List<Forms.ChoiceVa
     case View.ModelInput{profile, reasoning, choices}: model_group_options(field, profile, choices)
     case View.CardAssistanceInput{enabled, profile, choices}: assistance_options(field, choices)
     case View.ExecutionInput{configuration, preview, workspace, projects, reviewers}: execution_options(field, configuration, preview, projects, reviewers)
-    case View.CardContentInput{value, projects, stages, priorities, owners}: card_options(field, projects, owners)
+    case View.CardContentInput{value, projects, stages, priorities, owners}: card_options(field, projects, priorities, owners)
     case _: Nil{}
 
 def enriched_options(+field: String, values: +List<View.InputGroup>) -> +List<Forms.ChoiceValue>:
@@ -197,4 +214,6 @@ def enriched_options(+field: String, values: +List<View.InputGroup>) -> +List<Fo
     case Con{value, rest}: prefer_options(group_options(field, value), enriched_options(field, rest))
 
 def choices(+field: Forms.Field, value: Forms.Observed, groups: +List<View.InputGroup>) -> +List<Forms.ChoiceValue>:
-  prefer_options(enriched_options(Forms.key(field), groups), field_options(field, value))
+  match field:
+    case Forms.ReasoningEffort{}: enriched_options("reasoning-effort", groups)
+    case other: prefer_options(enriched_options(Forms.key(other), groups), field_options(other, value))

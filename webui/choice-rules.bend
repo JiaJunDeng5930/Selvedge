@@ -1,4 +1,6 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
+import ../bendlib/board-filter.bend as Filter
 import ./controls.bend as C
 import ./authored-controls.bend as A
 import ./iconography.bend as I
@@ -38,25 +40,29 @@ def selected_drawing(selected: Bool, size: Nat) -> Maybe<&2, S.Drawing>:
     case True{}: Some{I.drawing(C.Check{}, size)}
     case False{}: None{}
 
-def actual_face_law(-key: String, -kind: UI.ChoiceKind, -icon: Maybe<&2, String>, -selected: Bool, -description: String, -input: Core.Input, -availability: View.Availability, -label: String, -role: UI.Role, +context: C.Context) -> Type:
+def actual_face_law(-key: UIIdentity.Key, -kind: UI.ChoiceKind, -classification: Maybe<&2, Filter.Classification>, -selected: Bool, -description: String, -input: Core.Input, -availability: View.Availability, -label: String, -role: UI.Role, +context: C.Context) -> Type:
   C.Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
-  {actual_face(C.make_choice(key, kind, icon, selected, description, input, availability, label, role, context)) ==
-    Some{C.ChoiceFace{C.name_for(C.purpose_fields(key, input, selection, code, appearance, access, open, layers), label), C.choice_description(description), C.classification_icon(icon), selected}} : Maybe<&2, C.Face>}
+  {actual_face(C.make_choice(key, kind, classification, selected, description, input, availability, label, role, context)) ==
+    Some{C.ChoiceFace{C.name_for(C.purpose_fields(key, input, selection, code, appearance, access, open, layers), label), C.choice_description(description), C.classification_icon(classification), selected}} : Maybe<&2, C.Face>}
+
+type GlyphMeaning<-category: Filter.Classification, -icon: C.Icon> is Type:
+  TaskStage{-stage: Board.Stage, source: {category == Filter.TaskStage{stage} : Filter.Classification}, glyph: {icon == C.Status{stage} : C.Icon}}
+  TaskPriority{-priority: Board.Priority, source: {category == Filter.TaskPriority{priority} : Filter.Classification}, glyph: {icon == C.Priority{priority} : C.Icon}}
+  Project{source: {category == Filter.Project{} : Filter.Classification}, glyph: {icon == C.Folder{} : C.Icon}}
+  Person{source: {category == Filter.Person{} : Filter.Classification}, glyph: {icon == C.User{} : C.Icon}}
+  Agent{source: {category == Filter.Agent{} : Filter.Classification}, glyph: {icon == C.Bot{} : C.Icon}}
+  Label{source: {category == Filter.Label{} : Filter.Classification}, glyph: {icon == C.Tag{} : C.Icon}}
+  Updated{source: {category == Filter.Updated{} : Filter.Classification}, glyph: {icon == C.Clock{} : C.Icon}}
 
 type Requirements is Type:
   Requirements{
-    stage_classification: @+stage:Board.Stage -> {C.classification_icon(Some{"status/" ++ Board.stage_name(stage)}) == Some{C.Status{stage}} : Maybe<&2, C.Icon>},
-    priority_classification: @+priority:Board.Priority -> {C.classification_icon(Some{"priority/" ++ Board.priority_name(priority)}) == Some{C.Priority{priority}} : Maybe<&2, C.Icon>},
-    folder_classification: {C.classification_icon(Some{"folder"}) == Some{C.Folder{}} : Maybe<&2, C.Icon>},
-    user_classification: {C.classification_icon(Some{"user"}) == Some{C.User{}} : Maybe<&2, C.Icon>},
-    bot_classification: {C.classification_icon(Some{"bot"}) == Some{C.Bot{}} : Maybe<&2, C.Icon>},
-    tag_classification: {C.classification_icon(Some{"tag"}) == Some{C.Tag{}} : Maybe<&2, C.Icon>},
+    classification_meaning: @+category:Filter.Classification -> GlyphMeaning<category, C.classification_glyph(category)>,
     selection_roles: @+kind:UI.ChoiceKind -> @+area:C.Area -> @+selected:Bool ->
       {A.behavior(C.choice_behavior(kind, area, selected)) == [S.RoleAttribute{selection_role(kind, area)}, S.AriaAttribute{"checked", Fields.boolean(selected)}] : +List<S.Attribute>},
-    semantic_face: @+key:String -> @+kind:UI.ChoiceKind -> @+icon:Maybe<&2, String> -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> actual_face_law(key, kind, icon, selected, description, input, availability, label, role, context),
-    leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:C.Icon -> @selected:Bool -> @+key:String -> @+parent:D.Style -> @+geometry:C.Geometry ->
+    semantic_face: @+key:UIIdentity.Key -> @+kind:UI.ChoiceKind -> @+classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context),
+    leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:C.Icon -> @selected:Bool -> @+key:UIIdentity.Key -> @+parent:D.Style -> @+geometry:C.Geometry ->
       {first_drawing(A.face_members(C.ChoiceFace{text, description, Some{icon}, selected}, key, parent, geometry)) == Some{I.drawing(icon, A.face_icon_size(geometry))} : Maybe<&2, S.Drawing>},
-    selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, C.Icon> -> @+selected:Bool -> @+key:String -> @+parent:D.Style -> @+geometry:C.Geometry ->
+    selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, C.Icon> -> @+selected:Bool -> @+key:UIIdentity.Key -> @+parent:D.Style -> @+geometry:C.Geometry ->
       {selection_drawing(A.face_members(C.ChoiceFace{text, description, icon, selected}, key, parent, geometry)) == selected_drawing(selected, A.face_icon_size(geometry)) : Maybe<&2, S.Drawing>}}
 
 law evidence:

@@ -1,9 +1,10 @@
 import Base
+import ../../bendlib/proofs/logic.bend as Logic
+import ../../core/ui-identity.bend as UIIdentity
 import ../../core/interface.bend as UI
 import ../interaction.bend as Geometry
 import ../render-contract.bend as Spec
 import ../rendered.bend as Rendered
-import ../../bendlib/stdlib.bend as Std
 
 import ../render-laws.bend as Rule
 
@@ -188,8 +189,8 @@ def clear_nodes(entries: +List<UI.Node>, +inherited: Bool,
     case Nil{}: {==}
     case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, +rest}:
       +parent_required = inherited || Rendered.persistent(role)
-      +child_required = parent_required || Rendered.code_in_view(role, Rendered.find_element(elements, key), viewport)
-      +head_faults = Rendered.node_geometry(Rendered.find_element(elements, key), meaning, role, key, parent_required, viewport)
+      +child_required = parent_required || Rendered.code_in_view(role, Rendered.find_element(elements, UIIdentity.encode(key)), viewport)
+      +head_faults = Rendered.node_geometry(Rendered.find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), parent_required, viewport)
       +child_faults = Rendered.nodes(children, child_required, elements, viewport)
       +rest_faults = Rendered.nodes(rest, inherited, elements, viewport)
       +tail_faults = List.append(&2, Rendered.Violation, child_faults, rest_faults)
@@ -215,7 +216,7 @@ def clear_nodes(entries: +List<UI.Node>, +inherited: Bool,
           clear_append(child_faults, rest_faults)))
       +head_step = Equal.cong(Bool, Bool, (head_clear_value => head_clear_value && actual_tail),
         head_clear, head_spec,
-        clear_node_geometry(Rendered.find_element(elements, key), meaning, role, key, parent_required, viewport))
+        clear_node_geometry(Rendered.find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), parent_required, viewport))
       +children_step = Equal.cong(Bool, Bool, (children_clear_value => head_spec && (children_clear_value && rest_clear)),
         children_clear, children_spec,
         clear_nodes(children, child_required, elements, viewport))
@@ -236,41 +237,41 @@ def node_exists_matches(found: Maybe<&2, UI.Node>) ->
     case Some{node}: {==}
 
 def clear_focus_checks(focused: Maybe<&2, String>, +active: +List<UI.Node>,
-  +elements: +List<Rendered.Element>, +viewport: Geometry.Rect) ->
-  {Rule.clear(Rendered.focus_checks(focused, active, elements, viewport)) == Spec.focus(focused, active, elements, viewport) : Bool}:
+  +elements: +List<Rendered.Element>, +viewport: Geometry.Rect, +native_focus: +List<Rendered.NativeFocus>) ->
+  {Rule.clear(Rendered.focus_checks(focused, active, elements, viewport, native_focus)) == Spec.focus(focused, active, elements, viewport, native_focus) : Bool}:
   match focused:
     case None{}: {==}
     case Some{+key}:
       Equal.trans(Bool,
-        Rule.clear(Rendered.focus_checks(Some{key}, active, elements, viewport)),
+        Rule.clear(Rendered.focus_checks(Some{key}, active, elements, viewport, native_focus)),
         Rule.clear(Rendered.issue(Bool.not(Rendered.focus_visible(Rendered.find_element(elements, key), viewport)), Rendered.InvisibleFocus{})) &&
-          Rule.clear(Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{})),
-        Spec.focus(Some{key}, active, elements, viewport),
+          Rule.clear(Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{})),
+        Spec.focus(Some{key}, active, elements, viewport, native_focus),
         clear_append(
           Rendered.issue(Bool.not(Rendered.focus_visible(Rendered.find_element(elements, key), viewport)), Rendered.InvisibleFocus{}),
-          Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{})),
+          Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{})),
         Equal.trans(Bool,
           Rule.clear(Rendered.issue(Bool.not(Rendered.focus_visible(Rendered.find_element(elements, key), viewport)), Rendered.InvisibleFocus{})) &&
-            Rule.clear(Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{})),
+            Rule.clear(Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{})),
           Rendered.focus_visible(Rendered.find_element(elements, key), viewport) &&
-            Rule.clear(Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{})),
+            Rule.clear(Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{})),
           Rendered.focus_visible(Rendered.find_element(elements, key), viewport) &&
-            Spec.node_exists(UI.find_node(active, key)),
+            Rendered.focus_owned(active, elements, native_focus, key),
           Equal.cong(Bool, Bool,
-            (focus_clear => focus_clear && Rule.clear(Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{}))),
+            (focus_clear => focus_clear && Rule.clear(Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{}))),
             Rule.clear(Rendered.issue(Bool.not(Rendered.focus_visible(Rendered.find_element(elements, key), viewport)), Rendered.InvisibleFocus{})),
             Rendered.focus_visible(Rendered.find_element(elements, key), viewport),
             clear_issue_positive(Rendered.focus_visible(Rendered.find_element(elements, key), viewport), Rendered.InvisibleFocus{})),
           Equal.cong(Bool, Bool,
             (scope_clear => Rendered.focus_visible(Rendered.find_element(elements, key), viewport) && scope_clear),
-            Rule.clear(Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{})),
-            Spec.node_exists(UI.find_node(active, key)),
+            Rule.clear(Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{})),
+            Rendered.focus_owned(active, elements, native_focus, key),
             Equal.trans(Bool,
-              Rule.clear(Rendered.issue(Bool.not(Rendered.exists(UI.find_node(active, key))), Rendered.FocusOutsideScope{})),
-              Rendered.exists(UI.find_node(active, key)),
-              Spec.node_exists(UI.find_node(active, key)),
-              clear_issue_positive(Rendered.exists(UI.find_node(active, key)), Rendered.FocusOutsideScope{}),
-              node_exists_matches(UI.find_node(active, key))))))
+              Rule.clear(Rendered.issue(Bool.not(Rendered.focus_owned(active, elements, native_focus, key)), Rendered.FocusOutsideScope{})),
+              Rendered.focus_owned(active, elements, native_focus, key),
+              Rendered.focus_owned(active, elements, native_focus, key),
+              clear_issue_positive(Rendered.focus_owned(active, elements, native_focus, key), Rendered.FocusOutsideScope{}),
+              {==}))))
 
 def clear_required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) ->
   {Rule.clear(Rendered.required_focus(scope, focused)) == Spec.required_focus(scope, focused) : Bool}:
@@ -343,10 +344,10 @@ def clear_independent_targets(elements: +List<Rendered.Element>) ->
 
 def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
   {Rule.clear(Rendered.check(active, frame)) == Spec.valid_parts(active, frame) : Bool}:
-  Rendered.Frame{+viewport, +elements, +focused, +tab_order} = frame
+  Rendered.Frame{+viewport, +elements, +focused, +tab_order, +native_focus} = frame
   +node_faults = Rendered.nodes(active, False{}, elements, viewport)
-  +focus_faults = Rendered.focus_checks(focused, active, elements, viewport)
-  +tab_faults = Rendered.issue(Bool.not(Rendered.same_order(Rendered.expected_tabs(active, elements), tab_order)), Rendered.WrongTabOrder{})
+  +focus_faults = Rendered.focus_checks(focused, active, elements, viewport, native_focus)
+  +tab_faults = Rendered.issue(Bool.not(Rendered.tabs_valid(active, elements, native_focus, tab_order)), Rendered.WrongTabOrder{})
   +target_faults = Rendered.independent_targets(Rendered.actionable_elements(active, elements))
   +tab_and_target_faults = List.append(&2, Rendered.Violation, tab_faults, target_faults)
   +focus_and_tail_faults = List.append(&2, Rendered.Violation, focus_faults, tab_and_target_faults)
@@ -359,10 +360,10 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
   +actual_clear = nodes_clear && tail_clear
   +after_nodes = Spec.all_nodes(active, False{}, elements, viewport) && (focus_clear && middle_clear)
   +after_focus = Spec.all_nodes(active, False{}, elements, viewport) &&
-    (Spec.focus(focused, active, elements, viewport) && middle_clear)
+    (Spec.focus(focused, active, elements, viewport, native_focus) && middle_clear)
   +after_tabs = Spec.all_nodes(active, False{}, elements, viewport) &&
-    (Spec.focus(focused, active, elements, viewport) &&
-      (Rendered.same_order(Rendered.expected_tabs(active, elements), tab_order) && targets_clear))
+    (Spec.focus(focused, active, elements, viewport, native_focus) &&
+      (Rendered.tabs_valid(active, elements, native_focus, tab_order) && targets_clear))
   +target = Spec.valid_parts(active, frame)
   +pair_clear = clear_append(tab_faults, target_faults)
   +focus_tail_clear = Equal.trans(Bool,
@@ -383,20 +384,20 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
     nodes_clear, Spec.all_nodes(active, False{}, elements, viewport),
     clear_nodes(active, False{}, elements, viewport))
   +focus_step = Equal.cong(Bool, Bool, (focus_value => Spec.all_nodes(active, False{}, elements, viewport) && (focus_value && middle_clear)),
-    focus_clear, Spec.focus(focused, active, elements, viewport),
-    clear_focus_checks(focused, active, elements, viewport))
+    focus_clear, Spec.focus(focused, active, elements, viewport, native_focus),
+    clear_focus_checks(focused, active, elements, viewport, native_focus))
   +tab_step = Equal.cong(Bool, Bool, (tab_value => tab_value && targets_clear),
-    tab_clear, Rendered.same_order(Rendered.expected_tabs(active, elements), tab_order),
-    clear_tab_order(Rendered.expected_tabs(active, elements), tab_order))
+    tab_clear, Rendered.tabs_valid(active, elements, native_focus, tab_order),
+    clear_issue_positive(Rendered.tabs_valid(active, elements, native_focus, tab_order), Rendered.WrongTabOrder{}))
   +middle_step = Equal.cong(Bool, Bool,
     (middle_value => Spec.all_nodes(active, False{}, elements, viewport) &&
-      (Spec.focus(focused, active, elements, viewport) && middle_value)),
-    middle_clear, Rendered.same_order(Rendered.expected_tabs(active, elements), tab_order) && targets_clear,
+      (Spec.focus(focused, active, elements, viewport, native_focus) && middle_value)),
+    middle_clear, Rendered.tabs_valid(active, elements, native_focus, tab_order) && targets_clear,
     tab_step)
   +target_step = Equal.cong(Bool, Bool,
     (target_value => Spec.all_nodes(active, False{}, elements, viewport) &&
-      (Spec.focus(focused, active, elements, viewport) &&
-        (Rendered.same_order(Rendered.expected_tabs(active, elements), tab_order) && target_value))),
+      (Spec.focus(focused, active, elements, viewport, native_focus) &&
+        (Rendered.tabs_valid(active, elements, native_focus, tab_order) && target_value))),
     targets_clear, Spec.non_overlapping(Rendered.actionable_elements(active, elements)),
     clear_independent_targets(Rendered.actionable_elements(active, elements)))
   +nodes_focus_step = Equal.trans(Bool, actual_clear, after_nodes, after_focus, node_step, focus_step)
@@ -407,7 +408,7 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
 def reflected(+surface: UI.Surface, +frame: Rendered.Frame) ->
   {Rule.clear(Rendered.violations(surface, frame)) == Spec.valid(surface, frame) : Bool}:
   UI.Surface{content, base, overlays, +scope} = surface
-  Rendered.Frame{viewport, elements, +focused, tab_order} = frame
+  Rendered.Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
   Equal.trans(Bool,
     Rule.clear(Rendered.violations(surface, frame)),
     Rule.clear(Rendered.check(UI.active_nodes(surface), frame)) && Rule.clear(Rendered.required_focus(scope, focused)),
@@ -427,10 +428,6 @@ def reflected(+surface: UI.Surface, +frame: Rendered.Frame) ->
         Rule.clear(Rendered.required_focus(scope, focused)),
         Spec.required_focus(scope, focused),
         clear_required_focus(scope, focused))))
-
-def false_true_elim(P: Type, impossible: {False{} == True{} : Bool}) -> P:
-  Std.transport(Bool, False{}, (value => Rule.bool_goal(P, value)), Unit{}, True{},
-    Equal.sym(Bool, False{}, True{}, impossible))
 
 def realized_faults_imply_valid(+faults: +List<Rendered.Violation>, +surface: UI.Surface,
   +frame: Rendered.Frame, generation: Nat,
@@ -452,7 +449,7 @@ def realized_faults_imply_valid(+faults: +List<Rendered.Violation>, +surface: UI
             Equal.cong(+List<Rendered.Violation>, Bool, Rule.clear, faults, Rendered.violations(surface, frame), matching)),
           {==}))
     case Con{fault, rest}:
-      false_true_elim({Spec.valid(surface, frame) == True{} : Bool},
+      Logic.impossible({Spec.valid(surface, frame) == True{} : Bool},
         Equal.cong(Rendered.State, Bool, Rule.realized_tag,
           Rendered.accepted(faults, generation, frame),
           Rendered.Realized{generation, frame}, realized))

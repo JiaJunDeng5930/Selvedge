@@ -1,5 +1,6 @@
 import Base
 import ./typography.bend as T
+import ./natural-size.bend as NaturalSize
 
 type Plan is Data:
   Plan{generation: Nat, specifications: +List<T.MeasurementSpec>}
@@ -68,11 +69,14 @@ def missing(specifications: +List<T.MeasurementSpec>, +content: +List<T.Measured
     case Nil{}: Nil{}
     case Con{+specification, rest}: missing_item(cached(specification, content), specification, missing(rest, content))
 
-def request(state: State, specifications: +List<T.MeasurementSpec>) -> Plan:
+def request_at(capacity: Nat, state: State, specifications: +List<T.MeasurementSpec>) -> Plan:
   match state:
-    case Pending{generation, scale}: Plan{generation, Con{T.body_spec(scale), specifications}}
+    case Pending{generation, scale}: Plan{generation, Con{T.body_spec_at(capacity, scale), specifications}}
     case Ready{generation, scale, body, content}: Plan{generation, missing(specifications, content)}
     case Failed{generation, scale}: Plan{generation, Nil{}}
+
+def request(state: State, specifications: +List<T.MeasurementSpec>) -> Plan:
+  request_at(NaturalSize.limit(), state, specifications)
 
 def admit_checked(checked: Bool, generation: Nat, scale: T.Scale, metric: T.Metric) -> State:
   match checked:

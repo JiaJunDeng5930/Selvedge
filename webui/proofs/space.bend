@@ -1,17 +1,9 @@
 import Base
+import ../../bendlib/proofs/logic.bend as Logic
 import ../../bendlib/proofs/algebra.bend as Alg
 import ../space.bend as Space
 import ../../bendlib/stdlib.bend as Std
 import ../space-laws.bend as Rule
-
-def false_goal(P: Type, value: Bool) -> Type:
-  match value:
-    case False{}: Unit
-    case True{}: P
-
-def impossible(P: Type, evidence: {False{} == True{} : Bool}) -> P:
-  Std.transport(Bool, False{}, (value => false_goal(P, value)), Unit{}, True{},
-    Equal.sym(Bool, False{}, True{}, evidence))
 
 def zero_le(value: Nat) -> {Nat.is_le(0n, value) == True{} : Bool}:
   match value:
@@ -29,13 +21,13 @@ def ge_le(+first: Nat, +second: Nat) ->
 def and_join(+a: Bool, +b: Bool, first: {a == True{} : Bool}, second: {b == True{} : Bool}) ->
   {Bool.and(a, b) == True{} : Bool}:
   match a:
-    case False{}: impossible({Bool.and(False{}, b) == True{} : Bool}, first)
+    case False{}: Logic.impossible({Bool.and(False{}, b) == True{} : Bool}, first)
     case True{}: second
 
 def and_parts(+a: Bool, +b: Bool, proof: {Bool.and(a, b) == True{} : Bool}) ->
   {a == True{} : Bool} & {b == True{} : Bool}:
   match a:
-    case False{}: impossible({False{} == True{} : Bool} & {b == True{} : Bool}, proof)
+    case False{}: Logic.impossible({False{} == True{} : Bool} & {b == True{} : Bool}, proof)
     case True{}: ({==}, proof)
 
 def max_left(+a: Nat, +b: Nat) -> {Nat.is_le(a, Nat.max(a, b)) == True{} : Bool}:
@@ -70,8 +62,8 @@ def le_trans(+first: Nat, +second: Nat, +third: Nat,
   {Nat.is_le(first, third) == True{} : Bool}:
   match first second third:
     case 0n _ _: zero_le(third)
-    case 1n+a 0n _: impossible({Nat.is_le(1n+a, third) == True{} : Bool}, left)
-    case 1n+a 1n+b 0n: impossible({Nat.is_le(1n+a, 0n) == True{} : Bool}, right)
+    case 1n+a 0n _: Logic.impossible({Nat.is_le(1n+a, third) == True{} : Bool}, left)
+    case 1n+a 1n+b 0n: Logic.impossible({Nat.is_le(1n+a, 0n) == True{} : Bool}, right)
     case 1n+a 1n+b 1n+c: le_trans(a, b, c, left, right)
 
 def min_le_first(+first: Nat, +second: Nat) ->
@@ -93,7 +85,7 @@ def min_floor(+lower: Nat, +extra: Nat, +room: Nat,
   {Nat.is_le(lower, Nat.min(Nat.add(lower, extra), room)) == True{} : Bool}:
   match lower room:
     case 0n _: zero_le(Nat.min(extra, room))
-    case 1n+rest 0n: impossible({Nat.is_le(1n+rest, Nat.min(Nat.add(1n+rest, extra), 0n)) == True{} : Bool}, fits)
+    case 1n+rest 0n: Logic.impossible({Nat.is_le(1n+rest, Nat.min(Nat.add(1n+rest, extra), 0n)) == True{} : Bool}, fits)
     case 1n+rest 1n+remaining: min_floor(rest, extra, remaining, fits)
 
 def first(-P: Type, -Q: Type, pair: P & Q) -> P:
@@ -121,7 +113,7 @@ def residual(+prefix: Nat, +rest: Nat, +budget: Nat,
     case 0n 0n: (fits, {==})
     case 0n 1n+remaining: (fits, {==})
     case 1n+own 0n:
-      impossible({Nat.is_le(rest, Nat.sub(0n, 1n+own)) == True{} : Bool} &
+      Logic.impossible({Nat.is_le(rest, Nat.sub(0n, 1n+own)) == True{} : Bool} &
         {Nat.add(1n+own, Nat.sub(0n, 1n+own)) == 0n : Nat}, fits)
     case 1n+own 1n+remaining:
       residual_step(own, rest, remaining, residual(own, rest, remaining, fits))
@@ -154,7 +146,7 @@ def reserved_use(+own: Nat, +reserve: Nat, +budget: Nat,
       %Equal.sym(Nat, Nat.add(own, 0n), own, Alg.nat_add_zero(own)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
       own_in_room
     case 1n+rest 0n:
-      impossible({Nat.is_le(Nat.add(own, 1n+rest), 0n) == True{} : Bool}, reserve_in_budget)
+      Logic.impossible({Nat.is_le(Nat.add(own, 1n+rest), 0n) == True{} : Bool}, reserve_in_budget)
     case 1n+rest 1n+remaining:
       %Equal.sym(Nat, Nat.add(own, 1n+rest), 1n+Nat.add(own, rest), Alg.nat_add_succ(own, rest)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
       reserved_use(own, rest, remaining, reserve_in_budget, own_in_room)
@@ -221,8 +213,8 @@ def gap_agrees(~A: Data, +slots: +List<Space.Slot<A>>, +placements: +List<Space.
   match slots placements:
     case Nil{} Nil{}: {==}
     case Con{head, tail} Con{other, rest}: {==}
-    case Nil{} Con{head, tail}: impossible({0n == gap : Nat}, valid)
-    case Con{Space.Slot{value, dimension}, tail} Nil{}: impossible({gap == 0n : Nat}, valid)
+    case Nil{} Con{head, tail}: Logic.impossible({0n == gap : Nat}, valid)
+    case Con{Space.Slot{value, dimension}, tail} Nil{}: Logic.impossible({gap == 0n : Nat}, valid)
 
 def used_split(~A: Data, +value: A, +offset: Nat, +size: Nat, +rest: +List<Space.Placement<A>>, +gap: Nat) ->
   {Rule.used(~A, Space.Placement{value, offset, size} <> rest, gap) ==

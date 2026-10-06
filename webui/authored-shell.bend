@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./authored.bend as Authored
 import ./source.bend as Source
 import ./design.bend as Design
@@ -16,7 +17,7 @@ type Anchor is Data:
 
 type Result is Data:
   Ready{source: Source.Node}
-  Rejected{key: String, problem: Authored.Problem}
+  Rejected{key: UIIdentity.Key, problem: Authored.Problem}
 
 type BaseParts is Data:
   BaseParts{navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>}
@@ -54,7 +55,7 @@ def reframe(node: Source.Node, +layout: Source.Layout) -> Source.Node:
     case Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Source.Control{key, tag, reframed_style(style, layout), attributes, accessible_name, enabled, first_event, remaining_events, children}
     case Source.Glyph{key, drawing, style}: Source.Glyph{key, drawing, reframed_style(style, layout)}
     case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: Source.Field{key, kind, reframed_style(style, layout), attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}
-    case Source.RichText{key, style, content, attachments}: Source.RichText{key, reframed_style(style, layout), content, attachments}
+    case Source.RichText{key, style, content, attachments, native_owner}: Source.RichText{key, reframed_style(style, layout), content, attachments, native_owner}
     case Source.Text{key, value, font, wrapping}: Source.Text{key, value, font, wrapping}
 
 def layout_of(node: Source.Node) -> Source.Layout:
@@ -64,7 +65,7 @@ def layout_of(node: Source.Node) -> Source.Layout:
     case Source.Control{key, tag, Source.Style{layout, font, chrome, states}, attributes, accessible_name, enabled, first_event, remaining_events, children}: layout
     case Source.Glyph{key, drawing, Source.Style{layout, font, chrome, states}}: layout
     case Source.Field{key, kind, Source.Style{layout, font, chrome, states}, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: layout
-    case Source.RichText{key, Source.Style{layout, font, chrome, states}, content, attachments}: layout
+    case Source.RichText{key, Source.Style{layout, font, chrome, states}, content, attachments, native_owner}: layout
     case Source.Text{key, value, font, wrapping}:
       Source.Layout{Model.Vertical{}, Spatial.Leading{}, Spatial.Leading{}, Enclosure.frame(Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}), Model.NaturalSize{}, Model.NaturalSize{}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}}
 
@@ -75,30 +76,30 @@ def resized_layout(layout: Source.Layout, width: Model.AxisSize, height: Model.A
 def resize(+node: Source.Node, width: Model.AxisSize, height: Model.AxisSize, scroll: Model.Scroll, cross: Spatial.Alignment, position: Spatial.Position) -> Source.Node:
   reframe(node, resized_layout(layout_of(node), width, height, scroll, cross, position))
 
-def wrap(key: String, style: Source.Style, children: +List<Source.Node>) -> Source.Node:
+def wrap(key: UIIdentity.Key, style: Source.Style, children: +List<Source.Node>) -> Source.Node:
   Source.Box{key, Source.Div{}, style, Nil{}, children}
 
-def spacer(key: String, font: Typography.Presentation) -> Source.Node:
+def spacer(key: UIIdentity.Key, font: Typography.Presentation) -> Source.Node:
   Source.Box{key, Source.Div{}, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{}, Nil{}}
 
-def with_footer(key: String, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, settings: +List<Source.Node>, font: Typography.Presentation) -> Source.Node:
-  Source.Box{key, tag, style, attributes, List.append(&2, Source.Node, children, spacer("/application/navigation-spacer", font) <> settings)}
+def with_footer(key: UIIdentity.Key, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, settings: +List<Source.Node>, font: Typography.Presentation) -> Source.Node:
+  Source.Box{key, tag, style, attributes, List.append(&2, Source.Node, children, spacer(UIIdentity.part(UIIdentity.place("/application"), "navigation-spacer"), font) <> settings)}
 
 def base_role_found(found: Bool, role: UI.Role, fallback: UI.Role) -> UI.Role:
   match found:
     case True{}: role
     case False{}: fallback
 
-def base_role(+key: String, +values: +List<Design.Node>) -> UI.Role:
+def base_role(+key: UIIdentity.Key, +values: +List<Design.Node>) -> UI.Role:
   match values:
     case Nil{}: UI.Content{}
     case Con{Design.Node{current, semantic, label, role, meaning, style, control, children}, rest}:
-      base_role_found(String.eq(key, current), role, base_role(key, rest))
+      base_role_found(UIIdentity.same(key, current), role, base_role(key, rest))
 
-def is_navigation(+key: String, role: UI.Role) -> Bool:
+def is_navigation(+key: UIIdentity.Key, role: UI.Role) -> Bool:
   match role:
     case UI.Navigation{}: True{}
-    case _: String.eq(key, "/navigation/navigation/toggle")
+    case _: UIIdentity.same(key, UIIdentity.part(UIIdentity.place("/navigation"), "navigation/toggle"))
 
 def split_base_settings(found: Bool, node: Source.Node, parts: BaseParts) -> BaseParts:
   match found parts:
@@ -109,7 +110,7 @@ def split_base_role(+node: Source.Node, role: UI.Role, navigation: +List<Source.
   match role:
     case UI.Main{}: BaseParts{navigation, node <> main, settings, other}
     case _:
-      split_base_settings(String.eq(Source.key_of(node), "/settings/open"), node, BaseParts{navigation, main, settings, other})
+      split_base_settings(UIIdentity.same(Source.key_of(node), UIIdentity.place("/settings/open")), node, BaseParts{navigation, main, settings, other})
 
 def split_base_navigation(found: Bool, +node: Source.Node, +role: UI.Role, parts: BaseParts) -> BaseParts:
   match found parts:
@@ -141,7 +142,7 @@ def navigation_nodes(+values: +List<Source.Node>, +width: Nat) -> +List<Source.N
 
 def reading_layout(layout: Source.Layout, +maximum: Nat) -> Source.Layout:
   Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
-  Source.Layout{direction, main, cross, frame, Model.LimitedSize{0n, maximum, maximum}, height, minimum, scroll, position}
+  Source.Layout{direction, main, cross, frame, Model.LimitedSize{0n, maximum, 0n}, height, minimum, scroll, position}
 
 def reading_children(values: +List<Source.Node>, +maximum: Nat) -> +List<Source.Node>:
   match values:
@@ -158,12 +159,12 @@ def main_nodes(values: +List<Source.Node>, +maximum: Nat) -> +List<Source.Node>:
 def body_mode(beside: Bool, navigation_width: Nat, +reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
   match beside:
     case True{}:
-      Source.Box{"/application/body", Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+      Source.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
         List.append(&2, Source.Node, navigation_nodes(navigation_footer(navigation, settings, font), navigation_width), List.append(&2, Source.Node, main_nodes(main, reading_width), List.append(&2, Source.Node, other, docked)))}
     case False{}:
-      Source.Box{"/application/body", Source.Div{}, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
-        Source.Box{"/application/topbar", Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, Spatial.Centered{}), Nil{},
-          List.append(&2, Source.Node, navigation, spacer("/application/topbar-spacer", font) <> settings)} <>
+      Source.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), Source.Div{}, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+        Source.Box{UIIdentity.part(UIIdentity.place("/application"), "topbar"), Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, Spatial.Centered{}), Nil{},
+          List.append(&2, Source.Node, navigation, spacer(UIIdentity.part(UIIdentity.place("/application"), "topbar-spacer"), font) <> settings)} <>
         List.append(&2, Source.Node, main_nodes(main, reading_width), List.append(&2, Source.Node, other, docked))}
 
 def body_direction(capacity: View.Capacity, parameters: Design.LayoutParameters, reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
@@ -188,12 +189,12 @@ def semantic_anchor(+requested: String, +values: +List<UI.Node>) -> Maybe<&2, St
   match values:
     case Nil{}: None{}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
-      semantic_anchor_found(String.eq(semantic, requested), key, prefer_anchor(semantic_anchor(requested, children), semantic_anchor(requested, rest)))
+      semantic_anchor_found(String.eq(semantic, requested), UIIdentity.encode(key), prefer_anchor(semantic_anchor(requested, children), semantic_anchor(requested, rest)))
 
 def found_key(found: Maybe<&2, UI.Node>) -> Maybe<&2, String>:
   match found:
     case None{}: None{}
-    case Some{UI.Node{key, semantic, label, role, meaning, children}}: Some{key}
+    case Some{UI.Node{key, semantic, label, role, meaning, children}}: Some{UIIdentity.encode(key)}
 
 def anchor_key(+requested: String, +base: +List<Design.Node>, +overlays: +List<Design.Node>) -> Maybe<&2, String>:
   +semantic_base = Design.semantic_nodes(base)
@@ -223,7 +224,7 @@ def find_layer(+key: String, layers: +List<View.Layer>) -> Maybe<&2, View.Layer>
     case Nil{}: None{}
     case Con{+layer, rest}:
       View.Layer{kind, content, initial, restore, dismissal} = layer
-      layer_found(String.eq(UI.layer_key(initial), key), layer, find_layer(key, rest))
+      layer_found(String.eq(UIIdentity.encode(UI.layer_key(initial)), key), layer, find_layer(key, rest))
 
 def anchored_position(found: Maybe<&2, String>, outside: Enclosure.Insets, gap: Nat, anchors: +List<Anchor>) -> Spatial.Position:
   match found:
@@ -236,9 +237,9 @@ def menu_position(found: Maybe<&2, View.Layer>, +outside: Enclosure.Insets, gap:
       anchored_position(anchor_key(restore, base, overlays), outside, gap, anchors)
     case _: Spatial.CenteredLayer{outside}
 
-def floating_position(role: UI.Role, key: String, +outside: Enclosure.Insets, gap: Nat, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>) -> Spatial.Position:
+def floating_position(role: UI.Role, key: UIIdentity.Key, +outside: Enclosure.Insets, gap: Nat, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>) -> Spatial.Position:
   match role:
-    case UI.Menu{}: menu_position(find_layer(key, layers), outside, gap, base, overlays, anchors)
+    case UI.Menu{}: menu_position(find_layer(UIIdentity.encode(key), layers), outside, gap, base, overlays, anchors)
     case _: Spatial.CenteredLayer{outside}
 
 def floating_width(role: UI.Role, +reading_width: Nat) -> Model.AxisSize:
@@ -281,10 +282,13 @@ def split_overlays(+values: +List<Source.Node>, +capacity: View.Capacity, +param
       split_overlay_node(node, base_role(Source.key_of(node), overlays), capacity, parameters, layers, base, overlays, anchors,
         split_overlays(rest, capacity, parameters, layers, base, overlays, anchors))
 
+def back_to_front(floating: +List<Source.Node>) -> +List<Source.Node>:
+  List.reverse(&2, Source.Node, floating)
+
 def assembled_parts(parts: OverlayParts, reading_width: Nat, base_nodes: +List<Source.Node>, base: +List<Design.Node>, capacity: View.Capacity, parameters: Design.LayoutParameters, +font: Typography.Presentation, theme: Design.Theme) -> Result:
   OverlayParts{docked, floating} = parts
-  Ready{Source.Box{"/application", Source.Div{}, application_style(font), [Source.DataAttribute{"theme", theme_name(theme)}],
-        body(split_base(base_nodes, base), reading_width, capacity, parameters, docked, font) <> floating}}
+  Ready{Source.Box{UIIdentity.place("/application"), Source.Div{}, application_style(font), [Source.DataAttribute{"theme", theme_name(theme)}],
+        body(split_base(base_nodes, base), reading_width, capacity, parameters, docked, font) <> back_to_front(floating)}}
 
 def structure_reading_width(structure: Design.MainStructure, parameters: Design.LayoutParameters) -> Nat:
   match structure:

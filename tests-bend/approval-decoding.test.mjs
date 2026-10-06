@@ -9,8 +9,8 @@ async function kernel(t) {
   const send = async input => (await k.request(input)).value;
   const command = command => send({ kind: 'command', command });
   const configured = await send({ kind: 'configure', profiles: [
-    { key: 'worker', provider: 'responses', name: 'worker-model' },
-    { key: 'reviewer', provider: 'responses', name: 'review-model' },
+    { key: 'worker', provider: 'responses', name: 'worker-model', reasoning_options: null },
+    { key: 'reviewer', provider: 'responses', name: 'review-model', reasoning_options: null },
   ], tools: [], max_fork: 4, max_descendants: 8 });
   assert.equal(configured.reply.ok, true);
   const page = async (id = 0) => (await command({ op: 'read', task_id: id })).reply.result;

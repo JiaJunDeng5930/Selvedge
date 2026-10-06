@@ -29,7 +29,7 @@ def event_ownership(+node: Source.Node) -> Rule.operation_is_structurally_presen
     case Source.Text{key, value, font, wrapping}: {==}
     case Source.Glyph{key, drawing, style}: {==}
     case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: {==}
-    case Source.RichText{key, style, content, attachments}: {==}
+    case Source.RichText{key, style, content, attachments, native_owner}: {==}
     case Source.NativeAttachment{key, target, attributes, style, children}: {==}
 
 def bounded_policy_factory(columns_extra: Nat, +lines_extra: Nat, additional_lines: Nat) ->

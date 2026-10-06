@@ -67,12 +67,12 @@ def stale_reading_law(-application: E.Application, -services: Services.State, -p
       Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}
 
 def session_readers(session: E.Session) -> +List<Finite.Entry(E.Reader)>:
-  E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   readers
 
 def conversation_session(session: E.Session, task: Nat) -> E.Session:
-  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks} = session
-  E.Session{U.Conversation{task}, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}
+  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer} = session
+  E.Session{U.Conversation{task}, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}
 
 def RetainedEntry(found: Maybe<&2, U.Draft>) -> Type:
   match found:
@@ -122,10 +122,6 @@ def model_application(state: Model.State) -> Platform.State:
 def decision_capacity(decision: Platform.Decision) -> View.Capacity:
   Platform.Decision{product, platform, effects} = decision
   platform_capacity(platform)
-
-def decision_application(decision: Model.Decision) -> Platform.State:
-  Model.Decision{Model.State{application, generation, realization, environment, font}, product, effects} = decision
-  application
 
 type Requirements is Type:
   Requirements{reflow_same: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
@@ -205,22 +201,22 @@ type Requirements is Type:
         Platform.State{core, platform})) ==
         Product.step(Product.SubmitComposer{platform_capacity(platform), owner}, core) : Core.Decision},
     temporary_enter_product: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
-      @identity:String -> @initial:String -> @restore:String -> @core:Core.State -> @platform:Platform.Platform ->
+      @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:Core.State -> @platform:Platform.Platform ->
       {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-          Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
+          Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})})) ==
           Platform.unchanged(core) : Core.Decision},
     temporary_enter_effects: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
-      @identity:String -> @initial:String -> @restore:String -> @core:Core.State -> @platform:Platform.Platform ->
+      @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:Core.State -> @platform:Platform.Platform ->
       {platform_effects(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-          Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore})})) ==
+          Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})})) ==
           Nil{} : +List<Platform.Effect>},
     stale_focus_ticket: @core:Core.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String ->
       @stale:{Nat.is_eq(received, platform_ticket(platform)) == False{} : Bool} ->
-      {Platform.step(Platform.FocusApplied{received, identity}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}}, Platform.State{core, platform}) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
     inactive_focus: @core:Core.State -> @platform:Platform.Platform -> @identity:String ->
       @inactive:{Platform.active_focus(core, platform_capacity(platform), identity) == False{} : Bool} ->
-      {Platform.step(Platform.FocusApplied{platform_ticket(platform), identity}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.FocusApplied{platform_ticket(platform), Focus.Product{identity}}, Platform.State{core, platform}) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
     synchronize_retained: @drafts:+List<U.Draft> -> @editors:+List<Editor.Editor> ->
       @retained:Retained(drafts, editors) ->

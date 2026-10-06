@@ -1,4 +1,5 @@
 import Base
+import ../../core/ui-identity.bend as Identity
 import ../spatial.bend as SpatialModel
 import ../typography.bend as T
 import ../enclosure.bend as E
@@ -16,22 +17,22 @@ def content_preserves_arrangement(+value: D.Style, content: E.ContentArea) ->
   D.Style{text, chrome, alignment, flow, overflow, E.Frame{old_content, arrangement}, minimum, maximum, states} = value
   {==}
 
-def actual_choice_geometry(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
+def actual_choice_geometry(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
   {Rule.actual_geometry(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
-def actual_choice_layout(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
+def actual_choice_layout(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
   {C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
-def actual_choice_mark_contains_icon(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
+def actual_choice_mark_contains_icon(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
   {Nat.is_le(Rule.mark_icon_extent(C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context))), Rule.mark_extent(C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)))) == True{} : Bool}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
-def selection_keeps_allocation(+key: String, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
+def selection_keeps_allocation(+key: Identity.Key, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
   {C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
@@ -47,7 +48,7 @@ def choice_style_normalization(+value: D.Style, +size: C.Geometry, label: String
   C.Geometry{Space.Demand{E.Extent{width, height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading} = size
   {==}
 
-def actual_choice_normalization(+key: String, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String,
+def actual_choice_normalization(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String,
   +role: UI.Role, +context: C.Context, +fallback: D.Style, +typography: T.Presentation) -> Rule.actual_choice_normalization_law(key, selected, description, input, availability, label, role, context, fallback, typography):
   match context:
     case C.Context{C.PageArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:

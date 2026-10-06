@@ -34,7 +34,6 @@ the frozen project context, and the last six tool calls paired with their result
 Each call shares a 1,000-local-token result budget. Head/tail omissions are marked;
 the complete request is bounded by 28,000 local tokens and the native frame limit.
 The pinned `o200k_base` tokenizer is an estimate, not Jev's private tokenizer.
-Private/encrypted model continuation is excluded by the native projection.
 Public task and tool content still leaves this computer for the chosen evaluator.
 
 ## Use the login preset

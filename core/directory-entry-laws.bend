@@ -1,4 +1,5 @@
 import Base
+import ./ui-identity.bend as Identity
 import ./client-services.bend as Services
 import ../MODEL.bend as M
 import ../bendlib/domain.bend as D
@@ -41,7 +42,7 @@ type Requirements is Type:
       {E.edit_existing(U.ConfirmDirectory{}, draft, world, session) == E.unchanged(E.Application{world, session}) : E.Decision},
     input_binding: @+editor:U.Editor -> @text:String -> @+path:String ->
       {UI.bind(UI.EnterDirectory{editor, text}, UI.Directory{path}) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}}} : Maybe<&2, Core.Input>},
-    button_declaration: @+editor:U.Editor -> @+parent:String -> @+state:Core.State ->
+    button_declaration: @+editor:U.Editor -> @+parent: Identity.Key -> @+state:Core.State ->
       {UI.directory_confirm(editor, parent, state) == UI.declared(parent, V.ControlDeclaration{"workspace/confirm", "Add folder", V.Secondary{}, U.EditDraft{editor, U.ConfirmDirectory{}}, UI.availability(UI.directory_ready(state, editor))}, state) : UI.Node},
     button_activation: @+editor:U.Editor ->
       {UI.bind(UI.Activate{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}}, V.Available{}}, UI.Press{}) == Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}}} : Maybe<&2, Core.Input>},
@@ -68,3 +69,27 @@ type DirectoryPickerRequirements is Type:
 
 law directory_picker_requirements:
   DirectoryPickerRequirements
+
+
+def spatial_identity(node: UI.Node) -> Identity.Key:
+  UI.Node{key, semantic, label, role, meaning, children} = node
+  key
+
+def first_spatial_identity(nodes: +List<UI.Node>) -> Identity.Key:
+  match nodes:
+    case Nil{}: Identity.Place{""}
+    case Con{node, rest}: spatial_identity(node)
+
+type DirectoryIdentityRequirements is Type:
+  DirectoryIdentityRequirements{
+    row: @+path:String -> @primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @+parent:Identity.Key -> @state:Core.State ->
+      {spatial_identity(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)) == Identity.Entity{parent, "directory", path} : Identity.Key},
+    primary: @+path:String -> @control:V.ControlDeclaration -> @+parent:Identity.Key -> @state:Core.State ->
+      {first_spatial_identity(UI.directory_primary_controls(True{}, control, Identity.Entity{parent, "directory", path}, state)) == Identity.Part{Identity.Entity{parent, "directory", path}, "primary"} : Identity.Key},
+    slot_not_directory: @path:String -> @primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @+parent:Identity.Key -> @state:Core.State -> @other:String -> @name:String ->
+      {Identity.same(Identity.Part{spatial_identity(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)), name}, Identity.Entity{parent, "directory", other}) == False{} : Bool},
+    directory_not_slot: @path:String -> @primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @+parent:Identity.Key -> @state:Core.State -> @other:String -> @name:String ->
+      {Identity.same(Identity.Entity{parent, "directory", other}, Identity.Part{spatial_identity(UI.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)), name}) == False{} : Bool}}
+
+law directory_identity_requirements:
+  DirectoryIdentityRequirements

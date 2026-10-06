@@ -1,6 +1,7 @@
 import Base
 import ../../bendlib/stdlib.bend as Std
 import ./space.bend as SpaceProof
+import ../../bendlib/proofs/logic.bend as Logic
 
 def subtract_zero(+value: Nat) -> {Nat.sub(value, 0n) == value : Nat}:
   match value:
@@ -12,7 +13,7 @@ def rank_at_zero(+value: Nat,
   enough: {Nat.is_le(value, 0n) == True{} : Bool}) -> {value == 0n : Nat}:
   match value:
     case 0n: {==}
-    case 1n+rest: SpaceProof.impossible({1n+rest == 0n : Nat}, enough)
+    case 1n+rest: Logic.impossible({1n+rest == 0n : Nat}, enough)
 
 def predecessor_in_budget(+value: Nat, +budget: Nat,
   enough: {Nat.is_le(value, 1n+budget) == True{} : Bool}) ->

@@ -248,6 +248,26 @@ type Render is Data:
   Elements{values: +List<Json>, first: Bool}
   Fields{values: +List<Field>, first: Bool}
 
+# A recursive edge consumes one unit; sibling jobs receive the same remainder.
+def payload_required(+value: Json) -> Nat:
+  match value:
+    case Null{}: 0n
+    case Boolean{value}: 0n
+    case Number{lexeme}: 0n
+    case Text{value}: 0n
+    case Array{Nil{}}: 1n
+    case Array{Con{head, tail}}:
+      1n+Nat.max(1n+payload_required(head), payload_required(Array{tail}))
+    case Object{Nil{}}: 1n
+    case Object{Con{Field{key, value}, tail}}:
+      1n+Nat.max(1n+payload_required(value), payload_required(Object{tail}))
+
+def required(+job: Render) -> Nat:
+  match job:
+    case One{value}: 1n+payload_required(value)
+    case Elements{values, first}: payload_required(Array{values})
+    case Fields{values, first}: payload_required(Object{values})
+
 def join(left: Result<&2, &2, String, String>, right: Result<&2, &2, String, String>) -> Result<&2, &2, String, String>:
   match left right:
     case Done{a} Done{b}: Done{a ++ b}
@@ -284,8 +304,8 @@ def render(fuel: Nat, job: Render) -> Result<&2, &2, String, String>:
     case 1n+ +p Fields{Con{Field{key, value}, tail}, first}:
       surround(comma(first) ++ quote(key) ++ ":", join(render(p, One{value}), render(p, Fields{tail, False{}})), "")
 
-def show(value: Json) -> Result<&2, &2, String, String>:
-  render(U32.to_nat(65536), One{value})
+def show(+value: Json) -> Result<&2, &2, String, String>:
+  render(required(One{value}), One{value})
 
 def char_width(ascii: Bool, two: Bool, three: Bool) -> Nat:
   match ascii two three:

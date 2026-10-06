@@ -21,8 +21,8 @@ pre, code { font-family: var(--rich-code-font); }
 .math-source { white-space: pre-wrap; }
 
 .native-control { background: var(--native-rest-background); color: var(--native-rest-color); }
-.native-control:hover:enabled { background: var(--native-hover-background); color: var(--native-hover-color); }
-.native-control:active:enabled { background: var(--native-pressed-background); color: var(--native-pressed-color); }
+.native-control:hover:enabled { background: var(--native-hover-background, var(--native-rest-background)); color: var(--native-hover-color, var(--native-rest-color)); }
+.native-control:active:enabled { background: var(--native-pressed-background, var(--native-rest-background)); color: var(--native-pressed-color, var(--native-rest-color)); }
 .native-control:disabled { opacity: var(--native-disabled-opacity); }
 .native-control:focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
 

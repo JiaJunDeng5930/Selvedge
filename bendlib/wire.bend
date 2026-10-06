@@ -197,12 +197,46 @@ def valid_reasoning_policy(+value: J.Json) -> Bool:
         (String.eq(J.text(J.get(value, "transport")), "configuration_update") || String.eq(J.text(J.get(value, "transport")), "request_effort")) &&
         Reasoning.valid(reasoning_policy(value))
 
+def requested_reasoning_default(value: J.Json) -> Maybe<&2, String>:
+  match value:
+    case J.Text{text}: Some{text}
+    case _: None{}
+
+def reasoning_options(+value: J.Json) -> Maybe<&2, D.ReasoningOptions>:
+  match value:
+    case J.Null{}: None{}
+    case other: D.normalize_reasoning_options(J.text_values(J.items(J.get(other, "values"))), requested_reasoning_default(J.get(other, "default")))
+
+def valid_reasoning_values(values: +List<J.Json>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{J.Text{+value}, rest}: D.nonempty(value) && Bool.not(String.eq(value, "auto")) && valid_reasoning_values(rest)
+    case _: False{}
+
+def valid_reasoning_default(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Text{text}: True{}
+    case _: False{}
+
+def valid_reasoning_options(+value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case other:
+      Shape.object_keys(other, ["default", "values"]) && valid_reasoning_default(J.get(other, "default")) &&
+        is_array(J.get(other, "values")) && Nat.is_lt(0n, List.length(&2, J.Json, J.items(J.get(other, "values")))) && valid_reasoning_values(J.items(J.get(other, "values")))
+
 def profile_values(values: +List<J.Json>) -> +List<D.Profile>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
       D.Profile{J.text(J.get(value, "key")), J.text(J.get(value, "provider")), J.text(J.get(value, "name")),
-        reasoning_policy(J.get(value, "adaptive_reasoning"))} <> profile_values(rest)
+        reasoning_policy(J.get(value, "adaptive_reasoning")), reasoning_options(J.get(value, "reasoning_options"))} <> profile_values(rest)
+
+def profile_options_present(value: J.Json) -> Bool:
+  match value:
+    case J.Object{fields}: Schema.exists(fields, "reasoning_options")
+    case _: False{}
 
 def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
   match values:
@@ -210,7 +244,7 @@ def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Con{+value, rest}:
       +key = J.text(J.get(value, "key"))
       D.nonempty(key) && D.nonempty(J.text(J.get(value, "provider"))) && D.nonempty(J.text(J.get(value, "name"))) &&
-        valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(Schema.contains(seen, key)) && valid_profiles(rest, key <> seen)
+        profile_options_present(value) && valid_reasoning_options(J.get(value, "reasoning_options")) && D.policy_options_valid(reasoning_policy(J.get(value, "adaptive_reasoning")), reasoning_options(J.get(value, "reasoning_options"))) && valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(Schema.contains(seen, key)) && valid_profiles(rest, key <> seen)
 
 def plugin_ref(+value: J.Json) -> D.PluginRef:
   D.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}

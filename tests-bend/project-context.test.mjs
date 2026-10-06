@@ -49,7 +49,7 @@ test('Bend-generated JavaScript rejects an invalid project revision', async t =>
   t.after(() => kernel.close());
   await kernel.initialize();
   const input = async value => (await kernel.request(value)).value;
-  const configure = project => input({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture' }],
+  const configure = project => input({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }],
     tools: [], max_fork: 4, max_descendants: 8, project });
   const project = { workspace: '/project', instructions: 'Original project instructions', revision: 'a'.repeat(64) };
   assert.equal((await configure(project)).reply.ok, true);

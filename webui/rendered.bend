@@ -1,4 +1,5 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
 import ../core/form-fields.bend as Forms
@@ -9,8 +10,11 @@ type Element is Data:
     keyboard_reachable: Bool, scroll_reachable: Bool, bounds: Geometry.Rect,
     center_hit_owner: String}
 
+type NativeFocus is Data:
+  NativeFocus{identity: String, owner: String}
+
 type Frame is Data:
-  Frame{viewport: Geometry.Rect, elements: +List<Element>, focused: Maybe<&2, String>, tab_order: +List<String>}
+  Frame{viewport: Geometry.Rect, elements: +List<Element>, focused: Maybe<&2, String>, tab_order: +List<String>, native_focus: +List<NativeFocus>}
 
 type Violation is Data:
   MissingElement{key: String}
@@ -157,8 +161,8 @@ def nodes(entries: +List<UI.Node>, +inherited: Bool, +elements: +List<Element>, 
   match entries:
     case Nil{}: Nil{}
     case Con{UI.Node{+key, semantic, label, +role, meaning, children}, rest}:
-      List.append(&2, Violation, node_geometry(find_element(elements, key), meaning, role, key, inherited || persistent(role), viewport),
-        List.append(&2, Violation, nodes(children, inherited || persistent(role) || code_in_view(role, find_element(elements, key), viewport), elements, viewport), nodes(rest, inherited, elements, viewport)))
+      List.append(&2, Violation, node_geometry(find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), inherited || persistent(role), viewport),
+        List.append(&2, Violation, nodes(children, inherited || persistent(role) || code_in_view(role, find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport), nodes(rest, inherited, elements, viewport)))
 
 def tab_stop(found: Maybe<&2, Element>) -> Bool:
   match found:
@@ -170,12 +174,57 @@ def tab_entry(included: Bool, key: String, rest: +List<String>) -> +List<String>
     case True{}: key <> rest
     case False{}: rest
 
-def expected_tabs(nodes: +List<UI.Node>, +elements: +List<Element>) -> +List<String>:
+def native_member(entries: +List<NativeFocus>, +identity: String) -> Bool:
+  match entries:
+    case Nil{}: False{}
+    case Con{NativeFocus{key, owner}, rest}: String.eq(key, identity) || native_member(rest, identity)
+
+def read_only(found: Maybe<&2, UI.Node>) -> Bool:
+  match found:
+    case Some{UI.Node{key, semantic, label, role, UI.ReadOnly{text}, children}}: True{}
+    case Some{UI.Node{key, semantic, label, role, UI.RichText{source, value}, children}}: True{}
+    case _: False{}
+
+def native_element(found: Maybe<&2, Element>) -> Bool:
+  match found:
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: enabled && tab && keyboard && (visible || scroll)
+    case None{}: False{}
+
+def exists(found: Maybe<&2, UI.Node>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{node}: True{}
+
+def native_valid(entries: +List<NativeFocus>, +active: +List<UI.Node>, +elements: +List<Element>) -> Bool:
+  match entries:
+    case Nil{}: True{}
+    case Con{NativeFocus{+identity, owner}, +rest}:
+      read_only(UI.find_node(active, owner)) && Bool.not(exists(UI.find_node(active, identity))) &&
+      native_element(find_element(elements, identity)) && Bool.not(native_member(rest, identity)) && native_valid(rest, active, elements)
+
+def native_owned(+entries: +List<NativeFocus>, +active: +List<UI.Node>, +elements: +List<Element>, +key: String) -> Bool:
+  native_valid(entries, active, elements) && native_member(entries, key)
+
+def owner_tabs(entries: +List<NativeFocus>, +owner: String) -> +List<String>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{NativeFocus{identity, parent}, rest}: tab_entry(String.eq(parent, owner), identity, owner_tabs(rest, owner))
+
+def content_tabs(meaning: UI.Meaning, entries: +List<NativeFocus>, key: String) -> +List<String>:
+  match meaning:
+    case UI.ReadOnly{text}: owner_tabs(entries, key)
+    case UI.RichText{source, value}: owner_tabs(entries, key)
+    case _: Nil{}
+
+def expected_tabs(nodes: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>) -> +List<String>:
   match nodes:
     case Nil{}: Nil{}
-    case Con{UI.Node{+key, semantic, label, role, +meaning, children}, rest}:
-      tab_entry(interactive(meaning) && required_enabled(meaning) && tab_stop(find_element(elements, key)), key,
-        List.append(&2, String, expected_tabs(children, elements), expected_tabs(rest, elements)))
+    case Con{+node, rest}:
+      UI.Node{key, semantic, label, role, +meaning, children} = node
+      +identity = UI.node_key(node)
+      tab_entry(interactive(meaning) && required_enabled(meaning) && tab_stop(find_element(elements, identity)), identity,
+        List.append(&2, String, content_tabs(meaning, native_focus, identity),
+          List.append(&2, String, expected_tabs(children, elements, native_focus), expected_tabs(rest, elements, native_focus))))
 
 def same_order(expected: +List<String>, actual: +List<String>) -> Bool:
   match expected actual:
@@ -183,21 +232,24 @@ def same_order(expected: +List<String>, actual: +List<String>) -> Bool:
     case Con{left, ls} Con{right, rs}: String.eq(left, right) && same_order(ls, rs)
     case _ _: False{}
 
+def tabs_valid(+active: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, order: +List<String>) -> Bool:
+  native_valid(native_focus, active, elements) && same_order(expected_tabs(active, elements, native_focus), order)
+
+
 def focus_visible(found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
   match found:
     case None{}: False{}
     case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: visible && Geometry.contains(viewport, bounds)
 
-def exists(found: Maybe<&2, UI.Node>) -> Bool:
-  match found:
-    case None{}: False{}
-    case Some{node}: True{}
 
-def focus_checks(focus: Maybe<&2, String>, nodes: +List<UI.Node>, elements: +List<Element>, viewport: Geometry.Rect) -> +List<Violation>:
+def focus_owned(+nodes: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, +key: String) -> Bool:
+  exists(UI.find_node(nodes, key)) || native_owned(native_focus, nodes, elements, key)
+
+def focus_checks(focus: Maybe<&2, String>, nodes: +List<UI.Node>, +elements: +List<Element>, viewport: Geometry.Rect, +native_focus: +List<NativeFocus>) -> +List<Violation>:
   match focus:
     case None{}: Nil{}
     case Some{+key}: List.append(&2, Violation, issue(Bool.not(focus_visible(find_element(elements, key), viewport)), InvisibleFocus{}),
-      issue(Bool.not(exists(UI.find_node(nodes, key))), FocusOutsideScope{}))
+      issue(Bool.not(focus_owned(nodes, elements, native_focus, key)), FocusOutsideScope{}))
 
 def required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) -> +List<Violation>:
   match scope:
@@ -216,7 +268,7 @@ def actionable_elements(nodes: +List<UI.Node>, +elements: +List<Element>) -> +Li
   match nodes:
     case Nil{}: Nil{}
     case Con{UI.Node{key, semantic, label, role, +meaning, children}, rest}:
-      include_element(interactive(meaning) && required_enabled(meaning), find_element(elements, key),
+      include_element(interactive(meaning) && required_enabled(meaning), find_element(elements, UIIdentity.encode(key)),
         List.append(&2, Element, actionable_elements(children, elements), actionable_elements(rest, elements)))
 
 def against(first: Element, rest: +List<Element>) -> +List<Violation>:
@@ -233,15 +285,15 @@ def independent_targets(elements: +List<Element>) -> +List<Violation>:
     case Con{first, +rest}: List.append(&2, Violation, against(first, rest), independent_targets(rest))
 
 def check(+active: +List<UI.Node>, frame: Frame) -> +List<Violation>:
-  Frame{+viewport, +elements, focused, tab_order} = frame
+  Frame{+viewport, +elements, focused, tab_order, +native_focus} = frame
   List.append(&2, Violation, nodes(active, False{}, elements, viewport),
-    List.append(&2, Violation, focus_checks(focused, active, elements, viewport),
-      List.append(&2, Violation, issue(Bool.not(same_order(expected_tabs(active, elements), tab_order)), WrongTabOrder{}),
+    List.append(&2, Violation, focus_checks(focused, active, elements, viewport, native_focus),
+      List.append(&2, Violation, issue(Bool.not(tabs_valid(active, elements, native_focus, tab_order)), WrongTabOrder{}),
         independent_targets(actionable_elements(active, elements)))))
 
 def violations(+surface: UI.Surface, +frame: Frame) -> +List<Violation>:
   UI.Surface{content, base, overlays, +scope} = surface
-  Frame{viewport, elements, +focused, tab_order} = frame
+  Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
   List.append(&2, Violation, check(UI.active_nodes(surface), frame), required_focus(scope, focused))
 
 def accepted(violations: +List<Violation>, generation: Nat, frame: Frame) -> State:

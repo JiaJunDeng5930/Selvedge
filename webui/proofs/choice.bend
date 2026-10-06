@@ -1,4 +1,6 @@
 import Base
+import ../../core/ui-identity.bend as UIIdentity
+import ../../bendlib/board-filter.bend as Filter
 import ../choice-rules.bend as Rule
 import ../controls.bend as C
 import ../authored-controls.bend as A
@@ -11,24 +13,15 @@ import ../../core/SYSTEM.bend as Core
 import ../../core/ui-world.bend as View
 import ../../core/field-options.bend as Fields
 
-def stage_classification(+stage: Board.Stage) ->
-  {C.classification_icon(Some{"status/" ++ Board.stage_name(stage)}) == Some{C.Status{stage}} : Maybe<&2, C.Icon>}:
-  match stage:
-    case Board.Backlog{}: {==}
-    case Board.Todo{}: {==}
-    case Board.InProgress{}: {==}
-    case Board.InReview{}: {==}
-    case Board.Completed{}: {==}
-    case Board.Blocked{}: {==}
-
-def priority_classification(+priority: Board.Priority) ->
-  {C.classification_icon(Some{"priority/" ++ Board.priority_name(priority)}) == Some{C.Priority{priority}} : Maybe<&2, C.Icon>}:
-  match priority:
-    case Board.NoPriority{}: {==}
-    case Board.Low{}: {==}
-    case Board.Medium{}: {==}
-    case Board.High{}: {==}
-    case Board.Urgent{}: {==}
+def classification_meaning(+category: Filter.Classification) -> Rule.GlyphMeaning<category, C.classification_glyph(category)>:
+  match category:
+    case Filter.TaskStage{stage}: Rule.TaskStage{stage, {==}, {==}}
+    case Filter.TaskPriority{priority}: Rule.TaskPriority{priority, {==}, {==}}
+    case Filter.Project{}: Rule.Project{{==}, {==}}
+    case Filter.Person{}: Rule.Person{{==}, {==}}
+    case Filter.Agent{}: Rule.Agent{{==}, {==}}
+    case Filter.Label{}: Rule.Label{{==}, {==}}
+    case Filter.Updated{}: Rule.Updated{{==}, {==}}
 
 def selection_roles(+kind: UI.ChoiceKind, +area: C.Area, +selected: Bool) ->
   {A.behavior(C.choice_behavior(kind, area, selected)) == [S.RoleAttribute{Rule.selection_role(kind, area)}, S.AriaAttribute{"checked", Fields.boolean(selected)}] : +List<S.Attribute>}:
@@ -60,11 +53,11 @@ def selection_roles(+kind: UI.ChoiceKind, +area: C.Area, +selected: Bool) ->
     case UI.MultipleChoice{} C.BoardViewArea{}: {==}
     case UI.MultipleChoice{} C.BoardLaneArea{}: {==}
 
-def semantic_face(+key: String, +kind: UI.ChoiceKind, +icon: Maybe<&2, String>, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) -> Rule.actual_face_law(key, kind, icon, selected, description, input, availability, label, role, context):
+def semantic_face(+key: UIIdentity.Key, +kind: UI.ChoiceKind, +classification: Maybe<&2, Filter.Classification>, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) -> Rule.actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context):
   C.Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
   {==}
 
-def selected_measured_glyph(+text: String, description: Maybe<&2, String>, icon: Maybe<&2, C.Icon>, +selected: Bool, +key: String, +parent: D.Style, +geometry: C.Geometry) ->
+def selected_measured_glyph(+text: String, description: Maybe<&2, String>, icon: Maybe<&2, C.Icon>, +selected: Bool, +key: UIIdentity.Key, +parent: D.Style, +geometry: C.Geometry) ->
   {Rule.selection_drawing(A.face_members(C.ChoiceFace{text, description, icon, selected}, key, parent, geometry)) == Rule.selected_drawing(selected, A.face_icon_size(geometry)) : Maybe<&2, S.Drawing>}:
   match icon selected:
     case None{} True{}: {==}
@@ -74,12 +67,7 @@ def selected_measured_glyph(+text: String, description: Maybe<&2, String>, icon:
 
 def Rule.evidence():
   Rule.Requirements{
-    stage_classification,
-    priority_classification,
-    {==},
-    {==},
-    {==},
-    {==},
+    classification_meaning,
     selection_roles,
     semantic_face,
     +text => description => +icon => selected => +key => +parent => +geometry => {==},

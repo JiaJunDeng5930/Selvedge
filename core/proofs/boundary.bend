@@ -56,6 +56,24 @@ def settings_projection(+config:Context.Configuration, +workspace:D.Workspace, +
     case Context.Configuration{Context.ProjectForParent{task, project}, previous, sandbox, approval}:
       settings_fields_with_project(project, previous, sandbox, approval, workspace, guidance)
 
+def stale_code_expiry(+identity: Code.Identity, source: String, +wrap: Bool, +copy: Code.CopyState,
+  next: Nat, ticket: Nat, stale: {Code.feedback_ticket(copy, ticket) == False{} : Bool}) ->
+  {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Code.ExpireFeedback{ticket}) ==
+    Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Nil{}} : Code.Decision}:
+  match copy:
+    case Code.CopyIdle{}: {==}
+    case Code.CopyPending{current}: {==}
+    case Code.CopySucceeded{+current}:
+      Equal.cong(Bool, Code.Decision,
+        owned => Code.expire_code_feedback(owned, Code.Block{identity, source,
+          Code.CodeView{wrap, Code.CopySucceeded{current}}, next}),
+        Nat.is_eq(current, ticket), False{}, stale)
+    case Code.CopyFailed{+current}:
+      Equal.cong(Bool, Code.Decision,
+        owned => Code.expire_code_feedback(owned, Code.Block{identity, source,
+          Code.CodeView{wrap, Code.CopyFailed{current}}, next}),
+        Nat.is_eq(current, ticket), False{}, stale)
+
 def Rule.evidence():
   Rule.Requirements{
     access => credential => settings_open => appearance => next => transfers => preview => ticket => result => stale =>
@@ -93,17 +111,19 @@ def Rule.evidence():
           Services.State{access, credential, settings_open, appearance, next, transfers,
             Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result),
         Nat.is_eq(current, ticket), False{}, different),
-    identity => source => wrap => copy => next => pending => ticket => success => stale =>
+    identity => source => wrap => copy => next => ticket => success => stale =>
       Equal.cong(Bool, Code.Decision,
-        owned => Code.copy_result(owned, success, Code.Block{identity, source,
-          Code.CodeView{wrap, copy}, next, pending}),
-        Code.same_ticket(pending, ticket), False{}, stale),
-    identity => source => wrap => copy => next => pending => can_copy =>
+        owned => Code.copy_result(owned, ticket, success, Code.Block{identity, source,
+          Code.CodeView{wrap, copy}, next}),
+        Code.same_ticket(copy, ticket), False{}, stale),
+    identity => source => wrap => copy => next => ticket => stale =>
+      stale_code_expiry(identity, source, wrap, copy, next, ticket, stale),
+    identity => source => wrap => copy => next => can_copy =>
       Equal.cong(Bool, Code.Decision,
         allowed => Code.begin(allowed, Code.Block{identity, source,
-          Code.CodeView{wrap, copy}, next, pending}),
+          Code.CodeView{wrap, copy}, next}),
         Code.code_can_copy(Code.CodeView{wrap, copy}), True{}, can_copy),
-    identity => source => wrap => copy => next => pending => {==},
+    identity => source => wrap => copy => next => {==},
     model => tools => max_fork => max_descendants => plugins => context => task => {==},
     origin => workspace => sandbox => approval => project => guidance => entered_workspace => entered_sandbox => entered_approval => {==},
     project => name => old_workspace => workspace => guidance => now => {==},

@@ -43,6 +43,11 @@ type SandboxValue is Data:
   InheritedSandbox{value: D.Sandbox}
   ChosenSandbox{value: D.Sandbox}
 
+def unwrap_sandbox(value: SandboxValue) -> D.Sandbox:
+  match value:
+    case InheritedSandbox{sandbox}: sandbox
+    case ChosenSandbox{sandbox}: sandbox
+
 type ApprovalValue is Data:
   InheritedApproval{value: D.ApprovalPolicy}
   ChosenApproval{value: ApprovalChoice}
@@ -61,11 +66,24 @@ type Observation is Data:
   DraftExecution{preview: Preview}
   CommittedExecution{context: EffectiveContext}
 
+def filesystem_summary(access: D.ExecutionAccess, mode: D.SandboxMode) -> String:
+  match access:
+    case D.Unrestricted{}: "Full access"
+    case D.Sandboxed{}: D.sandbox_mode_name(mode)
+
+def network_summary(access: D.ExecutionAccess, allowed: Bool) -> String:
+  match access:
+    case D.Unrestricted{}: "Available"
+    case D.Sandboxed{}:
+      match allowed:
+        case True{}: "Network enabled"
+        case False{}: "Network disabled"
+
 def approval_choice(policy: D.ApprovalPolicy) -> ApprovalChoice:
   match policy:
     case D.AskForApproval{}: Ask{}
     case D.FullAccess{}: Unrestricted{}
-    case D.ApprovalForMe{D.Profile{key, provider, name, reasoning}}: AutomaticReview{key}
+    case D.ApprovalForMe{D.Profile{key, provider, name, reasoning, options}}: AutomaticReview{key}
 
 def observed_approval(value: ApprovalValue) -> ApprovalChoice:
   match value:

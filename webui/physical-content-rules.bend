@@ -1,6 +1,8 @@
 import Base
+import ../core/ui-identity.bend as UIIdentity
 import ./physical-content.bend as Content
 import ./source.bend as Source
+import ./typography.bend as T
 
 type PurposePair is Data:
   PurposePair{first: Content.Purpose, second: Content.Purpose}
@@ -35,7 +37,7 @@ def primitive_observation_valid(node: Source.Node, +height: Nat, +advance: Nat) 
     case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}:
       Nat.is_le(1n, advance) && Nat.is_le(1n, height)
     case Source.Text{key, value, font, wrapping}: content_height_valid(value, height)
-    case Source.RichText{key, style, Source.RichContent{source, value, policy}, attachments}:
+    case Source.RichText{key, style, Source.RichContent{source, value, policy}, attachments, native_owner}:
       content_height_valid(value, height)
     case Source.NativeAttachment{key, target, attributes, style, children}: False{}
     case Source.Box{key, tag, style, attributes, children}: False{}
@@ -70,3 +72,14 @@ def ready_native_targets_valid(result: Content.Preparation) -> Bool:
     case Content.Ready{prepared}: native_targets_valid(prepared)
     case Content.NeedsMeasurements{snapshot, first, remaining}: True{}
     case Content.Invalid{snapshot, error}: True{}
+
+
+law rich_local_value_preserves_focus_owner:
+  for key: UIIdentity.Key
+  for style: Source.Style
+  for content: Source.RichContent
+  for attachments: +List<Source.Node>
+  for native_owner: Maybe<&2, String>
+  for font: T.Presentation
+  {Content.local_value(Source.RichText{key, style, content, attachments, native_owner}, font) ==
+    Content.Value{Source.RichText{key, style, content, Nil{}, native_owner}, font} : Content.Value}

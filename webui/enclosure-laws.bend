@@ -33,7 +33,6 @@ type Requirements is Type:
     choice_area: @+typography:T.Presentation -> {area(A.choice_button(True{}, typography)) == area(A.choice_button(False{}, typography)) : E.ContentArea},
     choice_text: @+typography:T.Presentation -> {D.style_text(A.choice_button(True{}, typography)) == D.style_text(A.choice_button(False{}, typography)) : T.Presentation},
     role_navigation: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Navigation{}, meaning, typography)) == E.area(E.Navigation{}) : E.ContentArea},
-    role_usermessage: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.UserMessage{}, meaning, typography)) == E.area(E.UserMessage{}) : E.ContentArea},
     role_composer: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Composer{}, meaning, typography)) == E.area(E.Composer{}) : E.ContentArea},
     role_approval: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Approval{}, meaning, typography)) == E.area(E.Approval{}) : E.ContentArea},
     role_codeblock: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.CodeBlock{}, meaning, typography)) == E.area(E.CodeBlock{}) : E.ContentArea},
@@ -47,7 +46,6 @@ type Requirements is Type:
     part_body: {E.partition(E.Body{}) == E.ambient(E.partition_inline(), 20n) : E.ContentArea},
     part_footer: {E.partition(E.Footer{}) == E.ambient(E.partition_inline(), 12n) : E.ContentArea},
     state_allocation: @+value:D.Style -> @+space:E.ContentArea -> {interaction(A.with_content_area(value, space)) == interaction(value) : D.ControlStates},
-    icon_layout: @+icon:C.Icon -> {C.layout_content_area(C.content_layout(C.IconFace{icon})) == E.area(E.IconControl{}) : E.ContentArea},
     text_layout: @+text:String -> {C.layout_content_area(C.content_layout(C.TextFace{text})) == E.area(E.TextControl{}) : E.ContentArea},
     option_layout: @+text:String -> @+selected:Bool -> {C.layout_content_area(C.content_layout(C.ChoiceFace{text, None{}, None{}, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
     embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.area(E.Field{}) : E.ContentArea}}

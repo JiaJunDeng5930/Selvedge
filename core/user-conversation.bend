@@ -2,6 +2,7 @@ import Base
 import ../MODEL.bend as M
 import ../COMMANDS.bend as Commands
 import ../bendlib/domain.bend as D
+import ../bendlib/tasks.bend as Tasks
 import ../bendlib/conversation.bend as Content
 import ./user-input.bend as U
 import ./user-experience.bend as E
@@ -36,8 +37,8 @@ type VisibleGroup is Data:
     summary: String, audit: +List<AuditFace>, expand: U.Input, collapse: U.Input}
 
 type DecisionRequest is Data:
-  HumanDecision{operation: Nat, call: D.Call, approve: U.Input, deny: U.Input, enabled: Bool}
-  AutomaticDecision{operation: Nat, call: D.Call, reviewer: D.Profile}
+  HumanDecision{operation: Nat, call: D.Call, context: D.TaskContext, approve: U.Input, deny: U.Input, enabled: Bool}
+  AutomaticDecision{operation: Nat, call: D.Call, context: D.TaskContext, reviewer: D.Profile}
 
 type LiveOperation is Data:
   LiveOperation{id: Nat, body: D.OperationBody, cancel: U.Input, cancellable: Bool}
@@ -72,16 +73,6 @@ def prepend_audit(+index: Nat, failed: Bool, message: D.Message, tail: +List<Gro
       Activity{index, latest_attention(attention, failure_occurrence(failed, index)), Audit{index, message} <> entries} <> rest
     case rest: Activity{index, failure_occurrence(failed, index), [Audit{index, message}]} <> rest
 
-def provider_speech(is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
-  match is_assistant:
-    case True{}: Speech{index, AssistantSpeech{}, Content.content_parts(J.items(J.get(value, "content"))), D.ModelContext{value}} <> tail
-    case False{}: prepend_audit(index, False{}, D.ModelContext{value}, tail)
-
-def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
-  match kind:
-    case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
-    case _: prepend_audit(index, False{}, D.ModelContext{value}, tail)
-
 def approval_failed(outcome: D.ApprovalOutcome) -> Bool:
   match outcome:
     case D.ApprovalAllowed{reason}: False{}
@@ -99,22 +90,36 @@ def after_failed(outcome: D.AfterOutcome) -> Bool:
     case D.AfterFailure{reason}: True{}
     case _: False{}
 
+def audit_failed(message: D.Message) -> Bool:
+  match message:
+    case D.FailureMessage{text}: True{}
+    case D.FunctionOutput{id, value, error}: error
+    case D.OperationResult{ticket, id, tool, value, error}: error
+    case D.ToolReceipt{task, operation, call, value, error}: error
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: approval_failed(outcome)
+    case D.HookRecord{task, call, plugin, outcome}: hook_failed(outcome)
+    case D.AfterRecord{task, operation, plugin, outcome}: after_failed(outcome)
+    case _: False{}
+
+def provider_speech(is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
+  match is_assistant:
+    case True{}: Speech{index, AssistantSpeech{}, Content.content_parts(J.items(J.get(value, "content"))), D.ModelContext{value}} <> tail
+    case False{}: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+
+def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
+  match kind:
+    case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
+    case _: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+
+
+
+
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
     case D.UserMessage{+text}: Speech{index, UserSpeech{}, text, D.UserMessage{text}} <> tail
     case D.AssistantMessage{+text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{text}} <> tail
     case D.ModelContext{+value}: provider_group(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail)
-    case D.FailureMessage{text}: prepend_audit(index, True{}, D.FailureMessage{text}, tail)
-    case D.FunctionOutput{id, value, +error}: prepend_audit(index, error, D.FunctionOutput{id, value, error}, tail)
-    case D.OperationResult{ticket, id, tool, value, +error}: prepend_audit(index, error, D.OperationResult{ticket, id, tool, value, error}, tail)
-    case D.ToolReceipt{task, operation, call, value, +error}: prepend_audit(index, error, D.ToolReceipt{task, operation, call, value, error}, tail)
-    case D.ApprovalRecord{task, operation, call, reviewer, +outcome}:
-      prepend_audit(index, approval_failed(outcome), D.ApprovalRecord{task, operation, call, reviewer, outcome}, tail)
-    case D.HookRecord{task, call, plugin, +outcome}:
-      prepend_audit(index, hook_failed(outcome), D.HookRecord{task, call, plugin, outcome}, tail)
-    case D.AfterRecord{task, operation, plugin, +outcome}:
-      prepend_audit(index, after_failed(outcome), D.AfterRecord{task, operation, plugin, outcome}, tail)
-    case other: prepend_audit(index, False{}, other, tail)
+    case +other: prepend_audit(index, audit_failed(other), other, tail)
 
 def audit_kind(message: D.Message) -> AuditKind:
   match message:
@@ -156,16 +161,6 @@ def audit_faces(entries: +List<Audit>) -> +List<AuditFace>:
     case Nil{}: Nil{}
     case Con{Audit{index, +message}, rest}: AuditFace{index, audit_kind(message), audit_title(message), message} <> audit_faces(rest)
 
-def audit_failed(message: D.Message) -> Bool:
-  match message:
-    case D.FailureMessage{text}: True{}
-    case D.FunctionOutput{id, value, error}: error
-    case D.OperationResult{ticket, id, tool, value, error}: error
-    case D.ToolReceipt{task, operation, call, value, error}: error
-    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: approval_failed(outcome)
-    case D.HookRecord{task, call, plugin, outcome}: hook_failed(outcome)
-    case D.AfterRecord{task, operation, plugin, outcome}: after_failed(outcome)
-    case _: False{}
 
 def failure_candidate(failed: Bool, entry: Audit) -> Maybe<&2, Audit>:
   match failed:
@@ -220,7 +215,7 @@ def audit_detail(message: D.Message) -> String:
     case D.FunctionOutput{id, value, error}: result_detail(error, value)
     case D.OperationResult{ticket, id, tool, value, error}: tool ++ "\n" ++ result_detail(error, value)
     case D.ToolReceipt{task, operation, D.Call{id, name, arguments}, value, error}: name ++ "\n" ++ result_detail(error, value)
-    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: json_detail(J.show(D.approval_outcome_json(outcome)))
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: json_detail(J.show(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome})))
     case D.HookRecord{task, call, plugin, outcome}: json_detail(J.show(D.hook_json(outcome)))
     case D.AfterRecord{task, operation, plugin, outcome}: json_detail(J.show(D.after_json(outcome)))
     case D.FailureMessage{text}: text
@@ -267,18 +262,18 @@ def permitted(command: Maybe<&2, M.Command>, world: M.World()) -> Bool:
     case None{}: False{}
     case Some{command}: Commands.admitted(Commands.resolve(command, world))
 
-def decision(reviewer: D.ApprovalReviewer, +id: Nat, call: D.Call, +task: Nat, world: M.World()) -> DecisionRequest:
+def decision(reviewer: D.ApprovalReviewer, +id: Nat, call: D.Call, context: D.TaskContext, +task: Nat, world: M.World()) -> DecisionRequest:
   match reviewer:
-    case D.HumanReviewer{}: HumanDecision{id, call,
+    case D.HumanReviewer{}: HumanDecision{id, call, context,
       U.Activate{U.ReviewApproval{task, id, True{}, ""}}, U.Activate{U.ReviewApproval{task, id, False{}, ""}},
       permitted(U.direct_command(U.ReviewApproval{task, id, True{}, ""}), world)}
-    case D.ModelReviewer{profile}: AutomaticDecision{id, call, profile}
+    case D.ModelReviewer{profile}: AutomaticDecision{id, call, context, profile}
 
-def decisions(operations: +List<D.Operation()>, +task: Nat, +world: M.World()) -> +List<DecisionRequest>:
+def decisions(operations: +List<D.Operation()>, +context: D.TaskContext, +task: Nat, +world: M.World()) -> +List<DecisionRequest>:
   match operations:
     case Nil{}: Nil{}
-    case Con{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}}), rest}: decision(reviewer, id, call, task, world) <> decisions(rest, task, world)
-    case Con{operation, rest}: decisions(rest, task, world)
+    case Con{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}}), rest}: decision(reviewer, id, call, context, task, world) <> decisions(rest, context, task, world)
+    case Con{operation, rest}: decisions(rest, context, task, world)
 
 def operations(entries: +List<D.Operation()>, +task: Nat, +world: M.World()) -> +List<LiveOperation>:
   match entries:
@@ -294,4 +289,4 @@ def latest(reading: U.ReadingIntent, task: Nat, generation: Nat) -> Maybe<&2, U.
 def timeline(reader: E.Reader, +task: D.Task, +world: M.World()) -> Timeline:
   E.Reader{+generation, +position, disclosures} = reader
   Timeline{D.task_id(task), generation, visible(groups(D.history_messages(D.task_history(task), Nil{}), 0n), D.task_id(task), disclosures),
-    operations(D.task_operations(task), D.task_id(task), world), decisions(D.task_operations(task), D.task_id(task), world), position, latest(position, D.task_id(task), generation)}
+    operations(D.task_operations(task), D.task_id(task), world), decisions(D.task_operations(task), D.task_context(task), D.task_id(task), world), position, latest(position, D.task_id(task), generation)}
