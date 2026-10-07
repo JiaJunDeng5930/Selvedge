@@ -1,4 +1,4 @@
-import { decodeBendValue, observedNatNumber } from './bend-value.mjs';
+import { bendTag, decodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 
 function natural(value, name) {
@@ -171,7 +171,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
       if (disposed) throw cancellation();
       if (active) throw new Error('A physical measurement batch is already active');
       const plan = decodeBendValue(rawPlan);
-      if (plan?.$ !== 'Awaiting') throw new TypeError('Physical measurement requires an Awaiting plan');
+      if (bendTag(plan) !== 'Awaiting') throw new TypeError('Physical measurement requires an Awaiting plan');
       const generation = natural(plan.generation, 'plan generation');
       const jobs = [plan.first, ...list(plan.remaining)];
       const captured = revision;
@@ -189,9 +189,9 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
             throw new TypeError('Physical job does not belong to the plan generation');
           }
           const purpose = request.purpose;
-          if (!['Natural', 'AtWidth'].includes(purpose?.$) || !['Measure', 'TargetsOnly'].includes(job.mode?.$)) throw new TypeError('Invalid physical probe job');
-          const width = purpose.$ === 'Natural' ? null : natural(purpose.width, 'requested width');
-          if (job.mode.$ === 'TargetsOnly' && width === null) throw new TypeError('Native target measurement requires AtWidth');
+          if (!['Natural', 'AtWidth'].includes(bendTag(purpose)) || !['Measure', 'TargetsOnly'].includes(bendTag(job.mode))) throw new TypeError('Invalid physical probe job');
+          const width = bendTag(purpose) === 'Natural' ? null : natural(purpose.width, 'requested width');
+          if (bendTag(job.mode) === 'TargetsOnly' && width === null) throw new TypeError('Native target measurement requires AtWidth');
           const probe = getProbe(request, width);
           probe.baseline = null;
           probe.renderer.render(bend.probe_document(job));
@@ -204,7 +204,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
           await wait(document.fonts.ready, captured);
           // Rendering settlement replays Bend styles; apply the physical input after that replay.
           imposeWidth(content, width === null ? 'max-content' : width);
-          if (job.mode.$ === 'Measure') {
+          if (bendTag(job.mode) === 'Measure') {
             imposeWidth(content, 'min-content');
             const minimum = extent(contentBox(content, window).width, 'minimum width');
             imposeWidth(content, 'max-content');

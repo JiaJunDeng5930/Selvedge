@@ -1,7 +1,7 @@
 import Base
 import ../../bendlib/proofs/logic.bend as Logic
 import ../../core/ui-identity.bend as UIIdentity
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../interaction.bend as Geometry
 import ../render-contract.bend as Spec
 import ../rendered.bend as Rendered
@@ -99,7 +99,7 @@ def clear_control_geometry(+required: Bool, +key: String, found: Maybe<&2, Rende
             Spec.enabled_geometry_valid(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport),
             clear_enabled_geometry(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport))))
 
-def clear_node_controls(is_control: Bool, meaning: UI.Meaning, key: String,
+def clear_node_controls(is_control: Bool, meaning: InterfaceView.Meaning, key: String,
   found: Maybe<&2, Rendered.Element>, must_be_visible: Bool, viewport: Geometry.Rect) ->
   {Rule.clear(Rendered.node_controls(is_control, meaning, key, found, must_be_visible, viewport)) ==
     Spec.node_controls_valid(is_control, meaning, key, found, must_be_visible, viewport) : Bool}:
@@ -122,39 +122,39 @@ def clear_reachable_toolbar(key: String, found: Maybe<&2, Rendered.Element>) ->
     case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, +scroll, bounds, hit, +paint_bounds}}:
       clear_issue_positive(visible || scroll, Rendered.EscapedDialog{key})
 
-def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) ->
+def clear_region_geometry(role: InterfaceView.Role, key: String, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) ->
   {Rule.clear(Rendered.region_geometry(role, key, found, viewport)) == Spec.region_geometry_valid(role, found, viewport) : Bool}:
   match role:
-    case UI.Navigation{}: clear_bounded_dialog(key, found, viewport)
-    case UI.NavigationHeader{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Main{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Heading{}: {==}
-    case UI.Timeline{}: {==}
-    case UI.Activity{}: {==}
-    case UI.Composer{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Approval{}: {==}
-    case UI.Toolbar{}: clear_reachable_toolbar(key, found)
-    case UI.CodeBlock{}: {==}
-    case UI.ApprovalQueue{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Section{}: {==}
-    case UI.DialogActions{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Dialog{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Menu{}: clear_bounded_dialog(key, found, viewport)
-    case UI.Details{}: {==}
-    case UI.Card{}: {==}
-    case UI.Button{}: {==}
-    case UI.PrimaryButton{}: {==}
-    case UI.DestructiveButton{}: {==}
-    case UI.SelectedButton{}: {==}
-    case UI.Field{}: {==}
-    case UI.Content{}: {==}
-    case UI.Alert{}: {==}
-    case UI.UserMessage{}: {==}
-    case UI.AssistantMessage{}: {==}
-    case UI.ComposerActions{}: {==}
+    case InterfaceView.Navigation{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.NavigationHeader{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Main{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Heading{}: {==}
+    case InterfaceView.Timeline{}: {==}
+    case InterfaceView.Activity{}: {==}
+    case InterfaceView.Composer{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Approval{}: {==}
+    case InterfaceView.Toolbar{}: clear_reachable_toolbar(key, found)
+    case InterfaceView.CodeBlock{}: {==}
+    case InterfaceView.ApprovalQueue{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Section{}: {==}
+    case InterfaceView.DialogActions{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Dialog{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Menu{}: clear_bounded_dialog(key, found, viewport)
+    case InterfaceView.Details{}: {==}
+    case InterfaceView.Card{}: {==}
+    case InterfaceView.Button{}: {==}
+    case InterfaceView.PrimaryButton{}: {==}
+    case InterfaceView.DestructiveButton{}: {==}
+    case InterfaceView.SelectedButton{}: {==}
+    case InterfaceView.Field{}: {==}
+    case InterfaceView.Content{}: {==}
+    case InterfaceView.Alert{}: {==}
+    case InterfaceView.UserMessage{}: {==}
+    case InterfaceView.AssistantMessage{}: {==}
+    case InterfaceView.ComposerActions{}: {==}
 
-def clear_node_geometry(found: Maybe<&2, Rendered.Element>, +meaning: UI.Meaning,
-  +role: UI.Role, +key: String, +must_be_visible: Bool, +viewport: Geometry.Rect) ->
+def clear_node_geometry(found: Maybe<&2, Rendered.Element>, +meaning: InterfaceView.Meaning,
+  +role: InterfaceView.Role, +key: String, +must_be_visible: Bool, +viewport: Geometry.Rect) ->
   {Rule.clear(Rendered.node_geometry(found, meaning, role, key, must_be_visible, viewport)) ==
     Spec.node_geometry_valid(found, Rendered.interactive(meaning), meaning, role, key, must_be_visible, viewport) : Bool}:
   match found:
@@ -183,12 +183,12 @@ def clear_node_geometry(found: Maybe<&2, Rendered.Element>, +meaning: UI.Meaning
             region_clear, spec_region,
             clear_region_geometry(role, key, Some{element}, viewport))))
 
-def clear_nodes(entries: +List<UI.Node>, +inherited: Bool,
+def clear_nodes(entries: +List<InterfaceView.Node>, +inherited: Bool,
   +elements: +List<Rendered.Element>, +viewport: Geometry.Rect) ->
   {Rule.clear(Rendered.nodes(entries, inherited, elements, viewport)) == Spec.all_nodes(entries, inherited, elements, viewport) : Bool}:
   match entries:
     case Nil{}: {==}
-    case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, +rest}:
+    case Con{InterfaceView.Node{+key, semantic, label, +role, +meaning, +children}, +rest}:
       +parent_required = inherited || Rendered.persistent(role)
       +child_required = parent_required || Rendered.code_in_view(role, Rendered.find_element(elements, UIIdentity.encode(key)), viewport)
       +head_faults = Rendered.node_geometry(Rendered.find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), parent_required, viewport)
@@ -200,7 +200,7 @@ def clear_nodes(entries: +List<UI.Node>, +inherited: Bool,
       +rest_clear = Rule.clear(rest_faults)
       +actual_tail = children_clear && rest_clear
       +actual_all = head_clear && actual_tail
-      +head_spec = Spec.node_valid(UI.Node{key, semantic, label, role, meaning, children}, inherited, elements, viewport)
+      +head_spec = Spec.node_valid(InterfaceView.Node{key, semantic, label, role, meaning, children}, inherited, elements, viewport)
       +children_spec = Spec.all_nodes(children, child_required, elements, viewport)
       +rest_spec = Spec.all_nodes(rest, inherited, elements, viewport)
       +spec_tail = children_spec && rest_spec
@@ -208,7 +208,7 @@ def clear_nodes(entries: +List<UI.Node>, +inherited: Bool,
       +after_children = head_spec && (children_spec && rest_clear)
       +expected_all = head_spec && spec_tail
       +list_expansion = Equal.trans(Bool,
-        Rule.clear(Rendered.nodes(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, inherited, elements, viewport)),
+        Rule.clear(Rendered.nodes(Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, rest}, inherited, elements, viewport)),
         head_clear && Rule.clear(tail_faults),
         actual_all,
         clear_append(head_faults, tail_faults),
@@ -228,16 +228,16 @@ def clear_nodes(entries: +List<UI.Node>, +inherited: Bool,
         head_step,
         Equal.trans(Bool, after_head, after_children, expected_all, children_step, rest_step))
       Equal.trans(Bool,
-        Rule.clear(Rendered.nodes(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, inherited, elements, viewport)),
+        Rule.clear(Rendered.nodes(Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, rest}, inherited, elements, viewport)),
         actual_all, expected_all, list_expansion, semantic_steps)
 
-def node_exists_matches(found: Maybe<&2, UI.Node>) ->
+def node_exists_matches(found: Maybe<&2, InterfaceView.Node>) ->
   {Rendered.exists(found) == Spec.node_exists(found) : Bool}:
   match found:
     case None{}: {==}
     case Some{node}: {==}
 
-def clear_focus_checks(focused: Maybe<&2, String>, +active: +List<UI.Node>,
+def clear_focus_checks(focused: Maybe<&2, String>, +active: +List<InterfaceView.Node>,
   +elements: +List<Rendered.Element>, +viewport: Geometry.Rect, +native_focus: +List<Rendered.NativeFocus>) ->
   {Rule.clear(Rendered.focus_checks(focused, active, elements, viewport, native_focus)) == Spec.focus(focused, active, elements, viewport, native_focus) : Bool}:
   match focused:
@@ -343,7 +343,7 @@ def clear_independent_targets(elements: +List<Rendered.Element>) ->
             Rule.clear(Rendered.independent_targets(rest)), Spec.non_overlapping(rest),
             clear_independent_targets(rest))))
 
-def clear_layout_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
+def clear_layout_check(+active: +List<InterfaceView.Node>, +frame: Rendered.Frame) ->
   {Rule.clear(Rendered.layout_check(active, frame)) == Spec.layout_valid_parts(active, frame) : Bool}:
   Rendered.Frame{+viewport, +elements, +focused, +tab_order, +native_focus} = frame
   +node_faults = Rendered.nodes(active, False{}, elements, viewport)
@@ -427,7 +427,7 @@ def clear_paint_geometry(+elements: +List<Rendered.Element>, +viewport: Geometry
           Equal.cong(Bool, Bool, (tail_valid => valid && tail_valid),
             Rule.clear(tail), Spec.paint_geometry_valid(rest, viewport), clear_paint_geometry(rest, viewport))))
 
-def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
+def clear_check(+active: +List<InterfaceView.Node>, +frame: Rendered.Frame) ->
   {Rule.clear(Rendered.check(active, frame)) == Spec.valid_parts(active, frame) : Bool}:
   Rendered.Frame{+viewport, +elements, focused, tab_order, native_focus} = frame
   +paint = Rendered.paint_geometry(elements, viewport)
@@ -444,31 +444,31 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
       Equal.cong(Bool, Bool, (layout_valid => Spec.paint_geometry_valid(elements, viewport) && layout_valid),
         Rule.clear(layout), Spec.layout_valid_parts(active, frame), clear_layout_check(active, frame))))
 
-def reflected(+surface: UI.Surface, +frame: Rendered.Frame) ->
+def reflected(+surface: InterfaceView.Surface, +frame: Rendered.Frame) ->
   {Rule.clear(Rendered.violations(surface, frame)) == Spec.valid(surface, frame) : Bool}:
-  UI.Surface{content, base, overlays, +scope} = surface
+  InterfaceView.Surface{content, base, overlays, +scope} = surface
   Rendered.Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
   Equal.trans(Bool,
     Rule.clear(Rendered.violations(surface, frame)),
-    Rule.clear(Rendered.check(UI.active_nodes(surface), frame)) && Rule.clear(Rendered.required_focus(scope, focused)),
+    Rule.clear(Rendered.check(InterfaceView.active_nodes(surface), frame)) && Rule.clear(Rendered.required_focus(scope, focused)),
     Spec.valid(surface, frame),
-    clear_append(Rendered.check(UI.active_nodes(surface), frame), Rendered.required_focus(scope, focused)),
+    clear_append(Rendered.check(InterfaceView.active_nodes(surface), frame), Rendered.required_focus(scope, focused)),
     Equal.trans(Bool,
-      Rule.clear(Rendered.check(UI.active_nodes(surface), frame)) && Rule.clear(Rendered.required_focus(scope, focused)),
-      Spec.valid_parts(UI.active_nodes(surface), frame) && Rule.clear(Rendered.required_focus(scope, focused)),
+      Rule.clear(Rendered.check(InterfaceView.active_nodes(surface), frame)) && Rule.clear(Rendered.required_focus(scope, focused)),
+      Spec.valid_parts(InterfaceView.active_nodes(surface), frame) && Rule.clear(Rendered.required_focus(scope, focused)),
       Spec.valid(surface, frame),
       Equal.cong(Bool, Bool,
         (check_clear => check_clear && Rule.clear(Rendered.required_focus(scope, focused))),
-        Rule.clear(Rendered.check(UI.active_nodes(surface), frame)),
-        Spec.valid_parts(UI.active_nodes(surface), frame),
-        clear_check(UI.active_nodes(surface), frame)),
+        Rule.clear(Rendered.check(InterfaceView.active_nodes(surface), frame)),
+        Spec.valid_parts(InterfaceView.active_nodes(surface), frame),
+        clear_check(InterfaceView.active_nodes(surface), frame)),
       Equal.cong(Bool, Bool,
-        (focus_clear => Spec.valid_parts(UI.active_nodes(surface), frame) && focus_clear),
+        (focus_clear => Spec.valid_parts(InterfaceView.active_nodes(surface), frame) && focus_clear),
         Rule.clear(Rendered.required_focus(scope, focused)),
         Spec.required_focus(scope, focused),
         clear_required_focus(scope, focused))))
 
-def realized_faults_imply_valid(+faults: +List<Rendered.Violation>, +surface: UI.Surface,
+def realized_faults_imply_valid(+faults: +List<Rendered.Violation>, +surface: InterfaceView.Surface,
   +frame: Rendered.Frame, generation: Nat,
   matching: {faults == Rendered.violations(surface, frame) : +List<Rendered.Violation>},
   realized: {Rendered.accepted(faults, generation, frame) == Rendered.Realized{generation, frame} : Rendered.State}) ->

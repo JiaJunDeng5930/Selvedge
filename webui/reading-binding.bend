@@ -4,7 +4,7 @@ type Context is Data:
   Context{task: Nat, generation: Nat}
 
 type Part is Data:
-  Scroll{}
+  ReadingViewport{}
   Content{}
   Dock{}
 
@@ -13,6 +13,6 @@ type Binding is Data:
 
 def part_name(part: Part) -> String:
   match part:
-    case Scroll{}: "scroll"
+    case ReadingViewport{}: "scroll"
     case Content{}: "content"
     case Dock{}: "dock"

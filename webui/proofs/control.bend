@@ -4,7 +4,7 @@ import ../../core/ui-identity.bend as UIIdentity
 import ../control-laws.bend as Rule
 import ../space.bend as Space
 import ../typography.bend as T
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/SYSTEM.bend as Core
 import ../../core/user-input.bend as User
 import ../../core/ui-world.bend as View
@@ -17,39 +17,39 @@ import ../design.bend as Design
 import ../appearance.bend as Appearance
 
 def action_retains_binding(+key: UIIdentity.Key, +input: Core.Input, +availability: View.Availability,
-  label: String, role: UI.Role, context: Controls.Context) ->
+  label: String, role: InterfaceView.Role, context: Controls.Context) ->
   {Rule.binding(Controls.make_action(key, input, availability, label, role, context)) ==
-    UI.Activate{input, availability} : UI.Meaning}:
+    InterfaceView.Activate{input, availability} : InterfaceView.Meaning}:
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def panel_toggle_retains_binding(+key: UIIdentity.Key, expanded: Bool, +input: Core.Input, +availability: View.Availability,
-  label: String, role: UI.Role, context: Controls.Context) ->
-  {Rule.binding(Controls.make_panel_toggle(key, expanded, input, availability, label, role, context)) == UI.Activate{input, availability} : UI.Meaning}:
+  label: String, role: InterfaceView.Role, context: Controls.Context) ->
+  {Rule.binding(Controls.make_panel_toggle(key, expanded, input, availability, label, role, context)) == InterfaceView.Activate{input, availability} : InterfaceView.Meaning}:
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
-def choice_retains_binding(+key: UIIdentity.Key, kind: UI.ChoiceKind, icon: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: Core.Input, +availability: View.Availability,
-  label: String, role: UI.Role, context: Controls.Context) ->
+def choice_retains_binding(+key: UIIdentity.Key, kind: InterfaceView.ChoiceKind, icon: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: Core.Input, +availability: View.Availability,
+  label: String, role: InterfaceView.Role, context: Controls.Context) ->
   {Rule.binding(Controls.make_choice(key, kind, icon, selected, description, input, availability, label, role, context)) ==
-    UI.Activate{input, availability} : UI.Meaning}:
+    InterfaceView.Activate{input, availability} : InterfaceView.Meaning}:
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def composer_action_retains_binding(+key: UIIdentity.Key, subject: View.ComposerSubject, +input: Core.Input,
-  +availability: View.Availability, label: String, role: UI.Role, context: Controls.Context) ->
+  +availability: View.Availability, label: String, role: InterfaceView.Role, context: Controls.Context) ->
   {Rule.binding(Controls.make_composer_action(key, subject, input, availability, label, role, context)) ==
-    UI.Activate{input, availability} : UI.Meaning}:
+    InterfaceView.Activate{input, availability} : InterfaceView.Meaning}:
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def presented_action_retains_binding(input: Core.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
-  {Rule.binding(Controls.presented_action(input, availability, name, projection, placement, help, feedback)) == UI.Activate{input, availability} : UI.Meaning}:
+  {Rule.binding(Controls.presented_action(input, availability, name, projection, placement, help, feedback)) == InterfaceView.Activate{input, availability} : InterfaceView.Meaning}:
   match projection:
     case Controls.ActionPresentation{face, behavior, geometry}: {==}
 
 def source_action_retains_binding(area: Controls.Area, family: Controls.SourceFamily, +value: Controls.Representation) ->
-  {Rule.binding(Controls.source_action(area, family, value)) == Rule.binding(value) : UI.Meaning}:
+  {Rule.binding(Controls.source_action(area, family, value)) == Rule.binding(value) : InterfaceView.Meaning}:
   match value:
     case Controls.Action{+input, availability, +name, face, behavior, geometry, placement, help, feedback}:
       presented_action_retains_binding(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback)
@@ -58,31 +58,31 @@ def source_action_retains_binding(area: Controls.Area, family: Controls.SourceFa
     case Controls.Movable{destinations, face, name, handle, geometry, help}: {==}
 
 def represented_action_retains_binding(+key: UIIdentity.Key, +input: Core.Input, +availability: View.Availability,
-  +label: String, +role: UI.Role, +context: Controls.Context) ->
-  {Rule.binding(Controls.represent_action(key, input, availability, label, role, context)) == UI.Activate{input, availability} : UI.Meaning}:
+  +label: String, +role: InterfaceView.Role, +context: Controls.Context) ->
+  {Rule.binding(Controls.represent_action(key, input, availability, label, role, context)) == InterfaceView.Activate{input, availability} : InterfaceView.Meaning}:
   Controls.Context{+area, selection, code, appearance, access, open, layers, execution, +family} = context
-  Equal.trans(UI.Meaning,
+  Equal.trans(InterfaceView.Meaning,
     Rule.binding(Controls.represent_action(key, input, availability, label, role, context)),
-    Rule.binding(Controls.make_action(key, input, availability, label, role, context)), UI.Activate{input, availability},
+    Rule.binding(Controls.make_action(key, input, availability, label, role, context)), InterfaceView.Activate{input, availability},
     source_action_retains_binding(area, family, Controls.make_action(key, input, availability, label, role, context)),
     action_retains_binding(key, input, availability, label, role, context))
 
-def representation_retains_binding(+key: UIIdentity.Key, +meaning: UI.Meaning, label: String,
-  role: UI.Role, context: Controls.Context) ->
-  {Rule.binding(Controls.represent(key, meaning, label, role, context)) == Rule.source_binding(meaning) : UI.Meaning}:
+def representation_retains_binding(+key: UIIdentity.Key, +meaning: InterfaceView.Meaning, label: String,
+  role: InterfaceView.Role, context: Controls.Context) ->
+  {Rule.binding(Controls.represent(key, meaning, label, role, context)) == Rule.source_binding(meaning) : InterfaceView.Meaning}:
   match meaning:
-    case UI.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
-    case UI.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
-    case UI.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
-    case UI.Choice{kind, icon, selected, description, input, availability}: choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context)
-    case UI.ProjectGroup{project, selected, expanded}: {==}
-    case UI.TaskRow{task, status, selected}: {==}
-    case UI.ProjectChooser{selected}: {==}
-    case UI.DirectoryRow{path, primary}: {==}
-    case UI.ContextSummary{observation}: {==}
-    case UI.ChoiceGroup{}: {==}
+    case InterfaceView.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
+    case InterfaceView.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
+    case InterfaceView.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
+    case InterfaceView.Choice{kind, icon, selected, description, input, availability}: choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context)
+    case InterfaceView.ProjectGroup{project, selected, expanded}: {==}
+    case InterfaceView.TaskRow{task, status, selected}: {==}
+    case InterfaceView.ProjectChooser{selected}: {==}
+    case InterfaceView.DirectoryRow{path, primary}: {==}
+    case InterfaceView.ContextSummary{observation}: {==}
+    case InterfaceView.ChoiceGroup{}: {==}
 
-    case UI.Edit{editor, field, entry, value, choices}:
+    case InterfaceView.Edit{editor, field, entry, value, choices}:
       match entry:
         case Forms.DisplayOnly{}: {==}
         case Forms.SingleLine{}: {==}
@@ -92,40 +92,40 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: UI.Meaning, l
         case Forms.PositiveInteger{}: {==}
         case Forms.DirectoryCollection{}: {==}
         case Forms.FileCollection{}: {==}
-    case UI.SearchChoices{query}: {==}
-    case UI.EnterCredential{entered}: {==}
-    case UI.BoardSearch{filter}: {==}
-    case UI.ReceiveFile{editor, enabled}: {==}
-    case UI.EnterDirectory{editor, text}: {==}
-    case UI.DirectoryBrowserLocation{value}: {==}
-    case UI.BoardProfile{automatic, selected, choices, enabled}: {==}
-    case UI.CardContent{face}: {==}
-    case UI.MovableCard{destinations, face}: {==}
-    case UI.BoardLane{stage, count}: {==}
-    case UI.CardArchive{count}: {==}
-    case UI.BoardGroup{grouping}: {==}
-    case UI.PageRegion{region, position}: {==}
-    case UI.Region{}: {==}
-    case UI.LayerRegion{dismiss, outside, escape}: {==}
-    case UI.ReadOnly{text}: {==}
-    case UI.Fact{value}: {==}
-    case UI.RichText{source, value}: {==}
-    case UI.TaskFacts{details}: {==}
-    case UI.CodeFacts{view}: {==}
-    case UI.ActivityContent{expanded, audit}: {==}
-    case UI.PageContext{conversation}: {==}
+    case InterfaceView.SearchChoices{query}: {==}
+    case InterfaceView.EnterCredential{entered}: {==}
+    case InterfaceView.BoardSearch{filter}: {==}
+    case InterfaceView.ReceiveFile{editor, enabled}: {==}
+    case InterfaceView.EnterDirectory{editor, text}: {==}
+    case InterfaceView.DirectoryBrowserLocation{value}: {==}
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: {==}
+    case InterfaceView.CardContent{face}: {==}
+    case InterfaceView.MovableCard{destinations, face}: {==}
+    case InterfaceView.BoardLane{stage, count}: {==}
+    case InterfaceView.CardArchive{count}: {==}
+    case InterfaceView.BoardGroup{grouping}: {==}
+    case InterfaceView.PageRegion{region, position}: {==}
+    case InterfaceView.Region{}: {==}
+    case InterfaceView.LayerRegion{dismiss, outside, escape}: {==}
+    case InterfaceView.ReadOnly{text}: {==}
+    case InterfaceView.Fact{value}: {==}
+    case InterfaceView.RichText{source, value}: {==}
+    case InterfaceView.TaskFacts{details}: {==}
+    case InterfaceView.CodeFacts{view}: {==}
+    case InterfaceView.ActivityContent{expanded, audit}: {==}
+    case InterfaceView.PageContext{conversation}: {==}
 
-def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
+def nodes_retain_bindings(values: +List<InterfaceView.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
   {Rule.presented_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == Rule.source_nodes(values) : +List<Rule.BoundNode>}:
   match values:
     case Nil{}: {==}
-    case Con{UI.Node{+key, +semantic, +label, +role, +meaning, +children}, +rest}:
-      +local = Controls.enter(UI.Node{key, semantic, label, role, meaning, children}, context)
+    case Con{InterfaceView.Node{+key, +semantic, +label, +role, +meaning, +children}, +rest}:
+      +local = Controls.enter(InterfaceView.Node{key, semantic, label, role, meaning, children}, context)
       +inside = Appearance.enters_main(role, in_main)
       +inherited_text = Appearance.information_role(role, meaning, typography, inside, start)
       +child_text = Design.style_text(Appearance.prepared_style(key, semantic, role, meaning, local,
         Controls.represent(key, meaning, label, role, local), inherited_text))
-      +meaning_step = Equal.cong(UI.Meaning, +List<Rule.BoundNode>,
+      +meaning_step = Equal.cong(InterfaceView.Meaning, +List<Rule.BoundNode>,
         (bound => Con{Rule.BoundNode{key, bound, Rule.presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))},
           Rule.presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))}),
         Rule.binding(Controls.represent(key, meaning, label, role, local)), Rule.source_binding(meaning),
@@ -153,12 +153,12 @@ def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context, +t
           Rule.presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
         Con{Rule.BoundNode{key, Rule.source_binding(meaning), Rule.source_nodes(children)}, Rule.source_nodes(rest)}, head_steps, rest_step)
       Equal.trans(+List<Rule.BoundNode>,
-        Rule.presented_nodes(Appearance.nodes_at(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, context, typography, in_main, start)),
+        Rule.presented_nodes(Appearance.nodes_at(Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, rest}, context, typography, in_main, start)),
         Con{Rule.BoundNode{key, Rule.binding(Controls.represent(key, meaning, label, role, local)),
           Rule.presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))}, Rule.presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
         Con{Rule.BoundNode{key, Rule.source_binding(meaning), Rule.source_nodes(children)}, Rule.source_nodes(rest)}, {==}, steps)
 
-def fields_retain_bindings(content: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
+def fields_retain_bindings(content: Core.Scene, +base: +List<InterfaceView.Node>, +overlays: +List<InterfaceView.Node>,
   +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>, +scale: T.Scale) ->
   {Rule.visual_bindings(Appearance.present_fields(content, base, overlays, context, system_dark, active_scope, scale)) ==
     Rule.Bindings{Rule.source_nodes(base), Rule.source_nodes(overlays)} : Rule.Bindings}:
@@ -177,14 +177,14 @@ def fields_retain_bindings(content: Core.Scene, +base: +List<UI.Node>, +overlays
             Rule.Bindings{Rule.source_nodes(base), Rule.presented_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))},
             Rule.Bindings{Rule.source_nodes(base), Rule.source_nodes(overlays)}, base_step, overlay_step)
 
-def present_retains_bindings(surface: UI.Surface, system_dark: Bool, +scale: T.Scale) ->
+def present_retains_bindings(surface: InterfaceView.Surface, system_dark: Bool, +scale: T.Scale) ->
   {Rule.visual_bindings(Appearance.present(surface, system_dark, scale)) == Rule.surface_bindings(surface) : Rule.Bindings}:
   match surface:
-    case UI.Surface{+content, base, overlays, active_scope}:
+    case InterfaceView.Surface{+content, base, overlays, active_scope}:
       fields_retain_bindings(content, base, overlays, Controls.initial(content), system_dark, active_scope, scale)
 
 def message_uses_arrow(+key: UIIdentity.Key, task: Nat, +availability: View.Availability,
-  +label: String, role: UI.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
+  +label: String, role: InterfaceView.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
   appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> Rule.message_uses_arrow_law(key, task, availability, label, role, selection, code, appearance, access, open, layers):
   match availability:
     case View.Available{}: {==}
@@ -192,7 +192,7 @@ def message_uses_arrow(+key: UIIdentity.Key, task: Nat, +availability: View.Avai
     case View.Unavailable{reason}: {==}
 
 def creation_uses_arrow(+key: UIIdentity.Key, +availability: View.Availability,
-  +label: String, role: UI.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
+  +label: String, role: InterfaceView.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
   appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> Rule.creation_uses_arrow_law(key, availability, label, role, selection, code, appearance, access, open, layers):
   match availability:
     case View.Available{}: {==}
@@ -262,7 +262,7 @@ def directory_removal_uses_cross(+parent: UIIdentity.Key, +editor: User.Editor, 
     case Core.State{application, services} Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
 def approval_keeps_label(key: UIIdentity.Key, task: Nat, operation: Nat, allow: Bool, reason: String,
-  availability: View.Availability, +label: String, role: UI.Role, selection: Controls.Selection,
+  availability: View.Availability, +label: String, role: InterfaceView.Role, selection: Controls.Selection,
   code: Maybe<&2, Code.Scene>, appearance: Services.Appearance, access: Services.Access, open: Bool,
   layers: +List<View.Layer>) -> Rule.approval_keeps_label_law(key, task, operation, allow, reason, availability, label, role, selection, code, appearance, access, open, layers):
   match allow:

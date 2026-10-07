@@ -3,7 +3,7 @@ import ../controls.bend as Controls
 import ../authored.bend as Authored
 import ../physical-space.bend as Model
 import ../enclosure.bend as Enclosure
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/composition.bend as Composition
 import ../../core/ui-identity.bend as Identity
 import ../../BOARD.bend as Board
@@ -80,11 +80,11 @@ def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advanc
 
 def page_region(key: Identity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Rule.page_region(key, region, position, visual, control, children, parameters, content): {==}
 
-def board_group(key: Identity.Key, label: String, grouping: UI.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Rule.board_group(key, label, grouping, visual, control, children, parameters, content): {==}
+def board_group(key: Identity.Key, label: String, grouping: InterfaceView.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Rule.board_group(key, label, grouping, visual, control, children, parameters, content): {==}
 
 def confined_content_minimum(width: Nat, height: Nat) -> Rule.confined_content_minimum(width, height): {==}
 
-def board_group_content_minimum(key: Identity.Key, label: String, grouping: UI.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>, width: Nat, height: Nat) -> Rule.board_group_content_minimum(key, label, grouping, visual, control, children, parameters, content, width, height):
+def board_group_content_minimum(key: Identity.Key, label: String, grouping: InterfaceView.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>, width: Nat, height: Nat) -> Rule.board_group_content_minimum(key, label, grouping, visual, control, children, parameters, content, width, height):
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual
   {==}
 
@@ -106,7 +106,7 @@ def fact_content(+key: Identity.Key, +label: String, +value: String, +visual: De
     (displayed => Authored.group(key, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(Identity.part(key, "label"), label, visual, T.Body{}, T.Strong{}), Authored.text(Identity.part(key, "value"), displayed, visual, T.Body{}, T.Regular{})])),
     Authored.fact_display_value(value), Rule.expected_fact_value(String.eq(value, ""), value), fact_display_value(value))
 
-def fact_source_dispatch(key: Identity.Key, label: String, role: UI.Role, value: String, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Rule.fact_source_dispatch(key, label, role, value, visual, representation, children, parameters, content): {==}
+def fact_source_dispatch(key: Identity.Key, label: String, role: InterfaceView.Role, value: String, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Rule.fact_source_dispatch(key, label, role, value, visual, representation, children, parameters, content): {==}
 
 
 def user_width_choice(+full_width: Bool, +percent: Nat) -> {Factory.adaptive_width_cap(full_width, percent) == Rule.adaptive_user_width_choice(full_width, percent) : Model.AxisSize}:

@@ -106,7 +106,7 @@ type Requirements is Type:
       {preferred_height(Source.field_natural_demand_at(capacity, kind, policy, font, observation)) == expected_height(capacity, kind, policy, font, observation) : Nat},
     field_production_demand: @+capacity:Nat -> @+label:UIIdentity.Key -> @+kind:Authored.NativeFieldKind -> @+style:Authored.Style -> @+attributes:+List<Authored.Attribute> ->
       @+value:String -> @+placeholder:String -> @+options:+List<Authored.Choice> -> @+policy:Authored.FieldPolicy -> @+name:String ->
-      @+enabled:Bool -> @+first_event:Doc.Event -> @+remaining_events:+List<Doc.Event> -> @+key:String -> @+font:T.Presentation ->
+      @+enabled:Bool -> @+first_event:Doc.DOMEvent -> @+remaining_events:+List<Doc.DOMEvent> -> @+key:String -> @+font:T.Presentation ->
       @+rule:Model.Rule -> @+observation:Content.Observation -> @+roots:+List<Content.NativeRoot> -> @+policies:+List<Content.NativePolicy> ->
       {first_leaf_demand(Source.observed_leaf_at(capacity, Authored.Field{label, kind, style, attributes, value, placeholder, options, policy,
         name, enabled, first_event, remaining_events}, key, font, rule, observation, roots, policies)) ==

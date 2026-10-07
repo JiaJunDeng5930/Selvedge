@@ -3,6 +3,7 @@ import ../../MODEL.bend as M
 import ../../PROGRAM.bend as Program
 import ../SYSTEM.bend as Core
 import ../user-experience.bend as E
+import ../user-experience-program.bend as ExperienceProgram
 import ../user-experience-laws.bend as Existing
 import ../client-services.bend as Services
 import ../laws.bend as Rule
@@ -18,7 +19,7 @@ def runtime_input(+input: M.Input, +program: M.World(), +session: E.Session, ser
     Program.transition(input, program) : M.Decision()}:
   Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = services
   Equal.trans(M.Decision(),
-    Rule.runtime(Core.application_result(E.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker})),
-    Existing.runtime_observation(E.step(E.RuntimeInput{input}, E.Application{program, session})), Program.transition(input, program),
-    lifted(E.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}),
+    Rule.runtime(Core.application_result(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker})),
+    Existing.runtime_observation(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session})), Program.transition(input, program),
+    lifted(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}),
     ExistingProof.runtime_input(input, program, session))

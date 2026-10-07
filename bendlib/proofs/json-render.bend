@@ -3,6 +3,45 @@ import ./logic.bend as Logic
 import ../json.bend as J
 import ../json-render-rules.bend as Rule
 
+def escape_append_empty(+text: String) -> {text ++ "" == text : String}:
+  match text:
+    case SNil{}: {==}
+    case SCon{+head, +rest}:
+      Equal.cong(String, String, (tail => SCon{head, tail}), rest ++ "", rest,
+        escape_append_empty(rest))
+
+def escape_append_associative(+first: String, +second: String, +third: String) ->
+  {(first ++ second) ++ third == first ++ (second ++ third) : String}:
+  match first:
+    case SNil{}: {==}
+    case SCon{+head, +rest}:
+      Equal.cong(String, String, (tail => SCon{head, tail}),
+        (rest ++ second) ++ third, rest ++ (second ++ third),
+        escape_append_associative(rest, second, third))
+
+def escape_collected_refines(+text: String, +parts: +List<String>, +suffix: String) ->
+  {J.escape_join(J.escape_collect(text, parts), suffix) ==
+    J.escape_join(parts, Rule.required_escape(text) ++ suffix) : String}:
+  match text:
+    case SNil{}: {==}
+    case SCon{Chr{+code}, +rest}:
+      Equal.trans(String,
+        J.escape_join(J.escape_collect(rest, Con{J.escaped_char(code), parts}), suffix),
+        J.escape_join(parts, J.escaped_char(code) ++ (Rule.required_escape(rest) ++ suffix)),
+        J.escape_join(parts, (J.escaped_char(code) ++ Rule.required_escape(rest)) ++ suffix),
+        escape_collected_refines(rest, Con{J.escaped_char(code), parts}, suffix),
+        Equal.cong(String, String, (tail => J.escape_join(parts, tail)),
+          J.escaped_char(code) ++ (Rule.required_escape(rest) ++ suffix),
+          (J.escaped_char(code) ++ Rule.required_escape(rest)) ++ suffix,
+          Equal.sym(String,
+            (J.escaped_char(code) ++ Rule.required_escape(rest)) ++ suffix,
+            J.escaped_char(code) ++ (Rule.required_escape(rest) ++ suffix),
+            escape_append_associative(J.escaped_char(code), Rule.required_escape(rest), suffix))))
+
+def escape_refines(+text: String) -> {J.escape(text) == Rule.required_escape(text) : String}:
+  Equal.trans(String, J.escape(text), Rule.required_escape(text) ++ "", Rule.required_escape(text),
+    escape_collected_refines(text, Nil{}, ""), escape_append_empty(Rule.required_escape(text)))
+
 # Equality elimination closes the impossible exhausted-budget branches.
 def exhausted(+job: J.Render,
   enough: {Nat.is_ge(0n, J.required(job)) == True{} : Bool}) ->
@@ -106,4 +145,4 @@ def show_complete(+value: J.Json) -> Rule.Completed(J.show(value)):
   render_complete(J.One{value})
 
 def Rule.evidence():
-  Rule.Requirements{sufficient, render_complete, show_complete}
+  Rule.Requirements{sufficient, render_complete, show_complete, escape_refines}

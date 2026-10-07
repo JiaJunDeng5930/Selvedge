@@ -1,6 +1,6 @@
 import Base
 import ../../core/SYSTEM.bend as Core
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/ui-world.bend as View
 import ../MODEL.bend as Model
 import ../design.bend as Design
@@ -30,11 +30,11 @@ def frame_preserves_environment(+environment: Design.Environment, received: Nat,
   Platform.State{core, platform} = application
   {==}
 
-def element_preserves_environment(+environment: Design.Environment, key: String, gesture: UI.Gesture,
+def element_preserves_environment(+environment: Design.Environment, key: String, gesture: InterfaceView.Gesture,
   application: Platform.State, +generation: Nat, realization: Rendered.State, +font: F.State) ->
   {Rule.decision_environment(Model.step(Model.ElementInput{key, gesture}, Model.State{application, generation, realization, environment, font})) == environment : Design.Environment}:
   Platform.State{core, +platform} = application
-  production_commit_environment(Platform.after_core(UI.interact(Model.capacity(platform), key, gesture, core), platform),
+  production_commit_environment(Platform.after_core(InterfaceView.interact(Model.capacity(platform), key, gesture, core), platform),
     (generation + 1n : Nat), environment, font)
 
 def same_capacity_identity(+first: View.Capacity, +second: View.Capacity,

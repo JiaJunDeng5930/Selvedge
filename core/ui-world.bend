@@ -759,7 +759,7 @@ def board_control(identity: String, label: String, +command: B.Command, world: M
 def move_destinations(stages: +List<B.Stage>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<MoveDestination>:
   match stages:
     case Nil{}: Nil{}
-    case Con{+stage, rest}: MoveDestination{stage, None{}, "Move to end of " ++ B.stage_label(stage), operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.Move{id, revision, stage, None{}, now}}}, world))} <>
+    case Con{+stage, rest}: MoveDestination{stage, None{}, "Move to end of " ++ B.stage_label(stage), operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.MoveCard{id, revision, stage, None{}, now}}}, world))} <>
       move_destinations(rest, id, revision, now, world)
 
 def link_candidates(tasks: +List<D.Task>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<ControlDeclaration>:
@@ -773,7 +773,7 @@ def before_destination(eligible: Bool, +target: Nat, +value: B.Card, id: Nat, re
     case False{}: Nil{}
     case True{}:
       [MoveDestination{B.card_stage(B.draft(value)), Some{target}, "Move before " ++ B.title(B.draft(value)),
-        operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.Move{id, revision, B.card_stage(B.draft(value)), Some{target}, now}}}, world))}]
+        operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.MoveCard{id, revision, B.card_stage(B.draft(value)), Some{target}, now}}}, world))}]
 
 def before_destinations(cards: +List<Finite.Entry(B.Card)>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<MoveDestination>:
   match cards:
@@ -879,7 +879,7 @@ def card_moves(values: +List<MoveDestination>, +id: Nat, +revision: Nat, +now: U
   match values:
     case Nil{}: Nil{}
     case Con{MoveDestination{+stage, +before, label, availability}, rest}:
-      board_control("card/move/" ++ B.stage_name(stage) ++ "/" ++ U.optional_key(before), label, B.Move{id, revision, stage, before, now}, world) <> card_moves(rest, id, revision, now, world)
+      board_control("card/move/" ++ B.stage_name(stage) ++ "/" ++ U.optional_key(before), label, B.MoveCard{id, revision, stage, before, now}, world) <> card_moves(rest, id, revision, now, world)
 def card_menu_items(card: CardScene, now: U32, world: M.World()) -> +List<ControlDeclaration>:
   CardScene{id, value, open, actions, linked, destinations, candidates} = card
   List.append(&2, ControlDeclaration, actions, List.append(&2, ControlDeclaration, card_moves(destinations, id, B.revision(value), now, world), candidates))

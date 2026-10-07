@@ -4,7 +4,7 @@ import ./spatial.bend as SpatialModel
 import ./typography.bend as T
 import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ./design.bend as Design
 import ./surfaces.bend as Surfaces
@@ -14,8 +14,8 @@ import ../core/user-input.bend as U
 import ../core/form-fields.bend as Forms
 import ../BOARD.bend as Board
 
-def configured_appearance(surface: UI.Surface) -> Services.Appearance:
-  UI.Surface{content, base, overlays, active_scope} = surface
+def configured_appearance(surface: InterfaceView.Surface) -> Services.Appearance:
+  InterfaceView.Surface{content, base, overlays, active_scope} = surface
   Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
   Core.Settings{open, access, credential_entered, appearance, open_action,
     close_action, connect_action} = settings
@@ -25,7 +25,7 @@ def theme_of_visuals(visuals: Design.Surface) -> Design.Theme:
   Design.Surface{content, theme, base, overlays, active_scope} = visuals
   theme
 
-def presented_theme(surface: UI.Surface, system_dark: Bool, +scale: T.Scale) -> Design.Theme:
+def presented_theme(surface: InterfaceView.Surface, system_dark: Bool, +scale: T.Scale) -> Design.Theme:
   theme_of_visuals(Appearance.present(surface, system_dark, scale))
 
 def system_theme(system_dark: Bool) -> Design.Theme:
@@ -65,32 +65,32 @@ type Requirements is Type:
       {Nat.is_ge(Design.style_minimum_height(Appearance.action_style(value, face, geometry)), Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Design.style_text(value), geometry), Appearance.style_border_width(value), Controls.layout_content_area(Controls.content_layout(face))))) == True{} : Bool},
     field_content_minimum: @+capacity:Nat -> @+value:Design.Style -> @+border:Nat -> @minimum:Nat -> @radius:Nat ->
       {Nat.is_ge(Design.style_minimum_height(Appearance.field_values(capacity, value, border, minimum, radius)), Enclosure.extent_height(Appearance.field_required_extent(capacity, value, border))) == True{} : Bool},
-    actual_information_assignment: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+context:Controls.Context -> @+inherited:T.Presentation -> @+in_main:Bool -> @+start:Bool ->
-      {first_text(Appearance.nodes_at([UI.Node{key,semantic,label,role,meaning,Nil{}}], context, inherited, in_main, start)) ==
-        Some{Design.style_text(Appearance.prepared_style(key,semantic,role,meaning,Controls.enter(UI.Node{key,semantic,label,role,meaning,Nil{}},context),
-          Controls.represent(key,meaning,label,role,Controls.enter(UI.Node{key,semantic,label,role,meaning,Nil{}},context)),
+    actual_information_assignment: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:InterfaceView.Role -> @+meaning:InterfaceView.Meaning -> @+context:Controls.Context -> @+inherited:T.Presentation -> @+in_main:Bool -> @+start:Bool ->
+      {first_text(Appearance.nodes_at([InterfaceView.Node{key,semantic,label,role,meaning,Nil{}}], context, inherited, in_main, start)) ==
+        Some{Design.style_text(Appearance.prepared_style(key,semantic,role,meaning,Controls.enter(InterfaceView.Node{key,semantic,label,role,meaning,Nil{}},context),
+          Controls.represent(key,meaning,label,role,Controls.enter(InterfaceView.Node{key,semantic,label,role,meaning,Nil{}},context)),
           Appearance.information_role(role,meaning,inherited,Appearance.enters_main(role,in_main),start)))} : Maybe<&2,T.Presentation>},
     multiline_field_role: @editor:U.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
-      {Appearance.information_role(UI.Field{}, UI.Edit{editor, field, Forms.Multiline{}, value, choices}, inherited, in_main, start) == T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
+      {Appearance.information_role(InterfaceView.Field{}, InterfaceView.Edit{editor, field, Forms.Multiline{}, value, choices}, inherited, in_main, start) == T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
     code_surface_role: @text:String -> @inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
-      {Appearance.information_role(UI.CodeBlock{}, UI.ReadOnly{text}, inherited, in_main, start) == T.Presentation{T.CodeBody{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
+      {Appearance.information_role(InterfaceView.CodeBlock{}, InterfaceView.ReadOnly{text}, inherited, in_main, start) == T.Presentation{T.CodeBody{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
     start_heading_role: @inherited:T.Presentation -> @text:String ->
-      {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,True{},True{}) == T.Presentation{T.Display{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+      {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,True{},True{}) == T.Presentation{T.Display{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
     regular_heading_role: @inherited:T.Presentation -> @text:String -> @in_main:Bool ->
-      {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+      {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
     heading_tier_total: @in_main:Bool -> @start:Bool ->
       {Appearance.heading_tier(in_main,start) == heading_tier(in_main,start) : T.Tier},
     secondary_heading_role: @inherited:T.Presentation -> @text:String -> @start:Bool ->
-      {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+      {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
     lane_style_output: @value:Design.Style ->
       {Appearance.lane_style(value) == lane_output(value) : Design.Style},
     board_lane_production: @key:UIIdentity.Key -> @stage:Board.Stage -> @count:Nat -> @context:Controls.Context -> @representation:Controls.Representation -> @value:Design.Style -> @typography:T.Presentation ->
-      {Appearance.final_style(key,UI.BoardLane{stage,count},context,representation,value,typography) == lane_output(value) : Design.Style},
+      {Appearance.final_style(key,InterfaceView.BoardLane{stage,count},context,representation,value,typography) == lane_output(value) : Design.Style},
     content_inherits: @inherited:T.Presentation -> @text:String -> @in_main:Bool -> @start:Bool ->
-      {Appearance.information_role(UI.Content{},UI.ReadOnly{text},inherited,in_main,start) == inherited : T.Presentation},
-    nodes_preserve_semantics: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @values:+List<UI.Node> -> @context:Controls.Context ->
-      {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<UI.Node>},
-    present_uses_configured_appearance: @+scale:T.Scale -> @surface:UI.Surface -> @system_dark:Bool ->
+      {Appearance.information_role(InterfaceView.Content{},InterfaceView.ReadOnly{text},inherited,in_main,start) == inherited : T.Presentation},
+    nodes_preserve_semantics: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @values:+List<InterfaceView.Node> -> @context:Controls.Context ->
+      {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<InterfaceView.Node>},
+    present_uses_configured_appearance: @+scale:T.Scale -> @surface:InterfaceView.Surface -> @system_dark:Bool ->
       {presented_theme(surface, system_dark, scale) ==
         Appearance.theme(configured_appearance(surface), system_dark) : Design.Theme},
     light_appearance_wins: @system_dark:Bool ->
@@ -99,17 +99,17 @@ type Requirements is Type:
       {Appearance.theme(Services.DarkAppearance{}, system_dark) == Design.Dark{} : Design.Theme},
     system_appearance_follows_os: @system_dark:Bool ->
       {Appearance.theme(Services.SystemAppearance{}, system_dark) == system_theme(system_dark) : Design.Theme},
-    user_message_style_is_exact: @+typography:T.Presentation -> @meaning:UI.Meaning ->
-      {Appearance.style(UI.UserMessage{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
+    user_message_style_is_exact: @+typography:T.Presentation -> @meaning:InterfaceView.Meaning ->
+      {Appearance.style(InterfaceView.UserMessage{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
             Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, SpatialModel.Trailing{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style},
-    assistant_message_style_is_exact: @+typography:T.Presentation -> @meaning:UI.Meaning ->
-      {Appearance.style(UI.AssistantMessage{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
+    assistant_message_style_is_exact: @+typography:T.Presentation -> @meaning:InterfaceView.Meaning ->
+      {Appearance.style(InterfaceView.AssistantMessage{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
             Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, SpatialModel.Leading{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style},
-    composer_actions_style_is_exact: @+typography:T.Presentation -> @meaning:UI.Meaning ->
-      {Appearance.style(UI.ComposerActions{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
+    composer_actions_style_is_exact: @+typography:T.Presentation -> @meaning:InterfaceView.Meaning ->
+      {Appearance.style(InterfaceView.ComposerActions{}, meaning, typography) == Design.Style{typography, Design.Chrome{Design.TextForeground{Surfaces.PrimaryText{}},
             Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, SpatialModel.Stretch{}, SpatialModel.SplitRowFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style},
-    primary_button_keeps_interaction_states: @+typography:T.Presentation -> @meaning:UI.Meaning ->
-      {Appearance.style(UI.PrimaryButton{}, meaning, typography) == Design.Style{T.with_emphasis(typography, T.Medium{}), Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+    primary_button_keeps_interaction_states: @+typography:T.Presentation -> @meaning:InterfaceView.Meaning ->
+      {Appearance.style(InterfaceView.PrimaryButton{}, meaning, typography) == Design.Style{T.with_emphasis(typography, T.Medium{}), Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
             Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
             Design.Transparent{}, 0n, 8n, False{}}, SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
             Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
@@ -118,7 +118,7 @@ type Requirements is Type:
               Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}}},
             40n, Design.FocusIndicator{Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n}
           }} : Design.Style},
-    main_omits_outer_border: @+typography:T.Presentation -> @meaning:UI.Meaning -> {style_border(Appearance.style(UI.Main{}, meaning, typography)) == 0n : Nat}}
+    main_omits_outer_border: @+typography:T.Presentation -> @meaning:InterfaceView.Meaning -> {style_border(Appearance.style(InterfaceView.Main{}, meaning, typography)) == 0n : Nat}}
 
 law evidence:
   Requirements

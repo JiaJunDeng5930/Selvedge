@@ -2,7 +2,7 @@ import Base
 import ../core/ui-identity.bend as UIIdentity
 import ../core/form-fields.bend as Forms
 import ../core/field-options.bend as Options
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/user-input.bend as User
 import ../BOARD.bend as Board
 import ./controls.bend as Controls
@@ -30,7 +30,7 @@ type Requirements is Type:
       {labels_in_sections(Forms.structure(User.Card{id, revision, draft, assist, profile, keep_open})) == Some{Forms.Multiline{}} : Maybe<&2, Forms.Entry>},
     labels_text_edit: @editor:User.Editor -> @value:Forms.Observed -> @text:String -> @state:Browser.State ->
       {Browser.field_text(editor, Forms.CardLabels{}, Forms.Multiline{}, value, text, state) ==
-    Some{UI.Change{Forms.Strings{String.split(text, Chr{10})}}} : Maybe<&2, UI.Gesture>},
+    Some{InterfaceView.Change{Forms.Strings{String.split(text, Chr{10})}}} : Maybe<&2, InterfaceView.Gesture>},
     labels_update: @values:+List<String> -> @title:String -> @description:String -> @stage:Board.Stage -> @priority:Board.Priority -> @owner:Board.Owner -> @project:Maybe<&2, Nat> -> @previous:+List<String> -> @attachments:+List<Board.Attachment> ->
       {User.patch_card(Board.Patch{None{}, None{}, None{}, None{}, None{}, None{}, Some{values}, None{}},
           Board.Draft{title, description, stage, priority, owner, project, previous, attachments}) ==
@@ -38,24 +38,24 @@ type Requirements is Type:
     labels_edit: @values:+List<String> ->
       {Forms.edit(Forms.CardLabels{}, Forms.Strings{values}) ==
     Some{User.WriteCard{Board.Patch{None{}, None{}, None{}, None{}, None{}, None{}, Some{values}, None{}}}} : Maybe<&2, User.Edit>},
-    labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label, role, context) ==
-          Controls.Input{UI.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
+    labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:InterfaceView.Role -> @context:Controls.Context ->
+      {Controls.represent(key, InterfaceView.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label, role, context) ==
+          Controls.Input{InterfaceView.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
             Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})} : Controls.Representation},
     labels_observation: @values:+List<String> ->
       {Options.observed(Forms.TextsValue{values}) == Options.joined(values) : String},
-    assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
-          Controls.Input{UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
+    assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:InterfaceView.Role -> @context:Controls.Context ->
+      {Controls.represent(key, InterfaceView.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
+          Controls.Input{InterfaceView.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Controls.represent(key, UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
-          Controls.Input{UI.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
+    assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:InterfaceView.Role -> @context:Controls.Context ->
+      {Controls.represent(key, InterfaceView.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
+          Controls.Input{InterfaceView.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
             Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
-    assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:UI.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<UI.Node> -> @enabled:Bool ->
-      {Browser.toggle_gesture(Some{UI.Node{key, semantic, label, role,
-          UI.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==
-          Some{UI.Change{Forms.Assistance{enabled, profile}}} : Maybe<&2, UI.Gesture>},
+    assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:InterfaceView.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<InterfaceView.Node> -> @enabled:Bool ->
+      {Browser.toggle_gesture(Some{InterfaceView.Node{key, semantic, label, role,
+          InterfaceView.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==
+          Some{InterfaceView.Change{Forms.Assistance{enabled, profile}}} : Maybe<&2, InterfaceView.Gesture>},
     assistance_preserves_profile: @enabled:Bool -> @selected:String -> @previous:Bool -> @profile:String ->
       {Forms.card_edit(Forms.AssistedCapture{}, Forms.Assistance{enabled, selected}, previous, profile) ==
     Some{User.ConfigureCardAssistance{enabled, profile}} : Maybe<&2, User.Edit>},

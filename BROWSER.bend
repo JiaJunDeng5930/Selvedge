@@ -29,7 +29,7 @@ def activate(key: String, state: Browser.State) -> Browser.Decision: Browser.act
 def edit_text(key: String, text: String, state: Browser.State) -> Browser.Decision: Browser.edit_text(key, text, state)
 def confirm_text(key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, state: Browser.State) -> Browser.Decision: Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state)
 def edit_toggle(key: String, enabled: Bool, state: Browser.State) -> Browser.Decision: Browser.edit_toggle(key, enabled, state)
-def attach(key: String, file: Services.File, state: Browser.State) -> Browser.Decision: Browser.attach(key, file, state)
+def attach(key: String, file: Services.SelectedFile, state: Browser.State) -> Browser.Decision: Browser.attach(key, file, state)
 def place(key: String, target: String, state: Browser.State) -> Browser.Decision: Browser.place(key, target, state)
 def program(state: Browser.State) -> M.World(): Browser.program(state)
 def connect(credential: String, state: Browser.State) -> Browser.Decision: Browser.connect(credential, state)
@@ -37,8 +37,8 @@ def directories_completed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.St
 def code_key(source: Code.Source, ordinal: Nat) -> String: Browser.code_key(source, ordinal)
 def code_sources(generation: Nat, observations: +List<CodeObservation.Observation>, state: Browser.State) -> Browser.Decision: Browser.code_sources(generation, observations, state)
 
-def editor_event(key: String, event: Editor.Event, state: Browser.State) -> Browser.Decision: Browser.editor_event(key, event, state)
-def reading(task: Nat, generation: Nat, event: Reading.Event, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
+def editor_event(key: String, event: Editor.EditorEvent, state: Browser.State) -> Browser.Decision: Browser.editor_event(key, event, state)
+def reading(task: Nat, generation: Nat, event: Reading.ReadingEvent, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
 def streams(body: J.Json, state: Browser.State) -> Browser.Decision: Browser.streams(body, state)
 
 def key_input(key: String, shift: Bool, received: Nat, frame: Rendered.Frame, state: Browser.State) -> Browser.Decision: Browser.key_input(key, shift, received, frame, state)
@@ -86,7 +86,7 @@ def probe_target_keys(job: Plan.Job) -> +List<String>: Browser.probe_target_keys
 def publication(last_published: Nat, state: Browser.State) -> Browser.Publication: Browser.publication(NaturalSize.limit(), last_published, state)
 
 def field_session_initial() -> NativeFields.Record: NativeFields.initial()
-def field_session_step(event: NativeFields.Event, record: NativeFields.Record) -> NativeFields.Decision: NativeFields.step(event, record)
+def field_session_step(event: NativeFields.FieldEvent, record: NativeFields.Record) -> NativeFields.Decision: NativeFields.step(event, record)
 
 def native_focus_observed(generation: Nat, owner: String, identity: String, state: Browser.State) -> Browser.Decision: Browser.native_focus_observed(generation, owner, identity, state)
 

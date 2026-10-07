@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rename, rm, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expectedVersion } from './toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const sourceVersion = '2.0.27';
-const sourceHash = '0c763567dc08bd297906a0100df149fb211d936df627882f806fa88a98feff68';
+const sourceVersion = '2.0.34';
+const sourceHash = 'bb673065b291b16ce814a808eeb7e4b9b173c02a02820b9f928f99f4d664e213';
 const compilerDirectory = path.join(root, '.build/javascript-compiler');
 const driver = fileURLToPath(import.meta.url);
 let compilerPreparation;
@@ -40,9 +40,9 @@ async function prepareCompiler() {
 }
 
 // Separate compiler processes isolate upstream mutable compilation state and its stack budget.
-export async function compileJavaScript({ entry, exports: publicExports, output }) {
-  if (typeof entry !== 'string' || typeof output !== 'string' || !publicExports || Array.isArray(publicExports)) {
-    throw new Error('JavaScript compilation requires entry, exports, and output');
+export async function compileJavaScript({ entry, exports: publicExports, output, sourceRoot = root }) {
+  if (typeof entry !== 'string' || typeof output !== 'string' || typeof sourceRoot !== 'string' || !publicExports || Array.isArray(publicExports)) {
+    throw new Error('JavaScript compilation requires entry, exports, output, and a source root');
   }
   const entries = Object.entries(publicExports).sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) throw new Error('JavaScript compilation requires at least one export');
@@ -56,11 +56,17 @@ export async function compileJavaScript({ entry, exports: publicExports, output 
   try {
     const request = path.join(temporary, 'request.json');
     const response = path.join(temporary, 'response.json');
-    await writeFile(request, JSON.stringify({ entry: path.resolve(root, entry), exports: Object.fromEntries(entries), output: path.resolve(root, output), response }));
+    const [canonicalEntry, canonicalSourceRoot] = await Promise.all([
+      realpath(path.resolve(root, entry)), realpath(path.resolve(root, sourceRoot)),
+    ]);
+    await writeFile(request, JSON.stringify({ entry: canonicalEntry, sourceRoot: canonicalSourceRoot, exports: Object.fromEntries(entries), output: path.resolve(root, output), response }));
     const result = spawnSync(process.execPath, [driver, '--emit', request], {
       cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
     });
-    if (result.error || result.status !== 0) throw new Error(`JavaScript compilation failed: ${result.error?.message ?? result.stderr.trim() ?? result.status}`);
+    if (result.error || result.status !== 0) {
+      const diagnostic = result.error?.message || result.stderr.trim() || result.stdout.trim() || 'No compiler diagnostic was emitted';
+      throw new Error(`JavaScript compilation failed (status: ${result.status ?? 'none'}, signal: ${result.signal ?? 'none'}): ${diagnostic}`);
+    }
     return JSON.parse(await readFile(response, 'utf8'));
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -75,20 +81,21 @@ async function emit(requestPath) {
   try {
     const book = Bend.book_nil();
     const seen = new Map();
-    await Bend.book_load(book, request.entry, '', seen);
+    // Shared constructors need the same source namespace across independently compiled entries.
+    await Bend.book_load(book, request.entry, '', seen, undefined, request.sourceRoot);
     Bend.book_valid(book, 0);
-    if (book.hols + book.open !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
+    if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
     const exports = Object.entries(request.exports);
     const roots = [...new Set(exports.map(([, definition]) => definition))];
     for (const definition of roots) {
       const value = book.tlds[definition];
-      if (value?.$ !== 'Def' || value.v === null || value.i !== undefined || value.x !== 0 || Comp.io_base(book, value.T) !== null) {
+      if (value?.$ !== 'Def' || value.v === null || value.i !== undefined || value.b === true || value.x !== 0 || Comp.io_base(book, value.T) !== null) {
         throw new Error(`JavaScript compilation requires a pure implemented definition: ${definition}`);
       }
     }
     const sources = await Promise.all([...seen.keys()].sort().map(async file => ({ path: path.relative(root, file), sha256: hash(await readFile(file)) })));
     const compiler = { version: sourceVersion, sourceSha256: sourceHash, driverSha256: hash(await readFile(driver)), runtime: { name: 'bun', version: process.versions.bun } };
-    const fingerprint = hash(JSON.stringify({ entry: path.relative(root, request.entry), exports: request.exports, compiler, sources }));
+    const fingerprint = hash(JSON.stringify({ entry: path.relative(root, request.entry), sourceRoot: request.sourceRoot, exports: request.exports, compiler, sources }));
     let previous;
     try { previous = JSON.parse(await readFile(`${request.output}.json`, 'utf8')); } catch {}
     if (previous?.fingerprint === fingerprint) {
@@ -99,9 +106,9 @@ async function emit(requestPath) {
         }
       } catch {}
     }
-    const library = Comp.js_lib(book, roots, roots);
-    // v2.0.27 emits this table only when its reachable closure contains foreign effects.
-    if (library.includes('const $0eff = {')) throw new Error('JavaScript compilation refuses reachable foreign effects');
+    const library = Comp.js_lib({ ...book, order: roots }, true);
+    // The pinned emitter adds this registration check only for reachable foreign effects.
+    if (library.includes('throw new Error("bend: no effect registers "')) throw new Error('JavaScript compilation refuses reachable foreign effects');
     const marker = 'export default {\n';
     const index = library.lastIndexOf(marker);
     if (index < 0) throw new Error('JavaScript compiler did not produce an export object');
@@ -119,7 +126,7 @@ async function emit(requestPath) {
     } finally {
       await rm(temporary, { force: true });
     }
-    await writeFile(`${request.output}.json`, JSON.stringify({ fingerprint, compiler, sources, exports: request.exports, outputSha256: hash(result) }, null, 2) + '\n');
+    await writeFile(`${request.output}.json`, JSON.stringify({ fingerprint, sourceRoot: request.sourceRoot, compiler, sources, exports: request.exports, outputSha256: hash(result) }, null, 2) + '\n');
     await writeFile(request.response, JSON.stringify({ output: request.output, fingerprint, cached: false }));
   } catch (error) {
     throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : String(error));

@@ -2,15 +2,15 @@ import Base
 import ../core/ui-identity.bend as UIIdentity
 import ./source.bend as Source
 import ./authored-controls.bend as Controls
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/user-input.bend as U
 
 type Binding is Data:
-  Binding{key: String, kind: Source.NativeFieldKind, semantic: String, meaning: UI.Meaning}
+  Binding{key: String, kind: Source.NativeFieldKind, semantic: String, meaning: InterfaceView.Meaning}
 type Basis is Data:
   Basis{fields: +List<Binding>, controls: +List<String>}
 type Identity is Data:
-  Identity{key: String, semantic: String, meaning: UI.Meaning}
+  Identity{key: String, semantic: String, meaning: InterfaceView.Meaning}
 type Update is Data:
   SetIdentity{key: String, identity: Identity}
   SetValue{key: String, value: String}
@@ -22,7 +22,7 @@ type Session is Data:
   SupersededTail{}
 type Record is Data:
   Record{identity: Maybe<&2, Identity>, canonical: Maybe<&2, String>, session: Session}
-type Event is Data:
+type FieldEvent is Data:
   Rebind{identity: Identity}
   Synchronize{value: String}
   CompositionStarted{}
@@ -47,16 +47,16 @@ def rebind_session(session: Session) -> Session:
   match session:
     case Composing{}: SupersededComposing{}
     case _: SupersededTail{}
-def same_meaning(original: UI.Meaning, current: UI.Meaning) -> Bool:
+def same_meaning(original: InterfaceView.Meaning, current: InterfaceView.Meaning) -> Bool:
   match original current:
-    case UI.Edit{editor, field, entry, value, choices} UI.Edit{other, new_field, new_entry, new_value, new_choices}: U.same_editor(editor, other)
-    case UI.EnterDirectory{editor, text} UI.EnterDirectory{other, new_text}: U.same_editor(editor, other)
-    case UI.ReceiveFile{editor, enabled} UI.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
-    case UI.SearchChoices{query} UI.SearchChoices{new_query}: True{}
-    case UI.EnterCredential{entered} UI.EnterCredential{new_entered}: True{}
-    case UI.BoardSearch{filter} UI.BoardSearch{new_filter}: True{}
-    case UI.DirectoryBrowserLocation{value} UI.DirectoryBrowserLocation{new_value}: True{}
-    case UI.BoardProfile{automatic, selected, choices, enabled} UI.BoardProfile{new_automatic, new_selected, new_choices, new_enabled}: True{}
+    case InterfaceView.Edit{editor, field, entry, value, choices} InterfaceView.Edit{other, new_field, new_entry, new_value, new_choices}: U.same_editor(editor, other)
+    case InterfaceView.EnterDirectory{editor, text} InterfaceView.EnterDirectory{other, new_text}: U.same_editor(editor, other)
+    case InterfaceView.ReceiveFile{editor, enabled} InterfaceView.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
+    case InterfaceView.SearchChoices{query} InterfaceView.SearchChoices{new_query}: True{}
+    case InterfaceView.EnterCredential{entered} InterfaceView.EnterCredential{new_entered}: True{}
+    case InterfaceView.BoardSearch{filter} InterfaceView.BoardSearch{new_filter}: True{}
+    case InterfaceView.DirectoryBrowserLocation{value} InterfaceView.DirectoryBrowserLocation{new_value}: True{}
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled} InterfaceView.BoardProfile{new_automatic, new_selected, new_choices, new_enabled}: True{}
     case _ _: False{}
 def same_identity(original: Identity, current: Identity) -> Bool:
   Identity{key, semantic, meaning} = original
@@ -96,7 +96,7 @@ def observed(session: Session, +identity: Maybe<&2, Identity>, +canonical: Maybe
     case Composing{}: Decision{Record{identity, canonical, Composing{}}, False{}, False{}}
     case SupersededComposing{}: Decision{Record{identity, canonical, SupersededComposing{}}, False{}, True{}}
     case SupersededTail{}: Decision{Record{identity, canonical, SupersededTail{}}, False{}, True{}}
-def step(event: Event, record: Record) -> Decision:
+def step(event: FieldEvent, record: Record) -> Decision:
   match event:
     case Rebind{identity}: rebind_record(record, identity)
     case Synchronize{value}: synchronize_record(record, value)
@@ -113,34 +113,34 @@ def step(event: Event, record: Record) -> Decision:
       Record{identity, canonical, session} = record
       observed(session, identity, canonical)
 
-def forest(surface: UI.Surface) -> +List<UI.Node>:
-  UI.Surface{content, base, overlays, scope} = surface
-  List.append(&2, UI.Node, base, overlays)
-def editing(meaning: UI.Meaning) -> Bool:
+def forest(surface: InterfaceView.Surface) -> +List<InterfaceView.Node>:
+  InterfaceView.Surface{content, base, overlays, scope} = surface
+  List.append(&2, InterfaceView.Node, base, overlays)
+def editing(meaning: InterfaceView.Meaning) -> Bool:
   match meaning:
-    case UI.Edit{editor, field, entry, value, choices}: True{}
-    case UI.SearchChoices{query}: True{}
-    case UI.EnterCredential{entered}: True{}
-    case UI.ReceiveFile{editor, enabled}: True{}
-    case UI.EnterDirectory{editor, text}: True{}
-    case UI.BoardSearch{filter}: True{}
-    case UI.DirectoryBrowserLocation{value}: True{}
-    case UI.BoardProfile{automatic, selected, choices, enabled}: True{}
+    case InterfaceView.Edit{editor, field, entry, value, choices}: True{}
+    case InterfaceView.SearchChoices{query}: True{}
+    case InterfaceView.EnterCredential{entered}: True{}
+    case InterfaceView.ReceiveFile{editor, enabled}: True{}
+    case InterfaceView.EnterDirectory{editor, text}: True{}
+    case InterfaceView.BoardSearch{filter}: True{}
+    case InterfaceView.DirectoryBrowserLocation{value}: True{}
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: True{}
     case _: False{}
-def found_editing(editable: Bool, key: String, kind: Source.NativeFieldKind, semantic: String, meaning: UI.Meaning) -> +List<Binding>:
+def found_editing(editable: Bool, key: String, kind: Source.NativeFieldKind, semantic: String, meaning: InterfaceView.Meaning) -> +List<Binding>:
   match editable:
     case False{}: Nil{}
     case True{}: [Binding{key, kind, semantic, meaning}]
-def found_binding(key: String, kind: Source.NativeFieldKind, found: Maybe<&2, UI.Node>) -> +List<Binding>:
+def found_binding(key: String, kind: Source.NativeFieldKind, found: Maybe<&2, InterfaceView.Node>) -> +List<Binding>:
   match found:
     case None{}: Nil{}
-    case Some{UI.Node{current, semantic, label, role, +meaning, children}}:
+    case Some{InterfaceView.Node{current, semantic, label, role, +meaning, children}}:
       found_editing(editing(meaning), key, kind, semantic, meaning)
 def merge(first: Basis, second: Basis) -> Basis:
   Basis{fields, controls} = first
   Basis{later_fields, later_controls} = second
   Basis{List.append(&2, Binding, fields, later_fields), List.append(&2, String, controls, later_controls)}
-def collect(nodes: +List<Source.Node>, +semantic: +List<UI.Node>) -> Basis:
+def collect(nodes: +List<Source.Node>, +semantic: +List<InterfaceView.Node>) -> Basis:
   match nodes:
     case Nil{}: Basis{Nil{}, Nil{}}
     case Con{Source.Box{key, tag, style, attrs, children}, rest}: merge(collect(children, semantic), collect(rest, semantic))
@@ -148,53 +148,53 @@ def collect(nodes: +List<Source.Node>, +semantic: +List<UI.Node>) -> Basis:
       merge(Basis{Nil{}, [UIIdentity.encode(key)]}, merge(collect(children, semantic), collect(rest, semantic)))
     case Con{Source.NativeAttachment{key, target, attrs, style, children}, rest}: merge(collect(children, semantic), collect(rest, semantic))
     case Con{Source.Field{+key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}, rest}:
-      merge(Basis{found_binding(UIIdentity.encode(key), kind, UI.find_node(semantic, UIIdentity.encode(key))), [UIIdentity.encode(key)]}, collect(rest, semantic))
+      merge(Basis{found_binding(UIIdentity.encode(key), kind, InterfaceView.find_node(semantic, UIIdentity.encode(key))), [UIIdentity.encode(key)]}, collect(rest, semantic))
     case Con{Source.RichText{key, style, content, attachments, native_owner}, rest}: merge(collect(attachments, semantic), collect(rest, semantic))
     case Con{Source.Text{key, value, font, wrapping}, rest}: collect(rest, semantic)
     case Con{Source.Glyph{key, drawing, style}, rest}: collect(rest, semantic)
-def basis(source: +List<Source.Node>, semantic: UI.Surface) -> Basis: collect(source, forest(semantic))
-def owned_found(found: Maybe<&2, UI.Node>, binding: Binding) -> Bool:
+def basis(source: +List<Source.Node>, semantic: InterfaceView.Surface) -> Basis: collect(source, forest(semantic))
+def owned_found(found: Maybe<&2, InterfaceView.Node>, binding: Binding) -> Bool:
   match found:
     case None{}: False{}
-    case Some{UI.Node{current, identity, label, role, meaning, children}}:
+    case Some{InterfaceView.Node{current, identity, label, role, meaning, children}}:
       Binding{key, kind, semantic, original} = binding
       (String.eq(key, UIIdentity.encode(current)) && String.eq(semantic, identity)) && same_meaning(original, meaning)
-def owned_node(binding: Binding, found: Maybe<&2, UI.Node>) -> Bool: owned_found(found, binding)
-def projected_kind(kind: Source.NativeFieldKind, +key: String, +semantic: String, +meaning: UI.Meaning) -> +List<Update>:
+def owned_node(binding: Binding, found: Maybe<&2, InterfaceView.Node>) -> Bool: owned_found(found, binding)
+def projected_kind(kind: Source.NativeFieldKind, +key: String, +semantic: String, +meaning: InterfaceView.Meaning) -> +List<Update>:
   match kind:
     case Source.ToggleField{}: [SetIdentity{key, Identity{key, semantic, meaning}}, SetChecked{key, Controls.field_checked(meaning)}]
     case Source.FileField{multiple}: [SetIdentity{key, Identity{key, semantic, meaning}}]
     case _: [SetIdentity{key, Identity{key, semantic, meaning}}, SetValue{key, Controls.node_value(meaning)}]
-def projected(key: String, kind: Source.NativeFieldKind, semantic: String, meaning: UI.Meaning) -> +List<Update>:
+def projected(key: String, kind: Source.NativeFieldKind, semantic: String, meaning: InterfaceView.Meaning) -> +List<Update>:
   projected_kind(kind, key, semantic, meaning)
-def update_found(found: Maybe<&2, UI.Node>, binding: Binding) -> +List<Update>:
+def update_found(found: Maybe<&2, InterfaceView.Node>, binding: Binding) -> +List<Update>:
   match found:
     case None{}: Nil{}
-    case Some{UI.Node{current, semantic, label, role, meaning, children}}:
+    case Some{InterfaceView.Node{current, semantic, label, role, meaning, children}}:
       Binding{key, kind, identity, original} = binding
       projected(key, kind, semantic, meaning)
-def update_owned(owned: Bool, binding: Binding, found: Maybe<&2, UI.Node>) -> +List<Update>:
+def update_owned(owned: Bool, binding: Binding, found: Maybe<&2, InterfaceView.Node>) -> +List<Update>:
   match owned:
     case False{}: Nil{}
     case True{}: update_found(found, binding)
-def update(+binding: Binding, +nodes: +List<UI.Node>) -> +List<Update>:
+def update(+binding: Binding, +nodes: +List<InterfaceView.Node>) -> +List<Update>:
   Binding{+key, kind, semantic, meaning} = binding
-  +found = UI.find_node(nodes, key)
+  +found = InterfaceView.find_node(nodes, key)
   update_owned(owned_node(binding, found), binding, found)
-def updates_fields(fields: +List<Binding>, +nodes: +List<UI.Node>) -> +List<Update>:
+def updates_fields(fields: +List<Binding>, +nodes: +List<InterfaceView.Node>) -> +List<Update>:
   match fields:
     case Nil{}: Nil{}
     case Con{binding, rest}: List.append(&2, Update, update(binding, nodes), updates_fields(rest, nodes))
-def updates(basis: Basis, surface: UI.Surface) -> +List<Update>:
+def updates(basis: Basis, surface: InterfaceView.Surface) -> +List<Update>:
   Basis{fields, controls} = basis
   updates_fields(fields, forest(surface))
-def fields_owned(fields: +List<Binding>, +key: String, +nodes: +List<UI.Node>) -> Bool:
+def fields_owned(fields: +List<Binding>, +key: String, +nodes: +List<InterfaceView.Node>) -> Bool:
   match fields:
     case Nil{}: False{}
     case Con{+binding, rest}:
       Binding{current, kind, semantic, meaning} = binding
-      (String.eq(current, key) && owned_node(binding, UI.find_node(nodes, key))) || fields_owned(rest, key, nodes)
-def field_owned(basis: Basis, key: String, surface: UI.Surface) -> Bool:
+      (String.eq(current, key) && owned_node(binding, InterfaceView.find_node(nodes, key))) || fields_owned(rest, key, nodes)
+def field_owned(basis: Basis, key: String, surface: InterfaceView.Surface) -> Bool:
   Basis{fields, controls} = basis
   fields_owned(fields, key, forest(surface))
 def key_present(keys: +List<String>, +key: String) -> Bool:

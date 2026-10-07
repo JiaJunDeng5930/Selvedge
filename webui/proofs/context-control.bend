@@ -1,5 +1,5 @@
 import Base
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../context-control-laws.bend as Rule
 import ../../core/SYSTEM.bend as Core
 import ../../core/ui-world.bend as View

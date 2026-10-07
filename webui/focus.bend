@@ -1,5 +1,5 @@
 import Base
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
@@ -117,12 +117,12 @@ def scope_restore_target(found: Maybe<&2, String>, initial: String) -> String:
     case Some{key}: key
     case None{}: initial
 
-def temporary_scope_target(previous: Scope, initial: String, surface: UI.Surface) -> String:
+def temporary_scope_target(previous: Scope, initial: String, surface: InterfaceView.Surface) -> String:
   match previous:
     case Document{}: initial
     case Temporary{old_id, old_initial, restore, occurrence}:
-      scope_restore_target(UI.matching_focus(UI.active_nodes(surface), restore), initial)
-def scope_target(previous: Scope, current: Scope, surface: UI.Surface) -> String:
+      scope_restore_target(InterfaceView.matching_focus(InterfaceView.active_nodes(surface), restore), initial)
+def scope_target(previous: Scope, current: Scope, surface: InterfaceView.Surface) -> String:
   match current:
     case Document{}: restore(previous)
     case Temporary{id, initial, trigger, occurrence}: temporary_scope_target(previous, initial, surface)
@@ -137,20 +137,20 @@ def resolved_target(found: Maybe<&2, String>) -> String:
     case Some{key}: key
     case None{}: ""
 
-def choose_scope_occurrence(occurrence: Maybe<&2, Nat>, active: Maybe<&2, String>, +surface: UI.Surface, +scope: Scope) -> Scope:
+def choose_scope_occurrence(occurrence: Maybe<&2, Nat>, active: Maybe<&2, String>, +surface: InterfaceView.Surface, +scope: Scope) -> Scope:
   match active:
     case None{}: Document{}
-    case Some{key}: Temporary{key, resolved_target(UI.focus_target(surface, initial(scope))), resolved_target(UI.all_focus_target(surface, restore(scope))), occurrence}
+    case Some{key}: Temporary{key, resolved_target(InterfaceView.focus_target(surface, initial(scope))), resolved_target(InterfaceView.all_focus_target(surface, restore(scope))), occurrence}
 
-def choose_scope(active: Maybe<&2, String>, surface: UI.Surface, +scope: Scope) -> Scope:
+def choose_scope(active: Maybe<&2, String>, surface: InterfaceView.Surface, +scope: Scope) -> Scope:
   choose_scope_occurrence(scope_occurrence_of(scope), active, surface, scope)
 
-def realized_scope(+surface: UI.Surface, scope: Scope) -> Scope:
-  UI.Surface{content, base, overlays, +active} = surface
+def realized_scope(+surface: InterfaceView.Surface, scope: Scope) -> Scope:
+  InterfaceView.Surface{content, base, overlays, +active} = surface
   choose_scope(active, surface, scope)
 
 def current(+state: Core.State, +capacity: View.Capacity) -> Scope:
-  realized_scope(UI.observe(capacity, state), logical_scope(state, capacity))
+  realized_scope(InterfaceView.observe(capacity, state), logical_scope(state, capacity))
 
 def next_tab(remaining: +List<String>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
   match remaining:

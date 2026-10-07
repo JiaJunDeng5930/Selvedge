@@ -19,6 +19,7 @@ def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alig
     case Controls.UnbrokenFace{text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.SingleLineFace{text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.IconTextFace{icon, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
+    case Controls.UnbrokenIconTextFace{icon, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.PickerFace{leading, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, slot}: {==}
     case Controls.ChoiceFace{text, description, icon, checked} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.DisclosureFace{text, expanded} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
@@ -49,3 +50,11 @@ def Rule.evidence():
 
 def Rule.unbroken_caption(text): {==}
 def Rule.unbroken_face_caption(key,text,parent,geometry): {==}
+
+def Rule.unbroken_icon_caption(icon,text): {==}
+def Rule.unbroken_icon_face_caption(key,icon,text,parent,geometry): {==}
+def Rule.named_text_caption(text,compact):
+  match compact:
+    case False{}: {==}
+    case True{}: {==}
+def Rule.named_icon_caption(icon,text): {==}

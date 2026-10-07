@@ -9,7 +9,7 @@ import ./design.bend as Design
 import ./authored-controls.bend as Authored
 import ./source.bend as Source
 import ../core/ui-identity.bend as Identity
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/ui-world.bend as View
 
 def layout_insets(layout: Controls.ContentLayout) -> (Nat & (Nat & Nat)):
@@ -71,7 +71,7 @@ law unbroken_face_caption:
 type Requirements is Type:
   Requirements{
     enabled_matches_interface: @+availability:View.Availability ->
-      {Authored.enabled(availability) == UI.available(availability) : Bool},
+      {Authored.enabled(availability) == InterfaceView.available(availability) : Bool},
     choice_caption_words: @text:String -> @description:Maybe<&2,String> -> @icon:Maybe<&2,Controls.Icon> -> @checked:Bool ->
       {Controls.caption_wrapping(Controls.ChoiceFace{text,description,icon,checked}) == T.NormalWords{} : T.Wrapping},
     choice_description_words: {Controls.description_wrapping() == T.NormalWords{} : T.Wrapping},
@@ -94,3 +94,27 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law unbroken_icon_caption:
+  for icon: Controls.Icon
+  for text: String
+  {Controls.caption_wrapping(Controls.UnbrokenIconTextFace{icon,text}) == T.UnbrokenLine{} : T.Wrapping}
+
+law unbroken_icon_face_caption:
+  for +key: Identity.Key
+  for icon: Controls.Icon
+  for +text: String
+  for +parent: Design.Style
+  for geometry: Controls.Geometry
+  {trigger_caption(Authored.face(key,Controls.UnbrokenIconTextFace{icon,text},parent,geometry)) ==
+    Some{Source.Text{Identity.part(key,"caption"),text,Source.ExplicitFont{Authored.parent_font(parent)},T.UnbrokenLine{}}} : Maybe<&2,Source.Node>}
+
+law named_text_caption:
+  for text: String
+  for compact: Bool
+  {Controls.named_face(None{},text,compact) == Controls.UnbrokenFace{text} : Controls.Face}
+
+law named_icon_caption:
+  for icon: Controls.Icon
+  for text: String
+  {Controls.named_face(Some{icon},text,False{}) == Controls.UnbrokenIconTextFace{icon,text} : Controls.Face}

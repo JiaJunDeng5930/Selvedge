@@ -14,7 +14,7 @@ import ./authored-controls.bend as Authoring
 import ./controls.bend as Controls
 import ./appearance.bend as Appearance
 import ./surfaces.bend as Surfaces
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/ui-world.bend as View
 
 # The marker connects authored control states to the browser's native selectors.
@@ -29,14 +29,14 @@ def first_rendered_attribute(node: Doc.Node) -> Maybe<&2, Doc.Property>:
     case _: None{}
 
 def attributes_claim(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String,
-  interaction: Model.Interaction<Doc.Event>) -> Type:
+  interaction: Model.Interaction<Doc.DOMEvent>) -> Type:
   {first_attribute(Renderer.control_attributes(tag, attrs, name, interaction)) ==
     Some{Doc.Property{"class", "native-control"}} : Maybe<&2, Doc.Property>}
 
 def render_claim(key: UIIdentity.Key, tag: Source.ControlTag, style: Source.Style,
-  attrs: +List<Source.Attribute>, name: String, enabled: Bool, first: Doc.Event,
-  remaining: +List<Doc.Event>, original_children: +List<Source.Node>, font: T.Presentation,
-  interaction: Model.Interaction<Doc.Event>, styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool) -> Type:
+  attrs: +List<Source.Attribute>, name: String, enabled: Bool, first: Doc.DOMEvent,
+  remaining: +List<Doc.DOMEvent>, original_children: +List<Source.Node>, font: T.Presentation,
+  interaction: Model.Interaction<Doc.DOMEvent>, styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool) -> Type:
   {first_rendered_attribute(Renderer.container(Content.Value{
       Source.Control{key, tag, style, attrs, name, enabled, first, remaining, original_children}, font},
       interaction, styles, children, native)) ==
@@ -70,70 +70,70 @@ type Requirements is Type:
     background_uses_rest_channel: @chrome:Design.Chrome -> background_channel_claim(chrome),
     foreground_uses_rest_channel: @chrome:Design.Chrome -> foreground_channel_claim(chrome),
     attributes_consume_control_states: @tag:Source.ControlTag -> @attrs:+List<Source.Attribute> -> @name:String ->
-      @interaction:Model.Interaction<Doc.Event> -> attributes_claim(tag, attrs, name, interaction),
+      @interaction:Model.Interaction<Doc.DOMEvent> -> attributes_claim(tag, attrs, name, interaction),
     rendered_controls_consume_control_states: @key:UIIdentity.Key -> @tag:Source.ControlTag -> @style:Source.Style ->
-      @attrs:+List<Source.Attribute> -> @name:String -> @enabled:Bool -> @first:Doc.Event ->
-      @remaining:+List<Doc.Event> -> @original_children:+List<Source.Node> -> @font:T.Presentation ->
-      @interaction:Model.Interaction<Doc.Event> -> @styles:+List<Doc.Property> -> @children:+List<Doc.Node> ->
+      @attrs:+List<Source.Attribute> -> @name:String -> @enabled:Bool -> @first:Doc.DOMEvent ->
+      @remaining:+List<Doc.DOMEvent> -> @original_children:+List<Source.Node> -> @font:T.Presentation ->
+      @interaction:Model.Interaction<Doc.DOMEvent> -> @styles:+List<Doc.Property> -> @children:+List<Doc.Node> ->
       @native:Bool -> render_claim(key, tag, style, attrs, name, enabled, first, remaining, original_children, font, interaction, styles, children, native)}
 
 law evidence:
   Requirements
 
-def activation_expected(event: Doc.Event) -> Bool:
+def activation_expected(event: Doc.DOMEvent) -> Bool:
   match event:
     case Doc.Activate{key}: True{}
     case _: False{}
 
-def keyboard_attributes_expected(active: Bool, interaction: Model.Interaction<Doc.Event>, name: String) -> +List<Doc.Property>:
+def keyboard_attributes_expected(active: Bool, interaction: Model.Interaction<Doc.DOMEvent>, name: String) -> +List<Doc.Property>:
   match active:
     case True{}: [Paint.property("tabindex", Renderer.control_tabindex(interaction)), Paint.property("role", "button"), Paint.property("aria-label", name)]
     case False{}: [Paint.property("tabindex", "-1"), Paint.property("aria-label", name)]
 
-def control_attributes_expected(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String, interaction: Model.Interaction<Doc.Event>) -> +List<Doc.Property>:
+def control_attributes_expected(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String, interaction: Model.Interaction<Doc.DOMEvent>) -> +List<Doc.Property>:
   match tag:
     case Source.Button{}: Renderer.properties(Renderer.attributes(attrs), Paint.property("type", "button") <> Paint.property("aria-label", name) <> Renderer.availability(interaction, True{}))
     case Source.Summary{}: Renderer.properties(Renderer.attributes(attrs), Paint.property("aria-label", name) <> Renderer.availability(interaction, False{}))
     case _: Renderer.nonnative_control_attributes(attrs, name, interaction)
 
 law keyboard_activation_total:
-  for event: Doc.Event
+  for event: Doc.DOMEvent
   {Doc.keyboard_activation(event) == activation_expected(event) : Bool}
 
 law keyboard_activation_empty:
   {Doc.keyboard_activations(Nil{}) == False{} : Bool}
 
 law keyboard_activation_cons:
-  for +first: Doc.Event
-  for +remaining: +List<Doc.Event>
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
   {Doc.keyboard_activations(first <> remaining) == Bool.or(Doc.keyboard_activation(first), Doc.keyboard_activations(remaining)) : Bool}
 
 law keyboard_control_display_only:
   {Renderer.keyboard_control(Model.DisplayOnly{}) == False{} : Bool}
 
 law keyboard_control_operable:
-  for first: Doc.Event
-  for remaining: +List<Doc.Event>
+  for first: Doc.DOMEvent
+  for remaining: +List<Doc.DOMEvent>
   for enabled: Bool
   {Renderer.keyboard_control(Model.Operable{first,remaining,enabled}) == Doc.keyboard_activations(first <> remaining) : Bool}
 
 law keyboard_attribute_projection:
   for +active: Bool
-  for +interaction: Model.Interaction<Doc.Event>
+  for +interaction: Model.Interaction<Doc.DOMEvent>
   for +name: String
   {Renderer.keyboard_control_attributes(active,interaction,name) == keyboard_attributes_expected(active,interaction,name) : +List<Doc.Property>}
 
 law nonnative_attribute_projection:
   for +attrs: +List<Source.Attribute>
   for +name: String
-  for +interaction: Model.Interaction<Doc.Event>
+  for +interaction: Model.Interaction<Doc.DOMEvent>
   {Renderer.nonnative_control_attributes(attrs,name,interaction) == Renderer.properties(Renderer.attributes(attrs), Renderer.properties(Renderer.keyboard_control_attributes(Renderer.keyboard_control(interaction),interaction,name), Renderer.availability(interaction,False{}))) : +List<Doc.Property>}
 
 law control_attribute_projection:
   for +tag: Source.ControlTag
   for +attrs: +List<Source.Attribute>
   for +name: String
-  for +interaction: Model.Interaction<Doc.Event>
+  for +interaction: Model.Interaction<Doc.DOMEvent>
   {Renderer.control_attribute_details(tag,attrs,name,interaction) == control_attributes_expected(tag,attrs,name,interaction) : +List<Doc.Property>}
 
 law source_control_interaction:
@@ -143,15 +143,15 @@ law source_control_interaction:
   for attrs: +List<Source.Attribute>
   for name: String
   for +enabled: Bool
-  for +first: Doc.Event
-  for +remaining: +List<Doc.Event>
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
   for children: +List<Source.Node>
-  {Source.interaction_of(Source.Control{key,tag,style,attrs,name,enabled,first,remaining,children}) == Model.Operable{first,remaining,enabled} : Model.Interaction<Doc.Event>}
+  {Source.interaction_of(Source.Control{key,tag,style,attrs,name,enabled,first,remaining,children}) == Model.Operable{first,remaining,enabled} : Model.Interaction<Doc.DOMEvent>}
 
 def rendered_control_claim(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.ControlTag, +style: Source.Style,
-  +attrs: +List<Source.Attribute>, +name: String, +enabled: Bool, +first: Doc.Event,
-  +remaining: +List<Doc.Event>, +original_children: +List<Source.Node>, +font: T.Presentation,
-  +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, native: Bool) -> Type:
+  +attrs: +List<Source.Attribute>, +name: String, +enabled: Bool, +first: Doc.DOMEvent,
+  +remaining: +List<Doc.DOMEvent>, +original_children: +List<Source.Node>, +font: T.Presentation,
+  +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, native: Bool) -> Type:
   {Renderer.container_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font},interaction,styles,children,native) ==
     Doc.Element{UIIdentity.encode(key),Source.control_tag_name(tag),Renderer.properties(Renderer.control_attributes(tag,attrs,name,interaction), [Doc.Property{"data-frame-key", Renderer.observation_key(Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font})}]),
       Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font}),Renderer.control_visual(style))),
@@ -165,11 +165,11 @@ law rendered_control_projection:
   for attrs: +List<Source.Attribute>
   for name: String
   for enabled: Bool
-  for first: Doc.Event
-  for remaining: +List<Doc.Event>
+  for first: Doc.DOMEvent
+  for remaining: +List<Doc.DOMEvent>
   for original_children: +List<Source.Node>
   for font: T.Presentation
-  for interaction: Model.Interaction<Doc.Event>
+  for interaction: Model.Interaction<Doc.DOMEvent>
   for styles: +List<Doc.Property>
   for children: +List<Doc.Node>
   for native: Bool
@@ -250,7 +250,7 @@ def toggle_face_styles(node: Source.Node) -> +List<Doc.Property>:
 
 law production_toggle_face:
   for key: UIIdentity.Key
-  for meaning: UI.Meaning
+  for meaning: InterfaceView.Meaning
   for name: String
   for placement: Controls.LabelPlacement
   for availability: View.Availability
@@ -270,7 +270,7 @@ law unchecked_toggle_glyph:
 
 law toggle_authoring_allocation:
   for key: UIIdentity.Key
-  for meaning: UI.Meaning
+  for meaning: InterfaceView.Meaning
   for name: String
   for placement: Controls.LabelPlacement
   for availability: View.Availability
@@ -293,7 +293,7 @@ law toggle_rendered_composition:
   for attrs: +List<Source.Attribute>
   for attributes: +List<Doc.Property>
   for styles: +List<Doc.Property>
-  for events: +List<Doc.Event>
+  for events: +List<Doc.DOMEvent>
   for children: +List<Doc.Node>
   {Renderer.native_field_leaf(Source.ToggleField{}, key, style, attrs, attributes, styles, events, children) ==
     Doc.Element{UIIdentity.encode(UIIdentity.part(key, "toggle-target")), "span", Nil{}, Renderer.properties(styles,

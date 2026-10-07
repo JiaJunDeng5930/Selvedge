@@ -3,7 +3,7 @@ import ./ui-identity.bend as Identity
 import ../MODEL.bend as M
 import ../bendlib/domain.bend as D
 import ../bendlib/json.bend as J
-import ../UI.bend as UI
+import ../UI.bend as ProductUI
 import ./SYSTEM.bend as Core
 import ./laws.bend as Laws
 import ./interface.bend as Interface
@@ -27,24 +27,24 @@ def quiet_decision(+state: Core.State) -> Core.Decision:
 type Requirements is Type:
   Requirements{
     absent_element: @capacity:View.Capacity -> @+state:Core.State -> @key:String -> @gesture:Interface.Gesture ->
-      @absent:{Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) == None{} : Maybe<&2, Interface.Node>} ->
-      {UI.step(UI.Element{capacity, key, gesture}, state) == quiet_decision(state) : Core.Decision},
+      @absent:{Interface.find_node(Interface.active_nodes(ProductUI.observe(capacity, state)), key) == None{} : Maybe<&2, Interface.Node>} ->
+      {ProductUI.step(ProductUI.Element{capacity, key, gesture}, state) == quiet_decision(state) : Core.Decision},
     disabled_element: @capacity:View.Capacity -> @+state:Core.State -> @key:String -> @+input:Core.Input ->
       @reason:String -> @node_key: Identity.Key -> @semantic:String -> @label:String -> @role:Interface.Role -> @+children:+List<Interface.Node> ->
-      @found:{Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) ==
+      @found:{Interface.find_node(Interface.active_nodes(ProductUI.observe(capacity, state)), key) ==
         Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Unavailable{reason}}, children}} : Maybe<&2, Interface.Node>} ->
-      {UI.step(UI.Element{capacity, key, Interface.Press{}}, state) == quiet_decision(state) : Core.Decision},
+      {ProductUI.step(ProductUI.Element{capacity, key, Interface.Press{}}, state) == quiet_decision(state) : Core.Decision},
     absent_composer: @capacity:View.Capacity -> @+state:Core.State -> @editor:U.Editor ->
-      @absent:{Interface.submission(Interface.active_nodes(UI.observe(capacity, state)), editor) == None{} : Maybe<&2, Interface.Node>} ->
-      {UI.step(UI.SubmitComposer{capacity, editor}, state) == quiet_decision(state) : Core.Decision},
+      @absent:{Interface.submission(Interface.active_nodes(ProductUI.observe(capacity, state)), editor) == None{} : Maybe<&2, Interface.Node>} ->
+      {ProductUI.step(ProductUI.SubmitComposer{capacity, editor}, state) == quiet_decision(state) : Core.Decision},
     element_receipt: @capacity:View.Capacity -> @+state:Core.State -> @key:String -> @gesture:Interface.Gesture ->
-      {receipt(UI.step(UI.Element{capacity, key, gesture}, state)) ==
-        receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, gesture), state)) : Receipt},
+      {receipt(ProductUI.step(ProductUI.Element{capacity, key, gesture}, state)) ==
+        receipt(Interface.apply_input(Interface.resolve(ProductUI.observe(capacity, state), key, gesture), state)) : Receipt},
     available_element: @capacity:View.Capacity -> @+state:Core.State -> @key:String -> @+input:Core.Input ->
       @node_key: Identity.Key -> @semantic:String -> @label:String -> @role:Interface.Role -> @+children:+List<Interface.Node> ->
-      @found:{Interface.find_node(Interface.active_nodes(UI.observe(capacity, state)), key) ==
+      @found:{Interface.find_node(Interface.active_nodes(ProductUI.observe(capacity, state)), key) ==
         Some{Interface.Node{node_key, semantic, label, role, Interface.Activate{input, View.Available{}}, children}} : Maybe<&2, Interface.Node>} ->
-      {receipt(UI.step(UI.Element{capacity, key, Interface.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt},
+      {receipt(ProductUI.step(ProductUI.Element{capacity, key, Interface.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt},
     existing_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
       @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
       @present:{Interface.layer_present(previous, E.panel_target(panel)) == True{} : Bool} ->

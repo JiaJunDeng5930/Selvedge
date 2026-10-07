@@ -223,12 +223,20 @@ def escaped_char(code: U32) -> String:
     case +other:
       escaped_other(U32.is_lt(other, 32), other)
 
-def escape(text: String) -> String:
+# Each escaped character contributes at most six characters, bounding append depth.
+def escape_collect(text: String, parts: +List<String>) -> +List<String>:
   match text:
-    case SNil{}:
-      ""
+    case SNil{}: parts
     case SCon{Chr{code}, rest}:
-      escaped_char(code) ++ escape(rest)
+      escape_collect(rest, Con{escaped_char(code), parts})
+
+def escape_join(parts: +List<String>, suffix: String) -> String:
+  match parts:
+    case Nil{}: suffix
+    case Con{part, rest}: escape_join(rest, part ++ suffix)
+
+def escape(text: String) -> String:
+  escape_join(escape_collect(text, Nil{}), "")
 
 def quote(text: String) -> String:
   "\"" ++ escape(text) ++ "\""

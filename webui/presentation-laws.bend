@@ -1,6 +1,6 @@
 import Base
 import ../core/SYSTEM.bend as Core
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/ui-world.bend as View
 import ./MODEL.bend as Model
 import ./design.bend as Design
@@ -46,7 +46,7 @@ type Requirements is Type:
       {decision_environment(Model.step(Model.EnvironmentObserved{environment}, Model.State{application, generation, realization, current_environment, font})) == environment : Design.Environment},
     frame_preserves_environment: @+environment:Design.Environment -> @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State -> @generation:Nat -> @realization:Rendered.State -> @font:F.State ->
       {decision_environment(Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font})) == environment : Design.Environment},
-    element_preserves_environment: @+environment:Design.Environment -> @key:String -> @gesture:UI.Gesture -> @application:Platform.State -> @+generation:Nat -> @realization:Rendered.State -> @+font:F.State ->
+    element_preserves_environment: @+environment:Design.Environment -> @key:String -> @gesture:InterfaceView.Gesture -> @application:Platform.State -> @+generation:Nat -> @realization:Rendered.State -> @+font:F.State ->
       {decision_environment(Model.step(Model.ElementInput{key, gesture}, Model.State{application, generation, realization, environment, font})) == environment : Design.Environment},
     reflow_sets_requested_capacity: @+decision:Platform.Decision -> @+requested:View.Capacity ->
       {platform_decision_capacity(Platform.reflow_capacity(decision, requested)) == requested : View.Capacity},

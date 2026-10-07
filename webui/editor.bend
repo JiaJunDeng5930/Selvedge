@@ -5,7 +5,7 @@ import ./interaction.bend as Physical
 type Editor is Data:
   Editor{owner: U.Editor, selection: Physical.Selection, composing: Bool}
 
-type Event is Data:
+type EditorEvent is Data:
   SelectionChanged{selection: Physical.Selection}
   CompositionChanged{composing: Bool}
   Enter{shift: Bool, alt: Bool, modified: Bool}
@@ -13,7 +13,7 @@ type Event is Data:
 type Decision is Data:
   Decision{editor: Editor, submit: Bool}
 
-def step(editor: Editor, event: Event, enabled: Bool, pending: Bool) -> Decision:
+def step(editor: Editor, event: EditorEvent, enabled: Bool, pending: Bool) -> Decision:
   Editor{owner, selection, +composing} = editor
   match event:
     case SelectionChanged{range}: Decision{Editor{owner, range, composing}, False{}}

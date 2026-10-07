@@ -10,6 +10,7 @@ import ../code-block.bend as Content
 import ../live-output.bend as Live
 import ../user-context.bend as Context
 import ../user-experience.bend as E
+import ../user-experience-program.bend as ExperienceProgram
 import ../user-input.bend as U
 import ../session-laws.bend as Rule
 
@@ -54,7 +55,7 @@ def native_without_submission_keeps_content(decision: M.Decision(), session: E.S
   {==}
 
 def runtime_keeps_content(+input: M.Input, application: E.Application) ->
-  {Rule.session_content(Rule.post(E.step(E.RuntimeInput{input}, application))) == Rule.session_content(application) : Rule.SessionContent}:
+  {Rule.session_content(Rule.post(ExperienceProgram.step(E.RuntimeInput{input}, application))) == Rule.session_content(application) : Rule.SessionContent}:
   E.Application{program, session} = application
   native_without_submission_keeps_content(Program.transition(input, program), session, M.durable(input))
 
@@ -73,7 +74,7 @@ def native_without_submission_retains_previews(decision: M.Decision(), session: 
   {==}
 
 def preview_observation_keeps_content(observation: Live.Observation, application: E.Application) ->
-  {Rule.session_content(Rule.post(E.step(E.PreviewObserved{observation}, application))) == Rule.session_content(application) : Rule.SessionContent}:
+  {Rule.session_content(Rule.post(ExperienceProgram.step(E.PreviewObserved{observation}, application))) == Rule.session_content(application) : Rule.SessionContent}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   {==}
 
@@ -89,7 +90,7 @@ def visit_preserves_location(reader: E.Reader) ->
 
 def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +application: E.Application,
   not_owner: {Rule.reading_owner(application, task, generation) == False{} : Bool}) ->
-  {E.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision}:
+  {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   Equal.cong(Bool, E.Decision, (owned => E.read_owned(owned, task, intent, application)),
     Rule.reading_owner(application, task, generation), False{}, not_owner)
@@ -102,7 +103,7 @@ def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, rea
   +new_profile: String, +new_reasoning: String,
   found: {E.find_draft(drafts, U.NewTaskEditor{}) ==
     Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
-  {E.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
+  {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
       E.Application{program, E.Session{route, drafts, readers,
         E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest,
         old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) ==

@@ -9,6 +9,7 @@ import ./code-block.bend as Content
 import ./live-output.bend as Live
 import ./user-context.bend as Context
 import ./user-experience.bend as E
+import ./user-experience-program.bend as ExperienceProgram
 import ./user-input.bend as U
 
 type Residence is Data:
@@ -122,7 +123,7 @@ type Requirements is Type:
     modal_sequence_residence: @+application:E.Application -> @+panel:U.Panel -> @+trigger:String ->
       {residence(post(E.close_panel(post(E.open_panel(panel, trigger, application))))) == residence(application) : Residence},
     runtime_keeps_content: @+input:M.Input -> @+application:E.Application ->
-      {session_content(post(E.step(E.RuntimeInput{input}, application))) == session_content(application) : SessionContent},
+      {session_content(post(ExperienceProgram.step(E.RuntimeInput{input}, application))) == session_content(application) : SessionContent},
     native_without_submission_keeps_frame: @+decision:M.Decision() -> @+session:E.Session -> @durable:Bool ->
       {native_frame(post(E.native_result(decision, session, None{}, durable))) ==
         native_frame(E.Application{runtime_program(decision), session}) : NativeFrame},
@@ -130,14 +131,14 @@ type Requirements is Type:
       {previews(post(E.native_result(decision, session, None{}, durable))) ==
         Live.retained(previews(E.Application{runtime_program(decision), session}), runtime_program(decision)) : +List<Live.Output>},
     preview_observation_keeps_content: @+observation:Live.Observation -> @+application:E.Application ->
-      {session_content(post(E.step(E.PreviewObserved{observation}, application))) == session_content(application) : SessionContent},
+      {session_content(post(ExperienceProgram.step(E.PreviewObserved{observation}, application))) == session_content(application) : SessionContent},
     navigate_keeps_drafts: @+route:U.Route -> @+application:E.Application ->
       {drafts(post(E.navigate(route, application))) == drafts(application) : +List<U.Draft>},
     new_visit_keeps_location: @+reader:E.Reader ->
       {reading_location(E.new_visit(reader)) == reading_location(reader) : ReadingLocation},
     obsolete_reading: @+task:Nat -> @+generation:Nat -> @+intent:U.ReadingIntent -> @+application:E.Application ->
       @not_owner:{reading_owner(application, task, generation) == False{} : Bool} ->
-      {E.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision},
+      {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision},
     model_choice: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
       @+readers:+List<Finite.Entry(E.Reader)> -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat ->
       @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationState -> @filter:B.Filter ->
@@ -147,7 +148,7 @@ type Requirements is Type:
       @+new_profile:String -> @+new_reasoning:String ->
       @found:{E.find_draft(drafts, U.NewTaskEditor{}) ==
         Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
-      {E.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
+      {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
         E.Application{program, E.Session{route, drafts, readers,
           E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest,
           old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) ==

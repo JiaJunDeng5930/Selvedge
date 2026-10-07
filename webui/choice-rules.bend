@@ -7,17 +7,17 @@ import ./iconography.bend as I
 import ./source.bend as S
 import ./design.bend as D
 import ../BOARD.bend as Board
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
 import ../core/field-options.bend as Fields
 
-def selection_role(kind: UI.ChoiceKind, area: C.Area) -> String:
+def selection_role(kind: InterfaceView.ChoiceKind, area: C.Area) -> String:
   match kind area:
-    case UI.SingleChoice{} C.MenuArea{}: "menuitemradio"
-    case UI.SingleChoice{} _: "radio"
-    case UI.MultipleChoice{} C.MenuArea{}: "menuitemcheckbox"
-    case UI.MultipleChoice{} _: "checkbox"
+    case InterfaceView.SingleChoice{} C.MenuArea{}: "menuitemradio"
+    case InterfaceView.SingleChoice{} _: "radio"
+    case InterfaceView.MultipleChoice{} C.MenuArea{}: "menuitemcheckbox"
+    case InterfaceView.MultipleChoice{} _: "checkbox"
 
 def actual_face(value: C.Representation) -> Maybe<&2, C.Face>:
   match value:
@@ -40,7 +40,7 @@ def selected_drawing(selected: Bool, size: Nat) -> Maybe<&2, S.Drawing>:
     case True{}: Some{I.drawing(C.Check{}, size)}
     case False{}: None{}
 
-def actual_face_law(-key: UIIdentity.Key, -kind: UI.ChoiceKind, -classification: Maybe<&2, Filter.Classification>, -selected: Bool, -description: String, -input: Core.Input, -availability: View.Availability, -label: String, -role: UI.Role, +context: C.Context) -> Type:
+def actual_face_law(-key: UIIdentity.Key, -kind: InterfaceView.ChoiceKind, -classification: Maybe<&2, Filter.Classification>, -selected: Bool, -description: String, -input: Core.Input, -availability: View.Availability, -label: String, -role: InterfaceView.Role, +context: C.Context) -> Type:
   C.Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
   {actual_face(C.make_choice(key, kind, classification, selected, description, input, availability, label, role, context)) ==
     Some{C.ChoiceFace{C.name_for(C.purpose_fields(key, input, selection, code, appearance, access, open, layers), label), C.choice_description(description), C.classification_icon(classification), selected}} : Maybe<&2, C.Face>}
@@ -57,9 +57,9 @@ type GlyphMeaning<-category: Filter.Classification, -icon: C.Icon> is Type:
 type Requirements is Type:
   Requirements{
     classification_meaning: @+category:Filter.Classification -> GlyphMeaning<category, C.classification_glyph(category)>,
-    selection_roles: @+kind:UI.ChoiceKind -> @+area:C.Area -> @+selected:Bool ->
+    selection_roles: @+kind:InterfaceView.ChoiceKind -> @+area:C.Area -> @+selected:Bool ->
       {A.behavior(C.choice_behavior(kind, area, selected)) == [S.RoleAttribute{selection_role(kind, area)}, S.AriaAttribute{"checked", Fields.boolean(selected)}] : +List<S.Attribute>},
-    semantic_face: @+key:UIIdentity.Key -> @+kind:UI.ChoiceKind -> @+classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:UI.Role -> @+context:C.Context -> actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context),
+    semantic_face: @+key:UIIdentity.Key -> @+kind:InterfaceView.ChoiceKind -> @+classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @+description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @+role:InterfaceView.Role -> @+context:C.Context -> actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context),
     leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:C.Icon -> @selected:Bool -> @+key:UIIdentity.Key -> @+parent:D.Style -> @+geometry:C.Geometry ->
       {first_drawing(A.face_members(C.ChoiceFace{text, description, Some{icon}, selected}, key, parent, geometry)) == Some{I.drawing(icon, A.face_icon_size(geometry))} : Maybe<&2, S.Drawing>},
     selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, C.Icon> -> @+selected:Bool -> @+key:UIIdentity.Key -> @+parent:D.Style -> @+geometry:C.Geometry ->

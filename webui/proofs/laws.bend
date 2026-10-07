@@ -134,7 +134,7 @@ def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.S
   frame_silent(received, frame, application, generation, realization, environment, font)
 
 def stale_reading_raw(application: E.Application, services: Services.State, platform: Platform.Platform,
-  task: Nat, generation: Nat, event: Reading.Event,
+  task: Nat, generation: Nat, event: Reading.ReadingEvent,
   inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> {Platform.step_raw(Platform.ReadingInput{task, generation, event}, Platform.State{Core.State{application, services}, platform}) == Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}:
   match platform:
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
@@ -152,7 +152,7 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
   bookmark_observed: {Finite.find(~Reading.Bookmark, bookmarks, task) ==
     Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>}) ->
   {Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks) ==
-    [Platform.Scroll{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>}:
+    [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>}:
   E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer} = session
   reader = E.reader(readers, task)
   generation_observed = Equal.cong(E.Reader, Nat, E.reader_generation, reader,
@@ -179,7 +179,7 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
     Reading.layout(U.ReadHistory{}, Reading.Bookmark{Some{anchor}}),
     [Reading.PreserveAnchor{anchor}], layout_effect, Rules_reading_rules.history_layout(anchor))
   generation_effect = Equal.cong(Nat, +List<Platform.Effect>,
-    (value => [Platform.Scroll{task, value, Reading.PreserveAnchor{anchor}}]),
+    (value => [Platform.ApplyReading{task, value, Reading.PreserveAnchor{anchor}}]),
     E.reader_generation(reader), generation, generation_observed)
   effect = Equal.cong(+List<Reading.Effect>, +List<Platform.Effect>,
     (value => Platform.wrap_scroll(value, task, E.reader_generation(reader))),
@@ -187,8 +187,8 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
     [Reading.PreserveAnchor{anchor}], layout_preserves)
   Equal.trans(+List<Platform.Effect>,
     Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks),
-    [Platform.Scroll{task, E.reader_generation(reader), Reading.PreserveAnchor{anchor}}],
-    [Platform.Scroll{task, generation, Reading.PreserveAnchor{anchor}}],
+    [Platform.ApplyReading{task, E.reader_generation(reader), Reading.PreserveAnchor{anchor}}],
+    [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}],
     effect, generation_effect)
 
 def after_core_keeps_bookmarks(decision: Core.Decision, platform: Platform.Platform) ->
@@ -717,7 +717,7 @@ def inactive_focus(+core: Core.State, +platform: Platform.Platform, identity: St
     Rules_platform.realized_empty(Platform.unchanged(core), platform))
 
 def stale_reading(+application: E.Application, +services: Services.State, +platform: Platform.Platform,
-  task: Nat, generation: Nat, event: Reading.Event,
+  task: Nat, generation: Nat, event: Reading.ReadingEvent,
   inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Rule.stale_reading_law(application, services, platform, task, generation, event, inactive):
   Equal.trans(Platform.Decision,
     Platform.step(Platform.ReadingInput{task, generation, event}, Platform.State{Core.State{application, services}, platform}),

@@ -1,6 +1,6 @@
 import ../physical-allocation.bend as Allocation
 import ../anchor-geometry.bend as AnchorGeometry
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ./native-fields.bend as NativeProof
 import ../native-fields-rules.bend as NativeRules
 import Base
@@ -35,7 +35,7 @@ def stale_measurements(+received: Browser.MeasurementTicket, +tokens: +List<Stri
     (owned => {Browser.measured_current(owned, tokens, state) == Browser.Decision{state, Nil{}} : Browser.Decision}),
     {==}, Browser.measurement_owned(received, state), proof)
 
-def ready_document(+rendering_capacity: Nat, +legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: UI.Surface) ->
+def ready_document(+rendering_capacity: Nat, +legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: InterfaceView.Surface) ->
   Rule.ready_document_claim(rendering_capacity, legacy, serial, anchors, layout_capacity, engine, world, semantic):
   match legacy:
     case Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}:
@@ -174,7 +174,7 @@ def Rule.stale_native_focus_preserves_state(generation, owner, identity, state, 
         case Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
           Equal.cong(Bool, Browser.Decision,
             (current => Browser.native_focus_if_owned(current && Browser.source_delegates(source, owner) &&
-              Rendered.read_only(UI.find_node(UI.active_nodes(semantic), owner)) && Browser.native_frame_owned(frame, semantic, owner, identity), owner, identity, state)),
+              Rendered.read_only(InterfaceView.find_node(InterfaceView.active_nodes(semantic), owner)) && Browser.native_frame_owned(frame, semantic, owner, identity), owner, identity, state)),
             Nat.is_eq(generation, published), False{}, stale)
 
 def Rule.stale_measurement_failure(ticket, reason, state, stale):

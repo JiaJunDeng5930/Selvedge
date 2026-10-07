@@ -1,4 +1,5 @@
 import { Markdown } from './markdown.mjs';
+import { bendTag, bendValue } from './bend-value.mjs';
 
 export function list(value) {
   const result = [];
@@ -106,18 +107,18 @@ export class Renderer {
     const value = record.attributes.get('value');
     // Isolated measurement documents have no user editing sessions.
     if (this.isolated) { this.replaceValue(record, value); return; }
-    this.fieldSession(record, { $: 'Synchronize', value });
+    this.fieldSession(record, bendValue('webui/native-fields.Synchronize', { value }));
   }
   synchronizeFields(updates) {
     for (const update of list(updates)) {
       const record = this.records.get(update.key);
       if (!record || !this.root.contains(record.node)) continue;
-      if (update.$ === 'SetIdentity') {
-        if (!this.isolated) this.fieldSession(record, { $: 'Rebind', identity: update.identity });
-      } else if (update.$ === 'SetValue') {
+      if (bendTag(update) === 'SetIdentity') {
+        if (!this.isolated) this.fieldSession(record, bendValue('webui/native-fields.Rebind', { identity: update.identity }));
+      } else if (bendTag(update) === 'SetValue') {
         record.attributes.set('value', update.value);
         this.controlledValue(record);
-      } else if (update.$ === 'SetChecked') {
+      } else if (bendTag(update) === 'SetChecked') {
         if (record.node.checked !== update.checked) record.node.checked = update.checked;
         if (update.checked) { record.attributes.set('checked', 'true'); record.node.setAttribute('checked', ''); }
         else { record.attributes.delete('checked'); record.node.removeAttribute('checked'); }
@@ -130,34 +131,34 @@ export class Renderer {
     record.bound = true;
     const node = record.node;
     const dispatch = (kind, native) => {
-      for (const event of record.bindings) if (event.$ === kind) this.callbacks.event(event, native, node, this.composing.has(node));
+      for (const event of record.bindings) if (bendTag(event) === kind) this.callbacks.event(event, native, node, this.composing.has(node));
     };
-    const session = event => this.isolated ? { deliver: false } : this.fieldSession(record, { $: event });
-    node.addEventListener('compositionstart', () => { this.composing.add(node); session('CompositionStarted'); });
+    const session = event => this.isolated ? { deliver: false } : this.fieldSession(record, bendValue(event));
+    node.addEventListener('compositionstart', () => { this.composing.add(node); session('webui/native-fields.CompositionStarted'); });
     node.addEventListener('compositionend', event => {
       this.composing.delete(node);
-      if (session('CompositionEnded').deliver) dispatch('EditText', event);
+      if (session('webui/native-fields.CompositionEnded').deliver) dispatch('EditText', event);
     });
     node.addEventListener('pointerdown', () => {
-      if (record.fieldSession?.session.$ === 'SupersededTail') session('InputStarted');
+      if (bendTag(record.fieldSession?.session) === 'SupersededTail') session('webui/native-fields.InputStarted');
     });
-    for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('InputStarted'));
+    for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('webui/native-fields.InputStarted'));
     node.addEventListener('click', event => {
-      if (node.type === 'file') session('InputStarted');
-      if (record.bindings.some(binding => binding.$ === 'Activate')) event.preventDefault();
+      if (node.type === 'file') session('webui/native-fields.InputStarted');
+      if (record.bindings.some(binding => bendTag(binding) === 'Activate')) event.preventDefault();
       dispatch('Activate', event); dispatch('PlaceCard', event);
     });
     node.addEventListener('keydown', event => {
-      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('InputStarted');
+      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('webui/native-fields.InputStarted');
       dispatch('ConfirmText', event);
     });
-    node.addEventListener('input', event => { if (session('InputObserved').deliver) dispatch('EditText', event); });
+    node.addEventListener('input', event => { if (session('webui/native-fields.InputObserved').deliver) dispatch('EditText', event); });
     node.addEventListener('change', event => {
-      if (!session('InputObserved').deliver) return;
+      if (!session('webui/native-fields.InputObserved').deliver) return;
       dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event);
     });
     node.addEventListener('dragstart', event => dispatch('DragCard', event));
-    node.addEventListener('dragover', event => { if (record.bindings.some(binding => binding.$ === 'DropCard')) event.preventDefault(); });
+    node.addEventListener('dragover', event => { if (record.bindings.some(binding => bendTag(binding) === 'DropCard')) event.preventDefault(); });
     node.addEventListener('drop', event => { event.preventDefault(); dispatch('DropCard', event); });
   }
   children(parent, values, path, namespace) {
@@ -175,9 +176,9 @@ export class Renderer {
     for (const node of [...parent.childNodes]) if (!expected.has(node)) node.remove();
   }
   node(value, path, namespace) {
-    if (value.$ === 'Portal' || value.$ === 'TargetProperties') { this.deferred.push(value); return null; }
+    if (bendTag(value) === 'Portal' || bendTag(value) === 'TargetProperties') { this.deferred.push(value); return null; }
     const key = value.key ?? path;
-    const kind = value.$ === 'Element' ? `${namespace ?? ''}:${value.tag}` : value.$;
+    const kind = bendTag(value) === 'Element' ? `${namespace ?? ''}:${value.tag}` : value.$;
     let record = this.records.get(key);
     if (record && record.kind !== kind) {
       record.markdown?.dispose();
@@ -186,9 +187,9 @@ export class Renderer {
     }
     if (!record) {
       let node;
-      if (value.$ === 'Text') node = this.root.ownerDocument.createTextNode(value.value);
-      else if (value.$ === 'Markdown') { node = this.root.ownerDocument.createElement('div'); node.className = 'markdown'; }
-      else if (value.$ === 'Element') {
+      if (bendTag(value) === 'Text') node = this.root.ownerDocument.createTextNode(value.value);
+      else if (bendTag(value) === 'Markdown') { node = this.root.ownerDocument.createElement('div'); node.className = 'markdown'; }
+      else if (bendTag(value) === 'Element') {
         const ns = value.tag === 'svg' ? svg : namespace;
         node = ns ? this.root.ownerDocument.createElementNS(ns, value.tag) : this.root.ownerDocument.createElement(value.tag);
       } else throw new TypeError(`Unknown document node ${value.$}`);
@@ -196,16 +197,16 @@ export class Renderer {
       this.records.set(key, record);
     }
     this.used.add(key);
-    if (value.$ === 'Text') { if (record.node.data !== value.value) record.node.data = value.value; }
-    else if (value.$ === 'Element') {
+    if (bendTag(value) === 'Text') { if (record.node.data !== value.value) record.node.data = value.value; }
+    else if (bendTag(value) === 'Element') {
       this.properties(record, value.attributes, value.styles);
       this.events(record, value.events);
       this.children(record.node, value.children, key, record.node.namespaceURI === svg && value.tag !== 'foreignObject' ? svg : undefined);
       this.controlledValue(record);
     } else {
-      if (value.native_owner.$ === 'Some') record.node.dataset.nativeContentOwner = value.native_owner.value;
+      if (bendTag(value.native_owner) === 'Some') record.node.dataset.nativeContentOwner = value.native_owner.value;
       else delete record.node.dataset.nativeContentOwner;
-      const source = value.source.$ === 'Some' ? value.source.value : null;
+      const source = bendTag(value.source) === 'Some' ? value.source.value : null;
       const owner = source ? this.callbacks.codeKey(source, 0n) : null;
       if (!record.markdown || record.text !== value.value || record.owner !== owner) {
         record.markdown?.dispose();
@@ -242,7 +243,7 @@ export class Renderer {
       const value = this.deferred[index];
       const target = this.target(value.target);
       if (!target) continue; // Markdown anchors arrive incrementally.
-      if (value.$ === 'Portal') this.children(target, value.children, value.key, target.namespaceURI === svg ? svg : undefined);
+      if (bendTag(value) === 'Portal') this.children(target, value.children, value.key, target.namespaceURI === svg ? svg : undefined);
       else {
         let record = this.records.get(value.key);
         if (!record || record.node !== target) { record = { node: target, kind: 'TargetProperties', key: value.key }; this.records.set(value.key, record); }

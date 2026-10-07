@@ -19,7 +19,7 @@ type Context is Data:
   RichSlots{owner_key: String, source: Maybe<&2, Code.Source>}
 
 type Forest is Data:
-  ReadyForest{trees: +List<Model.Tree<Content.Value, Doc.Event>>,
+  ReadyForest{trees: +List<Model.Tree<Content.Value, Doc.DOMEvent>>,
     native_roots: +List<Content.NativeRoot>, native_policies: +List<Content.NativePolicy>}
   MissingForest{first: Content.Request, remaining: +List<Content.Request>}
   InvalidForest{error: Content.Error}
@@ -34,7 +34,7 @@ def merge_pair(pair: ForestPair) -> Forest:
     case ForestPair{ReadyForest{trees, roots, policies}, InvalidForest{error}}: InvalidForest{error}
     case ForestPair{MissingForest{first, remaining}, InvalidForest{error}}: InvalidForest{error}
     case ForestPair{ReadyForest{first_trees, first_roots, first_policies}, ReadyForest{second_trees, second_roots, second_policies}}:
-      ReadyForest{List.append(&2, Model.Tree<Content.Value, Doc.Event>, first_trees, second_trees),
+      ReadyForest{List.append(&2, Model.Tree<Content.Value, Doc.DOMEvent>, first_trees, second_trees),
         List.append(&2, Content.NativeRoot, first_roots, second_roots),
         List.append(&2, Content.NativePolicy, first_policies, second_policies)}
     case ForestPair{ReadyForest{trees, roots, policies}, MissingForest{first, remaining}}:
@@ -126,7 +126,7 @@ def toolbar_minimum(roots: +List<Content.NativeRoot>) -> Enclosure.Extent:
   match roots:
     case Nil{}: Enclosure.Extent{0n, 0n}
     case Con{Content.NativeRoot{owner_key, Source.ToolbarTarget{identity}, tree, attributes, style}, rest}:
-      Model.extent_max(Model.minimum_demand(Model.demand(~Content.Value, ~Doc.Event, tree)), toolbar_minimum(rest))
+      Model.extent_max(Model.minimum_demand(Model.demand(~Content.Value, ~Doc.DOMEvent, tree)), toolbar_minimum(rest))
     case Con{Content.NativeRoot{owner_key, Source.CodeBodyTarget{identity, wrap}, tree, attributes, style}, rest}:
       toolbar_minimum(rest)
 
@@ -303,7 +303,7 @@ def toolbar(children: Forest, +owner: String, +key: String, +node: Source.Node,
   target: Source.NativeTarget, attributes: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Forest:
   match children:
     case ReadyForest{trees, roots, policies}:
-      +tree: Model.Tree<Content.Value, Doc.Event> = Model.Container{key, Content.local_value(node, resolved_font(style)), Model.DisplayOnly{}, Source.physical_rule(style), trees}
+      +tree: Model.Tree<Content.Value, Doc.DOMEvent> = Model.Container{key, Content.local_value(node, resolved_font(style)), Model.DisplayOnly{}, Source.physical_rule(style), trees}
       ReadyForest{Nil{}, Content.NativeRoot{owner, target, tree, attributes, style} <> roots, policies}
     case MissingForest{first, remaining}: MissingForest{first, remaining}
     case InvalidForest{error}: InvalidForest{error}
@@ -408,7 +408,7 @@ def admit_duplicate(duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content
 def admit_native_targets(+prepared: Content.Prepared) -> Content.Preparation:
   admit_duplicate(Content.duplicate_native_slot(Content.native_slots(prepared)), prepared)
 
-def single_root(trees: +List<Model.Tree<Content.Value, Doc.Event>>, snapshot: Content.Snapshot,
+def single_root(trees: +List<Model.Tree<Content.Value, Doc.DOMEvent>>, snapshot: Content.Snapshot,
   roots: +List<Content.NativeRoot>, policies: +List<Content.NativePolicy>) -> Content.Preparation:
   match trees:
     case Nil{}: Content.Invalid{snapshot, Content.InvalidNativeChild{"/0"}}

@@ -6,7 +6,7 @@ import ../core/code-block.bend as Code
 type Property is Data:
   Property{name: String, value: String}
 
-type Event is Data:
+type DOMEvent is Data:
   Activate{key: String}
   EditText{key: String}
   ConfirmText{key: String}
@@ -17,7 +17,7 @@ type Event is Data:
   PlaceCard{key: String, target: String}
   SelectDestination{key: String}
 
-def keyboard_activation(event: Event) -> Bool:
+def keyboard_activation(event: DOMEvent) -> Bool:
   match event:
     case Activate{key}: True{}
     case EditText{key}: False{}
@@ -29,14 +29,14 @@ def keyboard_activation(event: Event) -> Bool:
     case PlaceCard{key, target}: False{}
     case SelectDestination{key}: False{}
 
-def keyboard_activations(events: +List<Event>) -> Bool:
+def keyboard_activations(events: +List<DOMEvent>) -> Bool:
   match events:
     case Nil{}: False{}
     case Con{first, remaining}: Bool.or(keyboard_activation(first), keyboard_activations(remaining))
 
 type Node is Data:
   Element{key: String, tag: String, attributes: +List<Property>,
-    styles: +List<Property>, events: +List<Event>, children: +List<Node>}
+    styles: +List<Property>, events: +List<DOMEvent>, children: +List<Node>}
   Text{value: String}
   Markdown{key: String, source: Maybe<&2, Code.Source>, value: String, native_owner: Maybe<&2, String>}
   Portal{key: String, target: String, children: +List<Node>}

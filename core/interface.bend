@@ -162,7 +162,7 @@ type Gesture is Data:
   Search{query: String}
   Credential{value: String}
   Filter{value: B.Filter}
-  Attach{file: Services.File}
+  Attach{file: Services.SelectedFile}
   Directory{path: String}
   ConfirmDirectory{}
   SelectBoardProfile{profile: String}
@@ -741,7 +741,7 @@ def placements_at(values: +List<V.MoveDestination>, +id: Nat, +revision: Nat, +n
   match values:
     case Nil{}: Nil{}
     case Con{V.MoveDestination{+stage, +before, label, availability}, rest}:
-      placement_control(placement_target(stage, before), Core.control(state, V.board_control("move", label, B.Move{id, revision, stage, before, now}, world))) <> placements_at(rest, id, revision, now, world, state)
+      placement_control(placement_target(stage, before), Core.control(state, V.board_control("move", label, B.MoveCard{id, revision, stage, before, now}, world))) <> placements_at(rest, id, revision, now, world, state)
 
 def placements(values: +List<V.MoveDestination>, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
   Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state

@@ -4,16 +4,28 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run full validation on Linux and macOS
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ inputs.full && fromJSON('["ubuntu-latest","macos-26-intel"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.full && 90 || 15 }}
     env:
       BEND_NO_TELEMETRY: '1'
     steps:
@@ -23,16 +35,29 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
-      - name: Install frozen dependencies
+      - name: Install frozen workspace dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Install the pinned Bend release
         run: bash scripts/install-bend.sh
       - name: Install Linux process isolation
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap apparmor
+          # NOTE: Ubuntu restricts unprofiled user namespaces, including bwrap's loopback setup.
+          sudo tee /etc/apparmor.d/selvedge-ci-bwrap > /dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile selvedge-ci-bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser --replace /etc/apparmor.d/selvedge-ci-bwrap
+          bwrap --unshare-user --unshare-pid --unshare-net --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev -- /bin/true
       - name: Check proof obligations and syntax
         run: bun run check
-      - name: Run native integration and negative proof tests
-        run: bun run test
+      - name: Run native integration tests
+        run: ${{ inputs.full && 'bun run test' || 'bun run test:ci' }}
       - name: Check tracked-file index
         run: bun run index:check

@@ -1301,3 +1301,52 @@ installed archive and pinned bundler. The Markdown parser, worker and original
 vendored dependency files stayed byte-identical. Browser tests used isolated
 Chrome profiles and loopback services, not live account calls; mobile checks
 refer to viewport sizes, not a separate Safari-engine run.
+
+## Project-scoped ChatGPT connector boundary
+
+The new feature's root evidence rejects six type-correct mutations: lost dispatch,
+replayed retries, cross-connection ownership, running work after restart, lost
+cancellation and damaged unrelated state. Its native operation effects carry the
+captured Workspace; the host does not select project authority independently.
+
+The standalone package can be discovered through its actual portable MCP manifest
+and can reconnect through the direct stdio environment while retaining a command
+receipt. Portable plugin configuration does not guarantee arbitrary environment
+inheritance, so installed credentials use a private `PLUGIN_DATA` file. This is a
+transport boundary, not additional native policy. The local SDK, HTTP, SQLite and
+macOS sandbox checks do not establish a live OpenAI Tunnel or ChatGPT connection.
+ADR 0024 records the architectural choice and its external assumptions.
+
+## Native emission performance on Bend 2.0.34
+
+The project-scoped connector's complete extension exposed resource-sensitive
+native compilation on Bend 2.0.27. A full parallel run passed 276 of 277 checks;
+its only failure was the extension's existing native subprocess limit. Serial
+execution passed all 277 checks without skips or changed time limits.
+
+The upstream 2.0.34 compiler rejected names newly exported by Base. In an isolated
+copy, alpha-renaming the two resolved `Event` types and the board `Move` command
+restored the complete production proof check. The same extended native program
+built in 78.456 s, compared with 138.651 s in the earlier isolated 2.0.27 run;
+first sampled Clang activity moved from about 85 s to 35 s. Native compilation
+still consumed a large working set. ADR 0025 records the toolchain choice and
+why the old compiler's slower `--smol` result was not adopted.
+
+The new compiler's default pure report includes its BendTT verdict hint. The gate
+requires the complete positive report, zero status and empty stderr; it does not
+claim that the optional independent kernel ran. MAIN's three IO assumptions are
+checked separately and cannot satisfy the pure proof gate.
+
+The final serial `npm test` run on macOS with Bend 2.0.34 passed all 278 tests,
+with no failures, cancellations or skips, in 689.800 s. Its complete extension
+fixture built and ran the actual native counter probe in 113.199 s, within the
+unchanged 300 s subprocess limit. The older serial 2.0.27 run passed 277 tests
+in 1117.976 s and took 292.640 s for that fixture. The newer suite also includes
+the additional native IO-assumption gate test, so suite timings describe actual
+local delivery checks rather than an identical isolated benchmark.
+
+`npm run check` passed the component, compiler, certificate, pure-proof,
+native-entry and host-syntax gates. The independent plugin also installed and
+loaded its MCP SDK outside the monorepo. Live ChatGPT/Tunnel validation remains
+outside this local delivery because no associated tunnel or runtime key is
+available.

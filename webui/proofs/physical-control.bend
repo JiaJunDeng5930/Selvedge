@@ -9,13 +9,13 @@ import ../controls.bend as Controls
 import ../physical-control-rules.bend as Rule
 
 def attributes_consume_control_states(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String,
-  interaction: Model.Interaction<Doc.Event>) -> Rule.attributes_claim(tag, attrs, name, interaction):
+  interaction: Model.Interaction<Doc.DOMEvent>) -> Rule.attributes_claim(tag, attrs, name, interaction):
   {==}
 
 def rendered_controls_consume_control_states(key: UIIdentity.Key, tag: Source.ControlTag, style: Source.Style,
-  attrs: +List<Source.Attribute>, name: String, enabled: Bool, first: Doc.Event,
-  remaining: +List<Doc.Event>, original_children: +List<Source.Node>, font: T.Presentation,
-  interaction: Model.Interaction<Doc.Event>, styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool) ->
+  attrs: +List<Source.Attribute>, name: String, enabled: Bool, first: Doc.DOMEvent,
+  remaining: +List<Doc.DOMEvent>, original_children: +List<Source.Node>, font: T.Presentation,
+  interaction: Model.Interaction<Doc.DOMEvent>, styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool) ->
   Rule.render_claim(key, tag, style, attrs, name, enabled, first, remaining, original_children, font, interaction, styles, children, native):
   {==}
 

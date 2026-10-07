@@ -1,7 +1,7 @@
 import Base
 import ../focus.bend as Focus
 import ../MODEL.bend as Model
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../rendered.bend as Rendered
 import ../render-contract.bend as Spec
 import ../render-laws.bend as RenderRules
@@ -60,7 +60,7 @@ def Rule.frame_recovery_effects_absent(owned, ticket, generation):
 def Rule.frame_recovery_effects_target(ticket, generation, identity): {==}
 
 def observation_sound(requirements: RenderRules.Requirements, +generation: Nat, +received: Nat,
-  +surface: UI.Surface, +frame: Rendered.Frame, +previous: Rendered.State,
+  +surface: InterfaceView.Surface, +frame: Rendered.Frame, +previous: Rendered.State,
   owned: {Nat.is_eq(generation, received) == True{} : Bool},
   realized: {Rendered.observe(generation, received, surface, frame, previous) == Rendered.Realized{generation, frame} : Rendered.State}) ->
   {Spec.valid(surface, frame) == True{} : Bool}:

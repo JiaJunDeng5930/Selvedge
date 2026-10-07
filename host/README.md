@@ -24,20 +24,22 @@ and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,
 order, automatic dispatch and execution association remain native.
 
-The suite also exercises device login and serialized credential refresh against a
+The suite also exercises browser OAuth login and serialized credential refresh against a
 loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
 notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
 Use `bun run test` to run these checks; they require no real credentials or model calls.
 
-`chatgpt-contract.mjs` fixes the audited wire version and connection identity.
-`chatgpt-models.mjs` reads only this service's credential store, validates the
-account catalog and materializes account-bound profiles. Login works without a
-model profile. Its authenticated catalog refresh commits the ordinary Configure
-input; it does not mutate existing task contracts. Cache freshness, endpoint and
-account matching belong to this external transport boundary. The CLI login
-integration test exercises discovery, live native selector refresh and restart
-against a loopback issuer/model server, not a commercial account.
+`chatgpt-account.mjs` owns ChatGPT connection configuration, identity, login and
+credentials. Consumers obtain account-bound authorization without accessing stored
+credential records. `chatgpt-contract.mjs` contains the Responses tool namespace
+and model-catalog URL helper. See [ADR 0027](../docs/adr/0027-official-chatgpt-sign-in.md)
+for the ownership and protocol choices.
+
+`chatgpt-models.mjs` discovers account models and materializes account-bound
+profiles. Its catalog refresh commits the ordinary Configure input without
+mutating existing task contracts. Cache freshness and account matching belong to
+this external transport boundary.
 
 `BROWSER.bend` compiles to `public/generated/browser-model.mjs` and runs the UI
 production functions in the browser. Bend owns interaction state, layout and
@@ -56,6 +58,12 @@ clipboard and network delivery remain external component boundaries. See
 [`public/README.md`](public/README.md).
 
 ## Coding effect interpreters
+
+`chatgpt-plugin.mjs` validates dedicated loopback connection credentials and
+translates only the plugin's tool envelopes. Project grants and operation policy
+are native feature decisions; `service.mjs` interprets committed execution and
+cancellation effects. See the [plugin setup guide](../plugins/selvedge-chatgpt/README.md)
+and [ADR 0024](../docs/adr/0024-project-scoped-chatgpt-plugin.md).
 
 `jev.mjs` interprets a committed reasoning observation with a separate evaluator
 connection, bounded public context and strict typed choices. It has no lease or
@@ -157,10 +165,8 @@ distinguishes replacement snapshots from append-only deltas. See
 `../docs/chatgpt-web.md` for configuration, recovery and evidence.
 
 Summary requests use the ordinary model transport but receive no tools. ChatGPT
-uses streaming remote compaction v2 and returns one unchanged encrypted checkpoint;
-API-key profiles retain text summarization. Compaction deltas are not displayed.
-The host
-does not decide when to compact, which history to retain, or whether a completion
+and API-key profiles use bounded text summarization.
+The host does not decide when to compact, which history to retain, or whether a completion
 is current. Bend performs those decisions, validates summaries, and commits a
 checkpoint before using its context projection. Supplied checkpoints need no
 host/model effect. Model retries and text deltas are notices, not extra task

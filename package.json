@@ -8,17 +8,26 @@
   "scripts": {
     "build": "bun scripts/build.mjs",
     "start": "bun run build && bun host/cli.mjs server",
-    "test": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend",
+    "test": "bun run build && bun scripts/test.mjs",
     "check": "bun scripts/check.mjs",
     "check:components": "bun scripts/check-components.mjs",
     "test:locality": "bun test ./tests-bend/locality.test.mjs",
     "index": "bun scripts/agents-index.mjs update",
     "index:check": "bun scripts/agents-index.mjs check",
     "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
-    "build:native": "bun scripts/build.mjs --native"
+    "build:native": "bun scripts/build.mjs --native",
+    "test:ci": "bun run build && bun scripts/test.mjs --ci",
+    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs"
   },
   "dependencies": {
-    "gpt-tokenizer": "4.0.0"
+    "gpt-tokenizer": "4.0.0",
+    "openid-client": "6.8.8"
   },
-  "packageManager": "bun@1.4.2"
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "plugins/selvedge-chatgpt"
+  ],
+  "devDependencies": {
+    "jose": "6.2.12"
+  }
 }

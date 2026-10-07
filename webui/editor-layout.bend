@@ -1,5 +1,5 @@
 import Base
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/form-fields.bend as Forms
 import ../core/user-input.bend as User
 
@@ -26,7 +26,7 @@ def card_field(field: Forms.Field) -> FieldKind:
     case Forms.AssistanceProfile{}: CaptureOption{}
     case _: Ordinary{}
 
-def field_kind(meaning: UI.Meaning) -> FieldKind:
+def field_kind(meaning: InterfaceView.Meaning) -> FieldKind:
   match meaning:
-    case UI.Edit{User.CardEditor{card}, field, entry, value, choices}: card_field(field)
+    case InterfaceView.Edit{User.CardEditor{card}, field, entry, value, choices}: card_field(field)
     case _: Ordinary{}

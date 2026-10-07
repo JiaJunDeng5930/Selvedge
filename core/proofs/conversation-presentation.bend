@@ -7,7 +7,7 @@ import ../../bendlib/domain.bend as D
 import ../../bendlib/proofs/conversation.bend as History
 import ../../MODEL.bend as M
 import ../../bendlib/json.bend as J
-import ../interface.bend as UI
+import ../interface.bend as InterfaceView
 import ../SYSTEM.bend as Core
 import ../user-input.bend as U
 import ../../bendlib/stdlib.bend as Std
@@ -26,11 +26,11 @@ def impossible(P: Type, evidence: {False{} == True{} : Bool}) -> P:
 def serialized_parameter_witness(+value: J.Json, witness: JsonRender.Completed(J.show(value))) -> Rule.RenderedParameter(value):
   (+text, +completed) = witness
   (text, (completed,
-    Equal.cong(Result<&2, &2, String, String>, String, UI.approval_serialized,
+    Equal.cong(Result<&2, &2, String, String>, String, InterfaceView.approval_serialized,
       J.show(value), Done{text}, completed)))
 
 def serialized_parameter_requirements(+value: J.Json, requirements: JsonRender.Requirements) -> Rule.RenderedParameter(value):
-  JsonRender.Requirements{sufficient, render_complete, show_complete} = requirements
+  JsonRender.Requirements{sufficient, render_complete, show_complete, _} = requirements
   serialized_parameter_witness(value, show_complete(value))
 
 def serialized_parameter(+value: J.Json) -> Rule.RenderedParameter(value):
@@ -49,12 +49,12 @@ def owning_context(reader: E.Reader, +task: D.Task, +world: M.World()) ->
     case E.Reader{generation, position, disclosures}: {==}
 
 def serialized_parameter_result(+result: Result<&2, &2, String, String>) ->
-  {UI.approval_serialized(result) == Rule.expected_serialized_parameter(result) : String}:
+  {InterfaceView.approval_serialized(result) == Rule.expected_serialized_parameter(result) : String}:
   match result:
     case Done{text}: {==}
     case Fail{reason}: {==}
 
-def parameter(+value: J.Json) -> {UI.approval_value(value) == Rule.expected_parameter(value) : String}:
+def parameter(+value: J.Json) -> {InterfaceView.approval_value(value) == Rule.expected_parameter(value) : String}:
   match value:
     case J.Text{text}: {==}
     case J.Null{}: serialized_parameter_result(J.show(J.Null{}))
@@ -63,78 +63,78 @@ def parameter(+value: J.Json) -> {UI.approval_value(value) == Rule.expected_para
     case J.Array{items}: serialized_parameter_result(J.show(J.Array{items}))
     case J.Object{fields}: serialized_parameter_result(J.show(J.Object{fields}))
 
-def argument_label(+name: String) -> {UI.approval_argument_label(name) == Rule.expected_argument_label(name) : String}:
+def argument_label(+name: String) -> {InterfaceView.approval_argument_label(name) == Rule.expected_argument_label(name) : String}:
   {==}
 
 def fields(+values: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) ->
-  {UI.approval_fields(values, index, parent) == Rule.expected_fields(values, index, parent) : +List<UI.Node>}:
+  {InterfaceView.approval_fields(values, index, parent) == Rule.expected_fields(values, index, parent) : +List<InterfaceView.Node>}:
   match values:
     case Nil{}: {==}
     case Con{J.Field{+name, +value}, +rest}:
       +key = "argument/" ++ Nat.show(index)
-      Equal.trans(+List<UI.Node>,
-        UI.approval_fields(J.Field{name, value} <> rest, index, parent),
-        UI.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <>
-          UI.approval_fields(rest, (index + 1n : Nat), parent),
+      Equal.trans(+List<InterfaceView.Node>,
+        InterfaceView.approval_fields(J.Field{name, value} <> rest, index, parent),
+        InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <>
+          InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
         Rule.expected_fields(J.Field{name, value} <> rest, index, parent),
-        Equal.trans(+List<UI.Node>,
-          UI.approval_fields(J.Field{name, value} <> rest, index, parent),
-          UI.approval_fact(parent, key, Rule.expected_argument_label(name), UI.approval_value(value)) <>
-            UI.approval_fields(rest, (index + 1n : Nat), parent),
-          UI.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <>
-            UI.approval_fields(rest, (index + 1n : Nat), parent),
-          Equal.cong(String, +List<UI.Node>, label => UI.approval_fact(parent, key, label, UI.approval_value(value)) <>
-            UI.approval_fields(rest, (index + 1n : Nat), parent),
-            UI.approval_argument_label(name), Rule.expected_argument_label(name), argument_label(name)),
-          Equal.cong(String, +List<UI.Node>, text => UI.approval_fact(parent, key, Rule.expected_argument_label(name), text) <>
-            UI.approval_fields(rest, (index + 1n : Nat), parent),
-            UI.approval_value(value), Rule.expected_parameter(value), parameter(value))),
-        Equal.cong(+List<UI.Node>, +List<UI.Node>, tail =>
-          UI.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <> tail,
-          UI.approval_fields(rest, (index + 1n : Nat), parent), Rule.expected_fields(rest, (index + 1n : Nat), parent),
+        Equal.trans(+List<InterfaceView.Node>,
+          InterfaceView.approval_fields(J.Field{name, value} <> rest, index, parent),
+          InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), InterfaceView.approval_value(value)) <>
+            InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
+          InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <>
+            InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
+          Equal.cong(String, +List<InterfaceView.Node>, label => InterfaceView.approval_fact(parent, key, label, InterfaceView.approval_value(value)) <>
+            InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
+            InterfaceView.approval_argument_label(name), Rule.expected_argument_label(name), argument_label(name)),
+          Equal.cong(String, +List<InterfaceView.Node>, text => InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), text) <>
+            InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
+            InterfaceView.approval_value(value), Rule.expected_parameter(value), parameter(value))),
+        Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>, tail =>
+          InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <> tail,
+          InterfaceView.approval_fields(rest, (index + 1n : Nat), parent), Rule.expected_fields(rest, (index + 1n : Nat), parent),
           fields(rest, (index + 1n : Nat), parent)))
 
 def arguments(+value: J.Json, +parent: Identity.Key) ->
-  {UI.approval_arguments(value, parent) == Rule.expected_arguments(value, parent) : +List<UI.Node>}:
+  {InterfaceView.approval_arguments(value, parent) == Rule.expected_arguments(value, parent) : +List<InterfaceView.Node>}:
   match value:
     case J.Object{values}: fields(values, 0n, parent)
     case J.Null{}:
-      Equal.cong(String, +List<UI.Node>, text => [UI.approval_fact(parent, "arguments", "Arguments", text)],
-        UI.approval_value(J.Null{}), Rule.expected_parameter(J.Null{}), parameter(J.Null{}))
+      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+        InterfaceView.approval_value(J.Null{}), Rule.expected_parameter(J.Null{}), parameter(J.Null{}))
     case J.Boolean{value}:
-      Equal.cong(String, +List<UI.Node>, text => [UI.approval_fact(parent, "arguments", "Arguments", text)],
-        UI.approval_value(J.Boolean{value}), Rule.expected_parameter(J.Boolean{value}), parameter(J.Boolean{value}))
+      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+        InterfaceView.approval_value(J.Boolean{value}), Rule.expected_parameter(J.Boolean{value}), parameter(J.Boolean{value}))
     case J.Number{lexeme}:
-      Equal.cong(String, +List<UI.Node>, text => [UI.approval_fact(parent, "arguments", "Arguments", text)],
-        UI.approval_value(J.Number{lexeme}), Rule.expected_parameter(J.Number{lexeme}), parameter(J.Number{lexeme}))
+      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+        InterfaceView.approval_value(J.Number{lexeme}), Rule.expected_parameter(J.Number{lexeme}), parameter(J.Number{lexeme}))
     case J.Text{text}:
-      Equal.cong(String, +List<UI.Node>, text => [UI.approval_fact(parent, "arguments", "Arguments", text)],
-        UI.approval_value(J.Text{text}), Rule.expected_parameter(J.Text{text}), parameter(J.Text{text}))
+      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+        InterfaceView.approval_value(J.Text{text}), Rule.expected_parameter(J.Text{text}), parameter(J.Text{text}))
     case J.Array{items}:
-      Equal.cong(String, +List<UI.Node>, text => [UI.approval_fact(parent, "arguments", "Arguments", text)],
-        UI.approval_value(J.Array{items}), Rule.expected_parameter(J.Array{items}), parameter(J.Array{items}))
+      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+        InterfaceView.approval_value(J.Array{items}), Rule.expected_parameter(J.Array{items}), parameter(J.Array{items}))
 
 def directory(+context: D.TaskContext, +parent: Identity.Key) ->
-  {UI.approval_directory(context, parent) == Rule.expected_directory(context, parent) : +List<UI.Node>}:
+  {InterfaceView.approval_directory(context, parent) == Rule.expected_directory(context, parent) : +List<InterfaceView.Node>}:
   D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
   match primary:
     case None{}: {==}
     case Some{path}: {==}
 
 def metadata(+call: D.Call, +context: D.TaskContext, +parent: Identity.Key) ->
-  {UI.approval_metadata(call, context, parent) == Rule.expected_metadata(call, context, parent) : +List<UI.Node>}:
+  {InterfaceView.approval_metadata(call, context, parent) == Rule.expected_metadata(call, context, parent) : +List<InterfaceView.Node>}:
   D.Call{+id, +name, +values} = call
-  Equal.trans(+List<UI.Node>,
-    UI.approval_metadata(D.Call{id, name, values}, context, parent),
-    UI.approval_fact(parent, "tool", "Tool", name) <>
-      List.append(&2, UI.Node, Rule.expected_arguments(values, parent), UI.approval_directory(context, parent)),
+  Equal.trans(+List<InterfaceView.Node>,
+    InterfaceView.approval_metadata(D.Call{id, name, values}, context, parent),
+    InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
+      List.append(&2, InterfaceView.Node, Rule.expected_arguments(values, parent), InterfaceView.approval_directory(context, parent)),
     Rule.expected_metadata(D.Call{id, name, values}, context, parent),
-    Equal.cong(+List<UI.Node>, +List<UI.Node>, items => UI.approval_fact(parent, "tool", "Tool", name) <>
-      List.append(&2, UI.Node, items, UI.approval_directory(context, parent)),
-      UI.approval_arguments(values, parent), Rule.expected_arguments(values, parent), arguments(values, parent)),
-    Equal.cong(+List<UI.Node>, +List<UI.Node>, items => UI.approval_fact(parent, "tool", "Tool", name) <>
-      List.append(&2, UI.Node, Rule.expected_arguments(values, parent), items),
-      UI.approval_directory(context, parent), Rule.expected_directory(context, parent), directory(context, parent)))
+    Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>, items => InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
+      List.append(&2, InterfaceView.Node, items, InterfaceView.approval_directory(context, parent)),
+      InterfaceView.approval_arguments(values, parent), Rule.expected_arguments(values, parent), arguments(values, parent)),
+    Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>, items => InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
+      List.append(&2, InterfaceView.Node, Rule.expected_arguments(values, parent), items),
+      InterfaceView.approval_directory(context, parent), Rule.expected_directory(context, parent), directory(context, parent)))
 
 def audit_classification(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, is_audit: {Rule.audit_message(message) == True{} : Bool}) ->
   {Actual.prepend(message, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(message), message, tail) : +List<Actual.Group>}:
@@ -201,10 +201,10 @@ def audit_identity(+index: Nat, failed: Bool, message: D.Message, tail: +List<Ac
 # The oldest audit occurrence owns the run even after its suffix grows.
 
 def automatic_decision(+operation: Nat, call: D.Call, context: D.TaskContext, +reviewer: D.Profile, +parent: Identity.Key, state: Core.State) ->
-  {UI.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
-        [UI.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", UI.Approval{}, UI.Region{}, List.append(&2, UI.Node, UI.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
-            [UI.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", UI.Content{},
-              UI.ReadOnly{Rule.reviewer_name(reviewer)}, Nil{}}])}] : +List<UI.Node>}:
+  {InterfaceView.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
+        [InterfaceView.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", InterfaceView.Approval{}, InterfaceView.Region{}, List.append(&2, InterfaceView.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [InterfaceView.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", InterfaceView.Content{},
+              InterfaceView.ReadOnly{Rule.reviewer_name(reviewer)}, Nil{}}])}] : +List<InterfaceView.Node>}:
   match reviewer:
     case D.Profile{key, provider, name, reasoning, options}: {==}
 

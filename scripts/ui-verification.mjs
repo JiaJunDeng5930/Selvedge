@@ -251,5 +251,5 @@ export function prepareUiVerification(root) {
   let previous;
   try { previous = readFileSync(path.join(root, entry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previous !== source) writeFileSync(path.join(root, entry), source);
-  return { entry, browserPrefix: '../BROWSER.', sources };
+  return { entry, browserPrefix: 'BROWSER.', sources };
 }

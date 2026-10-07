@@ -6,6 +6,7 @@ import ../../bendlib/component.bend as C
 import ../../bendlib/json.bend as J
 import ../../bendlib/command-codec.bend as CommandCodec
 import ../user-experience.bend as E
+import ../user-experience-program.bend as ExperienceProgram
 import ../user-input.bend as U
 import ./submission.bend as SubmissionProof
 
@@ -16,7 +17,7 @@ def native_decision(+decision: M.Decision(), session: E.Session, durable: Bool) 
   {==}
 
 def runtime_input(+input: M.Input, +program: M.World(), session: E.Session) ->
-  {Rule.runtime_observation(E.step(E.RuntimeInput{input}, E.Application{program, session})) ==
+  {Rule.runtime_observation(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session})) ==
     Program.transition(input, program) : M.Decision()}:
   native_decision(Program.transition(input, program), session, M.durable(input))
 
@@ -56,7 +57,7 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.DeliveryPicker{task}: {==}
 
 def completed_refinement(+completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session, previous: M.World()) ->
-  {E.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == Rule.completion_spec(completion, program, result, session) : E.Decision}:
+  {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == Rule.completion_spec(completion, program, result, session) : E.Decision}:
   match completion:
     case E.DirectCompletion{}: {==}
     case E.DraftCompletion{draft}: {==}

@@ -1,7 +1,7 @@
 import ../surface-laws.bend as Rule
 import Base
 import ../ui-identity.bend as Identity
-import ../../UI.bend as UI
+import ../../UI.bend as ProductUI
 import ../SYSTEM.bend as Core
 import ../interface.bend as Interface
 import ../ui-world.bend as View
@@ -57,15 +57,15 @@ def resolve_available(+surface: Interface.Surface, +key: String, +input: Core.In
 
 def element_without_resolution(+capacity: View.Capacity, +state: Core.State, +key: String,
   +gesture: Interface.Gesture,
-  unresolved: {Interface.resolve(UI.observe(capacity, state), key, gesture) == None{} : Maybe<&2, Core.Input>}) ->
-  {UI.step(UI.Element{capacity, key, gesture}, state) == Rule.quiet_decision(state) : Core.Decision}:
+  unresolved: {Interface.resolve(ProductUI.observe(capacity, state), key, gesture) == None{} : Maybe<&2, Core.Input>}) ->
+  {ProductUI.step(ProductUI.Element{capacity, key, gesture}, state) == Rule.quiet_decision(state) : Core.Decision}:
   Equal.trans(Core.Decision,
-    UI.step(UI.Element{capacity, key, gesture}, state),
+    ProductUI.step(ProductUI.Element{capacity, key, gesture}, state),
     Interface.perform(capacity, state, key, None{}),
     Rule.quiet_decision(state),
     Equal.cong(Maybe<&2, Core.Input>, Core.Decision,
       input => Interface.perform(capacity, state, key, input),
-      Interface.resolve(UI.observe(capacity, state), key, gesture), None{}, unresolved),
+      Interface.resolve(ProductUI.observe(capacity, state), key, gesture), None{}, unresolved),
     Equal.trans(Core.Decision,
       Interface.perform(capacity, state, key, None{}),
       Interface.apply_input(None{}, state),
@@ -120,41 +120,41 @@ def receipt_perform(+capacity: View.Capacity, +state: Core.State, +key: String,
 
 def element_receipt(+capacity: View.Capacity, +state: Core.State, +key: String,
   +gesture: Interface.Gesture) ->
-  {Rule.receipt(UI.step(UI.Element{capacity, key, gesture}, state)) ==
-    Rule.receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, gesture), state)) : Rule.Receipt}:
-  receipt_perform(capacity, state, key, Interface.resolve(UI.observe(capacity, state), key, gesture))
+  {Rule.receipt(ProductUI.step(ProductUI.Element{capacity, key, gesture}, state)) ==
+    Rule.receipt(Interface.apply_input(Interface.resolve(ProductUI.observe(capacity, state), key, gesture), state)) : Rule.Receipt}:
+  receipt_perform(capacity, state, key, Interface.resolve(ProductUI.observe(capacity, state), key, gesture))
 
 def Rule.evidence():
   Rule.Requirements{
     +capacity => +state => +key => +gesture => absent =>
       element_without_resolution(capacity, state, key, gesture,
-        resolve_absent(UI.observe(capacity, state), key, gesture, absent))
+        resolve_absent(ProductUI.observe(capacity, state), key, gesture, absent))
     ,
     +capacity => +state => +key => +input => +reason => +node_key => +semantic => +label => +role => +children => found =>
       element_without_resolution(capacity, state, key, Interface.Press{},
-        resolve_unavailable(UI.observe(capacity, state), key, input, reason, node_key, semantic, label, role, children, found))
+        resolve_unavailable(ProductUI.observe(capacity, state), key, input, reason, node_key, semantic, label, role, children, found))
     ,
     +capacity => +state => +editor => absent =>
       Equal.trans(Core.Decision,
-        UI.step(UI.SubmitComposer{capacity, editor}, state),
+        ProductUI.step(ProductUI.SubmitComposer{capacity, editor}, state),
         Interface.submit_found(None{}, capacity, state),
         Rule.quiet_decision(state),
         Equal.cong(Maybe<&2, Interface.Node>, Core.Decision,
           found => Interface.submit_found(found, capacity, state),
-          Interface.submission(Interface.active_nodes(UI.observe(capacity, state)), editor), None{}, absent),
+          Interface.submission(Interface.active_nodes(ProductUI.observe(capacity, state)), editor), None{}, absent),
         absent_input_is_quiet(state))
     ,
     capacity => state => key => gesture => element_receipt(capacity, state, key, gesture),
     +capacity => +state => +key => +input => +node_key => +semantic => +label => +role => +children => found =>
       Equal.trans(Rule.Receipt,
-        Rule.receipt(UI.step(UI.Element{capacity, key, Interface.Press{}}, state)),
-        Rule.receipt(Interface.apply_input(Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), state)),
+        Rule.receipt(ProductUI.step(ProductUI.Element{capacity, key, Interface.Press{}}, state)),
+        Rule.receipt(Interface.apply_input(Interface.resolve(ProductUI.observe(capacity, state), key, Interface.Press{}), state)),
         Rule.receipt(Core.step(input, state)),
         element_receipt(capacity, state, key, Interface.Press{}),
         Equal.cong(Maybe<&2, Core.Input>, Rule.Receipt,
           resolved => Rule.receipt(Interface.apply_input(resolved, state)),
-          Interface.resolve(UI.observe(capacity, state), key, Interface.Press{}), Some{input},
-          resolve_available(UI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
+          Interface.resolve(ProductUI.observe(capacity, state), key, Interface.Press{}), Some{input},
+          resolve_available(ProductUI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
     ,
     +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +rest => present =>
       Equal.cong(Bool, +List<E.Layer>,

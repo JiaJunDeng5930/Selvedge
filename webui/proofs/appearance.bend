@@ -5,69 +5,69 @@ import ../space.bend as Space
 import ../typography.bend as T
 import ../enclosure.bend as Enclosure
 import ../../core/client-services.bend as Services
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/SYSTEM.bend as Core
 import ../design.bend as Design
 import ../appearance.bend as Appearance
 import ../controls.bend as Controls
 import ./enclosure.bend as ImportedEnclosure
 
-def nodes_preserve_semantics_at(values: +List<UI.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
-  {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<UI.Node>}:
+def nodes_preserve_semantics_at(values: +List<InterfaceView.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
+  {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<InterfaceView.Node>}:
   match values:
     case Nil{}: {==}
-    case Con{UI.Node{+key, ++semantic, +label, +role, +meaning, +children}, +rest}:
-      +local = Controls.enter(UI.Node{key, semantic, label, role, meaning, children}, context)
+    case Con{InterfaceView.Node{+key, ++semantic, +label, +role, +meaning, +children}, +rest}:
+      +local = Controls.enter(InterfaceView.Node{key, semantic, label, role, meaning, children}, context)
       +inside = Appearance.enters_main(role, in_main)
       +inherited_text = Appearance.information_role(role, meaning, typography, inside, start)
       +child_text = Design.style_text(Appearance.prepared_style(key, semantic, role, meaning, local,
         Controls.represent(key, meaning, label, role, local), inherited_text))
-      +children_step = Equal.cong(+List<UI.Node>, +List<UI.Node>,
-        (prepared_children => Con{UI.Node{key, semantic, label, role, meaning, prepared_children},
+      +children_step = Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>,
+        (prepared_children => Con{InterfaceView.Node{key, semantic, label, role, meaning, prepared_children},
           Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))}),
         Design.semantic_nodes(Appearance.nodes_at(children, local, child_text, inside, start)), children,
         nodes_preserve_semantics_at(children, local, child_text, inside, start))
-      +rest_step = Equal.cong(+List<UI.Node>, +List<UI.Node>,
-        (prepared_rest => Con{UI.Node{key, semantic, label, role, meaning, children}, prepared_rest}),
+      +rest_step = Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>,
+        (prepared_rest => Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, prepared_rest}),
         Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start)), rest,
         nodes_preserve_semantics_at(rest, context, typography, in_main, start))
-      Equal.trans(+List<UI.Node>,
-        Con{UI.Node{key, semantic, label, role, meaning,
+      Equal.trans(+List<InterfaceView.Node>,
+        Con{InterfaceView.Node{key, semantic, label, role, meaning,
           Design.semantic_nodes(Appearance.nodes_at(children, local, child_text, inside, start))},
           Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{UI.Node{key, semantic, label, role, meaning, children},
+        Con{InterfaceView.Node{key, semantic, label, role, meaning, children},
           Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, children_step, rest_step)
+        Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, rest}, children_step, rest_step)
 
-def present_preserves_semantics(+surface: UI.Surface, system_dark: Bool, +scale: T.Scale) ->
-  {Design.semantic_surface(Appearance.present(surface, system_dark, scale)) == surface : UI.Surface}:
+def present_preserves_semantics(+surface: InterfaceView.Surface, system_dark: Bool, +scale: T.Scale) ->
+  {Design.semantic_surface(Appearance.present(surface, system_dark, scale)) == surface : InterfaceView.Surface}:
   match surface:
-    case UI.Surface{+content, +base, +overlays, +active_scope}:
+    case InterfaceView.Surface{+content, +base, +overlays, +active_scope}:
       match content:
         case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
             case Core.Settings{open, access, entered, appearance, open_action, close_action, connect}:
               +context = Controls.initial(content)
-              +base_step = Equal.cong(+List<UI.Node>, UI.Surface,
-                (prepared_base => UI.Surface{content, prepared_base,
+              +base_step = Equal.cong(+List<InterfaceView.Node>, InterfaceView.Surface,
+                (prepared_base => InterfaceView.Surface{content, prepared_base,
                   Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope}),
                 Design.semantic_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))), base,
                 nodes_preserve_semantics_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content)))
-              +overlays_step = Equal.cong(+List<UI.Node>, UI.Surface,
-                (prepared_overlays => UI.Surface{content, base, prepared_overlays, active_scope}),
+              +overlays_step = Equal.cong(+List<InterfaceView.Node>, InterfaceView.Surface,
+                (prepared_overlays => InterfaceView.Surface{content, base, prepared_overlays, active_scope}),
                 Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), overlays,
                 nodes_preserve_semantics_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))
-              Equal.trans(UI.Surface,
-                UI.Surface{content, Design.semantic_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))),
+              Equal.trans(InterfaceView.Surface,
+                InterfaceView.Surface{content, Design.semantic_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))),
                   Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope},
-                UI.Surface{content, base, Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope},
-                UI.Surface{content, base, overlays, active_scope}, base_step, overlays_step)
+                InterfaceView.Surface{content, base, Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope},
+                InterfaceView.Surface{content, base, overlays, active_scope}, base_step, overlays_step)
 
-def present_uses_configured_appearance(surface: UI.Surface, system_dark: Bool, +scale: T.Scale) ->
+def present_uses_configured_appearance(surface: InterfaceView.Surface, system_dark: Bool, +scale: T.Scale) ->
   {Rule.presented_theme(surface, system_dark, scale) ==
     Appearance.theme(Rule.configured_appearance(surface), system_dark) : Design.Theme}:
   match surface:
-    case UI.Surface{content, base, overlays, active_scope}:
+    case InterfaceView.Surface{content, base, overlays, active_scope}:
       match content:
         case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
@@ -93,7 +93,7 @@ def system_appearance_follows_os(system_dark: Bool) ->
     case False{}: {==}
 
 def regular_heading_role(inherited: T.Presentation, text: String, in_main: Bool) ->
-  {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{Rule.primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
+  {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{Rule.primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
   match in_main:
     case True{}: {==}
     case False{}: {==}
@@ -107,7 +107,7 @@ def heading_tier_total(in_main: Bool, start: Bool) ->
     case False{} False{}: {==}
 
 def secondary_heading_role(inherited: T.Presentation, text: String, start: Bool) ->
-  {Appearance.information_role(UI.Heading{},UI.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
+  {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
   match start:
     case True{}: {==}
     case False{}: {==}

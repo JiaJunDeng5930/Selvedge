@@ -44,5 +44,5 @@ def production(+engine: World.Engine) -> Rule.production_claim(engine):
 def Rule.evidence():
   Rule.Requirements{+generation => +receipts => +engine => proof => stale(generation, receipts, engine, proof),
     +valid => +request => +observation => +batch => proof => rejection(valid, request, observation, batch, proof),
-    +engine => production(engine), Width.evidence(~Content.Value, ~Doc.Event),
-    Height.evidence(~Content.Value, ~Doc.Event), Population.evidence(~Content.Value, ~Doc.Event)}
+    +engine => production(engine), Width.evidence(~Content.Value, ~Doc.DOMEvent),
+    Height.evidence(~Content.Value, ~Doc.DOMEvent), Population.evidence(~Content.Value, ~Doc.DOMEvent)}

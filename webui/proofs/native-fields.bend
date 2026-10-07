@@ -1,7 +1,7 @@
 import Base
 import ../native-fields.bend as Native
 import ../native-fields-rules.bend as Rule
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../bendlib/stdlib.bend as Std
 import ../source.bend as Source
 import ../physical-browser.bend as Browser
@@ -14,17 +14,17 @@ def unchanged(+record: Native.Record, +value: String,
       Std.transport(Bool, True{},
         (same => {Native.synchronized(same, value, Native.Record{identity, canonical, session}) == Native.Decision{Native.Record{identity, canonical, session}, False{}, False{}} : Native.Decision}),
         {==}, Native.canonical_same(canonical, value), proof)
-def unmatched(+binding: Native.Binding, +found: Maybe<&2, UI.Node>,
+def unmatched(+binding: Native.Binding, +found: Maybe<&2, InterfaceView.Node>,
   proof: {Native.owned_node(binding, found) == False{} : Bool}) -> Rule.unmatched_claim(binding, found):
   Std.transport(Bool, False{},
     (owned => {Native.update_owned(owned, binding, found) == Nil{} : +List<Native.Update>}),
     {==}, Native.owned_node(binding, found), proof)
-def matching(+binding: Native.Binding, +node: UI.Node,
+def matching(+binding: Native.Binding, +node: InterfaceView.Node,
   proof: {Native.owned_node(binding, Some{node}) == True{} : Bool}) -> Rule.matching_claim(binding, node):
   match binding node:
-    case Native.Binding{+key, +kind, identity, original} UI.Node{current, semantic, label, role, +meaning, children}:
+    case Native.Binding{+key, +kind, identity, original} InterfaceView.Node{current, semantic, label, role, +meaning, children}:
       Std.transport(Bool, True{},
-        (owned => {Native.update_owned(owned, Native.Binding{key, kind, identity, original}, Some{UI.Node{current, semantic, label, role, meaning, children}}) == Native.projected(key, kind, semantic, meaning) : +List<Native.Update>}),
+        (owned => {Native.update_owned(owned, Native.Binding{key, kind, identity, original}, Some{InterfaceView.Node{current, semantic, label, role, meaning, children}}) == Native.projected(key, kind, semantic, meaning) : +List<Native.Update>}),
         {==}, Native.owned_node(binding, Some{node}), proof)
 def changed_composing(+identity: Maybe<&2, Native.Identity>, +old: Maybe<&2, String>, +value: String,
   proof: {Native.canonical_same(old, value) == False{} : Bool}) -> Rule.changed_composing_claim(identity, old, value):

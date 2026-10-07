@@ -44,7 +44,7 @@ def source_claim(label: UIIdentity.Key, text: String, choice: Source.FontChoice,
       PhysicalSource.text_natural_demand(wrapping, observation), PhysicalSource.text_height(wrapping, key, PhysicalSource.observation_height(observation))}], roots, policies} : PhysicalSource.Forest}
 
 def render_claim(+capacity: Nat, +key: UIIdentity.Key, +text: String, choice: Source.FontChoice, font: T.Presentation,
-  bounds: Spatial.Box, canvas: Enclosure.Extent, rule: Model.Rule, interaction: Model.Interaction<Doc.Event>,
+  bounds: Spatial.Box, canvas: Enclosure.Extent, rule: Model.Rule, interaction: Model.Interaction<Doc.DOMEvent>,
   styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) -> Type:
   +value : Content.Value = Content.Value{Source.Text{key, text, choice, T.SingleLine{}}, font}
   {Renderer.leaf_at(capacity, value, UIIdentity.encode(key), bounds, canvas, rule, interaction, styles, owned) ==
@@ -68,7 +68,7 @@ type Requirements is Type:
       @key:String -> @font:T.Presentation -> @rule:Model.Rule -> @+observation:Content.Observation ->
       @roots:+List<Content.NativeRoot> -> @policies:+List<Content.NativePolicy> -> source_claim(label, text, choice, wrapping, key, font, rule, observation, roots, policies),
     complete_render: @+capacity:Nat -> @+key:UIIdentity.Key -> @+text:String -> @choice:Source.FontChoice -> @font:T.Presentation ->
-      @bounds:Spatial.Box -> @canvas:Enclosure.Extent -> @rule:Model.Rule -> @interaction:Model.Interaction<Doc.Event> ->
+      @bounds:Spatial.Box -> @canvas:Enclosure.Extent -> @rule:Model.Rule -> @interaction:Model.Interaction<Doc.DOMEvent> ->
       @styles:+List<Doc.Property> -> @owned:+List<Renderer.Owned> -> render_claim(capacity, key, text, choice, font, bounds, canvas, rule, interaction, styles, owned),
     attributes_policy: @+wrapping:T.Wrapping -> @+text:String -> attributes_claim(wrapping, text)}
 
@@ -92,7 +92,7 @@ law unbroken_height:
   {PhysicalSource.text_height(T.UnbrokenLine{},key,height) == Model.FixedHeight{height} : Model.Height}
 
 def unbroken_render_claim(+capacity: Nat, +key: UIIdentity.Key, +text: String, choice: Source.FontChoice, font: T.Presentation,
-  bounds: Spatial.Box, canvas: Enclosure.Extent, rule: Model.Rule, interaction: Model.Interaction<Doc.Event>,
+  bounds: Spatial.Box, canvas: Enclosure.Extent, rule: Model.Rule, interaction: Model.Interaction<Doc.DOMEvent>,
   styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) -> Type:
   +value : Content.Value = Content.Value{Source.Text{key,text,choice,T.UnbrokenLine{}},font}
   {Renderer.leaf_at(capacity,value,UIIdentity.encode(key),bounds,canvas,rule,interaction,styles,owned) ==
@@ -107,7 +107,7 @@ law unbroken_render:
   for bounds: Spatial.Box
   for canvas: Enclosure.Extent
   for rule: Model.Rule
-  for interaction: Model.Interaction<Doc.Event>
+  for interaction: Model.Interaction<Doc.DOMEvent>
   for styles: +List<Doc.Property>
   for owned: +List<Renderer.Owned>
   unbroken_render_claim(capacity,key,text,choice,font,bounds,canvas,rule,interaction,styles,owned)

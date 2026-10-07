@@ -4,7 +4,7 @@ import ./enclosure.bend as E
 import ./appearance.bend as A
 import ./controls.bend as C
 import ./design.bend as D
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/form-fields.bend as Forms
 
 def frame_coordinates(+frame: E.Frame) -> (Nat & (Nat & Nat)):
@@ -36,15 +36,15 @@ type Requirements is Type:
     minimum_extent: @+typography:T.Presentation -> @+value:D.Style -> @+geometry:C.Geometry -> @+space:E.ContentArea -> @+gap:Nat -> @+content_height:Nat -> {D.style_minimum_height(A.action_style_insets(value, geometry, space, gap, content_height)) == Nat.max(C.geometry_minimum_height(geometry), E.extent_height(E.required_extent(0n, content_height, A.chrome_border_width(chrome(value)), space))) : Nat},
     choice_area: @+typography:T.Presentation -> {area(A.choice_button(True{}, typography)) == area(A.choice_button(False{}, typography)) : E.ContentArea},
     choice_text: @+typography:T.Presentation -> {D.style_text(A.choice_button(True{}, typography)) == D.style_text(A.choice_button(False{}, typography)) : T.Presentation},
-    role_navigation: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Navigation{}, meaning, typography)) == E.area(E.Navigation{}) : E.ContentArea},
-    role_composer: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Composer{}, meaning, typography)) == E.area(E.Composer{}) : E.ContentArea},
-    role_approval: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Approval{}, meaning, typography)) == E.area(E.Approval{}) : E.ContentArea},
-    role_codeblock: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.CodeBlock{}, meaning, typography)) == E.area(E.CodeBlock{}) : E.ContentArea},
-    role_menu: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Menu{}, meaning, typography)) == E.area(E.Menu{}) : E.ContentArea},
-    role_details: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Details{}, meaning, typography)) == E.area(E.Details{}) : E.ContentArea},
-    role_card: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Card{}, meaning, typography)) == E.area(E.Card{}) : E.ContentArea},
-    role_dialog: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Dialog{}, meaning, typography)) == E.DialogPartitions{} : E.ContentArea},
-    canvas: @+typography:T.Presentation -> @+meaning:UI.Meaning -> {area(A.style(UI.Main{}, meaning, typography)) == E.ambient(0n, 0n) : E.ContentArea},
+    role_navigation: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Navigation{}, meaning, typography)) == E.area(E.Navigation{}) : E.ContentArea},
+    role_composer: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Composer{}, meaning, typography)) == E.area(E.Composer{}) : E.ContentArea},
+    role_approval: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Approval{}, meaning, typography)) == E.area(E.Approval{}) : E.ContentArea},
+    role_codeblock: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.CodeBlock{}, meaning, typography)) == E.area(E.CodeBlock{}) : E.ContentArea},
+    role_menu: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Menu{}, meaning, typography)) == E.area(E.Menu{}) : E.ContentArea},
+    role_details: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Details{}, meaning, typography)) == E.area(E.Details{}) : E.ContentArea},
+    role_card: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Card{}, meaning, typography)) == E.area(E.Card{}) : E.ContentArea},
+    role_dialog: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Dialog{}, meaning, typography)) == E.DialogPartitions{} : E.ContentArea},
+    canvas: @+typography:T.Presentation -> @+meaning:InterfaceView.Meaning -> {area(A.style(InterfaceView.Main{}, meaning, typography)) == E.ambient(0n, 0n) : E.ContentArea},
     field: @+typography:T.Presentation -> {area(A.editable_field(typography)) == E.area(E.Field{}) : E.ContentArea},
     part_header: {E.partition(E.Header{}) == E.ambient(E.partition_inline(), 14n) : E.ContentArea},
     part_body: {E.partition(E.Body{}) == E.ambient(E.partition_inline(), 20n) : E.ContentArea},

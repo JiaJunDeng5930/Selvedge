@@ -1,6 +1,6 @@
 import Base
 import ../../bendlib/proofs/logic.bend as Logic
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../bendlib/stdlib.bend as Std
 import ../authored.bend as Authored
 import ../source.bend as Source
@@ -119,6 +119,6 @@ def Rule.dialog_ordinary_activation(key, role, input, availability, control, nod
       Authored.dialog_operation(role), False{}, ordinary), ordinary_prepend(nodes, Authored.dialog_parts(rest)))
 
 def Rule.dialog_rejects_invalid_order(key, label, meaning, visual, control, children, parameters, invalid):
-  Equal.cong(Bool, Authored.Result,
-    ordered => Authored.authored_node_ordered(ordered, key, label, UI.Dialog{}, meaning, visual, control, children, parameters),
+  Equal.cong(Bool, Authored.Authorship,
+    ordered => Authored.authored_node_ordered(ordered, key, label, InterfaceView.Dialog{}, meaning, visual, control, children, parameters),
     Authored.dialog_ordered(children), False{}, invalid)

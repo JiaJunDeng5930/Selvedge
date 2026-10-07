@@ -1,7 +1,7 @@
 import Base
 import ../../core/directory-entry-laws.bend as CoreDirectory
 import ../../core/form-fields.bend as Forms
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../browser.bend as Browser
 import ../controls.bend as Controls
 import ../directory-entry-laws.bend as Rule
@@ -12,9 +12,9 @@ def composing_condition(enter: Bool, control: Bool, alt: Bool, shift: Bool, meta
     case True{}: {==}
     case False{}: {==}
 
-def absent_gesture(+found: Maybe<&2, UI.Node>, admitted: Bool,
-  absent: {Browser.confirm_source(found) == None{} : Maybe<&2, UI.Gesture>}) ->
-  {Browser.confirm_gesture(found, admitted) == None{} : Maybe<&2, UI.Gesture>}:
+def absent_gesture(+found: Maybe<&2, InterfaceView.Node>, admitted: Bool,
+  absent: {Browser.confirm_source(found) == None{} : Maybe<&2, InterfaceView.Gesture>}) ->
+  {Browser.confirm_gesture(found, admitted) == None{} : Maybe<&2, InterfaceView.Gesture>}:
   match admitted:
     case True{}: absent
     case False{}: {==}
@@ -26,7 +26,7 @@ def Rule.evidence():
     found => {==},
     key => semantic => label => role => editor => text => children => {==},
     +key => keyboard => composing => control => alt => shift => meta => +state => absent =>
-      Equal.cong(Maybe<&2, UI.Gesture>, Browser.Decision, gesture => Browser.apply_gesture(gesture, key, state),
+      Equal.cong(Maybe<&2, InterfaceView.Gesture>, Browser.Decision, gesture => Browser.apply_gesture(gesture, key, state),
         Browser.confirm_gesture(Browser.found_node(key, state), Browser.confirmation_key(keyboard, composing, control, alt, shift, meta)), None{},
         absent_gesture(Browser.found_node(key, state), Browser.confirmation_key(keyboard, composing, control, alt, shift, meta), absent)),
     +key => keyboard => composing => control => alt => shift => meta => +state => denied =>

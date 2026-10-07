@@ -14,7 +14,7 @@ import ./document.bend as Doc
 type Query is Data:
   Query{generation: Nat, owner_key: String, purpose: Content.Purpose, target: Source.NativeTarget}
 
-type Result is Data:
+type NativeAllocation is Data:
   Ready{roots: +List<Content.AllocatedNative>}
   NeedsTargets{first: Query, remaining: +List<Query>}
   NeedsMeasurements{first: Content.Request, remaining: +List<Content.Request>}
@@ -68,15 +68,15 @@ def missing(requests: +List<Content.Request>, +observations: +List<Content.Obser
     case Con{+request, rest}:
       List.append(&2, Content.Request, missing_receipt(Measurements.find(request, observations), request), missing(rest, observations))
 
-def pending_missing(requests: +List<Content.Request>, owner: String) -> Result:
+def pending_missing(requests: +List<Content.Request>, owner: String) -> NativeAllocation:
   match requests:
     case Nil{}: Invalid{Content.InvalidNativeContentChildren{owner}}
     case Con{first, remaining}: NeedsMeasurements{first, remaining}
 
-def pending(+prepared: Content.Prepared, requests: +List<Model.HeightRequest<Content.Value>>, observations: +List<Content.Observation>, owner: String) -> Result:
+def pending(+prepared: Content.Prepared, requests: +List<Model.HeightRequest<Content.Value>>, observations: +List<Content.Observation>, owner: String) -> NativeAllocation:
   pending_missing(missing(PhysicalSource.height_requests(prepared, requests), observations), owner)
 
-def allocated(outcome: Allocation.Outcome<Content.Value, Doc.Event>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> Result:
+def allocated(outcome: Allocation.Outcome<Content.Value, Doc.DOMEvent>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> NativeAllocation:
   match outcome:
     case Allocation.Allocated{tree}: Ready{[Content.AllocatedNative{owner, target, tree}]}
     case Allocation.AwaitingHeights{first, remaining}: pending(prepared, first <> remaining, observations, owner)
@@ -86,31 +86,31 @@ def demand_height(demand: Space.Demand) -> Nat:
   Space.Demand{Enclosure.Extent{minimum_width, minimum_height}, Enclosure.Extent{preferred_width, preferred_height}} = demand
   Nat.max(minimum_height, preferred_height)
 
-def final_width(outcome: Allocation.WidthOutcome<Content.Value, Doc.Event>, +tree: Model.Tree<Content.Value, Doc.Event>, +width: Nat, +samples: +List<Model.HeightSample>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> Result:
+def final_width(outcome: Allocation.WidthOutcome<Content.Value, Doc.DOMEvent>, +tree: Model.Tree<Content.Value, Doc.DOMEvent>, +width: Nat, +samples: +List<Model.HeightSample>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> NativeAllocation:
   match outcome:
     case Allocation.WidthReady{measured}:
-      allocated(Allocation.allocate(~Content.Value, ~Doc.Event, tree, Spatial.Box{0n, 0n, width, demand_height(Allocation.measured_demand(~Content.Value, ~Doc.Event, measured))}, samples), prepared, observations, owner, target)
+      allocated(Allocation.allocate(~Content.Value, ~Doc.DOMEvent, tree, Spatial.Box{0n, 0n, width, demand_height(Allocation.measured_demand(~Content.Value, ~Doc.DOMEvent, measured))}, samples), prepared, observations, owner, target)
     case Allocation.HeightPending{first, remaining}: pending(prepared, first <> remaining, observations, owner)
     case Allocation.WidthFailure{failure}: Invalid{Content.InvalidNativeContentChildren{owner}}
 
-def sampled_width(requests: +List<Model.HeightRequest<Content.Value>>, +tree: Model.Tree<Content.Value, Doc.Event>, +width: Nat, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> Result:
+def sampled_width(requests: +List<Model.HeightRequest<Content.Value>>, +tree: Model.Tree<Content.Value, Doc.DOMEvent>, +width: Nat, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> NativeAllocation:
   +samples: +List<Model.HeightSample> = PhysicalSource.height_samples(PhysicalSource.height_requests(prepared, requests), observations)
-  final_width(Allocation.fit_width(~Content.Value, ~Doc.Event, tree, width, samples), tree, width, samples, prepared, observations, owner, target)
+  final_width(Allocation.fit_width(~Content.Value, ~Doc.DOMEvent, tree, width, samples), tree, width, samples, prepared, observations, owner, target)
 
-def initial_width(outcome: Allocation.WidthOutcome<Content.Value, Doc.Event>, +tree: Model.Tree<Content.Value, Doc.Event>, +width: Nat, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> Result:
+def initial_width(outcome: Allocation.WidthOutcome<Content.Value, Doc.DOMEvent>, +tree: Model.Tree<Content.Value, Doc.DOMEvent>, +width: Nat, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +owner: String, +target: Source.NativeTarget) -> NativeAllocation:
   match outcome:
     case Allocation.WidthReady{measured}: sampled_width(Nil{}, tree, width, prepared, observations, owner, target)
     case Allocation.HeightPending{first, remaining}: sampled_width(first <> remaining, tree, width, prepared, observations, owner, target)
     case Allocation.WidthFailure{failure}: Invalid{Content.InvalidNativeContentChildren{owner}}
 
-def root(found: Maybe<&2, Content.NativeViewport>, +native: Content.NativeRoot, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +query: Query) -> Result:
+def root(found: Maybe<&2, Content.NativeViewport>, +native: Content.NativeRoot, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +query: Query) -> NativeAllocation:
   match found:
     case None{}: NeedsTargets{query, Nil{}}
     case Some{Content.NativeViewport{generation, viewport_owner, purpose, viewport_target, Spatial.Box{left, top, +width, observed_height}}}:
       Content.NativeRoot{owner, target, +tree, attrs, style} = native
-      initial_width(Allocation.fit_width(~Content.Value, ~Doc.Event, tree, width, Nil{}), tree, width, prepared, observations, owner, target)
+      initial_width(Allocation.fit_width(~Content.Value, ~Doc.DOMEvent, tree, width, Nil{}), tree, width, prepared, observations, owner, target)
 
-def merge(first: Result, +rest: Result) -> Result:
+def merge(first: NativeAllocation, +rest: NativeAllocation) -> NativeAllocation:
   match first:
     case Invalid{error}: Invalid{error}
     case NeedsTargets{first, remaining}: NeedsTargets{first, remaining}
@@ -127,7 +127,7 @@ def merge(first: Result, +rest: Result) -> Result:
         case Ready{roots}: NeedsMeasurements{first, remaining}
         case NeedsMeasurements{next, tail}: NeedsMeasurements{first, List.append(&2, Content.Request, remaining, next <> tail)}
 
-def roots(values: +List<Content.NativeRoot>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, +generation: Nat, +purpose: Content.Purpose) -> Result:
+def roots(values: +List<Content.NativeRoot>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, +generation: Nat, +purpose: Content.Purpose) -> NativeAllocation:
   match values:
     case Nil{}: Ready{Nil{}}
     case Con{+native, rest}:
@@ -135,13 +135,13 @@ def roots(values: +List<Content.NativeRoot>, +prepared: Content.Prepared, +obser
       +query: Query = Query{generation, owner, purpose, target}
       merge(root(viewport(query, viewports), native, prepared, observations, query), roots(rest, prepared, observations, viewports, generation, purpose))
 
-def targets(queries: +List<Query>, +native_roots: +List<Content.NativeRoot>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, +generation: Nat, +purpose: Content.Purpose) -> Result:
+def targets(queries: +List<Query>, +native_roots: +List<Content.NativeRoot>, +prepared: Content.Prepared, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, +generation: Nat, +purpose: Content.Purpose) -> NativeAllocation:
   match queries:
     case Con{first, remaining}: NeedsTargets{first, remaining}
     case Nil{}: roots(native_roots, prepared, observations, viewports, generation, purpose)
 
 # Ownership comes from the immutable prepared physical tree, never request-carried roots.
-def rich_owner(values: +List<Model.Tree<Content.Value, Doc.Event>>, +owner: String) -> Bool:
+def rich_owner(values: +List<Model.Tree<Content.Value, Doc.DOMEvent>>, +owner: String) -> Bool:
   match values:
     case Nil{}: False{}
     case Con{Model.Leaf{key, Content.Value{Source.RichText{label, style, content, attachments, native_owner}, font}, interaction, rule, demand, height}, rest}:
@@ -153,7 +153,7 @@ def prepared_snapshot(prepared: Content.Prepared) -> Content.Snapshot:
   Content.Prepared{snapshot, tree, roots, policies} = prepared
   snapshot
 
-def prepared_tree(prepared: Content.Prepared) -> Model.Tree<Content.Value, Doc.Event>:
+def prepared_tree(prepared: Content.Prepared) -> Model.Tree<Content.Value, Doc.DOMEvent>:
   Content.Prepared{snapshot, tree, roots, policies} = prepared
   tree
 
@@ -166,24 +166,24 @@ def rich_request(request: Content.Request) -> Bool:
     case Content.Request{generation, key, Content.Value{Source.RichText{label, style, content, attachments, native_owner}, font}, Content.AtWidth{width}, native_roots, native_policies}: True{}
     case Content.Request{generation, key, value, purpose, native_roots, native_policies}: False{}
 
-def owned_resolution(+prepared: Content.Prepared, +generation: Nat, +owner: String, +purpose: Content.Purpose, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, all_roots: +List<Content.NativeRoot>, all_policies: +List<Content.NativePolicy>) -> Result:
+def owned_resolution(+prepared: Content.Prepared, +generation: Nat, +owner: String, +purpose: Content.Purpose, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, all_roots: +List<Content.NativeRoot>, all_policies: +List<Content.NativePolicy>) -> NativeAllocation:
   +native_roots: +List<Content.NativeRoot> = PhysicalSource.owned_root(all_roots, owner)
   +native_policies: +List<Content.NativePolicy> = PhysicalSource.owned_policy(all_policies, owner)
   targets(List.append(&2, Query, root_queries(native_roots, generation, purpose, viewports), policy_queries(native_policies, generation, purpose, viewports)), native_roots, prepared, observations, viewports, generation, purpose)
 
-def request_resolution(+prepared: Content.Prepared, request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, +all_roots: +List<Content.NativeRoot>, +all_policies: +List<Content.NativePolicy>) -> Result:
+def request_resolution(+prepared: Content.Prepared, request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>, +all_roots: +List<Content.NativeRoot>, +all_policies: +List<Content.NativePolicy>) -> NativeAllocation:
   Content.Request{generation, owner, value, purpose, supplied_roots, supplied_policies} = request
   owned_resolution(prepared, generation, owner, purpose, observations, viewports, all_roots, all_policies)
 
-def prepared_resolution(prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> Result:
+def prepared_resolution(prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> NativeAllocation:
   Content.Prepared{+snapshot, +tree, +all_roots, +all_policies} = prepared
   request_resolution(Content.Prepared{snapshot, tree, all_roots, all_policies}, request, observations, viewports, all_roots, all_policies)
 
-def resolve_valid(valid: Bool, +prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> Result:
+def resolve_valid(valid: Bool, +prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> NativeAllocation:
   match valid:
     case False{}: Invalid{Content.InvalidNativeOwner{request_key(request)}}
     case True{}: prepared_resolution(prepared, request, observations, viewports)
 
-def resolve(+prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> Result:
+def resolve(+prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> NativeAllocation:
   resolve_valid(rich_request(request) && Rules.same_request_owner(prepared_snapshot(prepared), request)
     && rich_owner([prepared_tree(prepared)], request_key(request)), prepared, request, observations, viewports)

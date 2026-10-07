@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "selvedge": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/bin/server.mjs"],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "SELVEDGE_CONNECTION_FILE": "${PLUGIN_DATA}/connection.json"
+      }
+    }
+  }
+}

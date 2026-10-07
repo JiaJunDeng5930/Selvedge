@@ -1,6 +1,6 @@
 import Base
 import ../core/ui-identity.bend as UIIdentity
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../core/user-experience.bend as E
 import ../core/ui-world.bend as View
@@ -21,7 +21,7 @@ def expected_effects(decision: Core.Decision, platform: Platform.Platform, +curr
 type Requirements is Type:
   Requirements{
     absent_not_accepted: {Platform.found_focus(None{}) == False{} : Bool},
-    nonfocusable_not_accepted: @key: UIIdentity.Key -> @semantic: String -> @label: String -> @role: UI.Role -> @+meaning: UI.Meaning -> @children: +List<UI.Node> -> @unavailable: {UI.focusable(meaning) == False{} : Bool} -> {Platform.found_focus(Some{UI.Node{key, semantic, label, role, meaning, children}}) == False{} : Bool},
+    nonfocusable_not_accepted: @key: UIIdentity.Key -> @semantic: String -> @label: String -> @role: InterfaceView.Role -> @+meaning: InterfaceView.Meaning -> @children: +List<InterfaceView.Node> -> @unavailable: {InterfaceView.focusable(meaning) == False{} : Bool} -> {Platform.found_focus(Some{InterfaceView.Node{key, semantic, label, role, meaning, children}}) == False{} : Bool},
     invalid_focus_requests_initial: @+previous: Focus.Scope -> @+identity: String -> @+initial: String -> @+restore: String -> @+occurrence:Maybe<&2, Nat> -> @+ticket: Nat -> @same: {Focus.changed(previous, Focus.Temporary{identity, initial, restore, occurrence}) == False{} : Bool} -> {Platform.scope_effects(Focus.transition(previous, Focus.Temporary{identity, initial, restore, occurrence}, False{}), previous,
           Focus.Temporary{identity, initial, restore, occurrence}, Nil{}, Platform.focus_revision(Focus.transition(previous,
             Focus.Temporary{identity, initial, restore, occurrence}, False{}), Nil{}, ticket)) ==

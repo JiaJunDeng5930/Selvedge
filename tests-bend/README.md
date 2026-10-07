@@ -26,9 +26,11 @@ boundary faults rather than repeat proved finite state-transition examples.
 | Overflow and summary are committed before retry; completed file mutation is not repeated after restart | `context-recovery.test.mjs` |
 | Provider/MCP/plugin wire formats, faults, cancellation and commit-before-callback | `providers.test.mjs`, `plugins.test.mjs`, `after-hooks.test.mjs`, `service-recovery.test.mjs` |
 | ChatGPT Web v1 predecessors, durable same-key observation, tool batches, concurrent/deferred inputs, cancellation, reviews/drafts and restart | `chatgpt-web.test.mjs`, `fixtures/chatgpt-web.mjs`; loopback HTTP, SQLite and sandboxed subprocesses |
-| ChatGPT OAuth/Responses payloads, model discovery and encrypted compaction transport | `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`, `fixtures/chatgpt.mjs` |
+| ChatGPT account authorization, public Responses/model discovery and encrypted compaction transport | `auth.test.mjs`, `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`, `fixtures/chatgpt.mjs`; signed loopback OAuth/OIDC and HTTP/SSE fixtures, not a live account |
 | Authentication, HTTP/SSE delivery and committed service dispatch | `auth.test.mjs`, `service.test.mjs` |
 | Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
+| Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
+| Type-correct loss of dispatch/cancellation, replay, cross-connection ownership, restart replay and unrelated feature damage | `chatgpt-plugin-proof.test.mjs`; mutated operational root must type-check before production proof rejection |
 
 Use Bun 1.4.2 or later and the pinned Bend compiler installed by
 `bash scripts/bootstrap.sh`; see [the repository workflow](../README.md).
@@ -50,3 +52,21 @@ These files describe evidence responsibilities, not results for the current
 checkout. Loopback fixtures do not establish commercial model quality or
 availability. Browser geometry, focus and physical interaction need actual
 browser evidence; no current executable browser fixture supplies it.
+
+Before removing another test, identify the proven property, its premises, its
+production binding and any additional boundary it exercises. Unproved pure logic
+still needs evidence. Keep type-correct semantic mutations: they test whether
+the proof obligations can reject an incorrect implementation, not whether a
+particular input produces the expected domain result. A timeout, syntax error or
+missing import is not an acceptable semantic-mutation success.
+
+## CI scope
+
+`bun run test:ci` builds the production JavaScript libraries and runs regular integration tests
+on Linux. The six files listed in `scripts/test.mjs` remain in `bun run test` and
+the pre-push hook: their repeated whole-program proof checks and native extension
+builds dominated hosted test time. Production proofs and certificate checks still
+run in every PR. Pure-proof trust-boundary rejection tests and certificate mutation
+tests remain in the regular CI suite. The workflow's manual `full` input runs the
+complete suite on Linux and macOS; this entry is available once the
+workflow is present on the default branch.

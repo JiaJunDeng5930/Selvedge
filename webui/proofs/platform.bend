@@ -3,7 +3,7 @@ import ../../core/SYSTEM.bend as Core
 import ../platform-rules.bend as Rule
 import ../platform.bend as Model
 import ../focus.bend as Focus
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 
 def Rule.editing_retains_selection(revision, body, directory_entry, editor):
   {==}
@@ -45,33 +45,33 @@ def realized_focus(+found: Maybe<&2, String>, +ticket: Nat, +rest: +List<Model.E
     case None{}: {==}
     case Some{key}: {==}
 
-def effects_realized(+surface: UI.Surface, source: +List<Model.Effect>) ->
+def effects_realized(+surface: InterfaceView.Surface, source: +List<Model.Effect>) ->
   {Model.realized_effects(surface, source) == Rule.expected_effects(surface, source) : +List<Model.Effect>}:
   match source:
     case Nil{}: {==}
     case Con{Model.Focus{+ticket, Focus.Product{+requested}}, +rest}:
       Equal.trans(+List<Model.Effect>,
-        Model.realized_product_focus(UI.focus_target(surface, requested), ticket, Model.realized_effects(surface, rest)),
-        List.append(&2, Model.Effect, Rule.expected_focus(UI.focus_target(surface, requested), ticket), Model.realized_effects(surface, rest)),
-        List.append(&2, Model.Effect, Rule.expected_focus(UI.focus_target(surface, requested), ticket), Rule.expected_effects(surface, rest)),
-        realized_focus(UI.focus_target(surface, requested), ticket, Model.realized_effects(surface, rest)),
+        Model.realized_product_focus(InterfaceView.focus_target(surface, requested), ticket, Model.realized_effects(surface, rest)),
+        List.append(&2, Model.Effect, Rule.expected_focus(InterfaceView.focus_target(surface, requested), ticket), Model.realized_effects(surface, rest)),
+        List.append(&2, Model.Effect, Rule.expected_focus(InterfaceView.focus_target(surface, requested), ticket), Rule.expected_effects(surface, rest)),
+        realized_focus(InterfaceView.focus_target(surface, requested), ticket, Model.realized_effects(surface, rest)),
         Equal.cong(+List<Model.Effect>, +List<Model.Effect>,
-          (remaining => List.append(&2, Model.Effect, Rule.expected_focus(UI.focus_target(surface, requested), ticket), remaining)),
+          (remaining => List.append(&2, Model.Effect, Rule.expected_focus(InterfaceView.focus_target(surface, requested), ticket), remaining)),
           Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest)))
     case Con{Model.ScopeFocus{+ticket, +previous, +current}, +rest}:
       Equal.trans(+List<Model.Effect>,
-        Model.realized_product_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, Model.realized_effects(surface, rest)),
-        List.append(&2, Model.Effect, Rule.expected_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), Model.realized_effects(surface, rest)),
-        List.append(&2, Model.Effect, Rule.expected_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), Rule.expected_effects(surface, rest)),
-        realized_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, Model.realized_effects(surface, rest)),
+        Model.realized_product_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, Model.realized_effects(surface, rest)),
+        List.append(&2, Model.Effect, Rule.expected_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), Model.realized_effects(surface, rest)),
+        List.append(&2, Model.Effect, Rule.expected_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), Rule.expected_effects(surface, rest)),
+        realized_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, Model.realized_effects(surface, rest)),
         Equal.cong(+List<Model.Effect>, +List<Model.Effect>,
-          (remaining => List.append(&2, Model.Effect, Rule.expected_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), remaining)),
+          (remaining => List.append(&2, Model.Effect, Rule.expected_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), remaining)),
           Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest)))
     case Con{Model.Focus{+ticket, Focus.Content{+owner, +identity}}, +rest}:
       Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.Focus{ticket, Focus.Content{owner, identity}} <> remaining),
         Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest))
-    case Con{Model.Scroll{+task, +generation, +effect}, +rest}:
-      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.Scroll{task, generation, effect} <> remaining),
+    case Con{Model.ApplyReading{+task, +generation, +effect}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.ApplyReading{task, generation, effect} <> remaining),
         Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest))
     case Con{Model.Clipboard{+block, +effect}, +rest}:
       Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.Clipboard{block, effect} <> remaining),
@@ -81,7 +81,7 @@ def actual_decision_effects(decision: Model.Decision) ->
   {Rule.effects(Model.realized_decision(decision)) == Rule.expected_effects(Rule.decision_surface(decision), Rule.effects(decision)) : +List<Model.Effect>}:
   Model.Decision{Core.Decision{+core, reply, runtime, interaction, services, durable},
     Model.Platform{readers, editors, focused, ticket, reduced, +capacity, scope}, effects} = decision
-  effects_realized(UI.observe(capacity, core), effects)
+  effects_realized(InterfaceView.observe(capacity, core), effects)
 
 def Rule.step_realizes_effects(input, state):
   actual_decision_effects(Model.step_raw(input, state))
@@ -98,20 +98,20 @@ def Rule.realized_effects_are_external(surface, source):
   match source:
     case Nil{}: {==}
     case Con{Model.Focus{ticket, Focus.Product{requested}}, +rest}:
-      realized_focus_external(UI.focus_target(surface, requested), ticket, Model.realized_effects(surface, rest),
+      realized_focus_external(InterfaceView.focus_target(surface, requested), ticket, Model.realized_effects(surface, rest),
         Rule.realized_effects_are_external(surface, rest))
     case Con{Model.ScopeFocus{ticket, previous, current}, +rest}:
-      realized_focus_external(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, Model.realized_effects(surface, rest),
+      realized_focus_external(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, Model.realized_effects(surface, rest),
         Rule.realized_effects_are_external(surface, rest))
     case Con{Model.Focus{ticket, Focus.Content{owner, identity}}, rest}: Rule.realized_effects_are_external(surface, rest)
-    case Con{Model.Scroll{task, generation, effect}, rest}: Rule.realized_effects_are_external(surface, rest)
+    case Con{Model.ApplyReading{task, generation, effect}, rest}: Rule.realized_effects_are_external(surface, rest)
     case Con{Model.Clipboard{block, effect}, rest}: Rule.realized_effects_are_external(surface, rest)
 
 def realized_decision_external(decision: Model.Decision) ->
   {Rule.external_effects(Rule.effects(Model.realized_decision(decision))) == True{} : Bool}:
   Model.Decision{Core.Decision{+core, reply, runtime, interaction, services, durable},
     Model.Platform{readers, editors, focused, ticket, reduced, +capacity, scope}, effects} = decision
-  Rule.realized_effects_are_external(UI.observe(capacity, core), effects)
+  Rule.realized_effects_are_external(InterfaceView.observe(capacity, core), effects)
 
 def Rule.actual_step_effects_are_external(input, state):
   realized_decision_external(Model.step_raw(input, state))
@@ -214,9 +214,9 @@ def realized_loss(+core: Core.State, +platform: Model.Platform, target: Focus.Ta
     case Focus.Product{identity}:
       Equal.cong(+List<Model.Effect>, Model.Decision,
         (effects => Model.Decision{Model.unchanged(core), platform, effects}),
-        Model.realized_product_focus(UI.focus_target(UI.observe(capacity, core), identity), ticket, Nil{}),
-        Rule.expected_focus(UI.focus_target(UI.observe(capacity, core), identity), ticket),
-        realized_loss_focus(UI.focus_target(UI.observe(capacity, core), identity), ticket))
+        Model.realized_product_focus(InterfaceView.focus_target(InterfaceView.observe(capacity, core), identity), ticket, Nil{}),
+        Rule.expected_focus(InterfaceView.focus_target(InterfaceView.observe(capacity, core), identity), ticket),
+        realized_loss_focus(InterfaceView.focus_target(InterfaceView.observe(capacity, core), identity), ticket))
     case Focus.Content{owner, identity}: {==}
 
 def Rule.publication_focus_loss(core, platform, received, target, current, active):

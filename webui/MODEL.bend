@@ -2,7 +2,7 @@ import Base
 import ../UI.bend as Product
 import ../MODEL.bend as Program
 import ../core/SYSTEM.bend as Core
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/ui-world.bend as View
 import ./platform.bend as Platform
 import ./focus.bend as Focus
@@ -21,7 +21,7 @@ type Input is Data:
   Mount{}
   PlatformInput{input: Platform.Input}
   EnvironmentObserved{environment: Design.Environment}
-  ElementInput{key: String, gesture: UI.Gesture}
+  ElementInput{key: String, gesture: InterfaceView.Gesture}
   FrameObserved{generation: Nat, frame: Rendered.Frame}
   NativeFocusObserved{generation: Nat, owner: String, identity: String}
   CodeSourcesObserved{generation: Nat, observations: +List<CodeObservation.Observation>}
@@ -42,7 +42,7 @@ def capacity(platform: Platform.Platform) -> View.Capacity:
   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
   capacity
 
-def surface(state: Platform.State) -> UI.Surface:
+def surface(state: Platform.State) -> InterfaceView.Surface:
   Platform.State{core, platform} = state
   Product.observe(capacity(platform), core)
 
@@ -56,15 +56,15 @@ def resolved_content_focus(owned: Bool, ticket: Nat, owner: String, identity: St
     case True{}: [PlatformEffect{Platform.Focus{ticket, Focus.Content{owner, identity}}}]
     case False{}: Nil{}
 
-def resolved_effect(effect: Platform.Effect, +surface: UI.Surface) -> +List<Effect>:
+def resolved_effect(effect: Platform.Effect, +surface: InterfaceView.Surface) -> +List<Effect>:
   match effect:
-    case Platform.Focus{ticket, Focus.Product{target}}: resolved_focus(ticket, UI.focus_target(surface, target))
+    case Platform.Focus{ticket, Focus.Product{target}}: resolved_focus(ticket, InterfaceView.focus_target(surface, target))
     case Platform.Focus{ticket, Focus.Content{+owner, identity}}:
-      resolved_content_focus(Platform.found_content_owner(UI.find_node(UI.active_nodes(surface), owner)), ticket, owner, identity)
+      resolved_content_focus(Platform.found_content_owner(InterfaceView.find_node(InterfaceView.active_nodes(surface), owner)), ticket, owner, identity)
     case Platform.ScopeFocus{ticket, previous, current}:
-      resolved_focus(ticket, UI.focus_target(surface, Focus.scope_target(previous, current, surface)))
+      resolved_focus(ticket, InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)))
     case other: [PlatformEffect{other}]
-def platform_effects(effects: +List<Platform.Effect>, +surface: UI.Surface) -> +List<Effect>:
+def platform_effects(effects: +List<Platform.Effect>, +surface: InterfaceView.Surface) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
     case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
@@ -79,7 +79,7 @@ def idle(+application: Platform.State, generation: Nat, realization: Rendered.St
   Decision{State{application, generation, realization, environment, typography}, Platform.unchanged(core), Nil{}}
 
 # Element identities remain stable while generations correlate physical observations.
-def appearance_surface(surface: UI.Surface, environment: Design.Environment, font: F.State) -> Design.Surface:
+def appearance_surface(surface: InterfaceView.Surface, environment: Design.Environment, font: F.State) -> Design.Surface:
   Design.Environment{viewport, dark, root} = environment
   Appearance.present(surface, dark, F.scale(font))
 
@@ -91,7 +91,7 @@ def model_platform(state: Platform.State) -> Platform.Platform:
   Platform.State{core, platform} = state
   platform
 
-def observed_surface(state: State) -> UI.Surface:
+def observed_surface(state: State) -> InterfaceView.Surface:
   State{application, generation, realization, environment, font} = state
   Order.ordered_surface(surface(application))
 
@@ -137,15 +137,15 @@ def frame_focus_visible(frame: Rendered.Frame, key: String) -> Bool:
   Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
   Rendered.focus_visible(Rendered.find_element(elements, key), viewport)
 
-def scoped_frame_focus_recovery(scope: Focus.Scope, focused: Maybe<&2, String>, +surface: UI.Surface,
+def scoped_frame_focus_recovery(scope: Focus.Scope, focused: Maybe<&2, String>, +surface: InterfaceView.Surface,
   +frame: Rendered.Frame) -> Maybe<&2, String>:
   match scope focused:
     case Focus.Temporary{+identity, initial, restore, occurrence} Some{key}:
       visible_focus_recovery(frame_focus_visible(frame, key), frame_focus_visible(frame, identity),
-        Platform.found_focus(UI.find_node(UI.active_nodes(surface), identity)), identity)
+        Platform.found_focus(InterfaceView.find_node(InterfaceView.active_nodes(surface), identity)), identity)
     case _ _: None{}
 
-def frame_focus_recovery(surface: UI.Surface, +frame: Rendered.Frame, scope: Focus.Scope) -> Maybe<&2, String>:
+def frame_focus_recovery(surface: InterfaceView.Surface, +frame: Rendered.Frame, scope: Focus.Scope) -> Maybe<&2, String>:
   Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
   scoped_frame_focus_recovery(scope, focused, surface, frame)
 
@@ -154,7 +154,7 @@ def frame_recovery_effects(owned: Bool, ticket: Nat, generation: Nat, target: Ma
     case True{} Some{key}: [PlatformEffect{Platform.Focus{ticket, Focus.Product{key}}}, MeasureFrame{generation}]
     case _ _: Nil{}
 
-def observe_frame(+received: Nat, +surface: UI.Surface, +frame: Rendered.Frame, state: State) -> Decision:
+def observe_frame(+received: Nat, +surface: InterfaceView.Surface, +frame: Rendered.Frame, state: State) -> Decision:
   State{+application, +generation, realization, environment, font} = state
   Platform.State{+core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = application
   Decision{State{application, generation, Rendered.observe(generation, received, surface, frame, realization), environment, font},

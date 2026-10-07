@@ -2,12 +2,12 @@ import Base
 import ../equality.bend as Same
 
 def reconstructed_order(+a: Char, +b: Char, compared: (String & String) & Cmp) ->
-  {String.eq.fin(String.cmp.rec(a, b, compared)) == String.eq.fin(compared) : Bool}:
+  {Cmp.is_eq(Pair.snd(String & String, Cmp, String.cmp.rec(a, b, compared))) == Cmp.is_eq(Pair.snd(String & String, Cmp, compared)) : Bool}:
   ((left, right), order) = compared
   {==}
 
 def compared_heads(+left: String, +right: String, heads: (Char & Char) & Cmp) ->
-  {String.eq.fin(String.cmp.fin(left, right, heads)) == (Same.char_equal(heads) && String.eq(left, right)) : Bool}:
+  {Cmp.is_eq(Pair.snd(String & String, Cmp, String.cmp.fin(left, right, heads))) == (Same.char_equal(heads) && String.eq(left, right)) : Bool}:
   ((a, b), order) = heads
   match order:
     case LT{}: {==}
@@ -92,4 +92,4 @@ def same_comparison(+text: String) -> {String.cmp(text, text) == ((text, text), 
           (compared => String.cmp.rec(Chr{code}, Chr{code}, compared)), String.cmp(rest, rest), ((rest, rest), EQ{}), same_comparison(rest)))
 
 def same_string(+text: String) -> {String.eq(text, text) == True{} : Bool}:
-  Equal.cong((String & String) & Cmp, Bool, (compared => String.eq.fin(compared)), String.cmp(text, text), ((text, text), EQ{}), same_comparison(text))
+  Equal.cong((String & String) & Cmp, Bool, (compared => Cmp.is_eq(Pair.snd(String & String, Cmp, compared))), String.cmp(text, text), ((text, text), EQ{}), same_comparison(text))

@@ -4,7 +4,7 @@ import ./feature-protocol.bend as FeatureProtocol
 import ../FEATURES.bend as Features
 import ../BOARD.bend as B
 import ../MODEL.bend as M
-import ../UI.bend as UI
+import ../UI.bend as ProductUI
 import ./board.bend as Actual
 import ./board-spec.bend as Spec
 import ./board-resolution.bend as R
@@ -56,7 +56,7 @@ type BoardBoundary is Type:
         FeatureProtocol.board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(current, revision), retitle) : Maybe<&2, Bool>},
     callback_dispatch: @+id:Nat -> @+card:B.Card -> @+ticket:Nat -> @+outcome:B.Outcome ->
       {FeatureProtocol.board_text(Some{card}, id, ticket, outcome) ==
-        FeatureProtocol.board_callback(FeatureProtocol.board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome) : Maybe<&2, FeatureOps.Event>},
+        FeatureProtocol.board_callback(FeatureProtocol.board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome) : Maybe<&2, FeatureOps.ResolvedEvent>},
     title_only: @title:String -> @description:String -> @+draft:B.Draft ->
       {B.description(Actual.suggestion_draft(True{}, title, description, draft)) == B.description(draft) : String}
   }

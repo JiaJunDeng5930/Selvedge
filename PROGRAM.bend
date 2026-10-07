@@ -182,7 +182,7 @@ def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Boo
 def recover_tasks(tasks: +List<D.Task>) -> +List<D.Task>:
   Protocol.recovery(tasks)
 
-def realize_event(event: Protocol.Event, world: M.World()) -> M.Decision():
+def realize_event(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision():
   match event:
     case Protocol.User{operation}: realize(operation, world)
     case Protocol.Ignore{}: respond(world, accepted(False{}))

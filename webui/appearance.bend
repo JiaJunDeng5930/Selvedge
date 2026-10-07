@@ -3,7 +3,7 @@ import ../core/ui-identity.bend as UIIdentity
 import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../core/form-fields.bend as Forms
 import ./design.bend as Design
@@ -224,99 +224,99 @@ def normalize_field(kind: EditorLayout.FieldKind, widget: Controls.Widget, value
 def search_field_style(+typography: T.Presentation) -> Design.Style:
   field_values(NaturalSize.limit(), with_content_area(field_surface(Surfaces.Inset{}, typography), Enclosure.area(Enclosure.SearchField{})), 1n, 32n, 6n)
 
-def field_style(meaning: UI.Meaning, +typography: T.Presentation) -> Design.Style:
+def field_style(meaning: InterfaceView.Meaning, +typography: T.Presentation) -> Design.Style:
   match meaning:
-    case UI.BoardSearch{filter}: search_field_style(typography)
-    case UI.Edit{editor, +field, +entry, +value, choices}:
+    case InterfaceView.BoardSearch{filter}: search_field_style(typography)
+    case InterfaceView.Edit{editor, +field, +entry, +value, choices}:
       normalize_field(EditorLayout.field_kind(meaning), Controls.widget_for(entry, field, value), widget_field_style(Controls.widget_for(entry, field, value), entry, typography))
     case _: editable_field(typography)
 
-def style(role: UI.Role, meaning: UI.Meaning, +typography: T.Presentation) -> Design.Style:
+def style(role: InterfaceView.Role, meaning: InterfaceView.Meaning, +typography: T.Presentation) -> Design.Style:
   match role:
-    case UI.Navigation{}:
+    case InterfaceView.Navigation{}:
       with_arrangement(with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
         surface(Surfaces.Navigation{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 8n, 8n, 4n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{})), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
-    case UI.NavigationHeader{}:
+    case InterfaceView.NavigationHeader{}:
       fields(typography, base_chrome(),
         SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 4n, 8n,
         36n, 100n, passive())
-    case UI.Main{}:
+    case InterfaceView.Main{}:
       fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Canvas{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}), SpatialModel.Stretch{},
         SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
-    case UI.Heading{}:
+    case InterfaceView.Heading{}:
       fields(typography, base_chrome(),
         SpatialModel.Stretch{}, SpatialModel.SplitRowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n,
         46n, 100n, passive())
-    case UI.Timeline{}:
+    case InterfaceView.Timeline{}:
       with_arrangement(fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
         SpatialModel.ContentFlow{}, 0n, 0n, 16n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Messages{}})
-    case UI.Activity{}:
+    case InterfaceView.Activity{}:
       fields(typography,
         chrome(Design.TextForeground{Surfaces.SecondaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 4n,
         0n, 100n, passive())
-    case UI.UserMessage{}:
+    case InterfaceView.UserMessage{}:
       with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Inset{}, Surfaces.Rest{}),
         transparent(), 0n, 16n, False{}), SpatialModel.Trailing{}, SpatialModel.BlockFlow{},
         SpatialModel.ContentFlow{}, 12n, 8n, 0n, 0n, 70n, passive()), Enclosure.area(Enclosure.UserMessage{}))
-    case UI.AssistantMessage{}:
+    case InterfaceView.AssistantMessage{}:
       fields(typography, base_chrome(), SpatialModel.Leading{}, SpatialModel.BlockFlow{},
         SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
-    case UI.Composer{}:
+    case InterfaceView.Composer{}:
       with_content_area(fields(typography, surface_chrome(16n, True{}), SpatialModel.Stretch{},
         SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
-    case UI.DialogActions{}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
-    case UI.ComposerActions{}: toolbar_style(SpatialModel.SplitRowFlow{}, typography)
-    case UI.Approval{}:
+    case InterfaceView.DialogActions{}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
+    case InterfaceView.ComposerActions{}: toolbar_style(SpatialModel.SplitRowFlow{}, typography)
+    case InterfaceView.Approval{}:
       with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
         surface(Surfaces.Content{}, Surfaces.Rest{}),
         paint("--color-token-editor-warning-foreground"), 1n, 12n, False{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 12n, 8n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Approval{}))
-    case UI.Toolbar{}: toolbar_style(SpatialModel.RowFlow{}, typography)
-    case UI.CodeBlock{}:
+    case InterfaceView.Toolbar{}: toolbar_style(SpatialModel.RowFlow{}, typography)
+    case InterfaceView.CodeBlock{}:
       with_content_area(fields(typography,
         chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Inset{}, Surfaces.Rest{}),
           paint("--color-token-border-default"), 1n, 8n, False{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.CodeOverflow{}, 12n, 12n, 4n,
         0n, 100n, passive()), Enclosure.area(Enclosure.CodeBlock{}))
-    case UI.ApprovalQueue{}:
+    case InterfaceView.ApprovalQueue{}:
       fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
         SpatialModel.ScrollFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
-    case UI.Section{}:
+    case InterfaceView.Section{}:
       with_arrangement(fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.ColumnFlow{},
         SpatialModel.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Sections{}})
-    case UI.Dialog{}:
+    case InterfaceView.Dialog{}:
       with_arrangement(with_content_area(surface_style(SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 16n, True{}, typography), Enclosure.DialogPartitions{}), Enclosure.JoinedPartitions{})
-    case UI.Menu{}:
+    case InterfaceView.Menu{}:
       with_arrangement(with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
         surface(Surfaces.Floating{}, Surfaces.Rest{}),
         paint("--color-token-border-default"), 1n, 12n, True{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 0n, 0n, 2n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Menu{})), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
-    case UI.Details{}:
+    case InterfaceView.Details{}:
       with_arrangement(with_content_area(surface_style(SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 16n, 16n, 16n, 0n, False{}, typography), Enclosure.area(Enclosure.Details{})), Enclosure.SeparateFrames{Enclosure.Sections{}})
-    case UI.Card{}:
+    case InterfaceView.Card{}:
       with_arrangement(with_content_area(surface_style(SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 12n, 8n, 9n, True{}, typography), Enclosure.area(Enclosure.Card{})), Enclosure.SeparateFrames{Enclosure.CardSections{}})
-    case UI.PrimaryButton{}: primary_button(typography)
-    case UI.DestructiveButton{}: destructive_button(typography)
-    case UI.SelectedButton{}: selected_button(typography)
-    case UI.Button{}: ordinary_button(typography)
-    case UI.Field{}: field_style(meaning, typography)
-    case UI.Content{}: base_style(typography)
-    case UI.Alert{}: base_style(typography)
+    case InterfaceView.PrimaryButton{}: primary_button(typography)
+    case InterfaceView.DestructiveButton{}: destructive_button(typography)
+    case InterfaceView.SelectedButton{}: selected_button(typography)
+    case InterfaceView.Button{}: ordinary_button(typography)
+    case InterfaceView.Field{}: field_style(meaning, typography)
+    case InterfaceView.Content{}: base_style(typography)
+    case InterfaceView.Alert{}: base_style(typography)
 
 def navigation_row(style_value: Design.Style) -> Design.Style:
   Design.Style{text, style_chrome, alignment, flow, overflow, +content_frame, minimum_height, maximum_width_percent, states} = style_value
   Design.Style{T.with_tier(text, T.Support{}), style_chrome, alignment, flow, overflow, content_frame, 29n, maximum_width_percent, states}
 
-def style_in_context(role: UI.Role, meaning: UI.Meaning,
+def style_in_context(role: InterfaceView.Role, meaning: InterfaceView.Meaning,
   inside_navigation: Bool, +typography: T.Presentation) -> Design.Style:
   match role inside_navigation:
-    case UI.Button{} True{}: navigation_row(style(role, meaning, typography))
-    case UI.SelectedButton{} True{}: navigation_row(style(role, meaning, typography))
+    case InterfaceView.Button{} True{}: navigation_row(style(role, meaning, typography))
+    case InterfaceView.SelectedButton{} True{}: navigation_row(style(role, meaning, typography))
     case _ _: style(role, meaning, typography)
 
 def navigation_context(context: Controls.Context) -> Bool:
@@ -359,6 +359,7 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.UnbrokenFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.SingleLineFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
+    case Controls.UnbrokenIconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
@@ -463,12 +464,12 @@ def chooser_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style
 def source_control_style(family: Controls.SourceFamily, representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match family representation:
     case _ Controls.Action{input, availability, name, Controls.SingleLineFace{text}, behavior, geometry, placement, help, feedback}: project_label_style(value)
-    case Controls.SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectChooser{selected}, children}} Controls.Action{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, help, feedback}: chooser_style(selected, value)
+    case Controls.SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectChooser{selected}, children}} Controls.Action{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, help, feedback}: chooser_style(selected, value)
     case _ _: value
 
 def source_style(header: Bool, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match header family:
-    case True{} Controls.SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}: navigation_family_style(selected, 2n, 6n, typography)
+    case True{} Controls.SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectGroup{project, selected, expanded}, children}}: navigation_family_style(selected, 2n, 6n, typography)
     case _ _: value
 
 def project_group_style(+typography: T.Presentation) -> Design.Style:
@@ -480,7 +481,7 @@ def choice_group_style(value: Design.Style) -> Design.Style:
 def source_header_style(+key: UIIdentity.Key, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match family:
     case Controls.SourceFamily{+node}:
-      UI.Node{+owner, semantic, label, role, source, children} = node
+      InterfaceView.Node{+owner, semantic, label, role, source, children} = node
       source_style(UIIdentity.same(key, UIIdentity.part(owner, "actions")), Controls.SourceFamily{node}, value, typography)
     case _: value
 
@@ -489,18 +490,18 @@ def lane_style(value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
   Design.Style{text, Design.Chrome{foreground, surface(Surfaces.Lane{Surfaces.Neutral{}}, Surfaces.Rest{}), border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{Enclosure.area(Enclosure.Lane{}), arrangement}, minimum, maximum, states}
 
-def family_style(+key: UIIdentity.Key, meaning: UI.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
+def family_style(+key: UIIdentity.Key, meaning: InterfaceView.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
-    case UI.BoardLane{stage, count}: lane_style(value)
-    case UI.ProjectGroup{project, selected, expanded}: project_group_style(typography)
-    case UI.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
-    case UI.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
-    case UI.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
-    case UI.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
-    case UI.ChoiceGroup{}: choice_group_style(value)
-    case UI.Region{}: source_header_style(key, family, value, typography)
-    case UI.PageContext{conversation}: source_header_style(key, family, value, typography)
-    case UI.ActivityContent{expanded, audit}: source_header_style(key, family, value, typography)
+    case InterfaceView.BoardLane{stage, count}: lane_style(value)
+    case InterfaceView.ProjectGroup{project, selected, expanded}: project_group_style(typography)
+    case InterfaceView.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
+    case InterfaceView.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+    case InterfaceView.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
+    case InterfaceView.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
+    case InterfaceView.ChoiceGroup{}: choice_group_style(value)
+    case InterfaceView.Region{}: source_header_style(key, family, value, typography)
+    case InterfaceView.PageContext{conversation}: source_header_style(key, family, value, typography)
+    case InterfaceView.ActivityContent{expanded, audit}: source_header_style(key, family, value, typography)
     case _: source_control_style(family, representation, value)
 
 def source_content_style(content: Controls.SourceContent, geometry: Controls.Geometry, value: Design.Style) -> Design.Style:
@@ -517,12 +518,12 @@ def resolved_source_style(content: Controls.SourceContent, representation: Contr
     case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: source_content_style(content, geometry, value)
     case _: value
 
-def source_action_style(meaning: UI.Meaning, context: Controls.Context, +representation: Controls.Representation, value: Design.Style) -> Design.Style:
+def source_action_style(meaning: InterfaceView.Meaning, context: Controls.Context, +representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match meaning:
-    case UI.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
+    case InterfaceView.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case _: value
 
-def final_style(key: UIIdentity.Key, +meaning: UI.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
+def final_style(key: UIIdentity.Key, +meaning: InterfaceView.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   +family_style_value = family_style(key, meaning, Controls.source_reference(context), representation, value, typography)
   source_action_style(meaning, context, representation, family_style_value)
 
@@ -532,9 +533,9 @@ def start_page(content: Core.Scene) -> Bool:
     case View.StartPage{composer}: True{}
     case _: False{}
 
-def enters_main(role: UI.Role, inherited: Bool) -> Bool:
+def enters_main(role: InterfaceView.Role, inherited: Bool) -> Bool:
   match role:
-    case UI.Main{}: True{}
+    case InterfaceView.Main{}: True{}
     case _: inherited
 
 def heading_tier(in_main: Bool, start: Bool) -> T.Tier:
@@ -543,55 +544,55 @@ def heading_tier(in_main: Bool, start: Bool) -> T.Tier:
     case True{} False{}: T.Title{}
     case False{} _: T.Section{}
 
-def field_tier(meaning: UI.Meaning) -> T.Tier:
+def field_tier(meaning: InterfaceView.Meaning) -> T.Tier:
   match meaning:
-    case UI.Edit{editor, field, Forms.Multiline{}, value, choices}: T.Body{}
+    case InterfaceView.Edit{editor, field, Forms.Multiline{}, value, choices}: T.Body{}
     case _: T.Body{}
 
-def information_role_fields(role: UI.Role, +meaning: UI.Meaning, inherited: T.Presentation, in_main: Bool, start: Bool, +scale: T.Scale) -> T.Presentation:
+def information_role_fields(role: InterfaceView.Role, +meaning: InterfaceView.Meaning, inherited: T.Presentation, in_main: Bool, start: Bool, +scale: T.Scale) -> T.Presentation:
   match role meaning:
-    case _ UI.PageRegion{Composition.CreationContext{}, position}: T.Presentation{T.Support{}, T.Regular{}, scale}
-    case UI.Navigation{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
-    case UI.NavigationHeader{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
-    case UI.Heading{} _: T.Presentation{heading_tier(in_main, start), T.Medium{}, scale}
-    case UI.Activity{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
-    case UI.UserMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.AssistantMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.Composer{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.CodeBlock{} _: T.Presentation{T.CodeBody{}, T.Regular{}, scale}
-    case UI.Button{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
-    case UI.PrimaryButton{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
-    case UI.DestructiveButton{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
-    case UI.SelectedButton{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
-    case UI.Field{} _: T.Presentation{field_tier(meaning), T.Regular{}, scale}
-    case UI.Dialog{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.Menu{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.Details{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.Toolbar{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.DialogActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
-    case UI.ComposerActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case _ InterfaceView.PageRegion{Composition.CreationContext{}, position}: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case InterfaceView.Navigation{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case InterfaceView.NavigationHeader{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case InterfaceView.Heading{} _: T.Presentation{heading_tier(in_main, start), T.Medium{}, scale}
+    case InterfaceView.Activity{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case InterfaceView.UserMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.AssistantMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.Composer{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.CodeBlock{} _: T.Presentation{T.CodeBody{}, T.Regular{}, scale}
+    case InterfaceView.Button{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case InterfaceView.PrimaryButton{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case InterfaceView.DestructiveButton{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case InterfaceView.SelectedButton{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case InterfaceView.Field{} _: T.Presentation{field_tier(meaning), T.Regular{}, scale}
+    case InterfaceView.Dialog{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.Menu{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.Details{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.Toolbar{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.DialogActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case InterfaceView.ComposerActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case _ _: inherited
 
-def information_role(role: UI.Role, meaning: UI.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
+def information_role(role: InterfaceView.Role, meaning: InterfaceView.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
   information_role_fields(role, meaning, inherited, in_main, start, T.presentation_scale(inherited))
 
-def alert_style(role: UI.Role, value: Design.Style) -> Design.Style:
+def alert_style(role: InterfaceView.Role, value: Design.Style) -> Design.Style:
   match role:
-    case UI.Alert{}:
+    case InterfaceView.Alert{}:
       Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
       Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Regular{}),
         Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, SpatialModel.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
     case _: value
 
-def prepared_style(+key: UIIdentity.Key, semantic: String, +role: UI.Role, +meaning: UI.Meaning,
+def prepared_style(+key: UIIdentity.Key, semantic: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
   alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))
 
-def nodes_at(values: +List<UI.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
+def nodes_at(values: +List<InterfaceView.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{+source, rest}:
-      UI.Node{+key, +semantic, +label, +role, +meaning, children} = source
+      InterfaceView.Node{+key, +semantic, +label, +role, +meaning, children} = source
       +local = Controls.enter(source, context)
       +control = Controls.represent(key, meaning, label, role, local)
       +inside = enters_main(role, in_main)
@@ -607,7 +608,7 @@ def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
     case Services.LightAppearance{} _: Design.Light{}
     case Services.DarkAppearance{} _: Design.Dark{}
 
-def present_fields(+content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI.Node>,
+def present_fields(+content: Core.Scene, base: +List<InterfaceView.Node>, overlays: +List<InterfaceView.Node>,
   +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>, +scale: T.Scale) -> Design.Surface:
   Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
   Core.Settings{open, access, credential_entered, appearance, open_action,
@@ -616,6 +617,6 @@ def present_fields(+content: Core.Scene, base: +List<UI.Node>, overlays: +List<U
   Design.Surface{content, theme(appearance, system_dark),
     nodes_at(base, context, initial_text, False{}, start_page(content)), nodes_at(overlays, context, initial_text, False{}, False{}), active_scope}
 
-def present(surface: UI.Surface, system_dark: Bool, scale: T.Scale) -> Design.Surface:
-  UI.Surface{+content, base, overlays, active_scope} = surface
+def present(surface: InterfaceView.Surface, system_dark: Bool, scale: T.Scale) -> Design.Surface:
+  InterfaceView.Surface{+content, base, overlays, active_scope} = surface
   present_fields(content, base, overlays, Controls.initial(content), system_dark, active_scope, scale)

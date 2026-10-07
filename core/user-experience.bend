@@ -3,7 +3,6 @@ import Base
 import ./code-block.bend as Content
 import ./live-output.bend as Live
 import ../MODEL.bend as M
-import ../PROGRAM.bend as Program
 import ../PROJECTS.bend as Projects
 import ../WORKSPACE.bend as W
 import ../BOARD.bend as B
@@ -835,17 +834,3 @@ def content_input(+identity: Content.Identity, input: Content.Input, application
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks, next_layer}} = application
   content_result(Content.step(Content.find_block(code_blocks, identity), input), identity,
     Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}})
-def step(input: Input, application: Application) -> Decision:
-  match input:
-    case ContentInput{identity, input}: content_input(identity, input, application)
-    case PreviewObserved{observation}: observe_preview(observation, application)
-    case UserInput{input}: user(input, application)
-    case RuntimeInput{+input}:
-      Application{program, session} = application
-      native_result(Program.transition(input, program), session, None{}, M.durable(input))
-    case ProgramObserved{program}: observe_program(program, application)
-    case CommandCompleted{program, result, completion}: complete_command(program, result, completion, application)
-    case DirectoriesObserved{ticket, result}: observed(ticket, result, application)
-    case ClockObserved{now}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, previous, next, pending, previews, code_blocks, next_layer}} = application
-      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})

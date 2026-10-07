@@ -17,17 +17,17 @@ def rich_parent(+capacity: Nat, +font: T.Presentation, policy: Source.RichPolicy
   match policy:
     case Source.RichPolicy{Source.CodeSurface{frame, surface}, toolbar, gap, indent, code, wrap}: {==}
 
-def admitted_world(+snapshot: Content.Snapshot, +tree: Allocation.AllocatedTree<Content.Value, Doc.Event>, +roots: +List<Content.AllocatedNative>, +policies: +List<Content.NativePolicy>, valid: {Renderer.native_roots_valid(roots, tree) && Renderer.native_policies_valid(policies, tree) == True{} : Bool}) ->
+def admitted_world(+snapshot: Content.Snapshot, +tree: Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>, +roots: +List<Content.AllocatedNative>, +policies: +List<Content.NativePolicy>, valid: {Renderer.native_roots_valid(roots, tree) && Renderer.native_policies_valid(policies, tree) == True{} : Bool}) ->
   {Renderer.nodes(Content.AllocatedWorld{snapshot, tree, roots, policies}) == (Renderer.root_theme(snapshot) <> Renderer.emit_world(tree, roots, policies, True{})) : +List<Doc.Node>}:
   Equal.cong(Bool, +List<Doc.Node>, (valid => Renderer.projected_world(snapshot, tree, roots, policies, valid)), Renderer.native_roots_valid(roots, tree) && Renderer.native_policies_valid(policies, tree), True{}, valid)
 
-def rejected_world(+snapshot: Content.Snapshot, +tree: Allocation.AllocatedTree<Content.Value, Doc.Event>, +roots: +List<Content.AllocatedNative>, +policies: +List<Content.NativePolicy>, invalid: {Renderer.native_roots_valid(roots, tree) && Renderer.native_policies_valid(policies, tree) == False{} : Bool}) ->
+def rejected_world(+snapshot: Content.Snapshot, +tree: Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>, +roots: +List<Content.AllocatedNative>, +policies: +List<Content.NativePolicy>, invalid: {Renderer.native_roots_valid(roots, tree) && Renderer.native_policies_valid(policies, tree) == False{} : Bool}) ->
   {Renderer.nodes(Content.AllocatedWorld{snapshot, tree, roots, policies}) == Renderer.emit_world(tree, roots, policies, False{}) : +List<Doc.Node>}:
   Equal.cong(Bool, +List<Doc.Node>, (valid => Renderer.projected_world(snapshot, tree, roots, policies, valid)), Renderer.native_roots_valid(roots, tree) && Renderer.native_policies_valid(policies, tree), False{}, invalid)
 
 def reading_box(+capacity: Nat, +key: Identity.Key, +tag: Source.BoxTag, +style: Source.Style,
   +attrs: +List<Source.Attribute>, +original: +List<Source.Node>, +font: T.Presentation,
-  interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool, +content: Bool,
+  interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool, +content: Bool,
   recognized: {Renderer.reading_content(attrs) == content : Bool}) ->
   Rule.reading_box_claim(capacity, key, tag, style, attrs, original, font, interaction, styles, children, native, content):
   Equal.cong(Bool, +List<Doc.Property>,
@@ -44,7 +44,7 @@ def observation_appended(attrs: +List<Doc.Property>, +key: String) ->
         case Con{next, tail}: observation_appended(Con{next, tail}, key)
 
 def field_observation(+kind: Source.NativeFieldKind, +key: Identity.Key, +style: Source.Style,
-  +attrs: +List<Source.Attribute>, attributes: +List<Doc.Property>, +styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, +identity: String) ->
+  +attrs: +List<Source.Attribute>, attributes: +List<Doc.Property>, +styles: +List<Doc.Property>, events: +List<Doc.DOMEvent>, children: +List<Doc.Node>, +identity: String) ->
   {Rule.field_observation(kind, Renderer.observed_field(kind, identity, Renderer.native_field_leaf(kind, key, style, attrs, attributes, styles, events, children))) == Some{Doc.Property{"data-frame-key", identity}} : Maybe<&2, Doc.Property>}:
   match kind:
     case Source.TextField{}: observation_appended(attributes, identity)
@@ -60,7 +60,7 @@ def field_observation(+kind: Source.NativeFieldKind, +key: Identity.Key, +style:
     case Source.ToggleField{}: observation_appended(attributes, identity)
 
 def leaf_observation(+capacity: Nat, +value: Content.Value, physical_key: String, bounds: Spatial.Box,
-  canvas: Enclosure.Extent, +rule: Model.Rule, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) ->
+  canvas: Enclosure.Extent, +rule: Model.Rule, +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) ->
   Rule.leaf_observation_claim(capacity, value, physical_key, bounds, canvas, rule, interaction, styles, owned):
   match value:
     case Content.Value{Source.Text{key, text, choice, wrap}, font}: observation_appended(Renderer.text_attributes(wrap, text), Renderer.observation_key(value))
@@ -78,7 +78,7 @@ def leaf_observation(+capacity: Nat, +value: Content.Value, physical_key: String
     case Content.Value{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, font}: {==}
     case Content.Value{Source.NativeAttachment{key, target, attrs, style, children}, font}: {==}
 
-def container_observation(+capacity: Nat, +value: Content.Value, interaction: Model.Interaction<Doc.Event>, styles: +List<Doc.Property>, children: +List<Doc.Node>, +native: Bool) ->
+def container_observation(+capacity: Nat, +value: Content.Value, interaction: Model.Interaction<Doc.DOMEvent>, styles: +List<Doc.Property>, children: +List<Doc.Node>, +native: Bool) ->
   Rule.container_observation_claim(capacity, value, interaction, styles, children, native):
   match value:
     case Content.Value{Source.Box{key, tag, style, attrs, original}, font}: observation_appended(Renderer.attributes(attrs), Renderer.observation_key(value))

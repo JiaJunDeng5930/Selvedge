@@ -5,6 +5,7 @@ import ../bendlib/domain.bend as D
 import ../bendlib/json.bend as J
 import ../bendlib/association-map.bend as Finite
 import ./user-experience.bend as E
+import ./user-experience-program.bend as ExperienceProgram
 import ./user-input.bend as U
 import ./user-context.bend as Context
 import ./code-block.bend as Content
@@ -55,7 +56,7 @@ type Requirements is Type:
     unowned_directory: @+ticket:Nat -> @+result:Result<&2, &2, String, Context.DirectoryObservation> ->
       @+application:E.Application ->
       @absent:{E.find_pending(pending_entries(application), ticket) == None{} : Maybe<&2, E.Pending>} ->
-      {E.step(E.DirectoriesObserved{ticket, result}, application) ==
+      {ExperienceProgram.step(E.DirectoriesObserved{ticket, result}, application) ==
         E.Decision{application, D.failure("interaction_refused", "The directory observation has no pending request"), Nil{}, Nil{}, False{}} : E.Decision},
     preparation_snapshot: @+program:M.World() -> @route:U.Route -> @+drafts:+List<U.Draft> ->
       @+readers:+List<Finite.Entry(E.Reader)> -> @+layers:+List<E.Layer> -> @attention:String ->

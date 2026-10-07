@@ -12,7 +12,7 @@ import ./enclosure.bend as Enclosure
 import ./typography.bend as T
 import ./controls.bend as Controls
 import ./document.bend as Doc
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/composition.bend as Composition
 import ../core/code-block.bend as Code
 import ../core/form-fields.bend as Forms
@@ -32,13 +32,13 @@ type Problem is Data:
   OrphanCode{target: Source.NativeTarget}
   ConflictingCodeOwners{expected: Code.Source, actual: Code.Source}
 
-type Result is Data:
+type Authorship is Data:
   Authored{nodes: +List<Source.Node>}
   Rejected{key: UIIdentity.Key, problem: Problem}
 
 # Child metadata survives authorship without retaining a second design tree.
 type Child is Data:
-  Child{key: UIIdentity.Key, role: UI.Role, meaning: UI.Meaning,
+  Child{key: UIIdentity.Key, role: InterfaceView.Role, meaning: InterfaceView.Meaning,
     control: Controls.Representation, nodes: +List<Source.Node>}
 
 type Forest is Data:
@@ -73,44 +73,44 @@ def group(+key: UIIdentity.Key, +visual: Design.Style, +direction: Model.Directi
   +height: Model.AxisSize, +children: +List<Source.Node>) -> Source.Node:
   Source.Box{key, Source.Div{}, Factory.content_style(visual, direction, width, height, AuthoredControls.parent_gap(visual)), Nil{}, children}
 
-def role_tag(+role: UI.Role) -> Source.BoxTag:
+def role_tag(+role: InterfaceView.Role) -> Source.BoxTag:
   match role:
-    case UI.Navigation{}: Source.Navigation{}
-    case UI.NavigationHeader{}: Source.Header{}
-    case UI.Main{}: Source.Main{}
-    case UI.Heading{}: Source.Header{}
-    case UI.Activity{}: Source.Section{}
-    case UI.Dialog{}: Source.Section{}
-    case UI.Card{}: Source.Article{}
-    case UI.UserMessage{}: Source.Article{}
-    case UI.AssistantMessage{}: Source.Article{}
+    case InterfaceView.Navigation{}: Source.Navigation{}
+    case InterfaceView.NavigationHeader{}: Source.Header{}
+    case InterfaceView.Main{}: Source.Main{}
+    case InterfaceView.Heading{}: Source.Header{}
+    case InterfaceView.Activity{}: Source.Section{}
+    case InterfaceView.Dialog{}: Source.Section{}
+    case InterfaceView.Card{}: Source.Article{}
+    case InterfaceView.UserMessage{}: Source.Article{}
+    case InterfaceView.AssistantMessage{}: Source.Article{}
     case _: Source.Div{}
 
-def role_name(+value: UI.Role) -> String:
+def role_name(+value: InterfaceView.Role) -> String:
   match value:
-    case UI.NavigationHeader{}: "navigation-header"
-    case UI.Heading{}: "heading"
-    case UI.Timeline{}: "timeline"
-    case UI.Composer{}: "composer"
-    case UI.ComposerActions{}: "composer-actions"
-    case UI.DialogActions{}: "dialog-actions"
-    case UI.ApprovalQueue{}: "approvals"
-    case UI.UserMessage{}: "user-message"
-    case UI.AssistantMessage{}: "agent-message"
-    case UI.Activity{}: "activity"
-    case UI.Navigation{}: "navigation"
-    case UI.Main{}: "main"
-    case UI.Section{}: "section"
+    case InterfaceView.NavigationHeader{}: "navigation-header"
+    case InterfaceView.Heading{}: "heading"
+    case InterfaceView.Timeline{}: "timeline"
+    case InterfaceView.Composer{}: "composer"
+    case InterfaceView.ComposerActions{}: "composer-actions"
+    case InterfaceView.DialogActions{}: "dialog-actions"
+    case InterfaceView.ApprovalQueue{}: "approvals"
+    case InterfaceView.UserMessage{}: "user-message"
+    case InterfaceView.AssistantMessage{}: "agent-message"
+    case InterfaceView.Activity{}: "activity"
+    case InterfaceView.Navigation{}: "navigation"
+    case InterfaceView.Main{}: "main"
+    case InterfaceView.Section{}: "section"
     case _: "content"
 
-def reading_attributes(+role: UI.Role, +key: UIIdentity.Key) -> +List<Source.Attribute>:
+def reading_attributes(+role: InterfaceView.Role, +key: UIIdentity.Key) -> +List<Source.Attribute>:
   match role:
-    case UI.UserMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
-    case UI.AssistantMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
-    case UI.Activity{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
+    case InterfaceView.UserMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
+    case InterfaceView.AssistantMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
+    case InterfaceView.Activity{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
     case _: Nil{}
 
-def attributes(+key: UIIdentity.Key, +semantic: String, +role: UI.Role) -> +List<Source.Attribute>:
+def attributes(+key: UIIdentity.Key, +semantic: String, +role: InterfaceView.Role) -> +List<Source.Attribute>:
   List.append(&2, Source.Attribute, [Source.DataAttribute{"native-key", UIIdentity.encode(key)}, Source.DataAttribute{"region", role_name(role)}, Source.DataAttribute{"semantic", semantic}], reading_attributes(role, key))
 
 # Observation identity belongs to the source node receiving the decoration.
@@ -136,12 +136,12 @@ def add_attributes(+node: Source.Node, +extra: +List<Source.Attribute>) -> Sourc
     case Source.Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: Source.Field{key, kind, style, List.append(&2, Source.Attribute, attrs, native_attributes(key, extra)), value, placeholder, options, policy, name, enabled, first, remaining}
     case other: other
 
-def role_style(+visual: Design.Style, +role: UI.Role) -> Source.Style:
+def role_style(+visual: Design.Style, +role: InterfaceView.Role) -> Source.Style:
   match role:
-    case UI.Main{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
-    case UI.Timeline{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
-    case UI.Details{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
-    case UI.UserMessage{}: Factory.style(visual, Factory.adaptive_natural_width(visual), Model.NaturalSize{}, Model.Confined{})
+    case InterfaceView.Main{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
+    case InterfaceView.Timeline{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
+    case InterfaceView.Details{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
+    case InterfaceView.UserMessage{}: Factory.style(visual, Factory.adaptive_natural_width(visual), Model.NaturalSize{}, Model.Confined{})
     case _: Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{})
 
 def section_caption(+empty: Bool, +key: UIIdentity.Key, +label: String, +visual: Design.Style) -> +List<Source.Node>:
@@ -149,11 +149,11 @@ def section_caption(+empty: Bool, +key: UIIdentity.Key, +label: String, +visual:
     case True{}: Nil{}
     case False{}: [Source.Box{UIIdentity.part(key, "@title"), Source.Heading2{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [text(UIIdentity.part(UIIdentity.part(key, "@title"), "text"), label, visual, T.Body{}, T.Medium{})]}]
 
-def caption(+key: UIIdentity.Key, +label: String, +role: UI.Role, +visual: Design.Style) -> +List<Source.Node>:
+def caption(+key: UIIdentity.Key, +label: String, +role: InterfaceView.Role, +visual: Design.Style) -> +List<Source.Node>:
   match role:
-    case UI.NavigationHeader{}: [Source.Box{UIIdentity.part(key, "@brand"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"navigation-brand", ""}], [text(UIIdentity.part(UIIdentity.part(key, "@brand"), "text"), label, visual, T.Section{}, T.Medium{})]}]
-    case UI.Heading{}: [Factory.text(UIIdentity.part(key, "@title"), label, Source.ExplicitFont{Design.style_text(visual)}, T.NormalAnywhere{})]
-    case UI.Section{}:
+    case InterfaceView.NavigationHeader{}: [Source.Box{UIIdentity.part(key, "@brand"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"navigation-brand", ""}], [text(UIIdentity.part(UIIdentity.part(key, "@brand"), "text"), label, visual, T.Section{}, T.Medium{})]}]
+    case InterfaceView.Heading{}: [Factory.text(UIIdentity.part(key, "@title"), label, Source.ExplicitFont{Design.style_text(visual)}, T.NormalAnywhere{})]
+    case InterfaceView.Section{}:
       section_caption(String.is_empty(label), key, label, visual)
     case _: Nil{}
 
@@ -165,22 +165,22 @@ def target_source(+target: Source.NativeTarget) -> Code.Source:
     case Source.ToolbarTarget{Code.Identity{source, ordinal}}: source
     case Source.CodeBodyTarget{Code.Identity{source, ordinal}, wrap}: source
 
-def owner_validation(+matches: Bool, +owner: UIIdentity.Key, +expected: Code.Source, +actual: Code.Source) -> Result:
+def owner_validation(+matches: Bool, +owner: UIIdentity.Key, +expected: Code.Source, +actual: Code.Source) -> Authorship:
   match matches:
     case True{}: Authored{Nil{}}
     case False{}: Rejected{owner, ConflictingCodeOwners{expected, actual}}
 
-def target_validation(+source: Maybe<&2, Code.Source>, +owner: UIIdentity.Key, +key: UIIdentity.Key, +target: Source.NativeTarget) -> Result:
+def target_validation(+source: Maybe<&2, Code.Source>, +owner: UIIdentity.Key, +key: UIIdentity.Key, +target: Source.NativeTarget) -> Authorship:
   match source:
     case None{}: Rejected{key, OrphanCode{target}}
     case Some{+expected}: owner_validation(String.eq(Code.source_key(expected), Code.source_key(target_source(target))), owner, expected, target_source(target))
 
-def merge_validation(+first: Result, +rest: Result) -> Result:
+def merge_validation(+first: Authorship, +rest: Authorship) -> Authorship:
   match first:
     case Rejected{key, problem}: Rejected{key, problem}
     case Authored{unused}: rest
 
-def check_owners(+values: +List<Source.Node>, +owner: UIIdentity.Key, +source: Maybe<&2, Code.Source>) -> Result:
+def check_owners(+values: +List<Source.Node>, +owner: UIIdentity.Key, +source: Maybe<&2, Code.Source>) -> Authorship:
   match values:
     case Nil{}: Authored{Nil{}}
     case Con{Source.NativeAttachment{key, target, attributes, style, children}, rest}:
@@ -211,12 +211,12 @@ def rich_policy(+visual: Design.Style, +code_visual: Design.Style, +reserve: Nat
 def rich_leaf(+key: UIIdentity.Key, +value: String, +visual: Design.Style, +code_visual: Design.Style, +source: Maybe<&2, Code.Source>, +attachments: +List<Source.Node>, +native_owner: Maybe<&2, String>) -> Source.Node:
   Source.RichText{key, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Source.RichContent{source, value, rich_policy(visual, code_visual, toolbar_reserve(attachments))}, attachments, native_owner}
 
-def rich_checked(+result: Result, +key: UIIdentity.Key, +role: UI.Role, +value: String, +visual: Design.Style, +code_visual: Design.Style, +children: +List<Child>, +source: Maybe<&2, Code.Source>) -> Result:
+def rich_checked(+result: Authorship, +key: UIIdentity.Key, +role: InterfaceView.Role, +value: String, +visual: Design.Style, +code_visual: Design.Style, +children: +List<Child>, +source: Maybe<&2, Code.Source>) -> Authorship:
   match result:
     case Rejected{key, problem}: Rejected{key, problem}
     case Authored{unused}: Authored{[box(key, role_tag(role), role_style(visual, role), Nil{}, rich_leaf(UIIdentity.part(key, "markdown"), value, visual, code_visual, source, native(all_nodes(children)), Some{UIIdentity.encode(key)}) <> ordinary(all_nodes(children)))]}
 
-def rich(+key: UIIdentity.Key, +role: UI.Role, +value: String, +visual: Design.Style, +code_visual: Design.Style, +children: +List<Child>, +source: Maybe<&2, Code.Source>) -> Result:
+def rich(+key: UIIdentity.Key, +role: InterfaceView.Role, +value: String, +visual: Design.Style, +code_visual: Design.Style, +children: +List<Child>, +source: Maybe<&2, Code.Source>) -> Authorship:
   rich_checked(check_owners(native(all_nodes(children)), key, source), key, role, value, visual, code_visual, children, source)
 
 def code_toolbar(+toolbar: +List<Source.Node>, +key: UIIdentity.Key, +identity: Code.Identity, +visual: Design.Style, +preferred: Nat, +body: Source.Node, +remaining: +List<Source.Node>) -> +List<Source.Node>:
@@ -229,7 +229,7 @@ def code_children(+key: UIIdentity.Key, +identity: Code.Identity, +wrap: Bool, +
   +body_style = Factory.with_alignments(Factory.with_font(Factory.content_style(visual, Model.Vertical{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Source.ExplicitFont{T.with_tier(Design.style_text(visual), T.CodeBody{})}), Spatial.Leading{}, Spatial.Leading{})
   code_toolbar(ordinary(all_nodes(children)), key, identity, visual, toolbar_preferred(children), Source.NativeAttachment{UIIdentity.part(key, "wrap"), Source.CodeBodyTarget{identity, wrap}, Nil{}, body_style, Nil{}}, native(all_nodes(children)))
 
-def orphan(+values: +List<Source.Node>, +original: +List<Source.Node>) -> Result:
+def orphan(+values: +List<Source.Node>, +original: +List<Source.Node>) -> Authorship:
   match values:
     case Nil{}: Authored{original}
     case Con{Source.NativeAttachment{key, target, attributes, style, children}, rest}: Rejected{key, OrphanCode{target}}
@@ -350,26 +350,26 @@ def expanded_content(+expanded: Bool, +children: +List<Source.Node>) -> +List<So
     case True{}: children
     case False{}: Nil{}
 
-def board_group_name(+value: UI.BoardGrouping) -> String:
+def board_group_name(+value: InterfaceView.BoardGrouping) -> String:
   match value:
-    case UI.ViewChoices{}: "view-choices"
-    case UI.SearchArea{}: "search"
-    case UI.WorkStatus{}: "work-status"
-    case UI.SecondaryActions{}: "secondary-actions"
-    case UI.PrimaryAction{}: "primary-action"
+    case InterfaceView.ViewChoices{}: "view-choices"
+    case InterfaceView.SearchArea{}: "search"
+    case InterfaceView.WorkStatus{}: "work-status"
+    case InterfaceView.SecondaryActions{}: "secondary-actions"
+    case InterfaceView.PrimaryAction{}: "primary-action"
 
-def board_group_label(+value: UI.BoardGrouping) -> String:
+def board_group_label(+value: InterfaceView.BoardGrouping) -> String:
   match value:
-    case UI.ViewChoices{}: "看板视图"
-    case UI.SearchArea{}: "任务搜索"
-    case UI.WorkStatus{}: "当前工作状态"
-    case UI.SecondaryActions{}: "看板筛选和设置"
-    case UI.PrimaryAction{}: "主要操作"
+    case InterfaceView.ViewChoices{}: "看板视图"
+    case InterfaceView.SearchArea{}: "任务搜索"
+    case InterfaceView.WorkStatus{}: "当前工作状态"
+    case InterfaceView.SecondaryActions{}: "看板筛选和设置"
+    case InterfaceView.PrimaryAction{}: "主要操作"
 
-def lane_create(+stage: Board.Stage, +meaning: UI.Meaning) -> Bool:
+def lane_create(+stage: Board.Stage, +meaning: InterfaceView.Meaning) -> Bool:
   match meaning:
-    case UI.ComposerAction{subject, Core.ApplicationInput{Experience.UserInput{User.Activate{User.NewCard{requested}}}}, availability}: String.eq(Board.stage_name(stage), Board.stage_name(requested))
-    case UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.NewCard{requested}}}}, availability}: String.eq(Board.stage_name(stage), Board.stage_name(requested))
+    case InterfaceView.ComposerAction{subject, Core.ApplicationInput{Experience.UserInput{User.Activate{User.NewCard{requested}}}}, availability}: String.eq(Board.stage_name(stage), Board.stage_name(requested))
+    case InterfaceView.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.NewCard{requested}}}}, availability}: String.eq(Board.stage_name(stage), Board.stage_name(requested))
     case _: False{}
 
 def same_boolean(+expected: Bool, +actual: Bool) -> Bool:
@@ -424,10 +424,10 @@ def card_labels(+values: +List<String>, +key: UIIdentity.Key, +index: Nat, +visu
     case Nil{}: Nil{}
     case Con{value, rest}: text(UIIdentity.part(key, "@label/" ++ Nat.show(index)), value, visual, T.Support{}, T.Regular{}) <> card_labels(rest, key, Nat.add(index, 1n), visual)
 
-def more_action(+meaning: UI.Meaning) -> Bool:
+def more_action(+meaning: InterfaceView.Meaning) -> Bool:
   match meaning:
-    case UI.ComposerAction{subject, Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{object}, trigger}}}}, availability}: True{}
-    case UI.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{object}, trigger}}}}, availability}: True{}
+    case InterfaceView.ComposerAction{subject, Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{object}, trigger}}}}, availability}: True{}
+    case InterfaceView.Activate{Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{object}, trigger}}}}, availability}: True{}
     case _: False{}
 
 def card_actions_selected(+selected: Bool, +nodes: +List<Source.Node>, +rest: +List<Source.Node>) -> +List<Source.Node>:
@@ -440,7 +440,7 @@ def card_actions(+values: +List<Child>, +want: Bool) -> +List<Source.Node>:
     case Nil{}: Nil{}
     case Con{Child{key, role, meaning, control, nodes}, rest}:
       match meaning:
-        case UI.MovableCard{destinations, face}: card_actions(rest, want)
+        case InterfaceView.MovableCard{destinations, face}: card_actions(rest, want)
         case _: card_actions_selected(same_boolean(want, more_action(meaning)), nodes, card_actions(rest, want))
 
 def card_title(+key: UIIdentity.Key, +title: String, +visual: Design.Style, +actions: +List<Source.Node>) -> +List<Source.Node>:
@@ -456,19 +456,19 @@ def card_grip(+value: Controls.Representation, +key: UIIdentity.Key, +visual: De
 def card_movement_nodes(values: +List<Child>) -> +List<Source.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{Child{key, role, UI.MovableCard{destinations, face}, control, nodes}, rest}: nodes
+    case Con{Child{key, role, InterfaceView.MovableCard{destinations, face}, control, nodes}, rest}: nodes
     case Con{other, rest}: card_movement_nodes(rest)
 
 def card_movement_control(values: +List<Child>) -> Controls.Representation:
   match values:
     case Nil{}: Controls.NoControl{}
-    case Con{Child{key, role, UI.MovableCard{destinations, face}, control, nodes}, rest}: control
+    case Con{Child{key, role, InterfaceView.MovableCard{destinations, face}, control, nodes}, rest}: control
     case Con{other, rest}: card_movement_control(rest)
 
 def card_movement_available(values: +List<Child>) -> Bool:
   match values:
     case Nil{}: False{}
-    case Con{Child{key, role, UI.MovableCard{destinations, face}, control, nodes}, rest}: UI.has_available_destination(destinations)
+    case Con{Child{key, role, InterfaceView.MovableCard{destinations, face}, control, nodes}, rest}: InterfaceView.has_available_destination(destinations)
     case Con{other, rest}: card_movement_available(rest)
 
 def card(+key: UIIdentity.Key, +face: View.CardFace, +visual: Design.Style, +children: +List<Child>, +representation: Controls.Representation, +parameters: Design.LayoutParameters, +movable: Bool) -> Source.Node:
@@ -503,38 +503,38 @@ def chooser_selection(+value: Maybe<&2, Nat>) -> +List<Source.Attribute>:
     case None{}: Nil{}
     case Some{selected}: [Source.DataAttribute{"selected-project", Nat.show(selected)}]
 
-def regular_content(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
+def regular_content(+key: UIIdentity.Key, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
-    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound(key, label, field, visual, content)
-    case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound(key, label, field, visual, content)
-    case UI.ComposerAction{subject, input, availability}: AuthoredControls.action(key, visual, representation)
-    case UI.PanelToggle{expanded, input, availability}: AuthoredControls.action(key, visual, representation)
-    case UI.Activate{input, availability}: AuthoredControls.action(key, visual, representation)
-    case UI.Choice{kind, icon, selected, description, input, availability}: AuthoredControls.action(key, visual, representation)
-    case UI.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
-    case UI.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", View.task_status_label(status)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
-    case UI.ProjectChooser{selected}: box(key, Source.Div{}, role_style(visual, role), chooser_selection(selected), content)
-    case UI.DirectoryRow{path, primary}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"primary", FieldOptions.boolean(primary)}], [box(UIIdentity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)])
-    case UI.ContextSummary{observation}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"context-kind", context_kind(observation)}], text(UIIdentity.part(key, "provenance"), label, visual, T.Support{}, T.Regular{}) <> content)
-    case UI.ChoiceGroup{}: box(key, Source.Section{}, role_style(visual, role), [Source.RoleAttribute{"radiogroup"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "label"), label, visual, T.Support{}, T.Regular{}) <> content)
-    case UI.PageRegion{region, position}: box(key, Source.Div{}, region_style(visual, region, position), [Source.DataAttribute{"page-position", position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content)
-    case UI.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
-    case UI.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
-    case UI.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}
-    case UI.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
-    case UI.MovableCard{destinations, face}: AuthoredControls.movable_choices(key, representation, visual, parameters)
-    case UI.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))
-    case UI.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(UI.CodeBlock{}, UI.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
-    case UI.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
-    case UI.Fact{value}: fact(key, label, value, visual)
-    case UI.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
-    case UI.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
-    case UI.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
+    case InterfaceView.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound(key, label, field, visual, content)
+    case InterfaceView.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound(key, label, field, visual, content)
+    case InterfaceView.ComposerAction{subject, input, availability}: AuthoredControls.action(key, visual, representation)
+    case InterfaceView.PanelToggle{expanded, input, availability}: AuthoredControls.action(key, visual, representation)
+    case InterfaceView.Activate{input, availability}: AuthoredControls.action(key, visual, representation)
+    case InterfaceView.Choice{kind, icon, selected, description, input, availability}: AuthoredControls.action(key, visual, representation)
+    case InterfaceView.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
+    case InterfaceView.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", View.task_status_label(status)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
+    case InterfaceView.ProjectChooser{selected}: box(key, Source.Div{}, role_style(visual, role), chooser_selection(selected), content)
+    case InterfaceView.DirectoryRow{path, primary}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"primary", FieldOptions.boolean(primary)}], [box(UIIdentity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)])
+    case InterfaceView.ContextSummary{observation}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"context-kind", context_kind(observation)}], text(UIIdentity.part(key, "provenance"), label, visual, T.Support{}, T.Regular{}) <> content)
+    case InterfaceView.ChoiceGroup{}: box(key, Source.Section{}, role_style(visual, role), [Source.RoleAttribute{"radiogroup"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "label"), label, visual, T.Support{}, T.Regular{}) <> content)
+    case InterfaceView.PageRegion{region, position}: box(key, Source.Div{}, region_style(visual, region, position), [Source.DataAttribute{"page-position", position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content)
+    case InterfaceView.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
+    case InterfaceView.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
+    case InterfaceView.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}
+    case InterfaceView.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
+    case InterfaceView.MovableCard{destinations, face}: AuthoredControls.movable_choices(key, representation, visual, parameters)
+    case InterfaceView.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))
+    case InterfaceView.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(InterfaceView.CodeBlock{}, InterfaceView.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
+    case InterfaceView.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
+    case InterfaceView.Fact{value}: fact(key, label, value, visual)
+    case InterfaceView.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
+    case InterfaceView.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
+    case InterfaceView.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case other: AuthoredControls.input(key, other, representation, visual, parameters)
 
-def dialog_operation(+role: UI.Role) -> Bool:
+def dialog_operation(+role: InterfaceView.Role) -> Bool:
   match role:
-    case UI.DialogActions{}: True{}
+    case InterfaceView.DialogActions{}: True{}
     case _: False{}
 
 def dialog_only_actions(+children: +List<Child>) -> Bool:
@@ -617,32 +617,32 @@ def dialog_content(+key: UIIdentity.Key, +label: String, +visual: Design.Style, 
   append(dialog_optional(UIIdentity.part(key, "@dialog-body"), Source.Div{}, visual, Model.Vertical{}, Enclosure.Body{}, Enclosure.SeparateFrames{Enclosure.DialogSections{}}, dialog_part_body(parts)),
     dialog_optional(UIIdentity.part(key, "@dialog-footer"), Source.Footer{}, visual, Model.ResponsiveHorizontal{}, Enclosure.Footer{}, Enclosure.SeparateFrames{Enclosure.DialogActions{}}, dialog_part_actions(parts)))
 
-def regular(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+def regular(+key: UIIdentity.Key, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
-    case UI.Dialog{}: regular_content(key, label, role, meaning, visual, representation, children, parameters, dialog_content(key, label, visual, children))
+    case InterfaceView.Dialog{}: regular_content(key, label, role, meaning, visual, representation, children, parameters, dialog_content(key, label, visual, children))
     case _: regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))
 
-def read_only_role(+role: UI.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Result:
+def read_only_role(+role: InterfaceView.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Authorship:
   match role:
-    case UI.Alert{}: Authored{regular(key, label, role, UI.ReadOnly{value}, visual, control, children, parameters) <> native(all_nodes(children))}
+    case InterfaceView.Alert{}: Authored{regular(key, label, role, InterfaceView.ReadOnly{value}, visual, control, children, parameters) <> native(all_nodes(children))}
     case other: rich(key, other, value, visual, code_visual, children, source)
 
 # Native attachments remain the same nodes while passing through ordinary parents.
-def authored_node_content(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+def authored_node_content(+key: UIIdentity.Key, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match meaning:
-    case UI.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}}: Authored{code_children(key, identity, wrap, visual, children)}
-    case UI.ReadOnly{value}: read_only_role(role, key, label, value, visual, Appearance.style(UI.CodeBlock{}, UI.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, None{})
-    case UI.RichText{source, value}: read_only_role(role, key, label, value, visual, Appearance.style(UI.CodeBlock{}, UI.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, Some{source})
+    case InterfaceView.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}}: Authored{code_children(key, identity, wrap, visual, children)}
+    case InterfaceView.ReadOnly{value}: read_only_role(role, key, label, value, visual, Appearance.style(InterfaceView.CodeBlock{}, InterfaceView.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, None{})
+    case InterfaceView.RichText{source, value}: read_only_role(role, key, label, value, visual, Appearance.style(InterfaceView.CodeBlock{}, InterfaceView.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, Some{source})
     case other: Authored{regular(key, label, role, other, visual, control, children, parameters) <> native(all_nodes(children))}
 
-def authored_node_ordered(ordered: Bool, +key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+def authored_node_ordered(ordered: Bool, +key: UIIdentity.Key, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match ordered:
     case False{}: Rejected{key, InvalidDialogOrder{}}
     case True{}: authored_node_content(key, label, role, meaning, visual, control, children, parameters)
 
-def authored_node(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+def authored_node(+key: UIIdentity.Key, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match role:
-    case UI.Dialog{}: authored_node_ordered(dialog_ordered(children), key, label, UI.Dialog{}, meaning, visual, control, children, parameters)
+    case InterfaceView.Dialog{}: authored_node_ordered(dialog_ordered(children), key, label, InterfaceView.Dialog{}, meaning, visual, control, children, parameters)
     case other: authored_node_content(key, label, other, meaning, visual, control, children, parameters)
 
 def decorate_nodes(+values: +List<Source.Node>, +attrs: +List<Source.Attribute>) -> +List<Source.Node>:
@@ -650,47 +650,47 @@ def decorate_nodes(+values: +List<Source.Node>, +attrs: +List<Source.Attribute>)
     case Nil{}: Nil{}
     case Con{node, rest}: add_attributes(node, attrs) <> decorate_nodes(rest, attrs)
 
-def finish_node(+result: Result, +key: UIIdentity.Key, +semantic: String, +role: UI.Role, +meaning: UI.Meaning, +control: Controls.Representation) -> Forest:
+def finish_node(+result: Authorship, +key: UIIdentity.Key, +semantic: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +control: Controls.Representation) -> Forest:
   match result:
     case Rejected{key, problem}: Failed{key, problem}
     case Authored{nodes}: Ready{[Child{key, role, meaning, control, decorate_nodes(nodes, attributes(key, semantic, role))}]}
 
-def context_from_meaning(+context: Maybe<&2, ReadingBinding.Context>, +meaning: UI.Meaning) -> Maybe<&2, ReadingBinding.Context>:
+def context_from_meaning(+context: Maybe<&2, ReadingBinding.Context>, +meaning: InterfaceView.Meaning) -> Maybe<&2, ReadingBinding.Context>:
   match meaning:
-    case UI.PageContext{Some{Conversation.Identity{task, generation}}}: Some{ReadingBinding.Context{task, generation}}
-    case UI.PageContext{None{}}: None{}
+    case InterfaceView.PageContext{Some{Conversation.Identity{task, generation}}}: Some{ReadingBinding.Context{task, generation}}
+    case InterfaceView.PageContext{None{}}: None{}
     case _: context
 
-def reading_box(+context: ReadingBinding.Context, +role: UI.Role, +node: Source.Node, +visual: Design.Style) -> Source.Node:
+def reading_box(+context: ReadingBinding.Context, +role: InterfaceView.Role, +node: Source.Node, +visual: Design.Style) -> Source.Node:
   match role node:
-    case UI.Timeline{} Source.Box{key, tag, style, attrs, children}:
-      Source.Box{key, tag, style, List.append(&2, Source.Attribute, attrs, [Source.ReadingAttribute{ReadingBinding.Binding{context, ReadingBinding.Scroll{}}}]),
+    case InterfaceView.Timeline{} Source.Box{key, tag, style, attrs, children}:
+      Source.Box{key, tag, style, List.append(&2, Source.Attribute, attrs, [Source.ReadingAttribute{ReadingBinding.Binding{context, ReadingBinding.ReadingViewport{}}}]),
         [box(UIIdentity.part(key, "@reading-content"), Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}), [Source.ReadingAttribute{ReadingBinding.Binding{context, ReadingBinding.Content{}}}], children)]}
-    case UI.Composer{} Source.Box{key, tag, style, attrs, children}:
+    case InterfaceView.Composer{} Source.Box{key, tag, style, attrs, children}:
       Source.Box{key, tag, style, List.append(&2, Source.Attribute, attrs, [Source.ReadingAttribute{ReadingBinding.Binding{context, ReadingBinding.Dock{}}}]), children}
     case _ other: other
 
-def reading_match(+matches: Bool, +context: ReadingBinding.Context, +role: UI.Role, +node: Source.Node, +visual: Design.Style) -> Source.Node:
+def reading_match(+matches: Bool, +context: ReadingBinding.Context, +role: InterfaceView.Role, +node: Source.Node, +visual: Design.Style) -> Source.Node:
   match matches:
     case True{}: reading_box(context, role, node, visual)
     case False{}: node
 
-def reading_nodes(+nodes: +List<Source.Node>, +context: ReadingBinding.Context, +key: UIIdentity.Key, +role: UI.Role, +visual: Design.Style) -> +List<Source.Node>:
+def reading_nodes(+nodes: +List<Source.Node>, +context: ReadingBinding.Context, +key: UIIdentity.Key, +role: InterfaceView.Role, +visual: Design.Style) -> +List<Source.Node>:
   match nodes:
     case Nil{}: Nil{}
     case Con{node, rest}: reading_match(UIIdentity.same(Source.key_of(node), key), context, role, node, visual) <> reading_nodes(rest, context, key, role, visual)
 
-def reading_root(+context: Maybe<&2, ReadingBinding.Context>, +key: UIIdentity.Key, +role: UI.Role, +result: Result, +visual: Design.Style) -> Result:
+def reading_root(+context: Maybe<&2, ReadingBinding.Context>, +key: UIIdentity.Key, +role: InterfaceView.Role, +result: Authorship, +visual: Design.Style) -> Authorship:
   match context result:
     case Some{context} Authored{nodes}: Authored{reading_nodes(nodes, context, key, role, visual)}
     case _ other: other
 
-def construct_in_context(+children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, ReadingBinding.Context>) -> Forest:
+def construct_in_context(+children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, ReadingBinding.Context>) -> Forest:
   match children:
     case Failed{key, problem}: Failed{key, problem}
     case Ready{children}: finish_node(reading_root(context, key, role, authored_node(key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control)
 
-def construct(+children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters) -> Forest:
+def construct(+children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: InterfaceView.Role, +meaning: InterfaceView.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters) -> Forest:
   construct_in_context(children, key, semantic, label, role, meaning, visual, control, parameters, None{})
 
 def combine(+first: Forest, +rest: Forest) -> Forest:
@@ -714,14 +714,14 @@ def forest_in_context(+values: +List<Design.Node>, +parameters: Design.LayoutPar
 def forest(+values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Forest:
   forest_in_context(values, parameters, None{})
 
-def finish_forest(+value: Forest) -> Result:
+def finish_forest(+value: Forest) -> Authorship:
   match value:
     case Failed{key, problem}: Rejected{key, problem}
     case Ready{children}:
       +values = all_nodes(children)
       orphan(values, values)
 
-def nodes(+values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Result:
+def nodes(+values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Authorship:
   finish_forest(forest(values, parameters))
 
 def background_attributes(+active: Maybe<&2, String>) -> +List<Source.Attribute>:
@@ -745,23 +745,23 @@ def scoped_children(+values: +List<Child>, +active: Maybe<&2, String>) -> +List<
     case Con{Child{+key, role, meaning, control, nodes}, rest}:
       append(decorate_nodes(nodes, modal_attributes(active, key)), scoped_children(rest, active))
 
-def overlay_forest(+value: Forest, +active: Maybe<&2, String>) -> Result:
+def overlay_forest(+value: Forest, +active: Maybe<&2, String>) -> Authorship:
   match value:
     case Failed{key, problem}: Rejected{key, problem}
     case Ready{children}:
       +values = scoped_children(children, active)
       orphan(values, values)
 
-def background(+result: Result, +active: Maybe<&2, String>) -> Result:
+def background(+result: Authorship, +active: Maybe<&2, String>) -> Authorship:
   match result:
     case Rejected{key, problem}: Rejected{key, problem}
     case Authored{values}: Authored{decorate_nodes(values, background_attributes(active))}
 
-def base(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Result:
+def base(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Authorship:
   Design.Surface{content, theme, base, overlays, active_scope} = surface
   background(nodes(base, parameters), active_scope)
 
-def overlays(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Result:
+def overlays(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Authorship:
   Design.Surface{content, theme, base, overlays, active_scope} = surface
   overlay_forest(forest(overlays, parameters), active_scope)
 

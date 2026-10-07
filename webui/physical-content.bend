@@ -38,7 +38,7 @@ type Snapshot is Data:
   Snapshot{generation: Nat, source: Source.Node, default_font: T.Presentation}
 
 type NativeRoot is Data:
-  NativeRoot{owner_key: String, target: Source.NativeTarget, tree: SpaceModel.Tree<Value, Doc.Event>,
+  NativeRoot{owner_key: String, target: Source.NativeTarget, tree: SpaceModel.Tree<Value, Doc.DOMEvent>,
     attributes: +List<Source.Attribute>, style: Source.ResolvedStyle}
 
 type NativePolicy is Data:
@@ -59,7 +59,7 @@ type NativeViewport is Data:
   NativeViewport{generation: Nat, owner_key: String, purpose: Purpose, target: Source.NativeTarget, bounds: Spatial.Box}
 
 type Prepared is Data:
-  Prepared{snapshot: Snapshot, tree: SpaceModel.Tree<Value, Doc.Event>,
+  Prepared{snapshot: Snapshot, tree: SpaceModel.Tree<Value, Doc.DOMEvent>,
     native_roots: +List<NativeRoot>, native_policies: +List<NativePolicy>}
 
 type NativeSlot is Data:
@@ -111,8 +111,8 @@ type Preparation is Data:
 
 type AllocatedNative is Data:
   AllocatedNative{owner_key: String, target: Source.NativeTarget,
-    tree: Allocation.AllocatedTree<Value, Doc.Event>}
+    tree: Allocation.AllocatedTree<Value, Doc.DOMEvent>}
 
 type AllocatedWorld is Data:
-  AllocatedWorld{snapshot: Snapshot, tree: Allocation.AllocatedTree<Value, Doc.Event>,
+  AllocatedWorld{snapshot: Snapshot, tree: Allocation.AllocatedTree<Value, Doc.DOMEvent>,
     native_roots: +List<AllocatedNative>, native_policies: +List<NativePolicy>}

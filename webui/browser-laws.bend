@@ -8,7 +8,7 @@ import ./rendered.bend as Rendered
 import ./platform.bend as Platform
 import ./design.bend as Design
 import ./font-observation.bend as F
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../MODEL.bend as M
 import ../UI.bend as Product
@@ -52,7 +52,7 @@ type Requirements is Type:
     (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))},
     receipt_input: @observation: F.Observation -> @state: Browser.State -> {Browser.measurements(observation, state) == Browser.step(Browser.Native{Web.TypographyObserved{observation}}, state) : Browser.Decision},
     nodes_current_surface: @+web:Web.State -> @sequence:Nat -> @next:Nat -> @+pending:+List<Browser.Pending> ->
-      {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == UI.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<UI.Node>},
+      {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<InterfaceView.Node>},
     interface_bridge: Rules_interface_program_rules.InterfaceRequirements,
     dismissal_allowed: @+input:Core.Input -> @+state:Browser.State ->
       {Browser.dismiss_permitted(True{}, input, state) ==

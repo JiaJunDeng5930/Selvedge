@@ -9,7 +9,7 @@ import { compiler } from '../scripts/toolchain.mjs';
 
 const bend = compiler();
 
-test('the installed proof gate rejects both missing and false proofs', async t => {
+test('the installed proof gate rejects both missing and false proofs', { timeout: 900_000 }, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-proof-gate-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await writeFile(path.join(directory, 'LAWS.bend'), 'import Base\nlaw impossible:\n  {True{} == False{} : Bool}\n');
@@ -25,7 +25,7 @@ test('the installed proof gate rejects both missing and false proofs', async t =
   }
 });
 
-test('bypassing production admission invalidates the transition theorem', async t => {
+test('bypassing production admission invalidates the transition theorem', { timeout: 900_000 }, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-proof-mutation-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -33,6 +33,8 @@ test('bypassing production admission invalidates the transition theorem', async 
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
+  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
   const check = () => spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check();
   assert.equal(baseline.error, undefined);
@@ -73,7 +75,7 @@ function replaceBody(source, name, body) {
   });
 }
 
-test('functional proof gates reject type-correct no-ops, wrong replies, missing work, and arbitrary rejection', async t => {
+test('functional proof gates reject type-correct no-ops, wrong replies, missing work, and arbitrary rejection', { timeout: 900_000 }, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-functional-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -81,6 +83,8 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
+  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
   const filename = path.join(directory, 'PROGRAM.bend');
   const original = await readFile(filename, 'utf8');
   const tasksFilename = path.join(directory, 'bendlib/tasks.bend');
@@ -142,7 +146,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       const wellTyped = compile('PROGRAM.bend');
       assert.equal(wellTyped.error, undefined);
       assert.equal(wellTyped.status, 0, `The mutant must be well-typed:\n${wellTyped.stdout}${wellTyped.stderr}`);
-      assert.match(wellTyped.stdout, /All terms check/);
+      assert.match(wellTyped.stdout, /ALL PROOFS CHECK/);
       const rejected = compile('PROOF.bend');
       assert.equal(rejected.error, undefined, `${name} must fail a proof, not time out`);
       assert.notEqual(rejected.status, 0, `${name} was not rejected by the functional specification`);

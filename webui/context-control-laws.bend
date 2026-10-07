@@ -1,7 +1,7 @@
 import Base
 import ../core/ui-identity.bend as UIIdentity
 import ../bendlib/board-filter.bend as Filter
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
 import ../core/user-input.bend as User
@@ -21,12 +21,12 @@ def page_observation(content: Core.Scene) -> Maybe<&2, Context.Observation>:
 
 type Requirements is Type:
   Requirements{
-    choice_binding: @+key:UIIdentity.Key -> @kind:UI.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:UI.Role -> @context:Controls.Context ->
-      {Binding.binding(Controls.represent(key, UI.Choice{kind, classification, selected, description, input, availability}, label, role, context)) == UI.Activate{input, availability} : UI.Meaning},
-    choice_interactive: @kind:UI.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.interactive(UI.Choice{kind, classification, selected, description, input, availability}) == True{} : Bool},
-    choice_enabled: @kind:UI.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.required_enabled(UI.Choice{kind, classification, selected, description, input, availability}) == Observed.enabled(availability) : Bool},
-    choice_observed_tabs: @+key:UIIdentity.Key -> @semantic:String -> @+label:String -> @role:UI.Role -> @kind:UI.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
-      {Observed.expected_tabs([UI.Node{key, semantic, label, role, UI.Choice{kind, classification, selected, description, input, availability}, Nil{}}], elements, native_focus) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, UIIdentity.encode(key))), UIIdentity.encode(key), Nil{}) : +List<String>},
+    choice_binding: @+key:UIIdentity.Key -> @kind:InterfaceView.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+label:String -> @role:InterfaceView.Role -> @context:Controls.Context ->
+      {Binding.binding(Controls.represent(key, InterfaceView.Choice{kind, classification, selected, description, input, availability}, label, role, context)) == InterfaceView.Activate{input, availability} : InterfaceView.Meaning},
+    choice_interactive: @kind:InterfaceView.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.interactive(InterfaceView.Choice{kind, classification, selected, description, input, availability}) == True{} : Bool},
+    choice_enabled: @kind:InterfaceView.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> {Observed.required_enabled(InterfaceView.Choice{kind, classification, selected, description, input, availability}) == Observed.enabled(availability) : Bool},
+    choice_observed_tabs: @+key:UIIdentity.Key -> @semantic:String -> @+label:String -> @role:InterfaceView.Role -> @kind:InterfaceView.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:Core.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
+      {Observed.expected_tabs([InterfaceView.Node{key, semantic, label, role, InterfaceView.Choice{kind, classification, selected, description, input, availability}, Nil{}}], elements, native_focus) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, UIIdentity.encode(key))), UIIdentity.encode(key), Nil{}) : +List<String>},
     workspace_label: @+label:String -> @expanded:Bool -> {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
     permissions_label: @+label:String -> @current:Controls.Face -> @+execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face},
     initial_execution: @+content:Core.Scene -> {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2,Context.Observation>},

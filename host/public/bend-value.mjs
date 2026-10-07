@@ -1,3 +1,11 @@
+export function bendValue(qualifiedName, fields = {}) {
+  return { ...fields, $: qualifiedName };
+}
+
+export function bendTag(value) {
+  return typeof value?.$ === 'string' ? value.$.slice(value.$.lastIndexOf('.') + 1) : undefined;
+}
+
 /** Validate observations against Bend's immediate Nat representation. */
 export function observedNatNumber(number, name) {
   if (!Number.isSafeInteger(number) || number < 0 || number > 281474976710655) {

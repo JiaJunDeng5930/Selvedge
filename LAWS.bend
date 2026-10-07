@@ -152,7 +152,7 @@ law command_semantics:
   {P.apply_command(command, world) == Commands.command(command, world) : M.Decision()}
 
 law event_semantics:
-  for +event: Protocol.Event
+  for +event: Protocol.ResolvedEvent
   for +world: M.World()
   {P.realize_event(event, world) == Protocol.meaning(event, world) : M.Decision()}
 

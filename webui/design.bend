@@ -7,7 +7,7 @@ import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
 import ./controls.bend as Controls
 import ./typography.bend as T
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 
 type FactContentLayout is Data:
@@ -84,23 +84,23 @@ type Style is Data:
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Node is Data:
-  Node{key: UIIdentity.Key, semantic: String, label: String, role: UI.Role,
-    meaning: UI.Meaning, style: Style, control: Controls.Representation,
+  Node{key: UIIdentity.Key, semantic: String, label: String, role: InterfaceView.Role,
+    meaning: InterfaceView.Meaning, style: Style, control: Controls.Representation,
     children: +List<Node>}
 
 type Surface is Data:
   Surface{content: Core.Scene, theme: Theme, base: +List<Node>,
     overlays: +List<Node>, active_scope: Maybe<&2, String>}
 
-def semantic_nodes(nodes: +List<Node>) -> +List<UI.Node>:
+def semantic_nodes(nodes: +List<Node>) -> +List<InterfaceView.Node>:
   match nodes:
     case Nil{}: Nil{}
     case Con{Node{key, semantic, label, role, meaning, style, control, children}, rest}:
-      UI.Node{key, semantic, label, role, meaning, semantic_nodes(children)} <> semantic_nodes(rest)
+      InterfaceView.Node{key, semantic, label, role, meaning, semantic_nodes(children)} <> semantic_nodes(rest)
 
-def semantic_surface(surface: Surface) -> UI.Surface:
+def semantic_surface(surface: Surface) -> InterfaceView.Surface:
   Surface{content, theme, base, overlays, active_scope} = surface
-  UI.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
+  InterfaceView.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
 
 def navigation_width(value: LayoutParameters) -> Nat:
   LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value

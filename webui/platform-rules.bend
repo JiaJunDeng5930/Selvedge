@@ -5,7 +5,7 @@ import ../core/user-input.bend as U
 import ./editor.bend as Editor
 import ./platform.bend as Model
 import ./focus.bend as Focus
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 
 law editing_retains_selection:
   for revision: Nat
@@ -45,23 +45,23 @@ def effects(decision: Model.Decision) -> +List<Model.Effect>:
   Model.Decision{product, platform, result} = decision
   result
 
-def decision_surface(decision: Model.Decision) -> UI.Surface:
+def decision_surface(decision: Model.Decision) -> InterfaceView.Surface:
   Model.Decision{Core.Decision{core, reply, runtime, interaction, services, durable},
     Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}, result} = decision
-  UI.observe(capacity, core)
+  InterfaceView.observe(capacity, core)
 
 def expected_focus(found: Maybe<&2, String>, ticket: Nat) -> +List<Model.Effect>:
   match found:
     case None{}: Nil{}
     case Some{key}: [Model.Focus{ticket, Focus.Product{key}}]
 
-def expected_effects(+surface: UI.Surface, source: +List<Model.Effect>) -> +List<Model.Effect>:
+def expected_effects(+surface: InterfaceView.Surface, source: +List<Model.Effect>) -> +List<Model.Effect>:
   match source:
     case Nil{}: Nil{}
     case Con{Model.Focus{ticket, Focus.Product{requested}}, rest}:
-      List.append(&2, Model.Effect, expected_focus(UI.focus_target(surface, requested), ticket), expected_effects(surface, rest))
+      List.append(&2, Model.Effect, expected_focus(InterfaceView.focus_target(surface, requested), ticket), expected_effects(surface, rest))
     case Con{Model.ScopeFocus{ticket, previous, current}, rest}:
-      List.append(&2, Model.Effect, expected_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), expected_effects(surface, rest))
+      List.append(&2, Model.Effect, expected_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket), expected_effects(surface, rest))
     case Con{other, rest}: other <> expected_effects(surface, rest)
 
 law realized_preserves_product:
@@ -87,7 +87,7 @@ def external_effects(source: +List<Model.Effect>) -> Bool:
     case Con{other, rest}: external_effects(rest)
 
 law realized_effects_are_external:
-  for +surface: UI.Surface
+  for +surface: InterfaceView.Surface
   for source: +List<Model.Effect>
   {external_effects(Model.realized_effects(surface, source)) == True{} : Bool}
 
@@ -106,7 +106,7 @@ def capacity(platform: Model.Platform) -> View.Capacity:
 
 def loss_effects(core: Core.State, +platform: Model.Platform, target: Focus.Target) -> +List<Model.Effect>:
   match target:
-    case Focus.Product{identity}: expected_focus(UI.focus_target(UI.observe(capacity(platform), core), identity), ticket(platform))
+    case Focus.Product{identity}: expected_focus(InterfaceView.focus_target(InterfaceView.observe(capacity(platform), core), identity), ticket(platform))
     case Focus.Content{owner, identity}: [Model.Focus{ticket(platform), Focus.Content{owner, identity}}]
 
 law failed_focus_receipt:

@@ -2,7 +2,7 @@ import Base
 import ../core/ui-identity.bend as UIIdentity
 import ../core/SYSTEM.bend as Core
 import ../UI.bend as Product
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/user-input.bend as U
 import ../core/user-experience.bend as E
 import ../core/ui-world.bend as View
@@ -32,14 +32,14 @@ type Requirements is Type:
       @present:{E.panel_present(application_layers(application), E.panel_target(panel)) == True{} : Bool} ->
       {E.toggle_panel(panel, trigger, application) == closed_application(application, panel, trigger) : E.Decision},
     details_policy: @task:Nat -> @trigger:String -> {View.layer_dismissal(U.TaskDetails{task}, trigger) == View.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}} : View.Dismissal},
-    persistent_policy: @action:U.Action -> {UI.dismissal_meaning(View.ByTrigger{action}) == UI.LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{action}}}, False{}, False{}} : UI.Meaning},
-    transient_policy: @action:U.Action -> {UI.dismissal_meaning(View.OutsideOrEscape{action}) == UI.LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{action}}}, True{}, True{}} : UI.Meaning},
+    persistent_policy: @action:U.Action -> {InterfaceView.dismissal_meaning(View.ByTrigger{action}) == InterfaceView.LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{action}}}, False{}, False{}} : InterfaceView.Meaning},
+    transient_policy: @action:U.Action -> {InterfaceView.dismissal_meaning(View.OutsideOrEscape{action}) == InterfaceView.LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{action}}}, True{}, True{}} : InterfaceView.Meaning},
     layer_children: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @restore:String -> @dismissal:View.Dismissal -> @+state:Core.State ->
-      {UI.layers([View.Layer{kind, content, initial, restore, dismissal}], state) ==
-          [UI.Node{UI.layer_key(initial), initial, View.layer_title(content), UI.layer_role(kind), UI.dismissal_meaning(dismissal),
-            UI.layer_content(content, UI.layer_key(initial), state)}] : +List<UI.Node>},
-    observed_policy: @+key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:UI.Role -> @+input:Core.Input -> @+outside:Bool -> @+escape:Bool -> @children:+List<UI.Node> -> @rest:+List<UI.Node> ->
-      {Browser.dismiss_target(UI.Node{key, semantic, label, role, UI.LayerRegion{input, outside, escape}, children} <> rest) == Some{Browser.DismissTarget{UIIdentity.encode(key), input, outside, escape}} : Maybe<&2, Browser.DismissTarget>},
+      {InterfaceView.layers([View.Layer{kind, content, initial, restore, dismissal}], state) ==
+          [InterfaceView.Node{InterfaceView.layer_key(initial), initial, View.layer_title(content), InterfaceView.layer_role(kind), InterfaceView.dismissal_meaning(dismissal),
+            InterfaceView.layer_content(content, InterfaceView.layer_key(initial), state)}] : +List<InterfaceView.Node>},
+    observed_policy: @+key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:InterfaceView.Role -> @+input:Core.Input -> @+outside:Bool -> @+escape:Bool -> @children:+List<InterfaceView.Node> -> @rest:+List<InterfaceView.Node> ->
+      {Browser.dismiss_target(InterfaceView.Node{key, semantic, label, role, InterfaceView.LayerRegion{input, outside, escape}, children} <> rest) == Some{Browser.DismissTarget{UIIdentity.encode(key), input, outside, escape}} : Maybe<&2, Browser.DismissTarget>},
     outside_absent: @+identity:String -> @+state:Browser.State -> {Browser.outside_target(identity, None{}, Browser.current_layer_key(state), state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision},
     outside_persistent: @+identity:String -> @+key:String -> @input:Core.Input -> @escape:Bool -> @+state:Browser.State -> {Browser.outside_target(identity, Some{Browser.DismissTarget{key, input, False{}, escape}}, Browser.current_layer_key(state), state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision},
     outside_stale: @+identity:String -> @+key:String -> @+input:Core.Input -> @+outside:Bool -> @escape:Bool -> @+state:Browser.State -> @stale:{String.eq(identity, key) == False{} : Bool} ->

@@ -5,7 +5,7 @@ import ./interaction.bend as Physical
 type Bookmark is Data:
   Bookmark{anchor: Maybe<&2, Physical.Anchor>}
 
-type Event is Data:
+type ReadingEvent is Data:
   BeginUserScroll{}
   ReadHistory{anchor: Physical.Anchor}
   FollowLatest{}
@@ -36,7 +36,7 @@ def layout(intent: U.ReadingIntent, bookmark: Bookmark) -> +List<Effect>:
 def reserve(height: F32, viewport: F32) -> F32:
   F32.min(F32.max(height, 0.0), F32.max(viewport, 0.0))
 
-def step(event: Event, intent: U.ReadingIntent, +bookmark: Bookmark, reduced_motion: Bool) -> Decision:
+def step(event: ReadingEvent, intent: U.ReadingIntent, +bookmark: Bookmark, reduced_motion: Bool) -> Decision:
   match event:
     case BeginUserScroll{}: Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]}
     case ReadHistory{anchor}: Decision{Bookmark{Some{anchor}}, Some{U.ReadHistory{}}, [LeaveViewport{}]}

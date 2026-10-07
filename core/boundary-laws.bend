@@ -67,7 +67,7 @@ type Requirements is Type:
           next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
     upload_destination: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
       @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
-      @preview:Services.Preview -> @ticket:Nat -> @+editor:U.Editor -> @+file:Services.File ->
+      @preview:Services.Preview -> @ticket:Nat -> @+editor:U.Editor -> @+file:Services.SelectedFile ->
       @+attachment:B.Attachment ->
       @found:{Finite.find(~Services.Transfer, transfers, ticket) ==
         Some{Services.Uploading{editor, file}} : Maybe<&2, Services.Transfer>} ->

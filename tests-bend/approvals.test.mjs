@@ -8,11 +8,22 @@ import path from 'node:path';
 import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { approvalOutcome } from '../host/approvals.mjs';
-import { eventForForm } from '../host/public/renderer.mjs';
-import { home, responsesServer, shellQuote, taskIdle, presentationNodes as nodes } from './support.mjs';
+import { bendTag, decodeBendValue } from '../host/public/bend-value.mjs';
+import { home, responsesServer, shellQuote, taskIdle, browserUI, surfaceNodes as nodes } from './support.mjs';
 
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
-const find = (presentation, key) => nodes(presentation.root).find(node => node.key === key);
+const find = (view, semantic) => nodes(view.surface).find(node => node.semantic === semantic);
+const regionNodes = region => nodes({ base: { $: 'Con', head: region, tail: { $: 'Nil' } }, overlays: { $: 'Nil' } });
+const approvalControl = (view, operation, semantic) => regionNodes(find(view, `approval/${operation}`)).find(node => node.semantic === semantic);
+const available = node => bendTag(node.meaning.availability) === 'Available';
+const observations = region => regionNodes(region).filter(node => bendTag(node.meaning) === 'ReadOnly').map(node => node.meaning.text);
+const pressedCommand = (view, node) => {
+  const result = view.ui.press_state(view.state, view.ui.key(node));
+  assert.equal(result.$, 'Done');
+  const commands = JSON.parse(result.value);
+  assert.equal(commands.length, 1);
+  return commands[0];
+};
 const probe = fileURLToPath(new URL('./fixtures/approved-tool.mjs', import.meta.url));
 
 function journal(state) {
@@ -58,19 +69,30 @@ async function fixture(t, review = () => answer(JSON.stringify({ decision: 'allo
   const options = { home: state, cwd: workspace, config };
   const f = { base, state, workspace, marker, arguments_, upstream, options, site: await startServer(options) };
   t.after(() => f.site.close());
-  f.post = async (body, authorized = true) => {
-    const response = await fetch(`${f.site.address}/api/ui`, { method: 'POST',
+  const ui = await browserUI(t);
+  f.post = async (command, authorized = true) => {
+    const response = await fetch(`${f.site.address}/api/browser/command`, { method: 'POST',
       headers: { 'content-type': 'application/json', ...(authorized ? { authorization: `Bearer ${f.site.token}` } : {}) },
-      body: JSON.stringify(body) });
+      body: JSON.stringify({ command }) });
     return { status: response.status, body: await response.json() };
   };
-  f.view = async (id = 0) => (await f.post({ event: { type: 'select', task_id: id } })).body.result.presentation;
+  f.view = async (id = 0) => {
+    const response = await fetch(`${f.site.address}/api/browser/state`, { headers: { authorization: `Bearer ${f.site.token}` } });
+    assert.equal(response.status, 200);
+    const { program } = decodeBendValue(await response.json());
+    const task = BigInt(id);
+    const authenticated = ui.authenticated(program, task, f.site.token);
+    assert.equal(authenticated.$, 'Done');
+    const state = authenticated.value;
+    return { ui, program, task, state, surface: ui.surface_state(state) };
+  };
   f.settings = mode => ({ workspace: { roots: [workspace], primary_root: workspace },
     approval: { mode, ...(mode === 'approval-for-me' ? { reviewer_profile: 'reviewer' } : {}) } });
   f.create = async (mode = 'ask-for-approval') => {
-    const result = await f.site.service.command({ op: 'create', profile: 'worker',
+    const result = await f.post({ op: 'create', profile: 'worker', reasoning: 'medium',
       message: `Write only ${marker}.`, settings: f.settings(mode) });
-    assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.reply.ok, true, JSON.stringify(result.body.reply));
     return result;
   };
   return f;
@@ -78,35 +100,29 @@ async function fixture(t, review = () => answer(JSON.stringify({ decision: 'allo
 
 test('HTTP approval UI commits a one-use grant before a real outside-workspace process and rejects stale clicks', { timeout: 20_000 }, async t => {
   const f = await fixture(t);
-  const initial = (await f.post({ event: { type: 'refresh' } })).body.result.presentation;
-  const form = find(initial, 'create');
-  const created = await f.post({ state: initial.state, event: eventForForm(form, {
-    profile: 'worker', reasoning: 'medium', message: `Write only ${f.marker}.`, settings: JSON.stringify(f.settings('ask-for-approval')),
-  }) });
-  assert.equal(created.status, 200, JSON.stringify(created.body));
+  await f.create();
   const { operation, page: before } = await pending(f.site.service);
   const view = await f.view();
-  const allow = find(view, `approval/allow/${operation.operation_id}`);
-  assert.equal(allow.enabled, true);
-  assert.equal(find(view, `approval/deny/${operation.operation_id}`).enabled, true);
-  assert.equal(find(view, 'review/command').text, f.arguments_.command);
-  assert.equal(find(view, 'review/reason').text, f.arguments_.justification);
-  assert.equal(find(view, 'review/cwd').text, f.workspace);
+  const allow = approvalControl(view, operation.operation_id, 'approve');
+  assert.equal(available(allow), true);
+  assert.equal(available(approvalControl(view, operation.operation_id, 'deny')), true);
+  const facts = observations(find(view, `approval/${operation.operation_id}`));
+  for (const value of [f.arguments_.command, f.arguments_.justification, f.workspace]) assert.ok(facts.includes(value));
+  const command = pressedCommand(view, allow);
   await assert.rejects(readFile(f.marker), { code: 'ENOENT' });
   const sequence = f.site.service.journal.sequence;
-  assert.equal((await f.post({ state: view.state, event: allow.event }, false)).status, 401);
+  assert.equal((await f.post(command, false)).status, 401);
   assert.equal(f.site.service.journal.sequence, sequence);
-  assert.equal((await f.post({ state: view.state, event: allow.event })).status, 200);
+  assert.equal((await f.post(command)).status, 200);
   const page = await taskIdle(f.site.service);
   assert.equal(await readFile(f.marker, 'utf8'), 'ran\n');
   assert.deepEqual(page.task.settings, before.task.settings);
   assert.equal(page.messages.find(message => message.role === 'approval_record').content.decision, 'allow');
-  assert.equal(find(await f.view(), allow.key), undefined);
-  const stale = await f.post({ state: view.state, event: allow.event });
-  assert.equal(stale.status, 200);
-  assert.equal(stale.body.result.receipt.ok, false);
-  assert.equal(stale.body.result.receipt.error.code, 'approval_not_pending');
-  assert.ok(find(stale.body.result.presentation, 'notice'));
+  assert.equal(nodes((await f.view()).surface).find(node => view.ui.key(node) === view.ui.key(allow)), undefined);
+  const stale = await f.post(command);
+  assert.equal(stale.status, 400);
+  assert.equal(stale.body.reply.ok, false);
+  assert.equal(stale.body.reply.error.code, 'approval_not_pending');
   assert.equal(await readFile(f.marker, 'utf8'), 'ran\n');
   assert.deepEqual(f.upstream.failures, []);
 });
@@ -117,19 +133,21 @@ test('denial, UI cancellation and a real journal reopen do not dispatch or repla
     await f.create();
     const { operation } = await pending(f.site.service);
     const view = await f.view();
-    const allow = find(view, `approval/allow/${operation.operation_id}`);
+    const allow = approvalControl(view, operation.operation_id, 'approve');
+    const command = pressedCommand(view, allow);
     if (action === 'restart') {
       await f.site.close();
       f.site = await startServer(f.options);
     } else {
-      const control = find(view, action === 'deny' ? `approval/deny/${operation.operation_id}` : `cancel/${operation.operation_id}`);
-      assert.equal((await f.post({ state: view.state, event: control.event })).status, 200);
+      const control = action === 'deny' ? approvalControl(view, operation.operation_id, 'deny') : find(view, `cancel/${operation.operation_id}`);
+      assert.equal((await f.post(pressedCommand(view, control))).status, 200);
     }
     const page = await taskIdle(f.site.service);
     assert.equal(page.task.operations.length, 0);
-    const stale = await f.post({ state: view.state, event: allow.event });
-    assert.equal(stale.body.result.receipt.ok, false);
-    assert.equal(stale.body.result.receipt.error.code, 'approval_not_pending');
+    const stale = await f.post(command);
+    assert.equal(stale.status, 400);
+    assert.equal(stale.body.reply.ok, false);
+    assert.equal(stale.body.reply.error.code, 'approval_not_pending');
     await assert.rejects(readFile(f.marker), { code: 'ENOENT' });
     assert.equal(journal(f.state).flatMap(row => row.effects).filter(effect => effect.kind === 'tool').length, 0);
     if (action === 'restart') assert.match(JSON.stringify(page), /approval_interrupted/);
@@ -181,10 +199,11 @@ test('malformed model authority fails closed and a cancelled independent review 
     await f.create('approval-for-me');
     const { operation } = await pending(f.site.service);
     const view = await f.view();
-    assert.equal(find(view, `approval/allow/${operation.operation_id}`), undefined);
-    assert.match(find(view, 'review/model').text, /reviewer/);
+    assert.equal(approvalControl(view, operation.operation_id, 'approve'), undefined);
+    const region = find(view, `approval/${operation.operation_id}`);
+    assert.match(regionNodes(region).find(node => node.semantic === 'reviewer').meaning.text, /review-model/);
     const cancel = find(view, `cancel/${operation.operation_id}`);
-    assert.equal((await f.post({ state: view.state, event: cancel.event })).status, 200);
+    assert.equal((await f.post(pressedCommand(view, cancel))).status, 200);
     review.resolve(answer(JSON.stringify({ decision: 'allow', reason: 'A now stale answer' })));
     await taskIdle(f.site.service);
     await assert.rejects(readFile(f.marker), { code: 'ENOENT' });

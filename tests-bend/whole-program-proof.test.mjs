@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { compiler } from '../scripts/toolchain.mjs';
 
-test('whole-program proofs reject type-correct loss of input, durability, receipts and independent operation ownership', async t => {
+test('whole-program proofs reject type-correct loss of input, durability, receipts and independent operation ownership', { timeout: 900_000 }, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-whole-program-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -15,16 +15,18 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
+  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
   const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   for (const [filename, before, after, law] of [
     ['bendlib/reachability.bend', 'record(P.transition(input, world), receipts)',
-      'record(P.transition(input, world), Nil{})', /reachability.exact|receipts_prepend/],
+      'record(P.transition(input, world), Nil{})', /Location: exact\b|receipts_prepend/],
     ['bendlib/reachability.bend', 'decision <> receipts}',
       '[decision]}', /receipts_prepend/],
     ['bendlib/reachability.bend', 'List.foldl(~&2, ~M.Input, ~State, ~advance, events, state)',
-      'List.foldl(~&2, ~M.Input, ~State, ~advance, Nil{}, state)', /reachability.prepend|replay_prepend|receipts_prepend/],
+      'List.foldl(~&2, ~M.Input, ~State, ~advance, Nil{}, state)', /Location: prepend\b|replay_prepend|receipts_prepend/],
     ['bendlib/execution.bend',
       'authorization(D.may_execute(D.recovery(D.tool_source(tool)), attempt), tool, attempt, remaining, task, world)',
       'authorization(True{}, tool, D.CheckedAttempt{D.attempt_call(attempt), Nil{}}, remaining, task, world)', /hook_gateway/],

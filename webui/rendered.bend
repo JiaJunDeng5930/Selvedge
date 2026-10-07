@@ -1,6 +1,6 @@
 import Base
 import ../core/ui-identity.bend as UIIdentity
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/ui-world.bend as View
 import ../core/form-fields.bend as Forms
 import ./interaction.bend as Geometry
@@ -46,32 +46,32 @@ def field_control(entry: Forms.Entry) -> Bool:
     case Forms.DirectoryCollection{}: False{}
     case _: True{}
 
-def interactive(meaning: UI.Meaning) -> Bool:
+def interactive(meaning: InterfaceView.Meaning) -> Bool:
   match meaning:
-    case UI.MovableCard{destinations, face}: True{}
-    case UI.ComposerAction{subject, input, availability}: True{}
-    case UI.Activate{input, availability}: True{}
-    case UI.PanelToggle{expanded, input, availability}: True{}
-    case UI.Choice{kind, icon, selected, description, input, availability}: True{}
-    case UI.Edit{editor, field, entry, value, choices}: field_control(entry)
-    case UI.SearchChoices{query}: True{}
-    case UI.EnterCredential{entered}: True{}
-    case UI.BoardSearch{filter}: True{}
-    case UI.ReceiveFile{editor, enabled}: True{}
-    case UI.EnterDirectory{editor, text}: True{}
-    case UI.DirectoryBrowserLocation{value}: True{}
-    case UI.BoardProfile{automatic, selected, choices, enabled}: True{}
+    case InterfaceView.MovableCard{destinations, face}: True{}
+    case InterfaceView.ComposerAction{subject, input, availability}: True{}
+    case InterfaceView.Activate{input, availability}: True{}
+    case InterfaceView.PanelToggle{expanded, input, availability}: True{}
+    case InterfaceView.Choice{kind, icon, selected, description, input, availability}: True{}
+    case InterfaceView.Edit{editor, field, entry, value, choices}: field_control(entry)
+    case InterfaceView.SearchChoices{query}: True{}
+    case InterfaceView.EnterCredential{entered}: True{}
+    case InterfaceView.BoardSearch{filter}: True{}
+    case InterfaceView.ReceiveFile{editor, enabled}: True{}
+    case InterfaceView.EnterDirectory{editor, text}: True{}
+    case InterfaceView.DirectoryBrowserLocation{value}: True{}
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: True{}
     case _: False{}
 
-def required_enabled(meaning: UI.Meaning) -> Bool:
+def required_enabled(meaning: InterfaceView.Meaning) -> Bool:
   match meaning:
-    case UI.MovableCard{destinations, face}: UI.has_available_destination(destinations)
-    case UI.ComposerAction{subject, input, availability}: enabled(availability)
-    case UI.Activate{input, availability}: enabled(availability)
-    case UI.PanelToggle{expanded, input, availability}: enabled(availability)
-    case UI.Choice{kind, icon, selected, description, input, availability}: enabled(availability)
-    case UI.ReceiveFile{editor, enabled}: enabled
-    case UI.BoardProfile{automatic, selected, choices, enabled}: enabled
+    case InterfaceView.MovableCard{destinations, face}: InterfaceView.has_available_destination(destinations)
+    case InterfaceView.ComposerAction{subject, input, availability}: enabled(availability)
+    case InterfaceView.Activate{input, availability}: enabled(availability)
+    case InterfaceView.PanelToggle{expanded, input, availability}: enabled(availability)
+    case InterfaceView.Choice{kind, icon, selected, description, input, availability}: enabled(availability)
+    case InterfaceView.ReceiveFile{editor, enabled}: enabled
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: enabled
     case other: interactive(other)
 
 def choose_element(same: Bool, element: Element, fallback: Maybe<&2, Element>) -> Maybe<&2, Element>:
@@ -85,12 +85,12 @@ def find_element(elements: +List<Element>, +key: String) -> Maybe<&2, Element>:
     case Con{Element{+current, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}, rest}:
       choose_element(String.eq(current, key), Element{current, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, find_element(rest, key))
 
-def persistent(role: UI.Role) -> Bool:
+def persistent(role: InterfaceView.Role) -> Bool:
   match role:
-    case UI.Composer{}: True{}
-    case UI.DialogActions{}: True{}
-    case UI.Approval{}: False{}
-    case UI.Toolbar{}: False{}
+    case InterfaceView.Composer{}: True{}
+    case InterfaceView.DialogActions{}: True{}
+    case InterfaceView.Approval{}: False{}
+    case InterfaceView.Toolbar{}: False{}
     case _: False{}
 
 def issue(violated: Bool, violation: Violation) -> +List<Violation>:
@@ -119,13 +119,13 @@ def bounded_dialog(key: String, found: Maybe<&2, Element>, viewport: Geometry.Re
     case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       issue(Bool.not(visible && Geometry.contains(viewport, bounds)), EscapedDialog{key})
 
-def dialog_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
+def dialog_geometry(role: InterfaceView.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match role:
-    case UI.Dialog{}: bounded_dialog(key, found, viewport)
-    case UI.Menu{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.Dialog{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.Menu{}: bounded_dialog(key, found, viewport)
     case _: Nil{}
 
-def node_controls(is_control: Bool, meaning: UI.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+def node_controls(is_control: Bool, meaning: InterfaceView.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
   match is_control:
     case False{}: Nil{}
     case True{}: control_geometry(required_enabled(meaning), key, found, persistent, viewport)
@@ -136,15 +136,15 @@ def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation
     case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       issue(Bool.not(visible || scroll), EscapedDialog{key})
 
-def region_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
+def region_geometry(role: InterfaceView.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match role:
-    case UI.Navigation{}: bounded_dialog(key, found, viewport)
-    case UI.NavigationHeader{}: bounded_dialog(key, found, viewport)
-    case UI.Main{}: bounded_dialog(key, found, viewport)
-    case UI.Composer{}: bounded_dialog(key, found, viewport)
-    case UI.DialogActions{}: bounded_dialog(key, found, viewport)
-    case UI.Toolbar{}: reachable_toolbar(key, found)
-    case UI.ApprovalQueue{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.Navigation{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.NavigationHeader{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.Main{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.Composer{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.DialogActions{}: bounded_dialog(key, found, viewport)
+    case InterfaceView.Toolbar{}: reachable_toolbar(key, found)
+    case InterfaceView.ApprovalQueue{}: bounded_dialog(key, found, viewport)
     case other: dialog_geometry(other, key, found, viewport)
 
 def overlaps(first: Geometry.Rect, second: Geometry.Rect) -> Bool:
@@ -152,20 +152,20 @@ def overlaps(first: Geometry.Rect, second: Geometry.Rect) -> Bool:
   Geometry.Rect{other_left, other_top, other_right, other_bottom} = second
   F32.is_lt(left, other_right) && F32.is_lt(other_left, right) && F32.is_lt(top, other_bottom) && F32.is_lt(other_top, bottom)
 
-def code_in_view(role: UI.Role, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
+def code_in_view(role: InterfaceView.Role, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
   match role found:
-    case UI.CodeBlock{} Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}}: visible && overlaps(paint_bounds, viewport)
+    case InterfaceView.CodeBlock{} Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}}: visible && overlaps(paint_bounds, viewport)
     case _ _: False{}
-def node_geometry(found: Maybe<&2, Element>, +meaning: UI.Meaning, role: UI.Role, +key: String, persistent: Bool, +viewport: Geometry.Rect) -> +List<Violation>:
+def node_geometry(found: Maybe<&2, Element>, +meaning: InterfaceView.Meaning, role: InterfaceView.Role, +key: String, persistent: Bool, +viewport: Geometry.Rect) -> +List<Violation>:
   match found:
     case None{}: [MissingElement{key}]
     case Some{+element}:
       List.append(&2, Violation, node_controls(interactive(meaning), meaning, key, Some{element}, persistent, viewport), region_geometry(role, key, Some{element}, viewport))
 
-def nodes(entries: +List<UI.Node>, +inherited: Bool, +elements: +List<Element>, +viewport: Geometry.Rect) -> +List<Violation>:
+def nodes(entries: +List<InterfaceView.Node>, +inherited: Bool, +elements: +List<Element>, +viewport: Geometry.Rect) -> +List<Violation>:
   match entries:
     case Nil{}: Nil{}
-    case Con{UI.Node{+key, semantic, label, +role, meaning, children}, rest}:
+    case Con{InterfaceView.Node{+key, semantic, label, +role, meaning, children}, rest}:
       List.append(&2, Violation, node_geometry(find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), inherited || persistent(role), viewport),
         List.append(&2, Violation, nodes(children, inherited || persistent(role) || code_in_view(role, find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport), nodes(rest, inherited, elements, viewport)))
 
@@ -184,10 +184,10 @@ def native_member(entries: +List<NativeFocus>, +identity: String) -> Bool:
     case Nil{}: False{}
     case Con{NativeFocus{key, owner}, rest}: String.eq(key, identity) || native_member(rest, identity)
 
-def read_only(found: Maybe<&2, UI.Node>) -> Bool:
+def read_only(found: Maybe<&2, InterfaceView.Node>) -> Bool:
   match found:
-    case Some{UI.Node{key, semantic, label, role, UI.ReadOnly{text}, children}}: True{}
-    case Some{UI.Node{key, semantic, label, role, UI.RichText{source, value}, children}}: True{}
+    case Some{InterfaceView.Node{key, semantic, label, role, InterfaceView.ReadOnly{text}, children}}: True{}
+    case Some{InterfaceView.Node{key, semantic, label, role, InterfaceView.RichText{source, value}, children}}: True{}
     case _: False{}
 
 def native_element(found: Maybe<&2, Element>) -> Bool:
@@ -195,19 +195,19 @@ def native_element(found: Maybe<&2, Element>) -> Bool:
     case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && tab && keyboard && (visible || scroll)
     case None{}: False{}
 
-def exists(found: Maybe<&2, UI.Node>) -> Bool:
+def exists(found: Maybe<&2, InterfaceView.Node>) -> Bool:
   match found:
     case None{}: False{}
     case Some{node}: True{}
 
-def native_valid(entries: +List<NativeFocus>, +active: +List<UI.Node>, +elements: +List<Element>) -> Bool:
+def native_valid(entries: +List<NativeFocus>, +active: +List<InterfaceView.Node>, +elements: +List<Element>) -> Bool:
   match entries:
     case Nil{}: True{}
     case Con{NativeFocus{+identity, owner}, +rest}:
-      read_only(UI.find_node(active, owner)) && Bool.not(exists(UI.find_node(active, identity))) &&
+      read_only(InterfaceView.find_node(active, owner)) && Bool.not(exists(InterfaceView.find_node(active, identity))) &&
       native_element(find_element(elements, identity)) && Bool.not(native_member(rest, identity)) && native_valid(rest, active, elements)
 
-def native_owned(+entries: +List<NativeFocus>, +active: +List<UI.Node>, +elements: +List<Element>, +key: String) -> Bool:
+def native_owned(+entries: +List<NativeFocus>, +active: +List<InterfaceView.Node>, +elements: +List<Element>, +key: String) -> Bool:
   native_valid(entries, active, elements) && native_member(entries, key)
 
 def owner_tabs(entries: +List<NativeFocus>, +owner: String) -> +List<String>:
@@ -215,18 +215,18 @@ def owner_tabs(entries: +List<NativeFocus>, +owner: String) -> +List<String>:
     case Nil{}: Nil{}
     case Con{NativeFocus{identity, parent}, rest}: tab_entry(String.eq(parent, owner), identity, owner_tabs(rest, owner))
 
-def content_tabs(meaning: UI.Meaning, entries: +List<NativeFocus>, key: String) -> +List<String>:
+def content_tabs(meaning: InterfaceView.Meaning, entries: +List<NativeFocus>, key: String) -> +List<String>:
   match meaning:
-    case UI.ReadOnly{text}: owner_tabs(entries, key)
-    case UI.RichText{source, value}: owner_tabs(entries, key)
+    case InterfaceView.ReadOnly{text}: owner_tabs(entries, key)
+    case InterfaceView.RichText{source, value}: owner_tabs(entries, key)
     case _: Nil{}
 
-def expected_tabs(nodes: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>) -> +List<String>:
+def expected_tabs(nodes: +List<InterfaceView.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>) -> +List<String>:
   match nodes:
     case Nil{}: Nil{}
     case Con{+node, rest}:
-      UI.Node{key, semantic, label, role, +meaning, children} = node
-      +identity = UI.node_key(node)
+      InterfaceView.Node{key, semantic, label, role, +meaning, children} = node
+      +identity = InterfaceView.node_key(node)
       tab_entry(interactive(meaning) && required_enabled(meaning) && tab_stop(find_element(elements, identity)), identity,
         List.append(&2, String, content_tabs(meaning, native_focus, identity),
           List.append(&2, String, expected_tabs(children, elements, native_focus), expected_tabs(rest, elements, native_focus))))
@@ -237,7 +237,7 @@ def same_order(expected: +List<String>, actual: +List<String>) -> Bool:
     case Con{left, ls} Con{right, rs}: String.eq(left, right) && same_order(ls, rs)
     case _ _: False{}
 
-def tabs_valid(+active: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, order: +List<String>) -> Bool:
+def tabs_valid(+active: +List<InterfaceView.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, order: +List<String>) -> Bool:
   native_valid(native_focus, active, elements) && same_order(expected_tabs(active, elements, native_focus), order)
 
 
@@ -247,10 +247,10 @@ def focus_visible(found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
     case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: visible && Geometry.contains(viewport, bounds)
 
 
-def focus_owned(+nodes: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, +key: String) -> Bool:
-  exists(UI.find_node(nodes, key)) || native_owned(native_focus, nodes, elements, key)
+def focus_owned(+nodes: +List<InterfaceView.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, +key: String) -> Bool:
+  exists(InterfaceView.find_node(nodes, key)) || native_owned(native_focus, nodes, elements, key)
 
-def focus_checks(focus: Maybe<&2, String>, nodes: +List<UI.Node>, +elements: +List<Element>, viewport: Geometry.Rect, +native_focus: +List<NativeFocus>) -> +List<Violation>:
+def focus_checks(focus: Maybe<&2, String>, nodes: +List<InterfaceView.Node>, +elements: +List<Element>, viewport: Geometry.Rect, +native_focus: +List<NativeFocus>) -> +List<Violation>:
   match focus:
     case None{}: Nil{}
     case Some{+key}: List.append(&2, Violation, issue(Bool.not(focus_visible(find_element(elements, key), viewport)), InvisibleFocus{}),
@@ -269,10 +269,10 @@ def include_element(included: Bool, found: Maybe<&2, Element>, rest: +List<Eleme
     case True{} Some{Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds} <> rest
     case _ _: rest
 
-def actionable_elements(nodes: +List<UI.Node>, +elements: +List<Element>) -> +List<Element>:
+def actionable_elements(nodes: +List<InterfaceView.Node>, +elements: +List<Element>) -> +List<Element>:
   match nodes:
     case Nil{}: Nil{}
-    case Con{UI.Node{key, semantic, label, role, +meaning, children}, rest}:
+    case Con{InterfaceView.Node{key, semantic, label, role, +meaning, children}, rest}:
       include_element(interactive(meaning) && required_enabled(meaning), find_element(elements, UIIdentity.encode(key)),
         List.append(&2, Element, actionable_elements(children, elements), actionable_elements(rest, elements)))
 
@@ -289,7 +289,7 @@ def independent_targets(elements: +List<Element>) -> +List<Violation>:
     case Nil{}: Nil{}
     case Con{first, +rest}: List.append(&2, Violation, against(first, rest), independent_targets(rest))
 
-def layout_check(+active: +List<UI.Node>, frame: Frame) -> +List<Violation>:
+def layout_check(+active: +List<InterfaceView.Node>, frame: Frame) -> +List<Violation>:
   Frame{+viewport, +elements, focused, tab_order, +native_focus} = frame
   List.append(&2, Violation, nodes(active, False{}, elements, viewport),
     List.append(&2, Violation, focus_checks(focused, active, elements, viewport, native_focus),
@@ -311,23 +311,23 @@ def paint_geometry(elements: +List<Element>, +viewport: Geometry.Rect) -> +List<
         issue(Bool.not(paint_geometry_valid(visible, bounds, paint_bounds, viewport)), InvalidPaintGeometry{key}),
         paint_geometry(rest, viewport))
 
-def check(+active: +List<UI.Node>, +frame: Frame) -> +List<Violation>:
+def check(+active: +List<InterfaceView.Node>, +frame: Frame) -> +List<Violation>:
   Frame{+viewport, +elements, focused, tab_order, native_focus} = frame
   List.append(&2, Violation, paint_geometry(elements, viewport), layout_check(active, frame))
 
-def violations(+surface: UI.Surface, +frame: Frame) -> +List<Violation>:
-  UI.Surface{content, base, overlays, +scope} = surface
+def violations(+surface: InterfaceView.Surface, +frame: Frame) -> +List<Violation>:
+  InterfaceView.Surface{content, base, overlays, +scope} = surface
   Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
-  List.append(&2, Violation, check(UI.active_nodes(surface), frame), required_focus(scope, focused))
+  List.append(&2, Violation, check(InterfaceView.active_nodes(surface), frame), required_focus(scope, focused))
 
 def accepted(violations: +List<Violation>, generation: Nat, frame: Frame) -> State:
   match violations:
     case Nil{}: Realized{generation, frame}
     case other: Unmet{generation, frame, other}
 
-def receive(owned: Bool, generation: Nat, surface: UI.Surface, +frame: Frame, previous: State) -> State:
+def receive(owned: Bool, generation: Nat, surface: InterfaceView.Surface, +frame: Frame, previous: State) -> State:
   match owned:
     case False{}: previous
     case True{}: accepted(violations(surface, frame), generation, frame)
-def observe(+current: Nat, received: Nat, surface: UI.Surface, frame: Frame, previous: State) -> State:
+def observe(+current: Nat, received: Nat, surface: InterfaceView.Surface, frame: Frame, previous: State) -> State:
   receive(Nat.is_eq(current, received), current, surface, frame, previous)

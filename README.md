@@ -8,6 +8,11 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+The independent [ChatGPT plugin](plugins/selvedge-chatgpt/README.md) exposes
+explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection grants
+apply across conversations, and local operations run in the selected project's
+Workspace.
+
 ## Read the program
 
 Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
@@ -246,21 +251,20 @@ The default home is `~/.selvedge-bend`. `bun host/cli.mjs init` creates its
 FILE` select explicit locations; both options also work with `bun run start ...`.
 Configuration is read at server startup.
 
-To use your ChatGPT subscription, sign in. No model configuration is required:
+To use an eligible ChatGPT Plus or Pro plan, sign in with the official
+[Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
+flow. No model configuration or API key is required:
 
 ```bash
 bun host/cli.mjs login
 bun host/cli.mjs models
 ```
 
-Complete the device-code flow at the displayed OpenAI address. Login fetches
-the account's Codex model catalog and refreshes an already-running server. At
-startup the server also loads these models into the existing native selector;
-advertised account models precede the offline demo. `models --refresh` fetches
-a fresh catalog. Model names are not hardcoded and API-key availability is not
-used to filter subscription models. Discovery is bounded and a fresh catalog is
-cached for five minutes; transient failures may use a matching account's cache
-for at most 24 hours. Authentication failures never fall back to another account.
+Open the displayed authorization URL in your browser and complete **Continue with
+ChatGPT**. The browser returns to a temporary `127.0.0.1` callback on this host.
+Login loads account models into the native selector and refreshes an already-running
+server. Use `models --refresh` to fetch a fresh catalog. Use a reasoning level
+advertised by the selected model.
 
 The separate [ChatGPT Web backend](docs/chatgpt-web.md) uses
 `provider: "chatgpt-web"`, a model such as `chatgpt-web/high`, and the API
@@ -270,13 +274,18 @@ supports ordinary task and tool calls through the same model interface, and
 requires the API service's `full` mode for caller tools. It is not an OAuth/Codex
 or OpenAI Responses endpoint; those profiles remain separate.
 
-Optional `chatgpt` connection settings are `endpoint`, `issuer`, `client_id`,
-`auth_file`, and `timeout_ms`; their defaults target OpenAI. `chatgpt: false`
-disables default account discovery. Explicit model profiles remain available for
-custom routing; `login PROFILE` selects a configured ChatGPT connection. Generated
-profile identities bind the account and endpoint so changing credentials cannot
-silently run an old task under a different account. Reasoning levels are checked
-against the selected account model; use an advertised level in the native field.
+Optional `chatgpt` connection settings are `endpoint`, `issuer`, `auth_file`, and
+`timeout_ms`; their defaults target OpenAI. `chatgpt: false` disables default
+account discovery. `login PROFILE` selects a configured ChatGPT connection.
+Profiles needing distinct registrations must use distinct `auth_file` paths.
+Credentials from the former Codex-derived login format are rejected: run `login`
+again and remove any configured `client_id` or ChatGPT `backend-api` endpoint from
+`config.json`.
+
+Manage app access and shared plan usage in
+[ChatGPT usage settings](https://chatgpt.com/settings/usage). Sign-in does not grant
+access to ChatGPT conversations. See [ADR 0027](docs/adr/0027-official-chatgpt-sign-in.md)
+for the account integration choices.
 
 A Responses API profile uses `provider: "responses"`, `model`, and optionally
 `endpoint` and `api_key_env` (default `OPENAI_API_KEY`). A stdio MCP entry under
@@ -337,6 +346,16 @@ claim that a particular checkout has passed them. Tests that exercise workspace
 isolation require a working platform sandbox. The benchmark measures committed
 transitions and replay without a machine-dependent CI threshold. `just` provides
 aliases for the development commands.
+
+CI runs production proofs, syntax, a JavaScript library build, regular
+integration tests and the tracked-file index on Linux for each PR and main
+update. `bun run test:ci` retains real sandbox, SQLite, process and protocol
+tests; repeated whole-program proof mutations and native extension builds stay
+in `bun run test` and the pre-push hook. Select `full` when manually running CI
+to run the complete suite on Linux and macOS. GitHub enables that manual entry
+after this workflow reaches the default branch. Ubuntu CI loads a user-namespace
+AppArmor rule for `/usr/bin/bwrap` and checks network namespace setup before
+integration tests.
 
 After adding or deleting files, stage the changed paths, run `bun run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

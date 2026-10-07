@@ -12,14 +12,14 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-board-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  for (const name of ['bendlib', 'core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], {
     cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
   });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
-  assert.equal(baseline.stdout.trim(), 'All terms check.');
+  assert.equal(baseline.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   const mutations = [
     ['ignore the insertion position', 'bendlib/board.bend',
       'B.reposition(id, card, position, S.registry(world))', 'B.reposition(id, card, 0n, S.registry(world))', /change_meaning|reposition_meaning|relocate_meaning/],
@@ -42,7 +42,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
       const runtime = check('UI.bend');
       assert.equal(runtime.error, undefined, `${label}: operational check must finish`);
       assert.equal(runtime.status, 0, runtime.stdout + runtime.stderr);
-      assert.equal(runtime.stdout.trim(), 'All terms check.');
+      assert.equal(runtime.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
       const proof = check('PROOF.bend');
       assert.equal(proof.error, undefined, `${label}: a timeout is not a rejected proof`);
       assert.notEqual(proof.status, 0, `${label}: assembled proof accepted the defect`);

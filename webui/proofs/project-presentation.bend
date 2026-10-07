@@ -6,7 +6,7 @@ import ../authored.bend as Authored
 import ../physical-space.bend as Model
 import ../enclosure.bend as Enclosure
 import ../controls.bend as Controls
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/SYSTEM.bend as Core
 import ../../core/ui-world.bend as View
 
@@ -24,20 +24,20 @@ def chooser_draft_observation(+id: Nat, +fallback: Design.Style) -> Rule.chooser
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = fallback
   {==}
 
-def project_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> Rule.project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
+def project_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: InterfaceView.Role, +children: +List<InterfaceView.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> Rule.project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: View.TaskStatus, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
+def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: InterfaceView.Role, +children: +List<InterfaceView.Node>, +context: Controls.Context, +task: Nat, +status: View.TaskStatus, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def chooser_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
+def chooser_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: InterfaceView.Role, +children: +List<InterfaceView.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +project: Nat, +selected: Bool, +expanded: Bool, +children: +List<UI.Node>, +input: Core.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
-  {Controls.contextual_source_presentation(area, Controls.SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}, input, name, face, behavior, geometry) ==
+def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: InterfaceView.Role, +project: Nat, +selected: Bool, +expanded: Bool, +children: +List<InterfaceView.Node>, +input: Core.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
+  {Controls.contextual_source_presentation(area, Controls.SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectGroup{project, selected, expanded}, children}}, input, name, face, behavior, geometry) ==
     Controls.project_presentation(Controls.project_control_matches(input, project), Controls.project_control_input(input), expanded, name, face, behavior, geometry) : Controls.ActionPresentation}:
   match area:
     case Controls.PageArea{}: {==}

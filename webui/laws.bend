@@ -63,7 +63,7 @@ def decision_bookmarks(decision: Platform.Decision) -> +List<Finite.Entry(Readin
   Platform.Decision{product, platform, effects} = decision
   platform_bookmarks(platform)
 
-def stale_reading_law(-application: E.Application, -services: Services.State, -platform: Platform.Platform, -task: Nat, -generation: Nat, -event: Reading.Event, -inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Type:
+def stale_reading_law(-application: E.Application, -services: Services.State, -platform: Platform.Platform, -task: Nat, -generation: Nat, -event: Reading.ReadingEvent, -inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Type:
   {Platform.step(Platform.ReadingInput{task, generation, event},
       Platform.State{Core.State{application, services}, platform}) ==
       Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}
@@ -163,7 +163,7 @@ type Requirements is Type:
         Model.Decision{Model.State{application, generation, realization, environment, font},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_reading: @application:E.Application -> @services:Services.State -> @platform:Platform.Platform ->
-      @task:Nat -> @generation:Nat -> @event:Reading.Event ->
+      @task:Nat -> @generation:Nat -> @event:Reading.ReadingEvent ->
       @inactive:{Platform.active_reader(application, task, generation) == False{} : Bool} ->
       stale_reading_law(application, services, platform, task, generation, event, inactive),
     history_layout_changed: @height:F32 -> @viewport:F32 -> @anchor:Physical.Anchor -> @reduced:Bool ->
@@ -186,7 +186,7 @@ type Requirements is Type:
       @bookmark_observed:{Finite.find(~Reading.Bookmark, bookmarks, task) ==
         Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>} ->
       {Platform.layout_for(E.Application{program, conversation_session(session, task)}, bookmarks) ==
-        [Platform.Scroll{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>},
+        [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>},
     after_core_keeps_bookmarks: @decision:Core.Decision -> @platform:Platform.Platform ->
       {decision_bookmarks(Platform.after_core(decision, platform)) == platform_bookmarks(platform) :
         +List<Finite.Entry(Reading.Bookmark)>},

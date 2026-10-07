@@ -37,7 +37,7 @@ type ApprovalBoundary is Type:
       {A.pending(D.ApprovalGranted{reviewer}, origin, operation, task, outcome) == A.stale(origin) : A.Resolution},
     no_premature_callback: @id:Nat -> @call:D.Call -> @announced:Bool -> @reviewer:D.ApprovalReviewer ->
       @task:D.Task -> @value:J.Json -> @error:Bool ->
-      {Protocol.tool_operation(Some{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}})}, task, value, error) == Protocol.Ignore{} : Protocol.Event},
+      {Protocol.tool_operation(Some{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}})}, task, value, error) == Protocol.Ignore{} : Protocol.ResolvedEvent},
     frozen_owner: @id:Nat -> @lineage:+List<Nat> -> @contract:D.Contract -> @history:D.History -> @queued:+List<String> ->
       @phase:D.Phase -> @operations:+List<D.Operation()> -> @notified:Bool ->
       {D.task_work(D.Task{id, lineage, contract, D.Frozen{}, history, queued, phase, operations, notified}) == D.NoWork{} : D.Work}

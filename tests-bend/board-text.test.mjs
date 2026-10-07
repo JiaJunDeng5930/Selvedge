@@ -58,7 +58,7 @@ test('independent board requests have no tools, task history or inherited reason
     }, profile);
     assert.deepEqual(body.input, [{ role: 'user', content: effect.prompt }]);
     assert.deepEqual(body.tools, []);
-    assert.equal(body.tool_choice, provider === 'chatgpt' ? 'auto' : 'none');
+    assert.equal(body.tool_choice, 'none');
     assert.equal(Object.hasOwn(body, 'reasoning'), false);
     assert.equal(Object.hasOwn(body, 'instructions'), false);
     assert.equal(body.model, 'draft-model');

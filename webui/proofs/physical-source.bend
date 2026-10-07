@@ -32,7 +32,7 @@ def admission(+prepared: Content.Prepared) ->
   {ContentRules.ready_native_targets_valid(Source.admit_native_targets(prepared)) == True{} : Bool}:
   admitted(Content.duplicate_native_slot(Content.native_slots(prepared)), prepared, {==})
 
-def single_root(trees: +List<Model.Tree<Content.Value, Doc.Event>>, +snapshot: Content.Snapshot,
+def single_root(trees: +List<Model.Tree<Content.Value, Doc.DOMEvent>>, +snapshot: Content.Snapshot,
   +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>) ->
   {ContentRules.ready_native_targets_valid(Source.single_root(trees, snapshot, roots, policies)) == True{} : Bool}:
   match trees:
@@ -133,8 +133,8 @@ def field_preferred_height(+capacity: Nat, +kind: Authored.NativeFieldKind, +pol
 
 def field_production_demand(+capacity: Nat, +label: UIIdentity.Key, +kind: Authored.NativeFieldKind, +style: Authored.Style,
   +attributes: +List<Authored.Attribute>, +value: String, +placeholder: String, +options: +List<Authored.Choice>,
-  +policy: Authored.FieldPolicy, +name: String, +enabled: Bool, +first_event: Doc.Event,
-  +remaining_events: +List<Doc.Event>, +key: String, +font: T.Presentation, +rule: Model.Rule,
+  +policy: Authored.FieldPolicy, +name: String, +enabled: Bool, +first_event: Doc.DOMEvent,
+  +remaining_events: +List<Doc.DOMEvent>, +key: String, +font: T.Presentation, +rule: Model.Rule,
   +observation: Content.Observation, +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>) ->
   {Rule.first_leaf_demand(Source.observed_leaf_at(capacity, Authored.Field{label, kind, style, attributes, value, placeholder,
     options, policy, name, enabled, first_event, remaining_events}, key, font, rule, observation, roots, policies)) ==

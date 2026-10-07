@@ -7,7 +7,7 @@ import ../space.bend as Space
 import ../design.bend as D
 import ../appearance.bend as A
 import ../controls.bend as C
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/SYSTEM.bend as Core
 import ../../core/ui-world.bend as View
 import ../frame-relation-laws.bend as Rule
@@ -17,23 +17,23 @@ def content_preserves_arrangement(+value: D.Style, content: E.ContentArea) ->
   D.Style{text, chrome, alignment, flow, overflow, E.Frame{old_content, arrangement}, minimum, maximum, states} = value
   {==}
 
-def actual_choice_geometry(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {Rule.actual_geometry(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry}:
+def actual_choice_geometry(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: InterfaceView.Role, +context: C.Context) ->
+  {Rule.actual_geometry(C.make_choice(key, InterfaceView.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n} : C.Geometry}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
-def actual_choice_layout(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout}:
+def actual_choice_layout(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: InterfaceView.Role, +context: C.Context) ->
+  {C.choice_layout(C.make_choice(key, InterfaceView.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)) == C.ChoiceContentLayout{2n, 20n, 16n} : C.ChoiceContentLayout}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
-def actual_choice_mark_contains_icon(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {Nat.is_le(Rule.mark_icon_extent(C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context))), Rule.mark_extent(C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)))) == True{} : Bool}:
+def actual_choice_mark_contains_icon(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: InterfaceView.Role, +context: C.Context) ->
+  {Nat.is_le(Rule.mark_icon_extent(C.choice_layout(C.make_choice(key, InterfaceView.SingleChoice{}, None{}, selected, description, input, availability, label, role, context))), Rule.mark_extent(C.choice_layout(C.make_choice(key, InterfaceView.SingleChoice{}, None{}, selected, description, input, availability, label, role, context)))) == True{} : Bool}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
-def selection_keeps_allocation(+key: Identity.Key, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: UI.Role, +context: C.Context) ->
-  {C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, UI.SingleChoice{}, None{}, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout}:
+def selection_keeps_allocation(+key: Identity.Key, +description: String, +input: Core.Input, +availability: View.Availability, +label: String, +role: InterfaceView.Role, +context: C.Context) ->
+  {C.choice_layout(C.make_choice(key, InterfaceView.SingleChoice{}, None{}, True{}, description, input, availability, label, role, context)) == C.choice_layout(C.make_choice(key, InterfaceView.SingleChoice{}, None{}, False{}, description, input, availability, label, role, context)) : C.ChoiceContentLayout}:
   C.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   {==}
 
@@ -49,7 +49,7 @@ def choice_style_normalization(+value: D.Style, +size: C.Geometry, label: String
   {==}
 
 def actual_choice_normalization(+key: Identity.Key, +selected: Bool, +description: String, +input: Core.Input, +availability: View.Availability, +label: String,
-  +role: UI.Role, +context: C.Context, +fallback: D.Style, +typography: T.Presentation) -> Rule.actual_choice_normalization_law(key, selected, description, input, availability, label, role, context, fallback, typography):
+  +role: InterfaceView.Role, +context: C.Context, +fallback: D.Style, +typography: T.Presentation) -> Rule.actual_choice_normalization_law(key, selected, description, input, availability, label, role, context, fallback, typography):
   match context:
     case C.Context{C.PageArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)

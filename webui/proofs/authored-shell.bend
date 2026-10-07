@@ -14,7 +14,7 @@ import ../spatial.bend as Spatial
 import ../enclosure.bend as Enclosure
 import ../../core/ui-world.bend as View
 import ../../core/SYSTEM.bend as Core
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ./space.bend as Order
 import ../../bendlib/proofs/logic.bend as Logic
 import ./physical-space.bend as ModelProof
@@ -111,7 +111,7 @@ def creation_reading_width(+parameters: Design.LayoutParameters) -> Rule.creatio
 
 def creation_assembly(+content: Core.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: Typography.Presentation,
   created: {Shell.scene_structure(content) == Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}} : Design.MainStructure}) -> Rule.creation_assembly(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font):
-  Equal.cong(Design.MainStructure, Shell.Result,
+  Equal.cong(Design.MainStructure, Shell.ShellAuthorship,
     (structure => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, Shell.structure_reading_width(structure, parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme)), Shell.scene_structure(content), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, created)
 
 def creation_child_layout(+layout: Source.Layout, maximum: Nat) -> Rule.creation_child_layout(layout, maximum):
@@ -162,36 +162,36 @@ def settings_group_found(+node: Source.Node, +navigation: +List<Source.Node>, +m
   Equal.cong(Bool, Shell.BaseParts, (found => Shell.split_base_settings(found, node, Shell.BaseParts{navigation, main, settings, other})),
     UIIdentity.same(Source.key_of(node), UIIdentity.part(UIIdentity.place(""), "settings/open")), True{}, settings_identified(node, identified))
 
-def settings_classification(+node: Source.Node, +role: UI.Role, +navigation: +List<Source.Node>, +main: +List<Source.Node>, +settings: +List<Source.Node>, +other: +List<Source.Node>,
+def settings_classification(+node: Source.Node, +role: InterfaceView.Role, +navigation: +List<Source.Node>, +main: +List<Source.Node>, +settings: +List<Source.Node>, +other: +List<Source.Node>,
   identified: {Source.key_of(node) == UIIdentity.part(UIIdentity.place(""), "settings/open") : UIIdentity.Key}, belongs: {Rule.settings_role(role) == True{} : Bool}) -> Rule.settings_classification(node, role, navigation, main, settings, other):
   match role:
-    case UI.Main{}: Logic.impossible(Rule.settings_classification(node, UI.Main{}, navigation, main, settings, other), belongs)
-    case UI.Navigation{}: Logic.impossible(Rule.settings_classification(node, UI.Navigation{}, navigation, main, settings, other), belongs)
-    case UI.NavigationHeader{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Heading{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.PrimaryButton{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.DestructiveButton{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.SelectedButton{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.ComposerActions{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.DialogActions{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Timeline{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Activity{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.UserMessage{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.AssistantMessage{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Composer{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Approval{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Toolbar{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.CodeBlock{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.ApprovalQueue{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Section{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Dialog{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Menu{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Details{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Card{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Button{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Field{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Content{}: settings_group_found(node, navigation, main, settings, other, identified)
-    case UI.Alert{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Main{}: Logic.impossible(Rule.settings_classification(node, InterfaceView.Main{}, navigation, main, settings, other), belongs)
+    case InterfaceView.Navigation{}: Logic.impossible(Rule.settings_classification(node, InterfaceView.Navigation{}, navigation, main, settings, other), belongs)
+    case InterfaceView.NavigationHeader{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Heading{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.PrimaryButton{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.DestructiveButton{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.SelectedButton{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.ComposerActions{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.DialogActions{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Timeline{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Activity{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.UserMessage{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.AssistantMessage{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Composer{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Approval{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Toolbar{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.CodeBlock{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.ApprovalQueue{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Section{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Dialog{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Menu{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Details{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Card{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Button{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Field{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Content{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case InterfaceView.Alert{}: settings_group_found(node, navigation, main, settings, other, identified)
 
 
 def reverse_layer_accumulator(+remaining: +List<Source.Node>, +acc: +List<Source.Node>, +behind: +List<Source.Node>) ->
@@ -264,7 +264,7 @@ def navigation_projection(content: Core.Scene) -> Rule.navigation_projection(con
 
 def assembly_placement(+content: Core.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: Typography.Presentation, placement: View.NavigationPlacement,
   projected: {Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement}) -> Rule.assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement):
-  Equal.cong(View.NavigationPlacement, Shell.Result,
+  Equal.cong(View.NavigationPlacement, Shell.ShellAuthorship,
     (selected => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, selected, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, selected, parameters, font, theme)), Shell.scene_navigation_placement(content), placement, projected)
 
 def chronological_main_frame(frame: Enclosure.Frame) -> Rule.chronological_main_frame(frame): {==}
@@ -346,10 +346,10 @@ def Rule.modal_navigation_geometry(node, capacity, parameters, layers, base, ove
 
 
 def Rule.modal_navigation_population(key, tag, style, attributes, children, rest, capacity, parameters, layers, base, overlays, anchors, identified):
-  Equal.cong(UI.Role, Shell.OverlayParts,
+  Equal.cong(InterfaceView.Role, Shell.OverlayParts,
     (role => Shell.split_overlay_node(Source.Box{key, tag, style, attributes, children}, role, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors,
       Shell.split_overlays(rest, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors))),
-    Shell.base_role(key, overlays), UI.Navigation{}, identified)
+    Shell.base_role(key, overlays), InterfaceView.Navigation{}, identified)
 
 def Rule.modal_navigation_box_preserved(key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, capacity, parameters, layers, base, overlays, anchors, docked, floating):
   View.Capacity{navigation_beside, details_beside} = capacity

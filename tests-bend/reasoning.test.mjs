@@ -6,7 +6,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig, profileCatalog } from '../host/config.mjs';
-import { evaluatorConnections, adaptivePolicy, accountAutoPreset, accountConnection } from '../host/reasoning-config.mjs';
+import { evaluatorConnections, adaptivePolicy, accountAutoPreset } from '../host/reasoning-config.mjs';
+import { accountConnection, defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
 import { budgetOutputs, outputTokens, decisionContext, decisionRequest, validateDecision, requestReasoning, evaluatorLimits } from '../host/jev.mjs';
 import { home, taskIdle, responsesServer } from './support.mjs';
 
@@ -68,7 +69,7 @@ test('evaluator connections, manual policies and the account convenience are ind
   } });
   assert.deepEqual(manual.reasoning_evaluators, {});
   assert.deepEqual(profileCatalog(manual)[0].adaptive_reasoning, automatic);
-  const account = { provider: 'chatgpt', model: 'gpt-6-astra', endpoint: 'https://example.invalid/responses',
+  const account = { ...defaultChatGPTAccount, model: 'gpt-6-astra',
     auth_file: 'account.json', bound_account_id: 'an-account' };
   const descriptor = { slug: 'gpt-6-astra', default_reasoning_level: 'medium',
     supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }, { effort: 'high' }] };
@@ -215,7 +216,7 @@ test('the complete native/service flow commits evaluation first, bypasses it und
   let service = await Service.open({ home: state, config, cwd: directory });
   t.after(() => service.close());
   const created = await service.command({ op: 'create', profile: 'automatic', message: 'Do the task with a bounded follow-up.' });
-  assert.equal(created.reply.ok, true, JSON.stringify(created));
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
   const page = await taskIdle(service);
   assert.equal(page.messages.findLast(message => message.role === 'model_context')?.content?.content?.[0]?.text,
     'Completed the native task.', JSON.stringify(page));

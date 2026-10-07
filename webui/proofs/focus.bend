@@ -1,7 +1,7 @@
 import Base
 import ../focus-rules.bend as Rule
 import ../focus.bend as Model
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/ui-identity.bend as Identity
 import ../../core/client-services.bend as Services
 import ../../core/SYSTEM.bend as Core
@@ -23,7 +23,7 @@ def Rule.cycle_evidence():
 
 def Rule.realized_restore(content, base, overlays, active, scope, key, found):
   Equal.cong(Maybe<&2, String>, String, Model.resolved_target,
-    UI.all_focus_target(UI.Surface{content, base, overlays, Some{active}}, Model.restore(scope)), Some{Identity.encode(key)}, found)
+    InterfaceView.all_focus_target(InterfaceView.Surface{content, base, overlays, Some{active}}, Model.restore(scope)), Some{Identity.encode(key)}, found)
 
 def Rule.settings_restore(content, base, overlays, active, fallback):
   {==}
@@ -38,11 +38,11 @@ def Rule.document_opens_temporary(identity, initial, restore, occurrence, surfac
 
 def Rule.nested_scope_restores_active_trigger(old_identity, old_initial, old_occurrence, trigger, identity, initial, restore, occurrence, surface, key, found):
   Equal.cong(Maybe<&2, String>, String, (candidate => Model.scope_restore_target(candidate, initial)),
-    UI.matching_focus(UI.active_nodes(surface), trigger), Some{key}, found)
+    InterfaceView.matching_focus(InterfaceView.active_nodes(surface), trigger), Some{key}, found)
 
 def Rule.nested_scope_without_active_trigger_uses_initial(old_identity, old_initial, old_occurrence, trigger, identity, initial, restore, occurrence, surface, absent):
   Equal.cong(Maybe<&2, String>, String, (candidate => Model.scope_restore_target(candidate, initial)),
-    UI.matching_focus(UI.active_nodes(surface), trigger), None{}, absent)
+    InterfaceView.matching_focus(InterfaceView.active_nodes(surface), trigger), None{}, absent)
 
 
 def Rule.panel_policy(panel, initial, trigger, beside): {==}
@@ -77,4 +77,4 @@ def Rule.logical_priority(state, capacity):
     case Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
 
 def Rule.current_surface(state, capacity, surface, observed):
-  Equal.cong(UI.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), UI.observe(capacity, state), surface, observed)
+  Equal.cong(InterfaceView.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), InterfaceView.observe(capacity, state), surface, observed)

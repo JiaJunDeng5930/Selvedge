@@ -4,7 +4,7 @@ import ./anchor-geometry.bend as AnchorGeometry
 import ./native-fields-rules.bend as NativeRules
 import ./focus.bend as Focus
 import ./native-fields.bend as Native
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import Base
 import ./frontend-utility.bend as Utility
 import ./source-frame.bend as SourceFrame
@@ -29,7 +29,7 @@ def stale_frames_claim(+received: Nat, +frame: Rendered.Frame, +state: Browser.S
   {Browser.step(Legacy.Native{Web.FrameObserved{received, frame}}, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
 def stale_measurements_claim(+received: Browser.MeasurementTicket, +tokens: +List<String>, +state: Browser.State) -> Type:
   {Browser.physical_measured(received, tokens, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
-def ready_document_claim(+rendering_capacity: Nat, +legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: UI.Surface) -> Type:
+def ready_document_claim(+rendering_capacity: Nat, +legacy: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: InterfaceView.Surface) -> Type:
   {Browser.observe(rendering_capacity, Browser.State{legacy, serial, anchors, Browser.Displaying{layout_capacity, engine, semantic}, Some{Browser.published(world, layout_capacity, legacy, semantic)}}) ==
     Doc.Document{Doc.Element{"@browser/application", "div", [Doc.Property{"class", "native-application"}], Nil{}, Nil{}, Renderer.nodes(world)}, "Selvedge"} : Doc.Document}
 def anchor_preserves_program_claim(+key: String, +left: AnchorGeometry.Origin, +top: AnchorGeometry.Origin, +width: Nat, +height: Nat, +state: Browser.State) -> Type:
@@ -59,23 +59,23 @@ def publication_current_claim_at(+capacity: Nat, +last_published: Nat, +state: B
 
 def frame_capture_program_claim(+frame: Rendered.Frame, +state: Browser.State) -> Type:
   {Browser.program(Browser.frame_capture(frame, state)) == Browser.program(state) : M.World()}
-def document_keyboard_claim(+key: String, +shift: Bool, +basis: Native.Basis, +semantic: UI.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
+def document_keyboard_claim(+key: String, +shift: Bool, +basis: Native.Basis, +semantic: InterfaceView.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
   {Browser.published_key(key, shift, Focus.Document{}, basis, semantic, frame, state) == Browser.KeyResult{False{}, Browser.Decision{state, Nil{}}} : Browser.KeyResult}
 
-def temporary_tab_claim(+shift: Bool, +identity: String, +initial: String, +restore: String, +occurrence: Maybe<&2, Nat>, +basis: Native.Basis, +semantic: UI.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
+def temporary_tab_claim(+shift: Bool, +identity: String, +initial: String, +restore: String, +occurrence: Maybe<&2, Nat>, +basis: Native.Basis, +semantic: InterfaceView.Surface, +frame: Maybe<&2, Rendered.Frame>, +state: Browser.State) -> Type:
   {Browser.key_handled(Browser.published_key("Tab", shift, Focus.Temporary{identity, initial, restore, occurrence}, basis, semantic, frame, state)) == True{} : Bool}
 
 type Requirements is Type:
   Requirements{
-    temporary_tab: @+shift:Bool -> @+identity:String -> @+initial:String -> @+restore:String -> @+occurrence:Maybe<&2, Nat> -> @+basis:Native.Basis -> @+semantic:UI.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> temporary_tab_claim(shift, identity, initial, restore, occurrence, basis, semantic, frame, state),
+    temporary_tab: @+shift:Bool -> @+identity:String -> @+initial:String -> @+restore:String -> @+occurrence:Maybe<&2, Nat> -> @+basis:Native.Basis -> @+semantic:InterfaceView.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> temporary_tab_claim(shift, identity, initial, restore, occurrence, basis, semantic, frame, state),
     native_fields: NativeRules.Requirements,
     frame_capture_program: @+frame:Rendered.Frame -> @+state:Browser.State -> frame_capture_program_claim(frame, state),
-    document_keyboard: @+key:String -> @+shift:Bool -> @+basis:Native.Basis -> @+semantic:UI.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> document_keyboard_claim(key, shift, basis, semantic, frame, state),
+    document_keyboard: @+key:String -> @+shift:Bool -> @+basis:Native.Basis -> @+semantic:InterfaceView.Surface -> @+frame:Maybe<&2, Rendered.Frame> -> @+state:Browser.State -> document_keyboard_claim(key, shift, basis, semantic, frame, state),
     stale_frames: @+received:Nat -> @+frame:Rendered.Frame -> @+state:Browser.State ->
       {Browser.frame_owned(received, state) == False{} : Bool} -> stale_frames_claim(received, frame, state),
     stale_measurements: @+received:Browser.MeasurementTicket -> @+tokens:+List<String> -> @+state:Browser.State ->
       {Browser.measurement_owned(received, state) == False{} : Bool} -> stale_measurements_claim(received, tokens, state),
-    ready_document: @+rendering_capacity:Nat -> @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+layout_capacity:View.Capacity -> @+engine:World.Engine -> @+world:Content.AllocatedWorld -> @+semantic:UI.Surface -> ready_document_claim(rendering_capacity, legacy, serial, anchors, layout_capacity, engine, world, semantic),
+    ready_document: @+rendering_capacity:Nat -> @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+layout_capacity:View.Capacity -> @+engine:World.Engine -> @+world:Content.AllocatedWorld -> @+semantic:InterfaceView.Surface -> ready_document_claim(rendering_capacity, legacy, serial, anchors, layout_capacity, engine, world, semantic),
     anchor_preserves_program: @+key:String -> @+left:AnchorGeometry.Origin -> @+top:AnchorGeometry.Origin -> @+width:Nat -> @+height:Nat -> @+state:Browser.State -> anchor_preserves_program_claim(key, left, top, width, height, state),
     publication_preserves_pending_at: @+capacity:Nat -> @+last_published:Nat -> @+state:Browser.State ->
       {Bool.not(Nat.is_eq(last_published, 0n)) == True{} : Bool} ->
@@ -92,7 +92,7 @@ law forwarded_frame_uses_published_surface:
   for +anchors: +List<Shell.Anchor>
   for +lifecycle: Browser.Lifecycle
   for +world: Content.AllocatedWorld
-  for +semantic: UI.Surface
+  for +semantic: InterfaceView.Surface
   for +scope: Focus.Scope
   for +basis: Native.Basis
   for +old: Maybe<&2, Rendered.Frame>
@@ -124,7 +124,7 @@ law failed_font_candidate_blocked:
       Browser.Blocked{"Font measurements could not be validated."}, displayed}, Nil{}}} : Browser.Search}
 
 law unmet_frame_status:
-  for +semantic: UI.Surface
+  for +semantic: InterfaceView.Surface
   for +application: Platform.State
   for +generation: Nat
   for +frame_generation: Nat
@@ -169,7 +169,7 @@ law rejected_native_focus_preserves_state:
   {Browser.native_focus_observed(generation, owner, identity, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
 
 law missing_native_frame_rejects:
-  for semantic: UI.Surface
+  for semantic: InterfaceView.Surface
   for owner: String
   for identity: String
   {Browser.native_frame_owned(None{}, semantic, owner, identity) == False{} : Bool}
@@ -228,7 +228,7 @@ law measurement_wrong_round:
   for +index: Nat
   for +capacity: View.Capacity
   for +engine: World.Engine
-  for +semantic: UI.Surface
+  for +semantic: InterfaceView.Surface
   for +displayed: Maybe<&2, Browser.Published>
   for same_generation: {Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) == True{} : Bool}
   for stale_round: {Nat.is_eq(received_round, round) == False{} : Bool}
@@ -242,7 +242,7 @@ law measurement_request_canonical:
   for +index: Nat
   for +capacity: View.Capacity
   for +engine: World.Engine
-  for +semantic: UI.Surface
+  for +semantic: InterfaceView.Surface
   for +round: Nat
   for +displayed: Maybe<&2, Browser.Published>
   for +generation: Nat
@@ -335,7 +335,7 @@ def retained_frame_decision_claim(+first: +List<Legacy.Effect>, +state: Browser.
 def rebuilt_frame_decision_claim(+first: +List<Legacy.Effect>, +state: Browser.State) -> Type:
   {Browser.accepted(True{}, first, state) == Browser.append(first, Browser.build(0n, state)) : Browser.Decision}
 
-def inspection_frame_expected(frame: Maybe<&2, Rendered.Frame>, +active: +List<UI.Node>, +layer: Maybe<&2, String>, +dismiss: Maybe<&2, Legacy.DismissTarget>) -> Browser.RenderInspection:
+def inspection_frame_expected(frame: Maybe<&2, Rendered.Frame>, +active: +List<InterfaceView.Node>, +layer: Maybe<&2, String>, +dismiss: Maybe<&2, Legacy.DismissTarget>) -> Browser.RenderInspection:
   match frame:
     case None{}: Browser.RenderInspection{None{}, None{}, None{}, layer, dismiss}
     case Some{+observed}:
@@ -353,7 +353,7 @@ def inspection_display_expected(+frame: Maybe<&2, Rendered.Frame>, +layer: Maybe
   match displayed:
     case None{}: Browser.RenderInspection{frame, None{}, None{}, layer, None{}}
     case Some{Browser.Published{world, semantic, scope, basis, published_frame}}:
-      +active = UI.active_nodes(semantic)
+      +active = InterfaceView.active_nodes(semantic)
       +dismiss = Legacy.dismiss_target(active)
       inspection_frame_expected(frame, active, layer, dismiss)
 
@@ -476,7 +476,7 @@ law selected_infeasible:
   for +capacity: View.Capacity
   for +engine: World.Engine
   for +state: Browser.State
-  for +semantic: UI.Surface
+  for +semantic: InterfaceView.Surface
   for +round: Nat
   {Browser.selected(Plan.Infeasible{failure}, index, capacity, engine, state, semantic, round) ==
     Browser.infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure) : Browser.Search}

@@ -148,13 +148,13 @@ type Node is Data:
 
   Box{key: Identity.Key, tag: BoxTag, style: Style, attributes: +List<Attribute>, children: +List<Node>}
   Control{key: Identity.Key, tag: ControlTag, style: Style, attributes: +List<Attribute>,
-    accessible_name: String, enabled: Bool, first_event: Doc.Event,
-    remaining_events: +List<Doc.Event>, children: +List<Node>}
+    accessible_name: String, enabled: Bool, first_event: Doc.DOMEvent,
+    remaining_events: +List<Doc.DOMEvent>, children: +List<Node>}
   Text{key: Identity.Key, value: String, font: FontChoice, wrapping: T.Wrapping}
   Glyph{key: Identity.Key, drawing: Drawing, style: Style}
   Field{key: Identity.Key, kind: NativeFieldKind, style: Style, attributes: +List<Attribute>,
     value: String, placeholder: String, options: +List<Choice>, policy: FieldPolicy,
-    accessible_name: String, enabled: Bool, first_event: Doc.Event, remaining_events: +List<Doc.Event>}
+    accessible_name: String, enabled: Bool, first_event: Doc.DOMEvent, remaining_events: +List<Doc.DOMEvent>}
   RichText{key: Identity.Key, style: Style, content: RichContent, attachments: +List<Node>, native_owner: Maybe<&2, String>}
 
 def resolve_font(choice: FontChoice, parent: T.Presentation) -> T.Presentation:
@@ -247,7 +247,7 @@ def children_of(node: Node) -> +List<Node>:
     case RichText{key, style, content, attachments, native_owner}: attachments
     case NativeAttachment{key, target, attributes, style, children}: children
 
-def events_of(node: Node) -> +List<Doc.Event>:
+def events_of(node: Node) -> +List<Doc.DOMEvent>:
   match node:
     case Box{key, tag, style, attributes, children}: Nil{}
     case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: first_event <> remaining_events
@@ -257,7 +257,7 @@ def events_of(node: Node) -> +List<Doc.Event>:
     case RichText{key, style, content, attachments, native_owner}: Nil{}
     case NativeAttachment{key, target, attributes, style, children}: Nil{}
 
-def interaction_of(node: Node) -> Model.Interaction<Doc.Event>:
+def interaction_of(node: Node) -> Model.Interaction<Doc.DOMEvent>:
   match node:
     case Box{key, tag, style, attributes, children}: Model.DisplayOnly{}
     case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Model.Operable{first_event, remaining_events, enabled}

@@ -13,10 +13,12 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
+  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
   const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
-  assert.match(baseline.stdout, /All terms check/);
+  assert.match(baseline.stdout, /ALL PROOFS CHECK/);
   const mutations = [
     ['ordinary profiles request an evaluator', 'bendlib/reasoning.bend',
       'case R.Fixed{}: R.FixedPlan{}', 'case R.Fixed{}: R.Evaluate{}', /route_meaning|reasoning_boundary/],
@@ -60,7 +62,7 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
         const operational = check('PROGRAM.bend');
         assert.equal(operational.error, undefined, `${label}: compiler must not time out`);
         assert.equal(operational.status, 0, operational.stdout + operational.stderr);
-        assert.match(operational.stdout, /All terms check/, `${label}: the runtime mutant must still type-check`);
+        assert.match(operational.stdout, /ALL PROOFS CHECK/, `${label}: the runtime mutant must still type-check`);
         const proof = check('PROOF.bend');
         assert.equal(proof.error, undefined, `${label}: proof failure must not be a timeout`);
         assert.notEqual(proof.status, 0, `${label}: proof accepted the fault`);

@@ -8,7 +8,7 @@ import ../bendlib/tasks.bend as Tasks
 import ../bendlib/conversation-spec.bend as Spec
 import ../MODEL.bend as M
 import ../bendlib/json.bend as J
-import ./interface.bend as UI
+import ./interface.bend as InterfaceView
 import ./SYSTEM.bend as Core
 import ./user-input.bend as U
 
@@ -34,34 +34,34 @@ def expected_parameter(value: J.Json) -> String:
 def RenderedParameter(-value: J.Json) -> Type:
   Sigma<&2, &1, String, (text =>
     {J.show(value) == Done{text} : Result<&2, &2, String, String>} &
-    {UI.approval_serialized(J.show(value)) == text : String})>
+    {InterfaceView.approval_serialized(J.show(value)) == text : String})>
 
 def expected_argument_label(name: String) -> String:
   OperationParameters.label(name)
 
-def expected_fields(fields: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) -> +List<UI.Node>:
+def expected_fields(fields: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) -> +List<InterfaceView.Node>:
   match fields:
     case Nil{}: Nil{}
     case Con{J.Field{name, value}, rest}:
-      UI.Node{Identity.Part{parent, "argument/" ++ Nat.show(index)}, "argument/" ++ Nat.show(index),
-        expected_argument_label(name), UI.Content{}, UI.ReadOnly{expected_parameter(value)}, Nil{}} <>
+      InterfaceView.Node{Identity.Part{parent, "argument/" ++ Nat.show(index)}, "argument/" ++ Nat.show(index),
+        expected_argument_label(name), InterfaceView.Content{}, InterfaceView.ReadOnly{expected_parameter(value)}, Nil{}} <>
         expected_fields(rest, (index + 1n : Nat), parent)
 
-def expected_arguments(arguments: J.Json, +parent: Identity.Key) -> +List<UI.Node>:
+def expected_arguments(arguments: J.Json, +parent: Identity.Key) -> +List<InterfaceView.Node>:
   match arguments:
     case J.Object{fields}: expected_fields(fields, 0n, parent)
-    case other: [UI.Node{Identity.Part{parent, "arguments"}, "arguments", "Arguments", UI.Content{}, UI.ReadOnly{expected_parameter(other)}, Nil{}}]
+    case other: [InterfaceView.Node{Identity.Part{parent, "arguments"}, "arguments", "Arguments", InterfaceView.Content{}, InterfaceView.ReadOnly{expected_parameter(other)}, Nil{}}]
 
-def expected_directory(context: D.TaskContext, +parent: Identity.Key) -> +List<UI.Node>:
+def expected_directory(context: D.TaskContext, +parent: Identity.Key) -> +List<InterfaceView.Node>:
   D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
   match primary:
     case None{}: Nil{}
-    case Some{path}: [UI.Node{Identity.Part{parent, "default-directory"}, "default-directory", "Default working directory", UI.Content{}, UI.ReadOnly{path}, Nil{}}]
+    case Some{path}: [InterfaceView.Node{Identity.Part{parent, "default-directory"}, "default-directory", "Default working directory", InterfaceView.Content{}, InterfaceView.ReadOnly{path}, Nil{}}]
 
-def expected_metadata(call: D.Call, context: D.TaskContext, +parent: Identity.Key) -> +List<UI.Node>:
+def expected_metadata(call: D.Call, context: D.TaskContext, +parent: Identity.Key) -> +List<InterfaceView.Node>:
   D.Call{id, name, arguments} = call
-  UI.Node{Identity.Part{parent, "tool"}, "tool", "Tool", UI.Content{}, UI.ReadOnly{name}, Nil{}} <>
-    List.append(&2, UI.Node, expected_arguments(arguments, parent), expected_directory(context, parent))
+  InterfaceView.Node{Identity.Part{parent, "tool"}, "tool", "Tool", InterfaceView.Content{}, InterfaceView.ReadOnly{name}, Nil{}} <>
+    List.append(&2, InterfaceView.Node, expected_arguments(arguments, parent), expected_directory(context, parent))
 
 def reviewer_name(reviewer: D.Profile) -> String:
   D.Profile{key, provider, name, reasoning, options} = reviewer
@@ -96,18 +96,18 @@ type Requirements is Type:
       {timeline_decisions(Actual.timeline(reader, task, world)) ==
         Actual.decisions(D.task_operations(task), D.task_context(task), D.task_id(task), world) : +List<Actual.DecisionRequest>},
     approval_metadata: @+call:D.Call -> @+context:D.TaskContext -> @+parent: Identity.Key ->
-      {UI.approval_metadata(call, context, parent) == expected_metadata(call, context, parent) : +List<UI.Node>},
+      {InterfaceView.approval_metadata(call, context, parent) == expected_metadata(call, context, parent) : +List<InterfaceView.Node>},
     serialized_parameter: @+value:J.Json -> RenderedParameter(value),
     human_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+approve:U.Input -> @+deny:U.Input -> @+enabled:Bool -> @+parent: Identity.Key -> @+state:Core.State ->
-      {UI.approvals([Actual.HumanDecision{operation, call, context, approve, deny, enabled}], parent, state) ==
-        [UI.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Approval required", UI.Approval{}, UI.Region{}, List.append(&2, UI.Node, UI.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
-            [UI.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "approve", "Approve once", approve, enabled, state),
-             UI.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "deny", "Deny", deny, enabled, state)])}] : +List<UI.Node>},
+      {InterfaceView.approvals([Actual.HumanDecision{operation, call, context, approve, deny, enabled}], parent, state) ==
+        [InterfaceView.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Approval required", InterfaceView.Approval{}, InterfaceView.Region{}, List.append(&2, InterfaceView.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [InterfaceView.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "approve", "Approve once", approve, enabled, state),
+             InterfaceView.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "deny", "Deny", deny, enabled, state)])}] : +List<InterfaceView.Node>},
     automatic_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+reviewer:D.Profile -> @+parent: Identity.Key -> @state:Core.State ->
-      {UI.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
-        [UI.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", UI.Approval{}, UI.Region{}, List.append(&2, UI.Node, UI.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
-            [UI.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", UI.Content{},
-              UI.ReadOnly{reviewer_name(reviewer)}, Nil{}}])}] : +List<UI.Node>},
+      {InterfaceView.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
+        [InterfaceView.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", InterfaceView.Approval{}, InterfaceView.Region{}, List.append(&2, InterfaceView.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [InterfaceView.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", InterfaceView.Content{},
+              InterfaceView.ReadOnly{reviewer_name(reviewer)}, Nil{}}])}] : +List<InterfaceView.Node>},
     approval_detail: @+task:Nat -> @+operation:Nat -> @+call:D.Call -> @+reviewer:D.ApprovalReviewer -> @+outcome:D.ApprovalOutcome ->
       {Actual.audit_detail(D.ApprovalRecord{task, operation, call, reviewer, outcome}) ==
         Actual.json_detail(J.show(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome}))) : String},

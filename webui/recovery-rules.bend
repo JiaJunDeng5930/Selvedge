@@ -17,7 +17,7 @@ import ./focus.bend as Focus
 import ./source-frame.bend as SourceFrame
 import ./native-fields.bend as Native
 import ../MODEL.bend as M
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 
 type Requirements is Type:
   Requirements{
@@ -31,7 +31,7 @@ type Requirements is Type:
       {Browser.utility_publish(world, purpose, engine, Browser.State{legacy, serial, anchors, lifecycle, displayed}) ==
         Browser.Decision{Browser.State{legacy, serial, anchors, Browser.UtilityDisplaying{purpose, engine},
           Some{Browser.Published{world, Browser.current_legacy_surface(legacy), Focus.Document{}, Native.Basis{Nil{}, Nil{}}, None{}}}}, Nil{}} : Browser.Decision},
-    correlated_frame: @+frame:Rendered.Frame -> @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+lifecycle:Browser.Lifecycle -> @+world:Content.AllocatedWorld -> @+semantic:UI.Surface -> @+scope:Focus.Scope -> @+basis:Native.Basis -> @+old:Maybe<&2, Rendered.Frame> ->
+    correlated_frame: @+frame:Rendered.Frame -> @+legacy:Legacy.State -> @+serial:Nat -> @+anchors:+List<Shell.Anchor> -> @+lifecycle:Browser.Lifecycle -> @+world:Content.AllocatedWorld -> @+semantic:InterfaceView.Surface -> @+scope:Focus.Scope -> @+basis:Native.Basis -> @+old:Maybe<&2, Rendered.Frame> ->
       {Browser.correlated_frame_owned(True{}, frame, Browser.State{legacy, serial, anchors, lifecycle, Some{Browser.Published{world, semantic, scope, basis, old}}}) ==
         Browser.utility_frame_result(SourceFrame.check(world, frame), frame, Browser.State{legacy, serial, anchors, lifecycle, Some{Browser.Published{world, semantic, scope, basis, old}}}) : Browser.Decision},
     ready_admission: @+world:Content.AllocatedWorld -> @+purpose:Utility.Purpose -> @+engine:World.Engine -> @+round:Nat -> @+glyph_only:Bool -> @+state:Browser.State ->

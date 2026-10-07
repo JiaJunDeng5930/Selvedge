@@ -5,6 +5,7 @@ import ../../bendlib/domain.bend as D
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
 import ../user-experience.bend as E
+import ../user-experience-program.bend as ExperienceProgram
 import ../user-input.bend as U
 import ../user-context.bend as Context
 import ../code-block.bend as Content
@@ -363,7 +364,7 @@ def accepted_message(+directory_entry: String, +revision: Nat, +task: Nat, +mess
 def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.DirectoryObservation>,
   +application: E.Application,
   absent: {E.find_pending(Rule.pending_entries(application), ticket) == None{} : Maybe<&2, E.Pending>}) ->
-  {E.step(E.DirectoriesObserved{ticket, result}, application) ==
+  {ExperienceProgram.step(E.DirectoriesObserved{ticket, result}, application) ==
     E.Decision{application, D.failure("interaction_refused", "The directory observation has no pending request"), Nil{}, Nil{}, False{}} : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer}} = application
   Equal.cong(Maybe<&2, E.Pending>, E.Decision,

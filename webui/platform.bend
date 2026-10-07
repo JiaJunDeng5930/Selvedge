@@ -1,6 +1,6 @@
 import Base
 import ../UI.bend as Product
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ./focus.bend as Focus
 import ../MODEL.bend as M
 import ../core/SYSTEM.bend as Core
@@ -22,8 +22,8 @@ type State is Data:
 
 type Input is Data:
   ProductInput{input: Product.Input}
-  ReadingInput{task: Nat, generation: Nat, event: Reading.Event}
-  EditorInput{editor: U.Editor, event: Editor.Event}
+  ReadingInput{task: Nat, generation: Nat, event: Reading.ReadingEvent}
+  EditorInput{editor: U.Editor, event: Editor.EditorEvent}
   CapacityObserved{capacity: View.Capacity}
   FocusObserved{identity: String}
   ContentFocusObserved{owner: String, identity: String}
@@ -32,7 +32,7 @@ type Input is Data:
   MotionPreference{reduced: Bool}
 
 type Effect is Data:
-  Scroll{task: Nat, generation: Nat, effect: Reading.Effect}
+  ApplyReading{task: Nat, generation: Nat, effect: Reading.Effect}
   Focus{ticket: Nat, target: Focus.Target}
   ScopeFocus{ticket: Nat, previous: Focus.Scope, current: Focus.Scope}
   Clipboard{block: Code.Identity, effect: Code.Effect}
@@ -66,7 +66,7 @@ def reading_intent(application: E.Application, task: Nat) -> U.ReadingIntent:
 def wrap_scroll(effects: +List<Reading.Effect>, +task: Nat, +generation: Nat) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
-    case Con{effect, rest}: Scroll{task, generation, effect} <> wrap_scroll(rest, task, generation)
+    case Con{effect, rest}: ApplyReading{task, generation, effect} <> wrap_scroll(rest, task, generation)
 
 def set_intent(intent: Maybe<&2, U.ReadingIntent>, task: Nat, generation: Nat, core: Core.State) -> Core.Decision:
   match intent:
@@ -79,7 +79,7 @@ def reading_result(decision: Reading.Decision, +task: Nat, +generation: Nat, cor
   Decision{set_intent(intent, task, generation, core),
     Platform{(task, bookmark) <> Finite.remove(~Reading.Bookmark, readers, task), editors, focused, ticket, reduced, capacity, scope}, wrap_scroll(effects, task, generation)}
 
-def read(owned: Bool, +task: Nat, generation: Nat, event: Reading.Event, core: Core.State, platform: Platform) -> Decision:
+def read(owned: Bool, +task: Nat, generation: Nat, event: Reading.ReadingEvent, core: Core.State, platform: Platform) -> Decision:
   match owned:
     case False{}: Decision{unchanged(core), platform, Nil{}}
     case True{}:
@@ -111,7 +111,7 @@ def save_editor(editors: +List<Editor.Editor>, +owner: U.Editor, +current: Edito
       replace_editor(U.same_editor(key, owner), Editor.Editor{key, selection, composing}, rest, current, save_editor(rest, owner, current))
 
 def editor_enabled(core: Core.State, owner: U.Editor, capacity: View.Capacity) -> Bool:
-  UI.composer_enabled(capacity, owner, core)
+  InterfaceView.composer_enabled(capacity, owner, core)
 
 def layout_for(application: E.Application, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Effect>:
   E.Application{program, E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
@@ -206,21 +206,21 @@ def synchronize_editors(editors: +List<Editor.Editor>, application: E.Applicatio
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   synchronize_drafts(drafts, editors)
 
-def found_focus(found: Maybe<&2, UI.Node>) -> Bool:
+def found_focus(found: Maybe<&2, InterfaceView.Node>) -> Bool:
   match found:
     case None{}: False{}
-    case Some{UI.Node{key, semantic, label, role, meaning, children}}: UI.focusable(meaning)
+    case Some{InterfaceView.Node{key, semantic, label, role, meaning, children}}: InterfaceView.focusable(meaning)
 
 def active_focus(core: Core.State, capacity: View.Capacity, identity: String) -> Bool:
-  found_focus(UI.find_node(UI.active_nodes(UI.observe(capacity, core)), identity))
-def found_content_owner(found: Maybe<&2, UI.Node>) -> Bool:
+  found_focus(InterfaceView.find_node(InterfaceView.active_nodes(InterfaceView.observe(capacity, core)), identity))
+def found_content_owner(found: Maybe<&2, InterfaceView.Node>) -> Bool:
   match found:
-    case Some{UI.Node{key, semantic, label, role, UI.ReadOnly{text}, children}}: True{}
-    case Some{UI.Node{key, semantic, label, role, UI.RichText{source, value}, children}}: True{}
+    case Some{InterfaceView.Node{key, semantic, label, role, InterfaceView.ReadOnly{text}, children}}: True{}
+    case Some{InterfaceView.Node{key, semantic, label, role, InterfaceView.RichText{source, value}, children}}: True{}
     case _: False{}
 
 def active_content_owner(core: Core.State, capacity: View.Capacity, owner: String) -> Bool:
-  found_content_owner(UI.find_node(UI.active_nodes(UI.observe(capacity, core)), owner))
+  found_content_owner(InterfaceView.find_node(InterfaceView.active_nodes(InterfaceView.observe(capacity, core)), owner))
 
 def active_target(+core: Core.State, +capacity: View.Capacity, target: Focus.Target) -> Bool:
   match target:
@@ -307,20 +307,20 @@ def realized_product_focus(found: Maybe<&2, String>, ticket: Nat, rest: +List<Ef
     case None{}: rest
     case Some{key}: Focus{ticket, Focus.Product{key}} <> rest
 
-def realized_effects(+surface: UI.Surface, effects: +List<Effect>) -> +List<Effect>:
+def realized_effects(+surface: InterfaceView.Surface, effects: +List<Effect>) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
     case Con{Focus{ticket, Focus.Product{requested}}, rest}:
-      realized_product_focus(UI.focus_target(surface, requested), ticket, realized_effects(surface, rest))
+      realized_product_focus(InterfaceView.focus_target(surface, requested), ticket, realized_effects(surface, rest))
     case Con{ScopeFocus{ticket, previous, current}, rest}:
-      realized_product_focus(UI.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, realized_effects(surface, rest))
+      realized_product_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, realized_effects(surface, rest))
     case Con{effect, rest}: effect <> realized_effects(surface, rest)
 
 def realized_decision(decision: Decision) -> Decision:
   Decision{Core.Decision{+core, reply, runtime, interaction, services, durable},
     Platform{readers, editors, focused, ticket, reduced, +capacity, scope}, effects} = decision
   # NOTE: Resolve product focus once against the committed UI before host delivery.
-  +surface = UI.observe(capacity, core)
+  +surface = InterfaceView.observe(capacity, core)
   Decision{Core.Decision{core, reply, runtime, interaction, services, durable},
     Platform{readers, editors, focused, ticket, reduced, capacity, scope}, realized_effects(surface, effects)}
 

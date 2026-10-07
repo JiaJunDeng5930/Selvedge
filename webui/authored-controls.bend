@@ -11,7 +11,7 @@ import ./enclosure.bend as Enclosure
 import ./typography.bend as T
 import ./document.bend as Doc
 import ./editor-layout.bend as EditorLayout
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/ui-world.bend as View
 import ../core/form-fields.bend as Forms
 import ../core/field-options.bend as FieldOptions
@@ -68,14 +68,14 @@ def field_text(field: Forms.Field, value: Forms.Observed) -> String:
 type CreationParts is Data:
   CreationParts{hero: +List<Doc.Node>, footer: +List<Doc.Node>}
 
-def node_value(value: UI.Meaning) -> String:
+def node_value(value: InterfaceView.Meaning) -> String:
   match value:
-    case UI.Edit{editor, field, entry, observed_value, choices}: field_text(field, observed_value)
-    case UI.BoardSearch{filter}: filter_search(filter)
-    case UI.SearchChoices{query}: query
-    case UI.EnterDirectory{editor, text}: text
-    case UI.DirectoryBrowserLocation{value}: value
-    case UI.BoardProfile{automatic, selected, choices, enabled}: selected
+    case InterfaceView.Edit{editor, field, entry, observed_value, choices}: field_text(field, observed_value)
+    case InterfaceView.BoardSearch{filter}: filter_search(filter)
+    case InterfaceView.SearchChoices{query}: query
+    case InterfaceView.EnterDirectory{editor, text}: text
+    case InterfaceView.DirectoryBrowserLocation{value}: value
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: selected
     case _: ""
 
 def parent_font(value: Design.Style) -> T.Presentation:
@@ -127,6 +127,7 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.SingleLineFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, T.SingleLine{})]
     case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
     case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
+    case Controls.UnbrokenIconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.PickerFace{leading, text}:
       List.append(&2, Source.Node, leading_icon(leading, key, parent, face_icon_size(geometry)),
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]}, glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
@@ -143,7 +144,7 @@ def face(key: UIIdentity.Key, value: Controls.Face, parent: Design.Style, geomet
   face_members(value, key, parent, geometry)
 
 def enabled(value: View.Availability) -> Bool:
-  UI.available(value)
+  InterfaceView.available(value)
 
 def availability_attributes(value: View.Availability) -> +List<Source.Attribute>:
   match value:
@@ -195,12 +196,12 @@ def action(+key: UIIdentity.Key, +visual: Design.Style, representation: Controls
       Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, availability_attributes(availability), List.append(&2, Source.Attribute, behavior(state), List.append(&2, Source.Attribute, help(assistance), feedback(response))))), name, enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, face(key, value, visual, geometry)}
     case _: invalid(key, visual, "invalid-action-representation")
 
-def field_checked(value: UI.Meaning) -> Bool:
+def field_checked(value: InterfaceView.Meaning) -> Bool:
   match value:
-    case UI.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: enabled
-    case UI.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: enabled
-    case UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
-    case UI.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
+    case InterfaceView.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: enabled
+    case InterfaceView.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: enabled
+    case InterfaceView.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
+    case InterfaceView.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
     case _: False{}
 
 def checked_attributes(checked: Bool) -> +List<Source.Attribute>:
@@ -213,10 +214,10 @@ def option_values(values: +List<Forms.ChoiceValue>, +selected: String) -> +List<
     case Nil{}: Nil{}
     case Con{Forms.ChoiceValue{+value, label}, rest}: Source.Choice{value, label, String.eq(value, selected)} <> option_values(rest, selected)
 
-def choices(value: UI.Meaning) -> +List<Source.Choice>:
+def choices(value: InterfaceView.Meaning) -> +List<Source.Choice>:
   match value:
-    case UI.BoardProfile{automatic, selected, profiles, enabled}: option_values(FieldOptions.profile_options(profiles), selected)
-    case UI.Edit{editor, field, entry, observed, options}: option_values(options, field_text(field, observed))
+    case InterfaceView.BoardProfile{automatic, selected, profiles, enabled}: option_values(FieldOptions.profile_options(profiles), selected)
+    case InterfaceView.Edit{editor, field, entry, observed, options}: option_values(options, field_text(field, observed))
     case _: Nil{}
 
 def field_placeholder(kind: EditorLayout.FieldKind, name: String) -> String:
@@ -225,21 +226,21 @@ def field_placeholder(kind: EditorLayout.FieldKind, name: String) -> String:
     case EditorLayout.WorkDescription{}: name
     case _: ""
 
-def semantic_placeholder(value: UI.Meaning, name: String) -> String:
+def semantic_placeholder(value: InterfaceView.Meaning, name: String) -> String:
   match value:
-    case UI.BoardSearch{filter}: "搜索任务"
-    case UI.Edit{editor, Forms.CardLabels{}, entry, observed, choices}: "每行一个标签"
+    case InterfaceView.BoardSearch{filter}: "搜索任务"
+    case InterfaceView.Edit{editor, Forms.CardLabels{}, entry, observed, choices}: "每行一个标签"
     case other: field_placeholder(EditorLayout.field_kind(other), name)
 
-def placeholder(widget: Controls.Widget, meaning: UI.Meaning, name: String) -> String:
+def placeholder(widget: Controls.Widget, meaning: InterfaceView.Meaning, name: String) -> String:
   match widget:
     case Controls.MessageInput{}: "Ask anything, or describe a task"
     case _: semantic_placeholder(meaning, name)
 
-def field_metadata(key: UIIdentity.Key, value: UI.Meaning) -> +List<Source.Attribute>:
+def field_metadata(key: UIIdentity.Key, value: InterfaceView.Meaning) -> +List<Source.Attribute>:
   match value:
-    case UI.Edit{editor, Forms.MessageText{}, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.EditorBindingAttribute{key}]
-    case UI.Edit{editor, field, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(field)}]
+    case InterfaceView.Edit{editor, Forms.MessageText{}, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.EditorBindingAttribute{key}]
+    case InterfaceView.Edit{editor, field, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(field)}]
     case _: Nil{}
 
 def field_kind(value: Controls.Widget) -> Source.NativeFieldKind:
@@ -259,14 +260,14 @@ def field_kind(value: Controls.Widget) -> Source.NativeFieldKind:
     case Controls.SecretInput{}: Source.SecretField{}
     case Controls.PlainValue{}: Source.TextField{}
 
-def field_first_event(value: Controls.Widget, key: UIIdentity.Key) -> Doc.Event:
+def field_first_event(value: Controls.Widget, key: UIIdentity.Key) -> Doc.DOMEvent:
   match value:
     case Controls.ToggleInput{}: Doc.EditToggle{UIIdentity.encode(key)}
     case Controls.FileChooser{face}: Doc.SelectFiles{UIIdentity.encode(key)}
     case Controls.AttachmentList{}: Doc.SelectFiles{UIIdentity.encode(key)}
     case _: Doc.EditText{UIIdentity.encode(key)}
 
-def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.Event>:
+def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
   match value:
     case Controls.DirectoryChooser{face}: [Doc.ConfirmText{UIIdentity.encode(key)}]
     case _: Nil{}
@@ -315,14 +316,14 @@ def label_field(+value: Controls.LabelPlacement, +key: UIIdentity.Key, name: Str
       Source.Box{UIIdentity.part(key, "field-wrapper"), label_tag(other), Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
         [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, label_width(other), Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
 
-def input_widget(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: UI.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+def input_widget(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: InterfaceView.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match widget:
     case Controls.PlainValue{}:
       Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Factory.binding_attributes(key), [caption(UIIdentity.part(key, "value"), node_value(meaning), visual, T.NormalAnywhere{})]}
     case +other:
       label_field(placement, key, name, visual, Source.Field{key, field_kind(other), Factory.style(visual, input_width(other), input_height(other), Model.Confined{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(placement, key), availability_attributes(availability))))), node_value(meaning), placeholder(other, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(other, visual, parameters), 1n)), name, enabled(availability), field_first_event(other, key), field_remaining_events(other, key)})
 
-def input(key: UIIdentity.Key, meaning: UI.Meaning, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+def input(key: UIIdentity.Key, meaning: InterfaceView.Meaning, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
     case Controls.Input{binding, name, widget, label, availability}: input_widget(widget, key, meaning, name, label, availability, visual, parameters)
     case _: invalid(key, visual, "invalid-input-representation")
@@ -333,14 +334,14 @@ def available_placement_choice(enabled: Bool, target: String, label: String, res
     case True{}: Source.Choice{target, label, False{}} <> rest
     case False{}: rest
 
-def placement_choices(values: +List<UI.Placement>) -> +List<Source.Choice>:
+def placement_choices(values: +List<InterfaceView.Placement>) -> +List<Source.Choice>:
   match values:
     case Nil{}: Nil{}
-    case Con{UI.Placement{target, label, input, availability}, rest}:
-      available_placement_choice(UI.available(availability), target, label, placement_choices(rest))
+    case Con{InterfaceView.Placement{target, label, input, availability}, rest}:
+      available_placement_choice(InterfaceView.available(availability), target, label, placement_choices(rest))
 
-def has_available_destination(values: +List<UI.Placement>) -> Bool:
-  UI.has_available_destination(values)
+def has_available_destination(values: +List<InterfaceView.Placement>) -> Bool:
+  InterfaceView.has_available_destination(values)
 
 def movable_choices(+key: UIIdentity.Key, +representation: Controls.Representation, +visual: Design.Style, +parameters: Design.LayoutParameters) -> Source.Node:
   match representation:

@@ -1,6 +1,6 @@
 import Base
 import ../core/ui-identity.bend as UIIdentity
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ./interaction.bend as Geometry
 import ./rendered.bend as Rendered
 
@@ -25,7 +25,7 @@ def control_geometry_valid(+required: Bool, key: String, found: Maybe<&2, Render
       same_bool(required, enabled) &&
       enabled_geometry_valid(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport)
 
-def node_controls_valid(is_control: Bool, meaning: UI.Meaning, key: String,
+def node_controls_valid(is_control: Bool, meaning: InterfaceView.Meaning, key: String,
   found: Maybe<&2, Rendered.Element>, must_be_visible: Bool, viewport: Geometry.Rect) -> Bool:
   match is_control:
     case False{}: True{}
@@ -44,38 +44,38 @@ def reachable_toolbar(found: Maybe<&2, Rendered.Element>) -> Bool:
     case Some{Rendered.Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       visible || scroll
 
-def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
+def region_geometry_valid(role: InterfaceView.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   match role:
-    case UI.Navigation{}: bounded_region(found, viewport)
-    case UI.NavigationHeader{}: bounded_region(found, viewport)
-    case UI.Main{}: bounded_region(found, viewport)
-    case UI.Heading{}: True{}
-    case UI.Timeline{}: True{}
-    case UI.Activity{}: True{}
-    case UI.Composer{}: bounded_region(found, viewport)
-    case UI.Approval{}: True{}
-    case UI.Toolbar{}: reachable_toolbar(found)
-    case UI.CodeBlock{}: True{}
-    case UI.ApprovalQueue{}: bounded_region(found, viewport)
-    case UI.Section{}: True{}
-    case UI.DialogActions{}: bounded_region(found, viewport)
-    case UI.Dialog{}: bounded_region(found, viewport)
-    case UI.Menu{}: bounded_region(found, viewport)
-    case UI.Details{}: True{}
-    case UI.Card{}: True{}
-    case UI.Button{}: True{}
-    case UI.PrimaryButton{}: True{}
-    case UI.DestructiveButton{}: True{}
-    case UI.SelectedButton{}: True{}
-    case UI.Field{}: True{}
-    case UI.Content{}: True{}
-    case UI.Alert{}: True{}
-    case UI.UserMessage{}: True{}
-    case UI.AssistantMessage{}: True{}
-    case UI.ComposerActions{}: True{}
+    case InterfaceView.Navigation{}: bounded_region(found, viewport)
+    case InterfaceView.NavigationHeader{}: bounded_region(found, viewport)
+    case InterfaceView.Main{}: bounded_region(found, viewport)
+    case InterfaceView.Heading{}: True{}
+    case InterfaceView.Timeline{}: True{}
+    case InterfaceView.Activity{}: True{}
+    case InterfaceView.Composer{}: bounded_region(found, viewport)
+    case InterfaceView.Approval{}: True{}
+    case InterfaceView.Toolbar{}: reachable_toolbar(found)
+    case InterfaceView.CodeBlock{}: True{}
+    case InterfaceView.ApprovalQueue{}: bounded_region(found, viewport)
+    case InterfaceView.Section{}: True{}
+    case InterfaceView.DialogActions{}: bounded_region(found, viewport)
+    case InterfaceView.Dialog{}: bounded_region(found, viewport)
+    case InterfaceView.Menu{}: bounded_region(found, viewport)
+    case InterfaceView.Details{}: True{}
+    case InterfaceView.Card{}: True{}
+    case InterfaceView.Button{}: True{}
+    case InterfaceView.PrimaryButton{}: True{}
+    case InterfaceView.DestructiveButton{}: True{}
+    case InterfaceView.SelectedButton{}: True{}
+    case InterfaceView.Field{}: True{}
+    case InterfaceView.Content{}: True{}
+    case InterfaceView.Alert{}: True{}
+    case InterfaceView.UserMessage{}: True{}
+    case InterfaceView.AssistantMessage{}: True{}
+    case InterfaceView.ComposerActions{}: True{}
 
 def node_geometry_valid(found: Maybe<&2, Rendered.Element>, is_control: Bool,
-  meaning: UI.Meaning, role: UI.Role, key: String, must_be_visible: Bool,
+  meaning: InterfaceView.Meaning, role: InterfaceView.Role, key: String, must_be_visible: Bool,
   +viewport: Geometry.Rect) -> Bool:
   match found:
     case None{}: False{}
@@ -83,28 +83,28 @@ def node_geometry_valid(found: Maybe<&2, Rendered.Element>, is_control: Bool,
       node_controls_valid(is_control, meaning, key, Some{element}, must_be_visible, viewport) &&
       region_geometry_valid(role, Some{element}, viewport)
 
-def node_exists(found: Maybe<&2, UI.Node>) -> Bool:
+def node_exists(found: Maybe<&2, InterfaceView.Node>) -> Bool:
   match found:
     case None{}: False{}
     case Some{node}: True{}
 
-def node_valid(node: UI.Node, inherited: Bool, elements: +List<Rendered.Element>, viewport: Geometry.Rect) -> Bool:
-  UI.Node{+key, semantic, label, +role, +meaning, children} = node
+def node_valid(node: InterfaceView.Node, inherited: Bool, elements: +List<Rendered.Element>, viewport: Geometry.Rect) -> Bool:
+  InterfaceView.Node{+key, semantic, label, +role, +meaning, children} = node
   node_geometry_valid(Rendered.find_element(elements, UIIdentity.encode(key)), Rendered.interactive(meaning),
     meaning, role, UIIdentity.encode(key), inherited || Rendered.persistent(role), viewport)
 
-def child_persistent(inherited: Bool, +role: UI.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
+def child_persistent(inherited: Bool, +role: InterfaceView.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   inherited || Rendered.persistent(role) || Rendered.code_in_view(role, found, viewport)
 
-def all_nodes(entries: +List<UI.Node>, +inherited: Bool, +elements: +List<Rendered.Element>, +viewport: Geometry.Rect) -> Bool:
+def all_nodes(entries: +List<InterfaceView.Node>, +inherited: Bool, +elements: +List<Rendered.Element>, +viewport: Geometry.Rect) -> Bool:
   match entries:
     case Nil{}: True{}
-    case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, rest}:
-      node_valid(UI.Node{key, semantic, label, role, meaning, children}, inherited, elements, viewport) &&
+    case Con{InterfaceView.Node{+key, semantic, label, +role, +meaning, +children}, rest}:
+      node_valid(InterfaceView.Node{key, semantic, label, role, meaning, children}, inherited, elements, viewport) &&
       (all_nodes(children, child_persistent(inherited, role, Rendered.find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport) &&
        all_nodes(rest, inherited, elements, viewport))
 
-def focus(owned: Maybe<&2, String>, active: +List<UI.Node>, +elements: +List<Rendered.Element>, viewport: Geometry.Rect, +native_focus: +List<Rendered.NativeFocus>) -> Bool:
+def focus(owned: Maybe<&2, String>, active: +List<InterfaceView.Node>, +elements: +List<Rendered.Element>, viewport: Geometry.Rect, +native_focus: +List<Rendered.NativeFocus>) -> Bool:
   match owned:
     case None{}: True{}
     case Some{+key}:
@@ -133,7 +133,7 @@ def non_overlapping(elements: +List<Rendered.Element>) -> Bool:
     case Con{first, +rest}:
       disjoint_from(first, rest) && non_overlapping(rest)
 
-def layout_valid_parts(+active: +List<UI.Node>, frame: Rendered.Frame) -> Bool:
+def layout_valid_parts(+active: +List<InterfaceView.Node>, frame: Rendered.Frame) -> Bool:
   Rendered.Frame{+viewport, +elements, +focused, +tab_order, +native_focus} = frame
   all_nodes(active, False{}, elements, viewport) &&
   (focus(focused, active, elements, viewport, native_focus) &&
@@ -146,11 +146,11 @@ def paint_geometry_valid(elements: +List<Rendered.Element>, +viewport: Geometry.
     case Con{Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, rest}:
       Rendered.paint_geometry_valid(visible, bounds, paint_bounds, viewport) && paint_geometry_valid(rest, viewport)
 
-def valid_parts(+active: +List<UI.Node>, +frame: Rendered.Frame) -> Bool:
+def valid_parts(+active: +List<InterfaceView.Node>, +frame: Rendered.Frame) -> Bool:
   Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
   paint_geometry_valid(elements, viewport) && layout_valid_parts(active, frame)
 
-def valid(+surface: UI.Surface, +frame: Rendered.Frame) -> Bool:
-  UI.Surface{content, base, overlays, +scope} = surface
+def valid(+surface: InterfaceView.Surface, +frame: Rendered.Frame) -> Bool:
+  InterfaceView.Surface{content, base, overlays, +scope} = surface
   Rendered.Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
-  valid_parts(UI.active_nodes(surface), frame) && required_focus(scope, focused)
+  valid_parts(InterfaceView.active_nodes(surface), frame) && required_focus(scope, focused)

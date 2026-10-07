@@ -6,10 +6,10 @@ import ../physical-browser.bend as Browser
 import ../browser.bend as Legacy
 import ../focus.bend as Focus
 import ../native-fields.bend as Native
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../../core/ui-world.bend as View
 
-def publication(+world: Content.AllocatedWorld, capacity: View.Capacity, +legacy: Legacy.State, +semantic: UI.Surface) ->
+def publication(+world: Content.AllocatedWorld, capacity: View.Capacity, +legacy: Legacy.State, +semantic: InterfaceView.Surface) ->
   {Browser.published(world, capacity, legacy, semantic) ==
         Browser.Published{world, semantic, Focus.realized_scope(semantic, Legacy.active_focus_scope(legacy)),
           Native.basis([Rule.world_source(world)], semantic), None{}} : Browser.Published}:

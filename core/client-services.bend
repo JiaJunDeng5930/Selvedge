@@ -15,12 +15,12 @@ type Access is Data:
   ConnectionLost{reason: String}
   CredentialRejected{reason: String}
 
-type File is Data:
-  File{handle: String, name: String, mime: String, bytes: U32}
+type SelectedFile is Data:
+  SelectedFile{handle: String, name: String, mime: String, bytes: U32}
 
 type Transfer is Data:
-  Uploading{editor: U.Editor, file: File}
-  UploadFailed{editor: U.Editor, file: File, reason: String}
+  Uploading{editor: U.Editor, file: SelectedFile}
+  UploadFailed{editor: U.Editor, file: SelectedFile, reason: String}
 
 type Preview is Data:
   NoPreview{}
@@ -52,7 +52,7 @@ type Input is Data:
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
   Disconnected{reason: String}
   ChooseAppearance{appearance: Appearance}
-  AddFile{editor: U.Editor, file: File}
+  AddFile{editor: U.Editor, file: SelectedFile}
   RetryUpload{ticket: Nat}
   CancelUpload{ticket: Nat}
   Uploaded{ticket: Nat, result: Result<&2, &2, String, B.Attachment>}
@@ -72,7 +72,7 @@ type Effect is Data:
   SessionReady{}
   Authenticate{ticket: Nat, credential: String}
   StoreAppearance{appearance: Appearance}
-  Upload{ticket: Nat, file: File}
+  Upload{ticket: Nat, file: SelectedFile}
   CancelTransfer{ticket: Nat}
   AttachToDraft{editor: U.Editor, file: B.Attachment}
   ReadAttachment{ticket: Nat, file: B.Attachment}
@@ -133,7 +133,7 @@ def upload_finished(found: Maybe<&2, Transfer>, state: State, +ticket: Nat,
             (ticket, UploadFailed{editor, file, reason}) <> Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, Nil{}}
     case _: Decision{state, Nil{}}
 
-def begin_upload(allowed: Bool, editor: U.Editor, +file: File, state: State) -> Decision:
+def begin_upload(allowed: Bool, editor: U.Editor, +file: SelectedFile, state: State) -> Decision:
   match allowed:
     case False{}: Decision{state, Nil{}}
     case True{}:

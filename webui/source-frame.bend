@@ -10,7 +10,7 @@ import ./rendered.bend as Rendered
 import ./document.bend as Doc
 
 type Expected is Data:
-  Expected{key: String, bounds: Spatial.Box, interaction: Model.Interaction<Doc.Event>}
+  Expected{key: String, bounds: Spatial.Box, interaction: Model.Interaction<Doc.DOMEvent>}
 
 def rectangle(box: Spatial.Box) -> Geometry.Rect:
   Spatial.Box{+left, +top, width, height} = box
@@ -22,15 +22,15 @@ def ordinary(value: Content.Value) -> Bool:
     case Source.NativeAttachment{key, target, attrs, style, children}: False{}
     case _: True{}
 
-def entry_if(ordinary: Bool, +value: Content.Value, +bounds: Spatial.Box, +interaction: Model.Interaction<Doc.Event>, rest: +List<Expected>) -> +List<Expected>:
+def entry_if(ordinary: Bool, +value: Content.Value, +bounds: Spatial.Box, +interaction: Model.Interaction<Doc.DOMEvent>, rest: +List<Expected>) -> +List<Expected>:
   match ordinary:
     case True{}: Expected{Renderer.observation_key(value), bounds, interaction} <> rest
     case False{}: rest
 
-def entry(+value: Content.Value, +bounds: Spatial.Box, +interaction: Model.Interaction<Doc.Event>, rest: +List<Expected>) -> +List<Expected>:
+def entry(+value: Content.Value, +bounds: Spatial.Box, +interaction: Model.Interaction<Doc.DOMEvent>, rest: +List<Expected>) -> +List<Expected>:
   entry_if(ordinary(value), value, bounds, interaction, rest)
 
-def forest(trees: +List<Allocation.AllocatedTree<Content.Value, Doc.Event>>) -> +List<Expected>:
+def forest(trees: +List<Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>>) -> +List<Expected>:
   match trees:
     case Nil{}: Nil{}
     case Con{Allocation.AllocatedLeaf{physical, value, interaction, rule, demand, height, bounds, canvas}, rest}:
@@ -58,12 +58,12 @@ def same_rectangle(first: Geometry.Rect, second: Geometry.Rect) -> Bool:
   Geometry.Rect{other_left, other_top, other_right, other_bottom} = second
   F32.is_eq(left, other_left) && F32.is_eq(top, other_top) && F32.is_eq(right, other_right) && F32.is_eq(bottom, other_bottom)
 
-def interactive(interaction: Model.Interaction<Doc.Event>) -> Bool:
+def interactive(interaction: Model.Interaction<Doc.DOMEvent>) -> Bool:
   match interaction:
     case Model.DisplayOnly{}: False{}
     case Model.Operable{first, remaining, enabled}: enabled
 
-def operable_geometry(interaction: Model.Interaction<Doc.Event>, +key: String, element: Rendered.Element, viewport: Geometry.Rect) -> +List<Rendered.Violation>:
+def operable_geometry(interaction: Model.Interaction<Doc.DOMEvent>, +key: String, element: Rendered.Element, viewport: Geometry.Rect) -> +List<Rendered.Violation>:
   match interaction:
     case Model.DisplayOnly{}: Nil{}
     case Model.Operable{first, remaining, +enabled}:
@@ -71,7 +71,7 @@ def operable_geometry(interaction: Model.Interaction<Doc.Event>, +key: String, e
       List.append(&2, Rendered.Violation, Rendered.issue(Bool.not(((enabled && tab) || (Bool.not(enabled) && Bool.not(tab)))), Rendered.UnreachableControl{key}),
         Rendered.control_geometry(enabled, key, Some{Rendered.Element{observed, visible, observed_enabled, tab, keyboard, scroll, bounds, hit, paint}}, True{}, viewport))
 
-def node_geometry(+key: String, +bounds: Spatial.Box, interaction: Model.Interaction<Doc.Event>, found: Maybe<&2, Rendered.Element>, +viewport: Geometry.Rect) -> +List<Rendered.Violation>:
+def node_geometry(+key: String, +bounds: Spatial.Box, interaction: Model.Interaction<Doc.DOMEvent>, found: Maybe<&2, Rendered.Element>, +viewport: Geometry.Rect) -> +List<Rendered.Violation>:
   match found:
     case None{}: [Rendered.MissingElement{key}]
     case Some{+element}:

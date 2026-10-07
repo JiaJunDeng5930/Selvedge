@@ -4,7 +4,7 @@ import ./spatial.bend as SpatialModel
 import ./enclosure.bend as Enclosure
 import ./space.bend as Space
 import ./typography.bend as Typography
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ../core/SYSTEM.bend as Core
 import ../core/user-input.bend as UserInput
 import ../core/user-experience.bend as Experience
@@ -102,7 +102,7 @@ def task_status_glyph(value: View.TaskStatus) -> Icon:
 
 type SourceFamily is Data:
   Unscoped{}
-  SourceFamily{node: UI.Node}
+  SourceFamily{node: InterfaceView.Node}
 
 type Context is Data:
   Context{area: Area, selection: Selection, code: Maybe<&2, Code.Scene>,
@@ -115,6 +115,7 @@ type Face is Data:
   SingleLineFace{text: String}
   UnbrokenFace{text: String}
   IconTextFace{icon: Icon, text: String}
+  UnbrokenIconTextFace{icon: Icon, text: String}
   # Render the value and a trailing chevron, with room reserved for both.
   PickerFace{leading: Maybe<&2, Icon>, text: String}
   # Every option reserves the check column, including unselected options.
@@ -124,12 +125,16 @@ type Face is Data:
 
 def caption_wrapping(face: Face) -> Typography.Wrapping:
   match face:
+    case IconFace{icon}: Typography.SingleLine{}
+    case TextFace{text}: Typography.SingleLine{}
     case SingleLineFace{text}: Typography.SingleLine{}
     case UnbrokenFace{text}: Typography.UnbrokenLine{}
+    case IconTextFace{icon, text}: Typography.SingleLine{}
+    case UnbrokenIconTextFace{icon, text}: Typography.UnbrokenLine{}
     case PickerFace{leading, text}: Typography.SingleLine{}
     case DisclosureFace{text, expanded}: Typography.SingleLine{}
     case ChoiceFace{text, description, icon, checked}: Typography.NormalWords{}
-    case _: Typography.NormalAnywhere{}
+    case PermissionFace{filesystem, network, approval}: Typography.SingleLine{}
 
 def description_wrapping() -> Typography.Wrapping:
   Typography.NormalWords{}
@@ -205,11 +210,11 @@ type Representation is Data:
   Action{input: Core.Input, availability: View.Availability, name: String,
     face: Face, behavior: Behavior, geometry: Geometry, placement: Placement,
     help: Help, feedback: Feedback}
-  Input{binding: UI.Meaning, name: String, widget: Widget,
+  Input{binding: InterfaceView.Meaning, name: String, widget: Widget,
     label: LabelPlacement, availability: View.Availability}
   # The grip opens the same destination list for keyboard users that supplies
   # pointer dragging. Each destination retains its own product command/status.
-  Movable{destinations: +List<UI.Placement>, face: View.CardFace, name: String, handle: Icon,
+  Movable{destinations: +List<InterfaceView.Placement>, face: View.CardFace, name: String, handle: Icon,
     geometry: Geometry, help: Help}
 
 def panel_header(representation: Representation) -> Bool:
@@ -270,23 +275,23 @@ def initial(content: Core.Scene) -> Context:
     transfers, preview, code, directory_picker} = content
   Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main), Unscoped{}}
 
-def area_for(role: UI.Role, inherited: Area) -> Area:
+def area_for(role: InterfaceView.Role, inherited: Area) -> Area:
   match role:
-    case UI.Navigation{}: NavigationArea{}
-    case UI.NavigationHeader{}: NavigationArea{}
-    case UI.Card{}: CardArea{}
-    case UI.Composer{}: ComposerArea{}
-    case UI.ComposerActions{}: ComposerArea{}
-    case UI.Heading{}: ToolbarArea{}
-    case UI.CodeBlock{}: CodeArea{}
-    case UI.Activity{}: ActivityArea{}
-    case UI.ApprovalQueue{}: ApprovalArea{}
-    case UI.Approval{}: ApprovalArea{}
-    case UI.Menu{}: MenuArea{}
-    case UI.Dialog{}: DialogArea{}
-    case UI.Details{}: DialogArea{}
-    case UI.Field{}: CollectionArea{}
-    case UI.Toolbar{}:
+    case InterfaceView.Navigation{}: NavigationArea{}
+    case InterfaceView.NavigationHeader{}: NavigationArea{}
+    case InterfaceView.Card{}: CardArea{}
+    case InterfaceView.Composer{}: ComposerArea{}
+    case InterfaceView.ComposerActions{}: ComposerArea{}
+    case InterfaceView.Heading{}: ToolbarArea{}
+    case InterfaceView.CodeBlock{}: CodeArea{}
+    case InterfaceView.Activity{}: ActivityArea{}
+    case InterfaceView.ApprovalQueue{}: ApprovalArea{}
+    case InterfaceView.Approval{}: ApprovalArea{}
+    case InterfaceView.Menu{}: MenuArea{}
+    case InterfaceView.Dialog{}: DialogArea{}
+    case InterfaceView.Details{}: DialogArea{}
+    case InterfaceView.Field{}: CollectionArea{}
+    case InterfaceView.Toolbar{}:
       match inherited:
         case ComposerArea{}: ComposerArea{}
         case _: ToolbarArea{}
@@ -314,49 +319,49 @@ def selection_at(layers: +List<View.Layer>, +key: UIIdentity.Key, inherited: Sel
   match layers:
     case Nil{}: inherited
     case Con{View.Layer{kind, content, initial_attention, restore, close}, rest}:
-      select_layer(UIIdentity.same(UI.layer_key(initial_attention), key), layer_selection(content),
+      select_layer(UIIdentity.same(InterfaceView.layer_key(initial_attention), key), layer_selection(content),
         selection_at(rest, key, inherited))
 
-def code_at(meaning: UI.Meaning, inherited: Maybe<&2, Code.Scene>) -> Maybe<&2, Code.Scene>:
+def code_at(meaning: InterfaceView.Meaning, inherited: Maybe<&2, Code.Scene>) -> Maybe<&2, Code.Scene>:
   match meaning:
-    case UI.CodeFacts{scene}: Some{scene}
+    case InterfaceView.CodeFacts{scene}: Some{scene}
     case _: inherited
 
-def area_for_node(role: UI.Role, meaning: UI.Meaning, inherited: Area) -> Area:
+def area_for_node(role: InterfaceView.Role, meaning: InterfaceView.Meaning, inherited: Area) -> Area:
   match meaning:
-    case UI.BoardGroup{UI.ViewChoices{}}: BoardViewArea{}
-    case UI.BoardGroup{UI.SecondaryActions{}}: ToolbarArea{}
-    case UI.BoardGroup{UI.PrimaryAction{}}: ToolbarArea{}
-    case UI.BoardLane{stage, count}: BoardLaneArea{}
+    case InterfaceView.BoardGroup{InterfaceView.ViewChoices{}}: BoardViewArea{}
+    case InterfaceView.BoardGroup{InterfaceView.SecondaryActions{}}: ToolbarArea{}
+    case InterfaceView.BoardGroup{InterfaceView.PrimaryAction{}}: ToolbarArea{}
+    case InterfaceView.BoardLane{stage, count}: BoardLaneArea{}
     case _: area_for(role, inherited)
 
-def source_scope(role: UI.Role, inherited: SourceFamily) -> SourceFamily:
+def source_scope(role: InterfaceView.Role, inherited: SourceFamily) -> SourceFamily:
   match role:
-    case UI.Dialog{}: Unscoped{}
-    case UI.Menu{}: Unscoped{}
+    case InterfaceView.Dialog{}: Unscoped{}
+    case InterfaceView.Menu{}: Unscoped{}
     case _: inherited
 
-def activity_source(role: UI.Role, node: UI.Node, inherited: SourceFamily) -> SourceFamily:
+def activity_source(role: InterfaceView.Role, node: InterfaceView.Node, inherited: SourceFamily) -> SourceFamily:
   match role:
-    case UI.Activity{}: SourceFamily{node}
+    case InterfaceView.Activity{}: SourceFamily{node}
     case _: source_scope(role, inherited)
 
-def source_family_at(+node: UI.Node, inherited: SourceFamily) -> SourceFamily:
-  UI.Node{key, semantic, label, +role, meaning, children} = node
+def source_family_at(+node: InterfaceView.Node, inherited: SourceFamily) -> SourceFamily:
+  InterfaceView.Node{key, semantic, label, +role, meaning, children} = node
   match meaning:
-    case UI.ProjectGroup{project, selected, expanded}: SourceFamily{node}
-    case UI.TaskRow{task, status, selected}: SourceFamily{node}
-    case UI.ProjectChooser{selected}: SourceFamily{node}
-    case UI.CardContent{face}: SourceFamily{node}
-    case UI.ActivityContent{expanded, audit}: activity_source(role, node, inherited)
+    case InterfaceView.ProjectGroup{project, selected, expanded}: SourceFamily{node}
+    case InterfaceView.TaskRow{task, status, selected}: SourceFamily{node}
+    case InterfaceView.ProjectChooser{selected}: SourceFamily{node}
+    case InterfaceView.CardContent{face}: SourceFamily{node}
+    case InterfaceView.ActivityContent{expanded, audit}: activity_source(role, node, inherited)
     case _: source_scope(role, inherited)
 
 def source_reference(context: Context) -> SourceFamily:
   Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
   source_family
 
-def enter(+node: UI.Node, context: Context) -> Context:
-  UI.Node{+key, semantic, label, +role, +meaning, children} = node
+def enter(+node: InterfaceView.Node, context: Context) -> Context:
+  InterfaceView.Node{+key, semantic, label, +role, +meaning, children} = node
   Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, source_family} = context
   Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
     code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(node, source_family)}
@@ -589,12 +594,13 @@ def icon_only(purpose: Purpose, area: Area) -> Bool:
 def named_face(icon: Maybe<&2, Icon>, text: String, compact: Bool) -> Face:
   match icon compact:
     case Some{icon} True{}: IconFace{icon}
-    case Some{icon} False{}: IconTextFace{icon, text}
-    case None{} _: TextFace{text}
+    case Some{icon} False{}: UnbrokenIconTextFace{icon, text}
+    case None{} _: UnbrokenFace{text}
 
 def contextual_face(+purpose: Purpose, label: String, +area: Area) -> Face:
   match purpose area:
-    case EditItem{} CardArea{}: TextFace{label}
+    case NavigateTo{icon} _: IconTextFace{icon, label}
+    case EditItem{} CardArea{}: UnbrokenFace{label}
     case ChooseValue{expanded} _: PickerFace{None{}, label}
     case WorkspacePicker{expanded} _: PickerFace{Some{Folder{}}, label}
     case SelectedOption{checked} _: ChoiceFace{label, None{}, None{}, checked}
@@ -603,6 +609,7 @@ def contextual_face(+purpose: Purpose, label: String, +area: Area) -> Face:
 
 def menu_face(purpose: Purpose, label: String) -> Face:
   match purpose:
+    case NavigateTo{icon}: IconTextFace{icon, label}
     case Dismiss{}: IconFace{CloseCross{}}
     case SelectedOption{checked}: ChoiceFace{label, None{}, None{}, checked}
     case ChooseValue{expanded}: PickerFace{None{}, label}
@@ -623,7 +630,7 @@ def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -
   match input:
     case Core.ApplicationInput{Experience.UserInput{UserInput.FilterBoard{Board.Filter{view, search, status, priority, date, assignee, creator, project, tag}}}}:
       working_filter_face(String.eq(view, "working"), purpose, label, area)
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: TextFace{label}
+    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: UnbrokenFace{label}
     case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
     case Core.ApplicationInput{Experience.UserInput{UserInput.EditDraft{editor, UserInput.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
       IconFace{CloseCross{}}
@@ -649,9 +656,9 @@ def contextual_behavior(purpose: Purpose, selected: Bool, area: Area) -> Behavio
     case BoardViewArea{}: Toggle{selected}
     case _: behavior_for(purpose, selected)
 
-def selected_role(role: UI.Role) -> Bool:
+def selected_role(role: InterfaceView.Role) -> Bool:
   match role:
-    case UI.SelectedButton{}: True{}
+    case InterfaceView.SelectedButton{}: True{}
     case _: False{}
 
 def name_for(purpose: Purpose, label: String) -> String:
@@ -791,7 +798,7 @@ def composer_action_fields(+subject: View.ComposerSubject, +label: String,
     case _: value
 
 def action_for_purpose(+intent: Purpose, +area: Area, +input: Core.Input,
-  +availability: View.Availability, label: String, role: UI.Role) -> Representation:
+  +availability: View.Availability, label: String, role: InterfaceView.Role) -> Representation:
   +control_name = name_for(intent, label)
   +control_face = input_face(input, intent, control_name, area)
   +response = feedback_for(intent)
@@ -800,7 +807,7 @@ def action_for_purpose(+intent: Purpose, +area: Area, +input: Core.Input,
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
 
 def make_action(+key: UIIdentity.Key, +input: Core.Input, +availability: View.Availability, label: String,
-  role: UI.Role, +context: Context) -> Representation:
+  role: InterfaceView.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   action_for_purpose(intent, area, input, availability, label, role)
@@ -819,11 +826,11 @@ def panel_toggle_fields(+expanded: Bool, value: Representation) -> Representatio
     case _: value
 
 def make_panel_toggle(key: UIIdentity.Key, expanded: Bool, input: Core.Input, availability: View.Availability,
-  label: String, role: UI.Role, context: Context) -> Representation:
+  label: String, role: InterfaceView.Role, context: Context) -> Representation:
   panel_toggle_fields(expanded, make_action(key, input, availability, label, role, context))
 
 def make_composer_action(key: UIIdentity.Key, subject: View.ComposerSubject, input: Core.Input,
-  availability: View.Availability, +label: String, role: UI.Role, +context: Context) -> Representation:
+  availability: View.Availability, +label: String, role: InterfaceView.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
   composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
 
@@ -850,22 +857,22 @@ def classification_icon(classification: Maybe<&2, Filter.Classification>) -> May
     case None{}: None{}
     case Some{value}: Some{classification_glyph(value)}
 
-def choice_behavior(kind: UI.ChoiceKind, area: Area, selected: Bool) -> Behavior:
+def choice_behavior(kind: InterfaceView.ChoiceKind, area: Area, selected: Bool) -> Behavior:
   match kind area:
-    case UI.SingleChoice{} MenuArea{}: Radio{selected}
-    case UI.SingleChoice{} _: ChoiceRadio{selected}
-    case UI.MultipleChoice{} MenuArea{}: MenuCheckbox{selected}
-    case UI.MultipleChoice{} _: ChoiceCheckbox{selected}
+    case InterfaceView.SingleChoice{} MenuArea{}: Radio{selected}
+    case InterfaceView.SingleChoice{} _: ChoiceRadio{selected}
+    case InterfaceView.MultipleChoice{} MenuArea{}: MenuCheckbox{selected}
+    case InterfaceView.MultipleChoice{} _: ChoiceCheckbox{selected}
 
-def choice_action(kind: UI.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
+def choice_action(kind: InterfaceView.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
   match value:
     case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
       +actual_face: Face = ChoiceFace{name, description, icon, selected}
       Action{input, availability, name, actual_face, choice_behavior(kind, area, selected), geometry_for(purpose, actual_face, area), placement, help, feedback}
     case other: other
 
-def make_choice(+key: UIIdentity.Key, kind: UI.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
-  label: String, role: UI.Role, +context: Context) -> Representation:
+def make_choice(+key: UIIdentity.Key, kind: InterfaceView.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
+  label: String, role: InterfaceView.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   choice_action(kind, classification_icon(classification), selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
@@ -919,7 +926,7 @@ def label_placement(widget: Widget) -> LabelPlacement:
     case DirectoryChooser{face}: AccessibleOnly{}
     case _: AboveInput{}
 
-def make_input(meaning: UI.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
+def make_input(meaning: InterfaceView.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
   Input{meaning, name, widget, label_placement(widget), availability}
 
 def field_availability(entry: Forms.Entry) -> View.Availability:
@@ -996,10 +1003,10 @@ def chooser_presentation(input: Core.Input, +name: String, face: Face, behavior:
 
 def contextual_source_presentation(area: Area, source_family: SourceFamily, +input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match area source_family:
-    case _ SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}:
+    case _ SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectGroup{project, selected, expanded}, children}}:
       project_presentation(project_control_matches(input, project), project_control_input(input), expanded, name, face, behavior, geometry)
-    case NavigationArea{} SourceFamily{UI.Node{owner, semantic, label, role, UI.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
-    case _ SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
+    case NavigationArea{} SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
+    case _ SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
     case _ _: ActionPresentation{face, behavior, geometry}
 
 def uses_source_presentation(input: Core.Input) -> Bool:
@@ -1039,10 +1046,10 @@ def same_disclosure_state(first: Bool, second: Bool) -> Bool:
     case _ _: False{}
 
 # Correlate the action with the actual declaration under this activity source.
-def summary_declaration(children: +List<UI.Node>, task: Nat, group: Nat, occurrence: Nat, expanded: Bool, caption: String) -> SourceContent:
+def summary_declaration(children: +List<InterfaceView.Node>, task: Nat, group: Nat, occurrence: Nat, expanded: Bool, caption: String) -> SourceContent:
   match children:
-    case Con{UI.Node{key, semantic, label, role,
-      UI.Activate{Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
+    case Con{InterfaceView.Node{key, semantic, label, role,
+      InterfaceView.Activate{Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
       summary_target(Nat.is_eq(task, actual_task) && (Nat.is_eq(group, actual_group) &&
         (Nat.is_eq(occurrence, actual_occurrence) && same_disclosure_state(expanded, actual_expanded))), caption)
     case _: OrdinaryContent{}
@@ -1050,11 +1057,11 @@ def summary_declaration(children: +List<UI.Node>, task: Nat, group: Nat, occurre
 def source_content_input(input: Core.Input, area: Area, family: SourceFamily, face: Face) -> SourceContent:
   match input area family face:
     case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.CardDetails{target}, trigger}}}}
-      CardArea{} SourceFamily{UI.Node{key, semantic, label, role,
-      UI.CardContent{View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
+      CardArea{} SourceFamily{InterfaceView.Node{key, semantic, label, role,
+      InterfaceView.CardContent{View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
         title_target(Nat.is_eq(id, target), title)
     case Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{task, group, occurrence, requested}}}
-      ActivityArea{} SourceFamily{UI.Node{key, semantic, label, UI.Activity{}, UI.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
+      ActivityArea{} SourceFamily{InterfaceView.Node{key, semantic, label, InterfaceView.Activity{}, InterfaceView.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
         summary_declaration(children, task, group, occurrence, requested, label)
     case _ _ _ _: OrdinaryContent{}
 
@@ -1103,28 +1110,28 @@ def source_action(area: Area, source_family: SourceFamily, value: Representation
       presented_action(input, availability, name, source_presentation(area, source_family, input, name, face, behavior, geometry), placement, help, feedback)
     case _: value
 
-def represent_action(key: UIIdentity.Key, +input: Core.Input, availability: View.Availability, label: String, role: UI.Role, +context: Context) -> Representation:
+def represent_action(key: UIIdentity.Key, +input: Core.Input, availability: View.Availability, label: String, role: InterfaceView.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, open, layers, execution, +source_family} = context
   source_action(area, source_family, make_action(key, input, availability, label, role, context))
 
-def represent(key: UIIdentity.Key, +meaning: UI.Meaning, +label: String, role: UI.Role, +context: Context) -> Representation:
+def represent(key: UIIdentity.Key, +meaning: InterfaceView.Meaning, +label: String, role: InterfaceView.Role, +context: Context) -> Representation:
   match meaning:
-    case UI.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
-    case UI.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
-    case UI.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
-    case UI.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)
-    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
-    case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
-    case UI.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
-    case UI.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
-    case UI.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
-    case UI.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
-    case UI.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, UI.availability(enabled))
-    case UI.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
-    case UI.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})
-    case UI.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, UI.availability(enabled))
-    case UI.CardArchive{count}: NoControl{}
-    case UI.MovableCard{destinations, face}:
+    case InterfaceView.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
+    case InterfaceView.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
+    case InterfaceView.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
+    case InterfaceView.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)
+    case InterfaceView.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
+    case InterfaceView.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
+    case InterfaceView.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
+    case InterfaceView.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
+    case InterfaceView.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
+    case InterfaceView.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
+    case InterfaceView.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, InterfaceView.availability(enabled))
+    case InterfaceView.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
+    case InterfaceView.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})
+    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, InterfaceView.availability(enabled))
+    case InterfaceView.CardArchive{count}: NoControl{}
+    case InterfaceView.MovableCard{destinations, face}:
       Movable{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
         Tooltip{"Move card", 300n, True{}, True{}, False{}}}
     case _: NoControl{}

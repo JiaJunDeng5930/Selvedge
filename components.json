@@ -65,7 +65,6 @@
       "BOARD.bend",
       "FEATURES.bend",
       "MODEL.bend",
-      "PROGRAM.bend",
       "PROJECTS.bend",
       "REASONING.bend",
       "WORKSPACE.bend",
@@ -101,14 +100,14 @@
       "core/field-options.bend",
       "core/form-fields.bend",
       "core/live-output.bend",
+      "core/operation-parameters.bend",
+      "core/operation-receipt.bend",
+      "core/ui-identity.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-conversation.bend",
       "core/user-experience.bend",
-      "core/user-input.bend",
-      "core/ui-identity.bend",
-      "core/operation-receipt.bend",
-      "core/operation-parameters.bend"
+      "core/user-input.bend"
     ],
     "core/user-experience-laws.bend": [
       "MODEL.bend",
@@ -116,6 +115,7 @@
       "bendlib/component.bend",
       "bendlib/domain.bend",
       "bendlib/json.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
     ],
@@ -165,6 +165,7 @@
       "core/form-fields.bend",
       "core/live-output.bend",
       "core/ui-world.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
     ],
@@ -381,6 +382,7 @@
       "core/code-block.bend",
       "core/live-output.bend",
       "core/user-context.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
     ],
@@ -393,6 +395,7 @@
       "core/code-block.bend",
       "core/live-output.bend",
       "core/user-context.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
     ],
@@ -758,11 +761,12 @@
       "core/SYSTEM.bend",
       "core/client-services.bend",
       "core/interface.bend",
+      "core/ui-identity.bend",
       "core/ui-world.bend",
       "core/user-context.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
-      "core/user-input.bend",
-      "core/ui-identity.bend"
+      "core/user-input.bend"
     ],
     "webui/directory-entry-laws.bend": [
       "core/SYSTEM.bend",
@@ -1106,6 +1110,7 @@
       "core/laws.bend",
       "core/proofs/user-experience.bend",
       "core/user-experience-laws.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend"
     ],
     "core/proofs/page-region.bend": [
@@ -1141,6 +1146,7 @@
       "core/live-output.bend",
       "core/session-laws.bend",
       "core/user-context.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
     ],
@@ -1163,6 +1169,7 @@
       "core/live-output.bend",
       "core/submission-laws.bend",
       "core/user-context.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
       "core/user-input.bend"
     ],
@@ -1178,13 +1185,14 @@
     "core/proofs/user-experience.bend": [
       "MODEL.bend",
       "PROGRAM.bend",
+      "bendlib/command-codec.bend",
       "bendlib/component.bend",
       "bendlib/json.bend",
       "core/proofs/submission.bend",
       "core/user-experience-laws.bend",
+      "core/user-experience-program.bend",
       "core/user-experience.bend",
-      "core/user-input.bend",
-      "bendlib/command-codec.bend"
+      "core/user-input.bend"
     ],
     "webui/editor-rules.bend": [
       "core/user-input.bend",
@@ -2163,6 +2171,187 @@
       "webui/physical-allocation.bend",
       "webui/physical-packing-rules.bend",
       "webui/proofs/space.bend"
+    ],
+    "CHATGPT.bend": [
+      "PROJECTS.bend",
+      "WORKSPACE.bend",
+      "bendlib/association-map.bend",
+      "bendlib/domain.bend",
+      "bendlib/equality.bend",
+      "bendlib/json.bend",
+      "bendlib/schema.bend"
+    ],
+    "bendlib/board-architecture.bend": [
+      "BOARD.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "UI.bend",
+      "bendlib/board-resolution.bend",
+      "bendlib/board-spec.bend",
+      "bendlib/board.bend",
+      "bendlib/feature-operations.bend",
+      "bendlib/feature-protocol.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/chatgpt-architecture.bend": [
+      "BOARD.bend",
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "bendlib/association-map.bend",
+      "bendlib/chatgpt-spec.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/chatgpt-view.bend",
+      "bendlib/chatgpt.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/chatgpt-codec.bend": [
+      "CHATGPT.bend",
+      "bendlib/association-map.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "bendlib/schema.bend"
+    ],
+    "bendlib/chatgpt-spec.bend": [
+      "CHATGPT.bend",
+      "bendlib/association-map.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/chatgpt-state.bend": [
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "PROJECTS.bend",
+      "bendlib/association-map.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/effects.bend"
+    ],
+    "bendlib/chatgpt-view.bend": [
+      "CHATGPT.bend",
+      "PROJECTS.bend",
+      "bendlib/association-map.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/chatgpt.bend": [
+      "CHATGPT.bend",
+      "bendlib/association-map.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/feature-architecture.bend": [
+      "bendlib/board-architecture.bend",
+      "bendlib/chatgpt-architecture.bend"
+    ],
+    "bendlib/feature-codec.bend": [
+      "BOARD.bend",
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "bendlib/board-codec.bend",
+      "bendlib/chatgpt-codec.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "bendlib/schema.bend",
+      "bendlib/wire-shape.bend"
+    ],
+    "bendlib/feature-execution.bend": [
+      "MODEL.bend",
+      "WORKSPACE.bend",
+      "bendlib/board-state.bend",
+      "bendlib/board.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/chatgpt.bend",
+      "bendlib/domain.bend",
+      "bendlib/feature-operations.bend"
+    ],
+    "bendlib/feature-laws.bend": [
+      "MODEL.bend",
+      "WORKSPACE.bend",
+      "bendlib/board-architecture.bend",
+      "bendlib/board-spec.bend",
+      "bendlib/board-state.bend",
+      "bendlib/board.bend",
+      "bendlib/chatgpt-architecture.bend",
+      "bendlib/domain.bend",
+      "bendlib/feature-architecture.bend",
+      "bendlib/feature-execution.bend",
+      "bendlib/feature-operations.bend",
+      "bendlib/feature-spec.bend",
+      "bendlib/proofs/board.bend",
+      "bendlib/proofs/chatgpt.bend"
+    ],
+    "bendlib/feature-protocol.bend": [
+      "BOARD.bend",
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "bendlib/association-map.bend",
+      "bendlib/board-state.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/feature-operations.bend"
+    ],
+    "bendlib/feature-resolution.bend": [
+      "BOARD.bend",
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "PROJECTS.bend",
+      "WORKSPACE.bend",
+      "bendlib/board-resolution.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/domain.bend",
+      "bendlib/feature-operations.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/feature-spec.bend": [
+      "MODEL.bend",
+      "WORKSPACE.bend",
+      "bendlib/board-spec.bend",
+      "bendlib/board-state.bend",
+      "bendlib/chatgpt-spec.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/domain.bend",
+      "bendlib/feature-operations.bend"
+    ],
+    "bendlib/feature-state.bend": [
+      "BOARD.bend",
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "PROJECTS.bend",
+      "WORKSPACE.bend",
+      "bendlib/association-map.bend",
+      "bendlib/board-state.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/chatgpt-view.bend",
+      "bendlib/domain.bend",
+      "bendlib/equality.bend",
+      "bendlib/json.bend"
+    ],
+    "bendlib/proofs/chatgpt.bend": [
+      "BOARD.bend",
+      "CHATGPT.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "bendlib/association-map.bend",
+      "bendlib/chatgpt-architecture.bend",
+      "bendlib/chatgpt-spec.bend",
+      "bendlib/chatgpt-state.bend",
+      "bendlib/chatgpt.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend"
+    ],
+    "core/user-experience-program.bend": [
+      "MODEL.bend",
+      "PROGRAM.bend",
+      "core/user-experience.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

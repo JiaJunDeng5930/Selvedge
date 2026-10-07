@@ -22,7 +22,11 @@ test('HTTP, event delivery, CLI discovery, and restart use the native task servi
   assert.equal((await fetch(`${running.address}/api/health`)).status, 401);
   const page = await fetch(running.address);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /app\.mjs/);
+  assert.match(await page.text(), /bootstrap\.mjs/);
+  const bootstrap = await fetch(`${running.address}/bootstrap.mjs`);
+  assert.equal(bootstrap.status, 200);
+  assert.match(await bootstrap.text(), /import\('\/app\.mjs'\)/);
+  assert.equal((await fetch(`${running.address}/app.mjs`)).status, 200);
   assert.equal((await fetch(`${running.address}/api/health`, { headers: { ...headers, origin: 'http://untrusted.invalid' } })).status, 403);
   const initial = running.service.journal.sequence;
   assert.equal((await post({ kind: 'model', task_id: 0, ticket: 0, ok: true, items: [] })).status, 400);
@@ -37,7 +41,10 @@ test('HTTP, event delivery, CLI discovery, and restart use the native task servi
   const controller = new AbortController();
   const stream = await fetch(`${running.address}/api/events?after=0`, { headers, signal: controller.signal });
   const iterator = events(stream.body, running.service.limits.frame_bytes);
-  try { assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'commit', sequence }); }
+  try {
+    assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'stream-state', streams: [] });
+    assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'commit', sequence });
+  }
   finally {
     controller.abort();
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });

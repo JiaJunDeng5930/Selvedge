@@ -31,9 +31,9 @@ type Requirements is Type:
       {ContentRules.observation_matches(request, observation) == False{} : Bool} ->
       rejected_measurement_claim(valid, request, observation, batch),
     production: @+engine:World.Engine -> production_claim(engine),
-    width: Width.Requirements<Content.Value, Doc.Event>,
-    height: Height.Requirements<Content.Value, Doc.Event>,
-    population: Population.Requirements<Content.Value, Doc.Event>}
+    width: Width.Requirements<Content.Value, Doc.DOMEvent>,
+    height: Height.Requirements<Content.Value, Doc.DOMEvent>,
+    population: Population.Requirements<Content.Value, Doc.DOMEvent>}
 
 law evidence:
   Requirements

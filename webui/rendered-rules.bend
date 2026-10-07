@@ -1,5 +1,5 @@
 import Base
-import ../core/interface.bend as UI
+import ../core/interface.bend as InterfaceView
 import ./rendered.bend as Model
 import ./interaction.bend as Geometry
 import ../core/ui-world.bend as View
@@ -7,7 +7,7 @@ import ../core/ui-world.bend as View
 law stale_frame_retains_state:
   for +current: Nat
   for +received: Nat
-  for +surface: UI.Surface
+  for +surface: InterfaceView.Surface
   for +frame: Model.Frame
   for +previous: Model.State
   for different: {Nat.is_eq(current, received) == False{} : Bool}
@@ -18,10 +18,10 @@ law native_ownership_is_complete:
   for +identity: String
   for owner: String
   for +rest: +List<Model.NativeFocus>
-  for +active: +List<UI.Node>
+  for +active: +List<InterfaceView.Node>
   for +elements: +List<Model.Element>
   {Model.native_valid(Model.NativeFocus{identity, owner} <> rest, active, elements) ==
-    (Model.read_only(UI.find_node(active, owner)) && Bool.not(Model.exists(UI.find_node(active, identity))) &&
+    (Model.read_only(InterfaceView.find_node(active, owner)) && Bool.not(Model.exists(InterfaceView.find_node(active, identity))) &&
      Model.native_element(Model.find_element(elements, identity)) && Bool.not(Model.native_member(rest, identity)) && Model.native_valid(rest, active, elements)) : Bool}
 
 law native_order_is_owned:
@@ -33,7 +33,7 @@ law native_order_is_owned:
     Model.tab_entry(String.eq(parent, owner), identity, Model.owner_tabs(rest, owner)) : +List<String>}
 
 law native_tab_contract:
-  for +active: +List<UI.Node>
+  for +active: +List<InterfaceView.Node>
   for +elements: +List<Model.Element>
   for +native_focus: +List<Model.NativeFocus>
   for order: +List<String>
@@ -56,13 +56,13 @@ law observed_tab_participation:
   {Model.tab_stop(Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit, paint_bounds}}) == (enabled && tab && (visible || scroll)) : Bool}
 
 law dialog_actions_persistent:
-  {Model.persistent(UI.DialogActions{}) == True{} : Bool}
+  {Model.persistent(InterfaceView.DialogActions{}) == True{} : Bool}
 
 law dialog_actions_bounded:
   for key: String
   for found: Maybe<&2, Model.Element>
   for viewport: Geometry.Rect
-  {Model.region_geometry(UI.DialogActions{}, key, found, viewport) == Model.bounded_dialog(key, found, viewport) : +List<Model.Violation>}
+  {Model.region_geometry(InterfaceView.DialogActions{}, key, found, viewport) == Model.bounded_dialog(key, found, viewport) : +List<Model.Violation>}
 
 # Independent controls use paint regions; complete layout bounds remain intact.
 def element_paint(element: Model.Element) -> Geometry.Rect:
@@ -100,7 +100,7 @@ law observed_code_in_view:
   for hit: String
   for +paint_bounds: Geometry.Rect
   for +viewport: Geometry.Rect
-  {Model.code_in_view(UI.CodeBlock{}, Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) ==
+  {Model.code_in_view(InterfaceView.CodeBlock{}, Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) ==
     (visible && Model.overlaps(paint_bounds, viewport)) : Bool}
 
 law unpainted_code_is_not_in_view:
@@ -113,7 +113,7 @@ law unpainted_code_is_not_in_view:
   for hit: String
   for paint_bounds: Geometry.Rect
   for viewport: Geometry.Rect
-  {Model.code_in_view(UI.CodeBlock{}, Some{Model.Element{key,False{},enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) == False{} : Bool}
+  {Model.code_in_view(InterfaceView.CodeBlock{}, Some{Model.Element{key,False{},enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) == False{} : Bool}
 
 law cropped_disjoint_code_is_not_in_view:
   for key: String
@@ -127,14 +127,14 @@ law cropped_disjoint_code_is_not_in_view:
   for +paint_bounds: Geometry.Rect
   for +viewport: Geometry.Rect
   for disjoint: {Model.overlaps(paint_bounds, viewport) == False{} : Bool}
-  {Model.code_in_view(UI.CodeBlock{}, Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) == False{} : Bool}
+  {Model.code_in_view(InterfaceView.CodeBlock{}, Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) == False{} : Bool}
 
 law movement_is_interactive:
-  for destinations: +List<UI.Placement>
+  for destinations: +List<InterfaceView.Placement>
   for face: View.CardFace
-  {Model.interactive(UI.MovableCard{destinations, face}) == True{} : Bool}
+  {Model.interactive(InterfaceView.MovableCard{destinations, face}) == True{} : Bool}
 
 law movement_enabled_by_offered_input:
-  for +destinations: +List<UI.Placement>
+  for +destinations: +List<InterfaceView.Placement>
   for face: View.CardFace
-  {Model.required_enabled(UI.MovableCard{destinations, face}) == UI.has_available_destination(destinations) : Bool}
+  {Model.required_enabled(InterfaceView.MovableCard{destinations, face}) == InterfaceView.has_available_destination(destinations) : Bool}

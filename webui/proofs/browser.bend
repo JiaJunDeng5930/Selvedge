@@ -12,7 +12,7 @@ import ../browser-laws.bend as Rule
 import ./laws.bend as Proof_laws
 import ../../core/interface-program-rules.bend as Rules_interface_program_rules
 
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../presentation-order.bend as Order
 
 def removed_choice_absent(+same: Bool, +entry: Browser.Pending,
@@ -110,7 +110,7 @@ def finished_receipt_transport(decision: Web.Decision, +core: Core.State,
     finish_unchanged_transport(web, core, effects, sequence, next, pending, origin))
 
 def nodes_current_surface(+web: Web.State, sequence: Nat, next: Nat, +pending: +List<Browser.Pending>) ->
-  {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == UI.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<UI.Node>}:
+  {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<InterfaceView.Node>}:
   match web:
     case Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}: {==}
 

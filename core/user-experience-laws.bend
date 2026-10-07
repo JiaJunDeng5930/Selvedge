@@ -5,6 +5,7 @@ import ../bendlib/domain.bend as D
 import ../bendlib/json.bend as J
 import ../bendlib/command-codec.bend as CommandCodec
 import ./user-experience.bend as E
+import ./user-experience-program.bend as ExperienceProgram
 import ./user-input.bend as U
 
 def runtime_observation(decision: E.Decision) -> M.Decision():
@@ -43,16 +44,16 @@ def completion_spec(completion: E.Completion, +program: M.World(), +result: J.Js
 type CommandRequirements is Type:
   CommandRequirements{
     receipt: @+completion:E.Completion -> @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
-      {E.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == completion_spec(completion, program, result, session) : E.Decision},
+      {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == completion_spec(completion, program, result, session) : E.Decision},
     request: @+command:M.Command -> @+application:E.Application -> @+submitted:Maybe<&2, U.Draft> ->
       {E.execute(command, application, submitted) ==
         E.Decision{application, D.success(J.Null{}), Nil{},
           [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision},
     observation: @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
-      {E.step(E.ProgramObserved{program}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision},
+      {ExperienceProgram.step(E.ProgramObserved{program}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision},
     stale: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
       @absent:{E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool} ->
-      {E.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
+      {ExperienceProgram.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
     accepted: @+result:J.Json -> @destination:U.Route -> @application:E.Application ->
       @ok:{J.boolean(J.get(result, "ok")) == True{} : Bool} ->
       {E.complete_confirmation(True{}, result, destination, application) == E.with_native(E.navigate(destination, application), result, Nil{}, False{}) : E.Decision},

@@ -1,7 +1,7 @@
 import Base
 import ../MODEL.bend as M
 import ../PROGRAM.bend as Program
-import ../UI.bend as UI
+import ../UI.bend as ProductUI
 import ../bendlib/domain.bend as D
 import ../BOARD.bend as B
 import ../bendlib/json.bend as J
@@ -45,9 +45,9 @@ type Requirements is Type:
     submission_feedback: SubmissionFeedbackLaws.Requirements,
     reopened_submissions: SubmissionLaws.ReopenRequirements,
     runtime: @+input:M.Input -> @+program:M.World() -> @+session:E.Session -> @+services:Services.State ->
-      {CoreLaws.runtime(UI.step(UI.Engine{input}, Core.State{E.Application{program, session}, services})) == Program.transition(input, program) : M.Decision()},
+      {CoreLaws.runtime(ProductUI.step(ProductUI.Engine{input}, Core.State{E.Application{program, session}, services})) == Program.transition(input, program) : M.Decision()},
     observation: @+capacity:View.Capacity -> @+state:Core.State ->
-      {Interface.content(UI.observe(capacity, state)) == Core.observe(capacity, state) : Core.Scene},
+      {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : Core.Scene},
     timeline: @+reader:E.Reader -> @+task:D.Task -> @+world:M.World() ->
       {ConversationSpec.timeline_sources(Conversation.timeline(reader, task, world)) == D.history_messages(D.task_history(task), Nil{}) : +List<D.Message>},
     displayed_text: @+messages:+List<D.Message> -> @+offset:Nat -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->

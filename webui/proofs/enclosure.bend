@@ -6,7 +6,7 @@ import ../enclosure.bend as E
 import ../appearance.bend as A
 import ../controls.bend as C
 import ../design.bend as D
-import ../../core/interface.bend as UI
+import ../../core/interface.bend as InterfaceView
 import ../enclosure-laws.bend as Rule
 
 def positive(+profile: E.Profile) ->
@@ -52,8 +52,8 @@ def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea
   C.Geometry{Space.Demand{E.Extent{width, height}, preferred}, icon, radius, leading} = geometry
   {==}
 
-def canvas(+meaning: UI.Meaning, +typography: T.Presentation) ->
-  {Rule.area(A.style(UI.Main{}, meaning, typography)) == E.ambient(0n, 0n) : E.ContentArea}:
+def canvas(+meaning: InterfaceView.Meaning, +typography: T.Presentation) ->
+  {Rule.area(A.style(InterfaceView.Main{}, meaning, typography)) == E.ambient(0n, 0n) : E.ContentArea}:
   {==}
 
 def state_allocation(+value: D.Style, +space: E.ContentArea) ->

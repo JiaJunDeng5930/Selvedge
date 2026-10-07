@@ -3,7 +3,7 @@ import { readFile, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, homeDirectory, defaultConfig } from './config.mjs';
-import { login } from './auth.mjs';
+import { login } from './chatgpt-account.mjs';
 import { loginAccount, discoverAccount, withAccountModels } from './chatgpt-models.mjs';
 import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
@@ -88,8 +88,9 @@ export async function main(args = process.argv.slice(2)) {
     process.once('SIGINT', interrupt);
     try {
       const result = await login(profile, settings.home, { signal: controller.signal,
-        onCode: ({ url, code }) => console.log(`Open ${url}\nEnter code: ${code}`) });
-      console.log(`Signed in. Credential saved to ${result.filename}`);
+        onAuthorize: ({ url }) => console.log(`Continue with ChatGPT: ${url}`) });
+      console.log(`Signed in${result.name || result.email ? ` as ${result.name ?? result.email}` : ''}. Credential saved to ${result.filename}`);
+      console.log('Manage usage: https://chatgpt.com/settings/usage');
       const catalog = await discoverAccount(profile, settings.home, { signal: controller.signal, force: true });
       console.log(`Available account models: ${catalog.models.filter(model => model.visibility === 'list').map(model => model.slug).join(', ')}`);
       try {

@@ -63,7 +63,7 @@ def absent(found: Maybe<&2, Content.Observation>, request: Content.Request, +roo
     case None{}: Discovered{[PhysicalPlan.Job{request, roots, PhysicalPlan.Measure{}}], roots}
     case Some{value}: Discovered{Nil{}, roots}
 
-def native_result(result: Native.Result, +request: Content.Request, +observations: +List<Content.Observation>) -> Discovery:
+def native_result(result: Native.NativeAllocation, +request: Content.Request, +observations: +List<Content.Observation>) -> Discovery:
   match result:
     case Native.Invalid{error}: InvalidDiscovery{error}
     case Native.NeedsTargets{first, remaining}: Discovered{[PhysicalPlan.Job{request, Nil{}, PhysicalPlan.TargetsOnly{}}], Nil{}}
@@ -89,7 +89,7 @@ def pending(jobs: +List<PhysicalPlan.Job>, generation: Nat) -> PhysicalPlan.Plan
     case Nil{}: PhysicalPlan.Invalid{Content.InvalidObservation{"missing height request"}}
 
 
-def allocated_result(result: Allocation.Outcome<Content.Value, Doc.Event>, +prepared: Content.Prepared,
+def allocated_result(result: Allocation.Outcome<Content.Value, Doc.DOMEvent>, +prepared: Content.Prepared,
   +snapshot: Content.Snapshot, roots: +List<Content.AllocatedNative>, policies: +List<Content.NativePolicy>) -> PhysicalPlan.Plan:
   match result:
     case Allocation.Allocated{tree}: PhysicalPlan.Ready{Content.AllocatedWorld{snapshot, tree, roots, policies}}
@@ -97,7 +97,7 @@ def allocated_result(result: Allocation.Outcome<Content.Value, Doc.Event>, +prep
     case Allocation.AwaitingHeights{first, remaining}:
       pending(measure_jobs(PhysicalSource.height_requests(prepared, first <> remaining)), snapshot_generation(snapshot))
 
-def allocated(result: Allocation.Outcome<Content.Value, Doc.Event>, +prepared: Content.Prepared,
+def allocated(result: Allocation.Outcome<Content.Value, Doc.DOMEvent>, +prepared: Content.Prepared,
   roots: +List<Content.AllocatedNative>) -> PhysicalPlan.Plan:
   Content.Prepared{snapshot, tree, native_roots, policies} = prepared
   allocated_result(result, prepared, snapshot, roots, policies)
@@ -105,19 +105,19 @@ def allocated(result: Allocation.Outcome<Content.Value, Doc.Event>, +prepared: C
 
 def discovered_result(result: Discovery, +prepared: Content.Prepared, viewport: Spatial.Box,
   requests: +List<Content.Request>, observations: +List<Content.Observation>, +snapshot: Content.Snapshot,
-  tree: SpaceModel.Tree<Content.Value, Doc.Event>) -> PhysicalPlan.Plan:
+  tree: SpaceModel.Tree<Content.Value, Doc.DOMEvent>) -> PhysicalPlan.Plan:
   match result:
     case InvalidDiscovery{error}: PhysicalPlan.Invalid{error}
     case Discovered{Con{first, remaining}, roots}: PhysicalPlan.Awaiting{snapshot_generation(snapshot), first, remaining}
     case Discovered{Nil{}, roots}:
-      allocated(Allocation.allocate(~Content.Value, ~Doc.Event, tree, viewport, PhysicalSource.height_samples(requests, observations)), prepared, roots)
+      allocated(Allocation.allocate(~Content.Value, ~Doc.DOMEvent, tree, viewport, PhysicalSource.height_samples(requests, observations)), prepared, roots)
 def discovered(result: Discovery, +prepared: Content.Prepared, viewport: Spatial.Box,
   requests: +List<Content.Request>, observations: +List<Content.Observation>) -> PhysicalPlan.Plan:
   Content.Prepared{snapshot, tree, native_roots, policies} = prepared
   discovered_result(result, prepared, viewport, requests, observations, snapshot, tree)
 
 
-def width_result(result: Allocation.WidthOutcome<Content.Value, Doc.Event>, +prepared: Content.Prepared,
+def width_result(result: Allocation.WidthOutcome<Content.Value, Doc.DOMEvent>, +prepared: Content.Prepared,
   +viewport: Spatial.Box, +observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>) -> PhysicalPlan.Plan:
   match result:
     case Allocation.WidthFailure{failure}: PhysicalPlan.Infeasible{failure}
@@ -135,7 +135,7 @@ def preparation(result: Content.Preparation, +viewport: Spatial.Box,
       Content.Prepared{snapshot, tree, native_roots, policies} = prepared
       Spatial.Box{left, top, width, height} = viewport
       # Width discovery stays independent of receipts so native roots remain present.
-      width_result(Allocation.fit_width(~Content.Value, ~Doc.Event, tree, width, Nil{}), prepared, viewport, observations, viewports)
+      width_result(Allocation.fit_width(~Content.Value, ~Doc.DOMEvent, tree, width, Nil{}), prepared, viewport, observations, viewports)
 
 def plan(engine: Engine) -> PhysicalPlan.Plan:
   Engine{+snapshot, viewport, +observations, viewports, status} = engine

@@ -7,6 +7,7 @@ import ../bendlib/json.bend as J
 import ../bendlib/association-map.bend as Finite
 import ./user-input.bend as U
 import ./user-experience.bend as E
+import ./user-experience-program.bend as ExperienceProgram
 import ./ui-world.bend as View
 import ./form-fields.bend as Forms
 import ./client-services.bend as Services
@@ -70,7 +71,7 @@ def attachment_edit(found: Maybe<&2, U.Draft>, add: Maybe<&2, B.Attachment>, id:
 def apply_edit(edit: Maybe<&2, U.Edit>, editor: U.Editor, application: E.Application) -> E.Decision:
   match edit:
     case None{}: E.refuse(application, "This field is not editable here")
-    case Some{value}: E.step(E.UserInput{U.EditDraft{editor, value}}, application)
+    case Some{value}: ExperienceProgram.step(E.UserInput{U.EditDraft{editor, value}}, application)
 
 def edit_attachment(+editor: U.Editor, add: Maybe<&2, B.Attachment>, id: String, application: E.Application) -> E.Decision:
   E.Application{program, session} = application
@@ -94,8 +95,8 @@ def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, a
   match accepted:
     case False{}: application
     case True{}:
-      written = attached(E.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application))
-      attached(E.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, written))
+      written = attached(ExperienceProgram.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application))
+      attached(ExperienceProgram.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, written))
 
 def directory_chosen(+editor: U.Editor, path: String, +application: E.Application) -> E.Application:
   directory_chosen_accepted(accepts_directory(editor, application), editor, path, application)
@@ -155,7 +156,7 @@ def submission_blocked(services: Services.State, input: E.Input) -> Bool:
 def apply_application(blocked: Bool, input: E.Input, application: E.Application, services: Services.State) -> Decision:
   match blocked:
     case True{}: application_result(E.refuse(application, "Connect and finish pending file uploads before submitting"), services)
-    case False{}: application_result(E.step(input, application), services)
+    case False{}: application_result(ExperienceProgram.step(input, application), services)
 
 def is_card_draft(found: Maybe<&2, U.Draft>) -> Bool:
   match found:
