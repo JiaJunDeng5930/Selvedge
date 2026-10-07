@@ -47,6 +47,114 @@ type NavigationState is Data:
 type Application is Data:
   Application{program: M.World(), session: Session}
 
+def program(state: Application) -> M.World():
+  Application{program, session} = state
+  program
+
+def session(state: Application) -> Session:
+  Application{program, session} = state
+  session
+
+def route(state: Session) -> U.Route:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  route
+
+def drafts(state: Session) -> +List<U.Draft>:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  drafts
+
+def readers(state: Session) -> +List<Finite.Entry(Reader)>:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  readers
+
+def layers(state: Session) -> +List<Layer>:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  layers
+
+def attention(state: Session) -> String:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  attention
+
+def navigation(state: Session) -> NavigationState:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  navigation
+
+def filter(state: Session) -> B.Filter:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  filter
+
+def now(state: Session) -> U32:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  now
+
+def next_ticket(state: Session) -> Nat:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  next_ticket
+
+def pending(state: Session) -> +List<Pending>:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  pending
+
+def previews(state: Session) -> +List<Live.Output>:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  previews
+
+def code_blocks(state: Session) -> +List<Content.Block>:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  code_blocks
+
+def next_layer(state: Session) -> Nat:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  next_layer
+
+def with_program(value: M.World(), state: Application) -> Application:
+  Application{program, session} = state
+  Application{value, session}
+
+def with_session(value: Session, state: Application) -> Application:
+  Application{program, session} = state
+  Application{program, value}
+
+def with_now(value: U32, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, value, next_ticket, pending, previews, code_blocks, next_layer}
+
+def from_program(program: M.World(), session: Session) -> Application:
+  Application{program, session}
+
+def with_route(value: U.Route, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{value, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer}
+
+def with_drafts(value: +List<U.Draft>, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, value, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer}
+
+def with_layers(value: +List<Layer>, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, value, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer}
+
+def with_attention(value: String, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, layers, value, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer}
+
+def with_navigation(value: NavigationState, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, layers, attention, value, filter, now, next_ticket, pending, previews, code_blocks, next_layer}
+
+def with_next_ticket(value: Nat, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, value, pending, previews, code_blocks, next_layer}
+
+def with_pending(value: +List<Pending>, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, value, previews, code_blocks, next_layer}
+
+def with_next_layer(value: Nat, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, value}
+
+
 type Completion is Data:
   DirectCompletion{}
   DraftCompletion{draft: U.Draft}
@@ -71,6 +179,7 @@ type Input is Data:
   CommandCompleted{program: M.World(), reply: J.Json, completion: Completion}
   DirectoriesObserved{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   ClockObserved{now: U32}
+
 
 def first_profile(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
@@ -382,11 +491,11 @@ def project_editor(id: Maybe<&2, Nat>, +application: Application) -> Decision:
 def card_found(found: Maybe<&2, B.Card>, id: Nat, application: Application) -> Decision:
   match found:
     case None{}: refuse(application, "The card no longer exists")
-    case Some{B.Card{revision, draft, task, archived, created, updated, enrichment, error, pinned}}:
-      open_editor(U.Card{Some{id}, revision, draft, False{}, "", False{}}, application)
+    case Some{+card}:
+      open_editor(U.Card{Some{id}, B.revision(card), B.draft(card), False{}, "", False{}}, application)
 
 def board_card(board: B.State, +id: Nat, application: Application) -> Decision:
-  B.State{cards, next_card, agents, next_agent, automatic, profile} = board
+  cards = B.cards(board)
   card_found(Finite.find(~B.Card, cards, id), id, application)
 
 def new_card_body(+stage: B.Stage) -> U.Body:
@@ -442,11 +551,11 @@ def context_from_settings(+settings: J.Json) -> Context.Configuration:
 def agent_found(found: Maybe<&2, B.AgentProfile>, id: Nat, application: Application) -> Decision:
   match found:
     case None{}: refuse(application, "The agent profile no longer exists")
-    case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}}:
-      open_editor(U.Agent{Some{id}, revision, name, profile, reasoning, instructions, context_from_settings(settings), concurrency}, application)
+    case Some{+agent}:
+      open_editor(U.Agent{Some{id}, B.agent_revision(agent), B.agent_name(agent), B.agent_profile(agent), B.agent_reasoning(agent), B.agent_instructions(agent), context_from_settings(B.agent_settings(agent)), B.agent_concurrency(agent)}, application)
 
 def board_agent(board: B.State, +id: Nat, application: Application) -> Decision:
-  B.State{cards, next_card, agents, next_agent, automatic, profile} = board
+  agents = B.agents(board)
   agent_found(Finite.find(~B.AgentProfile, agents, id), id, application)
 
 def new_agent(profile: Sigma<&2, &2, String, (_ => String)>, application: Application) -> Decision:

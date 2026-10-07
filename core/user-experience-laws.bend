@@ -9,7 +9,8 @@ import ./user-experience-program.bend as ExperienceProgram
 import ./user-input.bend as U
 
 def runtime_observation(decision: E.Decision) -> M.Decision():
-  E.Decision{E.Application{program, session}, reply, effects, interaction, durable} = decision
+  E.Decision{+observed_application, reply, effects, interaction, durable} = decision
+  program = E.program(observed_application)
   C.Decision{program, reply, effects}
 
 # The human-facing system retains the entire existing execution decision:
@@ -21,39 +22,39 @@ def confirmation_spec(layers: +List<E.Layer>, +command: M.Command, +trigger: Str
       Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
-def accepted_confirmation_spec(ok: Bool, +result: J.Json, destination: U.Route, application: E.Application) -> E.Decision:
+def accepted_confirmation_spec(ok: Bool, +result: J.Json, destination: U.Route, +application: E.Application) -> E.Decision:
   match ok:
     case True{}: E.with_native(E.navigate(destination, application), result, Nil{}, False{})
     case False{}: E.Decision{application, result, Nil{}, Nil{}, False{}}
 
-def confirmation_result_spec(owned: Bool, +result: J.Json, destination: U.Route, application: E.Application) -> E.Decision:
+def confirmation_result_spec(owned: Bool, +result: J.Json, destination: U.Route, +application: E.Application) -> E.Decision:
   match owned:
     case False{}: E.Decision{application, result, Nil{}, Nil{}, False{}}
     case True{}: accepted_confirmation_spec(J.boolean(J.get(result, "ok")), result, destination, application)
 
 def completion_spec(completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session) -> E.Decision:
   match completion:
-    case E.DirectCompletion{}: E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}}
+    case E.DirectCompletion{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}
     case E.DraftCompletion{+draft}:
       E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
-        E.Application{program, E.settle(draft, result, E.retain_previews(session, program))}), result, Nil{}, False{})
+        E.from_program(program, E.settle(draft, result, E.retain_previews(session, program)))), result, Nil{}, False{})
     case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
-      confirmation_result_spec(confirmation_spec(layers, command, trigger, occurrence), result, destination, E.Application{program, E.retain_previews(session, program)})
+      +layers = E.layers(session)
+      confirmation_result_spec(confirmation_spec(layers, command, trigger, occurrence), result, destination, E.from_program(program, E.retain_previews(session, program)))
 
 type CommandRequirements is Type:
   CommandRequirements{
     receipt: @+completion:E.Completion -> @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
-      {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == completion_spec(completion, program, result, session) : E.Decision},
+      {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.from_program(previous, session)) == completion_spec(completion, program, result, session) : E.Decision},
     request: @+command:M.Command -> @+application:E.Application -> @+submitted:Maybe<&2, U.Draft> ->
       {E.execute(command, application, submitted) ==
         E.Decision{application, D.success(J.Null{}), Nil{},
           [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision},
     observation: @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
-      {ExperienceProgram.step(E.ProgramObserved{program}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision},
+      {ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision},
     stale: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
       @absent:{E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool} ->
-      {ExperienceProgram.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.Application{previous, session}) == E.Decision{E.Application{program, E.retain_previews(session, program)}, result, Nil{}, Nil{}, False{}} : E.Decision},
+      {ExperienceProgram.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}} : E.Decision},
     accepted: @+result:J.Json -> @destination:U.Route -> @application:E.Application ->
       @ok:{J.boolean(J.get(result, "ok")) == True{} : Bool} ->
       {E.complete_confirmation(True{}, result, destination, application) == E.with_native(E.navigate(destination, application), result, Nil{}, False{}) : E.Decision},

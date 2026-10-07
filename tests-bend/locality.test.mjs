@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
-import { auditComponents } from '../scripts/check-components.mjs';
+import { auditComponents, checkComponents } from '../scripts/check-components.mjs';
 import { specimen, unchanged, check, checked, rejected, modify, replaceOnce, replaceDefinition, nativeProbe } from './locality-support.mjs';
 import { extendCounter, assemblyChanges, counterProbe } from './fixtures/locality-extension.mjs';
 
@@ -127,6 +127,95 @@ test('component audit fails closed for missing imports and incomplete configurat
   await assert.rejects(auditComponents(copy.directory), /Unsupported or incomplete/);
 });
 
+test('private model construction and destructuring fail the actual source boundary gate', { timeout: 180_000 }, async t => {
+  const copy = await specimen(t);
+  const target = 'model-boundary-probe.bend';
+  const prelude = 'import Base\nimport ./bendlib/domain.bend as Private\n';
+  const fields = 'tasks, next_task, next_ticket, environment, limits, projects';
+  const probes = [
+    ['constructor introduction', `def probe(+state: Private.State) -> Private.State:\n  Private.State{Private.state_tasks(state), Private.state_next_task(state), Private.state_next_ticket(state), Private.state_environment(state), Private.state_limits(state), Private.state_projects(state)}\n`],
+    ['assignment destructuring', `def probe(state: Private.State) -> Nat:\n  Private.State{${fields}} = state\n  next_task\n`],
+    ['multiline case destructuring', `def probe(state: Private.State) -> Nat:\n  match state:\n    case Private.State{tasks, next_task, next_ticket,\n      environment, limits, projects}: next_task\n`],
+  ];
+  for (const [label, source] of probes) await t.test(label, async () => {
+    await writeFile(path.join(copy.directory, target), prelude + source);
+    // These are legal Bend programs. Rejection must come from the source policy,
+    // separately from the production semantic proof mutation tests below.
+    checked(check(copy.directory, target));
+    await assert.rejects(checkComponents(copy.directory), error => {
+      assert.match(error.message, /Component boundary check failed/);
+      assert.match(error.message, /Model representation outside its owner boundary/);
+      assert.match(error.message, /model-boundary-probe\.bend:\d+: Private\.State/);
+      return true;
+    });
+  });
+  await unchanged(copy);
+});
+
+test('model ownership permits public command data, explicit owners and inert constructor text', async t => {
+  const copy = await specimen(t);
+  await writeFile(path.join(copy.directory, 'model-boundary-probe-laws.bend'), `import Base
+import ./bendlib/domain.bend as Private
+
+law state_identity:
+  for +state: Private.State
+  {state == state : Private.State}
+`);
+  await writeFile(path.join(copy.directory, 'model-boundary-probe.bend'), `import Base
+import ./BOARD.bend as Board
+import ./bendlib/domain.bend as Private
+import ./model-boundary-probe-laws.bend as Law
+
+def profile(value: Board.AgentProfile) -> Board.AgentProfile:
+  Board.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = value
+  Board.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}
+
+def draft(value: Board.Draft) -> Board.Draft:
+  Board.Draft{title, description, stage, priority, owner, project, labels, attachments} = value
+  Board.Draft{title, description, stage, priority, owner, project, labels, attachments}
+
+def Law.state_identity(state):
+  {==}
+
+# Private.State{tasks, next_task, next_ticket, environment, limits, projects} is inert.
+def text() -> String:
+  "case Private.State{fields}: Private.State{fields}"
+`);
+  checked(check(copy.directory, 'model-boundary-probe.bend'));
+  const policy = JSON.parse(copy.originals.get('components.json')).model_representations.find(entry => entry.module === 'bendlib/domain.bend');
+  assert.ok(policy.owners.includes('bendlib/domain.bend'));
+  assert.ok(policy.owners.includes('bendlib/proofs/task-storage.bend'));
+  await modify(copy.directory, 'bendlib/domain.bend', source => `${source}\ndef model_boundary_owner_probe(state: State) -> Nat:\n  State{tasks, next_task, next_ticket, environment, limits, projects} = state\n  next_task\n`);
+  await modify(copy.directory, 'bendlib/proofs/task-storage.bend', source => `${source}\ndef model_boundary_owner_probe(state: D.State) -> Nat:\n  D.State{tasks, next_task, next_ticket, environment, limits, projects} = state\n  next_task\n`);
+  assert.match(await checkComponents(copy.directory), /Component boundaries check/);
+  await unchanged(copy, ['bendlib/domain.bend', 'bendlib/proofs/task-storage.bend']);
+});
+
+test('model representation policy rejects malformed, unknown and duplicate ownership declarations', async t => {
+  const copy = await specimen(t);
+  const original = JSON.parse(copy.originals.get('components.json'));
+  const mutations = [
+    ['missing policy', config => { delete config.model_representations; }, /Unsupported or incomplete/],
+    ['empty policy', config => { config.model_representations = []; }, /Invalid model representation boundaries/],
+    ['extra policy field', config => { config.model_representations[0].wildcard = true; }, /Invalid model representation policy shape/],
+    ['unknown module', config => { config.model_representations[0].module = 'missing-model.bend'; }, /Missing model representation module/],
+    ['unknown constructor', config => { config.model_representations[0].constructors = ['MissingState']; }, /Missing model representation constructor/],
+    ['duplicate module', config => { config.model_representations.push(structuredClone(config.model_representations[0])); }, /Duplicate model representation ownership/],
+    ['duplicate constructor', config => { config.model_representations[0].constructors.push(config.model_representations[0].constructors[0]); }, /Invalid model representation constructors/],
+    ['unknown owner', config => { config.model_representations[0].owners.push('missing-owner.bend'); }, /Invalid model representation owners/],
+    ['wildcard owner', config => { config.model_representations[0].owners.push('bendlib/proofs/*'); }, /Invalid model representation owners/],
+    ['duplicate owner', config => { config.model_representations[0].owners.push(config.model_representations[0].owners[0]); }, /Invalid model representation owners/],
+    ['missing declaring owner', config => { config.model_representations[0].owners = config.model_representations[0].owners.filter(owner => owner !== config.model_representations[0].module); }, /Invalid model representation owners/],
+  ];
+  for (const [label, mutate, diagnostic] of mutations) await t.test(label, async () => {
+    const config = structuredClone(original);
+    mutate(config);
+    await writeFile(path.join(copy.directory, 'components.json'), JSON.stringify(config));
+    await assert.rejects(checkComponents(copy.directory), diagnostic);
+  });
+  await unchanged(copy, ['components.json']);
+});
+
 test('a matching native build cache cannot bypass the actual-source boundary gate', async t => {
   const copy = await specimen(t);
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -163,20 +252,18 @@ test('contract-preserving replacement preserves clients and declares its local p
   // on unfolding storage rather than its operation boundary; it is not an
   // optimization intended for production.
   await modify(copy.directory, implementation, source => replaceOnce(source,
-    'D.State{replace(tasks, task), next_task, next_ticket, environment, limits, projects}',
-    'D.State{List.append(&2, D.Task, replace(tasks, task), Nil{}), next_task, next_ticket, environment, limits, projects}'));
+    'write(replace(read(state), task), state)',
+    'write(List.append(&2, D.Task, replace(read(state), task), Nil{}), state)'));
   checked(check(copy.directory, 'PROGRAM.bend'));
   rejected(check(copy.directory), /Location: update_meaning\b/);
   await modify(copy.directory, provider, source => replaceDefinition(
     source.replace('import Base\n', 'import Base\nimport ../stdlib.bend as Std\n'), 'update_meaning',
     `def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
   {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
-  match state:
-    case D.State{+tasks, next_task, next_ticket, environment, limits, projects}:
-      Equal.cong(+List<D.Task>, C.Frame<D.State, R>,
-        values => C.Frame{D.State{values, next_task, next_ticket, environment, limits, projects}, rest},
-        List.append(&2, D.Task, Tasks.replace(tasks, task), Nil{}), Tasks.replace(tasks, task),
-        Std.app_nil_r(D.Task, Tasks.replace(tasks, task)))`));
+  Equal.cong(+List<D.Task>, C.Frame<D.State, R>,
+    values => C.Frame{D.with_state_tasks(values, state), rest},
+    List.append(&2, D.Task, Tasks.replace(D.state_tasks(state), task), Nil{}), Tasks.replace(D.state_tasks(state), task),
+    Std.app_nil_r(D.Task, Tasks.replace(D.state_tasks(state), task)))`));
   await modify(copy.directory, 'components.json', source => {
     const config = JSON.parse(source);
     config.application_dependencies[provider] = [

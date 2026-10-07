@@ -63,7 +63,7 @@ def Laws.replay_preserves_world(events, world, evidence):
   +count = List.length(&2, M.Input, events)
   +tape : Transcript.Tape = Transcript.Tape{world, events, Nil{}}
   Equal.trans(Bool, I.world(P.replay(events, world)), I.world(Traces.replay(events, world)), True{},
-    Equal.cong(M.World(), Bool, I.world, P.replay(events, world), Traces.replay(events, world),
+    Equal.cong(M.World(), Bool, world => I.world(world), P.replay(events, world), Traces.replay(events, world),
       Equal.sym(M.World(), Traces.replay(events, world), P.replay(events, world), Laws.trace_interpretation(events, world))),
     Std.iter_ind(~Transcript.Tape, ~Traces.implementation, ~(count => tape => {Transcript.valid(tape) == True{} : Bool}),
       ~(count => tape => evidence => trace_preserves(tape, evidence)), tape, evidence, count))

@@ -21,12 +21,27 @@ import ../../core/interface-rules.bend as InterfaceRules
 
 def Architecture.surface():
   Contract.Requirements{
-    SurfaceLaws.evidence(), SessionLaws.evidence(), SubmissionLaws.evidence(), BoundaryLaws.evidence(), CompositionLaws.evidence(),
-    ConversationPresentationLaws.evidence(), BoardPresentationLaws.evidence(), BoardCapabilityLaws.evidence(), ExecutionContextLaws.evidence(), ProjectInteractionLaws.evidence(), DirectoryEntryLaws.evidence(), SubmissionFeedbackLaws.evidence(), CoreSubmissionProof.reopen_evidence(),
+    Contract.Interaction{
+      SurfaceLaws.evidence(),
+      SessionLaws.evidence(),
+      BoundaryLaws.evidence(),
+      CompositionLaws.evidence()},
+    Contract.Drafts{
+      SubmissionLaws.evidence(),
+      SubmissionFeedbackLaws.evidence(),
+      CoreSubmissionProof.reopen_evidence(),
+      task => text => previous => selected => world => {==},
+      directory_entry => revision => body => feedback => submitted => reply => {==},
+      revision => title => description => stage => priority => owner => project => labels => attachments => assist => profile => {==}},
+    Contract.Presentation{
+      ConversationPresentationLaws.evidence(),
+      BoardPresentationLaws.evidence(),
+      reader => task => world => Conversation.timeline_history(reader, task, world),
+      messages => offset => task => disclosures => Conversation.observed_text(messages, offset, task, disclosures)},
+    Contract.Capabilities{
+      BoardCapabilityLaws.evidence(),
+      ExecutionContextLaws.evidence(),
+      ProjectInteractionLaws.evidence(),
+      DirectoryEntryLaws.evidence()},
     input => program => session => services => CoreLawsProof.runtime_input(input, program, session, services),
-    capacity => +state => InterfaceRules.assembled_content(Core.observe(capacity, state), state),
-    reader => task => world => Conversation.timeline_history(reader, task, world),
-    messages => offset => task => disclosures => Conversation.observed_text(messages, offset, task, disclosures),
-    task => text => previous => selected => world => {==},
-    directory_entry => revision => body => feedback => submitted => reply => {==},
-    revision => title => description => stage => priority => owner => project => labels => attachments => assist => profile => {==}}
+    capacity => +state => InterfaceRules.assembled_content(Core.observe(capacity, state), state)}

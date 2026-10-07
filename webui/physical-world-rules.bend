@@ -8,7 +8,6 @@ import ./physical-width-rules.bend as Width
 import ./physical-height-rules.bend as Height
 import ./physical-allocation-population-rules.bend as Population
 import ./document.bend as Doc
-
 def stale_claim(+generation: Nat, +receipts: +List<String>, +engine: World.Engine) -> Type:
   {World.receive(generation, receipts, engine) == engine : World.Engine}
 
@@ -17,10 +16,12 @@ def rejected_measurement_claim(+valid: Bool, +request: Content.Request, +observa
     == Fail{"invalid or duplicate physical measurement"} : Result<&2, &2, String, World.Batch>}
 
 def production_claim(+engine: World.Engine) -> Type:
-  World.Engine{+snapshot, +viewport, +observations, +viewports, status} = engine
+  +snapshot = World.snapshot(engine)
+  +viewport = World.viewport(engine)
+  +observations = World.observations(engine)
+  +viewports = World.viewports(engine)
   {World.plan(engine) == World.preparation(
     PhysicalSource.prepare(snapshot, observations), viewport, observations, viewports) : PhysicalPlan.Plan}
-
 
 type Requirements is Type:
   Requirements{
@@ -34,6 +35,5 @@ type Requirements is Type:
     width: Width.Requirements<Content.Value, Doc.DOMEvent>,
     height: Height.Requirements<Content.Value, Doc.DOMEvent>,
     population: Population.Requirements<Content.Value, Doc.DOMEvent>}
-
 law evidence:
   Requirements

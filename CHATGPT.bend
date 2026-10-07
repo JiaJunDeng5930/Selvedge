@@ -55,9 +55,7 @@ type Resolution is Data:
   Refuse{code: String, reason: String}
   Accept{change: Change}
 
-def initial() -> State:
-  State{Nil{}, Nil{}, 0n}
-
+# Model observations.
 def grants(state: State) -> +List<Finite.Entry(Grant)>:
   State{grants, jobs, next} = state
   grants
@@ -69,6 +67,51 @@ def jobs(state: State) -> +List<Finite.Entry(Job)>:
 def next(state: State) -> Nat:
   State{grants, jobs, next} = state
   next
+
+def outcome(job: Job) -> Outcome:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  outcome
+
+def owned(connection: Nat, project: Nat, job: Job) -> Bool:
+  Job{owner, target, request, arguments, workspace, sandbox, outcome} = job
+  Nat.is_eq(connection, owner) && Nat.is_eq(project, target)
+
+def job_connection(job: Job) -> Nat:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  connection
+
+def job_project(job: Job) -> Nat:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  project
+
+def job_request(job: Job) -> String:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  request
+
+def job_arguments(job: Job) -> J.Json:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  arguments
+
+def job_workspace(job: Job) -> D.Workspace:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  workspace
+
+def job_sandbox(job: Job) -> D.Sandbox:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  sandbox
+
+def job_outcome(job: Job) -> Outcome:
+  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  outcome
+
+# Model intended updates.
+def with_outcome(value: Outcome, job: Job) -> Job:
+  Job{connection, project, request, arguments, workspace, sandbox, previous} = job
+  Job{connection, project, request, arguments, workspace, sandbox, value}
+
+# Model birth.
+def initial() -> State:
+  State{Nil{}, Nil{}, 0n}
 
 def member(+id: Nat, values: +List<Nat>) -> Bool:
   match values:
@@ -93,18 +136,6 @@ def pending(outcome: Outcome) -> Bool:
   match outcome:
     case Running{}: True{}
     case _: False{}
-
-def outcome(job: Job) -> Outcome:
-  Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
-  outcome
-
-def with_outcome(value: Outcome, job: Job) -> Job:
-  Job{connection, project, request, arguments, workspace, sandbox, previous} = job
-  Job{connection, project, request, arguments, workspace, sandbox, value}
-
-def owned(connection: Nat, project: Nat, job: Job) -> Bool:
-  Job{owner, target, request, arguments, workspace, sandbox, outcome} = job
-  Nat.is_eq(connection, owner) && Nat.is_eq(project, target)
 
 def status(outcome: Outcome) -> String:
   match outcome:

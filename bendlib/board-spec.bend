@@ -16,14 +16,14 @@ import ./association-map.bend as Finite
 # archiving may cancel only its associated conversation, and title-only results
 # cannot replace a description or authorize an unrelated generation.
 def archive_result(+id: Nat, +card: B.Card, archived: Bool, now: U32, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-  C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.put(id, B.set_archive(archived, card, now), F.board(board), B.next_card(F.board(board))), board)},
+  C.Frame{+core, +board} = world
+  C.Decision{C.Frame{core, F.with_board(B.put(id, B.set_archive(archived, card, now), F.board(board), B.next_card(F.board(board))), board)},
     D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"revision", J.nat(1n+B.revision(card))}]}), Nil{}}
 
 def cancel_archived(archived: Bool, working: Bool, found: Maybe<&2, D.Task>, decision: M.Decision()) -> M.Decision():
   match archived working found decision:
-    case True{} True{} Some{+task} C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects}:
-      C.Decision{C.Frame{D.State{T.replace(tasks, T.interrupt(task)), next_task, next_ticket, environment, limits, projects}, board}, reply,
+    case True{} True{} Some{+task} C.Decision{C.Frame{+core, +board}, reply, effects}:
+      C.Decision{C.Frame{D.with_state_tasks(T.replace(D.state_tasks(core), T.interrupt(task)), core), board}, reply,
         List.append(&2, M.Effect(), effects, [Effects.CancelTask{D.task_id(task)}])}
     case _ _ _ decision: decision
 
@@ -35,34 +35,34 @@ def reposition(+id: Nat, card: B.Card, +position: Nat, board: B.State) -> B.Stat
 
 def change(change: R.Change, +world: M.World()) -> M.Decision():
   match change world:
-    case R.StoreCard{+id, +card, next} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
-      C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.put(id, card, F.board(board), next), board)},
+    case R.StoreCard{+id, +card, next} C.Frame{+core, +board}:
+      C.Decision{C.Frame{core, F.with_board(B.put(id, card, F.board(board), next), board)},
         D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"revision", J.nat(B.revision(card))}]}), Nil{}}
-    case R.RemoveCard{+id} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
-      C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.remove(id, F.board(board)), board)},
+    case R.RemoveCard{+id} C.Frame{+core, +board}:
+      C.Decision{C.Frame{core, F.with_board(B.remove(id, F.board(board)), board)},
         D.success(J.Object{[J.Field{"card_id", J.nat(id)}]}), Nil{}}
     case R.Relocate{+id, +card, position} _:
       C.Decision{S.store(reposition(id, card, position, S.registry(world)), world),
         D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"revision", J.nat(B.revision(card))}]}), Nil{}}
     case R.ArchiveCard{+id, +card, +archived, now} _:
       cancel_archived(archived, S.busy(S.task(card, world)), S.task(card, world), archive_result(id, card, archived, now, world))
-    case R.Configure{+automatic, +profile} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
-      C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.settings(automatic, profile, F.board(board)), board)},
+    case R.Configure{+automatic, +profile} C.Frame{+core, +board}:
+      C.Decision{C.Frame{core, F.with_board(B.settings(automatic, profile, F.board(board)), board)},
         D.success(J.Object{[J.Field{"automatic", J.Boolean{automatic}}, J.Field{"draft_profile", J.Text{profile}}]}), Nil{}}
-    case R.StoreAgent{+id, +agent, next} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
-      C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.put_agent(id, agent, F.board(board), next), board)},
+    case R.StoreAgent{+id, +agent, next} C.Frame{+core, +board}:
+      C.Decision{C.Frame{core, F.with_board(B.put_agent(id, agent, F.board(board), next), board)},
         D.success(J.Object{[J.Field{"agent_id", J.nat(id)}, J.Field{"revision", J.nat(B.agent_revision(agent))}]}), Nil{}}
-    case R.RemoveAgent{+id} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
-      C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.remove_agent(id, F.board(board)), board)},
+    case R.RemoveAgent{+id} C.Frame{+core, +board}:
+      C.Decision{C.Frame{core, F.with_board(B.remove_agent(id, F.board(board)), board)},
         D.success(J.Object{[J.Field{"agent_id", J.nat(id)}]}), Nil{}}
-    case R.RequestText{+id, +card, profile, +retitle, next} C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +board}:
-      C.Decision{C.Frame{D.State{tasks, next_task, 1n+ticket, environment, limits, projects}, F.with_board(B.put(id, B.with_enrichment(B.Enriching{ticket, B.revision(card), retitle}, card), F.board(board), next), board)},
+    case R.RequestText{+id, +card, profile, +retitle, next} C.Frame{+core, +board}:
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(core), core), F.with_board(B.put(id, B.with_enrichment(B.Enriching{D.state_next_ticket(core), B.revision(card), retitle}, card), F.board(board), next), board)},
         D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"revision", J.nat(B.revision(card))}]}),
-        [Effects.FeatureEffect{F.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
+        [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
 
 def started(+id: Nat, +task_id: Nat, +card: B.Card, now: U32, decision: M.Decision()) -> M.Decision():
-  C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects} = decision
-  C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.put(id, B.linked(task_id, card, now), F.board(board), B.next_card(F.board(board))), board)},
+  C.Decision{C.Frame{+core, +board}, reply, effects} = decision
+  C.Decision{C.Frame{core, F.with_board(B.put(id, B.linked(task_id, card, now), F.board(board), B.next_card(F.board(board))), board)},
     D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"task_id", J.nat(task_id)}, J.Field{"revision", J.nat(1n+B.revision(card))}]}), effects}
 
 def failed(reason: String, card: B.Card) -> B.Card:
@@ -93,6 +93,6 @@ def complete(outcome: B.Outcome, retitle: Bool, +card: B.Card) -> B.Card:
     case B.Suggested{title, description}: valid_suggestion(String.trim(title), selected_description(retitle, description, card), card)
 
 def completed(id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-  C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, F.with_board(B.put(id, complete(outcome, retitle, card), F.board(board), B.next_card(F.board(board))), board)},
+  C.Frame{+core, +board} = world
+  C.Decision{C.Frame{core, F.with_board(B.put(id, complete(outcome, retitle, card), F.board(board), B.next_card(F.board(board))), board)},
     D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}}

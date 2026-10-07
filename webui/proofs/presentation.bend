@@ -17,7 +17,6 @@ def production_commit_environment(decision: Platform.Decision, generation: Nat, 
   Platform.Decision{product, platform, effects} = decision
   {==}
 
-
 def environment_observed_stores_environment(+environment: Design.Environment, current_environment: Design.Environment,
   +application: Platform.State, +generation: Nat, realization: Rendered.State, font: F.State) ->
   {Rule.decision_environment(Model.step(Model.EnvironmentObserved{environment}, Model.State{application, generation, realization, current_environment, font})) == environment : Design.Environment}:
@@ -83,11 +82,37 @@ def environment_observed_preserves_capacity(+environment: Design.Environment, cu
   Platform.State{Core.State{application, services}, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = application
   {==}
 
+def state_environment_observed_preserves_core_evidence(+model_state: Model.State, +environment: Design.Environment) ->
+  {Model.product(Model.step(Model.EnvironmentObserved{environment}, model_state)) == Platform.unchanged(Rule.original_core(Model.application(model_state))) : Core.Decision}:
+  Model.State{+application, +generation, +realization, +current_environment, +font} = model_state
+  Rules_model_rules.production_commit_preserves_product(Platform.Decision{Platform.unchanged(Rule.original_core(application)), Rule.original_platform(application), Nil{}},
+    (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
+
+def state_environment_observed_stores_environment_evidence(+model_state: Model.State, +environment: Design.Environment) ->
+  {Rule.decision_environment(Model.step(Model.EnvironmentObserved{environment}, model_state)) == environment : Design.Environment}:
+  Model.State{+application, +generation, +realization, +current_environment, +font} = model_state
+  environment_observed_stores_environment(environment, current_environment, application, generation, realization, font)
+
+def state_frame_preserves_environment_evidence(+model_state: Model.State, received: Nat, frame: Rendered.Frame) ->
+  {Rule.decision_environment(Model.step(Model.FrameObserved{received, frame}, model_state)) == Model.environment(model_state) : Design.Environment}:
+  Model.State{+application, +generation, +realization, +environment, +font} = model_state
+  frame_preserves_environment(environment, received, frame, application, generation, realization, font)
+
+def state_element_preserves_environment_evidence(+model_state: Model.State, key: String, gesture: InterfaceView.Gesture) ->
+  {Rule.decision_environment(Model.step(Model.ElementInput{key, gesture}, model_state)) == Model.environment(model_state) : Design.Environment}:
+  Model.State{+application, +generation, +realization, +environment, +font} = model_state
+  element_preserves_environment(environment, key, gesture, application, generation, realization, font)
+
+def state_environment_observed_preserves_capacity_evidence(+model_state: Model.State, +environment: Design.Environment) ->
+  {Rule.decision_capacity(Model.step(Model.EnvironmentObserved{environment}, model_state)) == Rule.state_capacity(model_state) : View.Capacity}:
+  Model.State{+application, +generation, +realization, +current_environment, +font} = model_state
+  environment_observed_preserves_capacity(environment, current_environment, application, generation, realization, font)
+
 def Rule.evidence():
   Rule.Requirements{
-    +environment => current_environment => +application => +generation => realization => font =>
-      Rules_model_rules.production_commit_preserves_product(Platform.Decision{Platform.unchanged(Rule.original_core(application)), Rule.original_platform(application), Nil{}},
-        (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
-    , environment_observed_stores_environment,
-    frame_preserves_environment, element_preserves_environment,
-    reflow_sets_capacity, environment_observed_preserves_capacity}
+    state_environment_observed_preserves_core_evidence,
+    state_environment_observed_stores_environment_evidence,
+    state_frame_preserves_environment_evidence,
+    state_element_preserves_environment_evidence,
+    reflow_sets_capacity,
+    state_environment_observed_preserves_capacity_evidence}

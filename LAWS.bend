@@ -346,14 +346,11 @@ law tool_dispatch:
   for +call: D.Call
   for +remaining: +List<D.Attempt>
   for +task: D.Task
-  for +tasks: +List<D.Task>
-  for +next_task: Nat
-  for +ticket: Nat
-  for +environment: D.Environment
-  for +limits: D.ExecutionLimits
-  for +projects: D.Projects
-  {P.external_tool(tool, call, remaining, task, C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, board}) ==
-    C.Decision{C.Frame{D.State{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), next_task, 1n+ticket, environment, limits, projects}, board}, J.Null{}, [Effects.ExecuteTool{D.task_id(task), ticket, tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]} : M.Decision()}
+  for +state: D.State
+  {P.external_tool(tool, call, remaining, task, C.Frame{state, board}) ==
+    C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(state),
+      D.with_state_tasks(T.replace(D.state_tasks(state), T.promote(Ops.started(D.state_next_ticket(state), call, remaining, task))), state)), board},
+      J.Null{}, [Effects.ExecuteTool{D.task_id(task), D.state_next_ticket(state), tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]} : M.Decision()}
 
 law small_context_dispatch:
   for +task: D.Task

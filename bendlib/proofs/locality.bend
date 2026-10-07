@@ -22,12 +22,15 @@ def board_core_frame(value: Board.State, world: M.World()) ->
 
 def locality() -> Rule.Locality:
   Rule.Locality{
-    R => +task => +state => +rest => TaskProof.update_meaning(R, task, state, rest),
-    R => task => world => TaskProof.update_frame(R, task, world),
-    R => X => +task => +world => ReasoningProof.start_meaning(R, X, task, world),
-    R => X => task => world => ReasoningProof.start_frame(R, X, task, world),
-    task => world => {==},
-    task => world => ReasoningProof.start_frame(F.State(), F.Effect, task, world),
-    +value => state => FrameProof.board_written(value, state),
-    value => world => board_frame(value, world),
-    value => world => board_core_frame(value, world)}
+    Rule.TaskStorage{
+      R => +task => +state => +rest => TaskProof.update_meaning(R, task, state, rest),
+      R => task => world => TaskProof.update_frame(R, task, world),
+      task => world => {==}},
+    Rule.ReasoningComponent{
+      R => X => +task => +world => ReasoningProof.start_meaning(R, X, task, world),
+      R => X => task => world => ReasoningProof.start_frame(R, X, task, world),
+      task => world => ReasoningProof.start_frame(F.State(), F.Effect, task, world)},
+    Rule.BoardStorage{
+      +value => state => FrameProof.board_written(value, state),
+      value => world => board_frame(value, world),
+      value => world => board_core_frame(value, world)}}

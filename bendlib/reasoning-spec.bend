@@ -12,17 +12,25 @@ import ./operations.bend as Ops
 # settlement. It fixes the complete successor and ordered effect list. Context
 # projection and generation records are shared domain primitives with their own
 # frame, privacy and lease properties in the reasoning boundary.
-def model(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
-  C.Frame{D.State{tasks, next_task, +ticket, D.Environment{+catalog, profiles, forks, descendants, project, plugins}, limits, projects}, +rest} = world
-  +tools = T.task_tools(D.task_contract(task))
-  +allowed = T.callable(tools, catalog)
-  C.Decision{C.Frame{D.State{T.replace(tasks, D.with_phase(D.ModelPending{ticket, allowed}, task)), next_task, 1n+ticket, D.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects}, rest}, J.Null{},
-    [Effects.RequestModel{D.task_id(task), ticket, T.task_model(D.task_contract(task)),
-      D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
+def model_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>, environment_value: D.Environment) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  match world environment_value:
+    case C.Frame{+task_state, +rest} D.Environment{+catalog, profiles, forks, descendants, project, plugins}:
+      tasks = D.state_tasks(task_state)
+      +ticket = D.state_next_ticket(task_state)
+      +tools = T.task_tools(D.task_contract(task))
+      +allowed = T.callable(tools, catalog)
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_phase(D.ModelPending{ticket, allowed}, task)), task_state)), rest}, J.Null{},
+        [Effects.RequestModel{D.task_id(task), ticket, T.task_model(D.task_contract(task)),
+          D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
+
+def model(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  model_environment(StateRest, EffectRest, task, world, D.state_environment(C.local(D.State, StateRest, world)))
 
 def evaluator(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
-  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +rest} = world
-  C.Decision{C.Frame{D.State{T.replace(tasks, D.with_phase(D.ReasoningPending{ticket, D.history_length(D.task_history(task))}, task)), next_task, 1n+ticket, environment, limits, projects}, rest}, J.Null{},
+  C.Frame{+task_state, +rest} = world
+  tasks = D.state_tasks(task_state)
+  +ticket = D.state_next_ticket(task_state)
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_phase(D.ReasoningPending{ticket, D.history_length(D.task_history(task))}, task)), task_state)), rest}, J.Null{},
     [Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]}
 
 def required(-StateRest: Data, -EffectRest: Data, plan: R.Plan, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:

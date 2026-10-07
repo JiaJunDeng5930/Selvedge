@@ -17,12 +17,14 @@ type Receipt is Data:
     interaction: +List<E.Effect>, service_effects: +List<Services.Effect>, durable: Bool}
 
 def receipt(+decision: Core.Decision) -> Receipt:
-  Core.Decision{Core.State{application, services}, reply, runtime, interaction, service_effects, durable} = decision
+  Core.Decision{+observed_state, reply, runtime, interaction, service_effects, durable} = decision
+  services = Core.services(observed_state)
   Receipt{Laws.runtime(decision), services, interaction, service_effects, durable}
 
 def quiet_decision(+state: Core.State) -> Core.Decision:
-  Core.State{application, services} = state
-  Core.Decision{Core.State{application, services}, D.success(J.Null{}), Nil{}, Nil{}, Nil{}, False{}}
+  application = Core.application(state)
+  services = Core.services(state)
+  Core.Decision{Core.from_application(application, services), D.success(J.Null{}), Nil{}, Nil{}, Nil{}, False{}}
 
 type Requirements is Type:
   Requirements{

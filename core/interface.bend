@@ -198,7 +198,9 @@ def declared_panel_toggle_layers(parent: Identity.Key, control: Core.Control, pa
     PanelToggle{E.panel_present(layers, E.panel_target(panel)), input, availability}, Nil{}}
 
 def declared_panel_toggle(parent: Identity.Key, control: Core.Control, panel: U.Panel, state: Core.State) -> Node:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  +observed_session = E.session(observed_application)
+  layers = E.layers(observed_session)
   declared_panel_toggle_layers(parent, control, panel, layers)
 
 def declared(parent: Identity.Key, +declaration: V.ControlDeclaration, +state: Core.State) -> Node:
@@ -290,7 +292,10 @@ def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclar
 
 def navigation(view: V.Navigation, +state: Core.State) -> Node:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
-  Core.State{E.Application{world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  +observed_session = E.session(observed_application)
+  +route = E.route(observed_session)
+  navigation = E.navigation(observed_session)
   +header: Node = Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Selvedge", NavigationHeader{}, Region{},
     [declared(Identity.Place{"/navigation"}, toggle, state)]}
   Node{Identity.Place{"/navigation"}, "navigation", "Navigation", Navigation{}, Region{}, header <>
@@ -302,7 +307,10 @@ def observed_field(found: Maybe<&2, U.Draft>, field: Forms.Field, world: M.World
     case Some{U.Draft{revision, body, feedback, directory_entry}}: Forms.observed(body, field, world)
 
 def field_value(state: Core.State, editor: U.Editor, field: Forms.Field) -> Forms.Observed:
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
+  +observed_session = E.session(observed_application)
+  drafts = E.drafts(observed_session)
   observed_field(E.find_draft(drafts, editor), field, world)
 
 def attachment_nodes(files: +List<B.Attachment>, +editor: U.Editor, +parent: Identity.Key) -> +List<Node>:
@@ -336,8 +344,10 @@ def files_observed(value: Forms.Observed) -> +List<B.Attachment>:
     case Forms.AttachmentsValue{files}: files
     case _: Nil{}
 
-def file_field(+editor: U.Editor, +parent: Identity.Key, state: Core.State) -> +List<Node>:
-  Core.State{application, Services.State{+access, credential, settings, appearance, next, +transfers, preview, directory_picker}} = state
+def file_field(+editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
+  +observed_services = Core.services(state)
+  +access = Services.access(observed_services)
+  +transfers = Services.transfers(observed_services)
   Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", Field{}, ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
     List.append(&2, Node, attachment_nodes(files_observed(field_value(state, editor, Forms.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
 
@@ -388,7 +398,9 @@ def draft_directory(found: Maybe<&2, U.Draft>) -> String:
     case Some{draft}: U.directory_entry(draft)
 
 def pending_directory(state: Core.State, editor: U.Editor) -> String:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  +observed_session = E.session(observed_application)
+  drafts = E.drafts(observed_session)
   draft_directory(E.find_draft(drafts, editor))
 
 def directory_can_confirm(found: Maybe<&2, U.Draft>) -> Bool:
@@ -397,7 +409,9 @@ def directory_can_confirm(found: Maybe<&2, U.Draft>) -> Bool:
     case Some{draft}: U.can_confirm_directory(draft)
 
 def directory_ready(state: Core.State, editor: U.Editor) -> Bool:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  +observed_session = E.session(observed_application)
+  drafts = E.drafts(observed_session)
   directory_can_confirm(E.find_draft(drafts, editor))
 
 def directory_confirm(+editor: U.Editor, parent: Identity.Key, +state: Core.State) -> Node:
@@ -421,7 +435,7 @@ def browse_start(+editor: U.Editor, +state: Core.State) -> String:
   browse_start_empty(String.is_empty(entered), entered, editor, state)
 
 def application_of(state: Core.State) -> E.Application:
-  Core.State{application, services} = state
+  application = Core.application(state)
   application
 
 def directory_browse(+editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> Node:
@@ -462,7 +476,8 @@ def field_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, w
     case _ _: entry
 
 def actual_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, state: Core.State) -> Forms.Entry:
-  Core.State{E.Application{world, session}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
   field_entry(field, entry, value, world)
 
 def entry_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observed, groups: +List<V.InputGroup>) -> +List<Forms.ChoiceValue>:
@@ -512,7 +527,9 @@ def configured_reset(config: Maybe<&2, Context.Configuration>, editor: U.Editor,
 
 def field_resets(+field: Forms.FieldScene, +editor: U.Editor, parent: Identity.Key, +state: Core.State) -> +List<Node>:
   Forms.FieldScene{+field, label, entry} = field
-  Core.State{E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  +observed_session = E.session(observed_application)
+  +drafts = E.drafts(observed_session)
   configured_reset(draft_configuration(E.find_draft(drafts, editor)), editor, field, label, parent, state)
 def fields(values: +List<Forms.FieldScene>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
@@ -652,7 +669,7 @@ def disclosure_input(expanded: Bool, expand: U.Input, collapse: U.Input) -> U.In
     case False{}: expand
 
 def application(state: Core.State) -> E.Application:
-  Core.State{application, services} = state
+  +application = Core.application(state)
   application
 
 def code_region(value: Code.Scene, +parent: Identity.Key) -> Node:
@@ -717,8 +734,11 @@ def project(view: V.ProjectScene, +parent: Identity.Key, +state: Core.State) -> 
   region(parent, "heading", name, Heading{}, controls(actions, Identity.Part{parent, "heading"}, state)) <> task_entries(tasks, parent, state)
 
 def projects(values: +List<V.ProjectScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
-  Core.State{E.Application{+world, +session}, services} = state
-  E.Session{+route, drafts, readers, layers, focus, +navigation, filter, now, next, pending, previews, code, next_layer} = session
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
+  +session = E.session(observed_application)
+  +route = E.route(session)
+  +navigation = E.navigation(session)
   project_entries(V.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, V.active_project(route, session, world), navigation), parent, state)
 
 def project_collection_entries(values: +List<V.ProjectScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
@@ -744,19 +764,28 @@ def placements_at(values: +List<V.MoveDestination>, +id: Nat, +revision: Nat, +n
       placement_control(placement_target(stage, before), Core.control(state, V.board_control("move", label, B.MoveCard{id, revision, stage, before, now}, world))) <> placements_at(rest, id, revision, now, world, state)
 
 def placements(values: +List<V.MoveDestination>, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
+  +observed_session = E.session(observed_application)
+  +now = E.now(observed_session)
   placements_at(values, id, revision, now, world, state)
 
 def archive_placement(archived: Bool, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
   match archived:
     case True{}: Nil{}
     case False{}:
-      Core.State{E.Application{+world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+      +observed_application = Core.application(state)
+      +world = E.program(observed_application)
+      +observed_session = E.session(observed_application)
+      +now = E.now(observed_session)
       [placement_control(Identity.encode(Identity.Part{Identity.Place{"/main"}, "archive-destination"}), Core.control(state, V.board_control("archive", "归档任务", B.Archive{id, revision, True{}, now}, world)))]
 
 def card(view: V.CardScene, +parent: Identity.Key, +state: Core.State) -> Node:
   V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
+  +observed_session = E.session(observed_application)
+  +now = E.now(observed_session)
   +key : Identity.Key = Identity.Entity{parent, "card", Nat.show(id)}
   +face : V.CardFace = V.card_face(id, value, now, world)
   +offered : +List<Placement> = List.append(&2, Placement, placements(destinations, id, B.revision(value), state), archive_placement(B.archived(value), id, B.revision(value), state))
@@ -785,9 +814,14 @@ def columns(values: +List<V.BoardColumn>, +parent: Identity.Key, +state: Core.St
 def project_fact(+key: Identity.Key, +label: String, text: String) -> Node:
   Node{key, Identity.encode(key), label, Content{}, Fact{text}, Nil{}}
 
-def agent_observation(+id: Nat, value: B.AgentProfile, edit: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
-  B.AgentProfile{revision, +name, profile, reasoning, instructions, settings, concurrency} = value
-  Core.State{E.Application{+world, session}, services} = state
+def agent_observation(+id: Nat, +value: B.AgentProfile, edit: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
+  +name = B.agent_name(value)
+  profile = B.agent_profile(value)
+  reasoning = B.agent_reasoning(value)
+  instructions = B.agent_instructions(value)
+  concurrency = B.agent_concurrency(value)
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
   +key : Identity.Key = Identity.Entity{parent, "agent", Nat.show(id)}
   Node{Identity.Entity{parent, "agent", Nat.show(id)}, "agent/" ++ Nat.show(id), name, Section{}, Region{}, [project_fact(Identity.Part{key, "profile"}, "模型", profile), project_fact(Identity.Part{key, "reasoning"}, "推理", reasoning),
      project_fact(Identity.Part{key, "instructions"}, "指令", instructions), project_fact(Identity.Part{key, "concurrency"}, "并发上限", Nat.show(concurrency)),
@@ -873,7 +907,8 @@ def enabled_control(control: Core.Control) -> Bool:
   available(availability)
 
 def board_profile(+automatic: Bool, +selected: String, choices: +List<D.Profile>, parent: Identity.Key, +state: Core.State) -> Node:
-  Core.State{E.Application{+world, session}, services} = state
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
   Node{Identity.Part{parent, "drafting-model"}, "drafting-model", "草稿模型", Field{},
     BoardProfile{automatic, selected, choices, enabled_control(Core.control(state, V.board_control("board/profile", "草稿模型", B.Settings{automatic, selected}, world)))}, Nil{}}
 
@@ -954,7 +989,8 @@ def filter_group(+category: String, label: String, +choices: +List<BoardFilter.C
   Node{Identity.Part{Identity.Part{parent, "filter"}, category}, "filter/" ++ category, label, Section{}, Region{}, filter_option_nodes(choices, category, filter, Identity.Part{Identity.Part{parent, "filter"}, category}, state)}
 
 def board_filter_nodes(+filter: B.Filter, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
-  Core.State{E.Application{+world, session}, services} = state
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
   +cards = B.cards(Board.registry(world))
   filter_group("status", "状态", BoardFilter.stages(B.stages()), filter, parent, state) <>
   filter_group("priority", "优先级", BoardFilter.priority_choices(), filter, parent, state) <>
@@ -966,7 +1002,11 @@ def board_filter_nodes(+filter: B.Filter, +parent: Identity.Key, +state: Core.St
   [declared(parent, V.ControlDeclaration{"filters/clear", "清除筛选", V.Secondary{}, U.FilterBoard{B.empty_filter()}, V.Available{}}, state)]
 
 def archive_destination(control: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
-  Core.State{E.Application{+world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
+  +observed_session = E.session(observed_application)
+  +route = E.route(observed_session)
+  +now = E.now(observed_session)
   Node{Identity.Part{parent, "archive-destination"}, "archive-destination", "归档任务", Section{},
     CardArchive{List.length(&2, V.CardScene, V.archived_cards(Board.registry(world), route, now, world))}, [declared(parent, control, state)]}
 
@@ -997,7 +1037,8 @@ def creation_introduction_nodes(+value: V.CreationIntroduction, +parent: Identit
    page_region(parent, Composition.CreationContext{}, Composition.BodyPosition{}, [creation_context_node(value, parent)])]
 
 def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
-  Core.State{E.Application{world, session}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
   List.append(&2, Node, creation_introduction_nodes(V.creation_introduction(input, world), parent, state), page_composer(input, parent, parent, state, Composition.BodyPosition{}))
 
 def page_contents(view: V.Page, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
@@ -1102,7 +1143,8 @@ def card_error_observations(+card: B.Card, +parent: Identity.Key) -> +List<Node>
 
 def card_detail_draft(value: B.Draft, +id: Nat, +card: B.Card, actions: +List<V.ControlDeclaration>, linked: Maybe<&2, V.TaskEntry>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   B.Draft{title, description, stage, priority, owner, project, labels, files} = value
-  Core.State{E.Application{+world, session}, services} = state
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
   List.append(&2, Node, [project_fact(Identity.Part{parent, "identifier"}, "任务", B.identifier(id)), project_fact(Identity.Part{parent, "title"}, "标题", title),
    project_fact(Identity.Part{parent, "description"}, "描述", description), project_fact(Identity.Part{parent, "stage"}, "状态", B.stage_label(stage)),
    project_fact(Identity.Part{parent, "priority"}, "优先级", B.priority_label(priority)), project_fact(Identity.Part{parent, "owner"}, "负责人", V.face_owner(owner, world)),
@@ -1139,7 +1181,8 @@ def observation_facts(value: Context.Observation, profiles: +List<D.Profile>) ->
       Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ V.policy_approval_summary(approval)
 
 def context_summary_node(+value: Context.Observation, +parent: Identity.Key, state: Core.State) -> Node:
-  Core.State{E.Application{+world, session}, services} = state
+  +observed_application = Core.application(state)
+  +world = E.program(observed_application)
   +source = V.execution_source_summary(value, world)
   +facts = observation_facts(value, Board.profiles(world))
   Node{Identity.Part{parent, "source"}, "context/source", source, Content{}, ContextSummary{value},
@@ -1297,7 +1340,8 @@ def committed_project_text(project: Maybe<&2, Nat>, world: M.World()) -> String:
     case Some{+id}: committed_project_name(Projects.find(Projects.registry(F.State(), world), id), id)
 
 def committed_project_node(project: Maybe<&2, Nat>, +parent: Identity.Key, state: Core.State) -> Node:
-  Core.State{E.Application{world, session}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
   +label = committed_project_text(project, world)
   Node{Identity.Part{parent, "project"}, "context/project", label, Content{}, ReadOnly{label}, Nil{}}
 
@@ -1482,7 +1526,7 @@ def collapsed_navigation_toggle(nav: V.Navigation, state: Core.State) -> +List<N
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = nav
   [declared(Identity.Place{"/navigation"}, toggle, state)]
 
-def base_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, state: Core.State) -> +List<Node>:
+def base_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, +state: Core.State) -> +List<Node>:
   match placement:
     case V.ModalNavigation{}: Nil{}
     case V.CollapsedNavigation{}: collapsed_navigation_toggle(nav, state)
@@ -1665,11 +1709,12 @@ def resolve_source(source: Maybe<&2, Node>, gesture: Gesture, surface: Surface) 
 def resolve(+surface: Surface, key: String, gesture: Gesture) -> Maybe<&2, Core.Input>:
   resolve_source(find_node(active_nodes(surface), key), gesture, surface)
 
-def apply_input(input: Maybe<&2, Core.Input>, state: Core.State) -> Core.Decision:
+def apply_input(input: Maybe<&2, Core.Input>, +state: Core.State) -> Core.Decision:
   match input:
     case Some{input}: Core.step(input, state)
     case None{}:
-      Core.State{application, services} = state
+      application = Core.application(state)
+      services = Core.services(state)
       Core.application_result(E.unchanged(application), services)
 
 def origin(layers: +List<E.Layer>, key: String) -> String:
@@ -1694,16 +1739,22 @@ def record_layer(layers: +List<E.Layer>, previous: +List<E.Layer>, origin: Strin
     case Con{E.Layer{+panel, trigger, initial, query, layer_occurrence}, rest}:
       E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query, layer_occurrence} <> rest
 
-def source_session(session: E.Session, previous: +List<E.Layer>, origin: String) -> E.Session:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer} = session
-  E.Session{route, drafts, readers, record_layer(layers, previous, origin), attention, navigation, filter, now, next, pending, previews, code, next_layer}
+def source_session(+session: E.Session, previous: +List<E.Layer>, origin: String) -> E.Session:
+  layers = E.layers(session)
+  E.with_layers(record_layer(layers, previous, origin), session)
 
 def source_decision(decision: Core.Decision, previous: +List<E.Layer>, origin: String) -> Core.Decision:
-  Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
-  Core.Decision{Core.State{E.Application{program, source_session(session, previous, origin)}, services}, reply, runtime, interaction, service_effects, durable}
+  Core.Decision{+observed_state, reply, runtime, interaction, service_effects, durable} = decision
+  +observed_application = Core.application(observed_state)
+  program = E.program(observed_application)
+  session = E.session(observed_application)
+  services = Core.services(observed_state)
+  Core.Decision{Core.from_application(E.from_program(program, source_session(session, previous, origin)), services), reply, runtime, interaction, service_effects, durable}
 
 def record_source(before: Core.State, key: String, decision: Core.Decision) -> Core.Decision:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = before
+  +observed_application = Core.application(before)
+  +observed_session = E.session(observed_application)
+  +layers = E.layers(observed_session)
   source_decision(decision, layers, origin(layers, key))
 def navigates(input: Maybe<&2, Core.Input>) -> Bool:
   match input:
@@ -1712,13 +1763,17 @@ def navigates(input: Maybe<&2, Core.Input>) -> Bool:
     case Some{Core.ApplicationInput{E.UserInput{U.Activate{U.SelectProject{project}}}}}: True{}
     case _: False{}
 
-def dismiss_navigation(session: E.Session) -> E.Session:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer} = session
-  E.Session{route, drafts, readers, layers, attention, E.set_navigation(False{}, navigation), filter, now, next, pending, previews, code, next_layer}
+def dismiss_navigation(+session: E.Session) -> E.Session:
+  navigation = E.navigation(session)
+  E.with_navigation(E.set_navigation(False{}, navigation), session)
 
 def navigation_closed(decision: Core.Decision) -> Core.Decision:
-  Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
-  Core.Decision{Core.State{E.Application{program, dismiss_navigation(session)}, services}, reply, runtime, interaction, service_effects, durable}
+  Core.Decision{+observed_state, reply, runtime, interaction, service_effects, durable} = decision
+  +observed_application = Core.application(observed_state)
+  program = E.program(observed_application)
+  session = E.session(observed_application)
+  services = Core.services(observed_state)
+  Core.Decision{Core.from_application(E.from_program(program, dismiss_navigation(session)), services), reply, runtime, interaction, service_effects, durable}
 
 def after_navigation(dismiss: Bool, decision: Core.Decision) -> Core.Decision:
   match dismiss:
@@ -1728,7 +1783,7 @@ def after_navigation(dismiss: Bool, decision: Core.Decision) -> Core.Decision:
 def perform_present(capacity: V.Capacity, +state: Core.State, key: String, +input: Maybe<&2, Core.Input>) -> Core.Decision:
   V.Capacity{navigation_beside, details_beside} = capacity
   after_navigation(Bool.not(navigation_beside) && navigates(input), record_source(state, key, apply_input(input, state)))
-def perform_input(input: Maybe<&2, Core.Input>, capacity: V.Capacity, state: Core.State, key: String) -> Core.Decision:
+def perform_input(input: Maybe<&2, Core.Input>, capacity: V.Capacity, +state: Core.State, key: String) -> Core.Decision:
   match input:
     case None{}: apply_input(None{}, state)
     case Some{value}: perform_present(capacity, state, key, Some{value})
@@ -1851,7 +1906,7 @@ def submission(nodes: +List<Node>, +editor: U.Editor) -> Maybe<&2, Node>:
     case Con{Node{key, semantic, label, role, +meaning, +children}, rest}:
       choose_node(submits(meaning, editor), Node{key, semantic, label, role, meaning, children}, prefer_node(submission(children, editor), submission(rest, editor)))
 
-def submit_found(found: Maybe<&2, Node>, capacity: V.Capacity, state: Core.State) -> Core.Decision:
+def submit_found(found: Maybe<&2, Node>, capacity: V.Capacity, +state: Core.State) -> Core.Decision:
   match found:
     case None{}: apply_input(None{}, state)
     case Some{Node{key, semantic, label, role, meaning, children}}: perform(capacity, state, Identity.encode(key), bind(meaning, Press{}))

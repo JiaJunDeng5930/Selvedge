@@ -26,7 +26,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
     ['discard the cards following an insertion', 'BOARD.bend',
       'List.drop(&2, Finite.Entry(Card), remaining, position)', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
     ['record drafting without dispatching its effect', 'bendlib/board.bend',
-      '[Effects.FeatureEffect{F.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
+      '[Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
     ['replace a description during title-only generation', 'bendlib/board.bend',
       'B.Draft{title, old_description, stage, priority, owner, project, labels, attachments}',
       'B.Draft{title, description, stage, priority, owner, project, labels, attachments}', /board_boundary|text_meaning|draft_meaning/],

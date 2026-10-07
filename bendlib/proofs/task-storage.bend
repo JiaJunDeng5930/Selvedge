@@ -6,8 +6,7 @@ import ../task-laws.bend as Spec
 
 def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
   {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
-  match state:
-    case D.State{tasks, next_task, next_ticket, environment, limits, projects}: {==}
+  {==}
 
 def update_frame(-StateRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) ->
   {C.rest(D.State, StateRest, Tasks.update_world(StateRest, task, world)) == C.rest(D.State, StateRest, world) : StateRest}:

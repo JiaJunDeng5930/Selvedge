@@ -194,7 +194,8 @@ def Laws.idle_work(task, world):
 def Laws.no_work(task, world):
   {==}
 
-def Laws.tool_dispatch(board, tool, call, remaining, task, tasks, next_task, ticket, environment, limits, projects):
+def Laws.tool_dispatch(board, tool, call, remaining, task, state):
+  D.State{tasks, next_task, ticket, environment, limits, projects} = state
   {==}
 
 def Laws.small_context_dispatch(task, world):

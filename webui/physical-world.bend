@@ -11,15 +11,20 @@ import ./physical-space.bend as SpaceModel
 import ./spatial.bend as Spatial
 import ./source.bend as Source
 import ./document.bend as Doc
-
 type ReceiptStatus is Data:
   Unchanged{}
   Accepted{}
   Rejected{reason: String}
-
 type Engine is Data:
   Engine{snapshot: Content.Snapshot, viewport: Spatial.Box,
     observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>, receipt_status: ReceiptStatus}
+def observations(state: Engine) -> +List<Content.Observation>:
+  Engine{value_snapshot, value_viewport, value_observations, value_viewports, value_receipt_status} = state
+  value_observations
+
+def viewports(state: Engine) -> +List<Content.NativeViewport>:
+  Engine{value_snapshot, value_viewport, value_observations, value_viewports, value_receipt_status} = state
+  value_viewports
 
 def initial(snapshot: Content.Snapshot, viewport: Spatial.Box) -> Engine:
   Engine{snapshot, viewport, Nil{}, Nil{}, Unchanged{}}
@@ -48,7 +53,6 @@ def measure_jobs(requests: +List<Content.Request>) -> +List<PhysicalPlan.Job>:
 type Discovery is Data:
   Discovered{jobs: +List<PhysicalPlan.Job>, roots: +List<Content.AllocatedNative>}
   InvalidDiscovery{error: Content.Error}
-
 def merge(first: Discovery, +second: Discovery) -> Discovery:
   match first:
     case InvalidDiscovery{error}: InvalidDiscovery{error}
@@ -88,7 +92,6 @@ def pending(jobs: +List<PhysicalPlan.Job>, generation: Nat) -> PhysicalPlan.Plan
     case Con{first, remaining}: PhysicalPlan.Awaiting{generation, first, remaining}
     case Nil{}: PhysicalPlan.Invalid{Content.InvalidObservation{"missing height request"}}
 
-
 def allocated_result(result: Allocation.Outcome<Content.Value, Doc.DOMEvent>, +prepared: Content.Prepared,
   +snapshot: Content.Snapshot, roots: +List<Content.AllocatedNative>, policies: +List<Content.NativePolicy>) -> PhysicalPlan.Plan:
   match result:
@@ -102,7 +105,6 @@ def allocated(result: Allocation.Outcome<Content.Value, Doc.DOMEvent>, +prepared
   Content.Prepared{snapshot, tree, native_roots, policies} = prepared
   allocated_result(result, prepared, snapshot, roots, policies)
 
-
 def discovered_result(result: Discovery, +prepared: Content.Prepared, viewport: Spatial.Box,
   requests: +List<Content.Request>, observations: +List<Content.Observation>, +snapshot: Content.Snapshot,
   tree: SpaceModel.Tree<Content.Value, Doc.DOMEvent>) -> PhysicalPlan.Plan:
@@ -111,11 +113,11 @@ def discovered_result(result: Discovery, +prepared: Content.Prepared, viewport: 
     case Discovered{Con{first, remaining}, roots}: PhysicalPlan.Awaiting{snapshot_generation(snapshot), first, remaining}
     case Discovered{Nil{}, roots}:
       allocated(Allocation.allocate(~Content.Value, ~Doc.DOMEvent, tree, viewport, PhysicalSource.height_samples(requests, observations)), prepared, roots)
+
 def discovered(result: Discovery, +prepared: Content.Prepared, viewport: Spatial.Box,
   requests: +List<Content.Request>, observations: +List<Content.Observation>) -> PhysicalPlan.Plan:
   Content.Prepared{snapshot, tree, native_roots, policies} = prepared
   discovered_result(result, prepared, viewport, requests, observations, snapshot, tree)
-
 
 def width_result(result: Allocation.WidthOutcome<Content.Value, Doc.DOMEvent>, +prepared: Content.Prepared,
   +viewport: Spatial.Box, +observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>) -> PhysicalPlan.Plan:
@@ -189,7 +191,6 @@ def unique_fields(fields: +List<J.Field>, +seen: +List<String>) -> Bool:
     case Nil{}: True{}
     case Con{J.Field{+name, value}, rest}: Bool.not(contains(seen, name)) && unique_fields(rest, name <> seen)
 
-
 def fields_allowed(fields: +List<J.Field>, +allowed: +List<String>) -> Bool:
   match fields:
     case Nil{}: True{}
@@ -207,12 +208,10 @@ def has_named_field(fields: +List<J.Field>, +name: String) -> Bool:
 
 type Batch is Data:
   Batch{observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>}
-
 def has_field(value: J.Json, name: String) -> Bool:
   match value:
     case J.Object{fields}: has_named_field(fields, name)
     case _: False{}
-
 
 def observation_present_result(result: Maybe<&2, Content.Observation>) -> Bool:
   match result:

@@ -174,14 +174,15 @@ def agent_selection(result: Result<&2, &2, String, Workspace.Selection>) -> Bool
     case Fail{reason}: False{}
     case Done{selection}: True{}
 
+def agent_environment(+profile: D.Profile, +agent: B.AgentProfile, environment: D.Environment) -> Bool:
+  D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins} = environment
+  D.profile_permitted(profile, D.profile_selection(B.agent_reasoning(agent), profile)) &&
+    agent_selection(Workspace.resolve(B.agent_settings(agent), Workspace.defaults(guidance), guidance, profile, profiles))
+
 def agent_settings(found: Maybe<&2, D.Profile>, agent: B.AgentProfile, +world: M.World()) -> Bool:
   match found:
     case None{}: False{}
-    case Some{+profile}:
-      B.AgentProfile{revision, name, key, +reasoning, instructions, settings, concurrency} = agent
-      C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins}, limits, projects}, +board} = world
-      D.profile_permitted(profile, D.profile_selection(reasoning, profile)) &&
-        agent_selection(Workspace.resolve(settings, Workspace.defaults(guidance), guidance, profile, profiles))
+    case Some{+profile}: agent_environment(profile, agent, D.state_environment(C.local(D.State, F.State(), world)))
 
 def agent_valid(+agent: B.AgentProfile, +world: M.World()) -> Bool:
   B.AgentProfile{revision, name, key, reasoning, instructions, settings, concurrency} = agent

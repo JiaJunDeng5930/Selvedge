@@ -998,8 +998,15 @@
     "core/proofs/board-capability.bend": [
       "BOARD.bend",
       "MODEL.bend",
+      "bendlib/board-state.bend",
+      "bendlib/json.bend",
+      "core/SYSTEM.bend",
       "core/board-capability-laws.bend",
+      "core/client-services.bend",
+      "core/interface.bend",
+      "core/ui-identity.bend",
       "core/ui-world.bend",
+      "core/user-experience.bend",
       "core/user-input.bend"
     ],
     "core/proofs/board-presentation.bend": [
@@ -1020,6 +1027,9 @@
       "core/ui-identity.bend"
     ],
     "core/proofs/boundary.bend": [
+      "BOARD.bend",
+      "MODEL.bend",
+      "WORKSPACE.bend",
       "bendlib/association-map.bend",
       "bendlib/domain.bend",
       "bendlib/json.bend",
@@ -1029,7 +1039,8 @@
       "core/code-block.bend",
       "core/live-output.bend",
       "core/user-context.bend",
-      "core/user-experience.bend"
+      "core/user-experience.bend",
+      "core/user-input.bend"
     ],
     "core/proofs/composition.bend": [
       "MODEL.bend",
@@ -1125,14 +1136,24 @@
       "core/ui-identity.bend"
     ],
     "core/proofs/project-interaction.bend": [
+      "BOARD.bend",
+      "COMMANDS.bend",
+      "MODEL.bend",
       "bendlib/association-map.bend",
+      "bendlib/conversation.bend",
       "bendlib/domain.bend",
       "bendlib/stdlib.bend",
+      "bendlib/tasks.bend",
+      "core/SYSTEM.bend",
+      "core/code-block.bend",
+      "core/interface.bend",
+      "core/live-output.bend",
       "core/project-interaction-laws.bend",
-      "core/ui-world.bend",
-      "core/user-experience.bend",
       "core/ui-identity.bend",
-      "core/SYSTEM.bend"
+      "core/ui-world.bend",
+      "core/user-context.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
     ],
     "core/proofs/session.bend": [
       "BOARD.bend",
@@ -1250,8 +1271,12 @@
     ],
     "webui/proofs/browser.bend": [
       "MODEL.bend",
+      "UI.bend",
+      "bendlib/json.bend",
       "core/SYSTEM.bend",
       "core/interface-program-rules.bend",
+      "core/interface.bend",
+      "core/user-experience.bend",
       "webui/MODEL.bend",
       "webui/browser-laws.bend",
       "webui/browser.bend",
@@ -1259,10 +1284,9 @@
       "webui/font-observation.bend",
       "webui/laws.bend",
       "webui/platform.bend",
+      "webui/presentation-order.bend",
       "webui/proofs/laws.bend",
-      "webui/rendered.bend",
-      "core/interface.bend",
-      "webui/presentation-order.bend"
+      "webui/rendered.bend"
     ],
     "webui/proofs/container-space.bend": [
       "webui/container-space-laws.bend",
@@ -1505,9 +1529,11 @@
     ],
     "webui/proofs/request.bend": [
       "MODEL.bend",
+      "UI.bend",
       "bendlib/command-codec.bend",
       "bendlib/domain.bend",
       "bendlib/json.bend",
+      "core/operation-receipt.bend",
       "core/user-experience.bend",
       "core/user-input.bend",
       "webui/browser.bend",
@@ -1756,14 +1782,18 @@
       "webui/source.bend"
     ],
     "webui/proofs/physical-receipt.bend": [
-      "webui/physical-receipt-laws.bend",
-      "webui/physical-content.bend",
-      "webui/physical-browser.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
       "webui/browser.bend",
       "webui/focus.bend",
       "webui/native-fields.bend",
-      "core/interface.bend",
-      "core/ui-world.bend"
+      "webui/physical-browser.bend",
+      "webui/physical-content.bend",
+      "webui/physical-receipt-laws.bend",
+      "webui/physical-world.bend",
+      "webui/source.bend",
+      "webui/spatial.bend",
+      "webui/typography.bend"
     ],
     "webui/proofs/task-details.bend": [
       "core/ui-identity.bend",
@@ -1918,11 +1948,20 @@
       "webui/anchor-geometry-rules.bend"
     ],
     "webui/proofs/recovery.bend": [
-      "webui/recovery-rules.bend",
+      "core/interface.bend",
+      "webui/focus.bend",
       "webui/frontend-utility-rules.bend",
-      "webui/source-frame-rules.bend",
+      "webui/frontend-utility.bend",
+      "webui/native-fields.bend",
+      "webui/physical-browser.bend",
+      "webui/physical-content.bend",
+      "webui/physical-world.bend",
       "webui/proofs/frontend-utility.bend",
-      "webui/proofs/source-frame.bend"
+      "webui/proofs/source-frame.bend",
+      "webui/recovery-rules.bend",
+      "webui/rendered.bend",
+      "webui/source-frame-rules.bend",
+      "webui/source-frame.bend"
     ],
     "webui/recovery-rules.bend": [
       "webui/physical-browser.bend",
@@ -2370,5 +2409,185 @@
   "runtime_root": "KERNEL.bend",
   "foreign_sources": {
     "MAIN.bend": "host/transport.c"
-  }
+  },
+  "model_representations": [
+    {
+      "module": "bendlib/domain.bend",
+      "constructors": [
+        "State"
+      ],
+      "owners": [
+        "bendlib/domain.bend",
+        "bendlib/proofs/board.bend",
+        "bendlib/proofs/commit.bend",
+        "bendlib/proofs/execution.bend",
+        "bendlib/proofs/plugins.bend",
+        "bendlib/proofs/protocol.bend",
+        "bendlib/proofs/reasoning-locality.bend",
+        "bendlib/proofs/task-storage.bend",
+        "bendlib/proofs/workspaces.bend"
+      ]
+    },
+    {
+      "module": "BOARD.bend",
+      "constructors": [
+        "State",
+        "Card"
+      ],
+      "owners": [
+        "BOARD.bend",
+        "bendlib/board-state.bend",
+        "bendlib/board-spec.bend",
+        "bendlib/board-resolution.bend",
+        "bendlib/board-codec.bend",
+        "bendlib/board.bend",
+        "bendlib/proofs/board.bend",
+        "core/proofs/board-capability.bend",
+        "core/proofs/board-presentation.bend"
+      ]
+    },
+    {
+      "module": "CHATGPT.bend",
+      "constructors": [
+        "State",
+        "Job"
+      ],
+      "owners": [
+        "CHATGPT.bend",
+        "bendlib/chatgpt-state.bend",
+        "bendlib/chatgpt-spec.bend",
+        "bendlib/chatgpt-codec.bend",
+        "bendlib/chatgpt.bend",
+        "bendlib/proofs/chatgpt.bend"
+      ]
+    },
+    {
+      "module": "core/user-experience.bend",
+      "constructors": [
+        "Application",
+        "Session"
+      ],
+      "owners": [
+        "core/user-experience.bend",
+        "core/proofs/board-presentation.bend",
+        "core/proofs/directory-entry.bend",
+        "core/proofs/execution-context.bend",
+        "core/proofs/interface.bend",
+        "core/proofs/laws.bend",
+        "core/proofs/page-region.bend",
+        "core/proofs/session.bend",
+        "core/proofs/submission.bend",
+        "core/proofs/surface.bend",
+        "core/proofs/user-experience.bend",
+        "webui/proofs/dismissal.bend",
+        "webui/proofs/focus.bend",
+        "webui/proofs/laws.bend",
+        "webui/proofs/request.bend",
+        "core/proofs/project-interaction.bend"
+      ]
+    },
+    {
+      "module": "core/client-services.bend",
+      "constructors": [
+        "State"
+      ],
+      "owners": [
+        "core/client-services.bend",
+        "core/proofs/boundary.bend",
+        "core/proofs/directory-entry.bend",
+        "core/proofs/laws.bend",
+        "webui/proofs/focus.bend"
+      ]
+    },
+    {
+      "module": "core/SYSTEM.bend",
+      "constructors": [
+        "State"
+      ],
+      "owners": [
+        "core/SYSTEM.bend",
+        "core/proofs/board-presentation.bend",
+        "core/proofs/execution-context.bend",
+        "core/proofs/interface.bend",
+        "core/proofs/laws.bend",
+        "core/proofs/page-region.bend",
+        "core/proofs/surface.bend",
+        "webui/proofs/browser.bend",
+        "webui/proofs/control.bend",
+        "webui/proofs/focus-retention.bend",
+        "webui/proofs/focus.bend",
+        "webui/proofs/laws.bend",
+        "webui/proofs/platform.bend",
+        "webui/proofs/presentation.bend"
+      ]
+    },
+    {
+      "module": "webui/platform.bend",
+      "constructors": [
+        "Platform",
+        "State"
+      ],
+      "owners": [
+        "webui/platform.bend",
+        "webui/proofs/browser.bend",
+        "webui/proofs/focus-retention.bend",
+        "webui/proofs/laws.bend",
+        "webui/proofs/model.bend",
+        "webui/proofs/platform.bend",
+        "webui/proofs/presentation.bend"
+      ]
+    },
+    {
+      "module": "webui/MODEL.bend",
+      "constructors": [
+        "State"
+      ],
+      "owners": [
+        "webui/MODEL.bend",
+        "webui/proofs/browser.bend",
+        "webui/proofs/code-observation.bend",
+        "webui/proofs/laws.bend",
+        "webui/proofs/model.bend",
+        "webui/proofs/physical-browser.bend",
+        "webui/proofs/presentation.bend",
+        "webui/proofs/presentation-order.bend"
+      ]
+    },
+    {
+      "module": "webui/browser.bend",
+      "constructors": [
+        "State"
+      ],
+      "owners": [
+        "webui/browser.bend",
+        "webui/proofs/browser-receipt.bend",
+        "webui/proofs/browser.bend",
+        "webui/proofs/physical-browser.bend",
+        "webui/proofs/request.bend"
+      ]
+    },
+    {
+      "module": "webui/physical-world.bend",
+      "constructors": [
+        "Engine"
+      ],
+      "owners": [
+        "webui/physical-world.bend",
+        "webui/proofs/physical-world.bend"
+      ]
+    },
+    {
+      "module": "webui/physical-browser.bend",
+      "constructors": [
+        "State"
+      ],
+      "owners": [
+        "webui/physical-browser.bend",
+        "webui/proofs/code-observation.bend",
+        "webui/proofs/physical-browser.bend",
+        "webui/proofs/recovery.bend",
+        "webui/proofs/physical-receipt.bend"
+      ]
+    }
+  ]
 }

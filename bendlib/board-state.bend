@@ -22,17 +22,18 @@ def registry(world: M.World()) -> B.State:
 def store(board: B.State, world: M.World()) -> M.World():
   C.map_rest(D.State, F.State(), state => F.with_board(board, state), world)
 
-def profiles(world: M.World()) -> +List<D.Profile>:
-  C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +board} = world
+def environment_profiles(environment: D.Environment) -> +List<D.Profile>:
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   profiles
 
+def profiles(world: M.World()) -> +List<D.Profile>:
+  environment_profiles(D.state_environment(C.local(D.State, F.State(), world)))
+
 def task_id(world: M.World()) -> Nat:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-  next_task
+  D.state_next_task(C.local(D.State, F.State(), world))
 
 def ticket(world: M.World()) -> Nat:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-  next_ticket
+  D.state_next_ticket(C.local(D.State, F.State(), world))
 
 def linked_task(id: Maybe<&2, Nat>, tasks: +List<D.Task>) -> Maybe<&2, D.Task>:
   match id:

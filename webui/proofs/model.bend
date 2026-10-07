@@ -17,12 +17,13 @@ def Rule.production_commit_preserves_product(decision, generation, environment, 
   match decision:
     case Platform.Decision{product, platform, effects}: {==}
 
-
 def Rule.contextless_frame_silent(state, received, frame):
   match state:
     case Model.State{application, generation, realization, environment, font}: {==}
 
-def Rule.observe_frame_exact(core, readers, editors, focused, ticket, reduced, capacity, scope, generation, previous, environment, font, received, surface, frame): {==}
+def Rule.observe_frame_exact(model_state, received, surface, frame):
+  Model.State{Platform.State{+core, Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope}}, +generation, +previous, +environment, +font} = model_state
+  {==}
 
 def Rule.visible_focus_recovery_visible(visible, eligible, identity): {==}
 
@@ -67,7 +68,8 @@ def observation_sound(requirements: RenderRules.Requirements, +generation: Nat, 
   match requirements:
     case RenderRules.Requirements{reflection, sound}: sound(generation, received, surface, frame, previous, owned, realized)
 
-def Rule.observed_realization_sound(application, generation, previous, environment, font, received, surface, frame, owned, realized):
+def Rule.observed_realization_sound(model_state, received, surface, frame, owned, realized):
+  Model.State{+application, +generation, +previous, +environment, +font} = model_state
   match application:
     case Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}:
       observation_sound(RenderRules.evidence, generation, received, surface, frame, previous, owned, realized)

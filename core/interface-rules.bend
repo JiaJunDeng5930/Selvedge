@@ -228,7 +228,10 @@ law confirmation_actions_region:
 
 def expected_card(view: V.CardScene, +parent: Identity.Key, +state: Core.State) -> Model.Node:
   V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
-  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  +observed_application = Core.application(state)
+  world = E.program(observed_application)
+  +observed_session = E.session(observed_application)
+  +now = E.now(observed_session)
   +key : Identity.Key = Identity.Entity{parent, "card", Nat.show(id)}
   +face : V.CardFace = V.card_face(id, value, now, world)
   +offered : +List<Model.Placement> = List.append(&2, Model.Placement, Model.placements(destinations, id, B.revision(value), state), Model.archive_placement(B.archived(value), id, B.revision(value), state))

@@ -31,67 +31,54 @@ def settings_observations_law(-config: Context.Configuration, -workspace: D.Work
 
 type Requirements is Type:
   Requirements{
-    accepted_auth: @+access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @ticket:Nat ->
-      @owned:{Services.expected_access(access, ticket) == True{} : Bool} ->
-      {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}) ==
-        Services.Decision{Services.State{Services.Connected{}, "", False{}, appearance, next, transfers, preview, picker}, [Services.SessionReady{}]} : Services.Decision},
-    failed_auth: @access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @reason:String ->
-      {Services.authentication(True{}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Fail{reason}) ==
-        Services.Decision{Services.State{Services.CredentialRejected{reason}, "", True{}, appearance, next, transfers, preview, picker}, Nil{}} : Services.Decision},
+    accepted_auth: @+state:Services.State -> @ticket:Nat ->
+      @owned:{Services.expected_access(Services.access(state), ticket) == True{} : Bool} ->
+      {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
+        Services.Decision{Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state))), [Services.SessionReady{}]} : Services.Decision},
+    failed_auth: @+state:Services.State -> @reason:String ->
+      {Services.authentication(True{}, state, Fail{reason}) ==
+        Services.Decision{Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}} : Services.Decision},
     unowned_auth: @+state:Services.State -> @result:Result<&2, &2, String, Unit> ->
       {Services.authentication(False{}, state, result) == Services.Decision{state, Nil{}} : Services.Decision},
-    readiness_attention: @access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @+application:E.Application ->
-      {Core.service_result(Services.authentication(True{}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}), application) ==
-        Core.Decision{Core.State{application, Services.State{Services.Connected{}, "", False{}, appearance, next, transfers, preview, picker}}, D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : Core.Decision},
-    failed_auth_no_attention: @access:Services.Access -> @credential:String -> @settings_open:Bool -> @appearance:Services.Appearance -> @next:Nat -> @transfers:+List<Finite.Entry(Services.Transfer)> -> @preview:Services.Preview -> @picker:Services.DirectoryPicker -> @reason:String -> @application:E.Application ->
-      {Core.service_result(Services.authentication(True{}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Fail{reason}), application) ==
-        Core.application_result_with_services(E.unchanged(application), Services.State{Services.CredentialRejected{reason}, "", True{}, appearance, next, transfers, preview, picker}, Nil{}) : Core.Decision},
+    readiness_attention: @+state:Services.State -> @+application:E.Application ->
+      {Core.service_result(Services.authentication(True{}, state, Done{Unit{}}), application) ==
+        Core.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state)))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : Core.Decision},
+    failed_auth_no_attention: @+state:Services.State -> @reason:String -> @application:E.Application ->
+      {Core.service_result(Services.authentication(True{}, state, Fail{reason}), application) ==
+        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}) : Core.Decision},
     unowned_auth_no_attention: @state:Services.State -> @result:Result<&2, &2, String, Unit> -> @application:E.Application ->
       {Core.service_result(Services.authentication(False{}, state, result), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : Core.Decision},
     readiness_is_internal: {Core.external_effect(Services.SessionReady{}) == False{} : Bool},
-    stale_auth: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
-      @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
-      @preview:Services.Preview -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->
-      @stale:{Services.expected_access(access, ticket) == False{} : Bool} ->
-      {Services.step(Services.Authenticated{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}) ==
-        Services.Decision{Services.State{access, credential, settings_open, appearance,
-          next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
-    missing_upload: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
-      @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
-      @preview:Services.Preview -> @ticket:Nat -> @+result:Result<&2, &2, String, B.Attachment> ->
-      @missing:{Finite.find(~Services.Transfer, transfers, ticket) == None{} : Maybe<&2, Services.Transfer>} ->
-      {Services.step(Services.Uploaded{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}) ==
-        Services.Decision{Services.State{access, credential, settings_open, appearance,
-          next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
-    upload_destination: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
-      @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
-      @preview:Services.Preview -> @ticket:Nat -> @+editor:U.Editor -> @+file:Services.SelectedFile ->
+    stale_auth: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @stale:{Services.expected_access(Services.access(state), ticket) == False{} : Bool} ->
+      {Services.step(Services.Authenticated{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    missing_upload: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, B.Attachment> ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @missing:{Finite.find(~Services.Transfer, Services.transfers(state), ticket) == None{} : Maybe<&2, Services.Transfer>} ->
+      {Services.step(Services.Uploaded{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    upload_destination: @+state:Services.State -> @ticket:Nat -> @+editor:U.Editor -> @+file:Services.SelectedFile ->
       @+attachment:B.Attachment ->
-      @found:{Finite.find(~Services.Transfer, transfers, ticket) ==
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @found:{Finite.find(~Services.Transfer, Services.transfers(state), ticket) ==
         Some{Services.Uploading{editor, file}} : Maybe<&2, Services.Transfer>} ->
-      {Services.step(Services.Uploaded{ticket, Done{attachment}}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}) ==
-        Services.Decision{Services.State{access, credential, settings_open, appearance, next,
-          Finite.remove(~Services.Transfer, transfers, ticket), preview, Services.NoDirectoryPicker{}},
+      {Services.step(Services.Uploaded{ticket, Done{attachment}}, state) ==
+        Services.Decision{Services.with_transfers(Finite.remove(~Services.Transfer, Services.transfers(state), ticket), state),
           [Services.AttachToDraft{editor, attachment}]} : Services.Decision},
-    closed_preview: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
-      @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
-      @ticket:Nat -> @+result:Result<&2, &2, String, String> ->
-      {Services.step(Services.Previewed{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, Services.NoPreview{}, Services.NoDirectoryPicker{}}) ==
-        Services.Decision{Services.State{access, credential, settings_open, appearance,
-          next, transfers, Services.NoPreview{}, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
-    stale_preview: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
-      @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
-      @current:Nat -> @+file:B.Attachment -> @trigger:String -> @ticket:Nat ->
+    closed_preview: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, String> ->
+      @observed_preview:{Services.preview(state) == Services.NoPreview{} : Services.Preview} ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      {Services.step(Services.Previewed{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    stale_preview: @+state:Services.State -> @current:Nat -> @+file:B.Attachment -> @trigger:String -> @ticket:Nat ->
       @+result:Result<&2, &2, String, String> ->
+      @observed_preview:{Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview} ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
       @different:{Nat.is_eq(current, ticket) == False{} : Bool} ->
-      {Services.step(Services.Previewed{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}) ==
-        Services.Decision{Services.State{access, credential, settings_open, appearance, next,
-          transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
+      {Services.step(Services.Previewed{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
     stale_copy: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @+copy:Code.CopyState ->
       @next:Nat -> @ticket:Nat -> @success:Bool ->
       @stale:{Code.same_ticket(copy, ticket) == False{} : Bool} ->

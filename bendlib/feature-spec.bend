@@ -10,7 +10,7 @@ import ./chatgpt-state.bend as ChatGPTState
 
 # The caller supplies the independent task-creation specification. The
 # executable assembler supplies its implementation to feature-execution.
-def meaning(spawn: D.Profile -> String -> String -> Workspace.Selection -> M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
+def meaning(spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change(change, world)

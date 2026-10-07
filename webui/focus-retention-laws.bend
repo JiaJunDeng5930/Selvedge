@@ -6,15 +6,20 @@ import ../core/user-experience.bend as E
 import ../core/ui-world.bend as View
 import ./focus.bend as Focus
 import ./platform.bend as Platform
-
 def effects(value: Platform.Decision) -> +List<Platform.Effect>:
   Platform.Decision{product, platform, effects} = value
   effects
 
-def expected_effects(decision: Core.Decision, platform: Platform.Platform, +current: Focus.Scope) -> +List<Platform.Effect>:
-  Core.Decision{Core.State{+application, services}, reply, runtime, +interaction, service, durable} = decision
-  Platform.Platform{+readers, editors, +focused, +ticket, reduced, capacity, +scope} = platform
-  +trigger = Platform.focus_transition(scope, current, focused, Platform.active_target(Core.State{application, services}, capacity, focused))
+def expected_effects(decision: Core.Decision, +platform: Platform.Platform, +current: Focus.Scope) -> +List<Platform.Effect>:
+  Core.Decision{+observed_state_1, reply, runtime, +interaction, service, durable} = decision
+  +application = Core.application(observed_state_1)
+  +readers = Platform.readers(platform)
+  editors = Platform.editors(platform)
+  +focused = Platform.focused(platform)
+  +ticket = Platform.focus_ticket(platform)
+  +capacity = Platform.capacity(platform)
+  +scope = Platform.scope(platform)
+  +trigger = Platform.focus_transition(scope, current, focused, Platform.active_target(observed_state_1, capacity, focused))
   List.append(&2, Platform.Effect, Platform.scope_effects(trigger, scope, current, interaction,
     Platform.focus_revision(trigger, interaction, ticket)), Platform.layout_for(application, readers))
 
@@ -42,25 +47,20 @@ type Requirements is Type:
     moved_focus_no_handoff: @+identity: String -> @+old_initial: String -> @+initial: String -> @+restore: String -> @+old_occurrence:Maybe<&2, Nat> -> @+occurrence:Maybe<&2, Nat> -> @+focused: String -> @+ticket: Nat -> @same: {Focus.changed(Focus.Temporary{identity, old_initial, restore, old_occurrence}, Focus.Temporary{identity, initial, restore, occurrence}) == False{} : Bool} -> @moved: {String.eq(focused, old_initial) == False{} : Bool} ->   {Platform.scope_effects(Platform.focus_transition(Focus.Temporary{identity, old_initial, restore, old_occurrence}, Focus.Temporary{identity, initial, restore, occurrence}, Focus.Product{focused}, True{}),
           Focus.Temporary{identity, old_initial, restore, old_occurrence}, Focus.Temporary{identity, initial, restore, occurrence}, Nil{},
           Platform.focus_revision(Platform.focus_transition(Focus.Temporary{identity, old_initial, restore, old_occurrence}, Focus.Temporary{identity, initial, restore, occurrence}, Focus.Product{focused}, True{}), Nil{}, ticket)) == Nil{} : +List<Platform.Effect>}}
-
 law evidence:
   Requirements
-
-
 law content_focus_has_no_root_handoff:
   for previous: Focus.Scope
   for current: Focus.Scope
   for owner: String
   for identity: String
   {Platform.scope_handoff(previous, current, Focus.Content{owner, identity}) == False{} : Bool}
-
 law active_content_uses_owner:
   for core: Core.State
   for capacity: View.Capacity
   for owner: String
   for identity: String
   {Platform.active_target(core, capacity, Focus.Content{owner, identity}) == Platform.active_content_owner(core, capacity, owner) : Bool}
-
 law retained_content_no_focus_transition:
   for +previous: Focus.Scope
   for +current: Focus.Scope
@@ -68,8 +68,6 @@ law retained_content_no_focus_transition:
   for identity: String
   for same: {Focus.changed(previous, current) == False{} : Bool}
   {Platform.focus_transition(previous, current, Focus.Content{owner, identity}, True{}) == False{} : Bool}
-
-
 law content_observation_preserves_core:
   for +platform: Platform.Platform
   for owner: String

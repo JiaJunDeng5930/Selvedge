@@ -1058,6 +1058,50 @@ def state_tasks(state: State) -> +List<Task>:
   State{tasks, next_task, next_ticket, environment, limits, projects} = state
   tasks
 
+def state_next_task(state: State) -> Nat:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  next_task
+
+def state_next_ticket(state: State) -> Nat:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  next_ticket
+
+def state_environment(state: State) -> Environment:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  environment
+
+def state_limits(state: State) -> ExecutionLimits:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  limits
+
+def state_projects(state: State) -> Projects:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  projects
+
+def with_state_tasks(value: +List<Task>, state: State) -> State:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  State{value, next_task, next_ticket, environment, limits, projects}
+
+def with_state_next_task(value: Nat, state: State) -> State:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  State{tasks, value, next_ticket, environment, limits, projects}
+
+def with_state_next_ticket(value: Nat, state: State) -> State:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  State{tasks, next_task, value, environment, limits, projects}
+
+def with_state_environment(value: Environment, state: State) -> State:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  State{tasks, next_task, next_ticket, value, limits, projects}
+
+def with_state_limits(value: ExecutionLimits, state: State) -> State:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  State{tasks, next_task, next_ticket, environment, value, projects}
+
+def with_state_projects(value: Projects, state: State) -> State:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  State{tasks, next_task, next_ticket, environment, limits, value}
+
 def state_render_budget(state: State) -> Nat:
   State{tasks, next_task, next_ticket, environment, ExecutionLimits{steps, render, bytes}, projects} = state
   render

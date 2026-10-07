@@ -17,8 +17,8 @@ import ./proofs/chatgpt.bend as ChatGPTProof
 # Task creation is an actual interaction boundary. Its complete-decision proof
 # is an explicit premise; no callback silently substitutes for that premise.
 def meaning(
-  actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> M.World() -> M.Decision(),
-  spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> M.World() -> M.Decision(),
+  actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   operation: O.Operation, +world: M.World()) ->

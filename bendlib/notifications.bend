@@ -234,9 +234,13 @@ def fit(rendered: Result<&2, &2, String, String>, bytes: U32, enriched: M.Decisi
 
 # Notification payloads and queueing are optional observations. Full-envelope
 # pressure can omit the entire optional batch, never reject the underlying work.
-def admit(+durable: Bool, previous: M.World(), +enriched: M.Decision(), plain: M.Decision()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, D.ExecutionLimits{steps, render, +bytes}, projects}, +board} = previous
-  fit(J.render(render, J.One{View.envelope(durable, enriched)}), bytes, enriched, plain)
+def admit_limits(+durable: Bool, previous: M.World(), +enriched: M.Decision(), plain: M.Decision(), limits_value: D.ExecutionLimits) -> M.Decision():
+  match previous limits_value:
+    case C.Frame{+task_state, +board} D.ExecutionLimits{steps, render, +bytes}:
+      fit(J.render(render, J.One{View.envelope(durable, enriched)}), bytes, enriched, plain)
+
+def admit(+durable: Bool, +previous: M.World(), +enriched: M.Decision(), plain: M.Decision()) -> M.Decision():
+  admit_limits(durable, previous, enriched, plain, D.state_limits(C.local(D.State, F.State(), previous)))
 
 def enrich(+source: M.Input, +before: M.World(), +decision: M.Decision()) -> M.Decision():
   C.Decision{+after, reply, +effects} = decision

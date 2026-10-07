@@ -371,6 +371,13 @@ def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.Dire
     (found => E.observed_pending(found, result, application)),
     E.find_pending(Rule.pending_entries(application), ticket), None{}, absent)
 
+def encapsulated_preparation_snapshot(+session: E.Session, +program: M.World(), +workspace: D.Workspace, +draft: U.Draft) ->
+  {E.prepare(E.from_program(program, session), Some{workspace}, draft) ==
+        E.Decision{E.from_program(program, E.with_pending(E.Pending{E.next_ticket(session), draft, E.now(session)} <> E.pending(session), E.with_next_ticket((E.next_ticket(session) + 1n : Nat), session))),
+          D.success(J.Null{}), Nil{}, [E.ObserveDirectories{E.next_ticket(session), workspace}], False{}} : E.Decision}:
+  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer} = session
+  {==}
+
 def Rule.evidence():
   Rule.Requirements{
     submitted => result => session => absent => stale_settlement(submitted, result, session, absent),
@@ -379,7 +386,7 @@ def Rule.evidence():
     directory_entry => revision => task => message => delivery => feedback => program => result => effects => session => durable => lookup => current => accepted =>
       accepted_message(directory_entry, revision, task, message, delivery, feedback, program, result, effects, session, durable, lookup, current, accepted),
     ticket => result => application => absent => unowned_directory(ticket, result, application, absent),
-    +program => route => +drafts => +readers => +layers => attention => navigation => filter => now => next => +pending => +previews => +code_blocks => next_layer => +workspace => +draft => {==}
+    encapsulated_preparation_snapshot
   }
 
 # Reopening is a new edit of the same work, never a reuse of an old revision.

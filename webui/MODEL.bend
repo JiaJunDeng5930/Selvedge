@@ -12,10 +12,32 @@ import ./appearance.bend as Appearance
 import ./font-observation.bend as F
 import ./presentation-order.bend as Order
 import ./code-observation.bend as CodeObservation
-
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
     environment: Design.Environment, typography: F.State}
+def application(state: State) -> Platform.State:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  value_application
+
+def generation(state: State) -> Nat:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  value_generation
+
+def realization(state: State) -> Rendered.State:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  value_realization
+
+def environment(state: State) -> Design.Environment:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  value_environment
+
+def typography(state: State) -> F.State:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  value_typography
+
+def with_application(value: Platform.State, state: State) -> State:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  State{value, value_generation, value_realization, value_environment, value_typography}
 
 type Input is Data:
   Mount{}
@@ -34,16 +56,26 @@ type Effect is Data:
 type Decision is Data:
   Decision{state: State, product: Core.Decision, effects: +List<Effect>}
 
+def with_realization(value: Rendered.State, state: State) -> State:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  State{value_application, value_generation, value, value_environment, value_typography}
+
+def with_typography(value: F.State, state: State) -> State:
+  State{value_application, value_generation, value_realization, value_environment, value_typography} = state
+  State{value_application, value_generation, value_realization, value_environment, value}
+
 def initial(program: Program.World()) -> State:
   State{Platform.initial(program), 0n, Rendered.AwaitingFrame{0n},
     Design.Environment{Design.Viewport{0n, 0n}, False{}, 16000n}, F.begin(0n, 16000n)}
 
-def capacity(platform: Platform.Platform) -> View.Capacity:
-  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+def capacity(+platform: Platform.Platform) -> View.Capacity:
+  editors = Platform.editors(platform)
+  +capacity = Platform.capacity(platform)
   capacity
 
-def surface(state: Platform.State) -> InterfaceView.Surface:
-  Platform.State{core, platform} = state
+def surface(+state: Platform.State) -> InterfaceView.Surface:
+  +core = Platform.core(state)
+  +platform = Platform.platform(state)
   Product.observe(capacity(platform), core)
 
 def resolved_focus(ticket: Nat, target: Maybe<&2, String>) -> +List<Effect>:
@@ -64,6 +96,7 @@ def resolved_effect(effect: Platform.Effect, +surface: InterfaceView.Surface) ->
     case Platform.ScopeFocus{ticket, previous, current}:
       resolved_focus(ticket, InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)))
     case other: [PlatformEffect{other}]
+
 def platform_effects(effects: +List<Platform.Effect>, +surface: InterfaceView.Surface) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
@@ -75,20 +108,21 @@ def environment_root(environment: Design.Environment) -> Nat:
 
 def idle(+application: Platform.State, generation: Nat, realization: Rendered.State,
   environment: Design.Environment, typography: F.State) -> Decision:
-  Platform.State{+core, platform} = application
+  +core = Platform.core(application)
   Decision{State{application, generation, realization, environment, typography}, Platform.unchanged(core), Nil{}}
 
 # Element identities remain stable while generations correlate physical observations.
+
 def appearance_surface(surface: InterfaceView.Surface, environment: Design.Environment, font: F.State) -> Design.Surface:
   Design.Environment{viewport, dark, root} = environment
   Appearance.present(surface, dark, F.scale(font))
 
-def model_core(state: Platform.State) -> Core.State:
-  Platform.State{core, platform} = state
+def model_core(+state: Platform.State) -> Core.State:
+  +core = Platform.core(state)
   core
 
-def model_platform(state: Platform.State) -> Platform.Platform:
-  Platform.State{core, platform} = state
+def model_platform(+state: Platform.State) -> Platform.Platform:
+  +platform = Platform.platform(state)
   platform
 
 def observed_surface(state: State) -> InterfaceView.Surface:
@@ -100,6 +134,7 @@ def effects(decision: Decision) -> +List<Effect>:
   effects
 
 # Physical allocation owns capacity admission and frame measurement requests.
+
 def production_commit(decision: Platform.Decision, +generation: Nat, environment: Design.Environment,
   font: F.State) -> Decision:
   Platform.Decision{+product, +platform, +effects} = decision
@@ -154,9 +189,13 @@ def frame_recovery_effects(owned: Bool, ticket: Nat, generation: Nat, target: Ma
     case True{} Some{key}: [PlatformEffect{Platform.Focus{ticket, Focus.Product{key}}}, MeasureFrame{generation}]
     case _ _: Nil{}
 
-def observe_frame(+received: Nat, +surface: InterfaceView.Surface, +frame: Rendered.Frame, state: State) -> Decision:
+def observe_frame(+received: Nat, +surface: InterfaceView.Surface, +frame: Rendered.Frame, +state: State) -> Decision:
   State{+application, +generation, realization, environment, font} = state
-  Platform.State{+core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = application
+  +core = Platform.core(application)
+  +observed_platform_1 = Platform.platform(application)
+  editors = Platform.editors(observed_platform_1)
+  +ticket = Platform.focus_ticket(observed_platform_1)
+  +scope = Platform.scope(observed_platform_1)
   Decision{State{application, generation, Rendered.observe(generation, received, surface, frame, realization), environment, font},
     Platform.unchanged(core), frame_recovery_effects(Nat.is_eq(generation, received), ticket, generation,
       frame_focus_recovery(surface, frame, scope))}
@@ -190,6 +229,7 @@ def production_dispatch(state: State, input: Input) -> Decision:
 
 def step(input: Input, state: State) -> Decision:
   production_dispatch(state, input)
+
 def product(decision: Decision) -> Core.Decision:
   Decision{state, product, effects} = decision
   product

@@ -5,11 +5,9 @@ import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
 import ../core/ui-world.bend as View
 import ../core/client-services.bend as Services
-
 type Target is Data:
   Product{identity: String}
   Content{owner: String, identity: String}
-
 def same_target(first: Target, second: Target) -> Bool:
   match first second:
     case Product{first} Product{second}: String.eq(first, second)
@@ -24,7 +22,6 @@ def target_key(target: Target) -> String:
 type Scope is Data:
   Document{}
   Temporary{identity: String, initial: String, restore: String, occurrence: Maybe<&2, Nat>}
-
 def identity(scope: Scope) -> String:
   match scope:
     case Document{}: "document"
@@ -80,10 +77,15 @@ def directory_scope(picker: Services.DirectoryPicker, fallback: Scope) -> Scope:
     case Services.LoadingDirectory{ticket, editor, path, trigger}: Temporary{"directory-picker", "directory-picker", trigger, None{}}
     case Services.FailedDirectory{ticket, editor, path, reason, trigger}: Temporary{"directory-picker", "directory-picker", trigger, None{}}
 
-def logical_scope(state: Core.State, capacity: View.Capacity) -> Scope:
-  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}},
-    Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} = state
+def logical_scope(+state: Core.State, capacity: View.Capacity) -> Scope:
   View.Capacity{navigation_beside, details_beside} = capacity
+  +observed_application_1 = Core.application(state)
+  +observed_session_2 = E.session(observed_application_1)
+  +layers = E.layers(observed_session_2)
+  +observed_services_3 = Core.services(state)
+  +settings = Services.settings_open(observed_services_3)
+  +preview = Services.preview(observed_services_3)
+  +directory_picker = Services.directory_picker(observed_services_3)
   preview_scope(preview, directory_scope(directory_picker, settings_scope(settings, layer_scope(layers, details_beside))))
 
 def scope_occurrence_of(scope: Scope) -> Maybe<&2, Nat>:
@@ -122,6 +124,7 @@ def temporary_scope_target(previous: Scope, initial: String, surface: InterfaceV
     case Document{}: initial
     case Temporary{old_id, old_initial, restore, occurrence}:
       scope_restore_target(InterfaceView.matching_focus(InterfaceView.active_nodes(surface), restore), initial)
+
 def scope_target(previous: Scope, current: Scope, surface: InterfaceView.Surface) -> String:
   match current:
     case Document{}: restore(previous)

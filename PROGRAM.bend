@@ -33,7 +33,8 @@ def tasks(world: M.World()) -> +List<D.Task>:
   Commands.entries(world)
 
 def environment(world: M.World()) -> D.Environment:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  environment = D.state_environment(task_state)
   environment
 
 def catalog(environment: D.Environment) -> +List<D.Tool>:
@@ -41,7 +42,8 @@ def catalog(environment: D.Environment) -> +List<D.Tool>:
   catalog
 
 def next_task(world: M.World()) -> Nat:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  next_task = D.state_next_task(task_state)
   next_task
 
 def store(task: D.Task, world: M.World()) -> M.World():
@@ -56,13 +58,17 @@ def reject(world: M.World(), code: String, message: String) -> M.Decision():
 def id_result(id: Nat) -> J.Json:
   J.Object{[J.Field{"task_id", J.nat(id)}]}
 
-def execute_start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World()) -> M.Decision():
-  Workspace.Selection{context, guidance} = selection
-  C.Frame{D.State{tasks, +next_task, next_ticket, +environment, limits, projects}, +board} = world
-  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
-  task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
-    D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
-  respond(C.Frame{D.State{List.append(&2, D.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits, projects}, board}, id_result(next_task))
+def execute_start_environment(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
+  match selection world environment_value:
+    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
+      tasks = D.state_tasks(task_state)
+      +next_task = D.state_next_task(task_state)
+      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
+        D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
+      respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
+
+def execute_start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+  execute_start_environment(profile, reasoning, message, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def execute_delivery(text: String, +task: D.Task, world: M.World()) -> M.Decision():
   respond(store(T.receive(text, task), world), id_result(D.task_id(task)))
@@ -99,26 +105,31 @@ def ids(tasks: +List<D.Task>) -> +List<J.Json>:
 
 def commit_fork(built: Commands.Children, call: D.Call, remaining: +List<D.Attempt>, +parent: D.Task, world: M.World()) -> M.Decision():
   match built world:
-    case Commands.Children{+new_tasks, end} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
+    case Commands.Children{+new_tasks, end} C.Frame{+task_state, +board}:
+      tasks = D.state_tasks(task_state)
       caller = T.promote(D.with_notified(True{}, D.with_phase(D.Ready{remaining}, D.with_history(D.branch_history(D.task_history(parent), T.call_id(call), 0n), parent))))
-      respond(C.Frame{D.State{List.append(&2, D.Task, T.replace(tasks, caller), new_tasks), end, next_ticket, environment, limits, projects}, board},
+      respond(C.Frame{D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, T.replace(tasks, caller), new_tasks), task_state)), board},
         J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]})
 
 def summary_request(+task: D.Task, resume: Bool, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  +next_ticket = D.state_next_ticket(task_state)
   next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, resume}, task))
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, board}, D.success(id_result(D.task_id(task))),
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, D.success(id_result(D.task_id(task))),
     [Effects.RequestSummary{D.task_id(task), next_ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
 
 def execute_checkpoint(summary: String, +task: D.Task, world: M.World()) -> M.Decision():
   respond(store(D.append_message(D.ContextCheckpoint{summary}, task), world), id_result(D.task_id(task)))
 
 def execute_branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, +next_task, +next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  +next_task = D.state_next_task(task_state)
+  +next_ticket = D.state_next_ticket(task_state)
   +call = Commands.branch_call(next_ticket, count, messages)
   +parent = D.append_message(D.FunctionCall{call}, task)
   commit_fork(children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages), call, Nil{}, parent,
-    C.Frame{D.State{tasks, next_task, 1n+next_ticket, environment, limits, projects}, board})
+    C.Frame{D.with_state_next_ticket(1n+next_ticket, task_state), board})
 
 # PROGRAM realizes the resolved operation. The refinement proof compares the
 # entire decision with COMMANDS.meaning, including replies and requested work.
@@ -195,11 +206,22 @@ def realize_event(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision
     case Protocol.HookResult{task, outcome}: respond(store(T.complete_hook(outcome, task), world), accepted(True{}))
     case Protocol.AfterResult{task, +operation, outcome}: Results.complete(F.State(), F.Effect, Ops.stage(operation), outcome, operation, task, world)
     case Protocol.Settings{environment}:
-      C.Frame{D.State{tasks, next_task, next_ticket, previous, limits, projects}, +board} = world
-      respond(C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board}, J.Null{})
+      C.Frame{+task_state, +board} = world
+      tasks = D.state_tasks(task_state)
+      next_task = D.state_next_task(task_state)
+      next_ticket = D.state_next_ticket(task_state)
+      limits = D.state_limits(task_state)
+      projects = D.state_projects(task_state)
+      respond(C.Frame{D.with_state_environment(environment, task_state), board}, J.Null{})
     case Protocol.Restart{}:
-      C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-      respond(C.Frame{D.State{recover_tasks(tasks), next_task, next_ticket, environment, limits, projects}, FeatureState.recover(board)}, J.Null{})
+      C.Frame{+task_state_2, +board} = world
+      tasks = D.state_tasks(task_state_2)
+      next_task = D.state_next_task(task_state_2)
+      next_ticket = D.state_next_ticket(task_state_2)
+      environment = D.state_environment(task_state_2)
+      limits = D.state_limits(task_state_2)
+      projects = D.state_projects(task_state_2)
+      respond(C.Frame{D.with_state_tasks(recover_tasks(tasks), task_state_2), FeatureState.recover(board)}, J.Null{})
     case Protocol.Tick{}: respond(world, J.Null{})
     case Protocol.Review{resolution}: review_result(resolution, world)
 
@@ -224,27 +246,35 @@ def rendering_budget(world: M.World()) -> Nat:
   D.state_render_budget(C.local(D.State, F.State(), world))
 
 def external_tool(tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  +next_ticket = D.state_next_ticket(task_state)
   next = T.promote(Ops.started(next_ticket, call, remaining, task))
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, board}, J.Null{},
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, J.Null{},
     [Effects.ExecuteTool{D.task_id(task), next_ticket, tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]}
 
 def approval_request(+reviewer: D.ApprovalReviewer, +call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  +ticket = D.state_next_ticket(task_state)
   +pending = T.promote(Ops.awaiting(ticket, reviewer, call, remaining, task))
-  C.Decision{C.Frame{D.State{T.replace(tasks, pending), next_task, 1n+ticket, environment, limits, projects}, board}, J.Null{},
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, pending), task_state)), board}, J.Null{},
     Approvals.review_effects(F.Effect, reviewer, pending, ticket, call)}
 
 def elevated_tool(reviewer: D.ApprovalReviewer, tool: D.Tool, +operation: D.Operation(), +task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  +ticket = D.state_next_ticket(task_state)
   next = Ops.elevated(ticket, reviewer, operation, task)
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, board}, J.Null{},
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, J.Null{},
     [Effects.ExecuteTool{D.task_id(task), ticket, tool, Ops.call(operation), D.task_context(task), D.Unrestricted{}}]}
 
 def check_tool(+plugin: D.PluginRef, pending: +List<D.PluginRef>, tool: D.Tool, +call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  +next_ticket = D.state_next_ticket(task_state)
   next = D.with_phase(D.HookPending{next_ticket, plugin, call, pending, remaining}, task)
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, board}, J.Null{},
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, J.Null{},
     [Effects.CheckTool{D.task_id(task), next_ticket, plugin, tool, call}]}
 
 def tool_error(code: String, message: String, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()) -> M.Decision():
@@ -264,9 +294,10 @@ def finish_internal(id: Nat, call: D.Call, remaining: +List<D.Attempt>, +result:
 
 def commit_invoked_fork(built: Commands.Children, call: D.Call, remaining: +List<D.Attempt>, parent: D.Task, world: M.World()) -> M.Decision():
   match built world:
-    case Commands.Children{+new_tasks, end} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}:
+    case Commands.Children{+new_tasks, end} C.Frame{+task_state, +board}:
+      tasks = D.state_tasks(task_state)
       Results.attached(F.State(), F.Effect, Results.internal(F.State(), F.Effect, call, remaining, J.nat(0n), False{}, parent,
-        C.Frame{D.State{List.append(&2, D.Task, tasks, new_tasks), end, next_ticket, environment, limits, projects}, board}),
+        C.Frame{D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, tasks, new_tasks), task_state)), board}),
         D.success(J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]}), Nil{})
 
 def realize_invocation(operation: Protocol.Invocation, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():

@@ -45,11 +45,13 @@ def admitted(operation: Operation) -> Bool:
     case _: True{}
 
 def entries(world: M.World()) -> +List<D.Task>:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
   tasks
 
 def settings(world: M.World()) -> D.Environment:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  environment = D.state_environment(task_state)
   environment
 
 def configured(environment: D.Environment) -> +List<D.Profile>:
@@ -259,14 +261,18 @@ def replace(task: D.Task, world: M.World()) -> M.World():
 def changed(id: Nat, task: D.Task, world: M.World(), effects: +List<M.Effect()>) -> M.Decision():
   C.Decision{replace(task, world), D.success(id_result(id)), effects}
 
-def start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World()) -> M.Decision():
-  Workspace.Selection{context, guidance} = selection
-  C.Frame{D.State{tasks, +next_task, next_ticket, +environment, limits, projects}, +board} = world
-  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
-  task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
-    D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
-  C.Decision{C.Frame{D.State{List.append(&2, D.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits, projects}, board},
-    D.success(id_result(next_task)), Nil{}}
+def start_environment(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
+  match selection world environment_value:
+    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
+      tasks = D.state_tasks(task_state)
+      +next_task = D.state_next_task(task_state)
+      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
+        D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
+      C.Decision{C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board},
+        D.success(id_result(next_task)), Nil{}}
+
+def start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+  start_environment(profile, reasoning, message, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def status_change(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match next:
@@ -316,21 +322,27 @@ def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> D.Call:
 
 def branch_commit(built: Children, +parent: D.Task, call_id: String, world: M.World()) -> M.Decision():
   Children{+spawned, end} = built
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  next_ticket = D.state_next_ticket(task_state)
   caller = T.promote(D.with_notified(True{}, D.with_phase(D.Ready{Nil{}}, D.with_history(D.branch_history(D.task_history(parent), call_id, 0n), parent))))
-  C.Decision{C.Frame{D.State{List.append(&2, D.Task, T.replace(tasks, caller), spawned), end, 1n+next_ticket, environment, limits, projects}, board},
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, T.replace(tasks, caller), spawned), task_state))), board},
     D.success(J.Object{[J.Field{"children", J.Array{identities(spawned)}}]}), Nil{}}
 
 def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, +next_task, +next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  +next_task = D.state_next_task(task_state)
+  +next_ticket = D.state_next_ticket(task_state)
   +call = branch_call(next_ticket, count, messages)
   +parent = D.append_message(D.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
 def summarize(+task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
+  +next_ticket = D.state_next_ticket(task_state)
   next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, False{}}, task))
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, board}, D.success(id_result(D.task_id(task))),
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, D.success(id_result(D.task_id(task))),
     [Effects.RequestSummary{D.task_id(task), next_ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
 
 def page_checked(valid: Bool, task: D.Task, after: Nat, limit: Nat) -> J.Json:
@@ -344,12 +356,17 @@ def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat) -> J.Json:
     case Some{+task}:
       page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, D.history_length(D.task_history(task))), task, after, limit)
 
-def listing(world: M.World()) -> J.Json:
-  C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +board} = world
-  D.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
-    J.Field{"profiles", J.Array{D.profiles_json(profiles)}}, J.Field{"tools", J.Array{D.tools_json(catalog)}},
-    J.Field{"plugins", D.plugins_json(plugins)},
-    J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
+def listing_environment(world: M.World(), environment_value: D.Environment) -> J.Json:
+  match world environment_value:
+    case C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
+      tasks = D.state_tasks(task_state)
+      D.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
+        J.Field{"profiles", J.Array{D.profiles_json(profiles)}}, J.Field{"tools", J.Array{D.tools_json(catalog)}},
+        J.Field{"plugins", D.plugins_json(plugins)},
+        J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
+
+def listing(+world: M.World()) -> J.Json:
+  listing_environment(world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def query(query: M.Query, +world: M.World()) -> J.Json:
   match query:

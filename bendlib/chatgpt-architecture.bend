@@ -31,10 +31,9 @@ type Boundary is Type:
       {F.rest(C.rest(D.State, F.State(), State.store(value, world))) == F.rest(C.rest(D.State, F.State(), world)) : F.Rest()},
     board_preserves: @+value:Board.State -> @+features:F.State() ->
       {F.chatgpt(F.with_board(value, features)) == F.chatgpt(features) : G.State},
-    ownership: @+connection:Nat -> @+project:Nat -> @+owner:Nat -> @+target:Nat -> @+request:String -> @+arguments:J.Json ->
-      @+workspace:D.Workspace -> @+sandbox:D.Sandbox -> @+outcome:G.Outcome ->
-      {G.owned(connection, project, G.Job{owner, target, request, arguments, workspace, sandbox, outcome}) ==
-       (Nat.is_eq(connection, owner) && Nat.is_eq(project, target)) : Bool},
+    ownership: @+connection:Nat -> @+project:Nat -> @+job:G.Job ->
+      {G.owned(connection, project, job) ==
+       (Nat.is_eq(connection, G.job_connection(job)) && Nat.is_eq(project, G.job_project(job))) : Bool},
     denied: @+connection:Nat -> @+project:Nat -> @+request:String -> @+arguments:J.Json -> @+projects:D.Projects -> @+state:G.State ->
       {G.run_authorized(None{}, connection, project, request, arguments, projects, state) ==
        G.Refuse{"project_forbidden", "This connection has no grant for that project"} : G.Resolution},
@@ -42,8 +41,8 @@ type Boundary is Type:
       {View.read_job(None{}, connection, project, id, state) == View.forbidden() : J.Json},
     removed: @+id:Nat -> @+state:G.State ->
       {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
-    restarted: @+connection:Nat -> @+project:Nat -> @+request:String -> @+arguments:J.Json -> @+workspace:D.Workspace -> @+sandbox:D.Sandbox ->
-      {G.outcome(G.recover_job(G.Job{connection, project, request, arguments, workspace, sandbox, G.Running{}})) ==
+    restarted: @+job:G.Job -> {G.outcome(job) == G.Running{} : G.Outcome} ->
+      {G.outcome(G.recover_job(job)) ==
        G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome}}
 
 law boundary:

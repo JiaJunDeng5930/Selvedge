@@ -42,9 +42,8 @@ type Requirements is Type:
       {disclosure(E.set_navigation(expanded, E.NavigationState{intent, collapsed})) == collapsed : +List<Nat>},
     visit_preserves_disclosure: @intent:E.NavigationIntent -> @+collapsed:+List<Nat> ->
       {disclosure(E.navigation_after_visit(E.NavigationState{intent, collapsed})) == collapsed : +List<Nat>},
-    toggle_keeps_location: @+project:Nat -> @+world:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> -> @+readers:+List<Finite.Entry(E.Reader)> -> @+layers:+List<E.Layer> -> @+attention:String -> @+navigation:E.NavigationState -> @+filter:B.Filter -> @+now:U32 -> @+next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code:+List<Content.Block> -> @next_layer:Nat ->
-      {E.toggle_project(project, E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}) ==
-        E.local(world, E.Session{route, drafts, readers, layers, attention, E.toggle_project_navigation(project, navigation), filter, now, next, pending, previews, code, next_layer}, Nil{}) : E.Decision},
+    toggle_keeps_location: @+session:E.Session -> @+project:Nat -> @+world:M.World() -> {E.toggle_project(project, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.toggle_project_navigation(project, E.navigation(session)), session), Nil{}) : E.Decision},
     task_ownership: @+id:Nat -> @drafts:+List<U.Draft> -> @+world:M.World() ->
       {View.route_project(U.Conversation{id}, drafts, world) ==
     View.validate_project(View.task_project(Tasks.find(Commands.entries(world), id)), world) : Maybe<&2, Nat>},
@@ -86,11 +85,10 @@ type Requirements is Type:
       {intro_chooser(View.creation_introduction_fields(context, world)) ==
         View.ControlDeclaration{"composer/project", View.project_choice_label(View.creation_selected_project(context, world)), View.Secondary{},
           U.Activate{U.OpenPanel{U.ProjectPicker{}, "composer/project"}}, View.Available{}} : View.ControlDeclaration},
-    picker_search_preserves_session: @+query:String -> @+world:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> -> @+readers:+List<Finite.Entry(E.Reader)> -> @+trigger:String -> @+initial:String -> @previous:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> -> @+attention:String -> @+navigation:E.NavigationState -> @+filter:B.Filter -> @+now:U32 -> @+next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code:+List<Content.Block> -> @next_layer:Nat ->
-      {E.search_choices(query, E.Application{world, E.Session{route, drafts, readers, E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest,
-        attention, navigation, filter, now, next, pending, previews, code, next_layer}}) ==
-        E.local(world, E.Session{route, drafts, readers, E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest,
-          attention, navigation, filter, now, next, pending, previews, code, next_layer}, Nil{}) : E.Decision},
+    picker_search_preserves_session: @+session:E.Session -> @+query:String -> @+world:M.World() -> @+trigger:String -> @+initial:String -> @previous:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
+      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest : +List<E.Layer>} ->
+       {E.search_choices(query, E.from_program(world, session)) ==
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest, session), Nil{}) : E.Decision},
     project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<View.TaskEntry> -> @+open:View.ControlDeclaration -> @+create:View.ControlDeclaration -> @+toggle:View.ControlDeclaration -> @+more:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.project_entries([View.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [Interface.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", Interface.Section{}, Interface.ProjectGroup{id, selected, expanded},
@@ -107,18 +105,16 @@ type Requirements is Type:
     populated_project_collection: @+first:View.ProjectScene -> @+rest:+List<View.ProjectScene> -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.project_collection_entries(Con{first, rest}, parent, state) ==
     Interface.projects(Con{first, rest}, parent, state) : +List<Interface.Node>},
-    select_focus_and_input: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @route:U.Route -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> -> @+readers:+List<Finite.Entry(E.Reader)> -> @layers:+List<E.Layer> -> @attention:String -> @+navigation:E.NavigationState -> @+filter:B.Filter -> @+now:U32 -> @+next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code:+List<Content.Block> -> @next_layer:Nat ->
-      {E.activate_selected(U.SelectProject{project}, E.Application{world, E.Session{route,
-        U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest,
-        readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}) ==
-        E.local(world, E.Session{U.Start{},
-          E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
-            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest),
-          readers, Nil{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), E.navigation_after_visit(navigation), filter, now, next, pending, previews, code, next_layer},
+    select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> ->
+      @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
+       {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
-    missing_draft_focus: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @route:U.Route -> @+readers:+List<Finite.Entry(E.Reader)> -> @layers:+List<E.Layer> -> @attention:String -> @+navigation:E.NavigationState -> @+filter:B.Filter -> @+now:U32 -> @+next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code:+List<Content.Block> -> @next_layer:Nat ->
-      {E.activate_selected(U.SelectProject{project}, E.Application{world, E.Session{route, Nil{}, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}) ==
-        E.local(world, E.Session{U.Start{}, Nil{}, readers, Nil{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), E.navigation_after_visit(navigation), filter, now, next, pending, previews, code, next_layer},
+    missing_draft_focus: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() ->
+      @observed_drafts:{E.drafts(session) == Nil{} : +List<U.Draft>} ->
+       {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
     task_status_source: @+task:D.Task -> {View.task_status(task) == View.TaskStatus{D.task_status(task), Conversation.working(D.task_phase(task), D.task_operations(task))} : View.TaskStatus},
     task_status_label: @+lifecycle:D.Status -> @+working:Bool -> {View.task_status_label(View.TaskStatus{lifecycle, working}) == Conversation.status_label(lifecycle, working) : String},

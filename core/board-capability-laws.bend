@@ -32,24 +32,24 @@ type Requirements is Type:
       {Interface.linked_card_controls(None{}, parent, state) == Nil{} : +List<Interface.Node>},
     failed_generation_is_observed: @+reason: String ->
       {Interface.enrichment_observation(B.EnrichmentFailed{reason}) == reason : String},
-    actual_card_errors: @+revision: Nat -> @+draft: B.Draft -> @+task: Maybe<&2, Nat> -> @+archived: Bool -> @+created: U32 -> @+updated: U32 -> @+enrichment: B.Enrichment -> @+error: String -> @+pinned: Bool -> @+parent: Identity.Key ->
-      {Interface.card_error_observations(B.Card{revision, draft, task, archived, created, updated, enrichment, error, pinned}, parent) ==
-        [Interface.project_fact(Identity.Part{parent, "enrichment"}, "生成", Interface.enrichment_observation(enrichment)),
-         Interface.project_fact(Identity.Part{parent, "start-error"}, "启动错误", error)] : +List<Interface.Node>},
+    actual_card_errors: @+card:B.Card -> @+parent: Identity.Key ->
+      {Interface.card_error_observations(card, parent) ==
+        [Interface.project_fact(Identity.Part{parent, "enrichment"}, "生成", Interface.enrichment_observation(B.enrichment(card))),
+         Interface.project_fact(Identity.Part{parent, "start-error"}, "启动错误", B.start_error(card))] : +List<Interface.Node>},
     missing_card_is_unavailable: @+parent: Identity.Key -> @state: Core.State ->
       {Interface.card_details_nodes(None{}, parent, state) ==
     [Interface.project_fact(Identity.Part{parent, "missing"}, "Unavailable", "The card no longer exists")] : +List<Interface.Node>},
     archived_has_no_archive_drop: @id: Nat -> @revision: Nat -> @state: Core.State ->
       {Interface.archive_placement(True{}, id, revision, state) == Nil{} : +List<Interface.Placement>},
-    agent_row_observes_profile: @+id: Nat -> @+revision: Nat -> @+name: String -> @+profile: String -> @+reasoning: String -> @+instructions: String -> @+settings: J.Json -> @+concurrency: Nat -> @+edit: View.ControlDeclaration -> @+parent: Identity.Key -> @+world: M.World() -> @+session: E.Session -> @+services: Services.State ->
-      {Interface.agent_observation(id, B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}, edit, parent, Core.State{E.Application{world, session}, services}) ==
-        Interface.Node{Identity.Entity{parent, "agent", Nat.show(id)}, "agent/" ++ Nat.show(id), name, Interface.Section{}, Interface.Region{}, [Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "profile"}, "模型", profile),
-           Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "reasoning"}, "推理", reasoning),
-           Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "instructions"}, "指令", instructions),
-           Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "concurrency"}, "并发上限", Nat.show(concurrency)),
+    agent_row_observes_profile: @+agent:B.AgentProfile -> @+id: Nat -> @+edit: View.ControlDeclaration -> @+parent: Identity.Key -> @+world: M.World() -> @+session: E.Session -> @+services: Services.State ->
+      {Interface.agent_observation(id, agent, edit, parent, Core.from_application(E.from_program(world, session), services)) ==
+        Interface.Node{Identity.Entity{parent, "agent", Nat.show(id)}, "agent/" ++ Nat.show(id), B.agent_name(agent), Interface.Section{}, Interface.Region{}, [Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "profile"}, "模型", B.agent_profile(agent)),
+           Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "reasoning"}, "推理", B.agent_reasoning(agent)),
+           Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "instructions"}, "指令", B.agent_instructions(agent)),
+           Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "concurrency"}, "并发上限", Nat.show(B.agent_concurrency(agent))),
            Interface.project_fact(Identity.Part{Identity.Entity{parent, "agent", Nat.show(id)}, "active"}, "工作中", Nat.show(Board.active_for(B.cards(Board.registry(world)), B.Agent{id}, world))),
-           Interface.declared(Identity.Entity{parent, "agent", Nat.show(id)}, edit, Core.State{E.Application{world, session}, services}),
-           Interface.more(U.AgentSubject{id}, Identity.Entity{parent, "agent", Nat.show(id)}, Core.State{E.Application{world, session}, services})]} : Interface.Node}}
+           Interface.declared(Identity.Entity{parent, "agent", Nat.show(id)}, edit, Core.from_application(E.from_program(world, session), services)),
+           Interface.more(U.AgentSubject{id}, Identity.Entity{parent, "agent", Nat.show(id)}, Core.from_application(E.from_program(world, session), services))]} : Interface.Node}}
 
 law evidence:
   Requirements

@@ -17,13 +17,13 @@ def archive_interruption(+archived:Bool, +working:Bool, +found:Maybe<&2, D.Task>
     case False{} _ _ _: {==}
     case True{} False{} _ _: {==}
     case True{} True{} None{} _: {==}
-    case True{} True{} Some{task} C.Decision{C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}, reply, effects}: {==}
+    case True{} True{} Some{task} C.Decision{C.Frame{core, +board}, reply, effects}: {==}
 
 def archive_saved(+id:Nat, +card:B.Card, +archived:Bool, +now:U32, +world:M.World()) ->
   {Actual.save(id, B.set_archive(archived, card, now), B.next_card(S.registry(world)), world) == Spec.archive_result(id, card, archived, now, world) : M.Decision()}:
   match card world:
     case B.Card{revision, draft, task, old_archive, created, updated, enrichment, error, pinned}
-      C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
+      C.Frame{core, +board}: {==}
 
 def archive_meaning(+id:Nat, +card:B.Card, +archived:Bool, +now:U32, +world:M.World()) ->
   {Actual.archive(id, card, archived, now, world) == Spec.change(R.ArchiveCard{id, card, archived, now}, world) : M.Decision()}:
@@ -51,17 +51,17 @@ def relocate_meaning(+id: Nat, +card: B.Card, +position: Nat, +world: M.World())
 
 def A.change_meaning(change, world):
   match change world:
-    case R.StoreCard{id, card, next} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
+    case R.StoreCard{id, card, next} C.Frame{core, +board}: {==}
     case R.Relocate{id, card, position} _: relocate_meaning(id, card, position, world)
-    case R.RemoveCard{id} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
+    case R.RemoveCard{id} C.Frame{core, +board}: {==}
     case R.ArchiveCard{id, card, archived, now} _: archive_meaning(id, card, archived, now, world)
-    case R.Configure{automatic, profile} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
-    case R.StoreAgent{id, agent, next} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
-    case R.RemoveAgent{id} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
-    case R.RequestText{id, card, profile, retitle, next} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
+    case R.Configure{automatic, profile} C.Frame{core, +board}: {==}
+    case R.StoreAgent{id, agent, next} C.Frame{core, +board}: {==}
+    case R.RemoveAgent{id} C.Frame{core, +board}: {==}
+    case R.RequestText{id, card, profile, retitle, next} C.Frame{core, +board}: {==}
 
 def A.birth_meaning(id, task, card, now, decision):
-  C.Decision{C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}, reply, effects} = decision
+  C.Decision{C.Frame{core, +board}, reply, effects} = decision
   {==}
 
 def accepted_meaning(+valid:Bool, +title:String, +description:String, +card:B.Card) ->
@@ -92,9 +92,9 @@ def A.text_meaning(outcome, retitle, card):
         accepted_meaning(B.valid_draft(required), String.trim(title), selected, card))
 
 def A.completion_meaning(id, card, outcome, retitle, world):
-  C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board} = world
+  C.Frame{core, +board} = world
   Equal.cong(B.Card, M.Decision(), (value => C.Decision{
-    C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, F.with_board(B.put(id, value, F.board(board), B.next_card(F.board(board))), board)},
+    C.Frame{core, F.with_board(B.put(id, value, F.board(board), B.next_card(F.board(board))), board)},
     D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}}),
     Actual.complete(outcome, retitle, card), Spec.complete(outcome, retitle, card), A.text_meaning(outcome, retitle, card))
 

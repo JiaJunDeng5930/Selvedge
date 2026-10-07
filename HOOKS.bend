@@ -18,9 +18,12 @@ def plugins(contract: D.Contract) -> +List<D.Plugin>:
   D.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   plugins
 
-def live(-StateRest: Data, world: C.Frame<D.State, StateRest>) -> +List<D.Plugin>:
-  C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +rest} = world
+def environment_plugins(environment: D.Environment) -> +List<D.Plugin>:
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   plugins
+
+def live(-StateRest: Data, world: C.Frame<D.State, StateRest>) -> +List<D.Plugin>:
+  environment_plugins(D.state_environment(C.local(D.State, StateRest, world)))
 
 def before(plugins: +List<D.Plugin>) -> +List<D.PluginRef>:
   match plugins:

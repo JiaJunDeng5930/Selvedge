@@ -51,7 +51,7 @@ test('ChatGPT production evidence rejects type-correct lost effects, cross-conne
       const proof = check('PROOF.bend');
       assert.equal(proof.error, undefined);
       assert.notEqual(proof.status, 0, `${label}: the root accepted a semantic defect`);
-      assert.match(proof.stdout + proof.stderr, /chatgpt|board_preserves|refinement|boundary/);
+      assert.match(proof.stdout + proof.stderr, /chatgpt|board_preserves|refinement|boundary|^Location: (ownership|restarted)$/m);
     } finally { await writeFile(filename, original); }
   });
 });

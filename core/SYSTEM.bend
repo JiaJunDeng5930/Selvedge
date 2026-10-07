@@ -15,6 +15,25 @@ import ./client-services.bend as Services
 type State is Data:
   State{application: E.Application, services: Services.State}
 
+def application(state: State) -> E.Application:
+  State{application, services} = state
+  application
+
+def services(state: State) -> Services.State:
+  State{application, services} = state
+  services
+
+def with_application(value: E.Application, state: State) -> State:
+  State{application, services} = state
+  State{value, services}
+
+def with_services(value: Services.State, state: State) -> State:
+  State{application, services} = state
+  State{application, value}
+
+def from_application(application: E.Application, services: Services.State) -> State:
+  State{application, services}
+
 type Input is Data:
   ApplicationInput{input: E.Input}
   ServiceInput{input: Services.Input}
@@ -68,15 +87,16 @@ def attachment_edit(found: Maybe<&2, U.Draft>, add: Maybe<&2, B.Attachment>, id:
       Some{U.WriteCard{B.Patch{None{}, None{}, None{}, None{}, None{}, None{}, None{}, Some{add_file(add, remove_file(files, id))}}}}
     case _: None{}
 
-def apply_edit(edit: Maybe<&2, U.Edit>, editor: U.Editor, application: E.Application) -> E.Decision:
+def apply_edit(edit: Maybe<&2, U.Edit>, editor: U.Editor, +application: E.Application) -> E.Decision:
   match edit:
     case None{}: E.refuse(application, "This field is not editable here")
     case Some{value}: ExperienceProgram.step(E.UserInput{U.EditDraft{editor, value}}, application)
 
-def edit_attachment(+editor: U.Editor, add: Maybe<&2, B.Attachment>, id: String, application: E.Application) -> E.Decision:
-  E.Application{program, session} = application
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
-  apply_edit(attachment_edit(E.find_draft(drafts, editor), add, id), editor, E.Application{program, session})
+def edit_attachment(+editor: U.Editor, add: Maybe<&2, B.Attachment>, id: String, +application: E.Application) -> E.Decision:
+  program = E.program(application)
+  +session = E.session(application)
+  +drafts = E.drafts(session)
+  apply_edit(attachment_edit(E.find_draft(drafts, editor), add, id), editor, E.from_program(program, session))
 
 def attached(decision: E.Decision) -> E.Application:
   E.Decision{application, reply, effects, interaction, durable} = decision
@@ -88,10 +108,12 @@ def workspace_draft(found: Maybe<&2, U.Draft>) -> Bool:
     case None{}: False{}
 
 def accepts_directory(+editor: U.Editor, application: E.Application) -> Bool:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +observed_session = E.session(application)
+  drafts = E.drafts(observed_session)
+  pending = E.pending(observed_session)
   workspace_draft(E.find_draft(drafts, editor)) && Bool.not(E.busy(pending, editor))
 
-def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, application: E.Application) -> E.Application:
+def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, +application: E.Application) -> E.Application:
   match accepted:
     case False{}: application
     case True{}:
@@ -101,7 +123,7 @@ def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, a
 def directory_chosen(+editor: U.Editor, path: String, +application: E.Application) -> E.Application:
   directory_chosen_accepted(accepts_directory(editor, application), editor, path, application)
 
-def service_effects(effects: +List<Services.Effect>, application: E.Application) -> E.Application:
+def service_effects(effects: +List<Services.Effect>, +application: E.Application) -> E.Application:
   match effects:
     case Nil{}: application
     case Con{Services.AttachToDraft{editor, +file}, rest}:
@@ -122,7 +144,8 @@ def application_result_with_services(decision: E.Decision, services: Services.St
   Decision{State{application, services}, reply, runtime, interaction, effects, durable}
 
 def session_attention(application: E.Application) -> String:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +observed_session = E.session(application)
+  attention = E.attention(observed_session)
   attention
 
 def service_interactions(effects: +List<Services.Effect>, +application: E.Application) -> +List<E.Effect>:
@@ -145,15 +168,17 @@ def command_offline(command: Maybe<&2, M.Command>, access: Services.Access) -> B
     case Some{command}: Bool.not(Services.connected(access))
     case None{}: False{}
 
-def submission_blocked(services: Services.State, input: E.Input) -> Bool:
-  Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = services
+def submission_blocked_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Bool:
   match input:
     case E.UserInput{U.Activate{U.Submit{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
     case E.UserInput{U.Activate{U.ConfirmAction{}}}: Bool.not(Services.connected(access))
     case E.UserInput{U.Activate{action}}: command_offline(U.direct_command(action), access)
     case _: False{}
 
-def apply_application(blocked: Bool, input: E.Input, application: E.Application, services: Services.State) -> Decision:
+def submission_blocked(+services: Services.State, input: E.Input) -> Bool:
+  submission_blocked_access(Services.access(services), Services.transfers(services), input)
+
+def apply_application(blocked: Bool, input: E.Input, +application: E.Application, +services: Services.State) -> Decision:
   match blocked:
     case True{}: application_result(E.refuse(application, "Connect and finish pending file uploads before submitting"), services)
     case False{}: application_result(ExperienceProgram.step(input, application), services)
@@ -164,20 +189,21 @@ def is_card_draft(found: Maybe<&2, U.Draft>) -> Bool:
     case _: False{}
 
 def accepts_files(editor: U.Editor, application: E.Application) -> Bool:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +observed_session = E.session(application)
+  drafts = E.drafts(observed_session)
   is_card_draft(E.find_draft(drafts, editor))
 
-def add_allowed(allowed: Bool, input: Services.Input, application: E.Application, services: Services.State) -> Decision:
+def add_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> Decision:
   match allowed:
     case True{}: service_result(Services.step(input, services), application)
     case False{}: application_result(E.refuse(application, "Attachments belong to a card draft"), services)
 
-def directory_allowed(allowed: Bool, input: Services.Input, application: E.Application, services: Services.State) -> Decision:
+def directory_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> Decision:
   match allowed:
     case True{}: service_result(Services.step(input, services), application)
     case False{}: application_result(E.refuse(application, "The workspace editor is not available"), services)
 
-def service_input(input: Services.Input, +application: E.Application, services: Services.State) -> Decision:
+def service_input(input: Services.Input, +application: E.Application, +services: Services.State) -> Decision:
   match input:
     case Services.OpenDirectoryPicker{+editor, path, trigger}:
       directory_allowed(accepts_directory(editor, application), Services.OpenDirectoryPicker{editor, path, trigger}, application, services)
@@ -187,23 +213,26 @@ def service_input(input: Services.Input, +application: E.Application, services: 
     case Services.Disconnected{reason}: service_result(Services.step(Services.Disconnected{reason}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case other: service_result(Services.step(other, services), application)
 
-def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
-  E.Application{+program, session} = application
-  apply_edit(Forms.edit_for(body, field, value, program), editor, E.Application{program, session})
-def edit_exposed(exposed: Bool, body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
+def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
+  +program = E.program(application)
+  session = E.session(application)
+  apply_edit(Forms.edit_for(body, field, value, program), editor, E.from_program(program, session))
+def edit_exposed(exposed: Bool, body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
   match exposed:
     case False{}: E.refuse(application, "This field is not part of this editor")
     case True{}: edit_body(body, editor, field, value, application)
 
-def edit_found(found: Maybe<&2, U.Draft>, editor: U.Editor, +field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
+def edit_found(found: Maybe<&2, U.Draft>, editor: U.Editor, +field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
   match found:
     case None{}: E.refuse(application, "The editor is not open")
     case Some{U.Draft{revision, +body, feedback, directory_entry}}: edit_exposed(Forms.exposed(body, field), body, editor, field, value, application)
 
-def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
-  E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
+  program = E.program(application)
+  +observed_session = E.session(application)
+  +drafts = E.drafts(observed_session)
   edit_found(E.find_draft(drafts, editor), editor, field, value,
-    E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}})
+    E.from_program(program, observed_session))
 def dispatch(state: State, +input: Input) -> Decision:
   State{application, +services} = state
   match input:
@@ -213,10 +242,18 @@ def dispatch(state: State, +input: Input) -> Decision:
     case RemoveAttachment{editor, id}: application_result(edit_attachment(editor, None{}, id, application), services)
 
 def code_scenes(application: E.Application) -> +List<Content.Scene>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +observed_session = E.session(application)
+  code_blocks = E.code_blocks(observed_session)
   List.foldr(~&2, ~Content.Block, ~(+List<Content.Scene>), ~(block => rest => Content.observe(block) <> rest), code_blocks, Nil{})
 def observe(capacity: View.Capacity, state: State) -> Scene:
-  State{+application, Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}} = state
+  State{+application, +observed_state} = state
+  access = Services.access(observed_state)
+  credential = Services.credential(observed_state)
+  settings = Services.settings_open(observed_state)
+  appearance = Services.appearance(observed_state)
+  transfers = Services.transfers(observed_state)
+  preview = Services.preview(observed_state)
+  directory_picker = Services.directory_picker(observed_state)
   Scene{View.observe(capacity, application),
     Settings{settings, access, Bool.not(String.eq(credential, "")), appearance,
       ServiceInput{Services.OpenSettings{}}, ServiceInput{Services.CloseSettings{}}, ServiceInput{Services.Connect{}}}, transfers, preview, code_scenes(application), directory_picker}

@@ -1,3 +1,6 @@
+import ../../core/user-experience.bend as E
+import ../../UI.bend as Product
+import ../../bendlib/json.bend as J
 import Base
 import ../browser.bend as Browser
 import ../MODEL.bend as Web
@@ -79,9 +82,8 @@ def uncertain_retains_tickets(+requests: +List<Browser.Pending>, +ticket: Nat, +
           Browser.owns_ticket(Browser.uncertain_pending(rest, ticket, reason), observed), Browser.owns_ticket(rest, observed),
           uncertain_retains_tickets(rest, ticket, reason, observed)))
 
-def document_key_event(+key: String, +shift: Bool, +core: Core.State, +platform: Platform.Platform, +generation: Nat,
-  +realization: Rendered.State, +environment: Design.Environment, +font: F.State, +sequence: Nat, +next: Nat, +requests: +List<Browser.Pending>) -> Rule.document_key_event_law(key, shift, core, platform, generation, realization, environment, font, sequence, next, requests):
-  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+def document_key_event(+key: String, +shift: Bool, +state: Browser.State) -> Rule.document_key_event_law(key, shift, state):
+  Browser.State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, requests, receipt} = state
   {==}
 
 def receipt_input(observation: F.Observation, state: Browser.State) ->
@@ -114,23 +116,66 @@ def nodes_current_surface(+web: Web.State, sequence: Nat, next: Nat, +pending: +
   match web:
     case Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}: {==}
 
+def state_measurements_transport_evidence(+model_state: Browser.State, +observation: F.Observation) ->
+  {Rule.transport(Browser.measurements(observation, Browser.with_receipt(None{}, model_state))) ==
+    (Browser.sequence(model_state), (Browser.next_ticket(model_state), Browser.pending(model_state))) : (Nat & (Nat & +List<Browser.Pending>))}:
+  Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
+  finished_receipt_transport(Web.step(Web.TypographyObserved{observation}, web),
+    Interaction.model_core(Interaction.model_application(web)), Proof_laws.typography_product(web, observation), sequence, next, pending, "")
+
+def state_nodes_current_surface_evidence(+model_state: Browser.State) ->
+  {Browser.nodes(Browser.with_receipt(None{}, model_state)) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(Browser.web(model_state))), Browser.pending(model_state)))) : +List<InterfaceView.Node>}:
+  Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
+  nodes_current_surface(web, sequence, next, pending)
+
+def state_failed_transition_evidence(+model_state: Browser.State, ticket: Nat, error: String) ->
+  {Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state)) ==
+        Browser.Decision{Browser.with_receipt(None{}, Browser.with_pending(Browser.uncertain_pending(Browser.pending(model_state), ticket, error), model_state)), Nil{}} : Browser.Decision}:
+  Browser.State{+web, +sequence, +next, +requests, +original_1} = model_state
+  {==}
+
+def state_failed_preserves_web_evidence(+model_state: Browser.State, ticket: Nat, error: String) ->
+  {Rule.web_state(Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state))) == Browser.web(model_state) : Web.State}:
+  Browser.State{+web, +sequence, +next, +requests, +original_1} = model_state
+  {==}
+
+def state_failed_retains_ticket_evidence(+model_state: Browser.State, ticket: Nat, error: String, observed: Nat) ->
+  {Browser.owns_ticket(Rule.pending(Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state))), observed) ==
+        Browser.owns_ticket(Browser.pending(model_state), observed) : Bool}:
+  Browser.State{+web, +sequence, +next, +requests, +original_1} = model_state
+  uncertain_retains_tickets(requests, ticket, error, observed)
+
+def state_admitted_request_evidence(+model_state: Browser.State, command: J.Json, completion: E.Completion, origin: String) ->
+  {Browser.request_ready(False{}, command, completion, origin, Browser.with_receipt(None{}, model_state)) ==
+          Browser.Decision{Browser.with_receipt(None{}, Browser.with_pending(List.append(&2, Browser.Pending, Browser.pending(model_state), [Browser.Pending{Browser.next_ticket(model_state), completion, command, origin, Browser.AwaitingReceipt{}}]), Browser.with_next_ticket((Browser.next_ticket(model_state) + 1n : Nat), model_state))),
+            [Browser.Command{Browser.next_ticket(model_state), command}]} : Browser.Decision}:
+  Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
+  {==}
+
+def state_stale_completion_evidence(+model_state: Browser.State, ticket: Nat, received: Nat, supplied: M.World(), reply: J.Json, completion: E.Completion) ->
+  {Browser.complete_new(False{}, ticket, received, supplied, reply, completion,
+          Browser.with_receipt(None{}, model_state)) ==
+          Browser.product_input(Product.CommandCompleted{
+            Browser.program(Browser.with_receipt(None{}, model_state)), reply, completion},
+            Browser.with_receipt(None{}, Browser.with_pending(Browser.remove(Browser.pending(model_state), ticket), model_state))) : Browser.Decision}:
+  Browser.State{+web, +current, +next, +pending, +original_1} = model_state
+  {==}
+
 def Rule.evidence():
   Rule.Requirements{
-    +observation => +web => sequence => next => pending =>
-      finished_receipt_transport(Web.step(Web.TypographyObserved{observation}, web),
-        Interaction.model_core(Interaction.model_application(web)), Proof_laws.typography_product(web, observation), sequence, next, pending, ""),
+    state_measurements_transport_evidence,
     finish_unchanged_transport,
     receipt_input,
-    +web => sequence => next => +pending => nodes_current_surface(web, sequence, next, pending),
+    state_nodes_current_surface_evidence,
     Rules_interface_program_rules.interface_evidence(),
     +input => +state => {==},
     input => +state => {==},
     document_key_event,
-    ticket => error => web => sequence => next => requests => {==},
+    state_failed_transition_evidence,
     tab => escape => shift => realization => state => {==},
-    ticket => error => web => sequence => next => requests => {==},
-    ticket => error => web => sequence => next => requests => observed => uncertain_retains_tickets(requests, ticket, error, observed),
+    state_failed_preserves_web_evidence,
+    state_failed_retains_ticket_evidence,
     consumed_ticket,
     stale_snapshot,
-    command => completion => origin => web => sequence => next => pending => {==},
-    ticket => received => supplied => reply => completion => web => current => next => pending => {==}}
+    state_admitted_request_evidence,
+    state_stale_completion_evidence}

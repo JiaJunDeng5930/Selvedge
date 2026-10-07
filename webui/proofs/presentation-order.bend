@@ -567,6 +567,12 @@ def count_all_is_length(values: +List<InterfaceView.Node>) ->
       Equal.cong(Nat, Nat, (count => Nat.add(1n, count)),
         Rule.count_by(Rule.CountAll{}, rest), List.length(&2, InterfaceView.Node, rest), count_all_is_length(rest))
 
+def state_model_observes_ordered_surface_evidence(+model_state: Model.State) ->
+  {Model.observed_surface(model_state) ==
+        Order.ordered_surface(Model.surface(Model.application(model_state))) : InterfaceView.Surface}:
+  Model.State{+application, +generation, +realization, +environment, +font} = model_state
+  {==}
+
 def Rule.evidence():
   Rule.Requirements{
     role => values => context => non_dialog_order(role, values, context),
@@ -583,14 +589,13 @@ def Rule.evidence():
         Equal.trans(Nat,
           Rule.count_by(Rule.CountAll{}, Order.ordered_dialog_children(Order.partition_dialog_children(values, context))),
           Rule.count_by(Rule.CountAll{}, values), List.length(&2, InterfaceView.Node, values),
-          partition_count_preserved(Rule.CountAll{}, values, context), count_all_is_length(values)))
-    ,
+          partition_count_preserved(Rule.CountAll{}, values, context), count_all_is_length(values))),
     +target => +values => +context => partition_count_preserved(Rule.CountKey{Rule.count_key(target)}, values, context),
     values => role => context => ordered_children_matches_specification(values, role, context),
     values => context => dialog_order_idempotent(values, context),
     value => children => node_with_children_preserves_payload(value, children),
     surface => ordered_surface_preserves_content_scope(surface),
-    environment => +application => generation => realization => font => {==}}
+    state_model_observes_ordered_surface_evidence}
 
 def Rule.base_classifier(key, role): {==}
 

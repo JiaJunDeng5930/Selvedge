@@ -7,11 +7,25 @@ feature refinement with explicit evidence for task creation, and
 `../locality.bend` binds update and preservation guarantees to production dispatch,
 storage functions. `feature-frame.bend` supplies board storage evidence.
 
-Client proofs use the storage operation instead of expanding its concrete task
-list reconstruction. The locality replacement fixture changes that reconstruction
-and discharges the same local contract with the imported `app_nil_r` theorem;
+Task storage's production `update_state` specializes the abstract
+`Tasks.update_carrier` computation to the domain model's task observation and
+write operation. Its provider proves the complete required update and frame
+preservation for arbitrary surrounding state; client proofs use that storage
+operation instead of expanding its concrete task list reconstruction. The locality
+replacement fixture changes that reconstruction and discharges the same local contract with the imported `app_nil_r` theorem;
 all client proofs remain byte-identical. The extension fixture likewise checks
 the full proof root with the original global UI, wire and native entry frozen.
+
+The locality, Core and Web contracts group existing obligations by responsibility;
+their assembly still requires every group's evidence. Grouping is a reading
+boundary, not an optional proof tier. Public clauses quantify whole private
+states and use observations and intended updates. Representation-specific
+providers may destructure those states to discharge the original equations;
+their source paths are explicit owners in `../../components.json`. This does not
+make every client proof independent of representation. The source ownership gate
+checks private construction and patterns, while the proof gate retains complete
+decisions, completion correlation and ordered effects. The `test:locality`
+fixtures provide separate evidence through frozen clients and native entry points.
 
 Preservation is scoped to the component operation that owns it. A law quantifying
 over all future feature events while freezing their entire state would prevent

@@ -12,7 +12,7 @@ def control_frame(+task: D.Task, operation: D.Operation()) ->
 def A.result_boundary():
   A.ResultBoundary{
     (plugin => pending => operation => value => error => task => world => {==}),
-    (plugin => pending => operation => value => error => task => tasks => next_task => ticket => environment => limits => projects => board => {==}),
+    (plugin => pending => operation => value => error => task => state => board => {==}),
     (call => current => replacement => error => pending => {==}),
     (reason => call => value => error => pending => ({==}, {==})),
     (plugin => outcome => {==}),
@@ -31,4 +31,4 @@ def A.result_boundary():
     (plugin => pending => operation => value => error => task => world => {==}),
     (ticket => plugin => pending => value => error => outcome => operation => task => world => {==}),
     (call => remaining => value => error => task => world => {==}),
-    (plugin => pending => call => remaining => value => error => task => tasks => next_task => ticket => environment => limits => projects => board => {==})}
+    (plugin => pending => call => remaining => value => error => task => state => board => {==})}

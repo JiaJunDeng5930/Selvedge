@@ -35,9 +35,13 @@ def replace(tasks: +List<D.Task>, +task: D.Task) -> +List<D.Task>:
     case Con{+old, rest}:
       replacement(Nat.is_eq(D.task_id(old), D.task_id(task)), old, task) <> replace(rest, task)
 
+# The storage algorithm depends only on its carrier's task observation and write.
+def update_carrier(~S: Data, ~read: S -> +List<D.Task>, ~write: @values:+List<D.Task> -> @state:S -> S,
+  task: D.Task, +state: S) -> S:
+  write(replace(read(state), task), state)
+
 def update_state(task: D.Task, state: D.State) -> D.State:
-  D.State{tasks, next_task, next_ticket, environment, limits, projects} = state
-  D.State{replace(tasks, task), next_task, next_ticket, environment, limits, projects}
+  update_carrier(~D.State, ~D.state_tasks, ~D.with_state_tasks, task, state)
 
 def update_world(-StateRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Frame<D.State, StateRest>:
   C.map_local(D.State, StateRest, state => update_state(task, state), world)

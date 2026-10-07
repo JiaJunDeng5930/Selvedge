@@ -19,20 +19,27 @@ def route(policy: R.Policy, lease: R.Lease) -> R.Plan:
     case R.Adaptive{evaluator, efforts, baseline, transport, maximum}:
       live_lease(R.Adaptive{evaluator, efforts, baseline, transport, maximum}, lease)
 
-def request(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
-  C.Frame{D.State{tasks, next_task, +ticket, +environment, limits, projects}, +rest} = world
-  D.Environment{catalog, profiles, forks, descendants, project, plugins} = environment
-  +contract = D.task_contract(task)
-  +tools = T.task_tools(contract)
-  +allowed = T.callable(tools, catalog)
-  next = D.with_phase(D.ModelPending{ticket, allowed}, task)
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, rest}, J.Null{},
-    [Effects.RequestModel{D.task_id(task), ticket, T.task_model(contract), D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
+def request_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>, environment_value: D.Environment) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  match world environment_value:
+    case C.Frame{+task_state, +rest} D.Environment{catalog, profiles, forks, descendants, project, plugins}:
+      tasks = D.state_tasks(task_state)
+      +ticket = D.state_next_ticket(task_state)
+      +contract = D.task_contract(task)
+      +tools = T.task_tools(contract)
+      +allowed = T.callable(tools, catalog)
+      next = D.with_phase(D.ModelPending{ticket, allowed}, task)
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), rest}, J.Null{},
+        [Effects.RequestModel{D.task_id(task), ticket, T.task_model(contract), D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
+
+def request(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  request_environment(StateRest, EffectRest, task, world, D.state_environment(C.local(D.State, StateRest, world)))
 
 def evaluate(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
-  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +rest} = world
+  C.Frame{+task_state, +rest} = world
+  tasks = D.state_tasks(task_state)
+  +ticket = D.state_next_ticket(task_state)
   next = D.with_phase(D.ReasoningPending{ticket, D.history_length(D.task_history(task))}, task)
-  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, rest}, J.Null{},
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), rest}, J.Null{},
     [Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]}
 
 def execute(-StateRest: Data, -EffectRest: Data, plan: R.Plan, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:

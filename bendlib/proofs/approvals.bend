@@ -11,7 +11,7 @@ import ../operations.bend as Ops
 
 def human_waits(call:D.Call, remaining:+List<D.Attempt>, task:D.Task, world:M.World()) ->
   {P.decision_effects(P.approval_request(D.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect()>}:
-  C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board} = world
+  C.Frame{core, +board} = world
   {==}
 
 def context_frame(operation:D.Operation(), reviewer:D.ApprovalReviewer, reason:String, +task:D.Task) ->
@@ -23,7 +23,7 @@ def Boundary.approval_boundary():
   Boundary.ApprovalBoundary{
     (resolution => world => Laws.review_semantics(resolution, world)),
     (call => remaining => task => world => human_waits(call, remaining, task, world)),
-    (profile => call => remaining => task => tasks => next_task => ticket => environment => limits => projects => board => {==}),
+    (profile => call => remaining => task => state => board => {==}),
     (operation => reviewer => reason => task => context_frame(operation, reviewer, reason, task)),
     ((profile => operation => task => outcome => {==}), (operation => task => outcome => {==})),
     (reviewer => origin => operation => task => outcome => {==}),

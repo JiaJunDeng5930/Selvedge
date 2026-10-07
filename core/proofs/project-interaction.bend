@@ -1,4 +1,14 @@
 import Base
+import ../code-block.bend as Content
+import ../live-output.bend as Live
+import ../user-input.bend as U
+import ../user-context.bend as Context
+import ../interface.bend as Interface
+import ../../MODEL.bend as M
+import ../../BOARD.bend as B
+import ../../COMMANDS.bend as Commands
+import ../../bendlib/tasks.bend as Tasks
+import ../../bendlib/conversation.bend as Conversation
 import ../project-interaction-laws.bend as Rule
 import ../user-experience.bend as E
 import ../ui-world.bend as View
@@ -82,13 +92,55 @@ def toggle_retains_case(hit: Bool, +prefix: +List<Nat>, +other: Nat, +suffix: +L
 def picker_complete_nodes(+values: +List<View.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: Core.State) -> Rule.picker_nodes(values, selected, parent, state):
   {==}
 
+def encapsulated_missing_draft_focus(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), observed_drafts: {E.drafts(session) == Nil{} : +List<U.Draft>}) ->
+  {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}:
+  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  backwards_drafts = Equal.sym(E.Session, session, E.with_drafts(Nil{}, session),
+    Equal.cong(+List<U.Draft>, E.Session, value => E.with_drafts(value, session), E.drafts(session), Nil{}, observed_drafts))
+  %backwards_drafts : {E.activate_selected(U.SelectProject{project}, E.from_program(world, _)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(_)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, _)))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}
+  {==}
+
+def encapsulated_select_focus_and_input(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), +revision: Nat, +message: U.Text, +profile: String, +reasoning: String, +old: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +feedback: U.Feedback, +directory_entry: String, +rest: +List<U.Draft>, observed_drafts: {E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>}) ->
+  {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}:
+  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  backwards_drafts = Equal.sym(E.Session, session, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session),
+    Equal.cong(+List<U.Draft>, E.Session, value => E.with_drafts(value, session), E.drafts(session), U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, observed_drafts))
+  %backwards_drafts : {E.activate_selected(U.SelectProject{project}, E.from_program(world, _)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(_)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, _))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}
+  {==}
+
+def encapsulated_picker_search_preserves_session(+session: E.Session, +query: String, +world: M.World(), +trigger: String, +initial: String, previous: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, observed_layers: {E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest : +List<E.Layer>}) ->
+  {E.search_choices(query, E.from_program(world, session)) ==
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest, session), Nil{}) : E.Decision}:
+  E.Session{+route, +drafts, +readers, +stored_layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest, session),
+    Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest, observed_layers))
+  %backwards_layers : {E.search_choices(query, E.from_program(world, _)) ==
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest, _), Nil{}) : E.Decision}
+  {==}
+
+def encapsulated_toggle_keeps_location(+session: E.Session, +project: Nat, +world: M.World()) ->
+  {E.toggle_project(project, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.toggle_project_navigation(project, E.navigation(session)), session), Nil{}) : E.Decision}:
+  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  {==}
+
 def Rule.evidence():
   Rule.Requirements{
     +origin => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => world => {==},
     +project => +application => {==},
     expanded => intent => +collapsed => {==},
     intent => +collapsed => {==},
-    +project => +world => +route => +drafts => +readers => +layers => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
+    encapsulated_toggle_keeps_location,
     +id => drafts => +world => {==},
     +drafts => +world => {==},
     entries => registered_choices_complete(entries),
@@ -102,13 +154,14 @@ def Rule.evidence():
     +id => +intent => collapsed => {==},
     picker_complete_nodes,
     +context => +world => {==},
-    +query => +world => +route => +drafts => +readers => +trigger => +initial => previous => +layer_occurrence => +rest => +attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
+    encapsulated_picker_search_preserves_session,
     +id => name => workspace => +selected => +expanded => +tasks => +open => +create => +toggle => +more => +parent => +state => {==},
     context => {==},
     +parent => state => {==},
     +first => +rest => +parent => +state => {==},
-    +project => +world => route => +revision => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => +feedback => +directory_entry => +rest => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
-    +project => +world => route => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
+    encapsulated_select_focus_and_input,
+    encapsulated_missing_draft_focus,
     +task => {==},
     +lifecycle => +working => {==},
-    +task => {==}}
+    +task => {==}
+  }

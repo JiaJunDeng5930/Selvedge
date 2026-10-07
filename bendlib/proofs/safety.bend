@@ -109,7 +109,7 @@ def certificate_world(+previous: M.World(), +decision: M.Decision(),
   match certificate:
     case Fail{(unchanged, no_effects)}:
       Equal.trans(Bool, P.valid_world(decision), I.world(previous), True{},
-        Equal.cong(M.World(), Bool, I.world, P.decision_world(decision), previous, unchanged), evidence)
+        Equal.cong(M.World(), Bool, world => I.world(world), P.decision_world(decision), previous, unchanged), evidence)
     case Done{(valid, retained)}: valid
 
 def transition_preserves(+world: M.World(), +input: M.Input,

@@ -75,8 +75,8 @@ def required_result(ok: Bool, +id: Nat, card: B.Card, previous: M.Decision(), re
   match ok previous result:
     case True{} C.Decision{old, reply, effects} C.Decision{world, ignored, added}:
       C.Decision{world, reply, List.append(&2, M.Effect(), effects, added)}
-    case False{} C.Decision{C.Frame{D.State{tasks, task_id, ticket, environment, limits, projects}, +board}, reply, effects} C.Decision{ignored, +failure, discarded}:
-      C.Decision{C.Frame{D.State{tasks, task_id, ticket, environment, limits, projects}, F.with_board(B.put(id, B.start_failed(String.take(J.text(J.get(J.get(failure, "error"), "code")) ++ ": " ++
+    case False{} C.Decision{C.Frame{+core, +board}, reply, effects} C.Decision{ignored, +failure, discarded}:
+      C.Decision{C.Frame{core, F.with_board(B.put(id, B.start_failed(String.take(J.text(J.get(J.get(failure, "error"), "code")) ++ ": " ++
           J.text(J.get(J.get(failure, "error"), "message")), 1000n), card), F.board(board), B.next_card(F.board(board))), board)}, reply, effects}
 
 def required_attempt(+id: Nat, +card: B.Card, +previous: M.Decision()) -> M.Decision():

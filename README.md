@@ -30,6 +30,14 @@ vocabulary and system state. Task-domain values and policy primitives live in
 state and input types. These entries distinguish component contracts from their
 application-wide composition.
 
+Follow each model's named state observations and updates before its private
+representation. Upper models compose those operations; lower aggregate state
+constructors belong to their declared implementation and representation-proof
+owners. Public command and view values, including `Board.AgentProfile`, remain
+transparent so callers can inspect and construct the vocabulary they exchange.
+The reasons for this boundary are recorded in
+[ADR 0028](docs/adr/0028-model-representation-boundaries.md).
+
 For implementation/proof details, [PROGRAM.bend](PROGRAM.bend) realizes the
 operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
 command, scheduling, commit and dispatch equations, as well as safety and trace
@@ -49,10 +57,13 @@ Follow [UI.bend](UI.bend) and [core/interface.bend](core/interface.bend) for
 the semantic interface, and [bendlib/feature-codec.bend](bendlib/feature-codec.bend)
 for feature command encoding.
 
-`bun run check:components` checks actual source dependencies and private feature
-patterns against `components.json`; it runs during normal checks and builds,
-including cached builds. `bun run test:locality` freezes existing source files in
-temporary copies, extends state and component vocabularies, replaces a component
+`bun run check:components` checks actual source dependencies, private feature
+patterns, and construction or pattern matching of declared private model
+constructors against `components.json`; it runs during normal checks and builds,
+including cached builds. Model owners are explicit source paths. This source
+check complements the proof gate, which still requires complete decisions,
+completion correlation and ordered effects. `bun run test:locality` freezes existing
+source files in temporary copies, extends state and component vocabularies, replaces a component
 without changing its contract or clients, and builds the unchanged native entry.
 It challenges the source and semantic checks separately.
 These checks constrain source changes, not human reading time or whole-build time.

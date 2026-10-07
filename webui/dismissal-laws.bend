@@ -11,17 +11,20 @@ import ../bendlib/json.bend as J
 import ./browser.bend as Browser
 import ./focus.bend as Focus
 import ./controls.bend as Controls
-
-def application_layers(application: E.Application) -> +List<E.Layer>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+def application_layers(+application: E.Application) -> +List<E.Layer>:
+  +observed_session_1 = E.session(application)
+  +layers = E.layers(observed_session_1)
+  +attention = E.attention(observed_session_1)
   layers
 
 # The complete result fixes all unaffected state and the ordered attention effect.
 
 def closed_application(+application: E.Application, panel: U.Panel, +trigger: String) -> E.Decision:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  E.Decision{E.Application{program, E.Session{route, drafts, readers, E.without_panel(layers, E.panel_target(panel)), trigger,
-    navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}
+  +session = E.session(application)
+  +layers = E.layers(session)
+  E.Decision{E.with_session(E.with_attention(trigger,
+    E.with_layers(E.without_panel(layers, E.panel_target(panel)), session)), application),
+    D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}
 
 type Requirements is Type:
   Requirements{
@@ -60,10 +63,8 @@ type Requirements is Type:
     expanded_navigation: {Controls.navigation_icon(True{}) == Controls.SidebarClose{} : Controls.Icon},
     collapsed_details: {Controls.inspector_icon(False{}) == Controls.Inspector{} : Controls.Icon},
     expanded_details: {Controls.inspector_icon(True{}) == Controls.InspectorClose{} : Controls.Icon}}
-
 law evidence:
   Requirements
-
 def panel_policy(panel: U.Panel, trigger: String, dismissal: View.Dismissal) -> Type:
   match panel:
     case U.TaskDetails{task}: {dismissal == View.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}} : View.Dismissal}

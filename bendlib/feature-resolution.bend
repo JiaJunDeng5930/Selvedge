@@ -46,9 +46,9 @@ def board(start: String -> String -> String -> J.Json -> @+world:M.World() -> St
   match resolution:
     case Board.Refuse{code, reason}: Refuse{code, reason}
     case Board.Mutate{change}: Accept{O.BoardChange{change}}
-    case Board.Launch{+id, +card, now, B.AgentProfile{revision, name, profile, reasoning, instructions, options, concurrency}}:
-      card_start(start(profile, reasoning, B.prompt(id, B.draft(card), instructions),
-        card_options(B.project(B.draft(card)), options), world), id, card, now)
+    case Board.Launch{+id, +card, now, +agent}:
+      card_start(start(B.agent_profile(agent), B.agent_reasoning(agent), B.prompt(id, B.draft(card), B.agent_instructions(agent)),
+        card_options(B.project(B.draft(card)), B.agent_settings(agent)), world), id, card, now)
 
 def chatgpt(resolution: ChatGPT.Resolution) -> Resolution:
   match resolution:

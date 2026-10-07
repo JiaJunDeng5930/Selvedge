@@ -13,28 +13,14 @@ import ../bendlib/json.bend as J
 import ../bendlib/domain.bend as D
 import ../bendlib/board-codec.bend as BoardCodec
 import ../bendlib/command-codec.bend as Codec
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def decision_world(decision: E.Decision) -> M.World():
-  E.Decision{E.Application{program, session}, reply, runtime, interaction, durable} = decision
+  E.Decision{+observed_state_1, reply, runtime, interaction, durable} = decision
+  +program = E.program(observed_state_1)
   program
 
 type Requirements is Type:
   Requirements{
-    current_world: @completion:E.Completion -> @reason:String -> @+program:M.World() -> @+session:E.Session ->
-      {decision_world(E.complete_command(program, D.failure("command_not_submitted", reason), completion, E.Application{program, session})) == program : M.World()},
+    current_world: @+model_state:E.Application ->  @completion:E.Completion -> @reason:String -> {decision_world(E.complete_command(E.program(model_state), D.failure("command_not_submitted", reason), completion, model_state)) == E.program(model_state) : M.World()},
     owned_field_absent: @+fields:+List<J.Field> -> {J.find(Request.without_guidance(fields), "guidance") == J.Null{} : J.Json},
     create: @profile:String -> @reasoning:String -> @message:String -> @fields:+List<J.Field> ->
       {Browser.request_payload(M.Create{profile, reasoning, message, J.Object{fields}}) ==
@@ -62,17 +48,15 @@ type Requirements is Type:
     preserve_field: @+name:String -> @+value:J.Json -> @+rest:+List<J.Field> ->
       @unrelated:{String.eq(name, "guidance") == False{} : Bool} ->
       {Request.without_guidance(J.Field{name, value} <> rest) == J.Field{name, value} <> Request.without_guidance(rest) : +List<J.Field>},
-    settlement: @ticket:Nat -> @completion:E.Completion -> @command:J.Json -> @origin:String -> @status:Browser.RequestStatus ->
-      @reason:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      {Browser.rejected_pending(Some{Browser.Pending{ticket, completion, command, origin, status}}, reason,
-          Browser.State{web, sequence, next, pending, None{}}) ==
-          Browser.completion_receipt(completion, Receipt.from_reply(ticket, origin, D.failure("command_not_submitted", reason)), Browser.product_input(Product.CommandCompleted{Browser.program(Browser.State{web, sequence, next, pending, None{}}),
+    settlement: @+model_state:Browser.State ->  @ticket:Nat -> @completion:E.Completion -> @command:J.Json -> @origin:String -> @status:Browser.RequestStatus ->
+      @reason:String -> {Browser.rejected_pending(Some{Browser.Pending{ticket, completion, command, origin, status}}, reason,
+          Browser.with_receipt(None{}, model_state)) ==
+          Browser.completion_receipt(completion, Receipt.from_reply(ticket, origin, D.failure("command_not_submitted", reason)), Browser.product_input(Product.CommandCompleted{Browser.program(Browser.with_receipt(None{}, model_state)),
             D.failure("command_not_submitted", reason), completion},
-            Browser.State{web, sequence, next, Browser.remove(pending, ticket), None{}})) : Browser.Decision},
-    stale: @+ticket:Nat -> @reason:String -> @+pending:+List<Browser.Pending> -> @web:Web.State -> @sequence:Nat -> @next:Nat ->
-      @absent:{Browser.find(pending, ticket) == None{} : Maybe<&2, Browser.Pending>} ->
-      {Browser.command_rejected(ticket, reason, Browser.State{web, sequence, next, pending, None{}}) ==
-        Browser.Decision{Browser.State{web, sequence, next, pending, None{}}, Nil{}} : Browser.Decision},
+            Browser.with_receipt(None{}, Browser.with_pending(Browser.remove(Browser.pending(model_state), ticket), model_state)))) : Browser.Decision},
+    stale: @+model_state:Browser.State ->  @+ticket:Nat -> @reason:String ->
+      @absent:{Browser.find(Browser.pending(model_state), ticket) == None{} : Maybe<&2, Browser.Pending>} -> {Browser.command_rejected(ticket, reason, Browser.with_receipt(None{}, model_state)) ==
+        Browser.Decision{Browser.with_receipt(None{}, model_state), Nil{}} : Browser.Decision},
     consumed: @+pending:+List<Browser.Pending> -> @+ticket:Nat -> {Browser.owns_ticket(Browser.remove(pending, ticket), ticket) == False{} : Bool},
     other_pending: @+entry:Browser.Pending -> @+rest:+List<Browser.Pending> -> @+ticket:Nat ->
       @distinct:{Nat.is_eq(Browser.ticket_of(entry), ticket) == False{} : Bool} ->
@@ -81,10 +65,8 @@ type Requirements is Type:
       {E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted,
           D.failure("command_not_submitted", reason)) ==
           U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft},
-    uncertain: @ticket:Nat -> @reason:String -> @web:Web.State -> @sequence:Nat -> @next:Nat -> @pending:+List<Browser.Pending> ->
-      {Browser.failed_completion(ticket, reason, Browser.State{web, sequence, next, pending, None{}}) ==
-        Browser.Decision{Browser.State{web, sequence, next, Browser.uncertain_pending(pending, ticket, reason), None{}}, Nil{}} : Browser.Decision},
+    uncertain: @+model_state:Browser.State ->  @ticket:Nat -> @reason:String -> {Browser.failed_completion(ticket, reason, Browser.with_receipt(None{}, model_state)) ==
+        Browser.Decision{Browser.with_receipt(None{}, Browser.with_pending(Browser.uncertain_pending(Browser.pending(model_state), ticket, reason), model_state)), Nil{}} : Browser.Decision},
     other_command: @id:Nat -> @message:String -> {Browser.request_payload(M.Send{id, message}) == Codec.command_json(M.Send{id, message}) : J.Json}}
-
 law evidence:
   Requirements

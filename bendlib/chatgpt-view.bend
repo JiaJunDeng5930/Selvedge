@@ -46,11 +46,10 @@ def read_job(found: Maybe<&2, G.Grant>, +connection: Nat, +project: Nat, +id: Na
     case None{}: forbidden()
     case Some{grant}: job(Finite.find(~G.Job, G.jobs(state), id), connection, project, id)
 
-def summary(id: Nat, job: G.Job) -> J.Json:
-  G.Job{connection, project, request, arguments, workspace, sandbox, +outcome} = job
-  J.Object{[J.Field{"operation_id", J.nat(id)}, J.Field{"project_id", J.nat(project)},
-    J.Field{"request_id", J.Text{request}}, J.Field{"status", J.Text{G.status(outcome)}},
-    J.Field{"error", J.Boolean{G.failed(outcome)}}]}
+def summary(id: Nat, +job: G.Job) -> J.Json:
+  J.Object{[J.Field{"operation_id", J.nat(id)}, J.Field{"project_id", J.nat(G.job_project(job))},
+    J.Field{"request_id", J.Text{G.job_request(job)}}, J.Field{"status", J.Text{G.status(G.outcome(job))}},
+    J.Field{"error", J.Boolean{G.failed(G.outcome(job))}}]}
 
 def keep(allowed: Bool, id: Nat, job: G.Job, rest: +List<J.Json>) -> +List<J.Json>:
   match allowed:

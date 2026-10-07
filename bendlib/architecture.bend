@@ -65,13 +65,14 @@ type ResultBoundary is Type:
         Results.advance(F.State(), F.Effect, plugin <> pending, operation, value, error,
           D.append_message(D.ToolReceipt{D.task_id(task), Ops.ticket(operation), Ops.call(operation), value, error}, task), world) : M.Decision()},
     dispatch: @+plugin: D.PluginRef -> @+pending: +List<D.PluginRef> -> @+operation: D.Operation() ->
-      @+value: J.Json -> @+error: Bool -> @+task: D.Task -> @+tasks: +List<D.Task> -> @+next_task: Nat ->
-      @+ticket: Nat -> @+environment: D.Environment -> @+limits: D.ExecutionLimits -> @+projects: D.Projects -> @+board: F.State() ->
+      @+value: J.Json -> @+error: Bool -> @+task: D.Task -> @+state: D.State -> @+board: F.State() ->
       {Results.waiting(F.State(), F.Effect, True{}, plugin, pending, operation, value, error, task,
-        C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, board}) ==
-        C.Decision{C.Frame{D.State{T.replace(tasks, D.with_operations(Ops.replace(D.task_operations(task),
-          Ops.with_stage(D.ResultPending{ticket, plugin, pending, value, error}, operation)), task)), next_task, 1n+ticket, environment, limits, projects}, board}, D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}),
-          [Effects.CheckResult{D.task_id(task), ticket, Ops.ticket(operation), plugin, Ops.call(operation), value, error}]} : M.Decision()},
+        C.Frame{state, board}) ==
+        C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(state),
+          D.with_state_tasks(T.replace(D.state_tasks(state), D.with_operations(Ops.replace(D.task_operations(task),
+            Ops.with_stage(D.ResultPending{D.state_next_ticket(state), plugin, pending, value, error}, operation)), task)), state)), board},
+          D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}),
+          [Effects.CheckResult{D.task_id(task), D.state_next_ticket(state), Ops.ticket(operation), plugin, Ops.call(operation), value, error}]} : M.Decision()},
     rewrite: @+call: D.Call -> @current: J.Json -> @+replacement: J.Json -> @+error: Bool -> @+pending: +List<D.PluginRef> ->
       {Hooks.result_advance(D.RewriteResult{replacement}, call, current, error, pending) ==
         Hooks.AwaitingResult{call, replacement, error, pending} : Hooks.ResultProgress},
@@ -125,12 +126,11 @@ type ResultBoundary is Type:
       {Results.internal(F.State(), F.Effect, call, remaining, value, error, task, world) ==
         Results.internal_chain(F.State(), F.Effect, Hooks.after(Hooks.plugins(D.task_contract(task))), call, remaining, value, error, task, world) : M.Decision()},
     internal_receipt: @+plugin:D.PluginRef -> @+pending:+List<D.PluginRef> -> @+call:D.Call -> @+remaining:+List<D.Attempt> ->
-      @+value:J.Json -> @+error:Bool -> @+task:D.Task -> @+tasks:+List<D.Task> -> @+next_task:Nat -> @+ticket:Nat ->
-      @+environment:D.Environment -> @+limits:D.ExecutionLimits -> @+projects:D.Projects -> @+board: F.State() ->
-      {Results.internal_chain(F.State(), F.Effect, plugin <> pending, call, remaining, value, error, task, C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, board}) ==
-        Results.received(F.State(), F.Effect, plugin <> pending, (ticket, D.OperationBody{call, False{}, D.Executing{}}), value, error,
-          Results.finish_status(D.task_status(task), Ops.started(ticket, call, remaining, task)),
-          C.Frame{D.State{tasks, next_task, 1n+ticket, environment, limits, projects}, board}) : M.Decision()}
+      @+value:J.Json -> @+error:Bool -> @+task:D.Task -> @+state:D.State -> @+board: F.State() ->
+      {Results.internal_chain(F.State(), F.Effect, plugin <> pending, call, remaining, value, error, task, C.Frame{state, board}) ==
+        Results.received(F.State(), F.Effect, plugin <> pending, (D.state_next_ticket(state), D.OperationBody{call, False{}, D.Executing{}}), value, error,
+          Results.finish_status(D.task_status(task), Ops.started(D.state_next_ticket(state), call, remaining, task)),
+          C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(state), state), board}) : M.Decision()}
   }
 
 law result_boundary:

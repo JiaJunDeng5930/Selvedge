@@ -728,73 +728,85 @@ def stale_reading(+application: E.Application, +services: Services.State, +platf
       Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}},
       stale_reading_raw(application, services, platform, task, generation, event, inactive)),
     Rules_platform.realized_empty(Platform.unchanged(Core.State{application, services}), platform))
+def stale_typography_state(+state: Model.State, +received: Nat, +metrics: +List<T.Metric>,
+  stale: {Nat.is_eq(F.generation(Model.typography(state)), received) == False{} : Bool}) ->
+  {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, state) == Model.idle_state(state) : Model.Decision}:
+  Model.State{+application, +generation, +realization, +environment, +font} = state
+  Equal.cong(Bool, Model.Decision,
+    (owned => Model.production_typography_owned(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
+    Nat.is_eq(F.generation(font), received), False{}, stale)
+
+def environment_resets_font_state(+state: Model.State, +environment: Design.Environment) ->
+  {Rule.font_state(Model.step(Model.EnvironmentObserved{environment}, state)) ==
+    F.begin((Model.generation(state) + 1n : Nat), Model.environment_root(environment)) : F.State}:
+  Model.State{+application, +generation, realization, previous_environment, font} = state
+  production_commit_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
+    (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
+
+def product_refinement_state(+input: Product.Input, +state: Model.State) ->
+  {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}}, state)) ==
+    Product.step(input, Platform.core(Model.application(state))) : Core.Decision}:
+  Model.State{application, generation, realization, environment, font} = state
+  Platform.State{core, platform} = application
+  product_refinement(input, core, platform, generation, realization, environment, font)
+
+def element_refinement_state(+key: String, +gesture: Interface.Gesture, +state: Model.State) ->
+  {Model.product(Model.step(Model.ElementInput{key, gesture}, state)) ==
+    Product.step(Product.Element{Platform.capacity(Platform.platform(Model.application(state))), key, gesture},
+      Platform.core(Model.application(state))) : Core.Decision}:
+  Model.State{application, generation, realization, environment, font} = state
+  Platform.State{core, platform} = application
+  element_refinement(key, gesture, core, platform, generation, realization, environment, font)
+
+def frame_silent_state(received: Nat, frame: Rendered.Frame, state: Model.State) ->
+  {Model.step(Model.FrameObserved{received, frame}, state) ==
+    Model.Decision{state, Platform.unchanged(Platform.core(Model.application(state))), Nil{}} : Model.Decision}:
+  Model.State{application, generation, realization, environment, font} = state
+  frame_silent(received, frame, application, generation, realization, environment, font)
+
+def stale_frame_state(+received: Nat, +frame: Rendered.Frame, +state: Model.State,
+  stale: {Nat.is_eq(Model.generation(state), received) == False{} : Bool}) ->
+  {Model.step(Model.FrameObserved{received, frame}, state) ==
+    Model.Decision{state, Platform.unchanged(Platform.core(Model.application(state))), Nil{}} : Model.Decision}:
+  frame_silent_state(received, frame, state)
+
 def Rule.evidence():
-  Rule.Requirements{PaintRules.evidence(), RendererRules.evidence(),reflow_same, +application => +generation => +realization => +environment => +font => +received => +metrics => stale =>
-      Equal.cong(Bool, Model.Decision,
-        (owned => Model.production_typography_owned(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
-        Nat.is_eq(F.generation(font), received), False{}, stale)
-    , reflow_capacity_fields, +application => +generation => realization => previous_environment => font => +environment =>
-      production_commit_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
-        (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
-    , typography_product,
-    input => core => platform => environment => font => generation => realization =>
-      product_refinement(input, core, platform, generation, realization, environment, font),
-    key => gesture => core => platform => environment => font => generation => realization =>
-      element_refinement(key, gesture, core, platform, generation, realization, environment, font),
-    received => frame => application => environment => font => generation => realization =>
-      frame_silent(received, frame, application, generation, realization, environment, font),
-    received => frame => application => environment => font => generation => realization => stale =>
-      stale_frame(received, frame, application, generation, realization, environment, font, stale),
-    application => services => platform => task => generation => event => inactive =>
+  Rule.Requirements{
+    Rule.Environment{
+      reflow_same,
+      stale_typography_state,
+      reflow_capacity_fields,
+      environment_resets_font_state,
+      typography_product},
+    Rule.Product{
+      input => state => product_refinement_state(input, state),
+      key => gesture => state => element_refinement_state(key, gesture, state)},
+    Rule.Realization{
+      frame_silent_state,
+      received => frame => state => stale => stale_frame_state(received, frame, state, stale)},
+    Rule.Reading{
+      application => services => platform => task => generation => event => inactive =>
       stale_reading(application, services, platform, task, generation, event, inactive),
-    height => viewport => anchor => reduced =>
+      height => viewport => anchor => reduced =>
       Equal.cong(+List<Reading.Effect>, Reading.Decision,
         (effects => Reading.Decision{Reading.Bookmark{Some{anchor}}, None{},
           Reading.ReserveComposer{Reading.reserve(height, viewport)} <> effects}),
         Reading.layout(U.ReadHistory{}, Reading.Bookmark{Some{anchor}}),
         [Reading.PreserveAnchor{anchor}],
-        Rules_reading_rules.history_layout(anchor))
-    ,
-    height => viewport => reduced =>
+        Rules_reading_rules.history_layout(anchor)),
+      height => viewport => reduced =>
       Equal.cong(+List<Reading.Effect>, Reading.Decision,
         (effects => Reading.Decision{Reading.Bookmark{None{}}, None{},
           Reading.ReserveComposer{Reading.reserve(height, viewport)} <> effects}),
         Reading.layout(U.ReadHistory{}, Reading.Bookmark{None{}}),
         [Reading.MeasureAnchor{}],
-        Rules_reading_rules.missing_history_anchor())
-    ,
-    bookmark => reduced => {==},
-    program => session => task => generation => disclosures => bookmarks => anchor => reader_observed => bookmark_observed =>
+        Rules_reading_rules.missing_history_anchor()),
+      bookmark => reduced => {==},
+      program => session => task => generation => disclosures => bookmarks => anchor => reader_observed => bookmark_observed =>
       layout_after_product(program, session, task, generation, disclosures, bookmarks, anchor,
         reader_observed, bookmark_observed),
-    decision => platform => after_core_keeps_bookmarks(decision, platform),
-    owner => selection => shift => alt => modified => core => platform => editor_observed =>
-      ime_entry(owner, selection, shift, alt, modified, core, platform, editor_observed),
-    owner => selection => modified => core => platform => editor_observed => enabled => permitted =>
-      ready_enter(owner, selection, modified, core, platform, editor_observed, enabled, permitted),
-    owner => shift => alt => modified => identity => initial => restore => +occurrence => core => platform =>
-      Equal.cong(Platform.Decision, Core.Decision, Model.platform_product,
-        Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-          Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}),
-        Platform.Decision{Platform.unchanged(core),
-          Rule.with_saved_editor(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner,
-            Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner)), Nil{}},
-        modal_enter_decision(owner, shift, alt, modified, identity, initial, restore, occurrence, core, platform))
-    ,
-    owner => shift => alt => modified => identity => initial => restore => +occurrence => core => platform =>
-      Equal.cong(Platform.Decision, +List<Platform.Effect>, Rule.platform_effects,
-        Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-          Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}),
-        Platform.Decision{Platform.unchanged(core),
-          Rule.with_saved_editor(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner,
-            Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner)), Nil{}},
-        modal_enter_decision(owner, shift, alt, modified, identity, initial, restore, occurrence, core, platform))
-    ,
-    core => platform => received => identity => observed => stale =>
-      stale_focus_ticket(core, platform, received, identity, observed, stale),
-    core => platform => identity => observed => inactive => inactive_focus(core, platform, identity, observed, inactive),
-    drafts => editors => retained => synchronize_retained(drafts, editors, retained),
-    count => seed =>
+      decision => platform => after_core_keeps_bookmarks(decision, platform),
+      count => seed =>
       Std.nat_ind(~(steps => @+initial:Rule.Tape ->
           {Rule.tape_bookmark(Std.iter(~Rule.Tape, ~Rule.advance, steps, initial)) == Rule.tape_bookmark(initial) : Reading.Bookmark}),
         ~(initial => {==}),
@@ -804,6 +816,32 @@ def Rule.evidence():
             Rule.tape_bookmark(Std.iter(~Rule.Tape, ~Rule.advance, steps, initial)),
             Rule.tape_bookmark(initial),
             advance_preserves_bookmark(Std.iter(~Rule.Tape, ~Rule.advance, steps, initial)), evidence(initial))),
-        count)(seed)
-
-  }
+        count)(seed)},
+    Rule.Editing{
+      owner => selection => shift => alt => modified => core => platform => editor_observed =>
+      ime_entry(owner, selection, shift, alt, modified, core, platform, editor_observed),
+      owner => selection => modified => core => platform => editor_observed => enabled => permitted =>
+      ready_enter(owner, selection, modified, core, platform, editor_observed, enabled, permitted),
+      owner => shift => alt => modified => identity => initial => restore => +occurrence => core => platform =>
+      Equal.cong(Platform.Decision, Core.Decision, Model.platform_product,
+        Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
+          Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}),
+        Platform.Decision{Platform.unchanged(core),
+          Rule.with_saved_editor(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner,
+            Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner)), Nil{}},
+        modal_enter_decision(owner, shift, alt, modified, identity, initial, restore, occurrence, core, platform)),
+      owner => shift => alt => modified => identity => initial => restore => +occurrence => core => platform =>
+      Equal.cong(Platform.Decision, +List<Platform.Effect>, Rule.platform_effects,
+        Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
+          Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}),
+        Platform.Decision{Platform.unchanged(core),
+          Rule.with_saved_editor(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner,
+            Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner)), Nil{}},
+        modal_enter_decision(owner, shift, alt, modified, identity, initial, restore, occurrence, core, platform))},
+    Rule.Focus{
+      core => platform => received => identity => observed => stale =>
+      stale_focus_ticket(core, platform, received, identity, observed, stale),
+      core => platform => identity => observed => inactive => inactive_focus(core, platform, identity, observed, inactive),
+      drafts => editors => retained => synchronize_retained(drafts, editors, retained)},
+    PaintRules.evidence(),
+    RendererRules.evidence()}

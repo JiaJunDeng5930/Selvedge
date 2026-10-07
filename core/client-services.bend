@@ -44,6 +44,54 @@ type State is Data:
   State{access: Access, credential: String, settings_open: Bool, appearance: Appearance,
     next: Nat, transfers: +List<Finite.Entry(Transfer)>, preview: Preview, directory_picker: DirectoryPicker}
 
+def access(state: State) -> Access:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  access
+
+def with_access(value: Access, state: State) -> State:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{value, credential, settings_open, appearance, next, transfers, preview, directory_picker}
+
+def with_credential(value: String, state: State) -> State:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, value, settings_open, appearance, next, transfers, preview, directory_picker}
+
+def with_settings_open(value: Bool, state: State) -> State:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, credential, value, appearance, next, transfers, preview, directory_picker}
+
+def with_transfers(value: +List<Finite.Entry(Transfer)>, state: State) -> State:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, credential, settings_open, appearance, next, value, preview, directory_picker}
+
+def credential(state: State) -> String:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  credential
+
+def settings_open(state: State) -> Bool:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  settings_open
+
+def appearance(state: State) -> Appearance:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  appearance
+
+def next(state: State) -> Nat:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  next
+
+def transfers(state: State) -> +List<Finite.Entry(Transfer)>:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  transfers
+
+def preview(state: State) -> Preview:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  preview
+
+def directory_picker(state: State) -> DirectoryPicker:
+  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  directory_picker
+
 type Input is Data:
   OpenSettings{}
   CloseSettings{}

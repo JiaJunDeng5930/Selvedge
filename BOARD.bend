@@ -85,11 +85,111 @@ type Filter is Data:
     date: +List<String>, assignee: +List<String>, creator: +List<String>,
     project: +List<String>, label: +List<String>}
 
-def empty_filter() -> Filter:
-  Filter{"all", "", Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
+# Model observations.
+def cards(state: State) -> +List<Finite.Entry(Card)>:
+  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
+  cards
 
+def agents(state: State) -> +List<Finite.Entry(AgentProfile)>:
+  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
+  agents
+
+def automatic(state: State) -> Bool:
+  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
+  automatic
+
+def draft_profile(state: State) -> String:
+  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
+  draft_profile
+
+def next_card(state: State) -> U32:
+  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
+  next_card
+
+def next_agent(state: State) -> U32:
+  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
+  next_agent
+
+def find(state: State, id: Nat) -> Maybe<&2, Card>:
+  Finite.find(~Card, cards(state), id)
+
+def find_agent(state: State, id: Nat) -> Maybe<&2, AgentProfile>:
+  Finite.find(~AgentProfile, agents(state), id)
+
+def draft(card: Card) -> Draft:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  draft
+
+def revision(card: Card) -> Nat:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  revision
+
+def task(card: Card) -> Maybe<&2, Nat>:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  task
+
+def archived(card: Card) -> Bool:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  archived
+
+def created(card: Card) -> U32:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  created
+
+def updated(card: Card) -> U32:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  updated
+
+def enrichment(card: Card) -> Enrichment:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  enrichment
+
+def start_error(card: Card) -> String:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  start_error
+
+def pinned(card: Card) -> Bool:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
+  pinned
+
+def agent_revision(agent: AgentProfile) -> Nat:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  revision
+
+def agent_name(agent: AgentProfile) -> String:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  name
+
+def agent_profile(agent: AgentProfile) -> String:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  profile
+
+def agent_reasoning(agent: AgentProfile) -> String:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  reasoning
+
+def agent_instructions(agent: AgentProfile) -> String:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  instructions
+
+def agent_settings(agent: AgentProfile) -> J.Json:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  settings
+
+def agent_concurrency(agent: AgentProfile) -> Nat:
+  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  concurrency
+
+# Model birth and intended updates.
 def initial() -> State:
   State{Nil{}, 0, Nil{}, 0, False{}, ""}
+
+def with_pin(pinned: Bool, card: Card, now: U32) -> Card:
+  Card{revision, draft, task, archived, created, updated, enrichment, start_error, previous} = card
+  Card{1n+revision, draft, task, archived, created, now, enrichment, start_error, pinned}
+
+def empty_filter() -> Filter:
+  Filter{"all", "", Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
 
 def stages() -> +List<Stage>:
   [Backlog{}, Todo{}, InProgress{}, InReview{}, Completed{}, Blocked{}]
@@ -193,76 +293,6 @@ def automatic_owner(owner: Owner) -> Bool:
 def same_owner(left: Owner, right: Owner) -> Bool:
   String.eq(owner_name(left), owner_name(right))
 
-def cards(state: State) -> +List<Finite.Entry(Card)>:
-  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
-  cards
-
-def agents(state: State) -> +List<Finite.Entry(AgentProfile)>:
-  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
-  agents
-
-def automatic(state: State) -> Bool:
-  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
-  automatic
-
-def draft_profile(state: State) -> String:
-  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
-  draft_profile
-
-def next_card(state: State) -> U32:
-  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
-  next_card
-
-def next_agent(state: State) -> U32:
-  State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
-  next_agent
-
-def find(state: State, id: Nat) -> Maybe<&2, Card>:
-  Finite.find(~Card, cards(state), id)
-
-def find_agent(state: State, id: Nat) -> Maybe<&2, AgentProfile>:
-  Finite.find(~AgentProfile, agents(state), id)
-
-def draft(card: Card) -> Draft:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  draft
-
-def revision(card: Card) -> Nat:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  revision
-
-def task(card: Card) -> Maybe<&2, Nat>:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  task
-
-def archived(card: Card) -> Bool:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  archived
-
-def created(card: Card) -> U32:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  created
-
-def updated(card: Card) -> U32:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  updated
-
-def enrichment(card: Card) -> Enrichment:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  enrichment
-
-def start_error(card: Card) -> String:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  start_error
-
-def pinned(card: Card) -> Bool:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
-  pinned
-
-def with_pin(pinned: Bool, card: Card, now: U32) -> Card:
-  Card{revision, draft, task, archived, created, updated, enrichment, start_error, previous} = card
-  Card{1n+revision, draft, task, archived, created, now, enrichment, start_error, pinned}
-
 def pending(enrichment: Enrichment) -> Bool:
   match enrichment:
     case Enriching{ticket, revision, retitle}: True{}
@@ -300,10 +330,6 @@ def attachments(draft: Draft) -> +List<Attachment>:
   Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
   attachments
 
-def agent_revision(agent: AgentProfile) -> Nat:
-  AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
-  revision
-
 def position_step(found: Bool, rest: Nat) -> Nat:
   match found:
     case True{}: 0n
@@ -321,6 +347,10 @@ def before_position(before: Maybe<&2, Nat>, entries: +List<Finite.Entry(Card)>) 
 
 # The association list also records manual order. Ordinary updates replace
 # their existing slot; only an explicit move changes that slot.
+def with_stage(stage: Stage, draft: Draft) -> Draft:
+  Draft{title, description, old, priority, owner, project, labels, attachments} = draft
+  Draft{title, description, stage, priority, owner, project, labels, attachments}
+
 def put(+id: Nat, card: Card, state: State, next: U32) -> State:
   State{+cards, previous, agents, next_agent, automatic, draft_profile} = state
   +position = card_position(id, cards)
@@ -352,10 +382,6 @@ def settings(automatic: Bool, draft_profile: String, state: State) -> State:
 def with_cards(cards: +List<Finite.Entry(Card)>, state: State) -> State:
   State{old, next_card, agents, next_agent, automatic, draft_profile} = state
   State{cards, next_card, agents, next_agent, automatic, draft_profile}
-
-def with_stage(stage: Stage, draft: Draft) -> Draft:
-  Draft{title, description, old, priority, owner, project, labels, attachments} = draft
-  Draft{title, description, stage, priority, owner, project, labels, attachments}
 
 def with_draft(draft: Draft, card: Card, now: U32) -> Card:
   Card{revision, old, task, archived, created, previous, enrichment, start_error, pinned} = card

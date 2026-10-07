@@ -460,7 +460,7 @@ def projects(world: M.World()) -> +List<ProjectChoice>:
   project_choices(Projects.entries(Projects.registry(F.State(), world)))
 
 def agents(board: B.State) -> +List<Finite.Entry(B.AgentProfile)>:
-  B.State{cards, next_card, agents, next_agent, automatic, profile} = board
+  +agents = B.agents(board)
   agents
 
 def is_primary(primary: Maybe<&2, String>, path: String) -> Bool:
@@ -517,7 +517,7 @@ def face_profile_name(found: Maybe<&2, D.Profile>, +key: String) -> String:
 def face_agent_name(found: Maybe<&2, B.AgentProfile>, id: Nat) -> String:
   match found:
     case None{}: "智能体 #" ++ Nat.show(id) ++ " 不可用"
-    case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}}: name
+    case Some{+agent}: B.agent_name(agent)
 
 def face_owner(+owner: B.Owner, +world: M.World()) -> String:
   match owner:
@@ -596,8 +596,10 @@ def found_composer(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U3
     case None{}: None{}
     case Some{U.Draft{revision, +body, feedback, directory_entry}}: composer_scene(body, editor_scene(U.Draft{revision, body, feedback, directory_entry}, pending, now, world), world)
 
-def composer(identity: U.Editor, session: E.Session, world: M.World()) -> Maybe<&2, ComposerScene>:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+def composer(identity: U.Editor, +session: E.Session, world: M.World()) -> Maybe<&2, ComposerScene>:
+  drafts = E.drafts(session)
+  now = E.now(session)
+  pending = E.pending(session)
   found_composer(E.find_draft(drafts, identity), pending, now, world)
 
 def action_availability(command: Maybe<&2, M.Command>, world: M.World()) -> Availability:
@@ -613,8 +615,10 @@ def optional_editor(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U
     case None{}: None{}
     case Some{draft}: Some{editor_scene(draft, pending, now, world)}
 
-def editor(identity: U.Editor, session: E.Session, world: M.World()) -> Maybe<&2, EditorScene>:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+def editor(identity: U.Editor, +session: E.Session, world: M.World()) -> Maybe<&2, EditorScene>:
+  drafts = E.drafts(session)
+  now = E.now(session)
+  pending = E.pending(session)
   optional_editor(E.find_draft(drafts, identity), pending, now, world)
 
 
@@ -647,7 +651,7 @@ def route_project(route: U.Route, drafts: +List<U.Draft>, +world: M.World()) -> 
     case _: None{}
 
 def active_project(route: U.Route, session: E.Session, world: M.World()) -> Maybe<&2, Nat>:
-  E.Session{r, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  drafts = E.drafts(session)
   route_project(route, drafts, world)
 
 def same_project(left: Maybe<&2, Nat>, right: Maybe<&2, Nat>) -> Bool:
@@ -692,7 +696,7 @@ def project_entries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Tas
     case Con{(id, project), rest}: project_entry(id, project, tasks, route, selected, navigation) <> project_entries(rest, tasks, route, selected, navigation)
 
 def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.Session) -> Navigation:
-  E.Session{r, drafts, readers, layers, attention, +nav, filter, now, next, pending, previews, code, next_layer} = session
+  +nav = E.navigation(session)
   Navigation{expanded, control("new-task", "新任务", U.BeginTask{None{}}),
     [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}})],
     project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, active_project(route, session, world), nav), task_entries(project_tasks(Commands.entries(world), None{}), route),
@@ -712,7 +716,8 @@ def task_actions(+id: Nat, +world: M.World()) -> TaskActions:
     control("fork/" ++ Nat.show(id), "Fork", U.ForkTask{id}), control("compact/" ++ Nat.show(id), "Compact", U.CompactTask{id})]}
 
 def task_scene(+task: D.Task, +session: E.Session, +world: M.World()) -> TaskScene:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  readers = E.readers(session)
+  previews = E.previews(session)
   +id = D.task_id(task)
   TaskScene{id, Conversation.title(task), task_status(task), Context.effective(task), ConversationWorld.timeline(E.reader(readers, id), task, world), Live.for_task(Live.retained(previews, world), id),
     composer(U.MessageEditor{id}, session, world), task_details(task), task_actions(id, world)}
@@ -781,7 +786,10 @@ def before_destinations(cards: +List<Finite.Entry(B.Card)>, +id: Nat, +revision:
     case Con{(+target, +value), rest}:
       List.append(&2, MoveDestination, before_destination(Bool.not(B.archived(value)) && Bool.not(Nat.is_eq(target, id)), target, value, id, revision, now, world), before_destinations(rest, id, revision, now, world))
 def card_scene(+id: Nat, +card: B.Card, route: U.Route, +now: U32, +world: M.World()) -> CardScene:
-  B.Card{+revision, draft, task, archived, created, updated, enrichment, error, pinned} = card
+  +revision = B.revision(card)
+  task = B.task(card)
+  archived = B.archived(card)
+  pinned = B.pinned(card)
   CardScene{id, card, control("card/" ++ Nat.show(id), "打开 " ++ B.title(B.draft(card)), U.OpenPanel{U.CardDetails{id}, "card/" ++ Nat.show(id)}),
     [board_control("card/run/" ++ Nat.show(id), "Run", B.Run{id, revision, now}, world),
       board_control("card/archive/" ++ Nat.show(id), "Archive or restore", B.Archive{id, revision, Bool.not(archived), now}, world),
@@ -840,7 +848,7 @@ def card_face(+id: Nat, +card: B.Card, +now: U32, +world: M.World()) -> CardFace
     face_owner(B.card_owner(draft), world), elapsed_label(Filter.elapsed(now, B.updated(card)))}
 
 def archived_cards(board: B.State, route: U.Route, now: U32, world: M.World()) -> +List<CardScene>:
-  B.State{cards, next_card, agents, next_agent, automatic, profile} = board
+  cards = B.cards(board)
   card_scenes(List.filter(~Finite.Entry(B.Card), archived_card, cards), route, now, world)
 
 def board_page(+board: B.State, +filter: B.Filter, +route: U.Route, +now: U32, +world: M.World()) -> Page:
@@ -852,7 +860,7 @@ def board_page(+board: B.State, +filter: B.Filter, +route: U.Route, +now: U32, +
     control("board/archive", "归档任务 " ++ Nat.show(List.length(&2, CardScene, archived_cards(board, route, now, world))), U.OpenPanel{U.ArchivedCards{}, "board/archive"})}
 
 def agent_scene(+id: Nat, +agent: B.AgentProfile, world: M.World()) -> AgentScene:
-  B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
+  revision = B.agent_revision(agent)
   AgentScene{id, agent, control("agent/edit/" ++ Nat.show(id), "Edit agent", U.EditAgent{Some{id}}), board_control("agent/delete/" ++ Nat.show(id), "Delete agent", B.DeleteAgent{id, revision}, world)}
 
 def agent_scenes(agents: +List<Finite.Entry(B.AgentProfile)>, +world: M.World()) -> +List<AgentScene>:
@@ -867,7 +875,8 @@ def page(+route: U.Route, +session: E.Session, +world: M.World()) -> Page:
     case U.ProjectHome{+id}: project_page(Projects.find(Projects.registry(F.State(), world), id), id, route, world)
     case U.ProjectCollection{}: ProjectsPage{project_scenes(Projects.entries(Projects.registry(F.State(), world)), route, world), control("project/new", "New project", U.EditProject{None{}})}
     case U.TaskBoard{}:
-      E.Session{old_route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+      filter = E.filter(session)
+      now = E.now(session)
       board_page(Board.registry(world), filter, route, now, world)
     case U.AgentCollection{}: AgentsPage{agent_scenes(agents(Board.registry(world)), world), control("agent/new", "New agent", U.EditAgent{None{}})}
 
@@ -899,7 +908,7 @@ def agent_menu(found: Maybe<&2, B.AgentProfile>, id: Nat, world: M.World()) -> +
     case Some{agent}: agent_menu_items(agent_scene(id, agent, world))
 
 def board_cards(board: B.State) -> +List<Finite.Entry(B.Card)>:
-  B.State{cards, next_card, agents, next_agent, automatic, profile} = board
+  cards = B.cards(board)
   cards
 def subject_controls(subject: U.Subject, now: U32, +world: M.World()) -> +List<ControlDeclaration>:
   match subject:
@@ -910,11 +919,12 @@ def subject_controls(subject: U.Subject, now: U32, +world: M.World()) -> +List<C
     case U.AgentSubject{+id}: agent_menu(Finite.find(~B.AgentProfile, agents(Board.registry(world)), id), id, world)
 
 def subject_actions(subject: U.Subject, session: E.Session, world: M.World()) -> +List<ControlDeclaration>:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  now = E.now(session)
   subject_controls(subject, now, world)
 
-def board_settings(board: B.State, +world: M.World()) -> LayerContent:
-  B.State{cards, next_card, agents, next_agent, +automatic, +draft_profile} = board
+def board_settings(+board: B.State, +world: M.World()) -> LayerContent:
+  +automatic = B.automatic(board)
+  +draft_profile = B.draft_profile(board)
   BoardSettings{automatic, draft_profile, Board.profiles(world),
     board_control("board/automatic", "自动排期", B.Settings{Bool.not(automatic), draft_profile}, world)}
 
@@ -926,18 +936,65 @@ def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> LayerContent:
   match panel:
     case U.ProjectPicker{}:
-      E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer} = session
+      +route = E.route(session)
+      +drafts = E.drafts(session)
+      +readers = E.readers(session)
+      +layers = E.layers(session)
+      +attention = E.attention(session)
+      +navigation = E.navigation(session)
+      +filter = E.filter(session)
+      +now = E.now(session)
+      +next = E.next_ticket(session)
+      +pending = E.pending(session)
+      +previews = E.previews(session)
+      code = E.code_blocks(session)
+      +next_layer = E.next_layer(session)
       ProjectSelection{"", draft_project(E.find_draft(drafts, U.NewTaskEditor{}), world), project_choices(Projects.entries(Projects.registry(F.State(), world)))}
     case U.ObjectActions{subject}: ObjectActions{subject_actions(subject, session, world)}
     case U.ArchivedCards{}:
-      E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+      +route = E.route(session)
+      +drafts = E.drafts(session)
+      +readers = E.readers(session)
+      +layers = E.layers(session)
+      +navigation = E.navigation(session)
+      +filter = E.filter(session)
+      +now = E.now(session)
+      +next = E.next_ticket(session)
+      +pending = E.pending(session)
+      +previews = E.previews(session)
+      code_blocks = E.code_blocks(session)
+      +next_layer = E.next_layer(session)
       ArchivedCards{archived_cards(Board.registry(world), route, now, world)}
     case U.CardDetails{+card}:
-      E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer} = session
+      +route = E.route(session)
+      +drafts = E.drafts(session)
+      +readers = E.readers(session)
+      +layers = E.layers(session)
+      +attention = E.attention(session)
+      +navigation = E.navigation(session)
+      +filter = E.filter(session)
+      +now = E.now(session)
+      +next = E.next_ticket(session)
+      +pending = E.pending(session)
+      +previews = E.previews(session)
+      code = E.code_blocks(session)
+      +next_layer = E.next_layer(session)
       CardDetails{found_card_details(B.find(Board.registry(world), card), card, route, now, world)}
     case U.BoardSettings{}: board_settings(Board.registry(world), world)
     case U.BoardFilters{}:
-      E.Session{route, drafts, readers, layers, attention, navigation, +filter, now, next, pending, previews, code_blocks, next_layer} = session
+      +route = E.route(session)
+      +drafts = E.drafts(session)
+      +readers = E.readers(session)
+      +layers = E.layers(session)
+      +attention = E.attention(session)
+      +navigation = E.navigation(session)
+      +filter = E.filter(session)
+      +now = E.now(session)
+      +next = E.next_ticket(session)
+      +pending = E.pending(session)
+      +previews = E.previews(session)
+      code_blocks = E.code_blocks(session)
+      +next_layer = E.next_layer(session)
       BoardFilters{filter}
     case U.EditObject{id}: ObjectEditor{editor(id, session, world)}
     case U.TaskDetails{task}: ExecutionDetails{optional_task(Tasks.find(Commands.entries(world), task), session, world)}
@@ -1080,11 +1137,15 @@ def finish_scene(navigation: Navigation, +main: Page, +layers: +List<Layer>, bes
 
 def observe_session(capacity: Capacity, +program: M.World(), +session: E.Session) -> Scene:
   Capacity{+navigation_beside, details_beside} = capacity
-  E.Session{+route, drafts, readers, open_layers, focus, +expanded, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  +route = E.route(session)
+  open_layers = E.layers(session)
+  focus = E.attention(session)
+  +expanded = E.navigation(session)
   +visible = navigation_visible(E.navigation_visibility(expanded), navigation_beside)
   +main = page(route, session, program)
   finish_scene(navigation(visible, route, program, session), main, layers(open_layers, session, program, details_beside), navigation_beside, visible, focus)
 
-def observe(capacity: Capacity, application: E.Application) -> Scene:
-  E.Application{+program, +session} = application
+def observe(capacity: Capacity, +application: E.Application) -> Scene:
+  +program = E.program(application)
+  +session = E.session(application)
   observe_session(capacity, program, session)

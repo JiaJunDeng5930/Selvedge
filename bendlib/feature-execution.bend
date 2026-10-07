@@ -8,7 +8,7 @@ import ./board-state.bend as State
 import ./chatgpt.bend as ChatGPT
 import ./chatgpt-state.bend as ChatGPTState
 
-def realize(spawn: D.Profile -> String -> String -> Workspace.Selection -> M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
+def realize(spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.realize(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change(change, world)

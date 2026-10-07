@@ -21,12 +21,12 @@ type ApprovalBoundary is Type:
     human_waits: @call:D.Call -> @remaining:+List<D.Attempt> -> @task:D.Task -> @world:M.World() ->
       {P.decision_effects(P.approval_request(D.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect()>},
     model_waits: @+profile:D.Profile -> @+call:D.Call -> @+remaining:+List<D.Attempt> -> @+task:D.Task ->
-      @tasks:+List<D.Task> -> @next_task:Nat -> @+ticket:Nat -> @environment:D.Environment -> @limits:D.ExecutionLimits -> @projects:D.Projects -> @board:F.State() ->
+      @+state:D.State -> @board:F.State() ->
       {P.decision_effects(P.approval_request(D.ModelReviewer{profile}, call, remaining, task,
-        C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, board})) ==
-        [Effects.RequestApproval{D.task_id(T.promote(Ops.awaiting(ticket, D.ModelReviewer{profile}, call, remaining, task))), ticket, profile, call,
-          D.task_context(T.promote(Ops.awaiting(ticket, D.ModelReviewer{profile}, call, remaining, task))),
-          D.task_history(T.promote(Ops.awaiting(ticket, D.ModelReviewer{profile}, call, remaining, task)))}] : +List<M.Effect()>},
+        C.Frame{state, board})) ==
+        [Effects.RequestApproval{D.task_id(T.promote(Ops.awaiting(D.state_next_ticket(state), D.ModelReviewer{profile}, call, remaining, task))), D.state_next_ticket(state), profile, call,
+          D.task_context(T.promote(Ops.awaiting(D.state_next_ticket(state), D.ModelReviewer{profile}, call, remaining, task))),
+          D.task_history(T.promote(Ops.awaiting(D.state_next_ticket(state), D.ModelReviewer{profile}, call, remaining, task)))}] : +List<M.Effect()>},
     grant_preserves_context: @operation:D.Operation() -> @reviewer:D.ApprovalReviewer -> @reason:String -> @+task:D.Task ->
       {D.task_context(A.permitted(operation, reviewer, reason, task)) == D.task_context(task) : D.TaskContext},
     origin_separation: ((@profile:D.Profile -> @operation:D.Operation() -> @task:D.Task -> @outcome:D.ApprovalOutcome ->

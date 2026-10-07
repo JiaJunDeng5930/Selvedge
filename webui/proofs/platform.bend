@@ -86,7 +86,6 @@ def actual_decision_effects(decision: Model.Decision) ->
 def Rule.step_realizes_effects(input, state):
   actual_decision_effects(Model.step_raw(input, state))
 
-
 def realized_focus_external(found: Maybe<&2, String>, ticket: Nat, +rest: +List<Model.Effect>,
   external: {Rule.external_effects(rest) == True{} : Bool}) ->
   {Rule.external_effects(Model.realized_product_focus(found, ticket, rest)) == True{} : Bool}:
@@ -131,7 +130,8 @@ def and_left_true(value: Bool) -> {True{} && value == value : Bool}:
     case False{}: {==}
     case True{}: {==}
 
-def Rule.failed_focus_receipt(core, platform, received, target, observed, failed):
+def Rule.failed_focus_receipt(model_state, received, target, observed, failed):
+  Model.State{+core, +platform} = model_state
   Core.State{+application, +services} = core
   Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
   +accepted = Nat.is_eq(received, ticket) && Model.active_target(Core.State{application, services}, capacity, target)
@@ -160,7 +160,8 @@ def publication_raw_empty(+core: Core.State, +platform: Model.Platform, received
       Nat.is_eq(received, ticket) && Model.active_target(core, capacity, target), False{}, inactive),
     Rule.realized_empty(Model.unchanged(core), platform))
 
-def Rule.publication_focus_after_some(core, platform, received, before, after):
+def Rule.publication_focus_after_some(model_state, received, before, after):
+  Model.State{+core, +platform} = model_state
   match core:
     case Core.State{application, services}:
       match platform:
@@ -169,7 +170,8 @@ def Rule.publication_focus_after_some(core, platform, received, before, after):
             case None{}: Rule.realized_empty(Model.unchanged(core), platform)
             case Some{target}: Rule.realized_empty(Model.unchanged(core), platform)
 
-def Rule.publication_focus_before_none(core, platform, received, after):
+def Rule.publication_focus_before_none(model_state, received, after):
+  Model.State{+core, +platform} = model_state
   match core:
     case Core.State{application, services}:
       match platform:
@@ -178,7 +180,8 @@ def Rule.publication_focus_before_none(core, platform, received, after):
             case None{}: Rule.realized_empty(Model.unchanged(core), platform)
             case Some{target}: Rule.realized_empty(Model.unchanged(core), platform)
 
-def Rule.publication_focus_stale(core, platform, received, before, after, stale):
+def Rule.publication_focus_stale(model_state, received, before, after, stale):
+  Model.State{+core, +platform} = model_state
   match before after:
     case Some{+target} None{}:
       publication_raw_empty(core, platform, received, target,
@@ -188,10 +191,11 @@ def Rule.publication_focus_stale(core, platform, received, before, after, stale)
           Equal.cong(Bool, Bool, (current => current && Model.active_target(core, Rule.capacity(platform), target)),
             Nat.is_eq(received, Rule.ticket(platform)), False{}, stale),
           and_left_false(Model.active_target(core, Rule.capacity(platform), target))))
-    case None{} after: Rule.publication_focus_before_none(core, platform, received, after)
-    case Some{target} Some{after}: Rule.publication_focus_after_some(core, platform, received, Some{target}, after)
+    case None{} after: Rule.publication_focus_before_none(Model.State{core, platform}, received, after)
+    case Some{target} Some{after}: Rule.publication_focus_after_some(Model.State{core, platform}, received, Some{target}, after)
 
-def Rule.publication_focus_inactive(core, platform, received, target, inactive):
+def Rule.publication_focus_inactive(model_state, received, target, inactive):
+  Model.State{+core, +platform} = model_state
   publication_raw_empty(core, platform, received, target,
     Equal.trans(Bool,
       Nat.is_eq(received, Rule.ticket(platform)) && Model.active_target(core, Rule.capacity(platform), target),
@@ -219,7 +223,8 @@ def realized_loss(+core: Core.State, +platform: Model.Platform, target: Focus.Ta
         realized_loss_focus(InterfaceView.focus_target(InterfaceView.observe(capacity, core), identity), ticket))
     case Focus.Content{owner, identity}: {==}
 
-def Rule.publication_focus_loss(core, platform, received, target, current, active):
+def Rule.publication_focus_loss(model_state, received, target, current, active):
+  Model.State{+core, +platform} = model_state
   Core.State{+application, +services} = core
   Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
   Equal.trans(Model.Decision,

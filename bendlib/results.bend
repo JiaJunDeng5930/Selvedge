@@ -30,10 +30,12 @@ def waiting(-StateRest: Data, -EffectRest: Data, available: Bool, +plugin: D.Plu
     case False{} _:
       failed(StateRest, EffectRest, "after_hook_unavailable", "The frozen result-processing plugin revision is unavailable; the tool has already completed",
         plugin, D.AfterFailure{"The frozen result-processing plugin revision is unavailable"}, operation, task, world)
-    case True{} C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +rest}:
+    case True{} C.Frame{+task_state, +rest}:
+      tasks = D.state_tasks(task_state)
+      +ticket = D.state_next_ticket(task_state)
       updated = D.with_operations(Ops.replace(D.task_operations(task),
         Ops.with_stage(D.ResultPending{ticket, plugin, pending, value, error}, operation)), task)
-      C.Decision{C.Frame{D.State{T.replace(tasks, updated), next_task, 1n+ticket, environment, limits, projects}, rest},
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, updated), task_state)), rest},
         D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}),
         [Effects.CheckResult{D.task_id(task), ticket, Ops.ticket(operation), plugin, Ops.call(operation), value, error}]}
 
@@ -76,10 +78,11 @@ def internal_chain(-StateRest: Data, -EffectRest: Data, chain: +List<D.PluginRef
   match chain world:
     case Nil{} _:
       C.Decision{T.update_world(StateRest, finish_status(D.task_status(task), T.complete_tool(call, remaining, value, error, task)), world), J.Null{}, Nil{}}
-    case Con{plugin, pending} C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +rest}:
+    case Con{plugin, pending} C.Frame{+task_state, +rest}:
+      +ticket = D.state_next_ticket(task_state)
       +prepared = finish_status(D.task_status(task), Ops.started(ticket, call, remaining, task))
       received(StateRest, EffectRest, plugin <> pending, (ticket, D.OperationBody{call, False{}, D.Executing{}}), value, error, prepared,
-        C.Frame{D.State{tasks, next_task, 1n+ticket, environment, limits, projects}, rest})
+        C.Frame{D.with_state_next_ticket(1n+ticket, task_state), rest})
 
 def internal(-StateRest: Data, -EffectRest: Data, call: D.Call, remaining: +List<D.Attempt>, value: J.Json, error: Bool, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   internal_chain(StateRest, EffectRest, Hooks.after(Hooks.plugins(D.task_contract(task))), call, remaining, value, error, task, world)

@@ -93,7 +93,7 @@ def network_pair(value: InterfaceView.Node) -> Sigma<&2, &2, Maybe<&2, Bool>, (_
 type Requirements is Type:
   Requirements{
     committed_project_node_world: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @session:E.Session -> @services:Services.State -> @parent: Identity.Key ->
-      {InterfaceView.node_label(InterfaceView.committed_project_node(project, parent, Core.State{E.Application{world, session}, services})) == InterfaceView.committed_project_text(project, world) : String},
+      {InterfaceView.node_label(InterfaceView.committed_project_node(project, parent, Core.from_application(E.from_program(world, session), services))) == InterfaceView.committed_project_text(project, world) : String},
     committed_source_label: @task:Nat -> @context:D.TaskContext -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess -> @world:M.World() ->
       {V.execution_source_summary(Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}, world) == "Task settings" : String},
     committed_project_name: @id:Nat -> @+name:String -> @workspace:D.Workspace -> @guidance:D.ProjectContext ->

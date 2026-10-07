@@ -1,3 +1,5 @@
+import ../../UI.bend as Product
+import ../../core/operation-receipt.bend as Receipt
 import Base
 import ../request.bend as Request
 import ../browser.bend as Browser
@@ -7,18 +9,6 @@ import ../../core/user-input.bend as U
 import ../../bendlib/json.bend as J
 import ../../bendlib/domain.bend as D
 import ../../bendlib/command-codec.bend as Codec
-
-
-
-
-
-
-
-
-
-
-
-
 
 import ../request-laws.bend as Rule
 import ./browser.bend as Proof_browser
@@ -44,20 +34,6 @@ def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspa
         case J.Array{items}: {==}
         case J.Object{fields}: {==}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def unrelated_pending(+entry: Browser.Pending, +rest: +List<Browser.Pending>, +ticket: Nat,
   distinct: {Nat.is_eq(Browser.ticket_of(entry), ticket) == False{} : Bool}) ->
   {Browser.remove(entry <> rest, ticket) == entry <> Browser.remove(rest, ticket) : +List<Browser.Pending>}:
@@ -65,12 +41,6 @@ def unrelated_pending(+entry: Browser.Pending, +rest: +List<Browser.Pending>, +t
   Equal.cong(Bool, +List<Browser.Pending>,
     (hit => Browser.choose_removed(hit, Browser.Pending{current, completion, command, origin, status}, Browser.remove(rest, ticket))),
     Nat.is_eq(current, ticket), False{}, distinct)
-
-
-
-
-
-
 
 def confirmation_failed_world(owned: Bool, reason: String, destination: U.Route, +program: M.World(), session: E.Session) ->
   {Rule.decision_world(E.complete_confirmation(owned, D.failure("command_not_submitted", reason), destination,
@@ -110,14 +80,51 @@ def owned_field_absent(+fields: +List<J.Field>) ->
     case Con{J.Field{+name, +value}, +rest}:
       omission_step(String.eq(name, "guidance"), name, value, Request.without_guidance(rest), {==}, owned_field_absent(rest))
 
+def state_current_world_evidence(+model_state: E.Application, completion: E.Completion, reason: String) ->
+  {Rule.decision_world(E.complete_command(E.program(model_state), D.failure("command_not_submitted", reason), completion, model_state)) == E.program(model_state) : M.World()}:
+  E.Application{+program, +session} = model_state
+  rejected_world(completion, reason, program, session)
+
+def state_settlement_evidence(+model_state: Browser.State, ticket: Nat, completion: E.Completion, command: J.Json, origin: String, status: Browser.RequestStatus, reason: String) ->
+  {Browser.rejected_pending(Some{Browser.Pending{ticket, completion, command, origin, status}}, reason,
+          Browser.with_receipt(None{}, model_state)) ==
+          Browser.completion_receipt(completion, Receipt.from_reply(ticket, origin, D.failure("command_not_submitted", reason)), Browser.product_input(Product.CommandCompleted{Browser.program(Browser.with_receipt(None{}, model_state)),
+            D.failure("command_not_submitted", reason), completion},
+            Browser.with_receipt(None{}, Browser.with_pending(Browser.remove(Browser.pending(model_state), ticket), model_state)))) : Browser.Decision}:
+  Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
+  {==}
+
+def state_stale_evidence(+model_state: Browser.State, +ticket: Nat, reason: String, stale: {Browser.find(Browser.pending(model_state), ticket) == None{} : Maybe<&2, Browser.Pending>}) ->
+  {Browser.command_rejected(ticket, reason, Browser.with_receipt(None{}, model_state)) ==
+        Browser.Decision{Browser.with_receipt(None{}, model_state), Nil{}} : Browser.Decision}:
+  Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
+  Equal.cong(Maybe<&2, Browser.Pending>, Browser.Decision,
+    (found => Browser.rejected_pending(found, reason, Browser.State{web, sequence, next, pending, None{}})),
+    Browser.find(pending, ticket), None{}, stale)
+
+def state_uncertain_evidence(+model_state: Browser.State, ticket: Nat, reason: String) ->
+  {Browser.failed_completion(ticket, reason, Browser.with_receipt(None{}, model_state)) ==
+        Browser.Decision{Browser.with_receipt(None{}, Browser.with_pending(Browser.uncertain_pending(Browser.pending(model_state), ticket, reason), model_state)), Nil{}} : Browser.Decision}:
+  Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
+  {==}
+
 def Rule.evidence():
-  Rule.Requirements{rejected_world, owned_field_absent, profile => reasoning => message => fields => {==}, id => count => messages => fields => {==}, name => workspace => guidance => {==}, update_payload, id => revision => name => profile => reasoning => instructions => fields => concurrency => {==}, +name => +value => +rest => unrelated =>
+  Rule.Requirements{
+    state_current_world_evidence,
+    owned_field_absent,
+    profile => reasoning => message => fields => {==},
+    id => count => messages => fields => {==},
+    name => workspace => guidance => {==},
+    update_payload,
+    id => revision => name => profile => reasoning => instructions => fields => concurrency => {==},
+    +name => +value => +rest => unrelated =>
       Equal.cong(Bool, +List<J.Field>,
         (owned => Request.kept_field(owned, J.Field{name, value}, Request.without_guidance(rest))),
-        String.eq(name, "guidance"), False{}, unrelated)
-    ,
-    ticket => completion => command => origin => status => reason => web => sequence => next => pending => {==}, +ticket => reason => +pending => web => sequence => next => stale =>
-      Equal.cong(Maybe<&2, Browser.Pending>, Browser.Decision,
-        (found => Browser.rejected_pending(found, reason, Browser.State{web, sequence, next, pending, None{}})),
-        Browser.find(pending, ticket), None{}, stale)
-    , +pending => +ticket => Proof_browser.consumed_ticket(pending, ticket), unrelated_pending, revision => body => feedback => directory_entry => submitted => reason => {==}, ticket => reason => web => sequence => next => pending => {==}, id => message => {==}}
+        String.eq(name, "guidance"), False{}, unrelated),
+    state_settlement_evidence,
+    state_stale_evidence,
+    +pending => +ticket => Proof_browser.consumed_ticket(pending, ticket),
+    unrelated_pending,
+    revision => body => feedback => directory_entry => submitted => reason => {==},
+    state_uncertain_evidence,
+    id => message => {==}}

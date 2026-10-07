@@ -57,10 +57,24 @@ def board_preserves(+value: Board.State, +features: F.State()) ->
   match features:
     case C.Frame{board, modules}: {==}
 
+def ownership(+connection: Nat, +project: Nat, +job: G.Job) ->
+  {G.owned(connection, project, job) ==
+   (Nat.is_eq(connection, G.job_connection(job)) && Nat.is_eq(project, G.job_project(job))) : Bool}:
+  match job:
+    case G.Job{owner, target, request, arguments, workspace, sandbox, outcome}: {==}
+
+def restarted(+job: G.Job, running: {G.outcome(job) == G.Running{} : G.Outcome}) ->
+  {G.outcome(G.recover_job(job)) ==
+   G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome}:
+  G.Job{connection, project, request, arguments, workspace, sandbox, outcome} = job
+  Equal.cong(G.Outcome, G.Outcome,
+    value => G.outcome(G.recovered(G.pending(value), G.Job{connection, project, request, arguments, workspace, sandbox, outcome})),
+    outcome, G.Running{}, running)
+
 def Boundary.boundary():
   Boundary.Boundary{refinement, assembled, written, core_frame, board_frame, rest_frame, board_preserves,
-    connection => project => owner => target => request => arguments => workspace => sandbox => outcome => {==},
+    ownership,
     connection => project => request => arguments => projects => state => {==},
     connection => project => id => state => {==},
     removed,
-    connection => project => request => arguments => workspace => sandbox => {==}}
+    restarted}

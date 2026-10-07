@@ -24,40 +24,32 @@ import ./physical-renderer-rules.bend as RendererRules
 
 
 def model_core(application: Platform.State) -> Core.State:
-  Platform.State{core, platform} = application
-  core
+  Platform.core(application)
 
 def platform_effects(decision: Platform.Decision) -> +List<Platform.Effect>:
   Platform.Decision{product, platform, +effects} = decision
   effects
 
 def platform_editors(platform: Platform.Platform, owner: U.Editor) -> Editor.Editor:
-  Platform.Platform{readers, +editors, focused, ticket, reduced, capacity, scope} = platform
-  Platform.find_editor(editors, owner)
+  Platform.find_editor(Platform.editors(platform), owner)
 
 def platform_capacity(platform: Platform.Platform) -> View.Capacity:
-  Platform.Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
-  capacity
+  Platform.capacity(platform)
 
 def platform_scope(platform: Platform.Platform) -> Focus.Scope:
-  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, +scope} = platform
-  scope
+  Platform.scope(platform)
 
 def platform_ticket(platform: Platform.Platform) -> Nat:
-  Platform.Platform{readers, editors, focused, +ticket, reduced, capacity, scope} = platform
-  ticket
+  Platform.focus_ticket(platform)
 
 def with_scope(platform: Platform.Platform, next_scope: Focus.Scope) -> Platform.Platform:
-  Platform.Platform{+readers, +editors, focused, ticket, reduced, capacity, scope} = platform
-  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, next_scope}
+  Platform.with_scope(next_scope, platform)
 
-def with_saved_editor(platform: Platform.Platform, owner: U.Editor, editor: Editor.Editor) -> Platform.Platform:
-  Platform.Platform{+readers, +editors, focused, ticket, reduced, capacity, scope} = platform
-  Platform.Platform{readers, Platform.save_editor(editors, owner, editor), focused, ticket, reduced, capacity, scope}
+def with_saved_editor(+platform: Platform.Platform, owner: U.Editor, editor: Editor.Editor) -> Platform.Platform:
+  Platform.with_editors(Platform.save_editor(Platform.editors(platform), owner, editor), platform)
 
 def platform_bookmarks(platform: Platform.Platform) -> +List<Finite.Entry(Reading.Bookmark)>:
-  Platform.Platform{+readers, editors, focused, ticket, reduced, capacity, scope} = platform
-  readers
+  Platform.readers(platform)
 
 def decision_bookmarks(decision: Platform.Decision) -> +List<Finite.Entry(Reading.Bookmark)>:
   Platform.Decision{product, platform, effects} = decision
@@ -65,16 +57,14 @@ def decision_bookmarks(decision: Platform.Decision) -> +List<Finite.Entry(Readin
 
 def stale_reading_law(-application: E.Application, -services: Services.State, -platform: Platform.Platform, -task: Nat, -generation: Nat, -event: Reading.ReadingEvent, -inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Type:
   {Platform.step(Platform.ReadingInput{task, generation, event},
-      Platform.State{Core.State{application, services}, platform}) ==
-      Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}
+      Platform.from_core(Core.from_application(application, services), platform)) ==
+      Platform.Decision{Platform.unchanged(Core.from_application(application, services)), platform, Nil{}} : Platform.Decision}
 
 def session_readers(session: E.Session) -> +List<Finite.Entry(E.Reader)>:
-  E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
-  readers
+  E.readers(session)
 
 def conversation_session(session: E.Session, task: Nat) -> E.Session:
-  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer} = session
-  E.Session{U.Conversation{task}, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}
+  E.with_route(U.Conversation{task}, session)
 
 def RetainedEntry(found: Maybe<&2, U.Draft>) -> Type:
   match found:
@@ -114,54 +104,58 @@ def advance(tape: Tape) -> Tape:
             List.append(&2, Reading.Decision, receipts, [decision]), reduced}
 
 def font_state(decision: Model.Decision) -> F.State:
-  Model.Decision{Model.State{application, generation, realization, environment, font}, product, effects} = decision
-  font
+  Model.Decision{state, product, effects} = decision
+  Model.typography(state)
 
 def model_application(state: Model.State) -> Platform.State:
-  Model.State{application, generation, realization, environment, font} = state
-  application
+  Model.application(state)
 
 def decision_capacity(decision: Platform.Decision) -> View.Capacity:
   Platform.Decision{product, platform, effects} = decision
   platform_capacity(platform)
 
-type Requirements is Type:
-  Requirements{paint: PaintRules.Requirements,
-    physical_renderer: RendererRules.Requirements,
+type Environment is Type:
+  Environment{
     reflow_same: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
       @same:{Platform.same_capacity(decision_capacity(decision), capacity) == True{} : Bool} ->
       {Platform.reflow_capacity(decision, capacity) == decision : Platform.Decision},
-    stale_typography: @+application: Platform.State -> @+generation: Nat -> @+realization: Rendered.State -> @+environment: Design.Environment -> @+font: F.State -> @+received: Nat -> @+metrics: +List<T.Metric> -> @stale: {Nat.is_eq(F.generation(font), received) == False{} : Bool} -> {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, Model.State{application, generation, realization, environment, font}) ==
-    Model.idle(application, generation, realization, environment, font) : Model.Decision},
+    stale_typography: @+state:Model.State -> @+received:Nat -> @+metrics:+List<T.Metric> ->
+      @stale:{Nat.is_eq(F.generation(Model.typography(state)), received) == False{} : Bool} ->
+      {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, state) ==
+        Model.idle_state(state) : Model.Decision},
     reflow_capacity_fields: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
       {decision_capacity(Platform.reflow_capacity(decision, capacity)) == capacity : View.Capacity},
-    environment_resets_font: @+application: Platform.State -> @+generation: Nat -> @realization: Rendered.State -> @previous_environment: Design.Environment -> @font: F.State -> @+environment: Design.Environment -> {font_state(Model.step(Model.EnvironmentObserved{environment},
-    Model.State{application, generation, realization, previous_environment, font})) ==
-    F.begin((generation + 1n : Nat), Model.environment_root(environment)) : F.State},
+    environment_resets_font: @+state:Model.State -> @+environment:Design.Environment ->
+      {font_state(Model.step(Model.EnvironmentObserved{environment}, state)) ==
+        F.begin((Model.generation(state) + 1n : Nat), Model.environment_root(environment)) : F.State},
     typography_product: @+state: Model.State -> @+observation: F.Observation -> {Model.product(Model.step(Model.TypographyObserved{observation}, state)) ==
-    Platform.unchanged(model_core(model_application(state))) : Core.Decision},
+    Platform.unchanged(model_core(model_application(state))) : Core.Decision}
+  }
 
-    product_refinement: @input:Product.Input -> @core:Core.State -> @platform:Platform.Platform ->
-      @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
-      {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-        Model.State{Platform.State{core, platform}, generation, realization, environment, font})) == Product.step(input, core) : Core.Decision},
-    element_refinement: @key:String -> @gesture:Interface.Gesture -> @core:Core.State ->
-      @platform:Platform.Platform -> @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
-      {Model.product(Model.step(Model.ElementInput{key, gesture},
-        Model.State{Platform.State{core, platform}, generation, realization, environment, font})) ==
-        Product.step(Product.Element{platform_capacity(platform), key, gesture}, core) : Core.Decision},
-    frame_silent: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
-      @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
-      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
-        Model.Decision{Model.State{application, generation,
-          realization, environment, font},
-          Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
-    stale_frame: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
-      @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
-      @stale:{Nat.is_eq(generation, received) == False{} : Bool} ->
-      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
-        Model.Decision{Model.State{application, generation, realization, environment, font},
-          Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
+type Product is Type:
+  Product{
+    product_refinement: @input:Product.Input -> @state:Model.State ->
+      {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}}, state)) ==
+        Product.step(input, Platform.core(Model.application(state))) : Core.Decision},
+    element_refinement: @key:String -> @gesture:Interface.Gesture -> @state:Model.State ->
+      {Model.product(Model.step(Model.ElementInput{key, gesture}, state)) ==
+        Product.step(Product.Element{Platform.capacity(Platform.platform(Model.application(state))), key, gesture},
+          Platform.core(Model.application(state))) : Core.Decision}
+  }
+
+type Realization is Type:
+  Realization{
+    frame_silent: @received:Nat -> @frame:Rendered.Frame -> @state:Model.State ->
+      {Model.step(Model.FrameObserved{received, frame}, state) ==
+        Model.Decision{state, Platform.unchanged(Platform.core(Model.application(state))), Nil{}} : Model.Decision},
+    stale_frame: @received:Nat -> @frame:Rendered.Frame -> @state:Model.State ->
+      @stale:{Nat.is_eq(Model.generation(state), received) == False{} : Bool} ->
+      {Model.step(Model.FrameObserved{received, frame}, state) ==
+        Model.Decision{state, Platform.unchanged(Platform.core(Model.application(state))), Nil{}} : Model.Decision}
+  }
+
+type Reading is Type:
+  Reading{
     stale_reading: @application:E.Application -> @services:Services.State -> @platform:Platform.Platform ->
       @task:Nat -> @generation:Nat -> @event:Reading.ReadingEvent ->
       @inactive:{Platform.active_reader(application, task, generation) == False{} : Bool} ->
@@ -185,15 +179,21 @@ type Requirements is Type:
       @reader_observed:{E.reader(session_readers(session), task) == E.Reader{generation, U.ReadHistory{}, disclosures} : E.Reader} ->
       @bookmark_observed:{Finite.find(~Reading.Bookmark, bookmarks, task) ==
         Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>} ->
-      {Platform.layout_for(E.Application{program, conversation_session(session, task)}, bookmarks) ==
+      {Platform.layout_for(E.from_program(program, conversation_session(session, task)), bookmarks) ==
         [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>},
     after_core_keeps_bookmarks: @decision:Core.Decision -> @platform:Platform.Platform ->
       {decision_bookmarks(Platform.after_core(decision, platform)) == platform_bookmarks(platform) :
         +List<Finite.Entry(Reading.Bookmark)>},
+    layout_sequence_preserves_bookmark: @count:Nat -> @seed:Tape ->
+      {tape_bookmark(Std.iter(~Tape, ~advance, count, seed)) == tape_bookmark(seed) : Reading.Bookmark}
+  }
+
+type Editing is Type:
+  Editing{
     ime_entry: @owner:U.Editor -> @selection:Physical.Selection -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
       @core:Core.State -> @platform:Platform.Platform ->
       @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor} ->
-      {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core),
           with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}} : Platform.Decision},
     ready_enter: @owner:U.Editor -> @selection:Physical.Selection -> @modified:Bool -> @core:Core.State ->
@@ -202,31 +202,45 @@ type Requirements is Type:
       @enabled:{Platform.editor_enabled(core, owner, platform_capacity(platform)) == True{} : Bool} ->
       @permitted:{Focus.permits_composer(platform_scope(platform)) == True{} : Bool} ->
       {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
-        Platform.State{core, platform})) ==
+        Platform.from_core(core, platform))) ==
         Product.step(Product.SubmitComposer{platform_capacity(platform), owner}, core) : Core.Decision},
     temporary_enter_product: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
       @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:Core.State -> @platform:Platform.Platform ->
       {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-          Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})})) ==
+          Platform.from_core(core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})))) ==
           Platform.unchanged(core) : Core.Decision},
     temporary_enter_effects: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
       @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:Core.State -> @platform:Platform.Platform ->
       {platform_effects(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
-          Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})})) ==
-          Nil{} : +List<Platform.Effect>},
+          Platform.from_core(core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})))) ==
+          Nil{} : +List<Platform.Effect>}
+  }
+
+type Focus is Type:
+  Focus{
     stale_focus_ticket: @core:Core.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
       @stale:{Nat.is_eq(received, platform_ticket(platform)) == False{} : Bool} ->
-      {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
     inactive_focus: @core:Core.State -> @platform:Platform.Platform -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
       @inactive:{Platform.active_focus(core, platform_capacity(platform), identity) == False{} : Bool} ->
-      {Platform.step(Platform.FocusApplied{platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.FocusApplied{platform_ticket(platform), Focus.Product{identity}, observed}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
     synchronize_retained: @drafts:+List<U.Draft> -> @editors:+List<Editor.Editor> ->
       @retained:Retained(drafts, editors) ->
-      {Platform.synchronize_drafts(drafts, editors) == editors : +List<Editor.Editor>},
-    layout_sequence_preserves_bookmark: @count:Nat -> @seed:Tape ->
-      {tape_bookmark(Std.iter(~Tape, ~advance, count, seed)) == tape_bookmark(seed) : Reading.Bookmark}
+      {Platform.synchronize_drafts(drafts, editors) == editors : +List<Editor.Editor>}
+  }
+
+type Requirements is Type:
+  Requirements{
+    environment: Environment,
+    product: Product,
+    realization: Realization,
+    reading: Reading,
+    editing: Editing,
+    focus: Focus,
+    paint: PaintRules.Requirements,
+    physical_renderer: RendererRules.Requirements
   }
 
 law evidence:

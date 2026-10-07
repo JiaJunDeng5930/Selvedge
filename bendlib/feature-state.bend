@@ -55,11 +55,16 @@ def configured_board_profile(found: Maybe<&2, D.Profile>, +profile: D.Profile) -
     case None{}: False{}
     case Some{configured}: Workspace.profile_same(profile, configured) && Board.drafting_profile(profile)
 
+def board_request_observations(archived: Bool, enrichment: B.Enrichment, +card: B.Card, ticket: Nat, prompt: String, +retitle: Bool) -> Bool:
+  match archived enrichment:
+    case False{} B.Enriching{expected, revision, title_only}:
+      Nat.is_eq(ticket, expected) && Nat.is_eq(B.revision(card), revision) && Same.booleans(retitle, title_only) &&
+        String.eq(prompt, B.drafting_prompt(retitle, B.draft(card)))
+    case _ _: False{}
+
 def board_request(found: Maybe<&2, B.Card>, ticket: Nat, prompt: String, +retitle: Bool) -> Bool:
   match found:
-    case Some{B.Card{version, draft, task, False{}, created, updated, B.Enriching{expected, revision, title_only}, start_error, pinned}}:
-      Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision) && Same.booleans(retitle, title_only) &&
-        String.eq(prompt, B.drafting_prompt(retitle, draft))
+    case Some{+card}: board_request_observations(B.archived(card), B.enrichment(card), card, ticket, prompt, retitle)
     case _: False{}
 
 def effect_valid(effect: F.Effect, state: F.State(), profiles: +List<D.Profile>) -> Bool:

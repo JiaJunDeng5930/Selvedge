@@ -103,11 +103,11 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
     ['acknowledge send without delivering it', source => replaceOnce(source,
       'case Commands.Deliver{task, message}: execute_delivery(message, task, world)',
       'case Commands.Deliver{task, message}: respond(world, id_result(D.task_id(task)))')],
-    ['return the wrong created identity', source => alterDefinition(source, 'execute_start', block =>
+    ['return the wrong created identity', source => alterDefinition(source, 'execute_start_environment', block =>
       replaceOnce(block, 'id_result(next_task))', 'id_result(1n+next_task))'))],
     ['omit interruption cancellation', source => alterDefinition(source, 'change_requested', block =>
       replaceOnce(block, '[Effects.CancelTask{D.task_id(task)}]', 'Nil{}'))],
-    ['record a model pending phase but omit its request', source => alterDefinition(source, 'request', block =>
+    ['record a model pending phase but omit its request', source => alterDefinition(source, 'request_environment', block =>
       block.replace(/\[Effects\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}')), 'bendlib/reasoning.bend'],
     ['record a tool pending phase but omit its request', source => alterDefinition(source, 'external_tool', block =>
       block.replace(/\[Effects\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],

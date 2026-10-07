@@ -9,6 +9,14 @@ complete replies and ordered effects. `effects.bend` leaves feature payloads as 
 type parameter. Task, approval, hook, result and reasoning implementation modules
 belong to the closed core import boundary declared in `../components.json`.
 
+Read state observations and intended updates in the owning model before following
+its representation. For example, `domain.bend` exposes `state_tasks` and
+`with_state_tasks`; clients use these operations without opening `State`.
+Transparent task, command and view values remain public vocabulary. The
+`model_representations` policy in `../components.json` separately declares private
+constructors and their implementation and representation-proof owners; it does
+not change the closed core import boundary.
+
 `../FEATURES.bend` selects concrete feature state and vocabularies; `../MODEL.bend`
 composes them with the task component. The `feature-*` modules connect private
 commands, resolved operations, completion correlation, codecs, resource checks
@@ -21,10 +29,17 @@ The semantic interface is in [../UI.bend](../UI.bend) and
 [../core/interface.bend](../core/interface.bend). Feature command encoding is in
 [feature-codec.bend](feature-codec.bend).
 
-`proofs/task-storage.bend` and `proofs/reasoning-locality.bend` prove actual task-component behavior for
-arbitrary surrounding types. `proofs/feature-frame.bend` supplies board storage evidence;
-`locality.bend` is the production locality entry. Pure execution
-modules do not import their proof providers, so mutation tests can independently
+`tasks.bend` performs task storage through `update_carrier`, parameterized by an
+unknown carrier and its task read/write operations. Production `update_state`
+specializes it to `domain.State`, `state_tasks` and `with_state_tasks`;
+`update_world` applies the existing component frame operation.
+`proofs/task-storage.bend` and `proofs/reasoning-locality.bend` prove actual
+task-component behavior for arbitrary surrounding types.
+`proofs/feature-frame.bend` supplies board storage evidence. `locality.bend`
+requires these providers through its task storage, reasoning and board storage
+groups. The grouped contracts in `../core/contract.bend` and `../webui/laws.bend`
+likewise retain mandatory evidence at their production assembly points. Pure
+execution modules do not import their proof providers, so mutation tests can independently
 check that an erroneous implementation remains type-correct.
 
 Board requirements are in `../BOARD.bend` and `board-resolution.bend`.

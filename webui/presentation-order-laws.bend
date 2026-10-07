@@ -9,13 +9,10 @@ import ./presentation-order.bend as Order
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
 import ./font-observation.bend as F
-
 type NodePayload is Data:
   NodePayload{key: UIIdentity.Key, semantic: String, label: String, role: InterfaceView.Role, meaning: InterfaceView.Meaning}
-
 type SurfacePayload is Data:
   SurfacePayload{content: Core.Scene, scope: Maybe<&2, String>}
-
 def node_payload(value: InterfaceView.Node) -> NodePayload:
   InterfaceView.Node{key, semantic, label, role, meaning, children} = value
   NodePayload{key, semantic, label, role, meaning}
@@ -85,7 +82,6 @@ def count_key(node: InterfaceView.Node) -> UIIdentity.Key:
 type CountPredicate is Data:
   CountAll{}
   CountKey{key: UIIdentity.Key}
-
 def count_matches(predicate: CountPredicate, value: InterfaceView.Node) -> Bool:
   match predicate:
     case CountAll{}: True{}
@@ -118,44 +114,33 @@ type Requirements is Type:
       {node_payload(Order.node_with_children(value, children)) == node_payload(value) : NodePayload},
     surface_content_scope_preserved: @surface:InterfaceView.Surface ->
       {surface_payload(Order.ordered_surface(surface)) == surface_payload(surface) : SurfacePayload},
-    model_observes_ordered_surface: @environment:Design.Environment -> @+application:Platform.State ->
-      @generation:Nat -> @realization:Rendered.State -> @font:F.State ->
-      {Model.observed_surface(Model.State{application, generation, realization, environment, font}) ==
-        Order.ordered_surface(Model.surface(application)) : InterfaceView.Surface}
+    model_observes_ordered_surface: @+model_state:Model.State ->  {Model.observed_surface(model_state) ==
+        Order.ordered_surface(Model.surface(Model.application(model_state))) : InterfaceView.Surface}
   }
-
 law evidence:
   Requirements
-
 law base_classifier:
   for +key: UIIdentity.Key
   for +role: InterfaceView.Role
   {Order.base_region(key, role) == Order.base_region_navigation(Order.is_navigation(key, role), key, role) : Order.BaseRegion}
-
 law navigation_role:
   for +key: UIIdentity.Key
   {Order.base_region(key, InterfaceView.Navigation{}) == Order.NavigationRegion{} : Order.BaseRegion}
-
 law navigation_precedence:
   for +key: UIIdentity.Key
   for +role: InterfaceView.Role
   {Order.base_region_navigation(True{}, key, role) == Order.NavigationRegion{} : Order.BaseRegion}
-
 law remaining_region:
   for +key: UIIdentity.Key
   for +role: InterfaceView.Role
   {Order.base_region_navigation(False{}, key, role) == Order.base_region_role(key, role) : Order.BaseRegion}
-
 law main_precedence:
   for +key: UIIdentity.Key
   {Order.base_region_role(key, InterfaceView.Main{}) == Order.MainRegion{} : Order.BaseRegion}
-
 law footer_region:
   {Order.footer_region(True{}) == Order.NavigationFooterRegion{} : Order.BaseRegion}
-
 law other_region:
   {Order.footer_region(False{}) == Order.OtherRegion{} : Order.BaseRegion}
-
 law base_partition_navigation:
   for +node: InterfaceView.Node
   for +navigation: +List<InterfaceView.Node>
@@ -163,7 +148,6 @@ law base_partition_navigation:
   for +main: +List<InterfaceView.Node>
   for +other: +List<InterfaceView.Node>
   {Order.prepend_base(Order.NavigationRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{node <> navigation, footer, main, other} : Order.BaseParts}
-
 law base_partition_footer:
   for +node: InterfaceView.Node
   for +navigation: +List<InterfaceView.Node>
@@ -171,7 +155,6 @@ law base_partition_footer:
   for +main: +List<InterfaceView.Node>
   for +other: +List<InterfaceView.Node>
   {Order.prepend_base(Order.NavigationFooterRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, node <> footer, main, other} : Order.BaseParts}
-
 law base_partition_main:
   for +node: InterfaceView.Node
   for +navigation: +List<InterfaceView.Node>
@@ -179,7 +162,6 @@ law base_partition_main:
   for +main: +List<InterfaceView.Node>
   for +other: +List<InterfaceView.Node>
   {Order.prepend_base(Order.MainRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, footer, node <> main, other} : Order.BaseParts}
-
 law base_partition_other:
   for +node: InterfaceView.Node
   for +navigation: +List<InterfaceView.Node>
@@ -187,10 +169,8 @@ law base_partition_other:
   for +main: +List<InterfaceView.Node>
   for +other: +List<InterfaceView.Node>
   {Order.prepend_base(Order.OtherRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, footer, main, node <> other} : Order.BaseParts}
-
 law base_partition_empty:
   {Order.partition_base(Nil{}) == Order.BaseParts{Nil{}, Nil{}, Nil{}, Nil{}} : Order.BaseParts}
-
 law base_partition_step:
   for +key: UIIdentity.Key
   for +semantic: String
@@ -200,25 +180,21 @@ law base_partition_step:
   for +children: +List<InterfaceView.Node>
   for +rest: +List<InterfaceView.Node>
   {Order.partition_base(InterfaceView.Node{key, semantic, label, role, meaning, children} <> rest) == Order.prepend_base(Order.base_region(key, role), InterfaceView.Node{key, semantic, label, role, meaning, children}, Order.partition_base(rest)) : Order.BaseParts}
-
 law base_region_order:
   for +navigation: +List<InterfaceView.Node>
   for +footer: +List<InterfaceView.Node>
   for +main: +List<InterfaceView.Node>
   for +other: +List<InterfaceView.Node>
   {Order.flatten_base(Order.BaseParts{navigation, footer, main, other}) == List.append(&2, InterfaceView.Node, navigation, List.append(&2, InterfaceView.Node, footer, List.append(&2, InterfaceView.Node, main, other))) : +List<InterfaceView.Node>}
-
 law ordered_base_partition:
   for +values: +List<InterfaceView.Node>
   {Order.ordered_base(values) == Order.flatten_base(Order.partition_base(values)) : +List<InterfaceView.Node>}
-
 law ordered_surface_base:
   for +content: Core.Scene
   for +base: +List<InterfaceView.Node>
   for +overlays: +List<InterfaceView.Node>
   for +scope: Maybe<&2, String>
   {Order.ordered_surface(InterfaceView.Surface{content, base, overlays, scope}) == InterfaceView.Surface{content, Order.ordered_base(Order.ordered_nodes(base, Controls.initial(content))), Order.ordered_nodes(overlays, Controls.initial(content)), scope} : InterfaceView.Surface}
-
 def non_main_role(role: InterfaceView.Role) -> Bool:
   match role:
     case InterfaceView.Main{}: False{}

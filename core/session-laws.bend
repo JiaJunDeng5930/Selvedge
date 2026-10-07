@@ -37,43 +37,62 @@ def runtime_program(decision: M.Decision()) -> M.World():
   program
 
 def drafts(application: E.Application) -> +List<U.Draft>:
-  E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  drafts
+  E.drafts(E.session(application))
 
 def readers(application: E.Application) -> +List<Finite.Entry(E.Reader)>:
-  E.Application{program, E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  readers
+  E.readers(E.session(application))
 
 def attention(application: E.Application) -> String:
-  E.Application{program, E.Session{route, drafts, readers, layers, +attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  attention
+  E.attention(E.session(application))
 
 def layers(application: E.Application) -> +List<E.Layer>:
-  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  layers
+  E.layers(E.session(application))
 
 def previews(application: E.Application) -> +List<Live.Output>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, +previews, code_blocks, next_layer}} = application
-  previews
+  E.previews(E.session(application))
 
 def interaction_effects(decision: E.Decision) -> +List<E.Effect>:
   E.Decision{application, reply, runtime, +interaction, durable} = decision
   interaction
 
-def residence(application: E.Application) -> Residence:
-  E.Application{program, E.Session{route, +drafts, +readers, layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer}} = application
+def residence(+application: E.Application) -> Residence:
+  program = E.program(application)
+  +observed_session = E.session(application)
+  route = E.route(observed_session)
+  +drafts = E.drafts(observed_session)
+  +readers = E.readers(observed_session)
+  navigation = E.navigation(observed_session)
+  filter = E.filter(observed_session)
+  now = E.now(observed_session)
+  next = E.next_ticket(observed_session)
+  +pending = E.pending(observed_session)
+  +previews = E.previews(observed_session)
+  +code_blocks = E.code_blocks(observed_session)
   Residence{program, drafts, readers, pending, previews, code_blocks, route, navigation, filter, now, next}
 
-def session_content_of(session: E.Session) -> SessionContent:
-  E.Session{route, +drafts, +readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+def session_content_of(+session: E.Session) -> SessionContent:
+  +drafts = E.drafts(session)
+  +readers = E.readers(session)
   SessionContent{drafts, readers}
 
 def session_content(application: E.Application) -> SessionContent:
-  E.Application{program, session} = application
+  session = E.session(application)
   session_content_of(session)
 
-def native_frame(application: E.Application) -> NativeFrame:
-  E.Application{program, E.Session{+route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, previews, +code_blocks, next_layer}} = application
+def native_frame(+application: E.Application) -> NativeFrame:
+  program = E.program(application)
+  +observed_session = E.session(application)
+  +route = E.route(observed_session)
+  +drafts = E.drafts(observed_session)
+  +readers = E.readers(observed_session)
+  +layers = E.layers(observed_session)
+  attention = E.attention(observed_session)
+  navigation = E.navigation(observed_session)
+  filter = E.filter(observed_session)
+  now = E.now(observed_session)
+  next = E.next_ticket(observed_session)
+  +pending = E.pending(observed_session)
+  +code_blocks = E.code_blocks(observed_session)
   NativeFrame{program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, code_blocks}
 
 def reading_location(reader: E.Reader) -> ReadingLocation:
@@ -81,16 +100,18 @@ def reading_location(reader: E.Reader) -> ReadingLocation:
   ReadingLocation{position, disclosures}
 
 def reading_owner(application: E.Application, +task: Nat, generation: Nat) -> Bool:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  +observed_session = E.session(application)
+  route = E.route(observed_session)
+  readers = E.readers(observed_session)
   U.route_owns(route, task) && Nat.is_eq(generation, E.reader_generation(E.reader(readers, task)))
 
 def opened_application(+application: E.Application, +panel: U.Panel, trigger: String) -> E.Decision:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-    now, next, pending, previews, code_blocks, +next_layer}} = application
+  +program = E.program(application)
+  +observed_session = E.session(application)
+  layers = E.layers(observed_session)
+  +next_layer = E.next_layer(observed_session)
   +target = E.panel_target(panel)
-  E.Decision{E.Application{program, E.Session{route, drafts, readers,
-    E.Layer{panel, trigger, target, "", next_layer} <> E.without_panel(layers, E.panel_target(panel)),
-    target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat)}},
+  E.Decision{E.from_program(program, E.with_next_layer((next_layer + 1n : Nat), E.with_attention(target, E.with_layers(E.Layer{panel, trigger, target, "", next_layer} <> E.without_panel(layers, E.panel_target(panel)), observed_session)))),
     D.success(J.Null{}), Nil{}, [E.Attend{target}], False{}}
 
 type Requirements is Type:
@@ -103,21 +124,16 @@ type Requirements is Type:
       {attention(post(E.open_panel(panel, trigger, application))) == E.panel_target(panel) : String},
     modal_open_effects: @+application:E.Application -> @+panel:U.Panel -> @trigger:String ->
       {interaction_effects(E.open_panel(panel, trigger, application)) == [E.Attend{E.panel_target(panel)}] : +List<E.Effect>},
-    modal_close_nonempty: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
-      @+readers:+List<Finite.Entry(E.Reader)> -> @+panel:U.Panel -> @+trigger:String -> @initial:String ->
-      @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationState ->
-      @filter:B.Filter -> @now:U32 -> @next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> ->
-      @+code_blocks:+List<Content.Block> -> @next_layer:Nat ->
-      {E.close_panel(E.Application{program, E.Session{route, drafts, readers,
-        E.Layer{panel, trigger, initial, query, layer_occurrence} <> rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) ==
-       E.Decision{E.Application{program, E.Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer}},
+    modal_close_nonempty: @+session:E.Session -> @+program:M.World() -> @+panel:U.Panel -> @+trigger:String -> @initial:String ->
+      @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
+      @observed_layers:{E.layers(session) == E.Layer{panel, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>} ->
+       {E.close_panel(E.from_program(program, session)) ==
+       E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, session))),
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision},
-    modal_close_empty: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
-      @+readers:+List<Finite.Entry(E.Reader)> -> @attention_value:String -> @navigation:E.NavigationState ->
-      @filter:B.Filter -> @now:U32 -> @next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> ->
-      @+code_blocks:+List<Content.Block> -> @next_layer:Nat ->
-      {E.close_panel(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) ==
-       E.unchanged(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) : E.Decision},
+    modal_close_empty: @+session:E.Session -> @+program:M.World() ->
+      @observed_layers:{E.layers(session) == Nil{} : +List<E.Layer>} ->
+       {E.close_panel(E.from_program(program, session)) ==
+       E.unchanged(E.from_program(program, session)) : E.Decision},
     modal_sequence_attention: @+application:E.Application -> @+panel:U.Panel -> @+trigger:String ->
       {attention(post(E.close_panel(post(E.open_panel(panel, trigger, application))))) == trigger : String},
     modal_sequence_residence: @+application:E.Application -> @+panel:U.Panel -> @+trigger:String ->
@@ -126,10 +142,10 @@ type Requirements is Type:
       {session_content(post(ExperienceProgram.step(E.RuntimeInput{input}, application))) == session_content(application) : SessionContent},
     native_without_submission_keeps_frame: @+decision:M.Decision() -> @+session:E.Session -> @durable:Bool ->
       {native_frame(post(E.native_result(decision, session, None{}, durable))) ==
-        native_frame(E.Application{runtime_program(decision), session}) : NativeFrame},
+        native_frame(E.from_program(runtime_program(decision), session)) : NativeFrame},
     native_without_submission_retains_previews: @+decision:M.Decision() -> @+session:E.Session -> @durable:Bool ->
       {previews(post(E.native_result(decision, session, None{}, durable))) ==
-        Live.retained(previews(E.Application{runtime_program(decision), session}), runtime_program(decision)) : +List<Live.Output>},
+        Live.retained(previews(E.from_program(runtime_program(decision), session)), runtime_program(decision)) : +List<Live.Output>},
     preview_observation_keeps_content: @+observation:Live.Observation -> @+application:E.Application ->
       {session_content(post(ExperienceProgram.step(E.PreviewObserved{observation}, application))) == session_content(application) : SessionContent},
     navigate_keeps_drafts: @+route:U.Route -> @+application:E.Application ->
@@ -139,23 +155,17 @@ type Requirements is Type:
     obsolete_reading: @+task:Nat -> @+generation:Nat -> @+intent:U.ReadingIntent -> @+application:E.Application ->
       @not_owner:{reading_owner(application, task, generation) == False{} : Bool} ->
       {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision},
-    model_choice: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
-      @+readers:+List<Finite.Entry(E.Reader)> -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat ->
-      @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationState -> @filter:B.Filter ->
-      @now:U32 -> @next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> ->
-      @+code_blocks:+List<Content.Block> -> @next_layer:Nat -> @revision:Nat -> @+text:U.Text -> @old_profile:String ->
+    model_choice: @+session:E.Session -> @+program:M.World() -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat ->
+      @+rest:+List<E.Layer> -> @revision:Nat -> @+text:U.Text -> @old_profile:String ->
       @old_reasoning:String -> @context:Context.Configuration -> @feedback:U.Feedback -> @+directory_entry:String ->
       @+new_profile:String -> @+new_reasoning:String ->
-      @found:{E.find_draft(drafts, U.NewTaskEditor{}) ==
+      @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>} ->
+      @found:{E.find_draft(E.drafts(session), U.NewTaskEditor{}) ==
         Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
-        E.Application{program, E.Session{route, drafts, readers,
-          E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest,
-          old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) ==
-       E.Decision{E.Application{program, E.Session{route,
-         U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
-           E.without_draft(drafts, U.NewTaskEditor{}),
-         readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer}},
+        E.from_program(program, session)) ==
+       E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
+           E.without_draft(E.drafts(session), U.NewTaskEditor{}), session)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}
   }
 

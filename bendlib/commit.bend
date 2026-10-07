@@ -22,9 +22,13 @@ def schedules(input: M.Input, decision: M.Decision()) -> Bool:
       J.boolean(J.get(reply, "ok"))
     case other: M.schedules(other)
 
-def frame_bytes(world: M.World()) -> U32:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, D.ExecutionLimits{steps, render, bytes}, projects}, +board} = world
-  bytes
+def frame_bytes_limits(world: M.World(), limits_value: D.ExecutionLimits) -> U32:
+  match world limits_value:
+    case C.Frame{+task_state, +board} D.ExecutionLimits{steps, render, bytes}:
+      bytes
+
+def frame_bytes(+world: M.World()) -> U32:
+  frame_bytes_limits(world, D.state_limits(C.local(D.State, F.State(), world)))
 
 def reject(previous: M.World(), code: String, reason: String) -> M.Decision():
   C.Decision{previous, D.failure(code, reason), Nil{}}
@@ -36,7 +40,8 @@ def guard(state_valid: Bool, change_valid: Bool, decision: M.Decision(), previou
 
 def live(decision: M.Decision()) -> M.Decision():
   C.Decision{+world, reply, effects} = decision
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
   C.Decision{world, reply, I.live_effects(effects, tasks)}
 
 def state(decision: M.Decision()) -> M.World():

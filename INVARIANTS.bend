@@ -280,11 +280,20 @@ def feature_tickets(tickets: +List<Nat>, +tasks: +List<D.Task>) -> Bool:
     case Nil{}: True{}
     case Con{ticket, rest}: Bool.not(has_ticket(tasks, ticket)) && feature_tickets(rest, tasks)
 
-def world(world: M.World()) -> Bool:
-  C.Frame{D.State{+entries, +next_task, +next_ticket, +settings, D.ExecutionLimits{+steps, +budget, +bytes}, +projects}, +board} = world
-  FeatureState.valid(C.Frame{D.State{entries, next_task, next_ticket, settings, D.ExecutionLimits{steps, budget, bytes}, projects}, board}) &&
-    Projects.valid(projects) && Projects.tasks_bound(entries, projects) && environment(settings) && Nat.is_le(1n, steps) && Nat.is_le(1n, budget) &&
-    Nat.is_lt(0n, U32.to_nat(bytes)) && feature_tickets(FeatureState.pending_tickets(board), entries) && tasks(entries, 0n, entries, next_task, next_ticket, budget)
+def world_limits(world: M.World(), limits_value: D.ExecutionLimits) -> Bool:
+  match world limits_value:
+    case C.Frame{+task_state, +board} D.ExecutionLimits{+steps, +budget, +bytes}:
+      +entries = D.state_tasks(task_state)
+      +next_task = D.state_next_task(task_state)
+      +next_ticket = D.state_next_ticket(task_state)
+      +settings = D.state_environment(task_state)
+      +projects = D.state_projects(task_state)
+      FeatureState.valid(C.Frame{task_state, board}) &&
+        Projects.valid(projects) && Projects.tasks_bound(entries, projects) && environment(settings) && Nat.is_le(1n, steps) && Nat.is_le(1n, budget) &&
+        Nat.is_lt(0n, U32.to_nat(bytes)) && feature_tickets(FeatureState.pending_tickets(board), entries) && tasks(entries, 0n, entries, next_task, next_ticket, budget)
+
+def world(+world: M.World()) -> Bool:
+  world_limits(world, D.state_limits(C.local(D.State, F.State(), world)))
 
 def archived(status: D.Status) -> Bool:
   match status:
@@ -342,14 +351,24 @@ def retained(previous: +List<D.Task>, candidate: +List<D.Task>, +budget: Nat) ->
         archive_retained(D.task_status(before), before, after, budget) && retained(rest_before, rest_after, budget)
     case _ _: False{}
 
-def change(previous: M.World(), candidate: M.World()) -> Bool:
-  match previous candidate:
-    case C.Frame{D.State{before, id_before, ticket_before, env_before, D.ExecutionLimits{steps_before, +budget_before, bytes_before}, projects_before}, +board_before}
-         C.Frame{D.State{after, id_after, ticket_after, env_after, D.ExecutionLimits{steps_after, budget_after, bytes_after}, projects_after}, +board_after}:
+def change_limits(previous: M.World(), candidate: M.World(), limits_value1: D.ExecutionLimits, limits_value2: D.ExecutionLimits) -> Bool:
+  match previous candidate limits_value1 limits_value2:
+    case C.Frame{+task_state, +board_before} C.Frame{+task_state_2, +board_after} D.ExecutionLimits{steps_after, budget_after, bytes_after} D.ExecutionLimits{steps_before, +budget_before, bytes_before}:
+      after = D.state_tasks(task_state_2)
+      id_after = D.state_next_task(task_state_2)
+      ticket_after = D.state_next_ticket(task_state_2)
+      projects_after = D.state_projects(task_state_2)
+      before = D.state_tasks(task_state)
+      id_before = D.state_next_task(task_state)
+      ticket_before = D.state_next_ticket(task_state)
+      projects_before = D.state_projects(task_state)
       FeatureState.evolution(board_before, board_after) && Nat.is_le(Projects.next_id(projects_before), Projects.next_id(projects_after)) &&
         Nat.is_le(id_before, id_after) && Nat.is_le(ticket_before, ticket_after) &&
         Nat.is_eq(steps_before, steps_after) && Nat.is_eq(budget_before, budget_after) &&
         Nat.is_eq(U32.to_nat(bytes_before), U32.to_nat(bytes_after)) && retained(before, after, budget_before)
+
+def change(+previous: M.World(), +candidate: M.World()) -> Bool:
+  change_limits(previous, candidate, D.state_limits(C.local(D.State, F.State(), candidate)), D.state_limits(C.local(D.State, F.State(), previous)))
 
 def found_archived(found: Maybe<&2, D.Task>) -> Bool:
   match found:
@@ -607,9 +626,13 @@ def feature_effects(effects: +List<M.Effect()>, +state: F.State(), +profiles: +L
       FeatureState.effect_valid(effect, state, profiles) && feature_effects(rest, state, profiles)
     case Con{other, rest}: feature_effects(rest, state, profiles)
 
-def decision(previous: M.World(), candidate: M.Decision()) -> Bool:
-  match previous candidate:
-    case C.Frame{D.State{before, id_before, +ticket_before, env_before, D.ExecutionLimits{+steps, +budget, +bytes}, projects_before}, +board_before}
-         C.Decision{C.Frame{D.State{+after, +id_after, +ticket_after, +env_after, +limits_after, +projects_after}, +board_after}, reply, +pending}:
-      change(C.Frame{D.State{before, id_before, ticket_before, env_before, D.ExecutionLimits{steps, budget, bytes}, projects_before}, board_before}, C.Frame{D.State{after, id_after, ticket_after, env_after, limits_after, projects_after}, board_after}) &&
+def decision_limits(previous: M.World(), candidate: M.Decision(), limits_value: D.ExecutionLimits) -> Bool:
+  match previous candidate limits_value:
+    case C.Frame{+task_state, +board_before} C.Decision{C.Frame{+task_state_2, +board_after}, reply, +pending} D.ExecutionLimits{+steps, +budget, +bytes}:
+      +after = D.state_tasks(task_state_2)
+      +env_after = D.state_environment(task_state_2)
+      +ticket_before = D.state_next_ticket(task_state)
+      change(C.Frame{task_state, board_before}, C.Frame{task_state_2, board_after}) &&
         effects(pending, after, ticket_before, budget) && feature_effects(pending, board_after, profiles(env_after))
+def decision(+previous: M.World(), candidate: M.Decision()) -> Bool:
+  decision_limits(previous, candidate, D.state_limits(C.local(D.State, F.State(), previous)))

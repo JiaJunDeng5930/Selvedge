@@ -55,10 +55,10 @@ type Requirements is Type:
       {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
     creation_page: @+input:Maybe<&2, View.ComposerScene> -> @+parent: Identity.Key -> @+world:M.World() ->
       @+session:Experience.Session -> @+services:Services.State ->
-      {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
+      {Interface.page_contents(View.StartPage{input}, parent, Core.from_application(Experience.from_program(world, session), services)) ==
         List.append(&2, Interface.Node,
-          Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
-          Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>},
+          Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.from_application(Experience.from_program(world, session), services)),
+          Interface.page_composer(input, parent, parent, Core.from_application(Experience.from_program(world, session), services), Composition.BodyPosition{})) : +List<Interface.Node>},
     context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.controls(declaration <> rest, parent, state) == Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->

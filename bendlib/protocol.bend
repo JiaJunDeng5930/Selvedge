@@ -160,11 +160,22 @@ def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
     case HookResult{task, outcome}:
       C.Decision{Commands.replace(T.complete_hook(outcome, task), world), acknowledgement(True{}), Nil{}}
     case Settings{environment}:
-      C.Frame{D.State{tasks, next_task, next_ticket, previous, limits, projects}, +board} = world
-      C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board}, D.success(J.Null{}), Nil{}}
+      C.Frame{+task_state, +board} = world
+      tasks = D.state_tasks(task_state)
+      next_task = D.state_next_task(task_state)
+      next_ticket = D.state_next_ticket(task_state)
+      limits = D.state_limits(task_state)
+      projects = D.state_projects(task_state)
+      C.Decision{C.Frame{D.with_state_environment(environment, task_state), board}, D.success(J.Null{}), Nil{}}
     case Restart{}:
-      C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-      C.Decision{C.Frame{D.State{recovery(tasks), next_task, next_ticket, environment, limits, projects}, FeatureState.recover(board)}, D.success(J.Null{}), Nil{}}
+      C.Frame{+task_state_2, +board} = world
+      tasks = D.state_tasks(task_state_2)
+      next_task = D.state_next_task(task_state_2)
+      next_ticket = D.state_next_ticket(task_state_2)
+      environment = D.state_environment(task_state_2)
+      limits = D.state_limits(task_state_2)
+      projects = D.state_projects(task_state_2)
+      C.Decision{C.Frame{D.with_state_tasks(recovery(tasks), task_state_2), FeatureState.recover(board)}, D.success(J.Null{}), Nil{}}
     case Tick{}: C.Decision{world, D.success(J.Null{}), Nil{}}
     case Review{resolution}: Approvals.meaning(F.State(), F.Effect, resolution, world)
 
@@ -228,21 +239,24 @@ def finish(id: Nat, call: D.Call, remaining: +List<D.Attempt>, +decision: M.Deci
 
 def branched(built: Commands.Children, call: D.Call, remaining: +List<D.Attempt>, +parent: D.Task, world: M.World()) -> M.Decision():
   Commands.Children{+children, end} = built
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
   caller = T.promote(D.with_notified(True{}, D.with_phase(D.Ready{remaining}, D.with_history(D.branch_history(D.task_history(parent), T.call_id(call), 0n), parent))))
-  C.Decision{C.Frame{D.State{List.append(&2, D.Task, T.replace(tasks, caller), children), end, next_ticket, environment, limits, projects}, board},
+  C.Decision{C.Frame{D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, T.replace(tasks, caller), children), task_state)), board},
     D.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{}}
 
 def branched_invocation(built: Commands.Children, call: D.Call, remaining: +List<D.Attempt>, parent: D.Task, world: M.World()) -> M.Decision():
   Commands.Children{+children, end} = built
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+  C.Frame{+task_state, +board} = world
+  tasks = D.state_tasks(task_state)
   Results.attached(F.State(), F.Effect, Results.internal(F.State(), F.Effect, call, remaining, J.nat(0n), False{}, parent,
-    C.Frame{D.State{List.append(&2, D.Task, tasks, children), end, next_ticket, environment, limits, projects}, board}),
+    C.Frame{D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, tasks, children), task_state)), board}),
     D.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{})
 
 def invoked(operation: Invocation, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
   match operation:
     case Internal{operation}: finish(D.task_id(task), call, remaining, Commands.meaning(operation, world))
     case Branch{count, texts, selection}:
-      C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
+      C.Frame{+task_state, +board} = world
+      next_task = D.state_next_task(task_state)
       branched_invocation(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, task), T.call_id(call), remaining, texts), call, remaining, task, world)

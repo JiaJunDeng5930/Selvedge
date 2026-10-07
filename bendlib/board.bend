@@ -26,8 +26,8 @@ def save(+id: Nat, +card: B.Card, next: U32, +world: M.World()) -> M.Decision():
 
 def interrupt_found(needed: Bool, found: Maybe<&2, D.Task>, decision: M.Decision()) -> M.Decision():
   match needed found decision:
-    case True{} Some{+task} C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects}:
-      C.Decision{C.Frame{D.State{T.replace(tasks, T.interrupt(task)), next_task, next_ticket, environment, limits, projects}, board}, reply,
+    case True{} Some{+task} C.Decision{C.Frame{+core, +board}, reply, effects}:
+      C.Decision{C.Frame{D.with_state_tasks(T.replace(D.state_tasks(core), T.interrupt(task)), core), board}, reply,
         List.append(&2, M.Effect(), effects, [Effects.CancelTask{D.task_id(task)}])}
     case _ _ decision: decision
 
@@ -36,10 +36,10 @@ def archive(+id: Nat, +card: B.Card, +archived: Bool, now: U32, +world: M.World(
     save(id, B.set_archive(archived, card, now), B.next_card(S.registry(world)), world))
 
 def request_text(+id: Nat, +card: B.Card, profile: D.Profile, +retitle: Bool, next: U32, world: M.World()) -> M.Decision():
-  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +board} = world
-  C.Decision{C.Frame{D.State{tasks, next_task, 1n+ticket, environment, limits, projects}, F.with_board(B.put(id, B.with_enrichment(B.Enriching{ticket, B.revision(card), retitle}, card), F.board(board), next), board)},
+  C.Frame{+core, +board} = world
+  C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(core), core), F.with_board(B.put(id, B.with_enrichment(B.Enriching{D.state_next_ticket(core), B.revision(card), retitle}, card), F.board(board), next), board)},
     D.success(card_result(id, B.revision(card))),
-    [Effects.FeatureEffect{F.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
+    [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
 
 def change(change: R.Change, +world: M.World()) -> M.Decision():
   match change:
