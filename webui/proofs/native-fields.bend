@@ -3,6 +3,9 @@ import ../native-fields.bend as Native
 import ../native-fields-rules.bend as Rule
 import ../../core/interface.bend as UI
 import ../../bendlib/stdlib.bend as Std
+import ../source.bend as Source
+import ../physical-browser.bend as Browser
+import ../browser.bend as Legacy
 
 def unchanged(+record: Native.Record, +value: String,
   proof: {Native.canonical_same(Native.record_canonical(record), value) == True{} : Bool}) -> Rule.unchanged_claim(value, record):
@@ -62,3 +65,63 @@ def Rule.evidence():
     +record => transaction(record),
     +key => +semantic => +meaning => {==},
     +key => +semantic => +meaning => {==}}
+
+
+
+def Rule.updates_empty(nodes): {==}
+def Rule.updates_complete(binding, rest, nodes): {==}
+def Rule.updates_basis(fields, controls, surface): {==}
+def Rule.update_owner(key, kind, semantic, meaning, nodes): {==}
+def Rule.all_field_projections(kind, key, semantic, meaning):
+  match kind:
+    case Source.TextField{}: {==}
+    case Source.MessageField{}: {==}
+    case Source.TextAreaField{}: {==}
+    case Source.SelectField{}: {==}
+    case Source.MultiSelectField{}: {==}
+    case Source.ToggleField{}: {==}
+    case Source.NumberField{minimum}: {==}
+    case Source.FileField{multiple}: {==}
+    case Source.DirectoryField{}: {==}
+    case Source.SearchField{}: {==}
+    case Source.SecretField{}: {==}
+
+def Rule.edit_text_rejected(key, text, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.edit_text_owned(allowed, key, text, state)),
+    Browser.field_owned(key, state), False{}, owned)
+
+def Rule.edit_text_accepted(key, text, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.edit_text_owned(allowed, key, text, state)),
+    Browser.field_owned(key, state), True{}, owned)
+
+def Rule.confirm_text_rejected(key, keyboard, composing, control, alt, shift, meta, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.confirm_text_owned(allowed, key, keyboard, composing, control, alt, shift, meta, state)),
+    Browser.field_owned(key, state), False{}, owned)
+
+def Rule.confirm_text_accepted(key, keyboard, composing, control, alt, shift, meta, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.confirm_text_owned(allowed, key, keyboard, composing, control, alt, shift, meta, state)),
+    Browser.field_owned(key, state), True{}, owned)
+
+def Rule.edit_toggle_rejected(key, enabled, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.edit_toggle_owned(allowed, key, enabled, state)),
+    Browser.field_owned(key, state), False{}, owned)
+
+def Rule.edit_toggle_accepted(key, enabled, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.edit_toggle_owned(allowed, key, enabled, state)),
+    Browser.field_owned(key, state), True{}, owned)
+
+def Rule.attach_rejected(key, file, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.attach_owned(allowed, key, file, state)),
+    Browser.field_owned(key, state), False{}, owned)
+
+def Rule.attach_accepted(key, file, state, owned):
+  Equal.cong(Bool, Browser.Decision,
+    (allowed => Browser.attach_owned(allowed, key, file, state)),
+    Browser.field_owned(key, state), True{}, owned)

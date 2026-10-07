@@ -3,6 +3,10 @@ import ../core/SYSTEM.bend as Core
 import ./focus.bend as Model
 import ../core/interface.bend as UI
 import ../core/ui-identity.bend as Identity
+import ../core/user-input.bend as U
+import ../core/user-experience.bend as E
+import ../core/ui-world.bend as View
+import ../core/client-services.bend as Services
 
 type CycleRequirements is Type:
   CycleRequirements{
@@ -87,3 +91,107 @@ law nested_scope_without_active_trigger_uses_initial:
   for +surface: UI.Surface
   for absent: {UI.matching_focus(UI.active_nodes(surface), trigger) == None{} : Maybe<&2, String>}
   {Model.scope_target(Model.Temporary{old_identity, old_initial, trigger, old_occurrence}, Model.Temporary{identity, initial, restore, occurrence}, surface) == initial : String}
+
+
+law panel_policy:
+  for +panel: U.Panel
+  for initial: String
+  for +trigger: String
+  for beside: Bool
+  {Model.panel_scope(panel, initial, trigger, beside) == Model.dismissal_scope(View.layer_dismissal(panel, trigger), E.panel_target(panel), initial, trigger, beside) : Model.Scope}
+
+def persistent_classification(beside: Bool, identity: String, initial: String, trigger: String, actual: Model.Scope) -> Type:
+  match beside:
+    case True{}: {actual == Model.Document{} : Model.Scope}
+    case False{}: {actual == Model.Temporary{identity, initial, trigger, None{}} : Model.Scope}
+
+law persistent_scope:
+  for +action: U.Action
+  for +identity: String
+  for +initial: String
+  for +trigger: String
+  for +beside: Bool
+  persistent_classification(beside, identity, initial, trigger, Model.dismissal_scope(View.ByTrigger{action}, identity, initial, trigger, beside))
+
+law temporary_scope:
+  for action: U.Action
+  for +identity: String
+  for initial: String
+  for trigger: String
+  for beside: Bool
+  {Model.dismissal_scope(View.OutsideOrEscape{action}, identity, initial, trigger, beside) == Model.Temporary{identity, initial, trigger, None{}} : Model.Scope}
+
+def settings_classification(open: Bool, fallback: Model.Scope, actual: Model.Scope) -> Type:
+  match open:
+    case False{}: {actual == fallback : Model.Scope}
+    case True{}: {actual == Model.Temporary{"settings", "settings/credential", "settings/open", None{}} : Model.Scope}
+
+def preview_classification(preview: Services.Preview, fallback: Model.Scope, actual: Model.Scope) -> Type:
+  match preview:
+    case Services.NoPreview{}: {actual == fallback : Model.Scope}
+    case Services.LoadingPreview{ticket, file, trigger}: {actual == Model.Temporary{"attachment-preview", "attachment-preview", trigger, None{}} : Model.Scope}
+    case Services.ReadyPreview{file, resource, image, trigger}: {actual == Model.Temporary{"attachment-preview", "attachment-preview", trigger, None{}} : Model.Scope}
+    case Services.FailedPreview{file, reason, trigger}: {actual == Model.Temporary{"attachment-preview", "attachment-preview", trigger, None{}} : Model.Scope}
+
+def directory_classification(picker: Services.DirectoryPicker, fallback: Model.Scope, actual: Model.Scope) -> Type:
+  match picker:
+    case Services.NoDirectoryPicker{}: {actual == fallback : Model.Scope}
+    case Services.ReadyDirectory{ticket, editor, catalog, location, trigger}: {actual == Model.Temporary{"directory-picker", "directory-picker/location", trigger, None{}} : Model.Scope}
+    case Services.LoadingDirectory{ticket, editor, path, trigger}: {actual == Model.Temporary{"directory-picker", "directory-picker", trigger, None{}} : Model.Scope}
+    case Services.FailedDirectory{ticket, editor, path, reason, trigger}: {actual == Model.Temporary{"directory-picker", "directory-picker", trigger, None{}} : Model.Scope}
+
+law settings_policy:
+  for +open: Bool
+  for +fallback: Model.Scope
+  settings_classification(open, fallback, Model.settings_scope(open, fallback))
+
+law preview_policy:
+  for +preview: Services.Preview
+  for +fallback: Model.Scope
+  preview_classification(preview, fallback, Model.preview_scope(preview, fallback))
+
+law directory_policy:
+  for +picker: Services.DirectoryPicker
+  for +fallback: Model.Scope
+  directory_classification(picker, fallback, Model.directory_scope(picker, fallback))
+
+law realized_document:
+  for content: Core.Scene
+  for base: +List<UI.Node>
+  for overlays: +List<UI.Node>
+  for scope: Model.Scope
+  {Model.realized_scope(UI.Surface{content, base, overlays, None{}}, scope) == Model.Document{} : Model.Scope}
+
+law realized_active:
+  for +content: Core.Scene
+  for +base: +List<UI.Node>
+  for +overlays: +List<UI.Node>
+  for +active: String
+  for +scope: Model.Scope
+  {Model.realized_scope(UI.Surface{content, base, overlays, Some{active}}, scope) ==
+    Model.Temporary{active, Model.resolved_target(UI.focus_target(UI.Surface{content, base, overlays, Some{active}}, Model.initial(scope))),
+      Model.resolved_target(UI.all_focus_target(UI.Surface{content, base, overlays, Some{active}}, Model.restore(scope))), Model.scope_occurrence_of(scope)} : Model.Scope}
+
+law current_scope:
+  for +state: Core.State
+  for +capacity: View.Capacity
+  {Model.current(state, capacity) == Model.realized_scope(UI.observe(capacity, state), Model.logical_scope(state, capacity)) : Model.Scope}
+
+
+def logical_classification(state: Core.State, capacity: View.Capacity, actual: Model.Scope) -> Type:
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}},
+    Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} = state
+  View.Capacity{navigation_beside, details_beside} = capacity
+  {actual == Model.preview_scope(preview, Model.directory_scope(directory_picker, Model.settings_scope(settings, Model.layer_scope(layers, details_beside)))) : Model.Scope}
+
+law logical_priority:
+  for +state: Core.State
+  for +capacity: View.Capacity
+  logical_classification(state, capacity, Model.logical_scope(state, capacity))
+
+law current_surface:
+  for +state: Core.State
+  for +capacity: View.Capacity
+  for +surface: UI.Surface
+  for observed: {UI.observe(capacity, state) == surface : UI.Surface}
+  {Model.current(state, capacity) == Model.realized_scope(surface, Model.logical_scope(state, capacity)) : Model.Scope}

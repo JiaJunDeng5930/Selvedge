@@ -4,6 +4,7 @@ import ../../core/interface.bend as UI
 import ./native-fields.bend as NativeProof
 import ../native-fields-rules.bend as NativeRules
 import Base
+import ../frontend-utility.bend as Utility
 import ../focus.bend as Focus
 import ../platform.bend as Platform
 import ../physical-browser.bend as Browser
@@ -63,6 +64,11 @@ def pending_publication_at(+text_capacity: Nat, +last_published: Nat, +state: Br
         case Browser.WaitingEnvironment{}: {==}
         case Browser.WaitingFont{}: {==}
         case Browser.Measuring{index, capacity, engine, semantic, round}: {==}
+        case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}: {==}
+        case Browser.UtilityDisplaying{purpose, engine}: Logic.impossible(
+          {Browser.publication_for_at(text_capacity, True{}, True{}, Nat.is_eq(Browser.displayed_generation(Browser.State{legacy, serial, anchors, Browser.UtilityDisplaying{purpose, engine}, displayed}), last_published), Browser.State{legacy, serial, anchors, Browser.UtilityDisplaying{purpose, engine}, displayed}) == Browser.KeepPublished{Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.UtilityDisplaying{purpose, engine}, displayed})} : Browser.Publication}, waiting)
+        case Browser.UtilityRejected{problem}: Logic.impossible(
+          {Browser.publication_for_at(text_capacity, True{}, False{}, Nat.is_eq(Browser.displayed_generation(Browser.State{legacy, serial, anchors, Browser.UtilityRejected{problem}, displayed}), last_published), Browser.State{legacy, serial, anchors, Browser.UtilityRejected{problem}, displayed}) == Browser.KeepPublished{Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.UtilityRejected{problem}, displayed})} : Browser.Publication}, waiting)
         case Browser.Displaying{capacity, engine, semantic}: Logic.impossible(
           {Browser.publication_for_at(text_capacity, True{}, True{}, Nat.is_eq(Browser.displayed_generation(Browser.State{legacy, serial, anchors, Browser.Displaying{capacity, engine, semantic}, displayed}), last_published), Browser.State{legacy, serial, anchors, Browser.Displaying{capacity, engine, semantic}, displayed}) == Browser.KeepPublished{Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.Displaying{capacity, engine, semantic}, displayed})} : Browser.Publication}, waiting)
         case Browser.Blocked{problem}: Logic.impossible(
@@ -83,6 +89,11 @@ def ready_publication_at(+text_capacity: Nat, +state: Browser.State, ready: {Bro
     case Browser.State{legacy, serial, anchors, lifecycle, displayed}:
       match lifecycle:
         case Browser.Displaying{capacity, engine, semantic}: {==}
+        case Browser.UtilityDisplaying{purpose, engine}: {==}
+        case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}: Logic.impossible(
+          {Browser.publication_for_at(text_capacity, True{}, True{}, True{}, Browser.State{legacy, serial, anchors, Browser.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}) == Browser.KeepPublished{Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed})} : Browser.Publication}, ready)
+        case Browser.UtilityRejected{problem}: Logic.impossible(
+          {Browser.publication_for_at(text_capacity, True{}, True{}, True{}, Browser.State{legacy, serial, anchors, Browser.UtilityRejected{problem}, displayed}) == Browser.KeepPublished{Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.UtilityRejected{problem}, displayed})} : Browser.Publication}, ready)
         case Browser.WaitingEnvironment{}: Logic.impossible(
           {Browser.publication_for_at(text_capacity, True{}, True{}, True{}, Browser.State{legacy, serial, anchors, Browser.WaitingEnvironment{}, displayed}) == Browser.KeepPublished{Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.WaitingEnvironment{}, displayed})} : Browser.Publication}, ready)
         case Browser.WaitingFont{}: Logic.impossible(
@@ -173,7 +184,7 @@ def Rule.stale_measurement_failure(ticket, reason, state, stale):
 
 def Rule.current_measurement_failure(ticket, reason, state, owned):
   Std.transport(Bool, True{},
-    (accepted => {Browser.measurement_failed(accepted, reason, state) == Browser.Decision{Browser.set_lifecycle(state, Browser.Blocked{reason}), Nil{}} : Browser.Decision}),
+    (accepted => {Browser.measurement_failed(accepted, reason, state) == Browser.utility_measurement_failure(reason, state) : Browser.Decision}),
     {==}, Browser.measurement_owned(ticket, state), owned)
 
 def Rule.measurement_ownership_only_measuring(ticket, state, owned):
@@ -183,6 +194,9 @@ def Rule.measurement_ownership_only_measuring(ticket, state, owned):
         case Browser.State{legacy, serial, anchors, lifecycle, displayed}:
           match lifecycle:
             case Browser.Measuring{index, capacity, engine, semantic, round}: {==}
+            case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}: {==}
+            case Browser.UtilityDisplaying{purpose, engine}: owned
+            case Browser.UtilityRejected{problem}: owned
             case Browser.WaitingEnvironment{}: owned
             case Browser.WaitingFont{}: owned
             case Browser.Displaying{capacity, engine, semantic}: owned
@@ -196,6 +210,10 @@ def Rule.measurement_request_unavailable(state, inactive):
         case Browser.WaitingFont{}: {==}
         case Browser.Displaying{capacity, engine, semantic}: {==}
         case Browser.Blocked{problem}: {==}
+        case Browser.UtilityDisplaying{purpose, engine}: {==}
+        case Browser.UtilityRejected{problem}: {==}
+        case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}:
+          Logic.impossible({Browser.measurement_request(Browser.State{legacy, serial, anchors, Browser.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}) == None{} : Maybe<&2, Browser.MeasurementRequest>}, Equal.sym(Bool, True{}, False{}, inactive))
         case Browser.Measuring{index, capacity, engine, semantic, round}:
           Logic.impossible(
             {Browser.measurement_request(Browser.State{legacy, serial, anchors, Browser.Measuring{index, capacity, engine, semantic, round}, displayed}) == None{} : Maybe<&2, Browser.MeasurementRequest>},
@@ -224,6 +242,11 @@ def Rule.render_violations_realized(application, generation, environment, font, 
 
 def Rule.pending_frame_effects(state):
   match state:
+    case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}: {==}
+    case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.UtilityRejected{problem}, displayed}: {==}
+    case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.UtilityDisplaying{purpose, engine}, None{}}: {==}
+    case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.UtilityDisplaying{purpose, engine}, Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, semantic, scope, basis, None{}}}}: {==}
+    case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.UtilityDisplaying{purpose, engine}, Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, semantic, scope, basis, Some{frame}}}}: {==}
     case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.WaitingEnvironment{}, displayed}: {==}
     case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.WaitingFont{}, displayed}: {==}
     case Browser.State{Legacy.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, Browser.Measuring{index, capacity, engine, semantic, round}, displayed}: {==}
@@ -243,7 +266,8 @@ def Rule.retained_frame_decision(first, state):
 
 def Rule.rebuilt_frame_decision(first, state): {==}
 
-def Rule.render_inspection(stored, serial, anchors, lifecycle, displayed):
+def inspection_product(+stored: Legacy.State, +displayed: Maybe<&2, Browser.Published>) ->
+  {Browser.render_inspection_owned(False{}, stored, displayed) == Rule.inspection_owned_expected(False{}, stored, displayed) : Browser.RenderInspection}:
   match stored:
     case Legacy.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}:
       match displayed:
@@ -257,6 +281,18 @@ def Rule.render_inspection(stored, serial, anchors, lifecycle, displayed):
       match displayed:
         case None{}: {==}
         case Some{Browser.Published{world, semantic, scope, basis, published_frame}}: {==}
+def inspection_owned(+utility: Bool, +stored: Legacy.State, +displayed: Maybe<&2, Browser.Published>) ->
+  {Browser.render_inspection_owned(utility, stored, displayed) == Rule.inspection_owned_expected(utility, stored, displayed) : Browser.RenderInspection}:
+  match utility:
+    case True{}:
+      match displayed:
+        case None{}: {==}
+        case Some{Browser.Published{world, semantic, scope, basis, frame}}: {==}
+    case False{}: inspection_product(stored, displayed)
+
+def Rule.render_inspection(stored, serial, anchors, lifecycle, displayed):
+  inspection_owned(Browser.auxiliary_owned(Browser.State{stored, serial, anchors, lifecycle, displayed}), stored, displayed)
+
 def Rule.evidence():
   Rule.Requirements{
     +shift => +identity => +initial => +restore => +occurrence => +basis => +semantic => +frame => +state => {==},

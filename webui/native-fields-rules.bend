@@ -5,6 +5,9 @@ import ./authored-controls.bend as Controls
 import ../core/interface.bend as UI
 import ../core/user-input.bend as U
 import ../core/form-fields.bend as Forms
+import ./physical-browser.bend as Browser
+import ./browser.bend as Legacy
+import ../core/client-services.bend as Services
 
 def unchanged_claim(+value: String, +record: Native.Record) -> Type:
   {Native.step(Native.Synchronize{value}, record) == Native.Decision{record, False{}, False{}} : Native.Decision}
@@ -77,3 +80,108 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+
+law updates_empty:
+  for nodes: +List<UI.Node>
+  {Native.updates_fields(Nil{}, nodes) == Nil{} : +List<Native.Update>}
+
+law updates_complete:
+  for +binding: Native.Binding
+  for +rest: +List<Native.Binding>
+  for +nodes: +List<UI.Node>
+  {Native.updates_fields(binding <> rest, nodes) == List.append(&2, Native.Update, Native.update(binding, nodes), Native.updates_fields(rest, nodes)) : +List<Native.Update>}
+
+law updates_basis:
+  for fields: +List<Native.Binding>
+  for controls: +List<String>
+  for surface: UI.Surface
+  {Native.updates(Native.Basis{fields, controls}, surface) == Native.updates_fields(fields, Native.forest(surface)) : +List<Native.Update>}
+
+law update_owner:
+  for +key: String
+  for +kind: Source.NativeFieldKind
+  for +semantic: String
+  for +meaning: UI.Meaning
+  for +nodes: +List<UI.Node>
+  {Native.update(Native.Binding{key, kind, semantic, meaning}, nodes) ==
+    Native.update_owned(Native.owned_node(Native.Binding{key, kind, semantic, meaning}, UI.find_node(nodes, key)), Native.Binding{key, kind, semantic, meaning}, UI.find_node(nodes, key)) : +List<Native.Update>}
+
+def field_projection(kind: Source.NativeFieldKind, key: String, semantic: String, meaning: UI.Meaning, actual: +List<Native.Update>) -> Type:
+  match kind:
+    case Source.ToggleField{}: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetChecked{key, Controls.field_checked(meaning)}] : +List<Native.Update>}
+    case Source.FileField{multiple}: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}] : +List<Native.Update>}
+    case _: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetValue{key, Controls.node_value(meaning)}] : +List<Native.Update>}
+
+law all_field_projections:
+  for +kind: Source.NativeFieldKind
+  for +key: String
+  for +semantic: String
+  for +meaning: UI.Meaning
+  field_projection(kind, key, semantic, meaning, Native.projected(key, kind, semantic, meaning))
+
+law edit_text_rejected:
+  for +key: String
+  for +text: String
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == False{} : Bool}
+  {Browser.edit_text(key, text, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law edit_text_accepted:
+  for +key: String
+  for +text: String
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == True{} : Bool}
+  {Browser.edit_text(key, text, state) == Browser.accept(True{}, Legacy.edit_text(key, text, Browser.legacy(state)), state) : Browser.Decision}
+
+law confirm_text_rejected:
+  for +key: String
+  for +keyboard: String
+  for +composing: Bool
+  for +control: Bool
+  for +alt: Bool
+  for +shift: Bool
+  for +meta: Bool
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == False{} : Bool}
+  {Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law confirm_text_accepted:
+  for +key: String
+  for +keyboard: String
+  for +composing: Bool
+  for +control: Bool
+  for +alt: Bool
+  for +shift: Bool
+  for +meta: Bool
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == True{} : Bool}
+  {Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state) == Browser.accept(True{}, Legacy.confirm_text(key, keyboard, composing, control, alt, shift, meta, Browser.legacy(state)), state) : Browser.Decision}
+
+law edit_toggle_rejected:
+  for +key: String
+  for +enabled: Bool
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == False{} : Bool}
+  {Browser.edit_toggle(key, enabled, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law edit_toggle_accepted:
+  for +key: String
+  for +enabled: Bool
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == True{} : Bool}
+  {Browser.edit_toggle(key, enabled, state) == Browser.accept(True{}, Legacy.edit_toggle(key, enabled, Browser.legacy(state)), state) : Browser.Decision}
+
+law attach_rejected:
+  for +key: String
+  for +file: Services.File
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == False{} : Bool}
+  {Browser.attach(key, file, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law attach_accepted:
+  for +key: String
+  for +file: Services.File
+  for +state: Browser.State
+  for owned: {Browser.field_owned(key, state) == True{} : Bool}
+  {Browser.attach(key, file, state) == Browser.accept(True{}, Legacy.attach(key, file, Browser.legacy(state)), state) : Browser.Decision}

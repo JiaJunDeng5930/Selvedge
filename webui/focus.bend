@@ -40,15 +40,16 @@ def restore(scope: Scope) -> String:
     case Document{}: "page-heading"
     case Temporary{id, target, trigger, occurrence}: trigger
 
-def details_scope(beside: Bool, initial: String, trigger: String) -> Scope:
-  match beside:
-    case True{}: Document{}
-    case False{}: Temporary{"task-details", initial, trigger, None{}}
+def dismissal_scope(dismissal: View.Dismissal, identity: String, initial: String, trigger: String, beside: Bool) -> Scope:
+  match dismissal:
+    case View.ByTrigger{action}:
+      match beside:
+        case True{}: Document{}
+        case False{}: Temporary{identity, initial, trigger, None{}}
+    case View.OutsideOrEscape{action}: Temporary{identity, initial, trigger, None{}}
 
-def panel_scope(panel: U.Panel, initial: String, trigger: String, beside: Bool) -> Scope:
-  match panel:
-    case U.TaskDetails{task}: details_scope(beside, initial, trigger)
-    case other: Temporary{E.panel_target(other), initial, trigger, None{}}
+def panel_scope(+panel: U.Panel, initial: String, +trigger: String, beside: Bool) -> Scope:
+  dismissal_scope(View.layer_dismissal(panel, trigger), E.panel_target(panel), initial, trigger, beside)
 
 def scope_occurrence(scope: Scope, occurrence: Nat) -> Scope:
   match scope:

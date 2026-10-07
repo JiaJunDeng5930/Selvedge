@@ -58,13 +58,17 @@ def rich_role_at(capacity: Nat, prefix: String, parent: T.Presentation, tier: T.
 def rich_role(prefix: String, parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
   rich_role_at(NaturalSize.limit(), prefix, parent, tier, emphasis)
 
+def strong_emphasis_at(capacity: Nat, parent: T.Presentation) -> +List<Doc.Property>:
+  [property("--rich-strong-weight", Nat.show(T.resolved_weight(T.resolve_presentation(capacity, T.with_emphasis(parent, T.Strong{})))))]
+
 def rich_properties_at(+capacity: Nat, +parent: T.Presentation) -> +List<Doc.Property>:
   List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-title", parent, T.Title{}, T.Strong{}),
     List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-section", parent, T.Section{}, T.Medium{}),
       List.append(&2, Doc.Property, rich_resolved("--rich-body", T.resolve_presentation(capacity, parent)),
         List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-support", parent, T.Support{}, T.Medium{}),
           List.append(&2, Doc.Property, rich_role_at(capacity, "--rich-code", parent, T.CodeBody{}, T.Regular{}),
-            rich_resolved("--rich-body-strong", T.resolve_presentation(capacity, T.with_emphasis(parent, T.Strong{}))))))))
+            List.append(&2, Doc.Property, rich_resolved("--rich-body-strong", T.resolve_presentation(capacity, T.with_emphasis(parent, T.Strong{}))),
+              strong_emphasis_at(capacity, parent)))))))
 
 def rich_properties(+parent: T.Presentation) -> +List<Doc.Property>:
   rich_properties_at(NaturalSize.limit(), parent)

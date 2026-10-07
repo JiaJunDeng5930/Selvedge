@@ -458,12 +458,12 @@ function frameGeometry(node, bounds) {
 }
 function frame() {
   const anchors = nativeLinks();
-  const nodes = [...root.querySelectorAll('[data-native-key],a[data-native-link-key]')];
+  const nodes = [...root.querySelectorAll('[data-frame-key],[data-native-key],a[data-native-link-key]')];
   const elements = nodes.map(node => {
     const bounds = rect(node); const geometry = frameGeometry(node, bounds);
     const enabled = !node.disabled && !node.closest('[inert]') && node.getAttribute('aria-disabled') !== 'true';
     const tab = enabled && node.tabIndex >= 0;
-    return value('Element', { key: focusIdentity(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
+    return value('Element', { key: node.getAttribute('data-frame-key') ?? focusIdentity(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
       center_hit_owner: geometry.hitOwner, paint_bounds: geometry.paintBounds });
   });
   const focused = focusIdentity(document.activeElement);
@@ -484,7 +484,7 @@ function requestDisplayedFrame(generation) {
     displayedFrameRequest = null;
     const generation = requestedFrameGeneration;
     requestedFrameGeneration = null;
-    if (!disposed && renderedGeneration === generation && root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') {
+    if (!disposed && renderedGeneration === generation) {
       native(value('FrameObserved', { generation, frame: frame() }));
     }
   });

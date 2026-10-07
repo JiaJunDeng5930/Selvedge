@@ -33,6 +33,32 @@ def attributes(+values: +List<Source.Attribute>) -> +List<Doc.Property>:
     case Nil{}: Nil{}
     case Con{+value, +rest}: List.append(&2, Doc.Property, Source.attribute_properties(value), attributes(rest))
 
+# Observation identity does not grant interaction ownership to passive content.
+def authored_observation_key(+values: +List<Source.Attribute>, +fallback: String) -> String:
+  match values:
+    case Nil{}: fallback
+    case Con{Source.DataAttribute{"native-key", +key}, +rest}: key
+    case Con{+other, +rest}: authored_observation_key(rest, fallback)
+
+def observation_key(value: Content.Value) -> String:
+  match value:
+    case Content.Value{Source.Text{key, text, choice, wrap}, font}: UIIdentity.encode(key)
+    case Content.Value{Source.Glyph{key, picture, style}, font}: UIIdentity.encode(key)
+    case Content.Value{Source.Box{key, tag, style, attrs, children}, font}: authored_observation_key(attrs, UIIdentity.encode(key))
+    case Content.Value{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, font}: authored_observation_key(attrs, UIIdentity.encode(key))
+    case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}: authored_observation_key(attrs, UIIdentity.encode(key))
+    case Content.Value{Source.RichText{key, style, content, attachments, native_owner}, font}: UIIdentity.encode(key)
+    case Content.Value{Source.NativeAttachment{key, target, attrs, style, children}, font}: authored_observation_key(attrs, UIIdentity.encode(key))
+
+def observed(+key: String, node: Doc.Node) -> Doc.Node:
+  match node:
+    case Doc.Element{dom_key, tag, attrs, styles, events, children}:
+      Doc.Element{dom_key, tag, properties(attrs, [Doc.Property{"data-frame-key", key}]), styles, events, children}
+    case Doc.Text{text}: Doc.Text{text}
+    case Doc.Markdown{dom_key, source, text, native_owner}: Doc.Markdown{dom_key, source, text, native_owner}
+    case Doc.Portal{dom_key, target, children}: Doc.Portal{dom_key, target, children}
+    case Doc.TargetProperties{dom_key, target, attrs, styles}: Doc.TargetProperties{dom_key, target, attrs, styles}
+
 def wrapping(+value: T.Wrapping) -> +List<Doc.Property>:
   [Paint.property("white-space", T.white_space(value)), Paint.property("overflow-wrap", T.overflow_wrap(value)),
    Paint.property("word-break", T.word_break(value))]
@@ -372,20 +398,40 @@ def native_field_leaf(+kind: Source.NativeFieldKind, +key: UIIdentity.Key, +styl
            toggle_visual_styles(style), Nil{}, toggle_glyph(UIIdentity.part(key, "toggle-check"), toggle_checked(attrs))}]}
     case other: Doc.Element{UIIdentity.encode(key), field_tag(other), attributes, styles, events, children}
 
+
+# NOTE: Toggle drawing has a passive wrapper; the input owns observation.
+def observed_field(+kind: Source.NativeFieldKind, +key: String, node: Doc.Node) -> Doc.Node:
+  match kind:
+    case Source.ToggleField{}:
+      match node:
+        case Doc.Element{dom_key, "span", attrs, styles, events, Con{Doc.Element{input_key, "input", input_attrs, input_styles, input_events, input_children}, rest}}:
+          Doc.Element{dom_key, "span", attrs, styles, events, Con{observed(key, Doc.Element{input_key, "input", input_attrs, input_styles, input_events, input_children}), rest}}
+        case other: other
+    case Source.TextField{}: observed(key, node)
+    case Source.MessageField{}: observed(key, node)
+    case Source.TextAreaField{}: observed(key, node)
+    case Source.SelectField{}: observed(key, node)
+    case Source.MultiSelectField{}: observed(key, node)
+    case Source.NumberField{minimum}: observed(key, node)
+    case Source.FileField{multiple}: observed(key, node)
+    case Source.DirectoryField{}: observed(key, node)
+    case Source.SearchField{}: observed(key, node)
+    case Source.SecretField{}: observed(key, node)
+
 def leaf_at(+capacity: Nat, +value: Content.Value, +physical_key: String, +bounds: Spatial.Box, +content_canvas: Enclosure.Extent, +rule: Model.Rule,
   +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +owned: +List<Owned>) -> Doc.Node:
   match value:
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}:
-      Doc.Element{UIIdentity.encode(key), "span", text_attributes(wrap, text), properties(styles, properties(primitive_styles_at(capacity, value), text_overflow(wrap))), Nil{}, [Doc.Text{text}]}
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), "span", text_attributes(wrap, text), properties(styles, properties(primitive_styles_at(capacity, value), text_overflow(wrap))), Nil{}, [Doc.Text{text}]})
     case Content.Value{Source.Glyph{+key, +picture, +style}, +font}:
-      Doc.Element{UIIdentity.encode(key), "span", Nil{}, properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, [drawing(key, picture, bounds, rule)]}
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), "span", Nil{}, properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, [drawing(key, picture, bounds, rule)]})
     case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}:
-      native_field_leaf(kind, key, style, attrs, properties(field_authored(kind, attrs), properties(field_attributes(kind, text),
+      observed_field(kind, observation_key(value), native_field_leaf(kind, key, style, attrs, properties(field_authored(kind, attrs), properties(field_attributes(kind, text),
         properties([Paint.property("class", "native-control"), Paint.property("placeholder", placeholder), Paint.property("aria-label", name)], availability(interaction, True{})))),
-        properties(styles, properties(primitive_styles_at(capacity, value), properties(visual(style), field_padding(kind, rule)))), event_list(interaction), choices(options, key))
+        properties(styles, properties(primitive_styles_at(capacity, value), properties(visual(style), field_padding(kind, rule)))), event_list(interaction), choices(options, key)))
     case Content.Value{Source.RichText{+key, +style, Source.RichContent{+source, +text, +policy}, +attachments, +native_owner}, +font}:
-      Doc.Element{UIIdentity.encode(key), "div", [Paint.property("class", "physical-markdown")], properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{},
-        [rich_content_frame(key, content_canvas, rule, Doc.Markdown{UIIdentity.encode(UIIdentity.part(key, "markdown")), source, text, native_owner} <> owned_nodes(owned, physical_key))]}
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), "div", [Paint.property("class", "physical-markdown")], properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{},
+        [rich_content_frame(key, content_canvas, rule, Doc.Markdown{UIIdentity.encode(UIIdentity.part(key, "markdown")), source, text, native_owner} <> owned_nodes(owned, physical_key))]})
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +children}, +font}: diagnostic(key, "box-as-leaf")
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +children}, +font}: diagnostic(key, "control-as-leaf")
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +children}, +font}: diagnostic(key, "native-attachment-as-leaf")
@@ -408,11 +454,11 @@ def reading_styles(content: Bool, styles: +List<Doc.Property>) -> +List<Doc.Prop
 def container_at(+capacity: Nat, +value: Content.Value, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
   match value:
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +original_children}, +font}:
-      Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), reading_styles(reading_content(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style)))), Nil{}, children}
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), reading_styles(reading_content(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style)))), Nil{}, children})
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +original_children}, +font}:
-      Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), control_visual(style))), event_list(interaction), children}
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), control_visual(style))), event_list(interaction), children})
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +original_children}, +font}:
-      choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", attributes(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
+      choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", Nil{}, properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: diagnostic(key, "text-as-container")
     case Content.Value{Source.Glyph{+key, +picture, +style}, +font}: diagnostic(key, "glyph-as-container")
     case Content.Value{Source.Field{+key, +kind, +style, +attrs, +text, +placeholder, +options, +policy, +name, +enabled, +first, +remaining}, +font}: diagnostic(key, "field-as-container")

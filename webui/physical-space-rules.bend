@@ -9,6 +9,29 @@ def extent_contains(outer: Enclosure.Extent, inner: Enclosure.Extent) -> Bool:
   Enclosure.Extent{inner_width, inner_height} = inner
   Nat.is_le(inner_width, outer_width) && Nat.is_le(inner_height, outer_height)
 
+def authored_minimum(size: Model.AxisSize) -> Nat:
+  match size:
+    case Model.NaturalSize{}: 0n
+    case Model.StretchSize{}: 0n
+    case Model.CappedStretchSize{maximum}: 0n
+    case Model.ExactSize{extent}: extent
+    case Model.LimitedSize{minimum, extra, maximum}: minimum
+    case Model.PercentSize{percent}: 0n
+    case Model.CappedNaturalSize{percent}: 0n
+    case Model.AdaptiveNaturalSize{percent}: 0n
+
+def axis_minimum(value: Model.AxisDemand) -> Nat:
+  Model.AxisDemand{minimum, preferred} = value
+  minimum
+
+def axis_preferred(value: Model.AxisDemand) -> Nat:
+  Model.AxisDemand{minimum, preferred} = value
+  preferred
+
+def rule_authored_minimum(rule: Model.Rule) -> Enclosure.Extent:
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  Enclosure.Extent{authored_minimum(width), authored_minimum(height)}
+
 def preferred_covers_minimum(value: Space.Demand) -> Bool:
   Space.Demand{minimum, preferred} = value
   extent_contains(preferred, minimum)
@@ -68,6 +91,27 @@ def maximum_fits(result: Maybe<&2, Space.Dimension>, +offered: Nat) -> Bool:
 
 type Requirements<-A: Data, -E: Data> is Type:
   Requirements{
+    axis_authored_floor: @+size:Model.AxisSize -> @+minimum:Nat -> @+preferred:Nat ->
+      {Nat.is_le(authored_minimum(size), axis_minimum(Model.axis_demand(size, minimum, preferred))) == True{} : Bool},
+    outer_authored_floor: @+content:Space.Demand -> @+rule:Model.Rule -> @+interaction:Model.Interaction<E> ->
+      {extent_contains(Model.minimum_demand(Model.outer_demand(~E, content, rule, interaction)), rule_authored_minimum(rule)) == True{} : Bool},
+    axis_intrinsic_floor: @+size:Model.AxisSize -> @+minimum:Nat -> @+preferred:Nat ->
+      {Nat.is_le(minimum, axis_minimum(Model.axis_demand(size, minimum, preferred))) == True{} : Bool},
+    axis_preferred_floor: @+size:Model.AxisSize -> @+minimum:Nat -> @+preferred:Nat ->
+      {Nat.is_le(axis_minimum(Model.axis_demand(size, minimum, preferred)), axis_preferred(Model.axis_demand(size, minimum, preferred))) == True{} : Bool},
+    authored_preferred: @+width:Model.AxisSize -> @+height:Model.AxisSize -> @+content:Space.Demand ->
+      {preferred_covers_minimum(Model.authored_demand(width, height, content)) == True{} : Bool},
+    authored_floor: @+width:Model.AxisSize -> @+height:Model.AxisSize -> @+content:Space.Demand ->
+      {extent_contains(Model.minimum_demand(Model.authored_demand(width, height, content)), Model.minimum_demand(content)) == True{} : Bool},
+    outer_preferred: @+content:Space.Demand -> @+rule:Model.Rule -> @+interaction:Model.Interaction<E> ->
+      {preferred_covers_minimum(Model.outer_demand(~E, content, rule, interaction)) == True{} : Bool},
+    outer_intrinsic_floor: @+content:Space.Demand -> @+rule:Model.Rule -> @+interaction:Model.Interaction<E> ->
+      {extent_contains(Model.minimum_demand(Model.outer_demand(~E, content, rule, interaction)), Model.minimum_demand(Model.intrinsic_outer_demand(~E, content, rule, interaction))) == True{} : Bool},
+    authored_exact: @+minimum:Nat -> @+preferred:Nat -> @+extent:Nat ->
+      {Model.axis_demand(Model.ExactSize{extent}, minimum, preferred) == Model.AxisDemand{Nat.max(minimum, extent), Nat.max(minimum, extent)} : Model.AxisDemand},
+    authored_limited_floor: @+minimum:Nat -> @+preferred:Nat -> @+authored:Nat -> @+extra:Nat -> @+maximum:Nat ->
+      {Nat.is_le(authored, axis_minimum(Model.axis_demand(Model.LimitedSize{authored, extra, maximum}, minimum, preferred))) == True{} : Bool},
+
     adaptive_exact: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+nominal_cap:Nat ->
       @fits:{Nat.is_le(minimum, offered) == True{} : Bool} ->
       {Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered) == Some{adaptive_fit(minimum, preferred, offered, nominal_cap)} : Maybe<&2, Space.Dimension>},

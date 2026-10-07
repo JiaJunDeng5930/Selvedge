@@ -1,6 +1,8 @@
 import Base
 import ../../bendlib/stdlib.bend as Std
 import ../physical-space.bend as Model
+import ./physical-space.bend as ModelProof
+import ../physical-space-rules.bend as ModelRules
 import ../physical-allocation.bend as Allocation
 import ../spatial.bend as Spatial
 import ../enclosure.bend as Enclosure
@@ -334,3 +336,45 @@ def Rule.aligned_layer_bounds(outside, horizontal, vertical, rule, left, top, av
   {==}
 
 def Rule.aligned_layer_clearance(outside, horizontal, vertical): {==}
+
+def root_position_policy(~A: Data, ~E: Data, +position: Spatial.Position, +tree: Allocation.MeasuredTree<A, E>, +offered: Spatial.Box, +offset: Nat, +height: Nat) ->
+  Rule.RootBoundsPolicy(~A, ~E, position, tree, offered, offset, height, Allocation.root_bounds_position(~A, ~E, position, tree, offered, offset, height)):
+  match position:
+    case Spatial.InFlow{}: {==}
+    case Spatial.CenteredLayer{outside}: {==}
+    case Spatial.AlignedLayer{outside, horizontal, vertical}: {==}
+    case Spatial.AnchoredLayer{key, anchor, outside, gap, alignment}: {==}
+
+def Rule.root_position(A, E, tree, offered, offset, height):
+  root_position_policy(~A, ~E, Model.rule_position(Allocation.measured_rule(~A, ~E, tree)), tree, offered, offset, height)
+
+def Rule.root_width_clearance(A, E, slots, tree, width, samples):
+  {==}
+
+def Rule.root_height_clearance(A, E, slots, tree, offered):
+  {==}
+
+def Rule.root_allocation_bounds(A, E, tree, value, rest, offset, height, offered):
+  {==}
+
+def measured_preferred(~A: Data, ~E: Data, +tree: Allocation.MeasuredTree<A, E>) ->
+  {ModelRules.preferred_covers_minimum(Allocation.measured_demand(~A, ~E, tree)) == True{} : Bool}:
+  match tree:
+    case Allocation.MeasuredLeaf{key, value, interaction, rule, demand, height, outer_width, inline_offset, content_height}:
+      ModelProof.outer_preferred(~E, Model.fixed_leaf_content(demand, content_height), rule, interaction)
+    case Allocation.MeasuredContainer{key, value, interaction, +rule, outer_width, inline_offset, direction, children}:
+      ModelProof.outer_preferred(~E, Allocation.measured_content_demand(~A, ~E, children, direction, Allocation.rule_gap(rule)), rule, interaction)
+
+def Rule.measured_preferred(A, E, tree):
+  measured_preferred(~A, ~E, tree)
+
+def measured_authored_floor(~A: Data, ~E: Data, +tree: Allocation.MeasuredTree<A, E>) ->
+  {ModelRules.extent_contains(Model.minimum_demand(Allocation.measured_demand(~A, ~E, tree)), ModelRules.rule_authored_minimum(Allocation.measured_rule(~A, ~E, tree))) == True{} : Bool}:
+  match tree:
+    case Allocation.MeasuredLeaf{key, value, interaction, rule, demand, height, outer_width, inline_offset, content_height}:
+      ModelProof.outer_authored_floor(~E, Model.fixed_leaf_content(demand, content_height), rule, interaction)
+    case Allocation.MeasuredContainer{key, value, interaction, +rule, outer_width, inline_offset, direction, children}:
+      ModelProof.outer_authored_floor(~E, Allocation.measured_content_demand(~A, ~E, children, direction, Allocation.rule_gap(rule)), rule, interaction)
+
+def Rule.measured_authored_floor(A, E, tree):
+  measured_authored_floor(~A, ~E, tree)

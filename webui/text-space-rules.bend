@@ -48,7 +48,7 @@ def render_claim(+capacity: Nat, +key: UIIdentity.Key, +text: String, choice: So
   styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) -> Type:
   +value : Content.Value = Content.Value{Source.Text{key, text, choice, T.SingleLine{}}, font}
   {Renderer.leaf_at(capacity, value, UIIdentity.encode(key), bounds, canvas, rule, interaction, styles, owned) ==
-    Doc.Element{UIIdentity.encode(key), "span", [Doc.Property{"title", text}],
+    Doc.Element{UIIdentity.encode(key), "span", [Doc.Property{"title", text}, Doc.Property{"data-frame-key", UIIdentity.encode(key)}],
       Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, value), [Paint.property("text-overflow", "ellipsis")])),
       Nil{}, [Doc.Text{text}]} : Doc.Node}
 
@@ -96,7 +96,7 @@ def unbroken_render_claim(+capacity: Nat, +key: UIIdentity.Key, +text: String, c
   styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) -> Type:
   +value : Content.Value = Content.Value{Source.Text{key,text,choice,T.UnbrokenLine{}},font}
   {Renderer.leaf_at(capacity,value,UIIdentity.encode(key),bounds,canvas,rule,interaction,styles,owned) ==
-    Doc.Element{UIIdentity.encode(key),"span",Nil{},Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,value),Nil{})),Nil{},[Doc.Text{text}]} : Doc.Node}
+    Doc.Element{UIIdentity.encode(key),"span",[Doc.Property{"data-frame-key", UIIdentity.encode(key)}],Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,value),Nil{})),Nil{},[Doc.Text{text}]} : Doc.Node}
 
 law unbroken_render:
   for +capacity: Nat

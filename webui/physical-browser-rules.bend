@@ -6,6 +6,8 @@ import ./focus.bend as Focus
 import ./native-fields.bend as Native
 import ../core/interface.bend as UI
 import Base
+import ./frontend-utility.bend as Utility
+import ./source-frame.bend as SourceFrame
 import ./platform.bend as Platform
 import ./design.bend as Design
 import ./font-observation.bend as F
@@ -39,6 +41,7 @@ def pending_lifecycle(lifecycle: Browser.Lifecycle) -> Bool:
     case Browser.WaitingEnvironment{}: True{}
     case Browser.WaitingFont{}: True{}
     case Browser.Measuring{index, capacity, engine, semantic, round}: True{}
+    case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}: True{}
     case other: False{}
 def publication_pending(state: Browser.State) -> Bool:
   Browser.State{legacy, serial, anchors, lifecycle, displayed} = state
@@ -46,9 +49,9 @@ def publication_pending(state: Browser.State) -> Bool:
 def blocked_publication_claim_at(+capacity: Nat, +last_published: Nat, +legacy: Legacy.State, +serial: Nat,
   +anchors: +List<Shell.Anchor>, +problem: String, +displayed: Maybe<&2, Browser.Published>) -> Type:
   {Browser.publication(capacity, last_published, Browser.State{legacy, serial, anchors, Browser.Blocked{problem}, displayed}) ==
-    Browser.Publish{0n, Browser.recovery_document_at(capacity, problem,
-      T.Presentation{T.Body{}, T.Regular{}, F.scale(Browser.current_font(legacy))}),
-      Browser.native_updates(Browser.State{legacy, serial, anchors, Browser.Blocked{problem}, displayed})} : Browser.Publication}
+    Browser.publication_policy_at(capacity, Bool.not(Nat.is_eq(last_published, 0n)), False{},
+      Nat.is_eq(Browser.displayed_generation(Browser.State{legacy, serial, anchors, Browser.Blocked{problem}, displayed}), last_published),
+      Browser.State{legacy, serial, anchors, Browser.Blocked{problem}, displayed}) : Browser.Publication}
 def publication_preserves_pending_claim_at(+capacity: Nat, +last_published: Nat, +state: Browser.State) -> Type:
   {Browser.publication(capacity, last_published, state) == Browser.KeepPublished{Browser.native_updates(state)} : Browser.Publication}
 def publication_current_claim_at(+capacity: Nat, +last_published: Nat, +state: Browser.State) -> Type:
@@ -183,6 +186,7 @@ law stale_native_focus_preserves_state:
 def measuring_lifecycle(lifecycle: Browser.Lifecycle) -> Bool:
   match lifecycle:
     case Browser.Measuring{index, capacity, engine, semantic, round}: True{}
+    case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}: True{}
     case other: False{}
 def measurement_phase(state: Browser.State) -> Bool:
   Browser.State{legacy, serial, anchors, lifecycle, displayed} = state
@@ -201,7 +205,7 @@ law current_measurement_failure:
   for +state: Browser.State
   for owned: {Browser.measurement_owned(ticket, state) == True{} : Bool}
   {Browser.physical_measurement_failed(ticket, reason, state) ==
-    Browser.Decision{Browser.set_lifecycle(state, Browser.Blocked{reason}), Nil{}} : Browser.Decision}
+    Browser.utility_measurement_failure(reason, state) : Browser.Decision}
 
 law measurement_ownership_only_measuring:
   for +ticket: Browser.MeasurementTicket
@@ -311,6 +315,10 @@ def pending_frame_effects_expected_for(lifecycle: Browser.Lifecycle, realization
               [Legacy.BrowserEffect{Web.MeasureFrame{physical_generation}}]
             case None{}: Nil{}
         case _: Nil{}
+    case Browser.UtilityDisplaying{purpose, engine}:
+      match displayed:
+        case Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, None{}}}: [Legacy.BrowserEffect{Web.MeasureFrame{generation}}]
+        case _: Nil{}
     case _: Nil{}
 
 def pending_frame_effects_expected(state: Browser.State) -> +List<Legacy.Effect>:
@@ -354,10 +362,21 @@ def inspection_expected(+stored: Legacy.State, displayed: Maybe<&2, Browser.Publ
   +layer = Legacy.current_layer_key(stored)
   inspection_display_expected(inspection_frame(realization), layer, displayed)
 
+def inspection_utility_expected(displayed: Maybe<&2, Browser.Published>) -> Browser.RenderInspection:
+  match displayed:
+    case None{}: Browser.RenderInspection{None{}, None{}, None{}, None{}, None{}}
+    case Some{Browser.Published{+world, semantic, scope, basis, frame}}:
+      Browser.RenderInspection{frame, Some{SourceFrame.tabs(SourceFrame.expected(world))}, Some{SourceFrame.no_native(world)}, None{}, None{}}
+
+def inspection_owned_expected(utility: Bool, +stored: Legacy.State, displayed: Maybe<&2, Browser.Published>) -> Browser.RenderInspection:
+  match utility:
+    case True{}: inspection_utility_expected(displayed)
+    case False{}: inspection_expected(stored, displayed)
+
 def render_inspection_claim(+stored: Legacy.State, +serial: Nat, +anchors: +List<Shell.Anchor>,
   +lifecycle: Browser.Lifecycle, +displayed: Maybe<&2, Browser.Published>) -> Type:
   {Browser.render_inspection(Browser.State{stored, serial, anchors, lifecycle, displayed}) ==
-    inspection_expected(stored, displayed) : Browser.RenderInspection}
+    inspection_owned_expected(Browser.auxiliary_owned(Browser.State{stored, serial, anchors, lifecycle, displayed}), stored, displayed) : Browser.RenderInspection}
 
 law pending_frame_effects:
   for +state: Browser.State

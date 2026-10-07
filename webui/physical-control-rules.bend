@@ -153,7 +153,7 @@ def rendered_control_claim(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.Co
   +remaining: +List<Doc.Event>, +original_children: +List<Source.Node>, +font: T.Presentation,
   +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, native: Bool) -> Type:
   {Renderer.container_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font},interaction,styles,children,native) ==
-    Doc.Element{UIIdentity.encode(key),Source.control_tag_name(tag),Renderer.control_attributes(tag,attrs,name,interaction),
+    Doc.Element{UIIdentity.encode(key),Source.control_tag_name(tag),Renderer.properties(Renderer.control_attributes(tag,attrs,name,interaction), [Doc.Property{"data-frame-key", Renderer.observation_key(Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font})}]),
       Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font}),Renderer.control_visual(style))),
       Renderer.event_list(interaction),children} : Doc.Node}
 

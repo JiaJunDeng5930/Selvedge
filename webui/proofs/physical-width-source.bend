@@ -367,10 +367,10 @@ def slots_preserved(~A: Data, ~E: Data, +slots: Allocation.SlotsOutcome<Model.Tr
   match slots:
     case Allocation.SlotsFailure{failure}: {==}
     case Allocation.SlotsReady{+values}:
-      packed_preserved(~A, ~E, Allocation.shared_pack(~Model.Tree<A, E>, values, 0n, width), tree, samples,
+      packed_preserved(~A, ~E, Allocation.shared_pack(~Model.Tree<A, E>, values, 0n, Nat.sub(width, Allocation.outside_axis(Allocation.InlineAxis{}, Allocation.tree_rule(~A, ~E, tree)))), tree, samples,
         Std.transport(+List<Model.Tree<A, E>>, SpaceLaws.slot_values(~Model.Tree<A, E>, values),
-          (children => PopulationProof.PackingPopulation(~Model.Tree<A, E>, children, Allocation.shared_pack(~Model.Tree<A, E>, values, 0n, width))),
-          PopulationProof.shared_population(~Model.Tree<A, E>, values, 0n, width), tree <> Nil{}, Equal.sym(+List<Model.Tree<A, E>>, SpaceLaws.slot_values(~Model.Tree<A, E>, values), tree <> Nil{}, population)))
+          (children => PopulationProof.PackingPopulation(~Model.Tree<A, E>, children, Allocation.shared_pack(~Model.Tree<A, E>, values, 0n, Nat.sub(width, Allocation.outside_axis(Allocation.InlineAxis{}, Allocation.tree_rule(~A, ~E, tree)))))),
+          PopulationProof.shared_population(~Model.Tree<A, E>, values, 0n, Nat.sub(width, Allocation.outside_axis(Allocation.InlineAxis{}, Allocation.tree_rule(~A, ~E, tree)))), tree <> Nil{}, Equal.sym(+List<Model.Tree<A, E>>, SpaceLaws.slot_values(~Model.Tree<A, E>, values), tree <> Nil{}, population)))
 
 def preserved(~A: Data, ~E: Data, +tree: Model.Tree<A, E>, +width: Nat, +samples: +List<Model.HeightSample>) ->
   Rule.source_claim(~A, ~E, tree, Allocation.fit_width(~A, ~E, tree, width, samples)):

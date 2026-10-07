@@ -63,3 +63,13 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+def panel_policy(panel: U.Panel, trigger: String, dismissal: View.Dismissal) -> Type:
+  match panel:
+    case U.TaskDetails{task}: {dismissal == View.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}} : View.Dismissal}
+    case _: {dismissal == View.OutsideOrEscape{U.ClosePanel{}} : View.Dismissal}
+
+law all_panel_policies:
+  for +panel: U.Panel
+  for +trigger: String
+  panel_policy(panel, trigger, View.layer_dismissal(panel, trigger))

@@ -3,7 +3,8 @@
 .physical-markdown .markdown :where(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, pre, table, hr, figure, details) { margin: 0; padding: 0; border: 0; }
 .physical-markdown .markdown h1 { font-family: var(--rich-title-font); font-size: var(--rich-title-size); line-height: var(--rich-title-line); font-weight: var(--rich-title-weight); }
 .physical-markdown .markdown h2 { font-family: var(--rich-section-font); font-size: var(--rich-section-size); line-height: var(--rich-section-line); font-weight: var(--rich-section-weight); }
-.physical-markdown .markdown :where(h3, strong) { font-family: var(--rich-body-strong-font); font-size: var(--rich-body-strong-size); line-height: var(--rich-body-strong-line); font-weight: var(--rich-body-strong-weight); }
+.physical-markdown .markdown h3 { font-family: var(--rich-body-strong-font); font-size: var(--rich-body-strong-size); line-height: var(--rich-body-strong-line); font-weight: var(--rich-body-strong-weight); }
+.physical-markdown .markdown :where(strong, b, th) { font-weight: var(--rich-strong-weight); }
 .physical-markdown .markdown :where(h4, h5, h6) { font-family: var(--rich-support-font); font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
 .physical-markdown .markdown :where(ul, ol) { padding-inline-start: var(--physical-list-indent); }
 .physical-markdown .markdown li { margin: 0; padding: 0; }

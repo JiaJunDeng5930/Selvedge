@@ -8,6 +8,8 @@ import ../document.bend as Doc
 import ../typography.bend as T
 import ../paint-rules.bend as PaintRule
 import ../physical-space.bend as Model
+import ../spatial.bend as Spatial
+import ../enclosure.bend as Enclosure
 import ../../core/ui-identity.bend as Identity
 
 def rich_parent(+capacity: Nat, +font: T.Presentation, policy: Source.RichPolicy) ->
@@ -32,5 +34,63 @@ def reading_box(+capacity: Nat, +key: Identity.Key, +tag: Source.BoxTag, +style:
     (is_content => Renderer.reading_styles(is_content, Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, Content.Value{Source.Box{key, tag, style, attrs, original}, font}), Renderer.visual(style))))),
     Renderer.reading_content(attrs), content, recognized)
 
+def observation_appended(attrs: +List<Doc.Property>, +key: String) ->
+  {Rule.last_attribute(Renderer.properties(attrs, [Doc.Property{"data-frame-key", key}])) == Some{Doc.Property{"data-frame-key", key}} : Maybe<&2, Doc.Property>}:
+  match attrs:
+    case Nil{}: {==}
+    case Con{first, rest}:
+      match rest:
+        case Nil{}: {==}
+        case Con{next, tail}: observation_appended(Con{next, tail}, key)
+
+def field_observation(+kind: Source.NativeFieldKind, +key: Identity.Key, +style: Source.Style,
+  +attrs: +List<Source.Attribute>, attributes: +List<Doc.Property>, +styles: +List<Doc.Property>, events: +List<Doc.Event>, children: +List<Doc.Node>, +identity: String) ->
+  {Rule.field_observation(kind, Renderer.observed_field(kind, identity, Renderer.native_field_leaf(kind, key, style, attrs, attributes, styles, events, children))) == Some{Doc.Property{"data-frame-key", identity}} : Maybe<&2, Doc.Property>}:
+  match kind:
+    case Source.TextField{}: observation_appended(attributes, identity)
+    case Source.MessageField{}: observation_appended(attributes, identity)
+    case Source.TextAreaField{}: observation_appended(attributes, identity)
+    case Source.SelectField{}: observation_appended(attributes, identity)
+    case Source.MultiSelectField{}: observation_appended(attributes, identity)
+    case Source.NumberField{minimum}: observation_appended(attributes, identity)
+    case Source.FileField{multiple}: observation_appended(attributes, identity)
+    case Source.DirectoryField{}: observation_appended(attributes, identity)
+    case Source.SearchField{}: observation_appended(attributes, identity)
+    case Source.SecretField{}: observation_appended(attributes, identity)
+    case Source.ToggleField{}: observation_appended(attributes, identity)
+
+def leaf_observation(+capacity: Nat, +value: Content.Value, physical_key: String, bounds: Spatial.Box,
+  canvas: Enclosure.Extent, +rule: Model.Rule, +interaction: Model.Interaction<Doc.Event>, +styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) ->
+  Rule.leaf_observation_claim(capacity, value, physical_key, bounds, canvas, rule, interaction, styles, owned):
+  match value:
+    case Content.Value{Source.Text{key, text, choice, wrap}, font}: observation_appended(Renderer.text_attributes(wrap, text), Renderer.observation_key(value))
+    case Content.Value{Source.Glyph{key, picture, style}, font}: {==}
+    case Content.Value{Source.RichText{key, style, content, attachments, owner}, font}:
+      match content:
+        case Source.RichContent{source, text, policy}: {==}
+    case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}:
+      field_observation(kind, key, style, attrs,
+        Renderer.properties(Renderer.field_authored(kind, attrs), Renderer.properties(Renderer.field_attributes(kind, text),
+          Renderer.properties([Doc.Property{"class", "native-control"}, Doc.Property{"placeholder", placeholder}, Doc.Property{"aria-label", name}], Renderer.availability(interaction, True{})))),
+        Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, value), Renderer.properties(Renderer.visual(style), Renderer.field_padding(kind, rule)))),
+        Renderer.event_list(interaction), Renderer.choices(options, key), Renderer.observation_key(value))
+    case Content.Value{Source.Box{key, tag, style, attrs, children}, font}: {==}
+    case Content.Value{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, font}: {==}
+    case Content.Value{Source.NativeAttachment{key, target, attrs, style, children}, font}: {==}
+
+def container_observation(+capacity: Nat, +value: Content.Value, interaction: Model.Interaction<Doc.Event>, styles: +List<Doc.Property>, children: +List<Doc.Node>, +native: Bool) ->
+  Rule.container_observation_claim(capacity, value, interaction, styles, children, native):
+  match value:
+    case Content.Value{Source.Box{key, tag, style, attrs, original}, font}: observation_appended(Renderer.attributes(attrs), Renderer.observation_key(value))
+    case Content.Value{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, original}, font}: observation_appended(Renderer.control_attributes(tag, attrs, name, interaction), Renderer.observation_key(value))
+    case Content.Value{Source.NativeAttachment{key, target, attrs, style, original}, font}:
+      match native:
+        case True{}: {==}
+        case False{}: {==}
+    case Content.Value{Source.Text{key, text, choice, wrap}, font}: {==}
+    case Content.Value{Source.Glyph{key, picture, style}, font}: {==}
+    case Content.Value{Source.RichText{key, style, content, attachments, owner}, font}: {==}
+    case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}: {==}
+
 def Rule.evidence():
-  Rule.Requirements{reading_box, styles => {==}, styles => {==}, rich_parent, generation => key => tag => style => children => font => theme => {==}, admitted_world, rejected_world}
+  Rule.Requirements{key => dom_key => tag => attrs => styles => events => children => {==}, identity => dom_key => attrs => styles => events => input_key => input_attrs => input_styles => input_events => input_children => rest => {==}, owner => target => key => identity => native_target => attrs => style => original => font => interaction => rule => bounds => canvas => direction => children => {==}, leaf_observation, container_observation, reading_box, styles => {==}, styles => {==}, rich_parent, generation => key => tag => style => children => font => theme => {==}, admitted_world, rejected_world}

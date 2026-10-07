@@ -694,7 +694,7 @@ def dispatch_fit_width_15(~A: Data, ~E: Data, selector: SlotsOutcome<Model.Tree<
   match selector:
     case SlotsFailure{failure}: WidthFailure{failure}
     case SlotsReady{slots}:
-      dispatch_fit_width_16(~A, ~E, shared_pack(~Model.Tree<A, E>, slots, 0n, offered_width), tree, samples)
+      dispatch_fit_width_16(~A, ~E, shared_pack(~Model.Tree<A, E>, slots, 0n, Nat.sub(offered_width, outside_axis(InlineAxis{}, tree_rule(~A, ~E, tree)))), tree, samples)
 
 def fit_width(~A: Data, ~E: Data, +tree: Model.Tree<A, E>, +offered_width: Nat, samples: +List<Model.HeightSample>) -> WidthOutcome<A, E>:
   dispatch_fit_width_15(~A, ~E, width_slots(~A, ~E, tree <> Nil{}, offered_width), tree, offered_width, samples)
@@ -900,29 +900,47 @@ def positioned_outcome(~A: Data, ~E: Data, result: PositionedOutcome<A, E>) -> O
     case Positioned{tree}: Allocated{tree}
     case PositionFailure{failure}: Infeasible{failure}
 
-def positioned_root_first_placements(~A: Data, ~E: Data, +placements: +List<Space.Placement<MeasuredTree<A, E>>>, +tree: MeasuredTree<A, E>, +left: Nat, +top: Nat) -> Outcome<A, E>:
+def inflow_root_bounds(~A: Data, ~E: Data, +tree: MeasuredTree<A, E>, offered: Spatial.Box, +offset: Nat, +height: Nat) -> Spatial.Box:
+  Spatial.Box{left, top, width, available_height} = offered
+  Spatial.Box{Nat.add(left, measured_offset(~A, ~E, tree)), Nat.add(top, offset), measured_width(~A, ~E, tree), height}
+
+def layered_root_bounds(~A: Data, ~E: Data, +tree: MeasuredTree<A, E>, position: Spatial.Position, offered: Spatial.Box, height: Nat) -> Spatial.Box:
+  Spatial.Box{left, top, width, available_height} = offered
+  layered_bounds(position, measured_rule(~A, ~E, tree), left, top, width, available_height, measured_width(~A, ~E, tree), height)
+
+def root_bounds_position(~A: Data, ~E: Data, +position: Spatial.Position, +tree: MeasuredTree<A, E>, +offered: Spatial.Box, +offset: Nat, +height: Nat) -> Spatial.Box:
+  match position:
+    case Spatial.InFlow{}: inflow_root_bounds(~A, ~E, tree, offered, offset, height)
+    case Spatial.CenteredLayer{outside}: layered_root_bounds(~A, ~E, tree, Spatial.CenteredLayer{outside}, offered, height)
+    case Spatial.AlignedLayer{outside, horizontal, vertical}: layered_root_bounds(~A, ~E, tree, Spatial.AlignedLayer{outside, horizontal, vertical}, offered, height)
+    case Spatial.AnchoredLayer{key, anchor, outside, gap, alignment}: layered_root_bounds(~A, ~E, tree, Spatial.AnchoredLayer{key, anchor, outside, gap, alignment}, offered, height)
+
+def root_bounds(~A: Data, ~E: Data, +tree: MeasuredTree<A, E>, +offered: Spatial.Box, +offset: Nat, +height: Nat) -> Spatial.Box:
+  root_bounds_position(~A, ~E, Model.rule_position(measured_rule(~A, ~E, tree)), tree, offered, offset, height)
+
+def positioned_root_first_placements(~A: Data, ~E: Data, +placements: +List<Space.Placement<MeasuredTree<A, E>>>, +tree: MeasuredTree<A, E>, +offered: Spatial.Box) -> Outcome<A, E>:
   match placements:
     case Nil{}: Infeasible{Failure{measured_key(~A, ~E, tree), BlockAxis{}, 1n, 0n, InsufficientSpace{}}}
     case Con{Space.Placement{+value, offset, extent}, rest}:
-      positioned_outcome(~A, ~E, allocate_measured(~A, ~E, value, Spatial.Box{Nat.add(left, measured_offset(~A, ~E, value)), Nat.add(top, offset), measured_width(~A, ~E, value), extent}))
+      positioned_outcome(~A, ~E, allocate_measured(~A, ~E, value, root_bounds(~A, ~E, value, offered, offset, extent)))
 
-def positioned_root(~A: Data, ~E: Data, +tree: MeasuredTree<A, E>, placements: +List<Space.Placement<MeasuredTree<A, E>>>, left: Nat, top: Nat) -> Outcome<A, E>:
-  positioned_root_first_placements(~A, ~E, placements, tree, left, top)
+def positioned_root(~A: Data, ~E: Data, +tree: MeasuredTree<A, E>, placements: +List<Space.Placement<MeasuredTree<A, E>>>, offered: Spatial.Box) -> Outcome<A, E>:
+  positioned_root_first_placements(~A, ~E, placements, tree, offered)
 
-def dispatch_allocate_root_height_21(~A: Data, ~E: Data, selector: Space.Packing<MeasuredTree<A, E>>, +tree: MeasuredTree<A, E>, +left: Nat, +top: Nat) -> Outcome<A, E>:
+def dispatch_allocate_root_height_21(~A: Data, ~E: Data, selector: Space.Packing<MeasuredTree<A, E>>, +tree: MeasuredTree<A, E>, +offered: Spatial.Box) -> Outcome<A, E>:
   match selector:
     case Space.Insufficient{required, available}: Infeasible{Failure{measured_key(~A, ~E, tree), BlockAxis{}, required, available, InsufficientSpace{}}}
-    case Space.Packed{placements, unused}: positioned_root(~A, ~E, tree, placements, left, top)
+    case Space.Packed{placements, unused}: positioned_root(~A, ~E, tree, placements, offered)
 
-def dispatch_allocate_root_height_20(~A: Data, ~E: Data, selector: SlotsOutcome<MeasuredTree<A, E>>, +tree: MeasuredTree<A, E>, +height: Nat, +left: Nat, +top: Nat) -> Outcome<A, E>:
+def dispatch_allocate_root_height_20(~A: Data, ~E: Data, selector: SlotsOutcome<MeasuredTree<A, E>>, +tree: MeasuredTree<A, E>, +offered: Spatial.Box) -> Outcome<A, E>:
   match selector:
     case SlotsFailure{failure}: Infeasible{failure}
     case SlotsReady{slots}:
-      dispatch_allocate_root_height_21(~A, ~E, shared_pack(~MeasuredTree<A, E>, slots, 0n, height), tree, left, top)
+      dispatch_allocate_root_height_21(~A, ~E, shared_pack(~MeasuredTree<A, E>, slots, 0n,
+        Nat.sub(box_height(offered), outside_axis(BlockAxis{}, measured_rule(~A, ~E, tree)))), tree, offered)
 
 def allocate_root_height_first_offered(~A: Data, ~E: Data, +offered: Spatial.Box, +tree: MeasuredTree<A, E>) -> Outcome<A, E>:
-  Spatial.Box{+left, +top, width, +height} = offered
-  dispatch_allocate_root_height_20(~A, ~E, height_slots(~A, ~E, tree <> Nil{}, height), tree, height, left, top)
+  dispatch_allocate_root_height_20(~A, ~E, height_slots(~A, ~E, tree <> Nil{}, box_height(offered)), tree, offered)
 
 def allocate_root_height(~A: Data, ~E: Data, +tree: MeasuredTree<A, E>, offered: Spatial.Box) -> Outcome<A, E>:
   allocate_root_height_first_offered(~A, ~E, offered, tree)

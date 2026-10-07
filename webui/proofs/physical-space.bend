@@ -213,6 +213,92 @@ def children_content(~A: Data, ~E: Data, +trees: +List<Model.Tree<A, E>>, +direc
       prepend_children(~A, ~E, Model.Container{key, value, interaction, rule, children}, rest, direction, Model.remaining_gap(~A, ~E, rest, gap), Model.clearance_demand(direction, Model.rule_position(rule), first), Model.content_demand(~A, ~E, rest, direction, gap),
         clearance_singleton(direction, Model.rule_position(rule), first), children_content(~A, ~E, rest, direction, gap))
 
+def axis_authored_floor(+size: Model.AxisSize, +minimum: Nat, +preferred: Nat) ->
+  {Nat.is_le(ModelRules.authored_minimum(size), ModelRules.axis_minimum(Model.axis_demand(size, minimum, preferred))) == True{} : Bool}:
+  match size:
+    case Model.NaturalSize{}: Order.zero_le(minimum)
+    case Model.StretchSize{}: Order.zero_le(minimum)
+    case Model.CappedStretchSize{maximum}: Order.zero_le(minimum)
+    case Model.ExactSize{extent}: Order.max_right(minimum, extent)
+    case Model.LimitedSize{authored, extra, maximum}: Order.max_right(minimum, authored)
+    case Model.PercentSize{percent}: Order.zero_le(minimum)
+    case Model.CappedNaturalSize{percent}: Order.zero_le(minimum)
+    case Model.AdaptiveNaturalSize{percent}: Order.zero_le(minimum)
+
+def axis_intrinsic_floor(+size: Model.AxisSize, +minimum: Nat, +preferred: Nat) ->
+  {Nat.is_le(minimum, ModelRules.axis_minimum(Model.axis_demand(size, minimum, preferred))) == True{} : Bool}:
+  match size:
+    case Model.NaturalSize{}: Order.le_refl(minimum)
+    case Model.StretchSize{}: Order.le_refl(minimum)
+    case Model.CappedStretchSize{maximum}: Order.le_refl(minimum)
+    case Model.ExactSize{extent}: Order.max_left(minimum, extent)
+    case Model.LimitedSize{authored, extra, maximum}: Order.max_left(minimum, authored)
+    case Model.PercentSize{percent}: Order.le_refl(minimum)
+    case Model.CappedNaturalSize{percent}: Order.le_refl(minimum)
+    case Model.AdaptiveNaturalSize{percent}: Order.le_refl(minimum)
+
+def axis_preferred_floor(+size: Model.AxisSize, +minimum: Nat, +preferred: Nat) ->
+  {Nat.is_le(ModelRules.axis_minimum(Model.axis_demand(size, minimum, preferred)), ModelRules.axis_preferred(Model.axis_demand(size, minimum, preferred))) == True{} : Bool}:
+  match size:
+    case Model.NaturalSize{}: Order.max_left(minimum, preferred)
+    case Model.StretchSize{}: Order.max_left(minimum, preferred)
+    case Model.CappedStretchSize{maximum}: Order.max_left(minimum, maximum)
+    case Model.ExactSize{extent}: Order.le_refl(Nat.max(minimum, extent))
+    case Model.LimitedSize{authored, extra, maximum}:
+      Order.max_left(Nat.max(minimum, authored), Nat.min(Nat.add(Nat.add(authored, extra), maximum), Nat.max(Nat.max(minimum, authored), Nat.max(minimum, preferred))))
+    case Model.PercentSize{percent}: Order.max_left(minimum, preferred)
+    case Model.CappedNaturalSize{percent}: Order.max_left(minimum, preferred)
+    case Model.AdaptiveNaturalSize{percent}: Order.max_left(minimum, preferred)
+
+def axes_floor(+width: Model.AxisDemand, +height: Model.AxisDemand, +mw: Nat, +mh: Nat,
+  +width_floor: {Nat.is_le(mw, ModelRules.axis_minimum(width)) == True{} : Bool},
+  +height_floor: {Nat.is_le(mh, ModelRules.axis_minimum(height)) == True{} : Bool}) ->
+  {ModelRules.extent_contains(Model.minimum_demand(Model.demand_from_axes(width, height)), Enclosure.Extent{mw, mh}) == True{} : Bool}:
+  Model.AxisDemand{lower_width, chosen_width} = width
+  Model.AxisDemand{lower_height, chosen_height} = height
+  Order.and_join(Nat.is_le(mw, lower_width), Nat.is_le(mh, lower_height), width_floor, height_floor)
+
+def authored_floor(+width: Model.AxisSize, +height: Model.AxisSize, +content: Space.Demand) ->
+  {ModelRules.extent_contains(Model.minimum_demand(Model.authored_demand(width, height, content)), Model.minimum_demand(content)) == True{} : Bool}:
+  Space.Demand{Enclosure.Extent{+mw, +mh}, Enclosure.Extent{+pw, +ph}} = content
+  axes_floor(Model.axis_demand(width, mw, pw), Model.axis_demand(height, mh, ph), mw, mh,
+    axis_intrinsic_floor(width, mw, pw), axis_intrinsic_floor(height, mh, ph))
+
+def axes_preferred(+width: Model.AxisDemand, +height: Model.AxisDemand,
+  +width_floor: {Nat.is_le(ModelRules.axis_minimum(width), ModelRules.axis_preferred(width)) == True{} : Bool},
+  +height_floor: {Nat.is_le(ModelRules.axis_minimum(height), ModelRules.axis_preferred(height)) == True{} : Bool}) ->
+  {ModelRules.preferred_covers_minimum(Model.demand_from_axes(width, height)) == True{} : Bool}:
+  Model.AxisDemand{lower_width, chosen_width} = width
+  Model.AxisDemand{lower_height, chosen_height} = height
+  Order.and_join(Nat.is_le(lower_width, chosen_width), Nat.is_le(lower_height, chosen_height), width_floor, height_floor)
+
+def authored_preferred(+width: Model.AxisSize, +height: Model.AxisSize, +content: Space.Demand) ->
+  {ModelRules.preferred_covers_minimum(Model.authored_demand(width, height, content)) == True{} : Bool}:
+  Space.Demand{Enclosure.Extent{+mw, +mh}, Enclosure.Extent{+pw, +ph}} = content
+  axes_preferred(Model.axis_demand(width, mw, pw), Model.axis_demand(height, mh, ph),
+    axis_preferred_floor(width, mw, pw), axis_preferred_floor(height, mh, ph))
+
+def authored_lower_pair(+width: Model.AxisSize, +height: Model.AxisSize, content: Space.Demand) ->
+  {ModelRules.extent_contains(Model.minimum_demand(Model.authored_demand(width, height, content)), Enclosure.Extent{ModelRules.authored_minimum(width), ModelRules.authored_minimum(height)}) == True{} : Bool}:
+  Space.Demand{Enclosure.Extent{+mw, +mh}, Enclosure.Extent{+pw, +ph}} = content
+  axes_floor(Model.axis_demand(width, mw, pw), Model.axis_demand(height, mh, ph), ModelRules.authored_minimum(width), ModelRules.authored_minimum(height),
+    axis_authored_floor(width, mw, pw), axis_authored_floor(height, mh, ph))
+
+def outer_authored_floor(~E: Data, +content: Space.Demand, +rule: Model.Rule, +interaction: Model.Interaction<E>) ->
+  {ModelRules.extent_contains(Model.minimum_demand(Model.outer_demand(~E, content, rule, interaction)), ModelRules.rule_authored_minimum(rule)) == True{} : Bool}:
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  authored_lower_pair(width, height, Model.intrinsic_outer_demand(~E, content, rule, interaction))
+
+def outer_preferred(~E: Data, +content: Space.Demand, +rule: Model.Rule, +interaction: Model.Interaction<E>) ->
+  {ModelRules.preferred_covers_minimum(Model.outer_demand(~E, content, rule, interaction)) == True{} : Bool}:
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  authored_preferred(width, height, Model.intrinsic_outer_demand(~E, content, rule, interaction))
+
+def outer_intrinsic_floor(~E: Data, +content: Space.Demand, +rule: Model.Rule, +interaction: Model.Interaction<E>) ->
+  {ModelRules.extent_contains(Model.minimum_demand(Model.outer_demand(~E, content, rule, interaction)), Model.minimum_demand(Model.intrinsic_outer_demand(~E, content, rule, interaction))) == True{} : Bool}:
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  authored_floor(width, height, Model.intrinsic_outer_demand(~E, content, rule, interaction))
+
 def operable_outer(~E: Data, +content: Enclosure.Extent, +rule: Model.Rule, +first: E, +remaining: +List<E>, +enabled: Bool) ->
   {ModelRules.extent_contains(Model.outer_extent(~E, content, rule, Model.Operable{first, remaining, enabled}), Enclosure.Extent{32n, 32n}) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = content
@@ -223,9 +309,12 @@ def operable_outer(~E: Data, +content: Enclosure.Extent, +rule: Model.Rule, +fir
 
 def operable(~E: Data, +content: Space.Demand, +rule: Model.Rule, +first: E, +remaining: +List<E>, +enabled: Bool) ->
   {ModelRules.extent_contains(Model.minimum_demand(Model.outer_demand(~E, content, rule, Model.Operable{first, remaining, enabled})), Enclosure.Extent{32n, 32n}) == True{} : Bool}:
-  Space.Demand{content_minimum, preferred} = content
-  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
-  operable_outer(~E, Model.viewport_content_minimum(content_minimum, scroll), rule, first, remaining, enabled)
+  Space.Demand{+content_minimum, preferred} = content
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, +scroll, position} = rule
+  contains_trans(Model.minimum_demand(Model.outer_demand(~E, content, rule, Model.Operable{first, remaining, enabled})),
+    Model.minimum_demand(Model.intrinsic_outer_demand(~E, content, rule, Model.Operable{first, remaining, enabled})), Enclosure.Extent{32n, 32n},
+    outer_intrinsic_floor(~E, content, rule, Model.Operable{first, remaining, enabled}),
+    operable_outer(~E, Model.viewport_content_minimum(content_minimum, scroll), rule, first, remaining, enabled))
 
 def lower_conflict(+minimum: Nat, +authored: Nat, +maximum: Nat,
   conflict: {Nat.is_le(minimum, maximum) == False{} : Bool}) ->
@@ -492,6 +581,14 @@ def adaptive_conflict(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: N
 
 def ModelRules.evidence(A, E):
   ModelRules.Requirements{
+    axis_authored_floor,
+    (content => rule => interaction => outer_authored_floor(~E, content, rule, interaction)),
+    axis_intrinsic_floor, axis_preferred_floor, authored_preferred, authored_floor,
+    (content => rule => interaction => outer_preferred(~E, content, rule, interaction)),
+    (content => rule => interaction => outer_intrinsic_floor(~E, content, rule, interaction)),
+    (minimum => preferred => extent => {==}),
+    (minimum => preferred => authored => extra => maximum => Order.max_right(minimum, authored)),
+
     (+minimum => +preferred => +offered => +cap => fits => adaptive_exact(minimum, preferred, offered, cap, fits)),
     (+minimum => +preferred => +offered => +percent => valid => fits => adaptive_total(minimum, preferred, offered, percent, valid, fits)),
     (+minimum => +preferred => +offered => +percent => valid => fits => adaptive_minimum(minimum, preferred, offered, percent, valid, fits)),

@@ -76,11 +76,45 @@ def viewport_content_minimum(content: Enclosure.Extent, +scroll: Scroll) -> Encl
     case ScrollVertically{}: Enclosure.Extent{width, 0n}
     case ScrollBoth{}: Enclosure.Extent{0n, 0n}
 
-def outer_demand(~E: Data, content: Space.Demand, +rule: Rule, +interaction: Interaction<E>) -> Space.Demand:
+type AxisDemand is Data:
+  AxisDemand{minimum: Nat, preferred: Nat}
+
+# Authored lower bounds participate before ancestors choose their own size.
+# Percentage constraints remain relative to the eventual offered extent.
+def axis_demand(+size: AxisSize, +minimum: Nat, +preferred: Nat) -> AxisDemand:
+  match size:
+    case NaturalSize{}: AxisDemand{minimum, Nat.max(minimum, preferred)}
+    case StretchSize{}: AxisDemand{minimum, Nat.max(minimum, preferred)}
+    case CappedStretchSize{maximum}: AxisDemand{minimum, Nat.max(minimum, maximum)}
+    case ExactSize{extent}:
+      +lower = Nat.max(minimum, extent)
+      AxisDemand{lower, lower}
+    case LimitedSize{authored_minimum, preferred_extra, maximum_extra}:
+      +lower = Nat.max(minimum, authored_minimum)
+      +upper = Nat.add(Nat.add(authored_minimum, preferred_extra), maximum_extra)
+      AxisDemand{lower, Nat.max(lower, Nat.min(upper, Nat.max(lower, Nat.max(minimum, preferred))))}
+    case PercentSize{percent}: AxisDemand{minimum, Nat.max(minimum, preferred)}
+    case CappedNaturalSize{maximum_percent}: AxisDemand{minimum, Nat.max(minimum, preferred)}
+    case AdaptiveNaturalSize{preferred_maximum_percent}: AxisDemand{minimum, Nat.max(minimum, preferred)}
+
+def demand_from_axes(width: AxisDemand, height: AxisDemand) -> Space.Demand:
+  AxisDemand{lower_width, chosen_width} = width
+  AxisDemand{lower_height, chosen_height} = height
+  Space.Demand{Enclosure.Extent{lower_width, lower_height}, Enclosure.Extent{chosen_width, chosen_height}}
+
+def authored_demand(+width: AxisSize, +height: AxisSize, content: Space.Demand) -> Space.Demand:
+  Space.Demand{Enclosure.Extent{minimum_width, minimum_height}, Enclosure.Extent{preferred_width, preferred_height}} = content
+  demand_from_axes(axis_demand(width, minimum_width, preferred_width), axis_demand(height, minimum_height, preferred_height))
+
+def intrinsic_outer_demand(~E: Data, content: Space.Demand, +rule: Rule, +interaction: Interaction<E>) -> Space.Demand:
   Space.Demand{minimum, preferred} = content
   Rule{direction, main_alignment, cross_alignment, frame, border, width, height, explicit_minimum, scroll, position} = rule
   +lower = outer_extent(~E, viewport_content_minimum(minimum, scroll), rule, interaction)
   Space.Demand{lower, extent_max(lower, outer_extent(~E, preferred, rule, interaction))}
+
+def outer_demand(~E: Data, content: Space.Demand, +rule: Rule, interaction: Interaction<E>) -> Space.Demand:
+  Rule{direction, main_alignment, cross_alignment, frame, border, width, height, minimum, scroll, position} = rule
+  authored_demand(width, height, intrinsic_outer_demand(~E, content, rule, interaction))
 
 def fixed_leaf_content(demand: Space.Demand, +height: Nat) -> Space.Demand:
   Space.Demand{minimum, preferred} = demand

@@ -54,3 +54,20 @@ def Rule.evidence():
     {==},
     {==},
     {==}}
+
+def Rule.all_panel_policies(panel, trigger):
+  match panel:
+    case U.ProjectPicker{}: {==}
+    case U.ObjectActions{subject}: {==}
+    case U.ArchivedCards{}: {==}
+    case U.BoardSettings{}: {==}
+    case U.BoardFilters{}: {==}
+    case U.CardDetails{card}: {==}
+    case U.EditObject{editor}: {==}
+    case U.TaskDetails{task}: {==}
+    case U.WorkspaceConfiguration{editor}: {==}
+    case U.PermissionsConfiguration{editor}: {==}
+    case U.TaskContext{task}: {==}
+    case U.ModelPicker{editor}: {==}
+    case U.DeliveryPicker{task}: {==}
+    case U.Confirm{command, title, destination}: {==}
