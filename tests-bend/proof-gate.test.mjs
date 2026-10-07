@@ -146,7 +146,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       const rejected = compile('PROOF.bend');
       assert.equal(rejected.error, undefined, `${name} must fail a proof, not time out`);
       assert.notEqual(rejected.status, 0, `${name} was not rejected by the functional specification`);
-      assert.match(rejected.stdout + rejected.stderr, /semantics|scheduling_|request_meaning|start_meaning|tool_dispatch|settlement|summary_failure_promotes_fifo|summary_rejects_invocations/);
+      assert.match(rejected.stdout + rejected.stderr, /semantics|scheduling_|request_meaning|start_meaning|tool_dispatch|settlement|summary_failure_promotes_fifo|summary_rejects_invocations|context_recovery_work|admitted_certificate|output_admitted_world/);
     });
   }
 });
