@@ -1,6 +1,5 @@
 import Base
-import ./anchor-geometry.bend as Geometry
-import ./GEOMETRY.bend as Spatial
+import ./GEOMETRY.bend as Geometry
 
 law forward_clip:
   for +distance: Nat
@@ -24,7 +23,7 @@ law forward_forward:
   for +viewport_width: Nat
   for +viewport_height: Nat
   {Geometry.visible(Geometry.Forward{left}, Geometry.Forward{top}, width, height, viewport_width, viewport_height) ==
-    Spatial.Box{Nat.min(left, viewport_width), Nat.min(top, viewport_height), Nat.min(width, Nat.sub(viewport_width, Nat.min(left, viewport_width))), Nat.min(height, Nat.sub(viewport_height, Nat.min(top, viewport_height)))} : Spatial.Box}
+    Geometry.Box{Nat.min(left, viewport_width), Nat.min(top, viewport_height), Nat.min(width, Nat.sub(viewport_width, Nat.min(left, viewport_width))), Nat.min(height, Nat.sub(viewport_height, Nat.min(top, viewport_height)))} : Geometry.Box}
 
 law forward_backward:
   for +left: Nat
@@ -34,7 +33,7 @@ law forward_backward:
   for +viewport_width: Nat
   for +viewport_height: Nat
   {Geometry.visible(Geometry.Forward{left}, Geometry.Backward{top}, width, height, viewport_width, viewport_height) ==
-    Spatial.Box{Nat.min(left, viewport_width), 0n, Nat.min(width, Nat.sub(viewport_width, Nat.min(left, viewport_width))), Nat.min(Nat.sub(height, top), viewport_height)} : Spatial.Box}
+    Geometry.Box{Nat.min(left, viewport_width), 0n, Nat.min(width, Nat.sub(viewport_width, Nat.min(left, viewport_width))), Nat.min(Nat.sub(height, top), viewport_height)} : Geometry.Box}
 
 law backward_forward:
   for +left: Nat
@@ -44,7 +43,7 @@ law backward_forward:
   for +viewport_width: Nat
   for +viewport_height: Nat
   {Geometry.visible(Geometry.Backward{left}, Geometry.Forward{top}, width, height, viewport_width, viewport_height) ==
-    Spatial.Box{0n, Nat.min(top, viewport_height), Nat.min(Nat.sub(width, left), viewport_width), Nat.min(height, Nat.sub(viewport_height, Nat.min(top, viewport_height)))} : Spatial.Box}
+    Geometry.Box{0n, Nat.min(top, viewport_height), Nat.min(Nat.sub(width, left), viewport_width), Nat.min(height, Nat.sub(viewport_height, Nat.min(top, viewport_height)))} : Geometry.Box}
 
 law backward_backward:
   for +left: Nat
@@ -54,8 +53,8 @@ law backward_backward:
   for +viewport_width: Nat
   for +viewport_height: Nat
   {Geometry.visible(Geometry.Backward{left}, Geometry.Backward{top}, width, height, viewport_width, viewport_height) ==
-    Spatial.Box{0n, 0n, Nat.min(Nat.sub(width, left), viewport_width), Nat.min(Nat.sub(height, top), viewport_height)} : Spatial.Box}
+    Geometry.Box{0n, 0n, Nat.min(Nat.sub(width, left), viewport_width), Nat.min(Nat.sub(height, top), viewport_height)} : Geometry.Box}
 
 law negative_top_regression:
   {Geometry.visible(Geometry.Forward{100n}, Geometry.Backward{8n}, 40n, 40n, 1000n, 800n) ==
-    Spatial.Box{100n, 0n, 40n, 32n} : Spatial.Box}
+    Geometry.Box{100n, 0n, 40n, 32n} : Geometry.Box}

@@ -1,5 +1,5 @@
 import Base
-import ../submission/parameters.bend as OperationParameters
+import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
 import ./MODEL.bend as Actual
 import ../session/MODEL.bend as E

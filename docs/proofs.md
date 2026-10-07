@@ -1,11 +1,11 @@
 # Local proof boundaries
 
-The component-local providers `../harness/tasks/PROOF.bend` and `../harness/reasoning/locality-proof.bend`
+The component-local providers `../harness/tasks/PROOF.bend` and `../harness/reasoning/PROOF.bend`
 quantify over unknown surrounding state and effect types. The application
 reasoning provider reuses those proof values. `../harness/features/laws.bend` composes
 feature refinement with explicit evidence for task creation, and
 `../harness/LOCALITY.bend` binds update and preservation guarantees to production dispatch,
-storage functions. `../harness/features/frame-proof.bend` supplies board storage evidence.
+storage functions. `../harness/features/PROOF.bend` supplies board storage evidence.
 
 Task storage's production `update_state` specializes the abstract
 `Tasks.update_carrier` computation to the domain model's task observation and
@@ -32,8 +32,10 @@ over all future feature events while freezing their entire state would prevent
 legitimate extensions.
 
 The root [PROOF.bend](../PROOF.bend) assembles `CONCEPTS.Harness`. Providers live
-beside their owning concept as `PROOF.bend` or `*-proof.bend`; each closes a
-boundary through [harness laws](../harness/LAWS.bend) or its contract declarations.
+beside their owning concept. Each concept's `PROOF.bend` collects its local
+evidence and closes its boundary through [harness laws](../harness/LAWS.bend)
+or its contract declarations. Independently consumed evidence remains separate
+when importing the complete concept provider would introduce a cycle.
 
 [PROOF.bend](../features/board/PROOF.bend) constructs the production board refinement and callback
 evidence declared in [features/board/CONTRACT.bend](../features/board/CONTRACT.bend).
@@ -42,9 +44,11 @@ challenges that production binding using type-correct defects, rather than
 treating a successful checker invocation as evidence that the specification
 detects those defects.
 
-Provider imports are explicit: Bend rejects using an unfilled law as live proof
-evidence. Modules consume sibling laws through their declared interfaces, not
-sibling-private helper functions. The complete dependency graph is acyclic.
+Proof discovery resolves each law's module and declaration identity and requires
+one complete, unique provider for that identity. Provider filenames do not define
+the binding. Bend rejects using an unfilled law as live proof evidence. Modules
+consume sibling laws through their declared interfaces, not sibling-private helper
+functions. The complete dependency graph is acyclic.
 
 The trace module proves only the application's tape/fold correspondence and
 one-step correspondence. Simulation, partition and invariant lifting come from

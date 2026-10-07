@@ -4,7 +4,7 @@ import ../appearance/DESIGN.bend as Design
 import ../../interaction/presentation/PROGRAM.bend as Interface
 import ../../interaction/IDENTITY.bend as Identity
 import ../../interaction/conversation/OUTPUT.bend as Live
-import ./code-observation.bend as Observation
+import ./MODEL.bend as Observation
 import ../runtime/MODEL.bend as Browser
 import ../layout/CONTENT.bend as Content
 import ../runtime/SEMANTICS.bend as Legacy
@@ -15,6 +15,7 @@ import ../../interaction/MODEL.bend as Product
 import ../../interaction/STATE.bend as Core
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/conversation/CODE.bend as Code
+
 def published_display_claim(displayed: Maybe<&2, Browser.Published>, +generation: Nat, +observations: +List<Observation.Observation>, +state: Browser.State) -> Type:
   match displayed:
     case None{}: {Browser.code_batch_qualified(generation, observations, state) == False{} : Bool}

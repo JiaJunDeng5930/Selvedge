@@ -19,12 +19,11 @@ import ./controls/GEOMETRY.bend as Physical
 import ./runtime/PLATFORM.bend as Platform
 import ./reading/MODEL.bend as Reading
 import ./document/RENDERED.bend as Rendered
-
 import ./CONTRACT.bend as Rule
 import ./appearance/paint-rules.bend as PaintRules
 import ./layout/physical-renderer-rules.bend as RendererRules
-import ./appearance/paint-proof.bend as ProofPaint
-import ./layout/physical-renderer-proof.bend as ProofRenderer
+import ./appearance/PROOF.bend as ProofPaint
+import ./layout/PROOF.bend as ProofRenderer
 import ../bendlib/logic-proof.bend as Logic
 import ./editor/CONTRACT.bend as Rules_editor_rules
 import ./model-rules.bend as Rules_model_rules

@@ -5,7 +5,7 @@ import ../layout/enclosure.bend as Enclosure
 import ../appearance/DESIGN.bend as Design
 import ../appearance/MODEL.bend as Appearance
 import ./PROGRAM.bend as Controls
-import ../editor/editor-layout.bend as EditorLayout
+import ../editor/MODEL.bend as EditorLayout
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/submission/FIELDS.bend as Forms
 import ../../interaction/INPUT.bend as User

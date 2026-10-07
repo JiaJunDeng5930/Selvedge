@@ -1,11 +1,11 @@
+import Base
 import ../layout/PROGRAM.bend as Allocation
 import ../../interaction/submission/MODEL.bend as Receipt
-import ../layout/anchor-geometry.bend as AnchorGeometry
+import ../layout/GEOMETRY.bend as AnchorGeometry
 import ./native-fields-rules.bend as NativeRules
 import ../focus/MODEL.bend as Focus
 import ./native-fields.bend as Native
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
-import Base
 import ./frontend-utility.bend as Utility
 import ../document/FRAME.bend as SourceFrame
 import ./PLATFORM.bend as Platform
@@ -24,6 +24,7 @@ import ../controls/SHELL.bend as Shell
 import ../document/MODEL.bend as Doc
 import ../../interaction/presentation/MODEL.bend as View
 import ../../harness/MODEL.bend as M
+
 def stale_frames_claim(+received: Nat, +frame: Rendered.Frame, +state: Browser.State) -> Type:
   {Browser.step(Legacy.Native{Web.FrameObserved{received, frame}}, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
 

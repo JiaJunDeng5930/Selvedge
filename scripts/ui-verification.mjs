@@ -88,11 +88,16 @@ function canonical(filename, name, aliases) {
   return `${filename.slice(0, -5)}.${name}`;
 }
 
-function proofFor(rule) {
-  const directory = path.posix.dirname(rule);
-  if (path.posix.basename(rule) === 'CONTRACT.bend') return `${directory}/PROOF.bend`;
-  const stem = path.posix.basename(rule, '.bend').replace(/-(?:laws|rules)$/, '');
-  return `${directory}/${stem}-proof.bend`;
+function lawProviders(proofs, modules, laws) {
+  const providers = new Map([...laws].map(law => [law, []]));
+  for (const filename of proofs) {
+    const module = modules.get(filename);
+    for (const declaration of module.declarations) {
+      if (declaration.kind !== 'def') continue;
+      providers.get(canonical(filename, declaration.name, module.aliases))?.push(filename);
+    }
+  }
+  return providers;
 }
 
 function inspect(root) {
@@ -110,6 +115,7 @@ function inspect(root) {
       if (declaration.kind === 'law') laws.add(canonical(rule, declaration.name, new Map()));
     }
   }
+  const providers = lawProviders(proofs, modules, laws);
   const errors = [];
   for (const [filename, module] of modules) {
     if (!/^(interaction|browser)\//.test(filename) || isProofSource(filename)) continue;
@@ -155,35 +161,33 @@ function inspect(root) {
       }
       continue;
     }
-    const provider = proofFor(rule);
-    const module = modules.get(provider);
-    if (!module) {
-      errors.push(`UI rule has no matching proof file: ${rule} -> ${provider}`);
-      continue;
-    }
-    if (!module.targets.includes(rule)) errors.push(`UI proof must import its rule: ${provider} -> ${rule}`);
-    const implementations = new Set(module.declarations.filter(declaration => declaration.kind === 'def')
-      .map(declaration => canonical(provider, declaration.name, module.aliases)));
     for (const declaration of declarations) {
-      if (!implementations.has(canonical(rule, declaration.name, new Map()))) {
-        errors.push(`UI proof does not fill its rule law: ${provider}: ${rule}:${declaration.name}`);
+      const implementations = providers.get(canonical(rule, declaration.name, new Map()));
+      if (!implementations.length) {
+        errors.push(`UI proof does not fill its rule law: ${rule}:${declaration.name}`);
+        continue;
+      }
+      if (implementations.length !== 1) {
+        errors.push(`UI rule law has multiple proof providers: ${rule}:${declaration.name}: ${implementations.join(', ')}`);
+        continue;
+      }
+      const [provider] = implementations;
+      if (!modules.get(provider).targets.includes(rule)) {
+        errors.push(`UI proof must import its rule: ${provider} -> ${rule}`);
       }
     }
   }
   if (errors.length) throw new Error(`UI verification separation failed:\n${errors.join('\n')}`);
-  return [...new Set([...rules, ...proofs])].sort();
+  return { discovered: [...new Set([...rules, ...proofs])].sort(), providers };
 }
 
 export function checkUiSeparation(root) {
-  return inspect(realpathSync(root));
+  return inspect(realpathSync(root)).discovered;
 }
 
-function orderProofs(root, discovered) {
+function orderProofs(root, discovered, providers) {
   const proofs = discovered.filter(isProofSource);
   const dependencies = new Map(proofs.map(filename => [filename, new Set()]));
-  const ruleLaws = new Map(discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))).map(filename => [filename,
-    new Set(declarations(filename, readFileSync(path.join(root, filename), 'utf8'))
-      .filter(declaration => declaration.kind === 'law').map(declaration => declaration.name))]));
   for (const filename of proofs) {
     const source = readFileSync(path.join(root, filename), 'utf8');
     const module = imports(filename, source);
@@ -195,9 +199,9 @@ function orderProofs(root, discovered) {
     // body, because Bend clears values before replaying the declaration order.
     const body = mask(source).replace(/^def\s+[A-Za-z_][\w.]*/gm, '');
     for (const match of body.matchAll(/\b([A-Za-z_][\w]*)\.([A-Za-z_][\w.]*)/g)) {
-      const rule = module.aliases.get(match[1]);
-      if (!ruleLaws.get(rule)?.has(match[2])) continue;
-      const provider = proofFor(rule);
+      const implementations = providers.get(canonical(filename, match[0], module.aliases));
+      if (!implementations) continue;
+      const [provider] = implementations;
       if (provider !== filename) required.add(provider);
     }
   }
@@ -237,10 +241,10 @@ function orderProofs(root, discovered) {
 
 export function prepareUiVerification(root) {
   root = realpathSync(root);
-  const discovered = inspect(root);
+  const { discovered, providers } = inspect(root);
   const sources = [...new Set(['PROOF.bend', 'BROWSER.bend', ...discovered])].sort();
   const entries = ['PROOF.bend', 'BROWSER.bend'];
-  const ordered = [...discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))), ...orderProofs(root, discovered), ...entries];
+  const ordered = [...discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))), ...orderProofs(root, discovered, providers), ...entries];
   const imports = ['import Base', ...ordered
     .map((filename, index) => `import ../${filename} as Verification${index}`)];
   const entry = '.build/ui-verification.bend';

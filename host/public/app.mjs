@@ -88,7 +88,7 @@ const renderer = new Renderer(root, {
     if (!versions) { versions = new Map(); codeObservationGroups.set(sourceKey, versions); }
     let batch = versions.get(source_value);
     if (!batch) { batch = { generation, entries: new Map() }; versions.set(source_value, batch); }
-    batch.entries.set(Bend.code_key(source, ordinal), bendValue('browser/document/code-observation.Observation', { identity: bendValue('interaction/conversation/CODE.Identity', { source, ordinal }), text, source_value }));
+    batch.entries.set(Bend.code_key(source, ordinal), bendValue('browser/document/MODEL.Observation', { identity: bendValue('interaction/conversation/CODE.Identity', { source, ordinal }), text, source_value }));
     if (!codeObservationScheduled) {
       codeObservationScheduled = true;
       queueMicrotask(flushCodeObservations);
@@ -192,7 +192,7 @@ function captureAnchor(key, node) {
   const box = node.getBoundingClientRect();
   const left = Math.round(box.left); const top = Math.round(box.top);
   const right = Math.round(box.right); const bottom = Math.round(box.bottom);
-  const origin = amount => bendValue(amount < 0 ? 'browser/layout/anchor-geometry.Backward' : 'browser/layout/anchor-geometry.Forward', { distance: measuredNat(Math.abs(amount), 'anchor origin') });
+  const origin = amount => bendValue(amount < 0 ? 'browser/layout/GEOMETRY.Backward' : 'browser/layout/GEOMETRY.Forward', { distance: measuredNat(Math.abs(amount), 'anchor origin') });
   const width = measuredNat(Math.max(0, right - left), 'anchor width');
   const height = measuredNat(Math.max(0, bottom - top), 'anchor height');
   commit(Bend.capture_anchor(key, origin(left), origin(top), width, height, state));

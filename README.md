@@ -50,8 +50,10 @@ The source tree groups execution semantics in [harness](harness/README.md),
 independent capabilities in [features](features/README.md), platform-independent
 interaction in [interaction](interaction/README.md), and browser implementation in
 [browser](browser/README.md). Concept directories stay at most two levels deep;
-proof providers sit beside their definitions as `PROOF.bend` or `*-proof.bend`.
-[ADR 0029](docs/adr/0029-shallow-concept-directories.md) records this organization.
+local proofs are collected beside their definitions in each concept's `PROOF.bend`,
+with independent evidence retained where cross-concept imports require it.
+[ADR 0029](docs/adr/0029-shallow-concept-directories.md) records the directory organization;
+[ADR 0030](docs/adr/0030-concept-local-proof-providers.md) explains proof consolidation.
 
 ## Component changes and proof reuse
 

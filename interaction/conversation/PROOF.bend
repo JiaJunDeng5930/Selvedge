@@ -1,5 +1,5 @@
-import ./CONTRACT.bend as Rule
 import Base
+import ./CONTRACT.bend as Rule
 import ../IDENTITY.bend as Identity
 import ./MODEL.bend as Actual
 import ../session/MODEL.bend as E
@@ -12,7 +12,7 @@ import ../STATE.bend as Core
 import ../INPUT.bend as U
 import ../../bendlib/stdlib.bend as Std
 import ../../harness/transport/json-render-rules.bend as JsonRender
-import ../../harness/transport/json-render-proof.bend as JsonRenderProof
+import ../../harness/transport/PROOF.bend as JsonRenderProof
 
 def false_goal(P: Type, value: Bool) -> Type:
   match value:

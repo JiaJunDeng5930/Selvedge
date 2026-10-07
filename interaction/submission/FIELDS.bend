@@ -345,3 +345,9 @@ def edit_for(body: U.Body, field: Field, value: Value, world: M.World()) -> Mayb
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_edit(field, value, assist, profile)
     case U.Fork{task, count, messages, context}: fork_edit(field, value, count, messages, context, world)
     case _: edit(field, value)
+
+def label(name: String) -> String:
+  match name:
+    case "command": "Command"
+    case "justification": "Reason"
+    case other: other

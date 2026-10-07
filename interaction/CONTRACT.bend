@@ -7,7 +7,6 @@ import ../features/board/MODEL.bend as B
 import ../bendlib/json.bend as J
 import ../harness/conversation/CONTRACT.bend as ConversationSpec
 import ./STATE.bend as Core
-import ./runtime-laws.bend as CoreLaws
 import ./presentation/PROGRAM.bend as Interface
 import ./INPUT.bend as U
 import ./session/MODEL.bend as E
@@ -77,7 +76,7 @@ type Requirements is Type:
     presentation: Presentation,
     capabilities: Capabilities,
     runtime: @+input:M.Input -> @+program:M.World() -> @+session:E.Session -> @+services:Services.State ->
-      {CoreLaws.runtime(ProductUI.step(ProductUI.Engine{input}, Core.from_application(E.from_program(program, session), services))) == Program.transition(input, program) : M.Decision()},
+      {Core.runtime(ProductUI.step(ProductUI.Engine{input}, Core.from_application(E.from_program(program, session), services))) == Program.transition(input, program) : M.Decision()},
     observation: @+capacity:View.Capacity -> @+state:Core.State ->
       {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : Core.Scene}
   }

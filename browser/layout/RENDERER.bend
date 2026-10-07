@@ -15,7 +15,7 @@ import ../document/MODEL.bend as Doc
 import ./natural-size.bend as NaturalSize
 import ../appearance/ICONS.bend as Iconography
 import ../controls/PROGRAM.bend as Controls
-import ../reading/reading-binding.bend as ReadingBinding
+import ../reading/MODEL.bend as ReadingBinding
 
 def choose(~A: Data, +condition: Bool, +yes: A, +no: A) -> A:
   match condition:

@@ -10,7 +10,7 @@ import ../layout/GEOMETRY.bend as Spatial
 import ../layout/enclosure.bend as Enclosure
 import ../appearance/TYPOGRAPHY.bend as T
 import ../document/MODEL.bend as Doc
-import ../editor/editor-layout.bend as EditorLayout
+import ../editor/MODEL.bend as EditorLayout
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/submission/FIELDS.bend as Forms

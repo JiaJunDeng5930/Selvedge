@@ -1,4 +1,5 @@
-import ./browser/layout/anchor-geometry.bend as AnchorGeometry
+import Base
+import ./browser/layout/GEOMETRY.bend as AnchorGeometry
 import ./browser/runtime/native-fields.bend as NativeFields
 import ./browser/document/RENDERED.bend as Rendered
 import ./browser/focus/MODEL.bend as Focus
@@ -6,10 +7,8 @@ import ./browser/runtime/PLATFORM.bend as Platform
 import ./browser/layout/physical-plan.bend as Plan
 import ./browser/layout/CONTENT.bend as Content
 import ./browser/runtime/SEMANTICS.bend as Legacy
-import ./browser/document/code-observation.bend as CodeObservation
-import Base
+import ./browser/document/MODEL.bend as CodeObservation
 import ./harness/MODEL.bend as M
-import ./browser/document/MODEL.bend as Document
 import ./browser/editor/MODEL.bend as Editor
 import ./browser/reading/MODEL.bend as Reading
 import ./browser/runtime/MODEL.bend as Browser
@@ -24,7 +23,7 @@ def empty() -> M.World(): Browser.empty()
 def initial(program: M.World(), sequence: Nat) -> Browser.State: Browser.initial(program, sequence)
 def command_rejected(ticket: Nat, reason: String, state: Browser.State) -> Browser.Decision: Browser.command_rejected(ticket, reason, state)
 def step(input: Legacy.Input, state: Browser.State) -> Browser.Decision: Browser.step(input, state)
-def observe(state: Browser.State) -> Document.Document: Browser.observe(NaturalSize.limit(), state)
+def observe(state: Browser.State) -> CodeObservation.Document: Browser.observe(NaturalSize.limit(), state)
 def activate(key: String, state: Browser.State) -> Browser.Decision: Browser.activate(key, state)
 def edit_text(key: String, text: String, state: Browser.State) -> Browser.Decision: Browser.edit_text(key, text, state)
 def confirm_text(key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, state: Browser.State) -> Browser.Decision: Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state)
@@ -79,7 +78,7 @@ def capture_anchor(key: String, left: AnchorGeometry.Origin, top: AnchorGeometry
 
 def remeasure(state: Browser.State) -> Browser.Decision: Browser.remeasure(state)
 
-def probe_document(job: Plan.Job) -> Document.Document: Browser.probe_document(job)
+def probe_document(job: Plan.Job) -> CodeObservation.Document: Browser.probe_document(job)
 
 def probe_target_keys(job: Plan.Job) -> +List<String>: Browser.probe_target_keys(job)
 

@@ -4,7 +4,7 @@ import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/conversation/MODEL.bend as Conversation
 import ./MODEL.bend as Authored
 import ../document/SOURCE.bend as Source
-import ../reading/reading-binding.bend as Reading
+import ../reading/MODEL.bend as Reading
 import ../appearance/DESIGN.bend as Design
 import ./PROGRAM.bend as Controls
 import ../layout/enclosure.bend as Enclosure

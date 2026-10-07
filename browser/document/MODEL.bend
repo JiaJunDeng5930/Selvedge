@@ -45,3 +45,7 @@ type Node is Data:
 
 type Document is Data:
   Document{root: Node, title: String}
+
+# NOTE: One parser result carries its declared content source and exact Markdown input.
+type Observation is Data:
+  Observation{identity: Code.Identity, text: String, source_value: String}

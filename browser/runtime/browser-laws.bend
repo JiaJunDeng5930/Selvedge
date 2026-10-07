@@ -14,7 +14,8 @@ import ../../harness/MODEL.bend as M
 import ../../interaction/MODEL.bend as Product
 import ../../interaction/session/MODEL.bend as E
 import ../../bendlib/json.bend as J
-import ../../interaction/presentation/program-rules.bend as Rules_interface_program_rules
+import ../../interaction/presentation/CONTRACT.bend as Rules_interface_program_rules
+
 def sequence(+state: Browser.State) -> Nat:
   +sequence = Browser.sequence(state)
   sequence

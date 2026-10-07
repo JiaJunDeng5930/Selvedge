@@ -1,5 +1,5 @@
 import Base
-import ../reading/reading-binding.bend as ReadingBinding
+import ../reading/MODEL.bend as ReadingBinding
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../document/SOURCE.bend as Source
 import ../appearance/MODEL.bend as Appearance

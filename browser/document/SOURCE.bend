@@ -1,5 +1,5 @@
 import Base
-import ../reading/reading-binding.bend as ReadingBinding
+import ../reading/MODEL.bend as ReadingBinding
 import ../../interaction/IDENTITY.bend as Identity
 import ../../bendlib/stdlib.bend as Std
 import ../layout/GEOMETRY.bend as Spatial

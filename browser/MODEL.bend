@@ -11,7 +11,8 @@ import ./appearance/DESIGN.bend as Design
 import ./appearance/MODEL.bend as Appearance
 import ./appearance/FONT.bend as F
 import ./document/presentation-order.bend as Order
-import ./document/code-observation.bend as CodeObservation
+import ./document/MODEL.bend as CodeObservation
+
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
     environment: Design.Environment, typography: F.State}

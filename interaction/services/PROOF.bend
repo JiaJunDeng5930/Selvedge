@@ -14,6 +14,7 @@ import ../presentation/MODEL.bend as V
 import ../presentation/PROGRAM.bend as InterfaceView
 import ../STATE.bend as Core
 import ../submission/FIELDS.bend as Forms
+import ./permissions-laws.bend as RulePermissionsLaws
 
 def draft_composer_context(+message: U.Text, profile: String, reasoning: String, +config: Context.Configuration, scene: V.EditorScene, +world: M.World()) ->
   {Rule.composer_context(V.composer_scene(U.NewTask{message, profile, reasoning, config}, scene, world)) ==
@@ -223,3 +224,19 @@ def Rule.evidence():
     context => parent => state => committed_context_passive(context, parent, state),
     editor => session => world => {==}, editor => session => world => {==}, task => session => world => {==},
     editor => beside => {==}, editor => beside => {==}, task => beside => {==}}
+
+def sandboxed_network(network: Bool) -> {Context.network_summary(D.Sandboxed{}, network) == V.execution_network_summary(network) : String}:
+  match network:
+    case True{}: {==}
+    case False{}: {==}
+
+def RulePermissionsLaws.evidence():
+  RulePermissionsLaws.Requirements{
+    mode => {==},
+    network => {==},
+    mode => {==},
+    sandboxed_network,
+    task => workspace => mode => network => approval => project => guidance => access => profiles => {==},
+    task => workspace => mode => network => approval => project => guidance => access => profiles => {==},
+    origin => project => workspace => sandbox => approval => guidance => profiles => {==},
+    origin => project => workspace => sandbox => approval => guidance => profiles => {==}}

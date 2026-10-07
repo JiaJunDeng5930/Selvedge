@@ -14,6 +14,8 @@ import ../../harness/DOMAIN.bend as Domain
 import ./PROGRAM.bend as Controls
 import ../appearance/DESIGN.bend as Design
 import ../appearance/MODEL.bend as Appearance
+import ../reading/MODEL.bend as Reading
+import ../layout/enclosure.bend as E
 
 type BoundNode is Data:
   BoundNode{key: UIIdentity.Key, binding: InterfaceView.Meaning, children: +List<BoundNode>}
@@ -269,3 +271,28 @@ law card_content_has_no_input:
   for role: InterfaceView.Role
   for context: Controls.Context
   {Controls.represent(key, InterfaceView.CardContent{face}, label, role, context) == Controls.NoControl{} : Controls.Representation}
+
+type DockRequirements is Type:
+  DockRequirements{
+    measured_extent: @extent:F32 -> @viewport:F32 -> @+intent:User.ReadingIntent -> @+bookmark:Reading.Bookmark -> @reduced:Bool ->
+      {Reading.step(Reading.LayoutChanged{extent, viewport}, intent, bookmark, reduced) ==
+          Reading.Decision{bookmark, None{},
+            Reading.ReserveComposer{Reading.reserve(extent, viewport)} <> Reading.layout(intent, bookmark)} : Reading.Decision}}
+
+law dock_evidence:
+  DockRequirements
+
+type FactContentRequirements is Type:
+  FactContentRequirements{
+    frames: {Design.fact_content_layout() == Design.FactContentLayout{E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{4n}}, E.Frame{E.ambient(0n, 0n), E.SeparateFrames{E.Sections{}}}} : Design.FactContentLayout}}
+
+law fact_content_evidence:
+  FactContentRequirements
+
+type FeedbackRequirements is Type:
+  FeedbackRequirements{
+    source_alert_passive: @+reason:String ->
+      {InterfaceView.focusable(InterfaceView.ReadOnly{reason}) == False{} : Bool}}
+
+law feedback_evidence:
+  FeedbackRequirements

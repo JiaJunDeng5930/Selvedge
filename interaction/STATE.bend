@@ -11,6 +11,7 @@ import ./session/PROGRAM.bend as ExperienceProgram
 import ./presentation/MODEL.bend as View
 import ./submission/FIELDS.bend as Forms
 import ./services/MODEL.bend as Services
+import ../bendlib/component.bend as C
 
 type State is Data:
   State{application: E.Application, services: Services.State}
@@ -271,3 +272,9 @@ def control(state: State, declaration: View.ControlDeclaration) -> Control:
   State{application, services} = state
   View.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
   Control{identity, label, prominence, ApplicationInput{E.UserInput{input}}, control_availability(submission_blocked(services, E.UserInput{input}), availability)}
+
+def runtime(decision: Decision) -> M.Decision():
+  Decision{+observed_state, reply, effects, interaction, service, durable} = decision
+  +observed_application = application(observed_state)
+  program = E.program(observed_application)
+  C.Decision{program, reply, effects}

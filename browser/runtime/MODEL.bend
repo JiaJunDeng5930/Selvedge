@@ -1,17 +1,16 @@
+import Base
 import ../layout/PROGRAM.bend as Allocation
-import ../layout/anchor-geometry.bend as AnchorGeometry
+import ../layout/GEOMETRY.bend as AnchorGeometry
 import ./native-fields.bend as NativeFields
 import ../layout/physical-space.bend as Space
 import ../document/RENDERED.bend as Rendered
-import ../document/code-observation.bend as CodeObservation
-import Base
+import ../document/MODEL.bend as CodeObservation
 import ./frontend-utility.bend as Utility
 import ../document/FRAME.bend as SourceFrame
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./SEMANTICS.bend as Legacy
 import ../MODEL.bend as Web
 import ./PLATFORM.bend as Platform
-import ../document/MODEL.bend as Doc
 import ../layout/MODEL.bend as World
 import ../layout/physical-plan.bend as Plan
 import ../layout/CONTENT.bend as Content
@@ -19,7 +18,6 @@ import ../layout/RENDERER.bend as Renderer
 import ../layout/physical-probe.bend as Probe
 import ../controls/SHELL.bend as Shell
 import ../document/SOURCE.bend as Source
-import ../layout/GEOMETRY.bend as Spatial
 import ../appearance/DESIGN.bend as Design
 import ../appearance/FONT.bend as F
 import ../appearance/TYPOGRAPHY.bend as T
@@ -38,6 +36,7 @@ import ../../interaction/conversation/CODE.bend as Code
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/MODEL.bend as Product
 import ../../bendlib/json.bend as J
+
 type MeasurementTicket is Data:
   MeasurementTicket{generation: Nat, round: Nat}
 type MeasurementRequest is Data:
@@ -86,7 +85,7 @@ type RenderInspection is Data:
     native_valid: Maybe<&2, Bool>, current_layer: Maybe<&2, String>, dismiss_target: Maybe<&2, Legacy.DismissTarget>}
 type Publication is Data:
   KeepPublished{fields: +List<NativeFields.Update>}
-  Publish{generation: Nat, document: Doc.Document, fields: +List<NativeFields.Update>}
+  Publish{generation: Nat, document: CodeObservation.Document, fields: +List<NativeFields.Update>}
 type Decision is Data:
   Decision{state: State, effects: +List<Legacy.Effect>}
 type KeyResult is Data:
@@ -310,21 +309,21 @@ def measurement_request(+state: State) -> Maybe<&2, MeasurementRequest>:
       measurement_request_plan(World.plan(engine), World.snapshot_generation(World.snapshot(engine)), round)
     case other: None{}
 
-def application_document(nodes: +List<Doc.Node>) -> Doc.Document:
-  Doc.Document{Doc.Element{"@browser/application", "div", [Doc.Property{"class", "native-application"}], Nil{}, Nil{}, nodes}, "Selvedge"}
+def application_document(nodes: +List<CodeObservation.Node>) -> CodeObservation.Document:
+  CodeObservation.Document{CodeObservation.Element{"@browser/application", "div", [CodeObservation.Property{"class", "native-application"}], Nil{}, Nil{}, nodes}, "Selvedge"}
 
-def observed_lifecycle_at(+capacity: Nat, +lifecycle: Lifecycle, +displayed: Maybe<&2, Published>, +font: T.Presentation) -> Doc.Document:
+def observed_lifecycle_at(+capacity: Nat, +lifecycle: Lifecycle, +displayed: Maybe<&2, Published>, +font: T.Presentation) -> CodeObservation.Document:
   match displayed:
     case Some{world}: application_document(Renderer.nodes(published_world(world)))
     case None{}: application_document(Nil{})
 
-def observed_lifecycle(+lifecycle: Lifecycle, +displayed: Maybe<&2, Published>, +font: T.Presentation) -> Doc.Document:
+def observed_lifecycle(+lifecycle: Lifecycle, +displayed: Maybe<&2, Published>, +font: T.Presentation) -> CodeObservation.Document:
   observed_lifecycle_at(NaturalSize.limit(), lifecycle, displayed, font)
 
-def observed(+displayed: Maybe<&2, Published>, +lifecycle: Lifecycle, +font: T.Presentation) -> Doc.Document:
+def observed(+displayed: Maybe<&2, Published>, +lifecycle: Lifecycle, +font: T.Presentation) -> CodeObservation.Document:
   observed_lifecycle(lifecycle, displayed, font)
 
-def observe(+capacity: Nat, +state: State) -> Doc.Document:
+def observe(+capacity: Nat, +state: State) -> CodeObservation.Document:
   State{+legacy, serial, anchors, lifecycle, displayed} = state
   +observed_web_1 = Legacy.web(legacy)
   +font = Web.typography(observed_web_1)
@@ -366,7 +365,7 @@ def publication_focus_feedback(+publication: Publication, ticket: Nat, before: M
       publication_focus_loss(Bool.not(Nat.is_eq(generation, 0n)), ticket, target)
     case _ _ _: None{}
 
-def probe_document(+job: Plan.Job) -> Doc.Document: Probe.document(job)
+def probe_document(+job: Plan.Job) -> CodeObservation.Document: Probe.document(job)
 
 def probe_target_keys(+job: Plan.Job) -> +List<String>: Probe.target_keys(job)
 
@@ -374,7 +373,7 @@ def decision_state(value: Decision) -> State:
   Decision{state, effects} = value
   state
 
-def visible_anchor(environment: Design.Environment, left: AnchorGeometry.Origin, top: AnchorGeometry.Origin, width: Nat, height: Nat) -> Spatial.Box:
+def visible_anchor(environment: Design.Environment, left: AnchorGeometry.Origin, top: AnchorGeometry.Origin, width: Nat, height: Nat) -> AnchorGeometry.Box:
   Design.Environment{Design.Viewport{viewport_width, viewport_height}, dark, root} = environment
   AnchorGeometry.visible(left, top, width, height, viewport_width, viewport_height)
 
@@ -493,15 +492,15 @@ def surface_layers(surface: InterfaceView.Surface) -> +List<View.Layer>:
   InterfaceView.Surface{Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
   layers
 
-def viewport_box(environment: Design.Environment) -> Spatial.Box:
+def viewport_box(environment: Design.Environment) -> AnchorGeometry.Box:
   Design.Environment{Design.Viewport{width, height}, dark, root} = environment
-  Spatial.Box{0n, 0n, width, height}
+  AnchorGeometry.Box{0n, 0n, width, height}
 
 # Browser feedback participates in the same authored tree and measurements.
 
 def notice(+ticket: Nat, reason: String, +font: T.Presentation) -> Source.Node:
   Source.Box{UIIdentity.entity(UIIdentity.place("@browser"), "unknown", Nat.show(ticket)), Source.Paragraph{},
-    Shell.neutral(T.with_tier(font, T.Support{}), Space.Vertical{}, Space.StretchSize{}, Space.NaturalSize{}, Spatial.Stretch{}),
+    Shell.neutral(T.with_tier(font, T.Support{}), Space.Vertical{}, Space.StretchSize{}, Space.NaturalSize{}, AnchorGeometry.Stretch{}),
     [Source.RoleAttribute{"status"}],
     [Source.Text{UIIdentity.part(UIIdentity.entity(UIIdentity.place("@browser"), "unknown", Nat.show(ticket)), "text"), "Connection interrupted. Submission status is unknown. " ++ reason,
       Source.ExplicitFont{T.with_tier(font, T.Support{})}, T.WrapWords{}}]}
@@ -552,13 +551,13 @@ def pending(+state: Legacy.State) -> +List<Legacy.Pending>:
 def feedback_root(+source: Source.Node, +entries: +List<Legacy.Pending>, +font: T.Presentation) -> Source.Node:
   only_root(feedback_nodes(source <> Nil{}, entries, font), source)
 
-def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: Spatial.Box, +state: State, +semantic: InterfaceView.Surface) -> Search:
+def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: AnchorGeometry.Box, +state: State, +semantic: InterfaceView.Surface) -> Search:
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), feedback_root(source, pending(legacy), font), font}, viewport)
   selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)
 
 def authored(+result: Shell.ShellAuthorship, +index: Nat, +capacity: View.Capacity, +font: T.Presentation,
-  +viewport: Spatial.Box, +state: State, +semantic: InterfaceView.Surface) -> Search:
+  +viewport: AnchorGeometry.Box, +state: State, +semantic: InterfaceView.Surface) -> Search:
   match result:
     case Shell.Rejected{key, problem}: Stopped{Decision{set_lifecycle(state, Blocked{"Unsupported authored content: " ++ UIIdentity.encode(key)}), Nil{}}}
     case Shell.Ready{source}: frozen(source, index, capacity, font, viewport, state, semantic)
@@ -1065,13 +1064,13 @@ def capacity_index(capacity: View.Capacity) -> Nat:
     case View.Capacity{False{}, True{}}: 2n
     case _: 3n
 
-def refrozen_source(source: Source.Node, font: T.Presentation, viewport: Spatial.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: InterfaceView.Surface) -> Decision:
+def refrozen_source(source: Source.Node, font: T.Presentation, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: InterfaceView.Surface) -> Decision:
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), source, font}, viewport)
   finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine,
     State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)))
 
-def refrozen(snapshot: Content.Snapshot, viewport: Spatial.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: InterfaceView.Surface) -> Decision:
+def refrozen(snapshot: Content.Snapshot, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: InterfaceView.Surface) -> Decision:
   Content.Snapshot{old, source, font} = snapshot
   refrozen_source(source, font, viewport, index, capacity, state, semantic)
 

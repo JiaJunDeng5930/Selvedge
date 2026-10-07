@@ -1,14 +1,30 @@
 import Base
+import ./physical-space.bend as Model
+import ./PROGRAM.bend as Allocation
+import ./GEOMETRY.bend as Spatial
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./SOURCE.bend as Source
 import ./CONTENT.bend as Content
 import ./physical-content-rules.bend as ContentRules
 import ../document/SOURCE.bend as Authored
-import ./physical-space.bend as Model
 import ./SPACE.bend as Space
 import ./enclosure.bend as Enclosure
 import ../appearance/TYPOGRAPHY.bend as T
 import ../document/MODEL.bend as Doc
+
+def height_source_source_claim(~A: Data, ~E: Data, +source: Model.Tree<A, E>, result: Allocation.PositionedOutcome<A, E>) -> Type:
+  match result:
+    case Allocation.Positioned{tree}: {Allocation.source_of_allocated(~A, ~E, tree) == source : Model.Tree<A, E>}
+    case _: {True{} == True{} : Bool}
+
+type HeightSourceRequirements<-A: Data, -E: Data> is Type:
+  HeightSourceRequirements{preserved: @+tree:Allocation.MeasuredTree<A, E> -> @+bounds:Spatial.Box ->
+    height_source_source_claim(~A, ~E, Allocation.source_of_measured(~A, ~E, tree), Allocation.allocate_measured(~A, ~E, tree, bounds))}
+
+law height_source_evidence:
+  for ~A: Data
+  for ~E: Data
+  HeightSourceRequirements<A, E>
 
 def field_native_footprint(+kind: Authored.NativeFieldKind, +node: Authored.Node, +key: String,
   +style: Authored.ResolvedStyle, +generation: Nat, +observations: +List<Content.Observation>) -> Type:
@@ -114,3 +130,17 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+def width_source_source_claim(~A: Data, ~E: Data, +source: Model.Tree<A, E>, result: Allocation.WidthOutcome<A, E>) -> Type:
+  match result:
+    case Allocation.WidthReady{tree}: {Allocation.source_of_measured(~A, ~E, tree) == source : Model.Tree<A, E>}
+    case _: {True{} == True{} : Bool}
+
+type WidthSourceRequirements<-A: Data, -E: Data> is Type:
+  WidthSourceRequirements{preserved: @+tree:Model.Tree<A, E> -> @+width:Nat -> @+samples:+List<Model.HeightSample> ->
+    width_source_source_claim(~A, ~E, tree, Allocation.fit_width(~A, ~E, tree, width, samples))}
+
+law width_source_evidence:
+  for ~A: Data
+  for ~E: Data
+  WidthSourceRequirements<A, E>

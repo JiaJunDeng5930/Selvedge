@@ -15,6 +15,8 @@ import ../COMMANDS.bend as Commands
 import ./PROGRAM.bend as Protocol
 import ../workspace/WORKSPACE.bend as Workspace
 import ../approval/MODEL.bend as Approvals
+import ../CONTRACT.bend as A
+import ../execution/OPERATIONS.bend as Ops
 
 # Local proof obligations for the protocol boundary. No runtime policy lives here.
 
@@ -159,3 +161,32 @@ def Laws.accepted_tool_settlement(operation, value, error, task, world):
 def Laws.accepted_summary_settlement(outcome, resume, task, world):
   match world:
     case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+
+def control_frame(+task: D.Task, operation: D.Operation()) ->
+  {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  {==}
+
+def A.result_boundary():
+  A.ResultBoundary{
+    (plugin => pending => operation => value => error => task => world => {==}),
+    (plugin => pending => operation => value => error => task => state => board => {==}),
+    (call => current => replacement => error => pending => {==}),
+    (reason => call => value => error => pending => ({==}, {==})),
+    (plugin => outcome => {==}),
+    (expected => ticket => plugin => pending => value => error => task => operation => outcome => different =>
+      Equal.cong(Bool, Protocol.ResolvedEvent, (same => Protocol.matching(same, Protocol.AfterResult{task, operation, outcome})),
+        Nat.is_eq(ticket, expected), False{}, different)),
+    (id => call => announced => ticket => plugin => pending => value => error => task => duplicate => duplicate_error => {==}),
+    (history => owner => operation => call => value => error => plugin => outcome => ({==}, {==})),
+    (task => operation => control_frame(task, operation)),
+    (outcome => plugin => pending => operation => value => error => task => world => {==}),
+    (value => error => pending => operation => task => world => {==}),
+    (code => reason => pending => operation => task => world => {==}),
+    (operation => value => error => task => world => {==}),
+    (operation => value => error => task => world => {==}),
+    (operation => value => error => task => world => ({==}, {==})),
+    (plugin => pending => operation => value => error => task => world => {==}),
+    (ticket => plugin => pending => value => error => outcome => operation => task => world => {==}),
+    (call => remaining => value => error => task => world => {==}),
+    (plugin => pending => call => remaining => value => error => task => state => board => {==})}

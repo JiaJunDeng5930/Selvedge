@@ -12,6 +12,7 @@ import ../services/CONTEXT.bend as Context
 import ../INPUT.bend as U
 import ../session/MODEL.bend as E
 import ../../features/board/MODEL.bend as B
+import ../MODEL.bend as ModelModel
 
 law composer_tree_present_agreement:
   for +identity: U.Editor
@@ -269,3 +270,18 @@ law project_fact_structure:
   for +label: String
   for value: String
   {Model.project_fact(key, label, value) == Model.Node{key, Identity.encode(key), label, Model.Content{}, Model.Fact{value}, Nil{}} : Model.Node}
+
+law interface_input:
+  for +input: Core.Input
+  for +state: Core.State
+  {ModelModel.step(ModelModel.InterfaceInput{input}, state) == Core.step(input, state) : Core.Decision}
+
+
+type InterfaceRequirements is Type:
+  InterfaceRequirements{
+    interface_input: @+input:Core.Input -> @+state:Core.State ->
+      {ModelModel.step(ModelModel.InterfaceInput{input}, state) == Core.step(input, state) : Core.Decision}
+  }
+
+law interface_evidence:
+  InterfaceRequirements

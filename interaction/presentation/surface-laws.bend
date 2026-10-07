@@ -5,7 +5,6 @@ import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../MODEL.bend as ProductUI
 import ../STATE.bend as Core
-import ../runtime-laws.bend as Laws
 import ./PROGRAM.bend as Interface
 import ./MODEL.bend as View
 import ../INPUT.bend as U
@@ -19,7 +18,7 @@ type Receipt is Data:
 def receipt(+decision: Core.Decision) -> Receipt:
   Core.Decision{+observed_state, reply, runtime, interaction, service_effects, durable} = decision
   services = Core.services(observed_state)
-  Receipt{Laws.runtime(decision), services, interaction, service_effects, durable}
+  Receipt{Core.runtime(decision), services, interaction, service_effects, durable}
 
 def quiet_decision(+state: Core.State) -> Core.Decision:
   application = Core.application(state)

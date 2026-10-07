@@ -9,7 +9,7 @@ import ../../interaction/submission/FIELDS.bend as Forms
 import ./DESIGN.bend as Design
 import ../controls/SURFACES.bend as Surfaces
 import ../controls/PROGRAM.bend as Controls
-import ../editor/editor-layout.bend as EditorLayout
+import ../editor/MODEL.bend as EditorLayout
 import ./TYPOGRAPHY.bend as T
 import ../layout/natural-size.bend as NaturalSize
 import ../../interaction/presentation/MODEL.bend as View

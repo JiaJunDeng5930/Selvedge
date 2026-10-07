@@ -46,3 +46,20 @@ def step(event: ReadingEvent, intent: U.ReadingIntent, +bookmark: Bookmark, redu
 
 # A content/composer resize cannot invent follow-latest intent. The saved anchor
 # is the same object used to issue the browser correction.
+
+type Context is Data:
+  Context{task: Nat, generation: Nat}
+
+type Part is Data:
+  ReadingViewport{}
+  Content{}
+  Dock{}
+
+type Binding is Data:
+  Binding{context: Context, part: Part}
+
+def part_name(part: Part) -> String:
+  match part:
+    case ReadingViewport{}: "scroll"
+    case Content{}: "content"
+    case Dock{}: "dock"

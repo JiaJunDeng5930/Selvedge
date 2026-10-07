@@ -1,5 +1,5 @@
 import Base
-import ../submission/parameters.bend as OperationParameters
+import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
 import ../submission/MODEL.bend as Receipt
 import ../../harness/MODEL.bend as M
@@ -19,7 +19,6 @@ import ../INPUT.bend as U
 import ./MODEL.bend as V
 import ./COMPOSITION.bend as Composition
 import ../conversation/MODEL.bend as Conversation
-import ../submission/FIELDS.bend as Forms
 import ../submission/field-options.bend as FieldOptions
 import ../services/MODEL.bend as Services
 import ../conversation/CODE.bend as Code
@@ -98,7 +97,7 @@ type Meaning is Data:
   CodeFacts{view: Code.Scene}
   Activate{input: Core.Input, availability: V.Availability}
   ComposerAction{subject: V.ComposerSubject, input: Core.Input, availability: V.Availability}
-  Edit{editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, choices: +List<Forms.ChoiceValue>}
+  Edit{editor: U.Editor, field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, choices: +List<OperationParameters.ChoiceValue>}
   SearchChoices{query: String}
   EnterCredential{entered: Bool}
   ReceiveFile{editor: U.Editor, enabled: Bool}
@@ -158,7 +157,7 @@ def with_receipt(surface: Surface, receipt: Maybe<&2, Receipt.Receipt>) -> Surfa
 type Gesture is Data:
   Place{target: String}
   Press{}
-  Change{value: Forms.Value}
+  Change{value: OperationParameters.Value}
   Search{query: String}
   Credential{value: String}
   Filter{value: B.Filter}
@@ -301,12 +300,12 @@ def navigation(view: V.Navigation, +state: Core.State) -> Node:
   Node{Identity.Place{"/navigation"}, "navigation", "Navigation", Navigation{}, Region{}, header <>
     navigation_contents(expanded, route, create, destinations, projects, tasks, state)}
 
-def observed_field(found: Maybe<&2, U.Draft>, field: Forms.Field, world: M.World()) -> Forms.Observed:
+def observed_field(found: Maybe<&2, U.Draft>, field: OperationParameters.Field, world: M.World()) -> OperationParameters.Observed:
   match found:
-    case None{}: Forms.NotApplicable{}
-    case Some{U.Draft{revision, body, feedback, directory_entry}}: Forms.observed(body, field, world)
+    case None{}: OperationParameters.NotApplicable{}
+    case Some{U.Draft{revision, body, feedback, directory_entry}}: OperationParameters.observed(body, field, world)
 
-def field_value(state: Core.State, editor: U.Editor, field: Forms.Field) -> Forms.Observed:
+def field_value(state: Core.State, editor: U.Editor, field: OperationParameters.Field) -> OperationParameters.Observed:
   +observed_application = Core.application(state)
   world = E.program(observed_application)
   +observed_session = E.session(observed_application)
@@ -339,9 +338,9 @@ def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Ed
     case Con{(ticket, +value), rest}:
       List.append(&2, Node, transfer_node(U.same_editor(Services.transfer_editor(value), editor), ticket, value, parent), transfer_nodes(rest, editor, parent))
 
-def files_observed(value: Forms.Observed) -> +List<B.Attachment>:
+def files_observed(value: OperationParameters.Observed) -> +List<B.Attachment>:
   match value:
-    case Forms.AttachmentsValue{files}: files
+    case OperationParameters.AttachmentsValue{files}: files
     case _: Nil{}
 
 def file_field(+editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
@@ -349,7 +348,7 @@ def file_field(+editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> 
   +access = Services.access(observed_services)
   +transfers = Services.transfers(observed_services)
   Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", Field{}, ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
-    List.append(&2, Node, attachment_nodes(files_observed(field_value(state, editor, Forms.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
+    List.append(&2, Node, attachment_nodes(files_observed(field_value(state, editor, OperationParameters.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
 
 def workspace_value(value: Context.WorkspaceValue) -> D.Workspace:
   match value:
@@ -361,10 +360,10 @@ def context_workspace(value: Context.Preview) -> Maybe<&2, D.Workspace>:
     case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: Some{workspace_value(workspace)}
     case _: None{}
 
-def workspace_observed(value: Forms.Observed) -> Maybe<&2, D.Workspace>:
+def workspace_observed(value: OperationParameters.Observed) -> Maybe<&2, D.Workspace>:
   match value:
-    case Forms.WorkspaceValue{workspace}: Some{workspace}
-    case Forms.ContextValue{value}: context_workspace(value)
+    case OperationParameters.WorkspaceValue{workspace}: Some{workspace}
+    case OperationParameters.ContextValue{value}: context_workspace(value)
     case _: None{}
 
 def directory_primary_controls(primary: Bool, control: V.ControlDeclaration, parent: Identity.Key, state: Core.State) -> +List<Node>:
@@ -428,7 +427,7 @@ def browse_workspace(workspace: Maybe<&2, D.Workspace>) -> String:
 def browse_start_empty(empty: Bool, entered: String, +editor: U.Editor, state: Core.State) -> String:
   match empty:
     case False{}: entered
-    case True{}: browse_workspace(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})))
+    case True{}: browse_workspace(workspace_observed(field_value(state, editor, OperationParameters.WorkspaceDirectories{})))
 
 def browse_start(+editor: U.Editor, +state: Core.State) -> String:
   +entered = pending_directory(state, editor)
@@ -443,54 +442,54 @@ def directory_browse(+editor: U.Editor, +parent: Identity.Key, +state: Core.Stat
     Core.ServiceInput{Services.OpenDirectoryPicker{editor, browse_start(editor, state), Identity.encode(Identity.Part{parent, "workspace/browse"})}},
     Core.accepts_directory(editor, application_of(state)))
 
-def field_children(field: Forms.Field, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
+def field_children(field: OperationParameters.Field, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match field:
-    case Forms.CardAttachments{}: file_field(editor, parent, state)
-    case Forms.WorkspaceDirectories{}:
+    case OperationParameters.CardAttachments{}: file_field(editor, parent, state)
+    case OperationParameters.WorkspaceDirectories{}:
       Node{Identity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", Content{},
         ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
       Node{Identity.Part{parent, "add"}, "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
       directory_confirm(editor, parent, state) <>
       directory_browse(editor, parent, state) <>
-        directory_values(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state)
+        directory_values(workspace_observed(field_value(state, editor, OperationParameters.WorkspaceDirectories{})), editor, parent, state)
     case _: Nil{}
 
-def policy_entry(policy: Reasoning.Policy) -> Forms.Entry:
+def policy_entry(policy: Reasoning.Policy) -> OperationParameters.Entry:
   match policy:
-    case Reasoning.Fixed{}: Forms.SingleLine{}
-    case _: Forms.DisplayOnly{}
+    case Reasoning.Fixed{}: OperationParameters.SingleLine{}
+    case _: OperationParameters.DisplayOnly{}
 
-def profile_effort_entry(profile: D.Profile) -> Forms.Entry:
+def profile_effort_entry(profile: D.Profile) -> OperationParameters.Entry:
   match profile:
-    case D.Profile{key, provider, name, Reasoning.Fixed{}, Some{options}}: Forms.Choice{}
+    case D.Profile{key, provider, name, Reasoning.Fixed{}, Some{options}}: OperationParameters.Choice{}
     case D.Profile{key, provider, name, policy, options}: policy_entry(policy)
 
-def effort_entry(profile: Maybe<&2, D.Profile>) -> Forms.Entry:
+def effort_entry(profile: Maybe<&2, D.Profile>) -> OperationParameters.Entry:
   match profile:
-    case None{}: Forms.DisplayOnly{}
+    case None{}: OperationParameters.DisplayOnly{}
     case Some{profile}: profile_effort_entry(profile)
 
-def field_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, world: M.World()) -> Forms.Entry:
+def field_entry(field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, world: M.World()) -> OperationParameters.Entry:
   match field value:
-    case Forms.ReasoningEffort{} Forms.ModelValue{profile, effort}: effort_entry(D.find_profile(Commands.configured(Commands.settings(world)), profile))
+    case OperationParameters.ReasoningEffort{} OperationParameters.ModelValue{profile, effort}: effort_entry(D.find_profile(Commands.configured(Commands.settings(world)), profile))
     case _ _: entry
 
-def actual_entry(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed, state: Core.State) -> Forms.Entry:
+def actual_entry(field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, state: Core.State) -> OperationParameters.Entry:
   +observed_application = Core.application(state)
   world = E.program(observed_application)
   field_entry(field, entry, value, world)
 
-def entry_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observed, groups: +List<V.InputGroup>) -> +List<Forms.ChoiceValue>:
+def entry_choices(entry: OperationParameters.Entry, field: OperationParameters.Field, value: OperationParameters.Observed, groups: +List<V.InputGroup>) -> +List<OperationParameters.ChoiceValue>:
   match entry:
-    case Forms.Choice{}: FieldOptions.choices(field, value, groups)
-    case Forms.MultipleChoices{}: FieldOptions.choices(field, value, groups)
+    case OperationParameters.Choice{}: FieldOptions.choices(field, value, groups)
+    case OperationParameters.MultipleChoices{}: FieldOptions.choices(field, value, groups)
     case _: Nil{}
 
-def field_node(+field: Forms.FieldScene, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, groups: +List<V.InputGroup>) -> Node:
-  Forms.FieldScene{+field, label, entry} = field
+def field_node(+field: OperationParameters.FieldScene, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, groups: +List<V.InputGroup>) -> Node:
+  OperationParameters.FieldScene{+field, label, entry} = field
   +observed = field_value(state, editor, field)
   +resolved_entry = actual_entry(field, entry, observed, state)
-  Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, Field{}, Edit{editor, field, resolved_entry, observed, entry_choices(resolved_entry, field, observed, groups)}, field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)}
+  Node{Identity.Part{parent, OperationParameters.key(field)}, OperationParameters.key(field), label, Field{}, Edit{editor, field, resolved_entry, observed, entry_choices(resolved_entry, field, observed, groups)}, field_children(field, editor, Identity.Part{parent, OperationParameters.key(field)}, state)}
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
@@ -504,42 +503,42 @@ def draft_configuration(draft: Maybe<&2, U.Draft>) -> Maybe<&2, Context.Configur
     case None{}: None{}
     case Some{U.Draft{revision, body, feedback, directory_entry}}: configuration(body)
 
-def reset_fields(field: Forms.Field, workspace: Maybe<&2, D.Workspace>, sandbox: Maybe<&2, D.Sandbox>, approval: Maybe<&2, Context.ApprovalChoice>) -> Maybe<&2, Context.Change>:
+def reset_fields(field: OperationParameters.Field, workspace: Maybe<&2, D.Workspace>, sandbox: Maybe<&2, D.Sandbox>, approval: Maybe<&2, Context.ApprovalChoice>) -> Maybe<&2, Context.Change>:
   match field workspace sandbox approval:
-    case Forms.WorkspaceDirectories{} Some{value} _ _: Some{Context.UseDefaultWorkspace{}}
-    case Forms.SandboxMode{} _ Some{value} _: Some{Context.UseDefaultSandbox{}}
-    case Forms.ApprovalPolicy{} _ _ Some{value}: Some{Context.UseDefaultApproval{}}
+    case OperationParameters.WorkspaceDirectories{} Some{value} _ _: Some{Context.UseDefaultWorkspace{}}
+    case OperationParameters.SandboxMode{} _ Some{value} _: Some{Context.UseDefaultSandbox{}}
+    case OperationParameters.ApprovalPolicy{} _ _ Some{value}: Some{Context.UseDefaultApproval{}}
     case _ _ _ _: None{}
 
-def reset_change(config: Context.Configuration, field: Forms.Field) -> Maybe<&2, Context.Change>:
+def reset_change(config: Context.Configuration, field: OperationParameters.Field) -> Maybe<&2, Context.Change>:
   Context.Configuration{origin, workspace, sandbox, approval} = config
   reset_fields(field, workspace, sandbox, approval)
 
-def reset_control(change: Maybe<&2, Context.Change>, editor: U.Editor, field: Forms.Field, label: String, parent: Identity.Key, state: Core.State) -> +List<Node>:
+def reset_control(change: Maybe<&2, Context.Change>, editor: U.Editor, field: OperationParameters.Field, label: String, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match change:
     case None{}: Nil{}
-    case Some{change}: [user_action(parent, "default/" ++ Forms.key(field), "Use defaults for " ++ label, U.EditDraft{editor, U.ConfigureContext{change}}, True{}, state)]
+    case Some{change}: [user_action(parent, "default/" ++ OperationParameters.key(field), "Use defaults for " ++ label, U.EditDraft{editor, U.ConfigureContext{change}}, True{}, state)]
 
-def configured_reset(config: Maybe<&2, Context.Configuration>, editor: U.Editor, +field: Forms.Field, label: String, parent: Identity.Key, state: Core.State) -> +List<Node>:
+def configured_reset(config: Maybe<&2, Context.Configuration>, editor: U.Editor, +field: OperationParameters.Field, label: String, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match config:
     case None{}: Nil{}
     case Some{value}: reset_control(reset_change(value, field), editor, field, label, parent, state)
 
-def field_resets(+field: Forms.FieldScene, +editor: U.Editor, parent: Identity.Key, +state: Core.State) -> +List<Node>:
-  Forms.FieldScene{+field, label, entry} = field
+def field_resets(+field: OperationParameters.FieldScene, +editor: U.Editor, parent: Identity.Key, +state: Core.State) -> +List<Node>:
+  OperationParameters.FieldScene{+field, label, entry} = field
   +observed_application = Core.application(state)
   +observed_session = E.session(observed_application)
   +drafts = E.drafts(observed_session)
   configured_reset(draft_configuration(E.find_draft(drafts, editor)), editor, field, label, parent, state)
-def fields(values: +List<Forms.FieldScene>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
+def fields(values: +List<OperationParameters.FieldScene>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{+field, rest}: field_node(field, editor, parent, state, groups) <> List.append(&2, Node, field_resets(field, editor, parent, state), fields(rest, editor, parent, state, groups))
 
-def sections(values: +List<Forms.Section>, +editor: U.Editor, +parent: Identity.Key, +ordinal: Nat, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
+def sections(values: +List<OperationParameters.Section>, +editor: U.Editor, +parent: Identity.Key, +ordinal: Nat, +state: Core.State, +groups: +List<V.InputGroup>) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{Forms.Section{title, entries}, rest}:
+    case Con{OperationParameters.Section{title, entries}, rest}:
       Node{Identity.Entity{parent, "section", Nat.show(ordinal)}, "section/" ++ Nat.show(ordinal), title, Section{}, Region{}, fields(entries, editor, Identity.Entity{parent, "section", Nat.show(ordinal)}, state, groups)} <>
         sections(rest, editor, parent, (ordinal + 1n : Nat), state, groups)
 
@@ -593,7 +592,7 @@ def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       [Node{key, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{},
-        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
+        field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, key, state, Nil{}) <>
           List.append(&2, Node, feedback_nodes(key, feedback), [expected_composer_actions(footer, submit, key, state)])}]
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
@@ -601,7 +600,7 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: Co
     case None{}: Nil{}
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
       +composer_key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
-      [Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{}, field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state, Nil{}) <>
+      [Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{}, field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
           List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)])}]
 
 def approval_fact(+parent: Identity.Key, +key: String, +label: String, text: String) -> Node:
@@ -1315,8 +1314,8 @@ def permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Ident
       sandbox_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
       network_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
       approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
-      List.append(&2, Node, reset_control(reset_change(config, Forms.SandboxMode{}), editor, Forms.SandboxMode{}, "filesystem and network access", parent, state),
-        reset_control(reset_change(config, Forms.ApprovalPolicy{}), editor, Forms.ApprovalPolicy{}, "approval policy", parent, state))
+      List.append(&2, Node, reset_control(reset_change(config, OperationParameters.SandboxMode{}), editor, OperationParameters.SandboxMode{}, "filesystem and network access", parent, state),
+        reset_control(reset_change(config, OperationParameters.ApprovalPolicy{}), editor, OperationParameters.ApprovalPolicy{}, "approval policy", parent, state))
     case _: Nil{}
 
 def permission_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
@@ -1644,7 +1643,7 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case Activate{input, availability} Press{}: when_available(available(availability), input)
     case PanelToggle{expanded, input, availability} Press{}: when_available(available(availability), input)
     case Choice{kind, classification, selected, description, input, availability} Press{}: when_available(available(availability), input)
-    case Edit{+editor, +field, Forms.DisplayOnly{}, +value, choices} Change{+next}: None{}
+    case Edit{+editor, +field, OperationParameters.DisplayOnly{}, +value, choices} Change{+next}: None{}
     case Edit{+editor, +field, entry, +value, choices} Change{+next}: Some{Core.EditField{editor, field, next}}
     case SearchChoices{query} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
     case EnterCredential{entered} Credential{+value}: Some{Core.ServiceInput{Services.EnterCredential{value}}}
@@ -1797,9 +1796,9 @@ def focusable(meaning: Meaning) -> Bool:
     case PanelToggle{expanded, input, availability}: available(availability)
     case LayerRegion{dismiss, outside, escape}: True{}
     case Choice{kind, classification, selected, description, input, availability}: available(availability)
-    case Edit{editor, field, Forms.DisplayOnly{}, value, choices}: False{}
-    case Edit{editor, field, Forms.FileCollection{}, value, choices}: False{}
-    case Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: False{}
+    case Edit{editor, field, OperationParameters.DisplayOnly{}, value, choices}: False{}
+    case Edit{editor, field, OperationParameters.FileCollection{}, value, choices}: False{}
+    case Edit{editor, field, OperationParameters.DirectoryCollection{}, value, choices}: False{}
     case Edit{editor, field, entry, value, choices}: True{}
     case SearchChoices{query}: True{}
     case EnterCredential{entered}: True{}

@@ -1,6 +1,14 @@
 import Base
-import ./features/MODEL.bend as Features
+import ./tasks/PROOF.bend as TaskProof
+import ./features/PROOF.bend as FrameProof
+import ../bendlib/component.bend as C
+import ./DOMAIN.bend as D
+import ./reasoning/PROOF.bend as ReasoningProof
+import ./features/MODEL.bend as F
+import ../features/board/MODEL.bend as Board
 import ./MODEL.bend as M
+import ../features/board/STATE.bend as BoardState
+import ./LOCALITY.bend as Rule
 import ./PROGRAM.bend as P
 import ./LAWS.bend as Laws
 import ../bendlib/json.bend as J
@@ -8,6 +16,84 @@ import ./transport/presentation.bend as View
 import ./INVARIANTS.bend as I
 import ./protocol/COMMIT.bend as Commit
 import ./execution/notifications.bend as Notifications
+
+def board_frame(value: Board.State, world: M.World()) ->
+  {F.rest(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.rest(C.rest(D.State, F.State(), world)) : F.Rest()}:
+  match world:
+    case C.Frame{core, state}: FrameProof.board_frame(value, state)
+
+def board_core_frame(value: Board.State, world: M.World()) ->
+  {C.local(D.State, F.State(), BoardState.store(value, world)) == C.local(D.State, F.State(), world) : D.State}:
+  match world:
+    case C.Frame{core, state}: {==}
+
+def locality() -> Rule.Locality:
+  Rule.Locality{
+    Rule.TaskStorage{
+      R => +task => +state => +rest => TaskProof.update_meaning(R, task, state, rest),
+      R => task => world => TaskProof.update_frame(R, task, world),
+      task => world => {==}},
+    Rule.ReasoningComponent{
+      R => X => +task => +world => ReasoningProof.start_meaning(R, X, task, world),
+      R => X => task => world => ReasoningProof.start_frame(R, X, task, world),
+      task => world => ReasoningProof.start_frame(F.State(), F.Effect, task, world)},
+    Rule.BoardStorage{
+      +value => state => FrameProof.board_written(value, state),
+      value => world => board_frame(value, world),
+      value => world => board_core_frame(value, world)}}
+
+# Local proof obligations for the observations boundary. No runtime policy lives here.
+
+def output_admitted_world(fits: Bool, +decision: M.Decision(), +previous: M.World(),
+  evidence: {P.decision_world(decision) == previous : M.World()}) ->
+  {P.decision_world(P.output_admitted(fits, decision, previous)) == previous : M.World()}:
+  match fits:
+    case True{}: evidence
+    case False{}: {==}
+
+def admission_world(rendered: Result<&2, &2, String, String>, +decision: M.Decision(), +previous: M.World(),
+  evidence: {P.decision_world(decision) == previous : M.World()}) ->
+  {P.decision_world(P.admission(rendered, decision, previous)) == previous : M.World()}:
+  match rendered:
+    case Fail{error}: {==}
+    case Done{text}:
+      output_admitted_world(Nat.is_le(J.utf8_length(text), U32.to_nat(P.frame_limit(previous))), decision, previous, evidence)
+
+def deliver_world(+durable: Bool, +decision: M.Decision(), +previous: M.World(),
+  evidence: {P.decision_world(decision) == previous : M.World()}) ->
+  {P.decision_world(P.deliver(durable, decision, previous)) == previous : M.World()}:
+  admission_world(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, evidence)
+
+def Laws.observation_preserves_world(query, world):
+  deliver_world(False{}, P.observe(query, world), world, {==})
+
+def output_admitted_no_effects(fits: Bool, +decision: M.Decision(), previous: M.World(),
+  evidence: {P.decision_effects(decision) == Nil{} : +List<M.Effect()>}) ->
+  {P.decision_effects(P.output_admitted(fits, decision, previous)) == Nil{} : +List<M.Effect()>}:
+  match fits:
+    case True{}: evidence
+    case False{}: {==}
+
+def admission_no_effects(rendered: Result<&2, &2, String, String>, +decision: M.Decision(), +previous: M.World(),
+  evidence: {P.decision_effects(decision) == Nil{} : +List<M.Effect()>}) ->
+  {P.decision_effects(P.admission(rendered, decision, previous)) == Nil{} : +List<M.Effect()>}:
+  match rendered:
+    case Fail{error}: {==}
+    case Done{text}:
+      output_admitted_no_effects(Nat.is_le(J.utf8_length(text), U32.to_nat(P.frame_limit(previous))), decision, previous, evidence)
+
+def Laws.observation_has_no_effects(query, world):
+  admission_no_effects(J.render(P.rendering_budget(world), J.One{View.envelope(False{}, P.observe(query, world))}),
+    P.observe(query, world), world, {==})
+
+def Laws.observation_not_durable(query):
+  {==}
+
+def Laws.delivery_observation_world(durable, decision, previous, unchanged):
+  deliver_world(durable, decision, previous, unchanged)
+
+def Laws.delivery_observation_effects(durable, decision, previous, silent):
+  admission_no_effects(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, silent)
 
 # Local proof obligations for the safety boundary. No runtime policy lives here.
 

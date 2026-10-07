@@ -16,10 +16,9 @@ import ../harness/protocol/PROGRAM.bend as Protocol
 import ../harness/protocol/commit-proof.bend as CommitProof
 import ../harness/execution/PROOF.bend as ExecutionProof
 import ../harness/transport/PROOF.bend as FrontendProof
-import ../harness/observations-proof.bend as ObservationsProof
-import ../harness/safety-proof.bend as SafetyProof
-import ../harness/tasks/tasks-proof.bend as TasksProof
-import ../harness/history/traces-proof.bend as TracesProof
+import ../harness/PROOF.bend as ObservationsProof
+import ../harness/tasks/PROOF.bend as TasksProof
+import ../harness/history/PROOF.bend as TracesProof
 
 # Local proof obligations for the algebra boundary. No runtime policy lives here.
 
