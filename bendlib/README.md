@@ -17,25 +17,22 @@ task-creation specification; `feature-execution.bend` receives its implementatio
 `feature-laws.bend` requires their complete-decision correspondence when composing
 the proof. `feature-architecture.bend` collects the feature guarantees.
 
-`surface.bend` owns shared presentation types. `feature-view.bend` assembles
-feature rendering using the task surface supplied at its actual interaction
-boundary. Feature cursor fields, validation and round-trip encoding belong to
-`feature-codec.bend`; the universal UI and wire modules import these contracts
-rather than a private board representation.
+The semantic interface is in [../UI.bend](../UI.bend) and
+[../core/interface.bend](../core/interface.bend). Feature command encoding is in
+[feature-codec.bend](feature-codec.bend).
 
-`task-laws.bend` and `reasoning-laws.bend` prove actual task-component behavior for
-arbitrary surrounding types. `feature-frame.bend` and `feature-ui-laws.bend` bind
-board updates to their write and preservation guarantees. `locality.bend` assembles
-the production evidence required by `CONCEPTS.Harness.locality`. Pure execution
+`proofs/task-storage.bend` and `proofs/reasoning-locality.bend` prove actual task-component behavior for
+arbitrary surrounding types. `proofs/feature-frame.bend` supplies board storage evidence;
+`locality.bend` is the production locality entry. Pure execution
 modules do not import their proof providers, so mutation tests can independently
 check that an erroneous implementation remains type-correct.
 
 Board requirements are in `../BOARD.bend` and `board-resolution.bend`.
 `board-spec.bend` specifies complete mutations and drafting settlement;
 `board-scheduling-spec.bend` specifies the use of ordinary task execution.
-`board-navigation.bend`/`board-view.bend` own the cursor, filters, forms and
-revision-bound insertion targets. `board-architecture.bend` declares the evidence
-assembled in `proofs/board.bend`. Ordered cards reuse the existing finite map and
+See [../core/ui-world.bend](../core/ui-world.bend) for page observations and
+[../core/interface.bend](../core/interface.bend) for the semantic interface.
+Ordered cards reuse the existing finite map and
 standard list operations; there is no browser-side board state machine.
 
 `../UI.bend` owns the platform-independent presentation and event semantics.
@@ -43,6 +40,11 @@ standard list operations; there is no browser-side board state machine.
 command resolver, and `commit.bend` projects the post-scheduling world before
 atomic output admission. The surface's read-only observation and command gates
 are carried by `architecture.UserSurface` and checked in `proofs/ui.bend`.
+`conversation.bend` owns request titles and shared provider-text decoding.
+`conversation-spec.bend` independently observes ordered speech, original audit
+records, result values/errors and composer intents. `proofs/conversation.bend`
+binds those observations to the production UI helpers; `UserSurface` requires
+their evidence. These laws do not assert browser geometry or provider quality.
 
 `../APPROVALS.bend` independently resolves one-operation permission requests and
 their human or model decisions. `approval-architecture.bend` binds the executing
@@ -80,48 +82,13 @@ obligations; arbitrary-path results reuse those checked source proofs.
 Batch recovery, task views and branch results use the imported map correspondence;
 partition and map-composition results instantiate original library theorems.
 
-`protocol.bend` resolves every input and accepted internal invocation into its
-semantic operation. Completion tickets are checked here, not independently in
-the host and implementation. Internal calls reuse COMMANDS' resolver and settle
-their caller in the resulting world, including self-send and self-archive. Its
-full input and invocation refinements extend the public command specification.
-
-`commit.bend` gives the complete command boundary: refusal does not schedule,
-accepted work has a bounded scheduler, retired effects are filtered, and validity
-or complete-envelope output rejection rolls back state and all effects. LAWS
-also fixes the scheduler's zero, quiescent and successor cases. Host commit
-ordering is checked separately by integration tests, not assumed proven by Bend.
-
-`execution.bend` owns the finite execution specification. Its action alphabet
-separates deciding what work means from realizing it in PROGRAM. Resolution
-includes recovery, availability and argument checks; action meaning fixes the
-whole decision. The scheduler refinement uses the original imported `nat_ind`
-certificate. The specification dependency closure excludes the implementation.
-
-`transcript.bend` independently specifies complete finite decision traces;
-`traces.bend` runs the production transition on that carrier. Original
-`Nat.iter_swap_gen`, `Nat.iter_add` and `Nat.iter_ind` proofs lift the one-step
-correspondence to trace refinement, partition and replay safety. Receipts include
-replies and ordered effects. The local tape/fold proof establishes correspondence
-with the production journal rather than proving an unused abstract interpreter.
-
 `interface.bend` specifies the pure native packet protocol; `frontend.bend`
 implements it, including malformed JSON, failed decoding and durability. Both
 are in the proof closure. MAIN only performs IO. The modules in `proofs` consume
 declared laws through explicit provider imports; see `proofs/README.md`.
 
-`tasks.bend` implements task collection, history, queue, and recovery operations,
-including closing interrupted tool attempts and validating summary completions.
-Summary failure consumes no new authority: rejected calls and checkpoints are
-not installed. Independently queued user messages are promoted in FIFO order;
-an empty queue stops and a frozen queue remains frozen.
-`MODEL.context_history` is the authoritative checkpoint projection. Full history
-remains append-only; the presentation layer renders whichever history the
-authorized effect carries. `INVARIANTS.settled_calls` guards context cuts against
-unsettled function calls.
-`equality.bend` supplies bounded structural comparisons used by INVARIANTS.
-A comparison budget exhaustion returns false; it never certifies unchecked values.
-These comparisons establish value relations, not physical pointer sharing.
+[domain.bend](domain.bend) contains `context_history`;
+[../INVARIANTS.bend](../INVARIANTS.bend) contains `settled_calls`.
 
 `json.bend` preserves JSON number spellings and provides bounded decoding and
 rendering. `schema.bend` checks the supported command and built-in tool schemas.
@@ -133,12 +100,3 @@ Run `npm run check` for the proof gate and `npm test` for compiler/protocol prob
 host components, end-to-end behavior and proof-infrastructure mutations. Internal
 semantic examples already covered by proofs are not duplicated as unit tests;
 see `../tests-bend/README.md`. Changing a Bend source changes the journal identity.
-
-`operations.bend` owns execution and result-callback rights, running announcements
-and non-replayable interrupted outcomes. Task control and operation ownership are a
-product: finishing one tool must not overwrite an unrelated pending model request.
-A coalescing notification bit retains results that arrive during a model turn.
-Summary eligibility excludes live operations; oversized partial context waits,
-then summarizes after settlement. Forks inherit context with explicit nonownership
-notices, never the parent's rights. `steer` and `cancel_operation` have separate
-native command meanings and separately scoped cancellation effects.

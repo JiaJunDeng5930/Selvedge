@@ -4,3 +4,6 @@
 .workpad/
 .build/
 node_modules/
+
+# Browser ESM libraries and their compiler/source fingerprint manifests.
+/host/public/generated/

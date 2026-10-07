@@ -23,6 +23,23 @@ import ./traces.bend as TracesProof
 
 # Local proof obligations for the algebra boundary. No runtime policy lives here.
 
+def nat_add_zero(+value: Nat) -> {Nat.add(value, 0n) == value : Nat}:
+  match value:
+    case 0n: {==}
+    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(rest, 0n), rest, nat_add_zero(rest))
+
+def nat_add_assoc(+first: Nat, +second: Nat, +third: Nat) ->
+  {Nat.add(Nat.add(first, second), third) == Nat.add(first, Nat.add(second, third)) : Nat}:
+  match first:
+    case 0n: {==}
+    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(Nat.add(rest, second), third), Nat.add(rest, Nat.add(second, third)), nat_add_assoc(rest, second, third))
+
+def nat_add_succ(+first: Nat, +second: Nat) ->
+  {Nat.add(first, 1n+second) == 1n+Nat.add(first, second) : Nat}:
+  match first:
+    case 0n: {==}
+    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.add(rest, 1n+second), 1n+Nat.add(rest, second), nat_add_succ(rest, second))
+
 def Concepts.recovery_batches():
   (tasks => {==})
 

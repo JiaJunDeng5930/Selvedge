@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { encodeBendValue } from '../host/public/bend-value.mjs';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { requestModel, responseBody } from '../host/providers.mjs';
-import { taskIdle } from './support.mjs';
+import { browserUI, taskIdle } from './support.mjs';
 import { chatgptFixture, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
 
 const checkpoint = 'Retain the original user request and continue the unfinished work.';
@@ -70,7 +71,7 @@ test('empty, oversized and tool-bearing summaries are rejected by the native che
   });
 });
 
-test('automatic text checkpoint keeps original read_task history and survives native restart and UI rendering', async t => {
+test('automatic text checkpoint keeps original read_task history and survives native kernel restart and UI observation', { timeout: 120_000 }, async t => {
   let compactCalls = 0, modelCalls = 0;
   const longAnswer = 'x'.repeat(140000);
   const largeOutputSummary = 'The original request produced a large output. The latest user request is: Continue after large output.';
@@ -97,8 +98,9 @@ test('automatic text checkpoint keeps original read_task history and survives na
   assert.equal(compactCalls, 1); assert.equal(modelCalls, 2);
   assert.ok(page.messages.some(message => message.role === 'model_context' && message.content.content?.[0]?.text === longAnswer));
   assert.deepEqual(page.messages.filter(message => message.role === 'context_summary').map(message => message.content), [largeOutputSummary]);
-  const presentation = await running.service.presentation({ event: { type: 'select', task_id: 0 } });
-  assert.equal(presentation.reply.ok, true); assert.ok(JSON.stringify(presentation.reply).includes(largeOutputSummary));
+  const ui = await browserUI(t);
+  const surface = ui.surface(running.service.browserSnapshot().program, 0n);
+  assert.ok(JSON.stringify(encodeBendValue(surface)).includes(largeOutputSummary));
   await running.restart();
   await running.service.command({ op: 'send', task_id: 0, message: 'Continue after restart.' });
   page = await taskIdle(running.service);

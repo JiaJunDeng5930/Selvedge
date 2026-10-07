@@ -12,7 +12,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-board-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  for (const name of ['bendlib', 'core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], {
     cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
@@ -33,11 +33,6 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
     ['accept an unrelated drafting ticket', 'bendlib/feature-protocol.bend',
       'board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision), retitle)',
       'board_selected_callback(True{}, retitle)', /board_boundary/],
-    ['close continuous creation', 'bendlib/board-navigation.bend',
-      'case True{}: B.CreateDialog{stage, assisted}', 'case True{}: B.NoDialog{}', /board_boundary/],
-    ['keep the dialog open after a successful edit', 'bendlib/board-navigation.bend',
-      'case B.Update{id, revision, patch, now}: with_dialog(B.NoDialog{}, cursor)',
-      'case B.Update{id, revision, patch, now}: cursor', /board_boundary/],
   ];
   for (const [label, name, before, after, diagnostic] of mutations) await t.test(label, async () => {
     const filename = path.join(directory, name), original = await readFile(filename, 'utf8');

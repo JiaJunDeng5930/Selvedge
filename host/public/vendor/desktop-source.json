@@ -1,0 +1,300 @@
+{
+  "application": {
+    "name": "openai-codex-electron",
+    "version": "26.917.71314"
+  },
+  "inputs": {
+    "css": {
+      "member": "/webview/assets/app-shared-fa570b9eb9dd.css",
+      "sha256": "fda42cbba7c23433a1a378dac6dadcab9f871dba202d38d95b10cfb7bfca2c4e"
+    }
+  },
+  "css": {
+    "tokenRules": [
+      {
+        "start": 25602,
+        "end": 35127,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "130be15f5fb9bb1e5c14069854f18128501c5e1f4780a4d03a90d4aec41cc62f"
+      },
+      {
+        "start": 35173,
+        "end": 36075,
+        "parents": [
+          "@layer theme",
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "67af2a54c533df8cfa2f88101c8ec5d81e4d64698e9355d3a95f973fa8aa7fb1"
+      },
+      {
+        "start": 36076,
+        "end": 36195,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "01073ad80c5f2d8e98eee0c71808218018d06d91c4ba4764d409fb6eb5d4e2db"
+      },
+      {
+        "start": 36195,
+        "end": 36311,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "2109cd50e5a8acd4459e7b567d36e21dfdeb774a5a7a7cbf60c9dc13089ea6e9"
+      },
+      {
+        "start": 36311,
+        "end": 42624,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "81cd57c398a7abcdba22429de62c8d4aaa1ee7c50a0b375abff054a9d45cbd97"
+      },
+      {
+        "start": 42670,
+        "end": 46778,
+        "parents": [
+          "@layer theme",
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "1c8c39cbf5dec90a802c25b06d3e74c2e8ae42dad33e23bf5712f07cd3b1c17b"
+      },
+      {
+        "start": 46779,
+        "end": 46821,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "20c32cac46eb79f2f368b48600f5217bb32cb74ea7b57281c07232208bec4d33"
+      },
+      {
+        "start": 46868,
+        "end": 46911,
+        "parents": [
+          "@layer theme",
+          "@media (resolution>=150dpi),(resolution>=1.5x)"
+        ],
+        "sha256": "470ee5220bbd2a6e3c1c25d29214256aa3760cbe585ca6b0b8cb246e69356559"
+      },
+      {
+        "start": 46912,
+        "end": 47101,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "a3e75ab99f910418c822e9d3e61463abcb6deb7e4ba70ac78480977f7a3c6aa1"
+      },
+      {
+        "start": 47447,
+        "end": 47624,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "c9f51b85e6bc425dda2742880d0406fd5ef581d7bac93303d7c413fe425eebf2"
+      },
+      {
+        "start": 47671,
+        "end": 47760,
+        "parents": [
+          "@layer theme",
+          "@media (resolution>=150dpi),(resolution>=1.5x)"
+        ],
+        "sha256": "1d53a4e8f1a0c36950f24c9589423be914d2530a36d500f84fadc36ab86d1795"
+      },
+      {
+        "start": 47761,
+        "end": 80030,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "0e742087e2d0011ae17c6002b401abbbdf4ad475a262968331c2602fb8664510"
+      },
+      {
+        "start": 80076,
+        "end": 80295,
+        "parents": [
+          "@layer theme",
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "f0b63b57f0a1479bd9e699e0084e20580f374dc2c7bdbbf1ad51bac69682ca07"
+      },
+      {
+        "start": 80296,
+        "end": 81816,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "f5367dac90a8607cccc7d4ba75d7c0d2fdc02cd187e023814f4745102d5e453f"
+      },
+      {
+        "start": 81816,
+        "end": 82044,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "4905897be0e39dad01e89958e6b966a0752c3e8232347267e4f1a81b49a46e7d"
+      },
+      {
+        "start": 82044,
+        "end": 86506,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "56a281779e679493b8cad7fd7e48a342e8d1f7135b29fc56ba2b2db888a6d213"
+      },
+      {
+        "start": 86552,
+        "end": 91105,
+        "parents": [
+          "@layer theme",
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "f699001a33141e3b637d4d0e05dfd872fd6e324d2e099350f3c5e98f2469a0b2"
+      },
+      {
+        "start": 91106,
+        "end": 91578,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "104eaa93925671ef41d6a97439d68312ab27524df30565d6b1cd0d9dcbdf1977"
+      },
+      {
+        "start": 91756,
+        "end": 95027,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "50da54a358acb04600a930076828ac6e9c9bb5f31368ac93e0baa6541f893d50"
+      },
+      {
+        "start": 95073,
+        "end": 97206,
+        "parents": [
+          "@layer theme",
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "167fe50cfd6bce10cc5125fad31e798390b5fa9d9445be8ea58d1107e50982f9"
+      },
+      {
+        "start": 97207,
+        "end": 97415,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "e267e06a3efed909eb7ebf369a0409720654952fef71736c9182c0dbfda10cbb"
+      },
+      {
+        "start": 97741,
+        "end": 111890,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "fe815dc16faa48e5fd52a8754ccd021ffb6c16062cc48b62d0d98767d4c277eb"
+      },
+      {
+        "start": 111936,
+        "end": 114590,
+        "parents": [
+          "@layer theme",
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "c22a1d1ddd23c12d4b351c6439968e998d430fffaebc3fda9b2d77ce4ac2af76"
+      },
+      {
+        "start": 114591,
+        "end": 116394,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "25df91e8cfe9e6564e53469650ec986238352f0077a41c7c6477b42ce40faa7f"
+      },
+      {
+        "start": 150842,
+        "end": 150985,
+        "parents": [
+          "@layer theme"
+        ],
+        "sha256": "3c627fe5dd8405455109ce2a670d080216c29234aba49d50399268dc765243ce"
+      },
+      {
+        "start": 155310,
+        "end": 155399,
+        "parents": [
+          "@layer base"
+        ],
+        "sha256": "03b6b055f72c7c87cc2f187c6de3d55c34f36ed55ddc0ec13df3b79cc74cc99b"
+      },
+      {
+        "start": 155399,
+        "end": 155486,
+        "parents": [
+          "@layer base"
+        ],
+        "sha256": "537e70cd539bde2b164639eef412a77733f8fdf7692c66f46ff00db4c30911ba"
+      },
+      {
+        "start": 902841,
+        "end": 903261,
+        "parents": [],
+        "sha256": "82c59bc78394c555b0b489b512648d5b85f9fcb1bf0344f27e4131d4a5200a9d"
+      },
+      {
+        "start": 903307,
+        "end": 903616,
+        "parents": [
+          "@supports (color:color-mix(in lab, red, red))"
+        ],
+        "sha256": "1d639c623cc931bad2abc1446cec23ab2e83b9286d48abeac564fc75acfd6f05"
+      },
+      {
+        "start": 903617,
+        "end": 903815,
+        "parents": [],
+        "sha256": "8b1a11ce6daeca48994281d8034e8913851fc8d65ac47397b5ca6720ec5f5b7d"
+      },
+      {
+        "start": 912672,
+        "end": 913049,
+        "parents": [],
+        "sha256": "1b19f0271dc30e185dfb22cfdb756b4e2181fd3010f5d9101007975e45164f25"
+      },
+      {
+        "start": 913083,
+        "end": 913179,
+        "parents": [
+          "@media not all and (width>=40rem)"
+        ],
+        "sha256": "26093fcd927c13a7664122861b6ad6926a9173615cb64f06c13edb04c1032545"
+      },
+      {
+        "start": 913180,
+        "end": 915023,
+        "parents": [],
+        "sha256": "b0ef6e5accea4d6b98bacd6567447161db03aeedc68f5884265d8f06fcb97d3c"
+      },
+      {
+        "start": 915645,
+        "end": 916198,
+        "parents": [
+          "@supports (corner-shape:superellipse(1.5))"
+        ],
+        "sha256": "159d133e90bed1c39078f1f446022ff5d29879a1bc7e8b7b55ed3e36a56e08a3"
+      },
+      {
+        "start": 917185,
+        "end": 917236,
+        "parents": [],
+        "sha256": "b67f818ceb79d646c1c82d4186208e8cec431f7f982bcd65031158fc38cdcde9"
+      }
+    ]
+  },
+  "files": [
+    {
+      "file": "desktop-tokens.css",
+      "sha256": "f638e11217eb11fab6357ab43b956d7051bb63871583c9572990bf3741e3bb02"
+    }
+  ]
+}

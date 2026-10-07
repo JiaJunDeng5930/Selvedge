@@ -32,7 +32,7 @@ test('ChatGPT production evidence rejects type-correct lost effects, cross-conne
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-chatgpt-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  for (const name of ['bendlib', 'core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], { cwd: directory, encoding: 'utf8',
     timeout: compilerCallBudget, env: { ...process.env, BEND_NO_TELEMETRY: '1' } });

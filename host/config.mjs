@@ -44,20 +44,28 @@ export function validateConfig(value) {
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     text(key, 'profile key');
     object(source, `profile ${key}`, [...chatgptAccountFields, 'model', 'api_key_env', 'adaptive_reasoning']);
-    if (!['echo', 'responses', 'chatgpt'].includes(source.provider)) throw new TypeError(`Unknown provider for ${key}`);
+    if (!['echo', 'responses', 'chatgpt', 'chatgpt-web'].includes(source.provider)) throw new TypeError(`Unknown provider for ${key}`);
     text(source.model, `model for ${key}`);
     const profile = { timeout_ms: 300_000, ...source };
     const adaptive = adaptivePolicy(source.adaptive_reasoning);
     if (adaptive && profile.provider === 'echo') throw new TypeError('The offline echo provider cannot select model reasoning effort');
+    if (profile.provider === 'chatgpt-web') {
+      if (!/^chatgpt-web\/(light|medium|high|xhigh|pro)$/.test(profile.model)) throw new TypeError(`Invalid ChatGPT Web model for ${key}`);
+      if (adaptive) throw new TypeError('ChatGPT Web fixes effort at the root; adaptive reasoning is not supported');
+    }
     if (adaptive) profile.adaptive_reasoning = adaptive;
     else delete profile.adaptive_reasoning;
     number(profile.timeout_ms, `timeout for ${key}`, 100, 1_800_000);
-    if (profile.provider === 'responses') {
-      profile.endpoint ??= 'https://api.openai.com/v1/responses';
+    if (profile.provider === 'responses' || profile.provider === 'chatgpt-web') {
+      profile.endpoint ??= profile.provider === 'chatgpt-web' ? 'http://127.0.0.1:8787/v1/responses' : 'https://api.openai.com/v1/responses';
       endpoint(profile.endpoint, `endpoint for ${key}`);
+      if (profile.provider === 'chatgpt-web') {
+        const url = new URL(profile.endpoint);
+        if (!url.pathname.endsWith('/v1/responses') || url.search) throw new TypeError('ChatGPT Web endpoint must end in /v1/responses without a query');
+      }
     }
-    if (profile.provider === 'responses') {
-      profile.api_key_env ??= 'OPENAI_API_KEY';
+    if (profile.provider === 'responses' || profile.provider === 'chatgpt-web') {
+      profile.api_key_env ??= profile.provider === 'chatgpt-web' ? 'CHATGPT_WEB_TOKEN' : 'OPENAI_API_KEY';
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(profile.api_key_env)) throw new TypeError(`Invalid API key environment variable for ${key}`);
     }
     if (profile.provider === 'chatgpt') Object.assign(profile, accountConnection(profile));
@@ -109,5 +117,9 @@ export async function loadConfig({ home, filename } = {}) {
 
 export function profileCatalog(config) {
   return Object.entries(config.profiles).map(([key, profile]) => ({ key, provider: profile.provider, name: profile.model,
+    reasoning_options: profile.model_info?.supported_reasoning_levels?.length ? {
+      default: profile.model_info.default_reasoning_level ?? null,
+      values: profile.model_info.supported_reasoning_levels.map(level => level.effort),
+    } : null,
     ...(profile.adaptive_reasoning ? { adaptive_reasoning: profile.adaptive_reasoning } : {}) }));
 }

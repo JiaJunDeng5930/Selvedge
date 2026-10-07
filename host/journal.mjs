@@ -43,6 +43,7 @@ export class Journal extends EventEmitter {
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
       journal.kernel = new Kernel(kernelOptions);
       journal.description = await journal.kernel.initialize();
+      journal.program = journal.kernel.initialProgram;
       for (const row of journal.#database.prepare('SELECT * FROM journal ORDER BY seq').iterate()) {
         if (row.seq !== journal.sequence + 1 || row.previous !== journal.#previous ||
             row.digest !== digest(row.previous, row.seq, row.input, row.decision)) {
@@ -52,6 +53,7 @@ export class Journal extends EventEmitter {
         if (!replayed.value.durable || replayed.text !== row.decision) {
           throw new Error(`Kernel replay disagrees with committed decision ${row.seq}`);
         }
+        journal.program = replayed.program;
         journal.sequence = row.seq;
         journal.#previous = row.digest;
       }
@@ -107,7 +109,8 @@ export class Journal extends EventEmitter {
           this.#poison(error);
           throw error;
         }
-        return { sequence: this.sequence, ...response.value };
+        this.program = response.program;
+        return { sequence: this.sequence, program: this.program, ...response.value };
       }
       const sequence = this.sequence + 1;
       const hash = digest(this.#previous, sequence, inputText, response.text);
@@ -121,9 +124,10 @@ export class Journal extends EventEmitter {
         this.#poison(error);
         throw error;
       }
+      this.program = response.program;
       this.sequence = sequence;
       this.#previous = hash;
-      const committed = { sequence, input, ...response.value };
+      const committed = { sequence, input, program: this.program, ...response.value };
       // Observer exceptions cannot roll back a committed decision or permit it
       // to be retried as an uncommitted input.
       for (const observer of this.listeners('commit')) {

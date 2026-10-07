@@ -4,7 +4,6 @@ import ../FEATURES.bend as Features
 import ./domain.bend as D
 import ../MODEL.bend as M
 import ./json.bend as J
-import ./tasks.bend as T
 
 # The native command and event wire representation shared by all presentations.
 # No renderer recreates command shapes or endpoint-specific transitions.
@@ -35,7 +34,7 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{[J.Field{"op", J.Text{D.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
     case M.Fork{id, count, messages, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-        J.Field{"messages", J.Array{T.strings_json(messages)}}])}
+        J.Field{"messages", J.Array{J.text_items(messages)}}])}
     case M.Compact{id, summary}: compact_json(id, summary)
     case M.Observe{M.Read{id, after, limit}}:
       J.Object{[J.Field{"op", J.Text{"read"}}, J.Field{"task_id", J.nat(id)}, J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]}
@@ -53,13 +52,3 @@ def command_json(command: M.Command) -> J.Json:
     case M.ReviewApproval{id, operation, +outcome}:
       J.Object{[J.Field{"op", J.Text{"review_approval"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)},
         J.Field{"decision", J.Text{D.approval_decision(outcome)}}, J.Field{"reason", J.Text{D.approval_reason(outcome)}}]}
-
-def event_json(event: M.ViewEvent) -> J.Json:
-  match event:
-    case M.FeatureEvent{event}: FeatureCodec.event_json(event)
-    case M.SelectTask{id}: J.Object{[J.Field{"type", J.Text{"select"}}, J.Field{"task_id", J.optional_nat(id)}]}
-    case M.HistoryPage{after}: J.Object{[J.Field{"type", J.Text{"history"}}, J.Field{"after", J.optional_nat(after)}]}
-    case M.TaskPage{after}: J.Object{[J.Field{"type", J.Text{"tasks"}}, J.Field{"after", J.nat(after)}]}
-    case M.SelectProfile{profile}: J.Object{[J.Field{"type", J.Text{"profile"}}, J.Field{"profile", J.Text{profile}}]}
-    case M.Submit{command}: J.Object{[J.Field{"type", J.Text{"submit"}}, J.Field{"command", command_json(command)}]}
-    case M.RefreshView{}: J.Object{[J.Field{"type", J.Text{"refresh"}}]}

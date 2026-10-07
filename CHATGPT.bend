@@ -174,7 +174,7 @@ def integer_schema(minimum: Nat, maximum: Nat) -> J.Json:
   J.Object{[J.Field{"type", J.Text{"integer"}}, J.Field{"minimum", J.nat(minimum)}, J.Field{"maximum", J.nat(maximum)}]}
 
 def args_schema() -> J.Json:
-  D.object_schema([J.Field{"command", text_schema()}, J.Field{"timeout_ms", integer_schema(100n, 1800000n)},
+  Schema.object([J.Field{"command", text_schema()}, J.Field{"timeout_ms", integer_schema(100n, 1800000n)},
     J.Field{"max_output_length", integer_schema(1n, 8192n)}], [J.Text{"command"}, J.Text{"timeout_ms"}, J.Text{"max_output_length"}])
 
 def limited(+text: String, maximum: Nat) -> Bool:

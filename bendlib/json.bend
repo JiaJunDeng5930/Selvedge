@@ -1,4 +1,5 @@
 import Base
+import ./stdlib.bend as Std
 
 type Json is Data:
   Null{}
@@ -10,6 +11,28 @@ type Json is Data:
 
 type Field is Data:
   Field{name: String, value: Json}
+
+# Identity compares the canonical encoded structure without a rendering budget.
+def same_bool(left: Bool, right: Bool) -> Bool:
+  match left right:
+    case True{} True{}: True{}
+    case False{} False{}: True{}
+    case _ _: False{}
+
+def same(left: Json, right: Json) -> Bool:
+  match left right:
+    case Null{} Null{}: True{}
+    case Boolean{left} Boolean{right}: same_bool(left, right)
+    case Number{left} Number{right}: String.eq(left, right)
+    case Text{left} Text{right}: String.eq(left, right)
+    case Array{Nil{}} Array{Nil{}}: True{}
+    case Array{Con{left_item, left_rest}} Array{Con{right_item, right_rest}}:
+      same(left_item, right_item) && same(Array{left_rest}, Array{right_rest})
+    case Object{Nil{}} Object{Nil{}}: True{}
+    case Object{Con{Field{left_name, left_value}, left_rest}} Object{Con{Field{right_name, right_value}, right_rest}}:
+      String.eq(left_name, right_name) && same(left_value, right_value) && same(Object{left_rest}, Object{right_rest})
+    case _ _: False{}
+    case _ _: False{}
 
 type StackItem is Data:
   Value{value: Json}
@@ -99,6 +122,22 @@ def text(value: Json) -> String:
     case _:
       ""
 
+def text_items(values: +List<String>) -> +List<Json>:
+  Std.map(~String, ~Json, ~(text => Text{text}), values)
+
+def text_values(values: +List<Json>) -> +List<String>:
+  Std.map(~Json, ~String, ~text, values)
+
+def optional_text(value: Json) -> Maybe<&2, String>:
+  match value:
+    case Text{text}: Some{text}
+    case _: None{}
+
+def text_or(value: Json, fallback: String) -> String:
+  match value:
+    case Text{text}: text
+    case _: fallback
+
 def is_text(value: Json) -> Bool:
   match value:
     case Text{value}:
@@ -184,12 +223,20 @@ def escaped_char(code: U32) -> String:
     case +other:
       escaped_other(U32.is_lt(other, 32), other)
 
-def escape(text: String) -> String:
+# Each escaped character contributes at most six characters, bounding append depth.
+def escape_collect(text: String, parts: +List<String>) -> +List<String>:
   match text:
-    case SNil{}:
-      ""
+    case SNil{}: parts
     case SCon{Chr{code}, rest}:
-      escaped_char(code) ++ escape(rest)
+      escape_collect(rest, Con{escaped_char(code), parts})
+
+def escape_join(parts: +List<String>, suffix: String) -> String:
+  match parts:
+    case Nil{}: suffix
+    case Con{part, rest}: escape_join(rest, part ++ suffix)
+
+def escape(text: String) -> String:
+  escape_join(escape_collect(text, Nil{}), "")
 
 def quote(text: String) -> String:
   "\"" ++ escape(text) ++ "\""
@@ -208,6 +255,26 @@ type Render is Data:
   One{value: Json}
   Elements{values: +List<Json>, first: Bool}
   Fields{values: +List<Field>, first: Bool}
+
+# A recursive edge consumes one unit; sibling jobs receive the same remainder.
+def payload_required(+value: Json) -> Nat:
+  match value:
+    case Null{}: 0n
+    case Boolean{value}: 0n
+    case Number{lexeme}: 0n
+    case Text{value}: 0n
+    case Array{Nil{}}: 1n
+    case Array{Con{head, tail}}:
+      1n+Nat.max(1n+payload_required(head), payload_required(Array{tail}))
+    case Object{Nil{}}: 1n
+    case Object{Con{Field{key, value}, tail}}:
+      1n+Nat.max(1n+payload_required(value), payload_required(Object{tail}))
+
+def required(+job: Render) -> Nat:
+  match job:
+    case One{value}: 1n+payload_required(value)
+    case Elements{values, first}: payload_required(Array{values})
+    case Fields{values, first}: payload_required(Object{values})
 
 def join(left: Result<&2, &2, String, String>, right: Result<&2, &2, String, String>) -> Result<&2, &2, String, String>:
   match left right:
@@ -245,8 +312,8 @@ def render(fuel: Nat, job: Render) -> Result<&2, &2, String, String>:
     case 1n+ +p Fields{Con{Field{key, value}, tail}, first}:
       surround(comma(first) ++ quote(key) ++ ":", join(render(p, One{value}), render(p, Fields{tail, False{}})), "")
 
-def show(value: Json) -> Result<&2, &2, String, String>:
-  render(U32.to_nat(65536), One{value})
+def show(+value: Json) -> Result<&2, &2, String, String>:
+  render(required(One{value}), One{value})
 
 def char_width(ascii: Bool, two: Bool, three: Bool) -> Nat:
   match ascii two three:
@@ -255,8 +322,17 @@ def char_width(ascii: Bool, two: Bool, three: Bool) -> Nat:
     case False{} False{} True{}: 3n
     case _ _ _: 4n
 
-def utf8_length(text: String) -> Nat:
+def utf8_length_spec(text: String) -> Nat:
   match text:
     case SNil{}: 0n
     case SCon{Chr{+code}, rest}:
-      Nat.add(char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536)), utf8_length(rest))
+      Nat.add(char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536)), utf8_length_spec(rest))
+
+def utf8_length_acc(text: String, total: Nat) -> Nat:
+  match text:
+    case SNil{}: total
+    case SCon{Chr{+code}, rest}:
+      utf8_length_acc(rest, Nat.add(total, char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536))))
+
+def utf8_length(text: String) -> Nat:
+  utf8_length_acc(text, 0n)

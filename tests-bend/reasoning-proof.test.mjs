@@ -13,6 +13,8 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
+  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
   const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);

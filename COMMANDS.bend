@@ -84,7 +84,7 @@ def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +pro
   match selection:
     case Fail{reason}: Refuse{"invalid_settings", reason}
     case Done{selection}:
-      require(Reasoning.permitted(D.profile_reasoning(profile), reasoning) && D.nonempty(message), Start{profile, reasoning, message, selection},
+      require(D.profile_permitted(profile, reasoning) && D.nonempty(message), Start{profile, reasoning, message, selection},
         "invalid_arguments", "Create requires a nonempty message and a permitted reasoning effort. Adaptive endpoints accept only auto.")
 
 def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: String, options: J.Json, +world: M.World()) -> Operation:
@@ -92,7 +92,7 @@ def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: String, 
     case None{}: Refuse{"unknown_profile", "Select a configured model profile"}
     case Some{+profile}:
       start_selection(selected_settings(options, environment_selection(settings(world)), profile, world),
-        profile, Reasoning.selection(reasoning, D.profile_reasoning(profile)), message)
+        profile, D.profile_selection(reasoning, profile), message)
 
 def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, parent: D.Task,
   count: Nat, messages: +List<String>) -> Operation:
@@ -312,7 +312,7 @@ def identities(tasks: +List<D.Task>) -> +List<J.Json>:
 
 def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> D.Call:
   D.Call{"manual-fork-" ++ Nat.show(ticket), "fork_task",
-    J.Object{[J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{T.strings_json(messages)}}]}}
+    J.Object{[J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{J.text_items(messages)}}]}}
 
 def branch_commit(built: Children, +parent: D.Task, call_id: String, world: M.World()) -> M.Decision():
   Children{+spawned, end} = built

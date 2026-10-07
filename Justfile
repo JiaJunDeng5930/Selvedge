@@ -7,27 +7,27 @@ bootstrap:
     bash scripts/bootstrap.sh
 
 run:
-    npm start
+    bun run start
 
 build:
-    npm run build
+    bun run build
 
 test:
-    npm test
+    bun run test
 
 check:
-    npm run check
-    npm test
-    npm run index:check
+    bun run check
+    bun run test
+    bun run index:check
 
 agents-index:
-    npm run index
+    bun run index
 
 agents-index-check:
-    npm run index:check
+    bun run index:check
 
 bench:
-    npm run bench
+    bun run bench
 
 hooks:
     pre-commit run --all-files

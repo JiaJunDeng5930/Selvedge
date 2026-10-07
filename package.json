@@ -2,30 +2,31 @@
   "name": "selvedge",
   "private": true,
   "type": "module",
-  "workspaces": ["plugins/selvedge-chatgpt"],
   "engines": {
-    "node": ">=26"
+    "bun": ">=1.4.2"
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "prestart": "node scripts/build.mjs",
-    "start": "node host/cli.mjs server",
-    "test": "node scripts/build.mjs && node --test --test-concurrency=1 tests-bend/*.test.mjs",
-    "test:ci": "node scripts/build.mjs && node scripts/test-ci.mjs",
-    "test:browser": "node scripts/build.mjs && node scripts/browser-check.mjs",
-    "test:board-browser": "node scripts/build.mjs && node scripts/board-browser-check.mjs",
-    "check": "node scripts/check.mjs",
-    "check:components": "node scripts/check-components.mjs",
-    "test:locality": "node --test tests-bend/locality.test.mjs",
-    "test:chatgpt-plugin": "node scripts/build.mjs && node --test --test-concurrency=2 tests-bend/chatgpt-plugin*.test.mjs",
-    "index": "node scripts/agents-index.mjs update",
-    "index:check": "node scripts/agents-index.mjs check",
-    "bench": "node scripts/build.mjs && node scripts/benchmark.mjs"
+    "build": "bun scripts/build.mjs",
+    "start": "bun run build && bun host/cli.mjs server",
+    "test": "bun run build && bun scripts/test.mjs",
+    "check": "bun scripts/check.mjs",
+    "check:components": "bun scripts/check-components.mjs",
+    "test:locality": "bun test ./tests-bend/locality.test.mjs",
+    "index": "bun scripts/agents-index.mjs update",
+    "index:check": "bun scripts/agents-index.mjs check",
+    "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
+    "build:native": "bun scripts/build.mjs --native",
+    "test:ci": "bun run build && bun scripts/test.mjs --ci",
+    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs"
   },
   "dependencies": {
     "gpt-tokenizer": "4.0.0",
     "openid-client": "6.8.8"
   },
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "plugins/selvedge-chatgpt"
+  ],
   "devDependencies": {
     "jose": "6.2.12"
   }

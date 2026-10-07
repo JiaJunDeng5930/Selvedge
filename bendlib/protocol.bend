@@ -13,7 +13,6 @@ import ./tasks.bend as T
 import ./stdlib.bend as Std
 import ./operations.bend as Ops
 import ./results.bend as Results
-import ../UI.bend as UI
 import ../WORKSPACE.bend as Workspace
 import ../APPROVALS.bend as Approvals
 import ../REASONING.bend as R
@@ -121,7 +120,6 @@ def feature_result(found: Maybe<&2, FeatureOps.ResolvedEvent>) -> ResolvedEvent:
 def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
-    case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)
     case M.FeatureCompleted{completion}: feature_result(FeatureProtocol.resolve(completion, world))
@@ -183,11 +181,6 @@ type Invocation is Data:
 def number(+arguments: J.Json, name: String, fallback: Nat) -> Nat:
   J.natural_or(J.natural(J.get(arguments, name)), fallback)
 
-def messages(values: +List<J.Json>) -> +List<String>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: J.text(value) <> messages(rest)
-
 def delegated(allowed: Bool, count: Nat, messages: +List<String>, selection: Workspace.Selection) -> Invocation:
   match allowed:
     case True{}: Branch{count, messages, selection}
@@ -209,7 +202,7 @@ def invocation(tool: D.Builtin, +arguments: J.Json, +task: D.Task, +world: M.Wor
   match tool:
     case D.ForkTask{}:
       +count = number(arguments, "child_count", 0n)
-      +texts = messages(J.items(J.get(arguments, "messages")))
+      +texts = J.text_values(J.items(J.get(arguments, "messages")))
       branch(Commands.branch_fits(count, texts, task, world), count, texts,
         Commands.selected_settings(J.get(arguments, "settings"), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), D.task_context(task))
     case D.ReadTask{}:

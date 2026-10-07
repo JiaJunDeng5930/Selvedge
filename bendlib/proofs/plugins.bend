@@ -1,4 +1,5 @@
 import Base
+import ../../FEATURES.bend as F
 import ../effects.bend as Effects
 import ../component.bend as C
 import ../domain.bend as D
@@ -94,7 +95,7 @@ def admitted(+durable: Bool, previous: M.World(), +enriched: M.Decision(), +plai
 def enrichment(+source: M.Input, +before: M.World(), +decision: M.Decision()) -> Laws.ObservationExtension<decision, N.enrich(source, before, decision)>:
   C.Decision{+after, reply, +effects} = decision
   +events = List.append(&2, D.Notice, N.input(source, before, after), List.append(&2, D.Notice,
-    N.tasks(N.entries(after), N.entries(before)), N.dispatched(I.live_effects(effects, N.entries(after)), N.entries(after))))
+    N.tasks(D.state_tasks(C.local(D.State, F.State(), after)), D.state_tasks(C.local(D.State, F.State(), before))), N.dispatched(I.live_effects(effects, D.state_tasks(C.local(D.State, F.State(), after))), D.state_tasks(C.local(D.State, F.State(), after)))))
   admitted(M.durable(source), before, N.append(events, decision), decision, appended(events, decision))
 
 def enabled(enabled: Bool, source: M.Input, before: M.World(), +decision: M.Decision()) ->

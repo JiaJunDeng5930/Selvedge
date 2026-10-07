@@ -31,12 +31,12 @@ def id_schema() -> J.Json:
   G.integer_schema(0n, 4294967295n)
 
 def sandbox_schema() -> J.Json:
-  D.object_schema([J.Field{"mode", D.string_schema("read-only or workspace-write")},
+  Schema.object([J.Field{"mode", D.string_schema("read-only or workspace-write")},
     J.Field{"network_access", J.Object{[J.Field{"type", J.Text{"boolean"}}]}}],
     [J.Text{"mode"}, J.Text{"network_access"}])
 
 def grant_schema() -> J.Json:
-  D.object_schema([J.Field{"connection_id", id_schema()}, J.Field{"project_ids", array(id_schema())},
+  Schema.object([J.Field{"connection_id", id_schema()}, J.Field{"project_ids", array(id_schema())},
     J.Field{"sandbox", sandbox_schema()}], [J.Text{"connection_id"}, J.Text{"project_ids"}, J.Text{"sandbox"}])
 
 def connection_fields() -> +List<J.Field>:

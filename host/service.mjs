@@ -8,15 +8,25 @@ import { runBash } from './process.mjs';
 import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
-import { observeBoardCommand, observeBoardClock } from './board-files.mjs';
-import { requestModel, ContextLimitError } from './providers.mjs';
+import { observeBoardCommand } from './board-files.mjs';
+import { requestModel, cancelModelTask, ContextLimitError } from './providers.mjs';
+import { canonicalWorkspace } from './sandbox.mjs';
+import { browseDirectories } from './directories.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
+export class CommandNotSubmitted extends Error {
+  constructor(cause) {
+    super(cause.message, { cause });
+    this.name = 'CommandNotSubmitted';
+  }
+}
+
 export class Service extends EventEmitter {
   #running = new Map();
+  #providerCancellations = new Set();
   #servers = new Map();
   #catalog = new Map();
   #plugins = new Map();
@@ -26,6 +36,7 @@ export class Service extends EventEmitter {
   #failure;
   #catalogTail = Promise.resolve();
   #closePromise;
+  #streams = new Map();
 
   static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
@@ -92,6 +103,17 @@ export class Service extends EventEmitter {
   }
 
   notify(event) {
+    const key = `${event.task_id}:${event.ticket}`;
+    if (event.type === 'stream_start') this.#streams.set(key, { task_id: event.task_id, ticket: event.ticket, parts: [] });
+    if (event.type === 'delta' || event.type === 'snapshot') {
+      const stream = this.#streams.get(key);
+      if (stream) {
+        let part = stream.parts.find(item => item.output_index === event.output_index);
+        if (!part) { part = { output_index: event.output_index, text: '' }; stream.parts.push(part); }
+        part.text = event.type === 'snapshot' ? event.text : part.text + event.text;
+      }
+    }
+    if (event.type === 'stream_cancel' || event.type === 'stream_end') this.#streams.delete(key);
     for (const observer of this.listeners('notice')) {
       try { observer(event); } catch { /* An observer cannot roll back a commit. */ }
     }
@@ -139,11 +161,17 @@ export class Service extends EventEmitter {
       return;
     }
     if (effect.kind === 'cancel') {
-      for (const active of this.#running.values()) if (active.task === effect.task_id) active.controller.abort(new Error('Task work cancelled'));
+      this.#cancelProvider(effect.task_id);
+      for (const active of this.#running.values()) if (active.task === effect.task_id) {
+        if (['summary', 'approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
+        active.controller.abort(new Error('Task work cancelled'));
+      }
       return;
     }
     if (effect.kind === 'cancel_ticket') {
-      this.#running.get(`${effect.task_id}:${effect.ticket}`)?.controller.abort(new Error('Operation or model request cancelled'));
+      const active = this.#running.get(`${effect.task_id}:${effect.ticket}`);
+      if (active && ['model', 'summary', 'approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
+      active?.controller.abort(new Error('Operation or model request cancelled'));
       return;
     }
     if (effect.kind === 'continue') {
@@ -164,9 +192,16 @@ export class Service extends EventEmitter {
       effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
-    const active = { task: effect.task_id, controller };
+    const active = { task: effect.task_id, effect, controller };
     this.#running.set(key, active);
     active.promise = this.#perform(effect, controller.signal).catch(error => this.#fatal(error)).finally(() => this.#running.delete(key));
+  }
+
+  #cancelProvider(task) {
+    const promise = cancelModelTask(task, this.config, this.home, this.limits)
+      .catch(error => this.notify({ type: 'diagnostic', message: `Remote cancellation was not confirmed: ${error.message}` }))
+      .finally(() => this.#providerCancellations.delete(promise));
+    this.#providerCancellations.add(promise);
   }
 
   async #perform(effect, signal) {
@@ -195,6 +230,7 @@ export class Service extends EventEmitter {
       } else if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
+          onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
           onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
         });
         input = { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items };
@@ -270,7 +306,10 @@ export class Service extends EventEmitter {
   async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    const observed = await observeWorkspaceCommand(await observeBoardCommand(command, this.home), this.limits);
+    const boardObserved = await observeBoardCommand(command, this.home);
+    let observed;
+    try { observed = await observeWorkspaceCommand(boardObserved, this.limits); }
+    catch (cause) { throw new CommandNotSubmitted(cause); }
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     return this.journal.execute({ kind: 'command', command: observed });
@@ -293,14 +332,47 @@ export class Service extends EventEmitter {
     return next;
   }
 
-  async presentation({ state = null, event } = {}) {
-    if (this.#failure) return Promise.reject(this.#failure);
-    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    if (event?.type === 'submit') event = { ...event,
-      command: await observeWorkspaceCommand(await observeBoardCommand(event.command, this.home), this.limits) };
+  browserSnapshot() {
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return this.journal.execute({ kind: 'ui', state, event, observed_at: observeBoardClock() });
+    return { sequence: this.journal.sequence, program: this.journal.program };
+  }
+
+  browserStreams() {
+    return structuredClone([...this.#streams.values()]);
+  }
+
+  async browserCommand(command) {
+    const result = await this.command(command);
+    return { sequence: result.sequence, program: result.program, reply: result.reply };
+  }
+
+  async browserObservation(observation) {
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
+    if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
+      return { kind: 'streams', streams: this.browserStreams() };
+    }
+    if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2) {
+      try {
+        let location = observation.path;
+        if (location === '') {
+          const workspace = await canonicalWorkspace({ roots: [this.project.workspace] });
+          location = workspace.primary_root;
+        }
+        return await browseDirectories(location, this.limits.frame_bytes);
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+    }
+    if (observation.kind === 'directories' && Object.keys(observation).length === 2 && observation.workspace) {
+      const workspace = await canonicalWorkspace(observation.workspace);
+      const primary = workspace.primary_root ?? workspace.roots[0];
+      const guidance = primary ? await snapshotProject(primary, this.limits) : null;
+      return { kind: 'directories', workspace, guidance };
+    }
+    throw new TypeError('Unknown browser observation');
   }
 
   close() {
@@ -313,6 +385,7 @@ export class Service extends EventEmitter {
     if (this.#continuation) clearImmediate(this.#continuation);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));
     await Promise.allSettled([...this.#running.values()].map(active => active.promise));
+    await Promise.allSettled([...this.#providerCancellations]);
     await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close()));
     await this.#catalogTail;
     await this.journal?.close();

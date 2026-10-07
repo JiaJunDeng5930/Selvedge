@@ -1,13 +1,13 @@
 import Base
+import ./schema.bend as Schema
 import ./json.bend as J
-import ./tasks.bend as T
 
 # Shared, strict wire primitives. Protocol-specific schemas remain with owners.
 def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
   match fields:
     case Nil{}: Nat.is_eq(List.length(&2, String, seen), List.length(&2, String, allowed))
     case Con{J.Field{+key, value}, rest}:
-      T.has_name(allowed, key) && Bool.not(T.has_name(seen, key)) && exact_keys(rest, allowed, key <> seen)
+      Schema.contains(allowed, key) && Bool.not(Schema.contains(seen, key)) && exact_keys(rest, allowed, key <> seen)
 
 def object_keys(value: J.Json, allowed: +List<String>) -> Bool:
   match value:

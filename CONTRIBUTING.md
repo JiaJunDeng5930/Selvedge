@@ -7,12 +7,12 @@ required facts. Do not weaken a requirement merely to make an implementation pas
 
 ## Setup and checks
 
-Use Node.js 26 or later and a C compiler on macOS or Linux. Run
+Use Bun 1.4.2 or later and a C compiler on macOS or Linux. Run
 `bash scripts/bootstrap.sh` to build with the pinned Bend release and install Git
 hooks when `pre-commit` is available. Worktree setup creates a local `.build`
 directory without downloading, building, or sharing a kernel executable.
 
-Run `npm run check`, `npm test`, and `npm run index:check` before submitting work.
+Run `bun run check`, `bun run test`, and `bun run index:check` before submitting work.
 The commit hook checks proofs, syntax, and the tracked-file index; the push hook
 runs native integration tests. `just check` runs the same checks, and `just hooks`
 executes the configured hook stages. CI covers macOS and Linux.
@@ -25,7 +25,7 @@ and independent negative tests of the proof infrastructure. Unproved behavior
 still needs evidence. A successful Bend proof is not evidence that a host,
 compiler or remote provider follows the model.
 
-After adding, renaming, or removing files, stage them, run `npm run index`, and
+After adding, renaming, or removing files, stage them, run `bun run index`, and
 stage `AGENTS.md`. The index is derived from Git's staged tracked paths. Temporary
 logs, benchmark measurements, and investigation notes belong in `.workpad/`.
 
@@ -39,7 +39,10 @@ rather than changing it to make a development run succeed.
 ## Reviews and decisions
 
 Work on a focused branch; `main` is protected. Explain the resulting behavior,
-its reason, and the relevant verification. Record architecture choices in an ADR.
+its reason, and the relevant verification. Express decision reasons that are
+program requirements as Bend entities, executable specifications or public rules
+bound to actual production computations. Do not maintain another account in
+documentation of requirements already expressed there. ADRs are optional.
 Record findings specific to the executable-model exploration in
 [docs/bend2-exploration.md](docs/bend2-exploration.md); avoid restating code tables
 or maintaining a second state-machine diagram.

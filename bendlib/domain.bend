@@ -1,6 +1,7 @@
 import Base
 import ../REASONING.bend as Reasoning
 import ./json.bend as J
+import ./schema.bend as Schema
 import ./association-map.bend as Finite
 
 # Task-domain values and rules have no dependency on the assembled application.
@@ -150,18 +151,13 @@ def plugin_json(plugin: PluginRef) -> J.Json:
   PluginRef{name, revision} = plugin
   J.Object{[J.Field{"name", J.Text{name}}, J.Field{"revision", J.Text{revision}}]}
 
-def subscription_json(events: +List<String>) -> +List<J.Json>:
-  match events:
-    case Nil{}: Nil{}
-    case Con{event, rest}: J.Text{event} <> subscription_json(rest)
-
 def plugin_values(plugins: +List<Plugin>) -> +List<J.Json>:
   match plugins:
     case Nil{}: Nil{}
     case Con{Plugin{reference, before, after, events}, rest}:
       J.Object{[J.Field{"reference", plugin_json(reference)}, J.Field{"before_tool", J.Boolean{before}},
         J.Field{"after_tool", J.Boolean{after}},
-        J.Field{"events", J.Array{subscription_json(event_names(events))}}]} <> plugin_values(rest)
+        J.Field{"events", J.Array{J.text_items(event_names(events))}}]} <> plugin_values(rest)
 
 def plugins_json(plugins: +List<Plugin>) -> J.Json:
   J.Array{plugin_values(plugins)}
@@ -223,6 +219,12 @@ def source_same(a: Source, b: Source) -> Bool:
       plugin_same(plugin_a, plugin_b) && String.eq(remote_a, remote_b)
     case _ _: False{}
 
+def tool_same(left: Tool, right: Tool) -> Bool:
+  Tool{name_left, description_left, schema_left, source_left} = left
+  Tool{name_right, description_right, schema_right, source_right} = right
+  String.eq(name_left, name_right) && String.eq(description_left, description_right) &&
+    J.same(schema_left, schema_right) && source_same(source_left, source_right)
+
 def source_json(source: Source) -> J.Json:
   match source:
     case Extension{plugin, remote}:
@@ -249,20 +251,125 @@ def integer_schema(description: String, minimum: Nat, maximum: Nat) -> J.Json:
   J.Object{[J.Field{"type", J.Text{"integer"}}, J.Field{"description", J.Text{description}},
     J.Field{"minimum", J.nat(minimum)}, J.Field{"maximum", J.nat(maximum)}]}
 
-def object_schema(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
-  J.Object{[J.Field{"type", J.Text{"object"}}, J.Field{"properties", J.Object{properties}},
-    J.Field{"required", J.Array{required}}, J.Field{"additionalProperties", J.Boolean{False{}}}]}
-
 # These definitions are the provider manifest and the executable tool vocabulary.
 # A task freezes them at birth; catalog reloads only affect route availability.
 def task_id_schema() -> J.Json:
   integer_schema("Task identity", 0n, U32.to_nat(4294967295))
 
 type Profile is Data:
-  Profile{key: String, provider: String, name: String, reasoning: Reasoning.Policy}
+  Profile{key: String, provider: String, name: String, reasoning: Reasoning.Policy, options: Maybe<&2, ReasoningOptions>}
+
+type ReasoningOptions is Data:
+  ReasoningOptions{default: String, values: +List<String>}
+
+def reasoning_seen(found: Bool, +value: String, seen: +List<String>) -> +List<String>:
+  match found:
+    case True{}: seen
+    case False{}: value <> seen
+def reasoning_unique_result(found: Bool, value: String, rest: +List<String>) -> +List<String>:
+  match found:
+    case True{}: rest
+    case False{}: value <> rest
+def unique_reasoning_values(values: +List<String>, +seen: +List<String>) -> +List<String>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+value, rest}:
+      +found: Bool = Reasoning.member(seen, value)
+      reasoning_unique_result(found, value, unique_reasoning_values(rest, reasoning_seen(found, value, seen)))
+
+def effective_reasoning_member(found: Bool, value: String, first: String) -> String:
+  match found:
+    case True{}: value
+    case False{}: first
+
+def effective_reasoning_default(requested: Maybe<&2, String>, +values: +List<String>, first: String) -> String:
+  match requested:
+    case None{}: first
+    case Some{+value}:
+      effective_reasoning_member(Reasoning.member(values, value), value, first)
+
+def normalized_reasoning_options(values: +List<String>, requested: Maybe<&2, String>) -> Maybe<&2, ReasoningOptions>:
+  match values:
+    case Nil{}: None{}
+    case Con{+first, +rest}: Some{ReasoningOptions{effective_reasoning_default(requested, first <> rest, first), first <> rest}}
+
+def normalize_reasoning_options(values: +List<String>, requested: Maybe<&2, String>) -> Maybe<&2, ReasoningOptions>:
+  normalized_reasoning_options(unique_reasoning_values(values, Nil{}), requested)
+
+def reasoning_options_valid(options: ReasoningOptions) -> Bool:
+  ReasoningOptions{+default, +values} = options
+  Reasoning.distinct(values) && Reasoning.member(values, default)
+
+def reasoning_values_covered(efforts: +List<String>, +values: +List<String>) -> Bool:
+  match efforts:
+    case Nil{}: True{}
+    case Con{effort, rest}: Reasoning.member(values, effort) && reasoning_values_covered(rest, values)
+
+def policy_options_covered(policy: Reasoning.Policy, default: String, values: +List<String>) -> Bool:
+  match policy:
+    case Reasoning.Fixed{}: Reasoning.permitted(Reasoning.Fixed{}, default)
+    case Reasoning.Adaptive{evaluator, efforts, baseline, transport, maximum}: reasoning_values_covered(efforts, values)
+
+def policy_options_valid(+policy: Reasoning.Policy, options: Maybe<&2, ReasoningOptions>) -> Bool:
+  match options:
+    case None{}: Reasoning.valid(policy)
+    case Some{+options}:
+      ReasoningOptions{default, +values} = options
+      reasoning_options_valid(options) && Reasoning.valid(policy) && policy_options_covered(policy, default, values)
+
+def reasoning_options_same(left: Maybe<&2, ReasoningOptions>, right: Maybe<&2, ReasoningOptions>) -> Bool:
+  match left right:
+    case None{} None{}: True{}
+    case Some{ReasoningOptions{a, xs}} Some{ReasoningOptions{b, ys}}: String.eq(a, b) && Reasoning.equal_strings(xs, ys)
+    case _ _: False{}
+
+def profile_options(profile: Profile) -> Maybe<&2, ReasoningOptions>:
+  Profile{key, provider, name, reasoning, options} = profile
+  options
+
+def nonempty(text: String) -> Bool:
+  Bool.not(String.is_empty(String.trim(text)))
+
+def profile_valid(profile: Profile) -> Bool:
+  Profile{key, provider, name, reasoning, options} = profile
+  nonempty(key) && nonempty(provider) && nonempty(name) && policy_options_valid(reasoning, options)
+
+def bounded_reasoning_policy(policy: Reasoning.Policy, selection: String, default: String, values: +List<String>) -> Bool:
+  match policy:
+    case Reasoning.Fixed{}: Reasoning.member(values, selection)
+    case +other: String.eq(selection, "auto") && policy_options_valid(other, Some{ReasoningOptions{default, values}})
+
+def bounded_reasoning_selection(policy: Reasoning.Policy, selection: String, options: Maybe<&2, ReasoningOptions>) -> Bool:
+  match options:
+    case None{}: True{}
+    case Some{ReasoningOptions{default, +values}}:
+      bounded_reasoning_policy(policy, selection, default, values)
+
+def profile_permitted(profile: Profile, +selection: String) -> Bool:
+  Profile{key, provider, name, +policy, options} = profile
+  Reasoning.permitted(policy, selection) && bounded_reasoning_selection(policy, selection, options)
+
+def profile_default(profile: Profile) -> String:
+  match profile:
+    case Profile{key, provider, name, Reasoning.Fixed{}, Some{ReasoningOptions{default, values}}}: default
+    case Profile{key, provider, name, policy, options}: Reasoning.default_selection(policy)
+
+def profile_selection_default(use_default: Bool, selection: String, profile: Profile) -> String:
+  match use_default:
+    case True{}: profile_default(profile)
+    case False{}: selection
+
+def profile_selection(+selection: String, profile: Profile) -> String:
+  profile_selection_default(String.eq(selection, "default"), selection, profile)
+
+def reasoning_options_json(options: Maybe<&2, ReasoningOptions>) -> J.Json:
+  match options:
+    case None{}: J.Null{}
+    case Some{ReasoningOptions{default, values}}:
+      J.Object{[J.Field{"default", J.Text{default}}, J.Field{"values", J.Array{Reasoning.strings(values)}}]}
 
 def profile_reasoning(profile: Profile) -> Reasoning.Policy:
-  Profile{key, provider, name, reasoning} = profile
+  Profile{key, provider, name, reasoning, options} = profile
   reasoning
 
 def select_profile(same: Bool, profile: Profile, rest: Maybe<&2, Profile>) -> Maybe<&2, Profile>:
@@ -273,15 +380,15 @@ def select_profile(same: Bool, profile: Profile, rest: Maybe<&2, Profile>) -> Ma
 def find_profile(profiles: +List<Profile>, +key: String) -> Maybe<&2, Profile>:
   match profiles:
     case Nil{}: None{}
-    case Con{Profile{+name, provider, model, reasoning}, rest}:
-      select_profile(String.eq(name, key), Profile{name, provider, model, reasoning}, find_profile(rest, key))
+    case Con{Profile{+name, provider, model, reasoning, options}, rest}:
+      select_profile(String.eq(name, key), Profile{name, provider, model, reasoning, options}, find_profile(rest, key))
 
 def profiles_json(profiles: +List<Profile>) -> +List<J.Json>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{Profile{key, provider, name, reasoning}, rest}:
+    case Con{Profile{key, provider, name, reasoning, options}, rest}:
       J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}},
-        J.Field{"adaptive_reasoning", Reasoning.json(reasoning)}]} <>
+        J.Field{"adaptive_reasoning", Reasoning.json(reasoning)}, J.Field{"reasoning_options", reasoning_options_json(options)}]} <>
         profiles_json(rest)
 
 # Project guidance is a frozen external observation, not a hidden prompt read.
@@ -369,7 +476,7 @@ def approval_outcome_json(+outcome: ApprovalOutcome) -> J.Json:
 def approval_reviewer_json(reviewer: ApprovalReviewer) -> J.Json:
   match reviewer:
     case HumanReviewer{}: J.Object{[J.Field{"kind", J.Text{"human"}}]}
-    case ModelReviewer{Profile{key, provider, name, reasoning}}:
+    case ModelReviewer{Profile{key, provider, name, reasoning, options}}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"profile", J.Text{key}},
         J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
 
@@ -392,7 +499,7 @@ def optional_string(value: Maybe<&2, String>) -> J.Json:
 
 def workspace_json(workspace: Workspace) -> J.Json:
   Workspace{roots, primary} = workspace
-  J.Object{[J.Field{"roots", J.Array{subscription_json(roots)}}, J.Field{"primary_root", optional_string(primary)}]}
+  J.Object{[J.Field{"roots", J.Array{J.text_items(roots)}}, J.Field{"primary_root", optional_string(primary)}]}
 
 def sandbox_mode_name(mode: SandboxMode) -> String:
   match mode:
@@ -411,12 +518,12 @@ def approval_name(policy: ApprovalPolicy) -> String:
 
 def reviewer_key(policy: ApprovalPolicy) -> String:
   match policy:
-    case ApprovalForMe{Profile{key, provider, name, reasoning}}: key
+    case ApprovalForMe{Profile{key, provider, name, reasoning, options}}: key
     case _: ""
 
 def reviewer_json(policy: ApprovalPolicy) -> J.Json:
   match policy:
-    case ApprovalForMe{Profile{key, provider, name, reasoning}}:
+    case ApprovalForMe{Profile{key, provider, name, reasoning, options}}:
       J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
     case _: J.Null{}
 
@@ -435,50 +542,50 @@ def execution_json(context: TaskContext, access: ExecutionAccess) -> J.Json:
     J.Field{"access", J.Text{access_name(access)}}]}
 
 def workspace_schema() -> J.Json:
-  object_schema([J.Field{"roots", J.Object{[J.Field{"type", J.Text{"array"}},
+  Schema.object([J.Field{"roots", J.Object{[J.Field{"type", J.Text{"array"}},
       J.Field{"items", string_schema("Absolute root directory; at most 32 distinct canonical directories")}] }},
     J.Field{"primary_root", string_schema("One of the roots; omitted selects the first root. An empty root list has no primary.")}], [J.Text{"roots"}])
 
 def sandbox_schema() -> J.Json:
-  object_schema([J.Field{"mode", string_schema("workspace-write or read-only; independent of approval")},
+  Schema.object([J.Field{"mode", string_schema("workspace-write or read-only; independent of approval")},
     J.Field{"network_access", J.Object{[J.Field{"type", J.Text{"boolean"}}]}}], Nil{})
 
 def approval_schema() -> J.Json:
-  object_schema([J.Field{"mode", string_schema("full-access, ask-for-approval, or approval-for-me")},
+  Schema.object([J.Field{"mode", string_schema("full-access, ask-for-approval, or approval-for-me")},
     J.Field{"reviewer_profile", string_schema("Configured profile for the independent approval call; defaults to the task profile")}], [J.Text{"mode"}])
 
 def guidance_schema() -> J.Json:
-  object_schema([J.Field{"workspace", string_schema("Canonical primary root observed by the host")},
+  Schema.object([J.Field{"workspace", string_schema("Canonical primary root observed by the host")},
     J.Field{"revision", string_schema("AGENTS.md content revision or absent")},
     J.Field{"instructions", string_schema("Unprivileged frozen root guidance")}],
     [J.Text{"workspace"}, J.Text{"revision"}, J.Text{"instructions"}])
 
 def task_settings_schema() -> J.Json:
-  object_schema([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
+  Schema.object([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
     J.Field{"approval", approval_schema()}, J.Field{"project_id", task_id_schema()},
     J.Field{"guidance", guidance_schema()}], Nil{})
 
 def fork_settings_schema() -> J.Json:
-  object_schema([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
+  Schema.object([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
     J.Field{"approval", approval_schema()}, J.Field{"project_id", task_id_schema()}], Nil{})
 
 def builtins(max_fork: Nat) -> +List<Tool>:
   [Tool{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
-    object_schema([J.Field{"child_count", integer_schema("Number of children", 1n, max_fork)},
+    Schema.object([J.Field{"child_count", integer_schema("Number of children", 1n, max_fork)},
       J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}},
         J.Field{"items", string_schema("Initial child message")}]} },
       J.Field{"settings", fork_settings_schema()}], [J.Text{"child_count"}]), Harness{ForkTask{}}},
    Tool{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
-    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
+    Schema.object([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
       J.Field{"after", integer_schema("Exclusive history offset", 0n, U32.to_nat(4294967295))},
       J.Field{"limit", integer_schema("Maximum messages", 1n, 100n)}], [J.Text{"task_id"}]), Harness{ReadTask{}}},
    Tool{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
-    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
+    Schema.object([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
       J.Field{"message", string_schema("Nonempty message")}], [J.Text{"task_id"}, J.Text{"message"}]), Harness{SendMessage{}}},
    Tool{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
-    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))}], [J.Text{"task_id"}]), Harness{ArchiveTask{}}},
+    Schema.object([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))}], [J.Text{"task_id"}]), Harness{ArchiveTask{}}},
    Tool{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
-    object_schema([J.Field{"command", string_schema("Command to run")},
+    Schema.object([J.Field{"command", string_schema("Command to run")},
       J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100n, U32.to_nat(1800000))},
       J.Field{"sandbox_permissions", J.Object{[J.Field{"type", J.Text{"string"}},
         J.Field{"enum", J.Array{[J.Text{"use_default"}, J.Text{"require_escalated"}]}}]}},
@@ -486,7 +593,7 @@ def builtins(max_fork: Nat) -> +List<Tool>:
       J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1n, U32.to_nat(65536))}],
       [J.Text{"command"}]), Harness{Bash{}}},
    Tool{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    object_schema([J.Field{"operation_id", task_id_schema()}, J.Field{"task_id", integer_schema("Task identity; defaults to this task", 0n, U32.to_nat(4294967295))}],
+    Schema.object([J.Field{"operation_id", task_id_schema()}, J.Field{"task_id", integer_schema("Task identity; defaults to this task", 0n, U32.to_nat(4294967295))}],
       [J.Text{"operation_id"}]), Harness{CancelOperation{}}}]
 
 type Contract is Data:
@@ -889,7 +996,7 @@ type Notice is Data:
     payload: Maybe<&2, J.Json>, recipients: +List<PluginRef>}
 
 def command_schema(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
-  object_schema(J.Field{"op", string_schema("Command name")} <> properties, J.Text{"op"} <> required)
+  Schema.object(J.Field{"op", string_schema("Command name")} <> properties, J.Text{"op"} <> required)
 
 def boundary_limits() -> J.Json:
   J.Object{[J.Field{"frame_bytes", J.nat(U32.to_nat(frame_bytes()))}, J.Field{"header_bytes", J.nat(U32.to_nat(16384))},
@@ -934,8 +1041,6 @@ def failure(code: String, message: String) -> J.Json:
   J.Object{[J.Field{"ok", J.Boolean{False{}}},
     J.Field{"error", J.Object{[J.Field{"code", J.Text{code}}, J.Field{"message", J.Text{message}}]}}]}
 
-def nonempty(text: String) -> Bool:
-  Bool.not(String.is_empty(String.trim(text)))
 
 def valid_provider_checkpoint(+value: J.Json) -> Bool:
   # The host validates the encrypted wire payload and its byte bound. Here the
@@ -948,6 +1053,19 @@ def valid_summary(+summary: String) -> Bool:
 # Only task execution and its shared project/ticket resources live here.
 type State is Data:
   State{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits, projects: Projects}
+
+def state_tasks(state: State) -> +List<Task>:
+  State{tasks, next_task, next_ticket, environment, limits, projects} = state
+  tasks
+
+def state_render_budget(state: State) -> Nat:
+  State{tasks, next_task, next_ticket, environment, ExecutionLimits{steps, render, bytes}, projects} = state
+  render
+
+def matches_optional_id(expected: Nat, actual: Maybe<&2, Nat>) -> Bool:
+  match actual:
+    case None{}: False{}
+    case Some{id}: Nat.is_eq(expected, id)
 
 def initial_state() -> State:
   State{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits(), Projects{Nil{}, 0}}

@@ -1,0 +1,89 @@
+import Base
+import ../BOARD.bend as Board
+import ./controls.bend as Controls
+import ./source.bend as Source
+
+def status_path(stage: Board.Stage) -> String:
+  match stage:
+    case Board.Backlog{}: "M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0M7 10h6"
+    case Board.Todo{}: "M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0"
+    case Board.InProgress{}: "M10 3a7 7 0 1 1-7 7M10 6v4l3 2"
+    case Board.InReview{}: "M3 10s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5ZM12 10a2 2 0 1 1-4 0a2 2 0 1 1 4 0"
+    case Board.Completed{}: "M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0M6 10l3 3 5-6"
+    case Board.Blocked{}: "M17 10a7 7 0 1 1-14 0a7 7 0 1 1 14 0M5 5l10 10"
+
+def priority_path(priority: Board.Priority) -> String:
+  match priority:
+    case Board.NoPriority{}: "M4 10h.01M10 10h.01M16 10h.01"
+    case Board.Low{}: "M5 15v-4"
+    case Board.Medium{}: "M5 15v-4M10 15V8"
+    case Board.High{}: "M5 15v-4M10 15V8M15 15V4"
+    case Board.Urgent{}: "M10 4v8M10 16h.01"
+
+type Symbol is Data:
+  Symbol{path: String, paint: Source.DrawingPaint}
+
+def symbol(icon: Controls.Icon) -> Symbol:
+  match icon:
+    case Controls.Tag{}: Symbol{"M3 3h7l7 7-7 7-7-7ZM7 7h.01", Source.StrokedDrawing{14n}}
+    case Controls.User{}: Symbol{"M13 6a3 3 0 1 1-6 0a3 3 0 1 1 6 0M4 17v-2a6 6 0 0 1 12 0v2", Source.StrokedDrawing{14n}}
+    case Controls.Bot{}: Symbol{"M6 6h8a3 3 0 0 1 3 3v6H3V9a3 3 0 0 1 3-3ZM10 6V3M7 10h.01M13 10h.01M7 13h6", Source.StrokedDrawing{14n}}
+    case Controls.Clock{}: Symbol{"M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0ZM10 5v5l3 2", Source.StrokedDrawing{14n}}
+    case Controls.Status{stage}: Symbol{status_path(stage), Source.StrokedDrawing{14n}}
+    case Controls.Priority{priority}: Symbol{priority_path(priority), Source.StrokedDrawing{14n}}
+    case Controls.Hand{}: Symbol{"M12.6683 4.16699C12.6683 3.84391 12.4065 3.58203 12.0834 3.58203C11.7603 3.58203 11.4984 3.84391 11.4984 4.16699V7.91699L11.4847 8.05078C11.4227 8.35375 11.1547 8.58203 10.8334 8.58203C10.4662 8.58203 10.1685 8.28411 10.1683 7.91699V3.75C10.1683 3.42691 9.90646 3.16504 9.58337 3.16504C9.26029 3.16504 8.99841 3.42691 8.99841 3.75V7.91699C8.99824 8.28411 8.70053 8.58203 8.33337 8.58203C7.96621 8.58203 7.66851 8.28411 7.66833 7.91699V5C7.66833 4.67691 7.40646 4.41504 7.08337 4.41504C6.76029 4.41504 6.49841 4.67691 6.49841 5V9.30371C6.53326 9.3429 6.56715 9.38359 6.59998 9.42578L8.02478 11.2588C8.25005 11.5486 8.19821 11.9659 7.90857 12.1914C7.6187 12.4169 7.20048 12.365 6.97498 12.0752L5.55017 10.2432C5.15812 9.7391 4.41813 9.73637 4.01501 10.1924C4.04396 10.426 4.11486 10.8323 4.25525 11.3486C4.44664 12.0525 4.75404 12.9113 5.21619 13.7383C6.14103 15.3931 7.62465 16.835 10.0004 16.835C12.8545 16.8348 15.1682 14.5211 15.1683 11.667V6.25C15.1683 5.92691 14.9065 5.66504 14.5834 5.66504C14.2603 5.66504 13.9984 5.92691 13.9984 6.25V9.16699C13.9982 9.53411 13.7005 9.83203 13.3334 9.83203C12.9662 9.83203 12.6685 9.53411 12.6683 9.16699V4.16699ZM13.9984 4.42578C14.1828 4.36671 14.3794 4.33496 14.5834 4.33496C15.641 4.33496 16.4984 5.19237 16.4984 6.25V11.667C16.4982 15.2557 13.589 18.1649 10.0004 18.165C6.95953 18.165 5.10939 16.2734 4.05505 14.3867C3.52774 13.4431 3.1843 12.4787 2.97205 11.6982C2.76447 10.9349 2.66834 10.2954 2.66833 10C2.66833 9.87959 2.70117 9.76148 2.76306 9.6582C3.28988 8.78018 4.26555 8.40372 5.16833 8.56152V5C5.16833 3.94237 6.02575 3.08496 7.08337 3.08496C7.31706 3.08496 7.54039 3.12845 7.74744 3.20508C7.98218 2.41297 8.7151 1.83496 9.58337 1.83496C10.1836 1.83496 10.7186 2.11176 11.0697 2.54395C11.3639 2.35978 11.7107 2.25195 12.0834 2.25195C13.141 2.25195 13.9984 3.10937 13.9984 4.16699V4.42578Z", Source.FilledDrawing{}}
+    case Controls.ShieldCode{}: Symbol{"M9.06543 1.95123C9.66107 1.69076 10.3389 1.69071 10.9346 1.95123L15.9346 4.13873C16.7832 4.51008 17.3311 5.34917 17.3311 6.27545V10.5528C17.3309 14.6017 14.0489 17.8847 10 17.8848C5.95108 17.8846 2.66813 14.6017 2.66797 10.5528V6.27545C2.66797 5.34924 3.21695 4.51012 4.06543 4.13873L9.06543 1.95123ZM10.4014 3.16998C10.1456 3.05814 9.85444 3.05819 9.59863 3.16998L4.59863 5.35748C4.23427 5.51708 3.99805 5.87764 3.99805 6.27545V10.5528C3.99821 13.8671 6.68563 16.5546 10 16.5547C13.3144 16.5546 16.0008 13.8671 16.001 10.5528V6.27545C16.001 5.87756 15.7658 5.51703 15.4014 5.35748L10.4014 3.16998Z M13.4678 11.4318L13.333 11.4182H10.833C10.466 11.4183 10.1682 11.7162 10.168 12.0832C10.168 12.4504 10.4659 12.7481 10.833 12.7482H13.333L13.4678 12.7346C13.7706 12.6724 13.9981 12.4044 13.9981 12.0832C13.9979 11.7621 13.7706 11.494 13.4678 11.4318Z M7.65336 12.426C7.46431 12.7406 7.05607 12.8424 6.74125 12.6535C6.42646 12.4646 6.32395 12.0563 6.51274 11.7414L7.55668 10.0002L6.51274 8.25899C6.32395 7.94412 6.42646 7.53583 6.74125 7.34688C7.05607 7.15799 7.46431 7.25975 7.65336 7.57442L8.90336 9.6584C9.0296 9.86893 9.0296 10.1315 8.90336 10.342L7.65336 12.426Z", Source.FilledDrawing{}}
+    case Controls.Shield{}: Symbol{"M9.06543 1.95123C9.66107 1.69076 10.3389 1.69071 10.9346 1.95123L15.9346 4.13873C16.7832 4.51008 17.3311 5.34917 17.3311 6.27545V10.5528C17.3309 14.6017 14.0489 17.8847 10 17.8848C5.95108 17.8846 2.66813 14.6017 2.66797 10.5528V6.27545C2.66797 5.34924 3.21695 4.51012 4.06543 4.13873L9.06543 1.95123ZM10.4014 3.16998C10.1456 3.05814 9.85444 3.05819 9.59863 3.16998L4.59863 5.35748C4.23427 5.51708 3.99805 5.87764 3.99805 6.27545V10.5528C3.99821 13.8671 6.68563 16.5546 10 16.5547C13.3144 16.5546 16.0008 13.8671 16.001 10.5528V6.27545C16.001 5.87756 15.7658 5.51703 15.4014 5.35748L10.4014 3.16998Z M10.8883 13.1116C10.8883 13.6025 10.4903 14.0005 9.99936 14.0005C9.50844 14.0005 9.11047 13.6025 9.11047 13.1116C9.11047 12.6207 9.50844 12.2227 9.99936 12.2227C10.4903 12.2227 10.8883 12.6207 10.8883 13.1116Z M10.5169 10.8949L11.1135 7.31519C11.2283 6.62672 10.6974 6 9.99941 6C9.30145 6 8.77053 6.62672 8.88528 7.31519L9.4819 10.8949C9.52406 11.1479 9.74294 11.3333 9.99941 11.3333C10.2559 11.3333 10.4748 11.1479 10.5169 10.8949Z", Source.FilledDrawing{}}
+    case Controls.Eye{}: Symbol{"M 1.71833 10.29 a 0.833333 0.833333 0 0 1 0 -0.58 8.95833 8.95833 0 0 1 16.5633 0 0.833333 0.833333 0 0 1 0 0.58 8.95833 8.95833 0 0 1 -16.5633 0 M12.5 10a2.5 2.5 0 1 0-5 0a2.5 2.5 0 1 0 5 0", Source.StrokedDrawing{14n}}
+    case Controls.Globe{}: Symbol{"M18.3333 10a8.3333 8.3333 0 1 0-16.6666 0a8.3333 8.3333 0 1 0 16.6666 0 M 10 1.66667 a 12.0833 12.0833 0 0 0 0 16.6667 12.0833 12.0833 0 0 0 0 -16.6667 M 1.66667 10 h 16.6667", Source.StrokedDrawing{14n}}
+    case Controls.GlobeOff{}: Symbol{"M18.3333 10a8.3333 8.3333 0 1 0-16.6666 0a8.3333 8.3333 0 1 0 16.6666 0 M 10 1.66667 a 12.0833 12.0833 0 0 0 0 16.6667 12.0833 12.0833 0 0 0 0 -16.6667 M 1.66667 10 h 16.6667 M3 3L17 17", Source.StrokedDrawing{14n}}
+    case Controls.ChevronRight{}: Symbol{"M7.5 4.5 L13 10 L7.5 15.5", Source.StrokedDrawing{14n}}
+    case Controls.ChevronDown{}: Symbol{"M4.5 7.5 L10 13 L15.5 7.5", Source.StrokedDrawing{14n}}
+    case Controls.StopSquare{}: Symbol{"M6 5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", Source.StrokedDrawing{14n}}
+    case Controls.PauseBars{}: Symbol{"M7 5v10M13 5v10", Source.StrokedDrawing{14n}}
+    case Controls.PlayTriangle{}: Symbol{"m7 4 9 6-9 6Z", Source.StrokedDrawing{14n}}
+    case Controls.CloseCross{}: Symbol{"m5 5 10 10M15 5 5 15", Source.StrokedDrawing{14n}}
+    case Controls.MoreDots{}: Symbol{"M4 10h.01M10 10h.01M16 10h.01", Source.StrokedDrawing{14n}}
+    case Controls.Sidebar{}: Symbol{"M3 4h14v12H3ZM7 4v12", Source.StrokedDrawing{14n}}
+    case Controls.SidebarClose{}: Symbol{"M3 4h14v12H3ZM7 4v12 M13 7l-3 3 3 3", Source.StrokedDrawing{14n}}
+    case Controls.Folder{}: Symbol{"M2.5 6V4.5h5l2 2h8V16h-15Z", Source.StrokedDrawing{14n}}
+    case Controls.Conversation{}: Symbol{"M3 3.5h14v10H8l-5 3Z", Source.StrokedDrawing{14n}}
+    case Controls.Columns{}: Symbol{"M3 3h14v14H3ZM7.7 3v14M12.3 3v14", Source.StrokedDrawing{14n}}
+    case Controls.Agents{}: Symbol{"M13 9a3 3 0 1 0-6 0 3 3 0 0 0 6 0ZM4 17v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1", Source.StrokedDrawing{14n}}
+    case Controls.Plus{}: Symbol{"M10 3v14M3 10h14", Source.StrokedDrawing{14n}}
+    case Controls.Pencil{}: Symbol{"m12.5 3 4.5 4.5-9 9-5 1 1-5ZM10.5 5l4.5 4.5", Source.StrokedDrawing{14n}}
+    case Controls.Branch{}: Symbol{"M6 4v12M6 11h4a4 4 0 0 0 4-4V4M4 2h4v4H4ZM4 14h4v4H4ZM12 2h4v4h-4Z", Source.StrokedDrawing{14n}}
+    case Controls.Compact{}: Symbol{"M3 5h14M3 10h10M3 15h7m3-2 3 3 3-3M16 10v6", Source.StrokedDrawing{14n}}
+    case Controls.Settings{}: Symbol{"m8 2-.5 2-2 .9-1.8-.5-1.5 2.5 1.4 1.4v2.4l-1.4 1.4L3.7 15l1.8-.5 2 .9.5 2.1h3l.5-2.1 2-.9 1.8.5 1.5-2.5-1.4-1.4V8.7l1.4-1.4-1.5-2.5-1.8.5-2-.9L11 2Zm4.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z", Source.StrokedDrawing{14n}}
+    case Controls.FilterFunnel{}: Symbol{"M3 4h14l-5.3 6.1v5.1l-3.4 1.8v-6.9L3 4Z", Source.StrokedDrawing{14n}}
+    case Controls.Inspector{}: Symbol{"M3 3h14v14H3ZM12 3v14M5.5 6h4M5.5 10h4M5.5 14h4", Source.StrokedDrawing{14n}}
+    case Controls.InspectorClose{}: Symbol{"M3 3h14v14H3ZM12 3v14M5.5 6h4M5.5 10h4M5.5 14h4 M7 7l3 3-3 3", Source.StrokedDrawing{14n}}
+    case Controls.CopySheets{}: Symbol{"M7 7h10v10H7ZM13 4V3H3v10h1", Source.StrokedDrawing{14n}}
+    case Controls.WrapLines{}: Symbol{"M3 5h14M3 10h11a3 3 0 0 1 0 6h-4m2-2-2 2 2 2M3 15h3", Source.StrokedDrawing{14n}}
+    case Controls.Warning{}: Symbol{"m10 2 8 15H2ZM10 7v4M10 14h.01", Source.StrokedDrawing{14n}}
+    case Controls.Spinner{}: Symbol{"M10 2a8 8 0 1 1-8 8", Source.StrokedDrawing{14n}}
+    case Controls.Trash{}: Symbol{"M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6", Source.StrokedDrawing{14n}}
+    case Controls.ArchiveBox{}: Symbol{"M3 3h14v4H3ZM4 7v10h12V7M8 10h4", Source.StrokedDrawing{14n}}
+    case Controls.Restore{}: Symbol{"M3 4v5h5M3 9a7 7 0 1 1 0 4", Source.StrokedDrawing{14n}}
+    case Controls.Pin{}: Symbol{"m7 2 7 3-2 4 1 3-8-3 3-1ZM8 10l-4 7", Source.StrokedDrawing{14n}}
+    case Controls.Refresh{}: Symbol{"M16 7a7 7 0 0 0-12-1M16 3v4h-4M4 13a7 7 0 0 0 12 1M4 17v-4h4", Source.StrokedDrawing{14n}}
+    case Controls.Undo{}: Symbol{"M7 5 3 9l4 4M3 9h8a5 5 0 0 1 5 5", Source.StrokedDrawing{14n}}
+    case Controls.Download{}: Symbol{"M10 2v11m-4-4 4 4 4-4M3 13v4h14v-4", Source.StrokedDrawing{14n}}
+    case Controls.Preview{}: Symbol{"M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Zm10.5 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z", Source.StrokedDrawing{14n}}
+    case Controls.Paperclip{}: Symbol{"m7 10 5-5a3 3 0 0 1 4 4l-8 8a4 4 0 0 1-6-6l8-8m-3 7 5-5", Source.StrokedDrawing{14n}}
+    case Controls.Grip{}: Symbol{"M7 4h.01M13 4h.01M7 10h.01M13 10h.01M7 16h.01M13 16h.01", Source.StrokedDrawing{14n}}
+    case Controls.ArrowUp{}: Symbol{"M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z", Source.FilledDrawing{}}
+    case Controls.ArrowDown{}: Symbol{"M9.33467 3.3337V15.06022L4.6374 10.36296L4.1667 10.83366L3.69599 11.30339L9.52998 17.13737L9.63447 17.22233C9.8925 17.39247 10.2433 17.36436 10.4704 17.13737L16.3034 11.30339L16.3884 11.19889C16.5588 10.94078 16.5306 10.59018 16.3034 10.36296C16.0762 10.13586 15.7255 10.10758 15.4675 10.278L15.363 10.36296L10.6647 15.0612V3.3337C10.6647 2.9664 10.367 2.6686 9.99971 2.6686C9.63259 2.6688 9.33467 2.9665 9.33467 3.3337ZM4.6374 10.36296C4.3777 10.10326 3.95569 10.10326 3.69599 10.36296C3.43657 10.62256 3.43668 11.04372 3.69599 11.30339L4.6374 10.36296Z", Source.FilledDrawing{}}
+    case Controls.Check{}: Symbol{"m4 10 4 4 8-8", Source.StrokedDrawing{14n}}
+
+# Path and paint are projections of the same admitted glyph.
+def symbol_path(value: Symbol) -> String:
+  Symbol{path, paint} = value
+  path
+def path(icon: Controls.Icon) -> String:
+  symbol_path(symbol(icon))
+def symbol_drawing(value: Symbol, +size: Nat) -> Source.Drawing:
+  Symbol{path, paint} = value
+  Source.Drawing{"0 0 20 20", [Source.DrawingPath{path}], size, size, paint}
+def drawing(icon: Controls.Icon, +size: Nat) -> Source.Drawing:
+  symbol_drawing(symbol(icon), size)

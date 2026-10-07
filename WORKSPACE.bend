@@ -54,9 +54,9 @@ def project_id(context: D.TaskContext) -> Maybe<&2, Nat>:
   D.TaskContext{workspace, sandbox, approval, project_id} = context
   project_id
 
-def valid_reviewer_profile(profile: D.Profile) -> Bool:
-  D.Profile{key, provider, name, reasoning} = profile
-  D.nonempty(key) && D.nonempty(provider) && D.nonempty(name) && Bool.not(Reasoning.automatic(reasoning))
+def valid_reviewer_profile(+profile: D.Profile) -> Bool:
+  D.profile_valid(profile) && Bool.not(Reasoning.automatic(D.profile_reasoning(profile))) &&
+    D.profile_permitted(profile, D.profile_default(profile))
 
 def valid_approval(policy: D.ApprovalPolicy) -> Bool:
   match policy:
@@ -88,11 +88,6 @@ def default_workspace(guidance: D.ProjectContext) -> D.Workspace:
 def defaults(guidance: D.ProjectContext) -> D.TaskContext:
   D.TaskContext{default_workspace(guidance), D.Sandbox{D.WorkspaceWrite{}, False{}}, D.AskForApproval{}, None{}}
 
-def texts(values: +List<J.Json>) -> +List<String>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: J.text(value) <> texts(rest)
-
 def absent(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
@@ -107,13 +102,8 @@ def read_workspace(value: J.Json, fallback: D.Workspace) -> D.Workspace:
   match value:
     case J.Null{}: fallback
     case +value:
-      +roots = texts(J.items(J.get(value, "roots")))
+      +roots = J.text_values(J.items(J.get(value, "roots")))
       D.Workspace{roots, selected_primary(J.get(value, "primary_root"), roots)}
-
-def text_or(value: J.Json, fallback: String) -> String:
-  match value:
-    case J.Text{text}: text
-    case _: fallback
 
 def boolean_or(value: J.Json, fallback: Bool) -> Bool:
   match value:
@@ -131,7 +121,7 @@ def read_sandbox(value: J.Json, fallback: D.Sandbox) -> Result<&2, &2, String, D
     case J.Null{}: Done{fallback}
     case +value:
       D.Sandbox{mode, network} = fallback
-      selected_sandbox(text_or(J.get(value, "mode"), D.sandbox_mode_name(mode)),
+      selected_sandbox(J.text_or(J.get(value, "mode"), D.sandbox_mode_name(mode)),
         boolean_or(J.get(value, "network_access"), network))
 
 def ordinary_reviewer(automatic: Bool, profile: D.Profile) -> Result<&2, &2, String, D.ApprovalPolicy>:
@@ -156,8 +146,8 @@ def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      D.Profile{key, provider, name, reasoning} = profile
-      selected_approval(J.text(J.get(value, "mode")), text_or(J.get(value, "reviewer_profile"), key), profiles)
+      D.Profile{key, provider, name, reasoning, options} = profile
+      selected_approval(J.text(J.get(value, "mode")), J.text_or(J.get(value, "reviewer_profile"), key), profiles)
 
 def retained_guidance(same: Bool, guidance: D.ProjectContext) -> D.ProjectContext:
   match same:
@@ -218,9 +208,9 @@ def roots_within(children: +List<String>, +parents: +List<String>) -> Bool:
     case Con{child, rest}: covered(child, parents) && roots_within(rest, parents)
 
 def profile_same(a: D.Profile, b: D.Profile) -> Bool:
-  D.Profile{key_a, provider_a, name_a, reasoning_a} = a
-  D.Profile{key_b, provider_b, name_b, reasoning_b} = b
-  String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b) && Reasoning.same(reasoning_a, reasoning_b)
+  D.Profile{key_a, provider_a, name_a, reasoning_a, options_a} = a
+  D.Profile{key_b, provider_b, name_b, reasoning_b, options_b} = b
+  String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b) && Reasoning.same(reasoning_a, reasoning_b) && D.reasoning_options_same(options_a, options_b)
 
 def review_no_broader(child: D.ApprovalPolicy, parent: D.ApprovalPolicy) -> Bool:
   match child parent:

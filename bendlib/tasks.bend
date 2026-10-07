@@ -1,4 +1,5 @@
 import Base
+import ./schema.bend as Schema
 import ./effects.bend as Effects
 import ./component.bend as C
 import ./domain.bend as D
@@ -11,11 +12,6 @@ def has_id(xs: +List<Nat>, +id: Nat) -> Bool:
   match xs:
     case Nil{}: False{}
     case Con{head, tail}: Nat.is_eq(head, id) || has_id(tail, id)
-
-def has_name(xs: +List<String>, +name: String) -> Bool:
-  match xs:
-    case Nil{}: False{}
-    case Con{head, tail}: String.eq(head, name) || has_name(tail, name)
 
 def choose_task(same: Bool, task: D.Task, rest: Maybe<&2, D.Task>) -> Maybe<&2, D.Task>:
   match same:
@@ -61,7 +57,7 @@ def available(catalog: +List<D.Tool>, +tool: D.Tool) -> Bool:
   match catalog:
     case Nil{}: False{}
     case Con{+entry, rest}:
-      (String.eq(D.tool_name(entry), D.tool_name(tool)) && D.source_same(D.tool_source(entry), D.tool_source(tool))) || available(rest, tool)
+      D.tool_same(entry, tool) || available(rest, tool)
 
 def add_name(keep: Bool, name: String, rest: +List<String>) -> +List<String>:
   match keep:
@@ -174,11 +170,6 @@ def messages_json(messages: +List<D.Message>) -> +List<J.Json>:
     case Nil{}: Nil{}
     case Con{message, rest}: message_json(message) <> messages_json(rest)
 
-def strings_json(strings: +List<String>) -> +List<J.Json>:
-  match strings:
-    case Nil{}: Nil{}
-    case Con{text, rest}: J.Text{text} <> strings_json(rest)
-
 def phase_name(phase: D.Phase) -> String:
   match phase:
     case D.HookPending{ticket, reference, call, pending, remaining}: "hook_pending"
@@ -190,7 +181,7 @@ def phase_name(phase: D.Phase) -> String:
     case D.SummaryPending{ticket, resume}: "summary_pending"
 
 def summary(task: D.Task) -> J.Json:
-  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy, options}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
@@ -266,7 +257,7 @@ def valid_calls(calls: +List<D.Call>, +allowed: +List<String>, +history: D.Histo
   match calls:
     case Nil{}: True{}
     case Con{D.Call{+id, +name, arguments}, +rest}:
-      D.nonempty(id) && D.nonempty(name) && has_name(allowed, name) && J.is_object(arguments) &&
+      D.nonempty(id) && D.nonempty(name) && Schema.contains(allowed, name) && J.is_object(arguments) &&
         Bool.not(has_call(rest, id)) && Bool.not(history_has_call(history, id)) && valid_calls(rest, allowed, history)
 
 def item_calls(items: +List<D.ModelItem>) -> +List<D.Call>:

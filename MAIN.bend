@@ -2,7 +2,6 @@ import Base
 import ./bendlib/domain.bend as D
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
-import ./PROOF.bend as Proof
 import ./bendlib/json.bend as J
 import ./bendlib/wire.bend as Wire
 import ./bendlib/frontend.bend as Frontend

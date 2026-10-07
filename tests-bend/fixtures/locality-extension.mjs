@@ -7,10 +7,9 @@ import { Kernel } from '../../host/kernel.mjs';
 // This fixture extends a copy of the actual application. Only component-owned
 // assembly files change; the old model, executor, codecs and proof tree freeze.
 export const assemblyChanges = [
-  'FEATURES.bend', 'bendlib/feature-operations.bend', 'bendlib/feature-resolution.bend',
+  'components.json', 'FEATURES.bend', 'bendlib/feature-operations.bend', 'bendlib/feature-resolution.bend',
   'bendlib/feature-spec.bend', 'bendlib/feature-execution.bend', 'bendlib/feature-laws.bend',
   'bendlib/feature-protocol.bend', 'bendlib/feature-codec.bend', 'bendlib/feature-state.bend',
-  'bendlib/feature-ui.bend', 'bendlib/feature-view.bend',
 ];
 
 function importing(source, relative, alias) {
@@ -27,6 +26,17 @@ function clause(source, definition, branch) {
 }
 
 export async function extendCounter(directory) {
+  await modify(directory, 'components.json', source => {
+    const manifest = JSON.parse(source);
+    for (const [owner, dependencies] of Object.entries({
+      'bendlib/feature-codec.bend': ['COUNTER.bend'],
+      'bendlib/feature-execution.bend': ['bendlib/counter-execution.bend', 'bendlib/counter-assembly.bend', 'COUNTER.bend'],
+      'bendlib/feature-laws.bend': ['bendlib/counter-laws.bend'],
+      'bendlib/feature-spec.bend': ['bendlib/counter-assembly.bend', 'COUNTER.bend'],
+      'bendlib/feature-state.bend': ['bendlib/counter-assembly.bend', 'COUNTER.bend'],
+    })) manifest.application_dependencies[owner].push(...dependencies);
+    return JSON.stringify(manifest, null, 2) + '\n';
+  });
   const additions = {
     'COUNTER.bend': `import Base
 import ./bendlib/component.bend as C
@@ -86,15 +96,6 @@ def embed(decision: C.Decision<Counter.State, Counter.Effect>, world: M.World())
 def observation(+world: M.World()) -> M.Decision():
   C.Decision{world, D.success(J.nat(Counter.read(state(world)))), Nil{}}
 `,
-    'bendlib/counter-view.bend': `import Base
-import ../COUNTER.bend as Counter
-import ./surface.bend as S
-import ./json.bend as J
-
-def panel(state: Counter.State, focus: Nat) -> S.Node:
-  S.Value{"counter", "Independent counter", J.Object{[
-    J.Field{"value", J.nat(Counter.read(state))}, J.Field{"focus", J.nat(focus)}]}}
-`,
     'bendlib/counter-laws.bend': `import Base
 import ../COUNTER.bend as Counter
 import ../MODEL.bend as M
@@ -118,24 +119,18 @@ def full_meaning(+value: Nat, +world: M.World()) ->
     let result = importing(source, './COUNTER.bend', 'Counter');
     result = replaceDefinition(result, 'Rest', 'def Rest() -> Data:\n  Counter.State');
     result = replaceDefinition(result, 'initial_rest', 'def initial_rest() -> Rest():\n  Counter.initial()');
-    result = replaceDefinition(result, 'CursorRest', 'def CursorRest() -> Data:\n  Nat');
-    result = replaceDefinition(result, 'initial_cursor_rest', 'def initial_cursor_rest() -> CursorRest():\n  0n');
     for (const [type, constructors] of [
       ['Effect', '  CounterEffect{effect: Counter.Effect}'],
       ['Command', '  CounterSet{value: Nat}'], ['Query', '  CounterRead{}'],
       ['CommandKind', '  CounterSetKind{}\n  CounterReadKind{}'],
-      ['Navigation', '  CounterFocus{}'], ['Completion', '  CounterObserved{}'],
+      ['Completion', '  CounterObserved{}'],
     ]) result = replaceOnce(result, `type ${type} is Data:\n`, `type ${type} is Data:\n${constructors}\n`);
     result = replaceDefinition(result, 'specs', `def specs(settings_schema: J.Json) -> +List<CommandSpec>:
   List.append(&2, CommandSpec, List.append(&2, CommandSpec, board_specs(BoardCodec.specs(settings_schema)), chatgpt_specs(ChatGPTCodec.specs())),
     [CommandSpec{"counter_set", "Store the independent counter.", CounterSetKind{},
        D.command_schema([J.Field{"value", BoardCodec.integer_schema()}], [J.Text{"value"}])},
      CommandSpec{"counter_read", "Read the independent counter.", CounterReadKind{}, D.command_schema(Nil{}, Nil{})}])`);
-    return result + `
-def focus_counter(cursor: Cursor()) -> Cursor():
-  C.Frame{board, previous} = cursor
-  C.Frame{board, 1n}
-`;
+    return result;
   });
 
   await modify(directory, 'bendlib/feature-operations.bend', source => source
@@ -168,45 +163,18 @@ def focus_counter(cursor: Cursor()) -> Cursor():
     result = clause(result, 'effect_ticket', '    case F.CounterEffect{effect}: None{}');
     return clause(result, 'effect_valid', '    case F.CounterEffect{Counter.Notice{value}}: Nat.is_eq(value, Counter.read(F.rest(state)))');
   });
-  await modify(directory, 'bendlib/feature-ui.bend', source => {
-    let result = clause(source, 'navigate', `    case F.CounterFocus{} M.ViewState{selected, after, tasks_after, profile, cursor}:
-      M.ViewState{selected, after, tasks_after, profile, F.focus_counter(cursor)}`);
-    return clause(result, 'submitted', '    case F.CounterSet{value} _: previous');
-  });
-
-  await modify(directory, 'bendlib/feature-view.bend', source => {
-    let result = importing(importing(source, './counter-view.bend', 'CounterView'), './counter-assembly.bend', 'CounterAssembly');
-    result = replaceOnce(result, '  screen_pane(threads, embedded, notices, Navigation.pane_of(F.board_cursor(cursor)), state, world, reply)',
-      `  S.Group{"extension", "screen", "", [
-    screen_pane(threads, embedded, notices, Navigation.pane_of(F.board_cursor(cursor)), state, world, reply),
-    CounterView.panel(CounterAssembly.state(world), F.cursor_rest(cursor))]}`);
-    return replaceOnce(result, '+state: M.ViewState, world: M.World(), reply: J.Json)',
-      '+state: M.ViewState, +world: M.World(), reply: J.Json)')
-      .replace('profile, cursor} = state', 'profile, +cursor} = state');
-  });
-
   await modify(directory, 'bendlib/feature-codec.bend', source => {
-    let result = importing(importing(source, '../COUNTER.bend', 'Counter'), './component.bend', 'C')
+    let result = importing(source, '../COUNTER.bend', 'Counter')
       .replace('def valid(kind: F.CommandKind, body: J.Json)', 'def valid(kind: F.CommandKind, +body: J.Json)');
-    result = replaceDefinition(result, 'cursor_keys', 'def cursor_keys() -> +List<String>:\n  ["board", "counter"]');
-    result = replaceDefinition(result, 'cursor_fields', `def cursor_fields(+cursor: F.Cursor()) -> +List<J.Field>:
-  [J.Field{"board", Navigation.cursor_json(F.board_cursor(cursor))}, J.Field{"counter", J.nat(F.cursor_rest(cursor))}]`);
-    result = replaceDefinition(result, 'cursor', `def cursor(+value: J.Json) -> F.Cursor():
-  C.Frame{Navigation.cursor(J.get(value, "board"), Board.word(J.get(J.get(value, "board"), "now"))),
-    J.natural_or(J.natural(J.get(value, "counter")), 0n)}`);
-    result = replaceDefinition(result, 'valid_cursor', `def valid_cursor(+value: J.Json) -> Bool:
-  Navigation.valid_cursor(J.get(value, "board")) && Shape.is_natural(J.get(value, "counter"))`);
     const cases = {
       command_json: '    case F.CounterSet{value}: J.Object{[J.Field{"op", J.Text{"counter_set"}}, J.Field{"value", J.nat(value)}]}',
       query_json: '    case F.CounterRead{}: J.Object{[J.Field{"op", J.Text{"counter_read"}}]}',
-      event_json: '    case F.CounterFocus{}: J.Object{[J.Field{"type", J.Text{"counter"}}]}',
       construct: `    case F.CounterSetKind{}: M.FeatureCommand{F.CounterSet{J.natural_or(J.natural(J.get(body, "value")), 0n)}}
     case F.CounterReadKind{}: M.Observe{M.FeatureQuery{F.CounterRead{}}}`,
       valid: `    case F.CounterSetKind{}: Shape.object_keys(body, ["op", "value"]) && Schema.valid(Board.integer_schema(), J.get(body, "value"))
     case F.CounterReadKind{}: Shape.object_keys(body, ["op"])`,
       effect_json: '    case F.CounterEffect{Counter.Notice{value}}: J.Object{[J.Field{"kind", J.Text{"counter_notice"}}, J.Field{"value", J.nat(value)}]}',
       completion: '    case "counter_observed": counter_completion(Shape.object_keys(body, ["kind"]))',
-      navigation: '    case "counter": navigation_valid(Shape.object_keys(event, ["type"]), F.CounterFocus{})',
     };
     for (const [name, branch] of Object.entries(cases)) result = clause(result, name, branch);
     const helper = `
@@ -220,14 +188,11 @@ def counter_completion(valid: Bool) -> Result<&2, &2, String, F.Completion>:
   return Object.keys(additions);
 }
 
-// Exercise the unchanged production entry and real transport. In-memory cursor
-// checks alone miss state that is silently reset by decode/encode on each input.
-export async function counterProbe(binary) {
-  const kernel = new Kernel({ binary, timeout: 10_000 });
+// Exercise the actual extended kernel through the production JavaScript Worker.
+export async function counterProbe(module) {
+  const kernel = new Kernel({ module, timeout: 10_000 });
   const send = async input => (await kernel.request(input)).value;
   const command = body => send({ kind: 'command', command: body });
-  const nodes = node => [node, ...(node.children ?? []).flatMap(nodes)];
-  const counter = presentation => nodes(presentation.root).find(node => node.key === 'counter');
   try {
     await kernel.initialize();
     const malformed = await command({ op: 'counter_set', value: -1 });
@@ -244,26 +209,6 @@ export async function counterProbe(binary) {
     const completed = await send({ kind: 'counter_observed' });
     assert.deepEqual(completed.reply, { ok: true, result: 7 });
     assert.deepEqual(completed.effects, []);
-    let state = null;
-    for (const event of [
-      { type: 'counter' },
-      { type: 'refresh' },
-      { type: 'board', event: { action: 'search', query: 'preserve counter focus' } },
-      { type: 'board', event: { action: 'pane', pane: 'board' } },
-    ]) {
-      const result = await send({ kind: 'ui', state, event });
-      assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
-      assert.equal(result.durable, false);
-      assert.deepEqual(result.effects, []);
-      const presentation = result.reply.result.presentation;
-      state = presentation.state;
-      assert.equal(state.counter, 1, 'A real wire round trip must preserve the additional cursor');
-      assert.deepEqual(counter(presentation)?.value, { value: 7, focus: 1 });
-    }
-    assert.equal(state.board.filter.search, 'preserve counter focus');
-    const rejected = await send({ kind: 'ui', state: { ...state, counter: 'invalid' }, event: { type: 'refresh' } });
-    assert.equal(rejected.reply.ok, false);
-    assert.deepEqual(rejected.effects, []);
     assert.deepEqual((await command({ op: 'counter_read' })).reply, { ok: true, result: 7 });
   } finally {
     await kernel.close();

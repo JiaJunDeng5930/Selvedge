@@ -42,7 +42,7 @@ export async function checkTheoryIndex({ update = false } = {}) {
   }
   const expected = source.slice(0, first + begin.length) + '\n\n' + await inventory() + '\n\n' + source.slice(last);
   if (update) await writeFile(readme, expected);
-  else if (source !== expected) throw new Error('Theory inventory is stale; run node scripts/theory-index.mjs update');
+  else if (source !== expected) throw new Error('Theory inventory is stale; run bun scripts/theory-index.mjs update');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

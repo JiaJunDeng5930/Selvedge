@@ -136,23 +136,10 @@ def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
 def description() -> J.Json:
   J.Object{[J.Field{"commands", J.Array{command_specs_json(commands())}}, J.Field{"limits", D.boundary_limits()},
     J.Field{"plugins", J.Object{[J.Field{"protocolVersion", J.Text{"selvedge-plugin-2"}}, J.Field{"max_plugins", J.nat(D.plugin_limit())},
-      J.Field{"events", J.Array{D.subscription_json(D.plugin_events())}}]}}]}
-
-type ViewState is Data:
-  ViewState{selected: Maybe<&2, Nat>, after: Maybe<&2, Nat>, tasks_after: Nat, profile: String, features: F.Cursor()}
-
-type ViewEvent is Data:
-  SelectTask{task_id: Maybe<&2, Nat>}
-  HistoryPage{after: Maybe<&2, Nat>}
-  TaskPage{after: Nat}
-  SelectProfile{profile: String}
-  Submit{command: Command}
-  RefreshView{}
-  FeatureEvent{event: F.Navigation}
+      J.Field{"events", J.Array{J.text_items(D.plugin_events())}}]}}]}
 
 type Input is Data:
   UserCommand{command: Command}
-  UserInterface{state: ViewState, event: ViewEvent}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: D.Outcome}
   ReasoningCompleted{task_id: Nat, ticket: Nat, outcome: Reasoning.Outcome}
   FeatureCompleted{completion: F.Completion}
@@ -177,9 +164,6 @@ type InputMode is Data:
 def input_mode(input: Input) -> InputMode:
   match input:
     case UserCommand{Observe{query}}: Observation{}
-    case UserInterface{state, Submit{Observe{query}}}: Observation{}
-    case UserInterface{state, Submit{command}}: UpdateAndSchedule{}
-    case UserInterface{state, event}: Observation{}
     case Configure{environment}: UpdateOnly{}
     case _: UpdateAndSchedule{}
 

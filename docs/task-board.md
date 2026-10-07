@@ -12,21 +12,20 @@ searchable and keyboard-accessible. **继续创建** keeps the dialog open and r
 selected parameters while clearing submitted content. The mode switch selects
 manual or assisted creation. Normal creation and successful edits close the dialog.
 
-Unassigned cards do not run. Assign **我** for manual work, an endpoint for
+Assign **我** for manual work, an endpoint for
 ordinary execution, or a reusable role from **智能体**. Roles specify endpoint,
 reasoning, instructions, execution settings and concurrency. Role/project edits
 affect future launches, not existing frozen task contracts.
 
 Drag a card into another stage or before another card in its current stage.
-Pinned cards form the leading group. Submission rechecks the source revision and
-destination. Escape cancels a gesture. Context actions include pinning, metadata
-changes, execution, title regeneration, archive/restore and deletion. Deleting a
-card does not delete its linked task history.
+Submission rechecks the source revision. Escape cancels a gesture. Context actions
+include pinning, metadata changes, execution, title regeneration, archive/restore
+and deletion.
 
 Toolbar tabs, search and filters narrow the view without recording work commands.
-**自动** enables native dispatch of eligible assigned cards, subject to priority
-and role concurrency. Open an executed card to follow its linked conversation,
-append input, handle approvals or interrupt execution through the existing task UI.
+Enable **自动** for automatic execution. Open an executed card to follow its linked
+conversation, append input, handle approvals or interrupt execution through the
+existing task UI.
 
 ## Assistance and files
 
@@ -41,15 +40,7 @@ a 10 MiB per-file limit. Supported passive images can be previewed; other files
 are downloaded. Submission waits for uploads. Stored references are checked
 again at the service boundary; arbitrary local paths cannot substitute for uploads.
 
-Use `node host/cli.mjs describe` for the live API fields. Board operations include
-`create_card`, `read_card`, `list_cards`, `update_card`, `move_card`, `pin_card`,
-`run_card`, `link_card`, `archive_card`, `restore_card`, `delete_card`,
-`regenerate_card_title`, `board_settings`, `save_board_agent`, `list_board_agents`
-and `delete_board_agent`. Existing-card mutations require the revision returned
-by `read_card`. `move_card` takes `status` and a `before_card` string; an empty
-string means the end of the destination group.
+Use `bun host/cli.mjs describe` for the live API fields. The authoritative board
+command definitions are in [board-codec.bend](../bendlib/board-codec.bend).
 
-`npm test` runs the proof/host boundary suite. `npm run test:board-browser` runs
-the real-browser flow; set `CHROME_BIN` for a nonstandard Chrome installation.
-Architecture, reference attribution and proof bindings are in
-[ADR 0022](adr/0022-native-task-board.md).
+`bun run test` runs the proof/host boundary suite.

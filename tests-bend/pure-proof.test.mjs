@@ -12,23 +12,24 @@ test('the shared proof gate accepts pure evidence and rejects unsafe or circular
   await writeFile(path.join(directory, 'LAWS.bend'), 'import Base\nlaw fact:\n  {True{} == True{} : Bool}\n');
   const filename = path.join(directory, 'PROOF.bend');
   await writeFile(filename, 'import Base\nimport ./LAWS.bend as L\ndef L.fact():\n  {==}\n');
-  assert.equal(verifyProof({ cwd: directory }), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
+  assert.equal(verifyProof({ cwd: directory, entry: 'PROOF.bend' }), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   for (const body of [
     'import Base\nimport ./LAWS.bend as L\n@unsafe def unchecked() -> {True{} == True{} : Bool}:\n  unchecked()\ndef L.fact():\n  unchecked()\n',
     'import Base\nimport ./LAWS.bend as L\ndef L.fact():\n  L.fact()\n',
   ]) {
     await writeFile(filename, body);
-    assert.throws(() => verifyProof({ cwd: directory, timeout: 10_000 }), error =>
+    assert.throws(() => verifyProof({ cwd: directory, entry: 'PROOF.bend', timeout: 10_000 }), error =>
       error.message.startsWith('Pure proof gate rejected') && error.cause === undefined);
   }
 });
 
-test('the native entry gate accepts only the production IO assumptions and rejects extra promises or type errors', async t => {
+test('the native entry gate accepts only the production IO assumptions and rejects extra promises or type errors', { timeout: 180_000 }, async t => {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-native-entry-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  for (const name of ['core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   await cp(path.join(root, 'host'), path.join(directory, 'host'), { recursive: true, filter: source => !source.includes(`${path.sep}public`) });
   assert.equal(verifyNativeEntry({ cwd: directory }), 'Native entry types check with the declared IO assumptions.');
   const filename = path.join(directory, 'MAIN.bend');

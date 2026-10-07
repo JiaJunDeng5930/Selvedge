@@ -9,8 +9,7 @@ not claims about all Bend versions.
 
 The first browser pass exposed a mismatch hidden by the pure type check:
 successful creation opened a detail dialog, whereas the reference closes it
-unless continuous creation is selected. The intended create/edit transitions
-are now fields of the assembled `BoardBoundary`, challenged by semantic mutations.
+unless continuous creation is selected.
 
 Column-only drag was also insufficient. Manual order now uses the finite map's
 existing association-list order, with positional insertion specified separately
@@ -279,27 +278,10 @@ macOS/Linux CI configuration all target the checked native implementation.
 The pinned macOS installer and local gates were executed; the remote CI jobs
 have been configured but were not run as part of this local task.
 
-The three exploration goals are realized at their relevant boundaries. Requirements,
-model predicates, and operational definitions inhabit the same Bend program used
-by the service. List-monoid laws, transition induction, replay composition, and
-observation stuttering are instantiated directly on that program. MODEL,
-INVARIANTS, LAWS, and PROGRAM provide the top-level reading path, with PROOF holding
-proof construction; client command descriptions and controls derive from model
-values instead of a second handwritten protocol specification.
-
-The resulting guarantee is deliberately precise. Formalization does not certify
-that the predicates capture all informal intent, make runtime rejection impossible,
-prove progress or scheduler fairness, or verify a remote system. Live vendor
-credentials were not used: authentication and MCP behavior were exercised against
-controlled endpoints and real local processes. The Bend checker/compiler, C ABI,
-Node, SQLite, operating system, and remote services remain trusted boundaries.
-Those limits, the positive functional evidence, and the measured costs are part of
-the outcome of this experiment, rather than hidden assumptions of the safety proof.
-
 ## 2026-09-24: extend the migrated runtime into a coding harness
 
 This development round began from the migrated runtime with 26 passing tests.
-Reference identities and the selected source files are pinned in ADR 0008:
+The reference inputs were
 `earendil-works/pi` at `19a0361be89bf78ccf9bbaed9a496d6484759f67`, and
 `shpz/UnrealHarness` at `af72d7e53a096bc97bbc3a6fd50e8e4bda183a8c`.
 The latter is a UE build/skills/benchmark suite, not an alternative implementation
@@ -1150,7 +1132,7 @@ permissive fallback and no commercial model's judgment was treated as proof.
 ## Desktop presentation without changing the native interaction model
 
 The frontend-only refresh follows the locally installed Codex Desktop
-`26.917.71314`; ADR 0020 records the relevant resource names. Native labels,
+`26.917.71314`. Native labels,
 field bindings and command availability stay unchanged. The adapter moves
 existing inputs into a compact composer and retains the two native send/steer
 forms behind a menu. Their separate drafts survive the switch.
@@ -1229,7 +1211,7 @@ Native builds now have a separate bounded asynchronous step and cancellation
 terminates its compiler process group. A native entry's exact three declared IO
 boundary diagnostics are accepted only for that entry; the separate proof root
 still requires the pure-success report. Compiler timeout remains a failed test,
-never evidence of semantic rejection. ADR 0023 and `tests-bend/README.md` describe
+never evidence of semantic rejection. `tests-bend/README.md` describes
 the supported changes and the division between proof and boundary-test evidence.
 
 Completion validation on the pinned Bend 2.0.27 toolchain: the full `npm test`
@@ -1239,6 +1221,86 @@ tracked-file index check passed. The real-browser checks passed eight general UI
 groups and eleven board groups. These runs used isolated local services and
 browser profiles. The integration suite required normal macOS process permissions
 so Selvedge could start its own Seatbelt sandbox; that isolation was not disabled.
+
+## ChatGPT Web v1 interpreter
+
+The new backend reuses `ModelItem.Context` / `Message.ModelContext` and the
+existing checked history action and context projection. A response receipt is
+opaque data with no tool-call authority, so adding a provider did not require a
+new task-state field, constructor cascade, general algebra or proof hierarchy.
+The hand-maintained changes stay in shared host preparation, external receipt
+encoding, provider dispatch, approval text normalization and disposable previews.
+The production Bend definitions and proof sources are unchanged by this task.
+
+Boundary tests exposed two important representation assumptions. Approval
+parsing had depended on a Responses message wrapper despite the unified model
+interface already admitting plain text. More subtly, an async tool result can
+be committed after the request's input snapshot but before its output receipt.
+The adapter now records exact input/output spans and verifies the retained input
+digest, so that result is delivered once rather than being mistaken for already
+sent history. Neither issue was a missing native lifecycle theorem: both belonged
+to the host's provider representation correspondence.
+
+The new tests therefore target actual HTTP/SSE, SQLite, native serialization,
+OS execution, concurrent completion, cancellation and replay boundaries. They
+do not re-prove the native state machine using finite examples. Whole-program
+proof and mutation checks continue to cover the unchanged semantics. Network,
+SQLite, digest and remote browser guarantees remain trusted external boundaries;
+there is no claim of end-to-end browser correctness from the Bend proofs.
+
+Release validation used a baseline-source snapshot with only this backend's
+changes, leaving concurrent UI work untouched. The complete suite initially ran
+289 tests: 287 passed, one new test incorrectly assumed parent/child HTTP arrival
+order, and the unchanged native feature-extension test exceeded its 300-second
+compile bound. The arrival-order assumption was removed; the extension test then
+passed independently in 200 seconds under the same bound. The final affected
+suite passed all 69 tests with no skips. Final `npm run check`, the existing
+browser regression and the new five-group real-browser snapshot check passed.
+These are separate successful reruns, not a claim that the initial complete run
+was green. All 95 baseline Bend sources remained byte-identical in this snapshot.
+
+## Native conversation and installed desktop implementation
+
+The conversation observations now distinguish spoken text, processed execution
+results, and original audit records. Their implementation and independent
+specification initially matched provider-kind strings separately. On the pinned
+checker, the excluded string-prefix branches did not normalize identically.
+Parsing once into the shared `ContextKind` decoding vocabulary removed that
+representation discrepancy without weakening the content observation. Ordered
+transcripts reuse the imported list induction theorem; its predicate binder must
+match the library's declared usage rather than adding an unrestricted binder.
+
+Borrowed colors and short replacement handlers did not preserve desktop behavior.
+The final adapter imports the actual styled menus and their React/ReactDOM code,
+and retains 22 scroll callback bodies plus nine helpers unchanged. The original
+footer is overlaid and measured; moving it into a separate grid row breaks the
+source algorithm's resize assumptions. Scoping the copied stylesheet also needs
+an outer boundary around styled content, not putting the content itself at the
+scope root. Those were integration errors, not reasons to rewrite the source
+algorithm or add special-case positioning rules.
+
+The keyboard test found another adapter mistake: a custom menu-close callback
+forced focus back into the composer after a different menu had already opened.
+Removing that callback restored the desktop component's own focus lifetime.
+The test now drives actual keyboard events, skips disabled native actions and
+checks focus restoration without dispatch. Search tests type through Chrome's
+input protocol and verify filtered results, rather than setting a controlled
+React input's value and assuming its change handler ran.
+
+Validation of this change: the complete regression suite passed **295/295**
+tests with no skips, with test files serialized so the native compiler did not
+compete with proof-mutation workers. The existing compile timeout was not raised.
+The added source-integrity tests passed **2/2** separately, and the updated HTTP
+UI boundary passed its two tests again. The final browser runs passed ten
+conversation groups, eleven board groups and five Web API snapshot groups.
+`scripts/check.mjs` passed the source boundaries, dependency/source manifests,
+certificate reproduction, pure proof root, native entry and syntax checks.
+
+All four desktop artifacts were reproduced byte-for-byte from the recorded
+installed archive and pinned bundler. The Markdown parser, worker and original
+vendored dependency files stayed byte-identical. Browser tests used isolated
+Chrome profiles and loopback services, not live account calls; mobile checks
+refer to viewport sizes, not a separate Safari-engine run.
 
 ## Project-scoped ChatGPT connector boundary
 

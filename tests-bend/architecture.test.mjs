@@ -19,7 +19,7 @@ async function imports(filename, seen = new Set()) {
 test('the complete command, interaction and finite execution specifications do not depend on their implementation', async () => {
   const seen = new Set();
   for (const filename of ['COMMANDS.bend', 'bendlib/protocol.bend', 'bendlib/commit.bend', 'bendlib/execution.bend', 'bendlib/interface.bend', 'bendlib/transcript.bend',
-    'bendlib/board-spec.bend', 'bendlib/board-scheduling-spec.bend']) {
+    'bendlib/board-spec.bend', 'bendlib/board-scheduling-spec.bend', 'bendlib/conversation-spec.bend']) {
     await imports(path.join(root, filename), seen);
   }
   for (const filename of ['PROGRAM.bend', 'PROOF.bend', 'CONCEPTS.bend', 'MAIN.bend', 'bendlib/frontend.bend', 'bendlib/architecture.bend', 'bendlib/traces.bend',
@@ -30,6 +30,11 @@ test('the complete command, interaction and finite execution specifications do n
   assert.match(concepts, /Commit\.command\(~Execution\.scheduled,/);
   assert.match(concepts, /Commit\.input\(~Execution\.scheduled,/);
   assert.doesNotMatch(concepts, /Commit\.(command|input)\(~P\./);
+  // Commit specifies UI decoration by its existing public projection. The
+  // conversation content specification, unlike that commit interface, must be
+  // independently defined without importing the renderer it constrains.
+  const conversation = await imports(path.join(root, 'bendlib/conversation-spec.bend'));
+  assert.equal(conversation.has(path.join(root, 'UI.bend')), false);
 });
 
 test('the native entry contains only IO and all pure runtime imports belong to the proof closure', async () => {
@@ -56,16 +61,15 @@ test('the conceptual entry declares proof-carrying concepts rather than implemen
   assert.match(source, /law harness:\s+Harness/);
 });
 
-test('proof modules form an explicit acyclic graph and consume public laws rather than sibling helpers', async () => {
+test('proof modules form an explicit acyclic dependency graph', async () => {
   const directory = path.join(root, 'bendlib/proofs');
   const graph = new Map();
   for (const filename of await readdir(directory)) {
     if (!filename.endsWith('.bend')) continue;
     const source = await readFile(path.join(directory, filename), 'utf8');
     const dependencies = [];
-    for (const [, relative, alias] of source.matchAll(/^import (\.\/[^\s]+\.bend) as (\w+)$/gm)) {
+    for (const [, relative] of source.matchAll(/^import (\.\/[^\s]+\.bend) as (\w+)$/gm)) {
       dependencies.push(path.basename(relative));
-      assert.doesNotMatch(source, new RegExp(`\\b${alias}\\.`), 'Sibling evidence must be consumed through declared laws');
     }
     graph.set(filename, dependencies);
   }

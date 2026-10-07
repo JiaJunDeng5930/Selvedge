@@ -65,6 +65,6 @@ def board_request(found: Maybe<&2, B.Card>, ticket: Nat, prompt: String, +retitl
 def effect_valid(effect: F.Effect, state: F.State(), profiles: +List<D.Profile>) -> Bool:
   match effect:
     case F.ChatGPTEffect{effect}: ChatGPT.effect_valid(effect, F.chatgpt(state))
-    case F.RequestBoardText{id, ticket, D.Profile{+key, +provider, +name, +policy}, prompt, retitle}:
-      configured_board_profile(D.find_profile(profiles, key), D.Profile{key, provider, name, policy}) &&
+    case F.RequestBoardText{id, ticket, D.Profile{+key, +provider, +name, +policy, options}, prompt, retitle}:
+      configured_board_profile(D.find_profile(profiles, key), D.Profile{key, provider, name, policy, options}) &&
         board_request(B.find(F.board(state), id), ticket, prompt, retitle)

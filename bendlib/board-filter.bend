@@ -6,10 +6,8 @@ import ../MODEL.bend as M
 import ../PROJECTS.bend as Projects
 import ./board-state.bend as S
 import ./board-codec.bend as C
-import ./board-navigation.bend as N
 import ./association-map.bend as Finite
 import ./schema.bend as Schema
-import ./json.bend as J
 
 # The reference board combines categories by intersection and choices within a
 # category by union. These predicates project the one native registry; the
@@ -100,45 +98,69 @@ def working(+entries: +List<Finite.Entry(B.Card)>, +world: M.World()) -> Nat:
     case Nil{}: 0n
     case Con{(id, card), rest}: S.count(S.busy(S.task(card, world)), working(rest, world))
 
-def choice(+value: String, +label: String, +icon: String) -> J.Json:
-  J.Object{[J.Field{"value", J.Text{value}}, J.Field{"label", J.Text{label}}, J.Field{"icon", J.Text{icon}}]}
+type Classification is Data:
+  TaskStage{stage: B.Stage}
+  TaskPriority{priority: B.Priority}
+  Project{}
+  Person{}
+  Agent{}
+  Label{}
+  Updated{}
 
-def stages(+entries: +List<B.Stage>) -> +List<J.Json>:
+type Choice is Data:
+  Choice{value: String, label: String, classification: Classification}
+
+def choice(value: String, label: String, classification: Classification) -> Choice:
+  Choice{value, label, classification}
+
+def stages(+entries: +List<B.Stage>) -> +List<Choice>:
   match entries:
     case Nil{}: Nil{}
-    case Con{+stage, rest}: choice(B.stage_name(stage), B.stage_label(stage), "status/" ++ B.stage_name(stage)) <> stages(rest)
+    case Con{+stage, rest}: choice(B.stage_name(stage), B.stage_label(stage), TaskStage{stage}) <> stages(rest)
 
-def priority_choices() -> +List<J.Json>:
-  [choice("none", "无优先级", "priority/none"), choice("low", "低优先级", "priority/low"),
-   choice("medium", "中优先级", "priority/medium"), choice("high", "高优先级", "priority/high"), choice("urgent", "紧急优先级", "priority/urgent")]
+def priority_choice_label(priority: B.Priority) -> String:
+  match priority:
+    case B.NoPriority{}: "无优先级"
+    case B.Low{}: "低优先级"
+    case B.Medium{}: "中优先级"
+    case B.High{}: "高优先级"
+    case B.Urgent{}: "紧急优先级"
 
-def profile_choices(+profiles: +List<D.Profile>) -> +List<J.Json>:
+def priority_option_choices(values: +List<B.Priority>) -> +List<Choice>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+priority, rest}: choice(B.priority_name(priority), priority_choice_label(priority), TaskPriority{priority}) <> priority_option_choices(rest)
+
+def priority_choices() -> +List<Choice>:
+  priority_option_choices(B.priorities())
+
+def profile_choices(+profiles: +List<D.Profile>) -> +List<Choice>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{D.Profile{+key, provider, model, policy}, rest}: choice(key, key, "bot") <> profile_choices(rest)
+    case Con{D.Profile{+key, provider, model, policy, options}, rest}: choice(key, model, Agent{}) <> profile_choices(rest)
 
-def profile_owners(+profiles: +List<D.Profile>) -> +List<J.Json>:
+def profile_owners(+profiles: +List<D.Profile>) -> +List<Choice>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{D.Profile{+key, provider, model, policy}, rest}: choice("profile/" ++ key, key, "bot") <> profile_owners(rest)
+    case Con{D.Profile{+key, provider, model, policy, options}, rest}: choice("profile/" ++ key, model, Agent{}) <> profile_owners(rest)
 
-def agent_owners(+agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<J.Json>:
+def agent_owners(+agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<Choice>:
   match agents:
     case Nil{}: Nil{}
     case Con{(id, B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}), rest}:
-      choice("agent/" ++ Nat.show(id), name, "bot") <> agent_owners(rest)
+      choice("agent/" ++ Nat.show(id), name, Agent{}) <> agent_owners(rest)
 
-def owners(+world: M.World()) -> +List<J.Json>:
-  choice("none", "未分配", "user") <> choice("self", "我", "user") <>
-    List.append(&2, J.Json, agent_owners(B.agents(S.registry(world))), profile_owners(S.profiles(world)))
+def owners(+world: M.World()) -> +List<Choice>:
+  choice("none", "未分配", Person{}) <> choice("self", "我", Person{}) <>
+    List.append(&2, Choice, agent_owners(B.agents(S.registry(world))), profile_owners(S.profiles(world)))
 
-def project_choices(+entries: +List<Finite.Entry(D.Project)>) -> +List<J.Json>:
+def project_choices(+entries: +List<Finite.Entry(D.Project)>) -> +List<Choice>:
   match entries:
     case Nil{}: Nil{}
-    case Con{(id, D.Project{name, workspace, guidance}), rest}: choice(Nat.show(id), name, "folder") <> project_choices(rest)
+    case Con{(id, D.Project{name, workspace, guidance}), rest}: choice(Nat.show(id), name, Project{}) <> project_choices(rest)
 
-def projects(+world: M.World()) -> +List<J.Json>:
-  choice("", "未分配项目", "folder") <> project_choices(Projects.entries(Projects.registry(F.State(), world)))
+def projects(+world: M.World()) -> +List<Choice>:
+  choice("", "未分配项目", Project{}) <> project_choices(Projects.entries(Projects.registry(F.State(), world)))
 
 def add_label(+present: Bool, +name: String, +rest: +List<String>) -> +List<String>:
   match present:
@@ -155,10 +177,10 @@ def collect_labels(+entries: +List<Finite.Entry(B.Card)>, +collected: +List<Stri
     case Nil{}: collected
     case Con{(id, card), rest}: collect_labels(rest, unique_labels(B.labels(B.draft(card)), collected))
 
-def label_choices(+labels: +List<String>) -> +List<J.Json>:
+def label_choices(+labels: +List<String>) -> +List<Choice>:
   match labels:
     case Nil{}: Nil{}
-    case Con{+name, rest}: choice(name, name, "tag") <> label_choices(rest)
+    case Con{+name, rest}: choice(name, name, Label{}) <> label_choices(rest)
 
 def values(+category: String, +filter: B.Filter) -> +List<String>:
   match category filter:

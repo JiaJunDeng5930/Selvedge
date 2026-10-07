@@ -16,10 +16,6 @@ import ./protocol.bend as Protocol
 # Commit-scoped observation, never task authority. The native model identifies
 # occurrences and recipients; the host adds the committed sequence and attempts
 # bounded delivery. A projection cannot turn inherited history into new events.
-def entries(world: M.World()) -> +List<D.Task>:
-  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
-  tasks
-
 def subscribed(kinds: +List<D.EventKind>, +kind: D.EventKind) -> Bool:
   match kinds:
     case Nil{}: False{}
@@ -246,7 +242,7 @@ def enrich(+source: M.Input, +before: M.World(), +decision: M.Decision()) -> M.D
   C.Decision{+after, reply, +effects} = decision
   admit(M.durable(source), before,
     append(List.append(&2, D.Notice, input(source, before, after), List.append(&2, D.Notice,
-      tasks(entries(after), entries(before)), dispatched(I.live_effects(effects, entries(after)), entries(after)))), decision), decision)
+      tasks(D.state_tasks(C.local(D.State, F.State(), after)), D.state_tasks(C.local(D.State, F.State(), before))), dispatched(I.live_effects(effects, D.state_tasks(C.local(D.State, F.State(), after))), D.state_tasks(C.local(D.State, F.State(), after))))), decision), decision)
 
 def enabled(enabled: Bool, source: M.Input, before: M.World(), decision: M.Decision()) -> M.Decision():
   match enabled:

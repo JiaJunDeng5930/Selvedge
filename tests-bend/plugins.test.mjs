@@ -164,7 +164,7 @@ test('the distributed example registers its real tool and returns schema-compati
   }, description.limits, description.plugins);
   t.after(() => client.close());
   const descriptor = await client.initialize();
-  const configured = (await kernel.request({ kind: 'configure', profiles: [{ key: 'demo', provider: 'echo', name: 'echo' }],
+  const configured = (await kernel.request({ kind: 'configure', profiles: [{ key: 'demo', provider: 'echo', name: 'echo', reasoning_options: null }],
     tools: client.tools, plugins: [descriptor], max_fork: 4, max_descendants: 64 })).value;
   assert.equal(configured.reply.ok, true);
   const rewritten = await client.before({ task_id: 0, ticket: 1, plugin: client.reference, tool: { name: 'bash' },

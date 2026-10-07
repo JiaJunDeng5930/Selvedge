@@ -3,7 +3,7 @@
 The extension entry is `HOOKS.bend`, bound by `CONCEPTS.Extensibility`. Plugins are
 trusted local executables speaking newline-delimited UTF-8 JSON-RPC 2.0 over stdio.
 They do not need to be JavaScript modules or share a runtime with the Bend binary.
-The included Node example only demonstrates that wire contract.
+The included Bun example only demonstrates that wire contract.
 
 ## Configure and run
 
@@ -13,7 +13,7 @@ Add an entry to the existing configuration's `plugins` object and restart:
 {
   "plugins": {
     "audit": {
-      "command": "node",
+      "command": "bun",
       "args": ["/absolute/path/to/Selvedge/examples/plugins/audit.mjs"],
       "env": {
         "SELVEDGE_BASH_DEADLINE_MS": "10000",
@@ -91,11 +91,6 @@ outcome may already have happened.
 
 ## One before-tool protocol
 
-Every accepted model tool call passes through the same native chain, including
-`bash`, `fork_task`, `read_task`, `send_message_to_task`, `archive_task`,
-`cancel_operation`, MCP tools and plugin tools. Public user commands are a separate
-authority boundary; a user pressing Fork is not a model tool call.
-
 Before source classification or argument validation, Bend commits a `CheckTool`
 effect and a task-local pending ticket. The host sends `beforeTool` with:
 
@@ -112,25 +107,13 @@ effect and a task-local pending ticket. The host sends `beforeTool` with:
 The `tool` above abbreviates a real complete tool definition. Allowed results are
 exactly `{"decision":"allow"}`, `{"decision":"rewrite","arguments":{...}}`, or
 `{"decision":"deny","reason":"..."}`. A rewrite replaces the entire argument
-object; it cannot rename the tool, retarget the task, change the call ID or grant a
-different ticket. Each later plugin sees the preceding rewrite. Final arguments
-are validated against the frozen tool contract and live route after the whole
-chain succeeds. Exceptions, malformed replies, unavailable revisions and timeouts
-become native `HookFailure` records and do not dispatch the tool.
+object. The host can report exceptions, malformed replies, unavailable revisions
+and timeouts.
 
-The original function call remains immutable. The effective call is reconstructed
-from ordered `HookRecord` certificates, each bound to the owning task. Pending
-checked attempts and external operation rights must match that reconstruction.
-Inheriting a parent's history therefore does not inherit its permission to act.
-Denial is absorbing; subsequent records cannot revive a refused chain.
+See [HOOKS.bend](../HOOKS.bend) for the authoritative authorization-record semantics.
 
-A plugin only replies to the current committed ticket. Duplicate, stale,
-interrupted and post-archive replies have no authority. Freeze can retain a
-completed grant without advancing the remaining chain. Recovery retains committed
-grants but fails a pending callback whose outcome is unknown; it does not call it
-again or run the unapproved tool. Cancellation is advisory for the plugin process:
-the callback may already have performed its own effects, which Selvedge cannot
-roll back. Lifecycle controls still govern the core task independently.
+Cancellation is advisory for the plugin process: the callback may already have
+performed its own effects, which Selvedge cannot roll back.
 
 ## Result hooks
 
@@ -140,8 +123,7 @@ parent return of `fork_task`. Public user commands and inherited fork returns do
 not manufacture another invocation. Calls refused before execution do not have
 an execution result to process.
 
-After the raw completion is committed, enabled plugins from the task's frozen
-contract run in order. Each receives the preceding result value:
+After the raw completion is committed, the host sends:
 
 ```json
 {
@@ -165,32 +147,18 @@ The reply is exactly one of:
 {"decision": "deny", "reason": "Do not deliver this result"}
 ```
 
-A rewrite may supply any JSON value, including explicit `null`. It cannot change
-the original call, the task, or the execution error flag. Extra `error`, `name`,
-`arguments` or identity fields are rejected. Invalid replies, unavailable frozen
-revisions, transport errors and timeouts become failed result records. Denial or
-failure delivers an explicit error instead of the value; it does **not** undo the
-tool's already completed external effects.
+A rewrite may supply any JSON value, including explicit `null`.
 
-`ToolReceipt` retains the original call, result and error flag. `AfterRecord`
-retains each decision. Both are visible in durable history and the UI but excluded
-from the default model-context projection; only the processed result is delivered
-there. This is not confidential erasure: authorized history reads, including
-`read_task`, can expose audit records. A confidentiality policy must also govern
-those reads and any external artifacts.
+Extra `error`, `name`, `arguments` or identity fields are rejected. Invalid replies,
+unavailable frozen revisions, transport errors and timeouts can fail result
+processing. Result processing does not undo the tool's already completed external
+effects.
 
-An operation owns its result callback independently of model/control work, so a
-completion cannot replace an unrelated in-flight model request. Cancelling the
-operation addresses the live callback ticket, and late replies have no authority.
-Freeze suspends new task execution, not settlement of an already-owned result.
-An invocation that archives its own task may finish its own result callback, but
-cannot start new work. Older cancellation effects precede the new callback in
-that commit.
+Excluding audit records from model context does not provide confidential erasure:
+authorized history reads, including `read_task`, can expose audit records.
+A confidentiality policy must also govern those reads and any external artifacts.
 
-After restart, interrupted result processing reports `after_hook_interrupted`:
-execution is known from the retained receipt, while the callback outcome is
-unknown. Neither the tool nor the callback is repeated. This differs from recovery
-of an external operation whose execution outcome itself was never committed.
+See [results.bend](../bendlib/results.bend) and [protocol.bend](../bendlib/protocol.bend) for the authoritative result-processing and completion-admission semantics.
 
 ## Post-commit observations
 

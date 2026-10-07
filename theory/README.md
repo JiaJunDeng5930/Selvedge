@@ -17,8 +17,8 @@ bundle records Corelib's Datatypes/Nat and Stdlib's List/PeanoNat/Bool fingerpri
 
 ## Checked import inventory
 
-This section is generated from all three bundles. `npm run check` rejects a stale
-inventory; run `node scripts/theory-index.mjs update` after changing the exports.
+This section is generated from all three bundles. `bun run check` rejects a stale
+inventory; run `bun scripts/theory-index.mjs update` after changing the exports.
 
 <!-- BEGIN CHECKED_THEORY_INVENTORY -->
 
@@ -82,17 +82,17 @@ is recognized only by this structural form, never by its name or target theorem.
 Template arguments are reordered consistently because Bend requires them before
 ordinary arguments. Unsupported eliminators and recursion fail closed.
 
-Normal builds require only the pinned Bend compiler and Node. Both `npm run check`
-and `npm run build` check that the saved certificates reproduce the generated
+Normal builds require only the pinned Bend compiler and Bun. Both `bun run check`
+and `bun run build` check that the saved certificates reproduce the generated
 file. To regenerate from installed Rocq/MetaRocq and inspect changes:
 
 ```sh
-node scripts/import-stdlib.mjs --refresh
-node scripts/import-relations.mjs --refresh
-node scripts/import-maps.mjs --refresh
-node scripts/theory-index.mjs update
-npm run check
-npm test
+bun scripts/import-stdlib.mjs --refresh
+bun scripts/import-relations.mjs --refresh
+bun scripts/import-maps.mjs --refresh
+bun scripts/theory-index.mjs update
+bun run check
+bun run test
 git diff -- theory bendlib/stdlib.bend bendlib/relations.bend bendlib/association-map.bend
 ```
 

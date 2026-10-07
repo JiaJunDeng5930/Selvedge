@@ -193,6 +193,7 @@ export const heading_to_level = (token) => {
  * @property {string      } hr_char         - For horizontal rule parsing
  * @property {number      } hr_chars        - For horizontal rule parsing
  * @property {number      } table_state
+ * @property {null | {opener:string, closer:string, prefix:string, slashes:number}} equation
  */
 
 const TOKEN_ARRAY_CAP = 24
@@ -220,6 +221,7 @@ export function parser(renderer) {
         indent     : "",
         indent_len : 0,
         table_state: 0,
+        equation   : null,
     }
 }
 
@@ -228,6 +230,19 @@ export function parser(renderer) {
  * @param   {Parser} p
  * @returns {void  } */
 export function parser_end(p) {
+    if (p.equation !== null) {
+        p.text += p.equation.prefix
+        p.equation.prefix = ""
+        add_text(p)
+        return
+    }
+    if (p.token === MAYBE_EQ_BLOCK) {
+        p.token = p.tokens[p.len]
+        p.text += p.pending
+        p.pending = ""
+        add_text(p)
+        return
+    }
     if (p.pending.length > 0) {
         parser_write(p, "\n")
     }
@@ -279,8 +294,9 @@ function end_token(p) {
 /**
  * @param   {Parser} p
  * @param   {Token } token
+ * @param   {{opener:string, openingNewline:boolean}} [equation]
  * @returns {void  } */
-function add_token(p, token) {
+function add_token(p, token, equation) {
     /*
      If a list doesn't start with a list item
      it means that there was a newline after the list:
@@ -299,7 +315,43 @@ function add_token(p, token) {
     p.len += 1
     p.tokens[p.len] = token
     p.token = token
-    p.renderer.add_token(p.renderer.data, token)
+    if (equation === undefined) p.renderer.add_token(p.renderer.data, token)
+    else p.renderer.add_token(p.renderer.data, token, equation)
+}
+
+function start_equation(p, token, opener, openingNewline = false) {
+    const closer = opener === "\\(" ? "\\)" : opener === "\\[" ? "\\]" : opener
+    p.pending = ""
+    p.equation = {opener, closer, prefix: "", slashes: 0}
+    add_token(p, token, {opener, openingNewline})
+}
+
+function equation_character(p, char) {
+    const equation = p.equation
+    if (equation.prefix !== "") {
+        if (equation.prefix + char === equation.closer) {
+            add_text(p)
+            p.equation = null
+            end_token(p)
+            return
+        }
+        p.text += equation.prefix
+        // A mismatched closer prefix becomes content before reconsidering char.
+        equation.slashes = equation.prefix === "\\" ? equation.slashes + 1 : 0
+        equation.prefix = ""
+    }
+    if (equation.slashes % 2 === 0 && char === equation.closer[0]) {
+        if (equation.closer.length === 1) {
+            add_text(p)
+            p.equation = null
+            end_token(p)
+        } else {
+            equation.prefix = char
+        }
+        return
+    }
+    p.text += char
+    equation.slashes = char === "\\" ? equation.slashes + 1 : 0
 }
 
 /**
@@ -452,13 +504,6 @@ function is_delimeter(charcode) {
 /**
  * @param   {number} charcode
  * @returns {boolean} */
-function is_delimeter_or_number(charcode) {
-    return is_digit(charcode) || is_delimeter(charcode)
-}
-
-/**
- * @param   {number} charcode
- * @returns {boolean} */
 function is_alnum(charcode) {
     return is_digit(charcode)                 || // 0-9
            (charcode >= 65 && charcode <= 90) || // A-Z
@@ -472,6 +517,10 @@ function is_alnum(charcode) {
  * @returns {void  } */
 export function parser_write(p, chunk) {
     for (const char of chunk) {
+        if (p.equation !== null) {
+            equation_character(p, char)
+            continue
+        }
 
         /*
          Handle newlines
@@ -1068,40 +1117,13 @@ export function parser_write(p, chunk) {
             */
             if (char === '\n') {
                 add_text(p)
-                add_token(p, EQUATION_BLOCK)
-                p.pending = ""
+                start_equation(p, EQUATION_BLOCK, p.pending, true)
             } else {
-                p.token = p.tokens[p.len]
-                if (p.pending[0] === '\\') {
-                    p.text += '['
-                } else {
-                    p.text += '$$'
-                }
-                p.pending = ""
-                parser_write(p, char)
+                add_text(p)
+                start_equation(p, EQUATION_INLINE, p.pending)
+                equation_character(p, char)
             }
             continue
-        case EQUATION_BLOCK:
-            if ("\\]" === pending_with_char || "$$" === pending_with_char) {
-                add_text(p)
-                end_token(p)
-                p.pending = ""
-                continue
-            }
-            break
-        case EQUATION_INLINE:
-            if ("\\)" === pending_with_char || "$" === p.pending[0]) {
-                add_text(p)
-                end_token(p)
-
-                if(char === ')'){
-                    p.pending = ""
-                } else {
-                    p.pending = char
-                }
-                continue
-            }
-            break
         /* Raw URLs */
         case MAYBE_URL:
             if ("http://"  === pending_with_char ||
@@ -1221,8 +1243,7 @@ export function parser_write(p, chunk) {
             switch (char) {
             case '(':
                 add_text(p)
-                add_token(p, EQUATION_INLINE)
-                p.pending = ""
+                start_equation(p, EQUATION_INLINE, pending_with_char)
                 continue
             case '[':
                 p.token = MAYBE_EQ_BLOCK
@@ -1391,10 +1412,10 @@ export function parser_write(p, chunk) {
                     p.pending = pending_with_char
                     continue
                 }
-                /* $123
+                /* $ followed by prose punctuation
                     ^
                 */
-                else if (is_delimeter_or_number(char.charCodeAt(0))) {
+                else if (is_delimeter(char.charCodeAt(0))) {
                     break
                 }
                 /* $EQUATION_INLINE$
@@ -1402,8 +1423,8 @@ export function parser_write(p, chunk) {
                 */
                 else {
                     add_text(p)
-                    add_token(p, EQUATION_INLINE)
-                    p.pending = char
+                    start_equation(p, EQUATION_INLINE, "$")
+                    equation_character(p, char)
                     continue
                 }
             }
@@ -1475,6 +1496,7 @@ export function parser_write(p, chunk) {
  * @callback Renderer_Add_Token
  * @param   {T    } data
  * @param   {Token} type
+ * @param   {{opener:string, openingNewline:boolean}} [equation]
  * @returns {void } */
 
 /**

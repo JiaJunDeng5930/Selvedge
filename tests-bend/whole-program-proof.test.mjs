@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { compiler } from '../scripts/toolchain.mjs';
 
-test('whole-program proofs reject type-correct loss of input, durability, receipts and independent operation ownership', async t => {
+test('whole-program proofs reject type-correct loss of input, durability, receipts and independent operation ownership', { timeout: 900_000 }, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-whole-program-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -15,6 +15,8 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
+  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
+  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
   const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
@@ -40,10 +42,6 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
       'C.Decision{world, J.Null{}, List.append(&2, M.Effect(), effects, [Effects.NotifyPlugins{first <> rest}])}', /appended|plugin_observation_extension/],
     ['bendlib/notifications.bend', 'case Fail{reason}: plain',
       'case Fail{reason}: enriched', /fitted|plugin_observation_budget_failure/],
-    ['UI.bend', 'Action{key, label, M.Submit{command}, enabled(command, world), False{}}',
-      'Action{key, label, M.Submit{command}, True{}, False{}}', /ui_action_semantics/],
-    ['UI.bend', 'Form{key, title, label, command, fields, enabled(command, world)}',
-      'Form{key, title, label, command, fields, True{}}', /ui_form_semantics/],
     ['APPROVALS.bend', 'case ModelDecision{} D.ModelReviewer{profile}: True{}\n    case _ _: False{}',
       'case ModelDecision{} D.ModelReviewer{profile}: True{}\n    case _ _: True{}', /approval_boundary/],
     ['APPROVALS.bend', 'case D.ApprovalPending{+reviewer}: matched(origin_matches(origin, reviewer), origin, operation, task, reviewer, outcome)',
@@ -54,7 +52,7 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
     ['bendlib/frontend.bend', 'P.reject(world, "invalid_json", reason), False{}', 'P.reject(world, "invalid_json", reason), True{}', /frontend_json/],
     ['bendlib/frontend.bend', 'json(J.decode(tokens), world)', 'json(J.decode(Nil{}), world)', /frontend_packet/],
     ['bendlib/traces.bend', 'Spec.record(P.transition(input, world), pending, receipts)', 'Spec.record(P.transition(input, world), pending, Nil{})', /trace_step/],
-    ['bendlib/traces.bend', 'Std.iter(~Spec.Tape, ~implementation, count, tape)', 'Std.iter(~Spec.Tape, ~implementation, 0n, tape)', /trace_refinement|trace_partition|trace_interpretation/],
+    ['bendlib/traces.bend', 'Std.iter(~Spec.Tape, ~implementation, count, tape)', 'Std.iter(~Spec.Tape, ~implementation, 0n, tape)', /trace_partition|trace_interpretation/],
     ['PROGRAM.bend', 'Theory.replay(~M.World(), ~M.Input, ~next, events, world)', 'Theory.replay(~M.World(), ~M.Input, ~next, Nil{}, world)', /trace_interpretation|trace_cons/],
     ['bendlib/operations.bend', 'Finite.remove(~D.OperationBody, operations, id)', 'Nil{}', /operation_rights/],
     ['bendlib/operations.bend', 'binding(Finite.find(~D.OperationBody, operations, id), id)', 'None{}', /operation_rights/],

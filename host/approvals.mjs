@@ -10,17 +10,18 @@ const twoStringMembers = new RegExp(String.raw`^\s*\{\s*${jsonString}\s*:\s*${js
 /** Decode one untrusted provider response. No heuristic, code fence or tool call grants access. */
 export function approvalOutcome(items, limit) {
   if (!Number.isSafeInteger(limit) || limit < 1) throw new TypeError('Missing native approval response bound');
-  if (!Array.isArray(items) || items.some(item => item.type !== 'context' ||
-      !['message', 'reasoning'].includes(item.value?.type))) {
-    throw new TypeError('The approval reviewer must return text without tool calls');
+  if (!Array.isArray(items)) throw new TypeError('The approval reviewer must return text without tool calls');
+  const texts = [];
+  for (const item of items) {
+    if (item?.type === 'text' && typeof item.text === 'string') texts.push(item.text);
+    else if (item?.type === 'context' && item.value?.type === 'reasoning') continue;
+    else if (item?.type === 'context' && item.value?.type === 'message' && item.value.role === 'assistant' &&
+        Array.isArray(item.value.content) && item.value.content.length === 1 && item.value.content[0]?.type === 'output_text') {
+      texts.push(item.value.content[0].text);
+    } else throw new TypeError('The approval reviewer must return text without tool calls');
   }
-  const messages = items.filter(item => item.value.type === 'message');
-  if (messages.length !== 1 || messages[0].value.role !== 'assistant' ||
-      !Array.isArray(messages[0].value.content) || messages[0].value.content.length !== 1 ||
-      messages[0].value.content[0]?.type !== 'output_text') {
-    throw new TypeError('The approval reviewer must return exactly one decision');
-  }
-  const text = messages[0].value.content[0].text;
+  if (texts.length !== 1) throw new TypeError('The approval reviewer must return exactly one decision');
+  const text = texts[0];
   if (typeof text !== 'string' || !text.isWellFormed() || Buffer.byteLength(text) > limit + 256) {
     throw new TypeError('The approval reviewer exceeded its response bound');
   }

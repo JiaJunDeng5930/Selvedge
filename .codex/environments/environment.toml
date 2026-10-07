@@ -7,14 +7,14 @@ script = "bash scripts/setup-worktree.sh"
 [[actions]]
 name = "Run server"
 icon = "run"
-command = "npm start"
+command = "bun run start"
 
 [[actions]]
 name = "Test"
 icon = "test"
-command = "npm test"
+command = "bun run test"
 
 [[actions]]
 name = "Check"
 icon = "tool"
-command = "npm run check"
+command = "bun run check"

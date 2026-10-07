@@ -34,12 +34,11 @@ the frozen project context, and the last six tool calls paired with their result
 Each call shares a 1,000-local-token result budget. Head/tail omissions are marked;
 the complete request is bounded by 28,000 local tokens and the native frame limit.
 The pinned `o200k_base` tokenizer is an estimate, not Jev's private tokenizer.
-Private/encrypted model continuation is excluded by the native projection.
 Public task and tool content still leaves this computer for the chosen evaluator.
 
 ## Use the login preset
 
-Sign in with the existing `node host/cli.mjs login` command. When the account
+Sign in with the existing `bun host/cli.mjs login` command. When the account
 catalog advertises `gpt-6-astra`, discovery also materializes
 `chatgpt/<account-namespace>/gpt-6-astra-auto`. It keeps the same account and
 underlying model. Its only selectable reasoning setting is `auto`; the ordinary
@@ -93,9 +92,7 @@ reviewer; use an ordinary profile for `approval-for-me` judgments.
 Missing configuration, authentication failures, invalid choices and exhausted
 same-provider retries stop visibly without substituting a provider, model or
 guessed effort. Tool execution is not repeated when an evaluator request fails.
-Restart reconstructs the committed native state. Finished observations are not
-replayed. An unfinished evaluation is recovered through the native scheduler with
-a fresh, committed ticket; the old callback can no longer authorize a generation.
+Restart reconstructs the committed native state.
 
 `REASONING.bend` is the policy entry. `bendlib/reasoning-spec.bend` specifies
 generation authorization and settlement independently of the production

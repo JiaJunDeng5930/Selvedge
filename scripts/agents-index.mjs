@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const operation = process.argv[2];
-if (!['check', 'update'].includes(operation)) throw new Error('Usage: node scripts/agents-index.mjs check|update');
+if (!['check', 'update'].includes(operation)) throw new Error('Usage: bun scripts/agents-index.mjs check|update');
 const paths = execFileSync('git', ['ls-files', '--cached', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
 const directories = new Map();
 for (const filename of paths) {
@@ -28,5 +28,5 @@ const finish = text.indexOf(end, start);
 if (start < 0 || finish < 0) throw new Error('AGENTS.md has no complete project index markers');
 const updated = text.slice(0, start) + `${begin}\n\`\`\`text\n${index}\n\`\`\`\n${end}` + text.slice(finish + end.length);
 if (operation === 'update') await writeFile(filename, updated);
-else if (text !== updated) throw new Error('AGENTS.md index is stale. Stage changed paths, run npm run index, and stage AGENTS.md.');
+else if (text !== updated) throw new Error('AGENTS.md index is stale. Stage changed paths, run bun run index, and stage AGENTS.md.');
 console.log(`Project index ${operation === 'update' ? 'updated' : 'checked'} (${paths.length} tracked files).`);

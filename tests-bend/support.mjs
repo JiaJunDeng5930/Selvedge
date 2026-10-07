@@ -1,9 +1,99 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
+
+const repository = fileURLToPath(new URL('../', import.meta.url));
+let productionUI;
+
+// A checked facade invokes the production UI against the HTTP-visible program.
+export async function browserUI(t) {
+  return productionUI ??= (async () => {
+    await mkdir(path.join(repository, '.workpad'), { recursive: true });
+    const directory = await mkdtemp(path.join(repository, '.workpad', 'ui-boundary-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const entry = path.join(directory, 'fixture.bend');
+    const output = path.join(directory, 'fixture.mjs');
+    const modules = {
+      ProductUI: 'UI.bend', Core: 'core/SYSTEM.bend', Services: 'core/client-services.bend', E: 'core/user-experience.bend',
+      U: 'core/user-input.bend', View: 'core/ui-world.bend', InterfaceView: 'core/interface.bend',
+      Identity: 'core/ui-identity.bend', Cmd: 'bendlib/command-codec.bend', J: 'bendlib/json.bend', M: 'MODEL.bend',
+    };
+    const imports = Object.entries(modules).map(([name, file]) =>
+      `import ${path.relative(directory, path.join(repository, file))} as ${name}`).join('\n');
+    await writeFile(entry, `import Base
+${imports}
+
+def state_of(decision: Core.Decision) -> Core.State:
+  match decision:
+    case Core.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: state
+
+def selected(program: M.World(), task: Nat) -> Core.State:
+  state_of(ProductUI.step(ProductUI.InterfaceInput{Core.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, ProductUI.initial(program)))
+
+def surface(program: M.World(), task: Nat) -> InterfaceView.Surface:
+  ProductUI.observe(View.Capacity{True{}, False{}}, selected(program, task))
+
+def authenticated_connection(decision: Core.Decision, task: Nat) -> Result<&2, &2, String, Core.State>:
+  match decision:
+    case Core.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}:
+      match service_effects:
+        case Con{Services.Authenticate{ticket, credential}, Nil{}}:
+          connected = state_of(ProductUI.step(ProductUI.Authenticated{ticket, Done{Unit{}}}, state))
+          Done{state_of(ProductUI.step(ProductUI.InterfaceInput{Core.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, connected))}
+        case _: Fail{"Expected exactly one authentication request"}
+
+def authenticated(program: M.World(), task: Nat, credential: String) -> Result<&2, &2, String, Core.State>:
+  entered = state_of(Core.step(Core.ServiceInput{Services.EnterCredential{credential}}, ProductUI.initial(program)))
+  authenticated_connection(Core.step(Core.ServiceInput{Services.Connect{}}, entered), task)
+
+def surface_state(state: Core.State) -> InterfaceView.Surface:
+  ProductUI.observe(View.Capacity{True{}, False{}}, state)
+
+def key(node: InterfaceView.Node) -> String:
+  InterfaceView.Node{key, semantic, label, role, meaning, children} = node
+  Identity.encode(key)
+
+def requests(effects: +List<E.Effect>) -> List<&2, J.Json>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{E.RequestCommand{command, completion}, rest}: Cmd.command_json(command) <> requests(rest)
+    case Con{other, rest}: requests(rest)
+
+def commands_of(decision: Core.Decision) -> Result<&2, &2, String, String>:
+  match decision:
+    case Core.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: J.show(J.Array{requests(interaction_effects)})
+
+def press_state(state: Core.State, key: String) -> Result<&2, &2, String, String>:
+  commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, state))
+
+def press(program: M.World(), task: Nat, key: String) -> Result<&2, &2, String, String>:
+  commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, selected(program, task)))
+`);
+    await compileJavaScript({ entry, output, sourceRoot: repository,
+      exports: { surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', press_state: 'press_state' } });
+    return import(pathToFileURL(output).href);
+  })();
+}
+
+function linkedNodes(list) {
+  const result = [];
+  while (list?.$ === 'Con') {
+    result.push(list.head);
+    list = list.tail;
+  }
+  assert.equal(list?.$, 'Nil');
+  return result;
+}
+
+export function surfaceNodes(surface) {
+  const visit = node => [node, ...linkedNodes(node.children).flatMap(visit)];
+  return [...linkedNodes(surface.base), ...linkedNodes(surface.overlays)].flatMap(visit);
+}
 
 export async function home(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-service-test-'));
@@ -47,10 +137,10 @@ export async function responsesServer(t, respond) {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
-  t.after(() => new Promise((resolve, reject) => {
+  t.after(() => {
+    // NOTE: The pinned Bun runtime also stops the server in this call.
     server.closeAllConnections();
-    server.close(error => error ? reject(error) : resolve());
-  }));
+  });
   return { endpoint: `http://127.0.0.1:${server.address().port}/responses`, requests, failures };
 }
 

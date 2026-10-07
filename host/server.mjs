@@ -1,24 +1,39 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Service } from './service.mjs';
+import { encodeBendValue } from './public/bend-value.mjs';
+import { Service, CommandNotSubmitted } from './service.mjs';
 import { stringifyJson, parseJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment, BOARD_FILE_LIMIT } from './board-files.mjs';
 import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
 
-const assets = new Map([
-  ['/', ['index.html', 'text/html; charset=utf-8']],
-  ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
-  ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
-  ...['widgets.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
-    'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
-    .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
-  ['/style.css', ['style.css', 'text/css; charset=utf-8']],
-  ['/board.css', ['board.css', 'text/css; charset=utf-8']],
-]);
+async function publicAssets(directory, prefix = '') {
+  const assets = new Map();
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const name = encodeURIComponent(entry.name);
+    const file = `${prefix}${name}`;
+    if (entry.isDirectory()) {
+      for (const [pathname, resource] of await publicAssets(new URL(`${name}/`, directory), `${file}/`)) {
+        assets.set(pathname, resource);
+      }
+    } else if (entry.isFile()) {
+      const extension = path.extname(entry.name);
+      const contentType = extension === '.html' ? 'text/html; charset=utf-8'
+        : extension === '.mjs' ? 'text/javascript; charset=utf-8'
+        : extension === '.css' ? 'text/css; charset=utf-8' : null;
+      if (contentType) assets.set(`/${file}`, [file, contentType]);
+    }
+  }
+  return assets;
+}
+
+// NOTE: Request paths select fixed resources; they never become filesystem paths.
+const assets = await publicAssets(new URL('./public/', import.meta.url));
+if (!assets.has('/index.html')) throw new Error('Browser index.html is missing');
+assets.set('/', assets.get('/index.html'));
 
 export async function startServer(options) {
   const connections = connectionCredentials(options.config.chatgpt_plugin);
@@ -31,6 +46,8 @@ export async function startServer(options) {
   const server = http.createServer({ maxHeaderSize: service.limits.header_bytes }, (request, response) => {
     route(request, response).catch(error => {
       if (response.headersSent) response.destroy();
+      else if (error instanceof CommandNotSubmitted) json(response, 400,
+        { ok: false, error: { code: 'command_not_submitted', message: error.message } });
       else json(response, error instanceof RangeError || error instanceof SyntaxError || error instanceof TypeError ? 400 : 503,
         { ok: false, error: { code: 'request_failed', message: error.message } });
     });
@@ -114,14 +131,21 @@ export async function startServer(options) {
       const body = parseJson(await readText(request, 1024));
       if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).length) throw new TypeError('Account refresh takes an empty object');
       json(response, 200, { ok: true, result: await service.refreshAccounts() });
-    } else if (request.method === 'POST' && url.pathname === '/api/ui') {
+    } else if (request.method === 'GET' && url.pathname === '/api/browser/state') {
+      const snapshot = service.browserSnapshot();
+      json(response, 200, { ...snapshot, program: encodeBendValue(snapshot.program) });
+    } else if (request.method === 'POST' && ['/api/browser/command', '/api/browser/observation'].includes(url.pathname)) {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
       const body = parseJson(await readText(request, service.limits.frame_bytes));
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['state', 'event'].includes(key))) {
-        throw new TypeError('A presentation request contains only state and event');
+      if (url.pathname === '/api/browser/observation') {
+        json(response, 200, await service.browserObservation(body));
+      } else {
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'command')) {
+          throw new TypeError('A browser command contains only command');
+        }
+        const result = await service.browserCommand(body.command);
+        json(response, result.reply.ok ? 200 : 400, { ...result, program: encodeBendValue(result.program) });
       }
-      const result = await service.presentation(body);
-      json(response, result.reply.ok ? 200 : 400, { sequence: result.sequence, ...result.reply });
     } else if (request.method === 'POST' && url.pathname === '/api/commands') {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
       const command = parseJson(await readText(request, service.limits.frame_bytes));
@@ -139,6 +163,8 @@ export async function startServer(options) {
       response.flushHeaders();
       clients.add(response);
       response.once('close', () => clients.delete(response));
+      // Capture active streams before this synchronous subscription yields to notices.
+      sendEvent(response, { type: 'stream-state', streams: service.browserStreams() });
       // Reconnection needs the current durable revision, not every historical
       // UI invalidation. The authenticated event page retains exact cursors.
       sendEvent(response, { type: 'commit', sequence: service.journal.sequence });

@@ -7,10 +7,8 @@ import ../MODEL.bend as M
 import ./protocol.bend as Protocol
 import ./json.bend as J
 import ./schema.bend as Schema
-import ./tasks.bend as T
 import ./presentation.bend as View
 import ../INVARIANTS.bend as I
-import ../UI.bend as UI
 import ../HOOKS.bend as Hooks
 import ../APPROVALS.bend as Approvals
 import ../REASONING.bend as Reasoning
@@ -26,27 +24,17 @@ def find_spec(specs: +List<M.CommandSpec>, +name: String) -> Maybe<&2, M.Command
     case Con{M.CommandSpec{+key, +description, +kind, +schema}, rest}:
       choose_spec(String.eq(key, name), M.CommandSpec{key, description, kind, schema}, find_spec(rest, name))
 
-def text_or(value: J.Json, fallback: String) -> String:
-  match value:
-    case J.Text{text}: text
-    case _: fallback
-
-def optional_text(value: J.Json) -> Maybe<&2, String>:
-  match value:
-    case J.Text{text}: Some{text}
-    case _: None{}
-
 def approval_outcome(kind: String, +value: J.Json) -> D.ApprovalOutcome:
   match kind:
-    case "allow": D.ApprovalAllowed{text_or(J.get(value, "reason"), "")}
-    case "deny": D.ApprovalDenied{text_or(J.get(value, "reason"), "")}
-    case _: D.ApprovalFailed{text_or(J.get(value, "reason"), "The review did not return a valid decision")}
+    case "allow": D.ApprovalAllowed{J.text_or(J.get(value, "reason"), "")}
+    case "deny": D.ApprovalDenied{J.text_or(J.get(value, "reason"), "")}
+    case _: D.ApprovalFailed{J.text_or(J.get(value, "reason"), "The review did not return a valid decision")}
 
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
     case M.FeatureKind{kind}: FeatureCodec.construct(kind, body)
     case M.CreateCommand{}:
-      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
+      M.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
       M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
     case M.SteerCommand{}:
@@ -57,16 +45,16 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:
       M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
-        Protocol.messages(J.items(J.get(body, "messages"))), J.get(body, "settings")}
+        J.text_values(J.items(J.get(body, "messages"))), J.get(body, "settings")}
     case M.ReadCommand{}:
       M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
-    case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
+    case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), J.optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
     case M.CreateProjectCommand{}:
       M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
     case M.UpdateProjectCommand{}:
-      M.UpdateProject{Protocol.number(body, "project_id", 0n), optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
     case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
     case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
     case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}
@@ -197,7 +185,7 @@ def reasoning_policy(+value: J.Json) -> Reasoning.Policy:
   match value:
     case J.Null{}: Reasoning.Fixed{}
     case other:
-      Reasoning.Adaptive{J.text(J.get(value, "evaluator")), Protocol.messages(J.items(J.get(value, "efforts"))),
+      Reasoning.Adaptive{J.text(J.get(value, "evaluator")), J.text_values(J.items(J.get(value, "efforts"))),
         J.text(J.get(value, "baseline")), reasoning_transport(J.text(J.get(value, "transport"))), Protocol.number(value, "max_lease", 0n)}
 
 def valid_reasoning_policy(+value: J.Json) -> Bool:
@@ -209,12 +197,46 @@ def valid_reasoning_policy(+value: J.Json) -> Bool:
         (String.eq(J.text(J.get(value, "transport")), "configuration_update") || String.eq(J.text(J.get(value, "transport")), "request_effort")) &&
         Reasoning.valid(reasoning_policy(value))
 
+def requested_reasoning_default(value: J.Json) -> Maybe<&2, String>:
+  match value:
+    case J.Text{text}: Some{text}
+    case _: None{}
+
+def reasoning_options(+value: J.Json) -> Maybe<&2, D.ReasoningOptions>:
+  match value:
+    case J.Null{}: None{}
+    case other: D.normalize_reasoning_options(J.text_values(J.items(J.get(other, "values"))), requested_reasoning_default(J.get(other, "default")))
+
+def valid_reasoning_values(values: +List<J.Json>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{J.Text{+value}, rest}: D.nonempty(value) && Bool.not(String.eq(value, "auto")) && valid_reasoning_values(rest)
+    case _: False{}
+
+def valid_reasoning_default(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Text{text}: True{}
+    case _: False{}
+
+def valid_reasoning_options(+value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case other:
+      Shape.object_keys(other, ["default", "values"]) && valid_reasoning_default(J.get(other, "default")) &&
+        is_array(J.get(other, "values")) && Nat.is_lt(0n, List.length(&2, J.Json, J.items(J.get(other, "values")))) && valid_reasoning_values(J.items(J.get(other, "values")))
+
 def profile_values(values: +List<J.Json>) -> +List<D.Profile>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
       D.Profile{J.text(J.get(value, "key")), J.text(J.get(value, "provider")), J.text(J.get(value, "name")),
-        reasoning_policy(J.get(value, "adaptive_reasoning"))} <> profile_values(rest)
+        reasoning_policy(J.get(value, "adaptive_reasoning")), reasoning_options(J.get(value, "reasoning_options"))} <> profile_values(rest)
+
+def profile_options_present(value: J.Json) -> Bool:
+  match value:
+    case J.Object{fields}: Schema.exists(fields, "reasoning_options")
+    case _: False{}
 
 def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
   match values:
@@ -222,7 +244,7 @@ def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Con{+value, rest}:
       +key = J.text(J.get(value, "key"))
       D.nonempty(key) && D.nonempty(J.text(J.get(value, "provider"))) && D.nonempty(J.text(J.get(value, "name"))) &&
-        valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(T.has_name(seen, key)) && valid_profiles(rest, key <> seen)
+        profile_options_present(value) && valid_reasoning_options(J.get(value, "reasoning_options")) && D.policy_options_valid(reasoning_policy(J.get(value, "adaptive_reasoning")), reasoning_options(J.get(value, "reasoning_options"))) && valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(Schema.contains(seen, key)) && valid_profiles(rest, key <> seen)
 
 def plugin_ref(+value: J.Json) -> D.PluginRef:
   D.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}
@@ -253,7 +275,7 @@ def valid_remote_tools(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Nil{}: True{}
     case Con{+value, rest}:
       +name = J.text(J.get(value, "name"))
-      D.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(T.has_name(seen, name)) &&
+      D.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(Schema.contains(seen, name)) &&
         D.nonempty(J.text(J.get(value, "description"))) && J.is_object(J.get(value, "schema")) &&
         D.nonempty(J.text(J.get(value, "remote"))) &&
         valid_remote_tools(rest, name <> seen)
@@ -279,7 +301,7 @@ def plugin_values(values: +List<J.Json>) -> +List<D.Plugin>:
 def string_values(values: +List<J.Json>) -> Bool:
   match values:
     case Nil{}: True{}
-    case Con{J.Text{value}, rest}: T.has_name(D.plugin_events(), value) && string_values(rest)
+    case Con{J.Text{value}, rest}: Schema.contains(D.plugin_events(), value) && string_values(rest)
     case _: False{}
 
 def valid_plugin_values(values: +List<J.Json>) -> Bool:
@@ -324,72 +346,6 @@ def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
     Shape.is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
     Shape.is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
-
-# UI cursors are observations, not cached domain state. The wire may name only
-# the public event vocabulary; effect completions cannot be smuggled as events.
-def optional_id(value: J.Json) -> Bool:
-  match value:
-    case J.Null{}: True{}
-    case other: Schema.valid(D.task_id_schema(), other)
-
-def view_state(value: J.Json) -> M.ViewState:
-  match value:
-    case J.Null{}: UI.initial()
-    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n), J.text(J.get(other, "profile")), FeatureCodec.cursor(other)}
-
-def view_clock(state: M.ViewState, observed: J.Json) -> M.ViewState:
-  M.ViewState{selected, after, tasks_after, profile, +board} = state
-  M.ViewState{selected, after, tasks_after, profile, FeatureCodec.observe_cursor(board, observed)}
-
-def optional_profile(value: J.Json) -> Bool:
-  match value:
-    case J.Null{}: True{}
-    case +other: J.is_text(other) && Nat.is_le(J.utf8_length(J.text(other)), 512n)
-
-def valid_view_state(value: J.Json) -> Bool:
-  match value:
-    case J.Null{}: True{}
-    case +other: Shape.object_keys(other, List.append(&2, String, ["selected", "after", "tasks_after", "profile"], FeatureCodec.cursor_keys())) &&
-      optional_id(J.get(other, "selected")) && optional_id(J.get(other, "after")) &&
-      Schema.valid(D.task_id_schema(), J.get(other, "tasks_after")) && optional_profile(J.get(other, "profile")) && FeatureCodec.valid_cursor(other)
-
-def ui_event(valid: Bool, state: M.ViewState, event: M.ViewEvent) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case True{}: Done{M.UserInterface{state, event}}
-    case False{}: Fail{"Malformed presentation event"}
-
-def ui_command(valid: Bool, decoded: Result<&2, &2, String, M.Input>, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
-  match valid decoded:
-    case True{} Done{M.UserCommand{command}}: Done{M.UserInterface{state, M.Submit{command}}}
-    case True{} Fail{reason}: Fail{reason}
-    case _ _: Fail{"A presentation can submit only a public command"}
-
-def feature_navigation(decoded: Result<&2, &2, String, Features.Navigation>, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
-  match decoded:
-    case Fail{reason}: Fail{reason}
-    case Done{event}: Done{M.UserInterface{state, M.FeatureEvent{event}}}
-
-def view_event(kind: String, +event: J.Json, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
-  match kind:
-    case "refresh": ui_event(Shape.object_keys(event, ["type"]), state, M.RefreshView{})
-    case "select": ui_event(Shape.object_keys(event, ["type", "task_id"]) && optional_id(J.get(event, "task_id")),
-      state, M.SelectTask{J.natural(J.get(event, "task_id"))})
-    case "history": ui_event(Shape.object_keys(event, ["type", "after"]) && optional_id(J.get(event, "after")),
-      state, M.HistoryPage{J.natural(J.get(event, "after"))})
-    case "tasks": ui_event(Shape.object_keys(event, ["type", "after"]) && Schema.valid(D.task_id_schema(), J.get(event, "after")),
-      state, M.TaskPage{Protocol.number(event, "after", 0n)})
-    case "profile": ui_event(Shape.object_keys(event, ["type", "profile"]) && J.is_text(J.get(event, "profile")) && optional_profile(J.get(event, "profile")),
-      state, M.SelectProfile{J.text(J.get(event, "profile"))})
-    case "submit": ui_command(Shape.object_keys(event, ["type", "command"]), decode_command(J.get(event, "command")), state)
-    case other: feature_navigation(FeatureCodec.navigation(other, event), state)
-
-def ui_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed presentation cursor"}
-    case True{}: view_event(J.text(J.get(J.get(body, "event"), "type")), J.get(body, "event"), view_clock(view_state(J.get(body, "state")), J.get(body, "observed_at")))
-
-def decode_ui(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  ui_valid(valid_view_state(J.get(body, "state")) && FeatureCodec.valid_clock(J.get(body, "observed_at")), body)
 
 def hook_outcome(kind: String, +value: J.Json) -> D.HookOutcome:
   match kind:
@@ -470,7 +426,6 @@ def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> 
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
-    case "ui": decode_ui(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)
     case "tool": decode_tool(body)

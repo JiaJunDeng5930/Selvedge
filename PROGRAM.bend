@@ -17,7 +17,6 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/execution.bend as Execution
-import ./UI.bend as UI
 import ./bendlib/notifications.bend as Notifications
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
@@ -222,7 +221,7 @@ def model_request_direct(task: D.Task, world: M.World()) -> M.Decision():
   Reasoning.start(F.State(), F.Effect, task, world)
 
 def rendering_budget(world: M.World()) -> Nat:
-  Commit.render_budget(world)
+  D.state_render_budget(C.local(D.State, F.State(), world))
 
 def external_tool(tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{D.State{tasks, next_task, +next_ticket, environment, limits, projects}, +board} = world
@@ -374,7 +373,7 @@ def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   check_live(live_decision(decision), previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
-  deliver(M.durable(input), checked(Notifications.decorate(input, world, UI.decorate(input, scheduled(Commit.schedules(input, decision), decision))), world), world)
+  deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)

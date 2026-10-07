@@ -42,30 +42,6 @@ def with_chatgpt(value: ChatGPT.State, state: State()) -> State():
 def with_rest(value: Rest(), state: State()) -> State():
   C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, Rest(), previous => value, modules), state)
 
-def CursorRest() -> Data:
-  Unit
-
-def initial_cursor_rest() -> CursorRest():
-  Unit{}
-
-def Cursor() -> Data:
-  C.Frame<Board.Cursor, CursorRest()>
-
-def from_board_cursor(cursor: Board.Cursor) -> Cursor():
-  C.Frame{cursor, initial_cursor_rest()}
-
-def initial_cursor() -> Cursor():
-  from_board_cursor(Board.cursor())
-
-def board_cursor(cursor: Cursor()) -> Board.Cursor:
-  C.local(Board.Cursor, CursorRest(), cursor)
-
-def cursor_rest(cursor: Cursor()) -> CursorRest():
-  C.rest(Board.Cursor, CursorRest(), cursor)
-
-def with_board_cursor(value: Board.Cursor, cursor: Cursor()) -> Cursor():
-  C.replace(Board.Cursor, CursorRest(), value, cursor)
-
 type Effect is Data:
   ChatGPTEffect{effect: ChatGPT.Effect}
   RequestBoardText{card_id: Nat, ticket: Nat, profile: D.Profile, prompt: String, retitle: Bool}
@@ -81,9 +57,6 @@ type Query is Data:
 type CommandKind is Data:
   ChatGPTKind{kind: ChatGPTCodec.EntryKind}
   BoardKind{kind: BoardCodec.EntryKind}
-
-type Navigation is Data:
-  BoardEvent{event: Board.Navigation}
 
 type Completion is Data:
   ChatGPTCompleted{operation: Nat, value: J.Json, error: Bool}

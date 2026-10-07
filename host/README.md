@@ -1,15 +1,18 @@
 # Host effects
 
-The native Bend process owns task state. The host accepts JSON commands, performs
-the effects returned by that process, and sends their results back as inputs.
-It must commit an input and its decision to SQLite before publishing a reply or
-starting an effect. A failed commit terminates the process; committed inputs are
-replayed through the same Bend transition at the next start.
+The compiled Bend kernel owns authoritative task state. `KERNEL.bend` is compiled
+with the pinned compiler's official `js_lib` backend into
+`.build/kernel-model.mjs`; `kernel-worker.mjs` executes it in a Bun Worker.
+The host accepts authenticated public commands, interprets committed effects,
+and sends their results back as inputs. It commits an input and its decision to
+SQLite before publishing replies, world snapshots or starting effects. A failed
+commit terminates the kernel; committed inputs replay through the same Bend
+transition at the next start.
 
-`transport.c` only receives bounded, length-prefixed UTF-8 tokens. It constructs
-the generic token list consumed by the checked JSON decoder. It has no task
-constructors, persistence operations, lifecycle rules, or tool policy. The native
-compiler's effect ABI and the operating system remain trusted boundaries.
+The compiler's JavaScript backend, Worker transport and operating system remain
+external boundaries. `transport.c` belongs to the optional `MAIN.bend` native
+build; it receives bounded, length-prefixed UTF-8 tokens for the checked decoder
+without owning task state or policy.
 
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
@@ -19,14 +22,13 @@ Board text generation is a committed `RequestBoardText` effect interpreted by
 authenticated `board-files.mjs` boundary stores content-addressed, bounded files
 and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,
-order, automatic dispatch and execution association remain native. See
-`../docs/adr/0022-native-task-board.md`.
+order, automatic dispatch and execution association remain native.
 
 The suite also exercises browser OAuth login and serialized credential refresh against a
 loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
 notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
-Use `npm test` to run these checks; they require no real credentials or model calls.
+Use `bun run test` to run these checks; they require no real credentials or model calls.
 
 `chatgpt-account.mjs` owns ChatGPT connection configuration, identity, login and
 credentials. Consumers obtain account-bound authorization without accessing stored
@@ -39,24 +41,21 @@ profiles. Its catalog refresh commits the ordinary Configure input without
 mutating existing task contracts. Cache freshness and account matching belong to
 this external transport boundary.
 
-`POST /api/ui` accepts only an opaque navigation cursor and a public presentation
-event. Bend produces the entire typed surface in `UI.bend`: content, titles,
-actions, fields, bindings and enabled flags. `public/renderer.mjs` fills declared
-event bindings; `public/widgets.mjs` renders the generic widgets with keyed DOM
-reconciliation and safe Markdown.
-`public/app.mjs` handles authentication, serialized requests and commit invalidation.
-Neither file interprets task state or provider message roles. Unsubmitted field
-drafts and disclosure/focus state are presentation mechanics, not a domain cache.
-Uncommitted model deltas do not replace the native conversation surface. A
-separately labelled, bounded streaming preview is correlated with host execution
-identity and retired after its native settlement revision. Exact settled text
-can retain its already-rendered DOM. See `public/README.md` and ADR 0018 for the
-display scheduler, worker formatting, draft retention and evidence boundaries.
-The existing command endpoint remains available to CLI and API callers. Both
-endpoints revalidate against the current native world; a stale enabled button is
-never authority to execute. Navigation/refresh has no journal entry or effects.
-The exploration record distinguishes adapter test evidence from the native proof
-gate; no theorem here proves the browser's DOM implementation.
+`BROWSER.bend` compiles to `public/generated/browser-model.mjs` and runs the UI
+production functions in the browser. Bend owns interaction state, layout and
+Document construction. `public/renderer.mjs` interprets the Document as DOM;
+`public/app.mjs` performs authentication, network requests and physical effects.
+The browser submits only public commands through `/api/browser/command`.
+The server authenticates those commands and resolves them against the current
+kernel world; a local enabled control is not authority to execute. Snapshots are
+published only after the authoritative commit. Draft settlement uses the real
+command completion and draft revision.
+
+Uncommitted model deltas remain correlated transport observations. Bend decides
+their presentation and retirement; JavaScript does not interpret provider roles
+or maintain a task lifecycle model. DOM behavior, Markdown formatting, focus,
+clipboard and network delivery remain external component boundaries. See
+[`public/README.md`](public/README.md).
 
 ## Coding effect interpreters
 
@@ -76,7 +75,7 @@ disclosure and failure behavior.
 `sandbox.mjs` converts an already-authorized execution plan into a Seatbelt or
 bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
 fails closed on unavailable isolation; it does not select a task's policy or
-decide an approval. See ADR 0019 and `sandbox.test.mjs` for the OS trust boundary.
+decide an approval. See `sandbox.test.mjs` for the OS trust boundary.
 
 `approvals.mjs` interprets a committed approval effect as a separate, tool-free
 provider request. It creates no task and strictly decodes one allow/deny response;
@@ -154,6 +153,16 @@ are retried, within the request's overall deadline. Waiting is cancellable;
 excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
 share one committed model ticket and do not replay any tool effect.
+
+`model-request.mjs` prepares the common committed input before provider encoding.
+`chatgpt-web.mjs` implements the independent Web API v1 protocol and stores
+external request receipts in `chatgpt-web-store.mjs`. Opaque native context carries
+the explicit page identity and sent-input span, including deferred messages and
+async results committed before a model reply. It never chooses a page by matching
+message text. Native cancellation retires a specific receipt and attempts remote
+Stop; observer timeout or shutdown does not. The generic preview interface
+distinguishes replacement snapshots from append-only deltas. See
+`../docs/chatgpt-web.md` for configuration, recovery and evidence.
 
 Summary requests use the ordinary model transport but receive no tools. ChatGPT
 and API-key profiles use bounded text summarization.

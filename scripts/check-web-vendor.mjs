@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { checkDesktop } from './import-desktop.mjs';
 
 const directory = new URL('../host/public/vendor/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', directory), 'utf8'));
@@ -12,3 +13,4 @@ for (const dependency of manifest.packages) {
   }
 }
 console.log('Pinned web dependency files match their manifest.');
+console.log(await checkDesktop());

@@ -1,4 +1,5 @@
 import Base
+import ./bendlib/domain.bend as D
 import ./bendlib/json.bend as J
 import ./bendlib/association-map.bend as Finite
 
@@ -79,45 +80,13 @@ type Outcome is Data:
   SuggestionFailed{reason: String}
 
 # Navigation is an opaque observation cursor, not a second card registry.
-type Pane is Data:
-  ThreadsPane{}
-  BoardPane{}
-  AgentsPane{}
-  ProjectsPane{}
-
 type Filter is Data:
   Filter{view: String, search: String, status: +List<String>, priority: +List<String>,
     date: +List<String>, assignee: +List<String>, creator: +List<String>,
     project: +List<String>, label: +List<String>}
 
-type Dialog is Data:
-  NoDialog{}
-  CreateDialog{stage: Stage, assisted: Bool}
-  CardDialog{id: Nat}
-  ArchiveDialog{}
-  AgentDialog{id: Maybe<&2, Nat>}
-  ProjectDialog{id: Maybe<&2, Nat>}
-  DeleteDialog{id: Nat}
-  ContextDialog{id: Nat}
-
-type Cursor is Data:
-  Cursor{pane: Pane, filter: Filter, dialog: Dialog, keep_create: Bool, expanded: Bool, now: U32}
-
-type Navigation is Data:
-  ShowPane{pane: Pane}
-  ChangeView{view: String}
-  Search{query: String}
-  ToggleFilter{category: String, value: String}
-  ClearFilters{}
-  OpenDialog{dialog: Dialog}
-  KeepCreating{enabled: Bool}
-  ExpandDialog{expanded: Bool}
-
 def empty_filter() -> Filter:
   Filter{"all", "", Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
-
-def cursor() -> Cursor:
-  Cursor{ThreadsPane{}, empty_filter(), NoDialog{}, False{}, False{}, 0}
 
 def initial() -> State:
   State{Nil{}, 0, Nil{}, 0, False{}, ""}
@@ -151,6 +120,9 @@ def stage(value: String) -> Stage:
     case "done": Completed{}
     case "blocked": Blocked{}
     case _: Todo{}
+
+def priorities() -> +List<Priority>:
+  [NoPriority{}, Low{}, Medium{}, High{}, Urgent{}]
 
 def priority_name(priority: Priority) -> String:
   match priority:
@@ -424,17 +396,14 @@ def stage_patch(stage: Stage) -> Patch:
 def limited(+text: String, maximum: Nat) -> Bool:
   Nat.is_le(J.utf8_length(text), maximum) && Bool.not(String.contains(text, SCon{Chr{0}, SNil{}}))
 
-def nonempty(text: String) -> Bool:
-  Bool.not(String.is_empty(String.trim(text)))
-
 def valid_labels(labels: +List<String>) -> Bool:
   match labels:
     case Nil{}: True{}
-    case Con{+label, rest}: nonempty(label) && limited(label, 128n) && valid_labels(rest)
+    case Con{+label, rest}: D.nonempty(label) && limited(label, 128n) && valid_labels(rest)
 
 def valid_attachment(attachment: Attachment) -> Bool:
   Attachment{+id, +name, mime, +path, bytes} = attachment
-  Nat.is_eq(String.length(id), 64n) && nonempty(name) && limited(name, 256n) && limited(mime, 128n) &&
+  Nat.is_eq(String.length(id), 64n) && D.nonempty(name) && limited(name, 256n) && limited(mime, 128n) &&
     String.starts_with(path, "/") && limited(path, 4096n) && U32.is_le(bytes, 10485760)
 
 def valid_attachments(files: +List<Attachment>) -> Bool:
@@ -444,14 +413,14 @@ def valid_attachments(files: +List<Attachment>) -> Bool:
 
 def valid_draft(draft: Draft) -> Bool:
   Draft{+title, description, stage, priority, owner, project, +labels, +attachments} = draft
-  nonempty(title) && limited(title, 2000n) && limited(description, 400000n) &&
+  D.nonempty(title) && limited(title, 2000n) && limited(description, 400000n) &&
     Nat.is_le(List.length(&2, String, labels), 32n) && valid_labels(labels) &&
     Nat.is_le(List.length(&2, Attachment, attachments), 4n) && valid_attachments(attachments)
 
 def valid_agent(agent: AgentProfile) -> Bool:
   AgentProfile{revision, +name, +profile, +reasoning, instructions, settings, +concurrency} = agent
-  nonempty(name) && limited(name, 160n) && nonempty(profile) && limited(profile, 1024n) &&
-    nonempty(reasoning) && limited(reasoning, 64n) && limited(instructions, 100000n) &&
+  D.nonempty(name) && limited(name, 160n) && D.nonempty(profile) && limited(profile, 1024n) &&
+    D.nonempty(reasoning) && limited(reasoning, 64n) && limited(instructions, 100000n) &&
     Nat.is_le(1n, concurrency) && Nat.is_le(concurrency, 64n)
 
 def unlinked(task: Maybe<&2, Nat>) -> Bool:

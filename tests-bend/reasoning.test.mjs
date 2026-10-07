@@ -216,7 +216,7 @@ test('the complete native/service flow commits evaluation first, bypasses it und
   let service = await Service.open({ home: state, config, cwd: directory });
   t.after(() => service.close());
   const created = await service.command({ op: 'create', profile: 'automatic', message: 'Do the task with a bounded follow-up.' });
-  assert.equal(created.reply.ok, true, JSON.stringify(created));
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
   const page = await taskIdle(service);
   assert.equal(page.messages.findLast(message => message.role === 'model_context')?.content?.content?.[0]?.text,
     'Completed the native task.', JSON.stringify(page));

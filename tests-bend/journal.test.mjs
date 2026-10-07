@@ -12,7 +12,7 @@ async function temporary(t) {
   t.after(() => rm(directory, { recursive: true, force: true }));
   return path.join(directory, 'journal.sqlite');
 }
-const environment = { kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model' }], tools: [], max_fork: 4, max_descendants: 8 };
+const environment = { kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8 };
 const command = command => ({ kind: 'command', command });
 const model = (task_id, ticket, calls = []) => ({ kind: 'model', task_id, ticket, ok: true, items: calls.map(call => ({ type: 'call', ...call })) });
 

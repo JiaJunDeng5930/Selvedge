@@ -10,6 +10,7 @@ import { defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { startServer } from '../host/server.mjs';
 import { taskIdle, home } from './support.mjs';
+import browserModel from '../host/public/generated/browser-model.mjs';
 import { chatgptFixture, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
 
 const model = (slug = 'account-model', priority = 0, visibility = 'list') => ({
@@ -17,7 +18,6 @@ const model = (slug = 'account-model', priority = 0, visibility = 'list') => ({
   default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium', description: 'Normal' }, { effort: 'high', description: 'High' }],
 });
 const configFor = profile => validateConfig({ ...defaultConfig, port: 0, chatgpt: profile });
-const walk = node => [node, ...(node.children ?? []).flatMap(walk)];
 
 test('login needs no model profile, and a logged-out home makes no model request', async t => {
   const config = validateConfig(defaultConfig);
@@ -131,7 +131,7 @@ test('catalog decode rejects wrong envelopes, duplicate models, malformed capabi
   await assert.rejects(discoverAccount(upstream.profile, upstream.directory), error => !error.message.includes('PRIVATE') && /no selectable/.test(error.message));
 });
 
-test('login CLI discovers models and hot-refreshes a running native UI without editing model configuration', { timeout: 20_000 }, async t => {
+test('login CLI hot-refresh selects the discovered model in the browser draft without editing model configuration', { timeout: 20_000 }, async t => {
   const upstream = await chatgptFixture(t, (request, response) => {
     if (request.method === 'GET') jsonResponse(response, { models: [model()] });
     else modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Discovered model answered.' }] }]);
@@ -160,9 +160,14 @@ test('login CLI discovers models and hot-refreshes a running native UI without e
   assert.match(stdout, /model selector has been refreshed/);
   assert.equal(await readFile(filename, 'utf8'), JSON.stringify(config));
   assert.ok(server.service.journal.sequence > initialSequence);
-  const result = await server.service.presentation({ event: { type: 'refresh' } });
-  const form = walk(result.reply.result.presentation.root).find(node => node.key === 'create');
-  const key = form.fields.find(field => field.name === 'profile').value;
+  const snapshot = server.service.browserSnapshot();
+  const state = browserModel.initial(snapshot.program, BigInt(snapshot.sequence));
+  const key = state.legacy.web.application.core.application.session.drafts.head.body.profile;
+  const profiles = snapshot.program.local.environment.profiles;
+  assert.equal(key, profiles.head.key);
+  const profileKeys = [];
+  for (let rest = profiles; rest.head; rest = rest.tail) profileKeys.push(rest.head.key);
+  assert.ok(profileKeys.includes(key));
   assert.match(key, /^chatgpt\//);
   const created = await server.service.command({ op: 'create', profile: key, message: 'Use the discovered model.' });
   assert.equal(created.reply.ok, true);

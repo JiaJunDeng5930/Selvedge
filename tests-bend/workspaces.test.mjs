@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { Service } from '../host/service.mjs';
+import { CommandNotSubmitted, Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer, shellQuote, taskIdle } from './support.mjs';
 
@@ -87,10 +87,19 @@ test('workspace observations reject nonexistent roots and forged guidance withou
     config: validateConfig({ ...defaultConfig, chatgpt: false }) });
   t.after(() => service.close());
   const before = service.journal.sequence;
-  await assert.rejects(service.command({ op: 'create_project', name: 'missing', workspace: { roots: [path.join(base, 'missing')] } }), { code: 'ENOENT' });
+  await assert.rejects(service.command({ op: 'create_project', name: 'missing', workspace: { roots: [path.join(base, 'missing')] } }), error => {
+    assert.ok(error instanceof CommandNotSubmitted);
+    assert.equal(error.cause.code, 'ENOENT');
+    return true;
+  });
   await assert.rejects(service.command({ op: 'create', profile: 'demo', message: 'forged', settings: {
     guidance: { workspace: base, revision: 'absent', instructions: '' },
-  } }), /observed by the service/);
+  } }), error => {
+    assert.ok(error instanceof CommandNotSubmitted);
+    assert.ok(error.cause instanceof TypeError);
+    assert.match(error.cause.message, /observed by the service/);
+    return true;
+  });
   assert.equal(service.journal.sequence, before);
   const empty = await service.command({ op: 'create_project', name: 'No roots', workspace: { roots: [] } });
   assert.equal(empty.reply.ok, true);

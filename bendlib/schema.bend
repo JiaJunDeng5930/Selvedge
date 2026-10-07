@@ -1,6 +1,10 @@
 import Base
 import ./json.bend as J
 
+def object(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
+  J.Object{[J.Field{"type", J.Text{"object"}}, J.Field{"properties", J.Object{properties}},
+    J.Field{"required", J.Array{required}}, J.Field{"additionalProperties", J.Boolean{False{}}}]}
+
 # The schema fragment used by built-in commands and tools. MCP schemas are
 # preserved verbatim and validated by their server, not misrepresented here.
 def exists(fields: +List<J.Field>, +name: String) -> Bool:
