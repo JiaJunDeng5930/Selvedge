@@ -21,8 +21,9 @@ providers. An update states its intended write; an accessor does not return a
 complete unpacked representation. Public command, input, reply and view vocabulary
 remains transparent, including `AgentProfile`.
 
-Use parametric abstraction where it governs an actual computation. Task storage's
-`Tasks.update_carrier` takes an unknown carrier and its task read/write operations;
+Use parametric abstraction where it governs an actual computation. Task storage in
+[harness/tasks/PROGRAM.bend](../../harness/tasks/PROGRAM.bend) uses
+`Tasks.update_carrier`, which takes an unknown carrier and its task read/write operations;
 production `update_state` specializes that computation to the domain model.
 `update_world` retains the existing component frame wrapper. This gives the storage
 algorithm a compiler-checked abstraction boundary without turning concrete models
@@ -36,8 +37,8 @@ and does not grant a blanket exemption to proof modules. This complements Bend's
 type checker; it does not introduce language-level sealing. The existing closed
 core import boundary remains unchanged.
 
-Group existing Locality, Core and Web contract evidence by responsibility, retaining
-all mandatory obligations and production bindings. Public laws use whole-state
+Group existing locality, interaction and browser contract evidence by
+responsibility, retaining all mandatory obligations and production bindings. Public laws use whole-state
 quantification, observations and intended updates; representation-specific
 providers may open those states to establish the original complete equations.
 These providers remain explicit owners. Contract groups supply a reading boundary

@@ -1,11 +1,11 @@
 import Base
-import ./bendlib/locality.bend as Locality
-import ./bendlib/architecture.bend as A
-import ./bendlib/reachability.bend as Reach
-import ./bendlib/workspace-architecture.bend as Workspace
-import ./bendlib/approval-architecture.bend as Approval
-import ./bendlib/reasoning-architecture.bend as Reasoning
-import ./bendlib/feature-architecture.bend as Features
+import ./harness/LOCALITY.bend as Locality
+import ./harness/CONTRACT.bend as A
+import ./harness/history/MODEL.bend as Reach
+import ./harness/workspace/CONTRACT.bend as Workspace
+import ./harness/approval/CONTRACT.bend as Approval
+import ./harness/reasoning/CONTRACT.bend as Reasoning
+import ./harness/features/CONTRACT.bend as Features
 
 # Selvedge is a persistent command/effect protocol. Start with Harness below.
 # COMMANDS defines requested behavior; MODEL names the domain; UI defines the

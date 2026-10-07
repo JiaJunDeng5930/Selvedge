@@ -6,6 +6,11 @@ const defaultRoot = fileURLToPath(new URL('../', import.meta.url));
 const configKeys = ['version', 'core_modules', 'application_dependencies',
   'feature_alphabet', 'feature_alphabet_types', 'feature_match_owners', 'model_representations', 'proof_root', 'runtime_root', 'foreign_sources'];
 
+export function isProofSource(filename) {
+  const name = path.posix.basename(filename);
+  return name === 'PROOF.bend' || name.endsWith('-proof.bend');
+}
+
 function mask(source) {
   return source.replace(/"(?:\\.|[^"\\])*"|#[^\n]*/g, text => text.replace(/[^\n]/g, ' '));
 }
@@ -123,7 +128,10 @@ export async function bendSources(root = defaultRoot) {
       if (item.name.startsWith('.') || ['node_modules', 'target', 'crates'].includes(item.name)) continue;
       const name = path.posix.join(relative, item.name);
       if (item.isDirectory()) await visit(name);
-      else if (item.isFile() && name.endsWith('.bend')) result.push(name);
+      else if (item.isFile() && name.endsWith('.bend')) {
+        if (name.split('/').length > 3) throw new Error(`Bend source exceeds two directory levels: ${name}`);
+        result.push(name);
+      }
       else if (item.isSymbolicLink()) throw new Error(`Component audit does not accept source symlinks: ${name}`);
     }
   }

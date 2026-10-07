@@ -1,8 +1,8 @@
 # Verification responsibilities
 
 The formal entry is [PROOF.bend](../PROOF.bend), with production obligations in
-[LAWS.bend](../LAWS.bend), [INVARIANTS.bend](../INVARIANTS.bend),
-[core/interface.bend](../core/interface.bend). Follow those entries for the executable
+[LAWS.bend](../harness/LAWS.bend), [INVARIANTS.bend](../harness/INVARIANTS.bend),
+[interaction/presentation/PROGRAM.bend](../interaction/presentation/PROGRAM.bend). Follow those entries for the executable
 requirements and their evidence. Tests target compiler, certificate and external
 boundary faults rather than repeat proved finite state-transition examples.
 

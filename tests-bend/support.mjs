@@ -19,9 +19,9 @@ export async function browserUI(t) {
     const entry = path.join(directory, 'fixture.bend');
     const output = path.join(directory, 'fixture.mjs');
     const modules = {
-      ProductUI: 'UI.bend', Core: 'core/SYSTEM.bend', Services: 'core/client-services.bend', E: 'core/user-experience.bend',
-      U: 'core/user-input.bend', View: 'core/ui-world.bend', InterfaceView: 'core/interface.bend',
-      Identity: 'core/ui-identity.bend', Cmd: 'bendlib/command-codec.bend', J: 'bendlib/json.bend', M: 'MODEL.bend',
+      ProductUI: 'interaction/MODEL.bend', Core: 'interaction/STATE.bend', Services: 'interaction/services/MODEL.bend', E: 'interaction/session/MODEL.bend',
+      U: 'interaction/INPUT.bend', View: 'interaction/presentation/MODEL.bend', InterfaceView: 'interaction/presentation/PROGRAM.bend',
+      Identity: 'interaction/IDENTITY.bend', Cmd: 'harness/transport/command-codec.bend', J: 'bendlib/json.bend', M: 'harness/MODEL.bend',
     };
     const imports = Object.entries(modules).map(([name, file]) =>
       `import ${path.relative(directory, path.join(repository, file))} as ${name}`).join('\n');

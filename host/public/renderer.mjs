@@ -107,14 +107,14 @@ export class Renderer {
     const value = record.attributes.get('value');
     // Isolated measurement documents have no user editing sessions.
     if (this.isolated) { this.replaceValue(record, value); return; }
-    this.fieldSession(record, bendValue('webui/native-fields.Synchronize', { value }));
+    this.fieldSession(record, bendValue('browser/runtime/native-fields.Synchronize', { value }));
   }
   synchronizeFields(updates) {
     for (const update of list(updates)) {
       const record = this.records.get(update.key);
       if (!record || !this.root.contains(record.node)) continue;
       if (bendTag(update) === 'SetIdentity') {
-        if (!this.isolated) this.fieldSession(record, bendValue('webui/native-fields.Rebind', { identity: update.identity }));
+        if (!this.isolated) this.fieldSession(record, bendValue('browser/runtime/native-fields.Rebind', { identity: update.identity }));
       } else if (bendTag(update) === 'SetValue') {
         record.attributes.set('value', update.value);
         this.controlledValue(record);
@@ -134,27 +134,27 @@ export class Renderer {
       for (const event of record.bindings) if (bendTag(event) === kind) this.callbacks.event(event, native, node, this.composing.has(node));
     };
     const session = event => this.isolated ? { deliver: false } : this.fieldSession(record, bendValue(event));
-    node.addEventListener('compositionstart', () => { this.composing.add(node); session('webui/native-fields.CompositionStarted'); });
+    node.addEventListener('compositionstart', () => { this.composing.add(node); session('browser/runtime/native-fields.CompositionStarted'); });
     node.addEventListener('compositionend', event => {
       this.composing.delete(node);
-      if (session('webui/native-fields.CompositionEnded').deliver) dispatch('EditText', event);
+      if (session('browser/runtime/native-fields.CompositionEnded').deliver) dispatch('EditText', event);
     });
     node.addEventListener('pointerdown', () => {
-      if (bendTag(record.fieldSession?.session) === 'SupersededTail') session('webui/native-fields.InputStarted');
+      if (bendTag(record.fieldSession?.session) === 'SupersededTail') session('browser/runtime/native-fields.InputStarted');
     });
-    for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('webui/native-fields.InputStarted'));
+    for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('browser/runtime/native-fields.InputStarted'));
     node.addEventListener('click', event => {
-      if (node.type === 'file') session('webui/native-fields.InputStarted');
+      if (node.type === 'file') session('browser/runtime/native-fields.InputStarted');
       if (record.bindings.some(binding => bendTag(binding) === 'Activate')) event.preventDefault();
       dispatch('Activate', event); dispatch('PlaceCard', event);
     });
     node.addEventListener('keydown', event => {
-      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('webui/native-fields.InputStarted');
+      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('browser/runtime/native-fields.InputStarted');
       dispatch('ConfirmText', event);
     });
-    node.addEventListener('input', event => { if (session('webui/native-fields.InputObserved').deliver) dispatch('EditText', event); });
+    node.addEventListener('input', event => { if (session('browser/runtime/native-fields.InputObserved').deliver) dispatch('EditText', event); });
     node.addEventListener('change', event => {
-      if (!session('webui/native-fields.InputObserved').deliver) return;
+      if (!session('browser/runtime/native-fields.InputObserved').deliver) return;
       dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event);
     });
     node.addEventListener('dragstart', event => dispatch('DragCard', event));

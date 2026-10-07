@@ -1,7 +1,7 @@
 # Browser adapter
 
-`BROWSER.bend` is compiled into `generated/browser-model.mjs`. Its state and
-`webui/document.bend` document are the browser's only product model and rendered
+`../../BROWSER.bend` is compiled into `generated/browser-model.mjs`. Its state and
+`../../browser/document/MODEL.bend` document are the browser's only product model and rendered
 UI. `app.mjs` executes compiled decisions synchronously, commits the document,
 and interprets the resulting physical and network effects asynchronously.
 Commands cross `/api/browser/command` as the Bend JSON value already produced by

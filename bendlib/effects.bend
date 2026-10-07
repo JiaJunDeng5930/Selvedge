@@ -1,5 +1,5 @@
 import Base
-import ./domain.bend as D
+import ../harness/DOMAIN.bend as D
 import ./json.bend as J
 
 # The task effect alphabet is independent of every feature's private payload.

@@ -94,9 +94,9 @@ same-provider retries stop visibly without substituting a provider, model or
 guessed effort. Tool execution is not repeated when an evaluator request fails.
 Restart reconstructs the committed native state.
 
-`REASONING.bend` is the policy entry. `bendlib/reasoning-spec.bend` specifies
+`../harness/reasoning/MODEL.bend` is the policy entry. `../harness/reasoning/SPEC.bend` specifies
 generation authorization and settlement independently of the production
 implementation. `ReasoningBoundary` binds routing, tickets, revisions, lease
 ownership, prefix updates and public projection to checked evidence in
-`bendlib/proofs/reasoning.bend`. HTTP, tokenization, SQLite, browser rendering and
+`../harness/reasoning/PROOF.bend`. HTTP, tokenization, SQLite, browser rendering and
 the quality of Jev's decisions remain external boundaries tested separately.

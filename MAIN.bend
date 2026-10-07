@@ -1,11 +1,11 @@
 import Base
-import ./bendlib/domain.bend as D
-import ./MODEL.bend as M
-import ./PROGRAM.bend as P
+import ./harness/DOMAIN.bend as D
+import ./harness/MODEL.bend as M
+import ./harness/PROGRAM.bend as P
 import ./bendlib/json.bend as J
-import ./bendlib/wire.bend as Wire
-import ./bendlib/frontend.bend as Frontend
-import ./bendlib/interface.bend as Interface
+import ./harness/transport/wire.bend as Wire
+import ./harness/transport/PROGRAM.bend as Frontend
+import ./harness/transport/MODEL.bend as Interface
 
 def Host.receive(max_bytes: U32) -> IO(Result<&1, &1, U32 & String, Maybe<&2, +List<String>>>):
   import "./host/transport.c"

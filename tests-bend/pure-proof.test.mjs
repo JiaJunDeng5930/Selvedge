@@ -28,8 +28,7 @@ test('the native entry gate accepts only the production IO assumptions and rejec
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-native-entry-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
-  for (const name of ['core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   await cp(path.join(root, 'host'), path.join(directory, 'host'), { recursive: true, filter: source => !source.includes(`${path.sep}public`) });
   assert.equal(verifyNativeEntry({ cwd: directory }), 'Native entry types check with the declared IO assumptions.');
   const filename = path.join(directory, 'MAIN.bend');

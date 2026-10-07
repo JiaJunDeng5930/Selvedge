@@ -32,14 +32,12 @@ test('bypassing production admission invalidates the transition theorem', { time
   for (const filename of await readdir(root)) {
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
-  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
-  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const check = () => spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check();
   assert.equal(baseline.error, undefined);
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
-  const filename = path.join(directory, 'PROGRAM.bend');
+  const filename = path.join(directory, 'harness/PROGRAM.bend');
   const source = await readFile(filename, 'utf8');
   const changed = source.replace(/(def admitted\([^\n]*\) -> M\.Decision\(\):\n)[\s\S]*?(?=\ndef check_live)/, '$1  decision\n');
   assert.notEqual(changed, source, 'The mutation must remove the production admission check');
@@ -82,16 +80,14 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
   for (const filename of await readdir(root)) {
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
-  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
-  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
-  const filename = path.join(directory, 'PROGRAM.bend');
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  const filename = path.join(directory, 'harness/PROGRAM.bend');
   const original = await readFile(filename, 'utf8');
-  const tasksFilename = path.join(directory, 'bendlib/tasks.bend');
+  const tasksFilename = path.join(directory, 'harness/tasks/PROGRAM.bend');
   const originalTasks = await readFile(tasksFilename, 'utf8');
-  const reasoningFilename = path.join(directory, 'bendlib/reasoning.bend');
+  const reasoningFilename = path.join(directory, 'harness/reasoning/PROGRAM.bend');
   const originalReasoning = await readFile(reasoningFilename, 'utf8');
-  const originals = { 'PROGRAM.bend': original, 'bendlib/tasks.bend': originalTasks, 'bendlib/reasoning.bend': originalReasoning };
+  const originals = { 'harness/PROGRAM.bend': original, 'harness/tasks/PROGRAM.bend': originalTasks, 'harness/reasoning/PROGRAM.bend': originalReasoning };
   const compile = file => spawnSync(bend, [file, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = compile('PROOF.bend');
   assert.equal(baseline.error, undefined);
@@ -108,7 +104,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
     ['omit interruption cancellation', source => alterDefinition(source, 'change_requested', block =>
       replaceOnce(block, '[Effects.CancelTask{D.task_id(task)}]', 'Nil{}'))],
     ['record a model pending phase but omit its request', source => alterDefinition(source, 'request_environment', block =>
-      block.replace(/\[Effects\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}')), 'bendlib/reasoning.bend'],
+      block.replace(/\[Effects\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}')), 'harness/reasoning/PROGRAM.bend'],
     ['record a tool pending phase but omit its request', source => alterDefinition(source, 'external_tool', block =>
       block.replace(/\[Effects\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],
     ['never run the scheduler', source => replaceBody(source, 'scheduled', 'decision')],
@@ -135,15 +131,15 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       replaceOnce(block, 'Results.internal(F.State(), F.Effect, call, remaining,', 'Results.internal(F.State(), F.Effect, call, Nil{},'))],
     ['strand new FIFO input after summary failure', source => alterDefinition(source, 'summary_failure', block =>
       replaceOnce(block, 'promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task)))',
-        'D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task))')), 'bendlib/tasks.bend'],
+        'D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task))')), 'harness/tasks/PROGRAM.bend'],
   ];
-  for (const [name, mutate, target = 'PROGRAM.bend'] of mutations) {
+  for (const [name, mutate, target = 'harness/PROGRAM.bend'] of mutations) {
     await t.test(name, async () => {
       await writeFile(filename, original);
       await writeFile(tasksFilename, originalTasks);
       await writeFile(reasoningFilename, originalReasoning);
       await writeFile(path.join(directory, target), mutate(originals[target]));
-      const wellTyped = compile('PROGRAM.bend');
+      const wellTyped = compile('harness/PROGRAM.bend');
       assert.equal(wellTyped.error, undefined);
       assert.equal(wellTyped.status, 0, `The mutant must be well-typed:\n${wellTyped.stdout}${wellTyped.stderr}`);
       assert.match(wellTyped.stdout, /ALL PROOFS CHECK/);

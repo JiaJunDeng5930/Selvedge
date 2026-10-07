@@ -12,7 +12,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-board-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  for (const name of ['bendlib', 'core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], {
     cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
@@ -21,16 +21,16 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   assert.equal(baseline.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   const mutations = [
-    ['ignore the insertion position', 'bendlib/board.bend',
+    ['ignore the insertion position', 'features/board/PROGRAM.bend',
       'B.reposition(id, card, position, S.registry(world))', 'B.reposition(id, card, 0n, S.registry(world))', /change_meaning|reposition_meaning|relocate_meaning/],
-    ['discard the cards following an insertion', 'BOARD.bend',
+    ['discard the cards following an insertion', 'features/board/MODEL.bend',
       'List.drop(&2, Finite.Entry(Card), remaining, position)', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
-    ['record drafting without dispatching its effect', 'bendlib/board.bend',
+    ['record drafting without dispatching its effect', 'features/board/PROGRAM.bend',
       '[Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
-    ['replace a description during title-only generation', 'bendlib/board.bend',
+    ['replace a description during title-only generation', 'features/board/PROGRAM.bend',
       'B.Draft{title, old_description, stage, priority, owner, project, labels, attachments}',
       'B.Draft{title, description, stage, priority, owner, project, labels, attachments}', /board_boundary|text_meaning|draft_meaning/],
-    ['accept an unrelated drafting ticket', 'bendlib/feature-protocol.bend',
+    ['accept an unrelated drafting ticket', 'harness/features/protocol.bend',
       'board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision), retitle)',
       'board_selected_callback(True{}, retitle)', /board_boundary/],
   ];
@@ -39,7 +39,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
     assert.equal(original.split(before).length, 2, `${label}: mutation must hit exactly one production expression`);
     try {
       await writeFile(filename, original.replace(before, after));
-      const runtime = check('UI.bend');
+      const runtime = check('interaction/MODEL.bend');
       assert.equal(runtime.error, undefined, `${label}: operational check must finish`);
       assert.equal(runtime.status, 0, runtime.stdout + runtime.stderr);
       assert.equal(runtime.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');

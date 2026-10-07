@@ -9,19 +9,19 @@ import { compiler } from '../scripts/toolchain.mjs';
 
 const compilerCallBudget = 45_000;
 const mutations = [
-  ['drop the executable effect', 'bendlib/chatgpt.bend',
+  ['drop the executable effect', 'features/chatgpt/PROGRAM.bend',
     'D.success(G.receipt(id, job)), [G.Execute{id, job}]', 'D.success(G.receipt(id, job)), Nil{}'],
-  ['repeat an already accepted operation', 'bendlib/chatgpt.bend',
+  ['repeat an already accepted operation', 'features/chatgpt/PROGRAM.bend',
     'case G.Reuse{id, job}: respond(state, G.receipt(id, job))',
     'case G.Reuse{+id, +job}: C.Decision{state, D.success(G.receipt(id, job)), [G.Execute{id, job}]}'],
-  ['give another connection ownership', 'CHATGPT.bend',
+  ['give another connection ownership', 'features/chatgpt/MODEL.bend',
     'Nat.is_eq(connection, owner) && Nat.is_eq(project, target)', 'Nat.is_eq(project, target)'],
-  ['leave unknown work running on restart', 'CHATGPT.bend',
+  ['leave unknown work running on restart', 'features/chatgpt/MODEL.bend',
     'case True{}: with_outcome(Interrupted{"Service restarted; execution may have happened and will not be replayed"}, job)',
     'case True{}: job'],
-  ['skip cancelling the physical operation', 'bendlib/chatgpt.bend',
+  ['skip cancelling the physical operation', 'features/chatgpt/PROGRAM.bend',
     'D.success(G.receipt(id, job)), [G.Stop{id}]', 'D.success(G.receipt(id, job)), Nil{}'],
-  ['silently clear another feature when updating the board', 'FEATURES.bend',
+  ['silently clear another feature when updating the board', 'harness/features/MODEL.bend',
     'C.replace(Board.State, Modules(), value, state)',
     'C.Frame{value, C.Frame{ChatGPT.initial(), rest(state)}}'],
 ];
@@ -32,7 +32,7 @@ test('ChatGPT production evidence rejects type-correct lost effects, cross-conne
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-chatgpt-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  for (const name of ['bendlib', 'core', 'webui']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], { cwd: directory, encoding: 'utf8',
     timeout: compilerCallBudget, env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
@@ -44,7 +44,7 @@ test('ChatGPT production evidence rejects type-correct lost effects, cross-conne
     assert.equal(original.split(before).length, 2, `${label}: mutation must affect exactly one production expression`);
     try {
       await writeFile(filename, original.replace(before, after));
-      const runtime = check('UI.bend');
+      const runtime = check('interaction/MODEL.bend');
       assert.equal(runtime.error, undefined);
       assert.equal(runtime.status, 0, runtime.stdout + runtime.stderr);
       assert.equal(runtime.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');

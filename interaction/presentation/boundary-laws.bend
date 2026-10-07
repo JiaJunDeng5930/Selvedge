@@ -1,0 +1,150 @@
+import Base
+import ../../features/board/MODEL.bend as B
+import ../../harness/MODEL.bend as M
+import ../../harness/workspace/WORKSPACE.bend as W
+import ../../bendlib/association-map.bend as Finite
+import ../../harness/DOMAIN.bend as D
+import ../../bendlib/json.bend as J
+import ../services/MODEL.bend as Services
+import ../conversation/CODE.bend as Code
+import ../conversation/OUTPUT.bend as Live
+import ../services/CONTEXT.bend as Context
+import ../INPUT.bend as U
+import ../STATE.bend as Core
+import ../session/MODEL.bend as E
+
+type SettingsFields is Data:
+  SettingsFields{workspace: J.Json, guidance: J.Json, project_id: J.Json,
+    sandbox: J.Json, approval: J.Json}
+
+def settings_fields(~value:J.Json) -> SettingsFields:
+  SettingsFields{J.get(value, "workspace"), J.get(value, "guidance"),
+    J.get(value, "project_id"), J.get(value, "sandbox"), J.get(value, "approval")}
+
+def settings_observations_law(-config: Context.Configuration, -workspace: D.Workspace,
+  -guidance: D.ProjectContext) -> Type:
+  {settings_fields(Context.observed_settings(config, Context.DirectoryObservation{workspace, guidance})) ==
+    SettingsFields{D.workspace_json(workspace), D.project_json(guidance),
+      J.get(Context.settings(config), "project_id"),
+      J.get(Context.settings(config), "sandbox"),
+      J.get(Context.settings(config), "approval")} : SettingsFields}
+
+type Requirements is Type:
+  Requirements{
+    accepted_auth: @+state:Services.State -> @ticket:Nat ->
+      @owned:{Services.expected_access(Services.access(state), ticket) == True{} : Bool} ->
+      {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
+        Services.Decision{Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state))), [Services.SessionReady{}]} : Services.Decision},
+    failed_auth: @+state:Services.State -> @reason:String ->
+      {Services.authentication(True{}, state, Fail{reason}) ==
+        Services.Decision{Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}} : Services.Decision},
+    unowned_auth: @+state:Services.State -> @result:Result<&2, &2, String, Unit> ->
+      {Services.authentication(False{}, state, result) == Services.Decision{state, Nil{}} : Services.Decision},
+    readiness_attention: @+state:Services.State -> @+application:E.Application ->
+      {Core.service_result(Services.authentication(True{}, state, Done{Unit{}}), application) ==
+        Core.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state)))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : Core.Decision},
+    failed_auth_no_attention: @+state:Services.State -> @reason:String -> @application:E.Application ->
+      {Core.service_result(Services.authentication(True{}, state, Fail{reason}), application) ==
+        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}) : Core.Decision},
+    unowned_auth_no_attention: @state:Services.State -> @result:Result<&2, &2, String, Unit> -> @application:E.Application ->
+      {Core.service_result(Services.authentication(False{}, state, result), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : Core.Decision},
+    readiness_is_internal: {Core.external_effect(Services.SessionReady{}) == False{} : Bool},
+    stale_auth: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @stale:{Services.expected_access(Services.access(state), ticket) == False{} : Bool} ->
+      {Services.step(Services.Authenticated{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    missing_upload: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, B.Attachment> ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @missing:{Finite.find(~Services.Transfer, Services.transfers(state), ticket) == None{} : Maybe<&2, Services.Transfer>} ->
+      {Services.step(Services.Uploaded{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    upload_destination: @+state:Services.State -> @ticket:Nat -> @+editor:U.Editor -> @+file:Services.SelectedFile ->
+      @+attachment:B.Attachment ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @found:{Finite.find(~Services.Transfer, Services.transfers(state), ticket) ==
+        Some{Services.Uploading{editor, file}} : Maybe<&2, Services.Transfer>} ->
+      {Services.step(Services.Uploaded{ticket, Done{attachment}}, state) ==
+        Services.Decision{Services.with_transfers(Finite.remove(~Services.Transfer, Services.transfers(state), ticket), state),
+          [Services.AttachToDraft{editor, attachment}]} : Services.Decision},
+    closed_preview: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, String> ->
+      @observed_preview:{Services.preview(state) == Services.NoPreview{} : Services.Preview} ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      {Services.step(Services.Previewed{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    stale_preview: @+state:Services.State -> @current:Nat -> @+file:B.Attachment -> @trigger:String -> @ticket:Nat ->
+      @+result:Result<&2, &2, String, String> ->
+      @observed_preview:{Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview} ->
+      @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
+      @different:{Nat.is_eq(current, ticket) == False{} : Bool} ->
+      {Services.step(Services.Previewed{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision},
+    stale_copy: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @+copy:Code.CopyState ->
+      @next:Nat -> @ticket:Nat -> @success:Bool ->
+      @stale:{Code.same_ticket(copy, ticket) == False{} : Bool} ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next},
+        Code.Copied{ticket, success}) ==
+        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Nil{}} : Code.Decision},
+    stale_copy_expiry: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @+copy:Code.CopyState ->
+      @next:Nat -> @ticket:Nat ->
+      @stale:{Code.feedback_ticket(copy, ticket) == False{} : Bool} ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next},
+        Code.ExpireFeedback{ticket}) ==
+        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Nil{}} : Code.Decision},
+    copy_snapshot: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @copy:Code.CopyState ->
+      @next:Nat ->
+      @can_copy:{Code.code_can_copy(Code.CodeView{wrap, copy}) == True{} : Bool} ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Code.Copy{}) ==
+        Code.Decision{Code.Block{identity, source, Code.CodeView{wrap, Code.CopyPending{next}},
+          (next + 1n : Nat)}, [Code.WriteClipboard{next, source}]} : Code.Decision},
+    toggle_preserves_transfer: @+identity:Code.Identity -> @source:String -> @+wrap:Bool ->
+      @copy:Code.CopyState -> @next:Nat ->
+      {Code.step(Code.Block{identity, source, Code.CodeView{wrap, copy}, next}, Code.ToggleWrap{}) ==
+        Code.Decision{Code.Block{identity, source,
+          Code.CodeView{Bool.not(wrap), copy}, next}, Nil{}} : Code.Decision},
+    effective_contract: @+model:D.Model -> @+tools:+List<D.Tool> -> @max_fork:Nat ->
+      @max_descendants:Nat -> @+plugins:+List<D.Plugin> -> @+context:D.TaskContext -> @task:Nat ->
+      {Context.effective_contract(D.Contract{model, tools, max_fork, max_descendants, plugins, context}, task) ==
+        Context.EffectiveContext{task, context, D.model_guidance(model), W.default_access(context)} : Context.EffectiveContext},
+    preview_override: @origin:Context.Origin -> @+workspace:D.Workspace -> @+sandbox:D.Sandbox ->
+      @approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @+guidance:D.ProjectContext ->
+      @+entered_workspace:D.Workspace -> @+entered_sandbox:D.Sandbox ->
+      @entered_approval:Context.ApprovalChoice ->
+      {Context.preview_selected(Done{W.Selection{D.TaskContext{workspace, sandbox, approval, project}, guidance}},
+        Context.Configuration{origin, Some{entered_workspace}, Some{entered_sandbox}, Some{entered_approval}}) ==
+        Context.ProspectiveContext{origin, project, Context.EnteredWorkspace{entered_workspace},
+          Context.ChosenSandbox{entered_sandbox}, Context.ChosenApproval{entered_approval},
+          Context.AwaitingDirectoryGuidance{}} : Context.Preview},
+    project_prepared: @project:Maybe<&2, Nat> -> @+name:String -> @+old_workspace:D.Workspace ->
+      @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @now:U32 ->
+      {U.prepared_command(U.Project{project, name, old_workspace},
+        Context.DirectoryObservation{workspace, guidance}, now) ==
+        U.project_command(project, name,
+          D.workspace_json(workspace), D.project_json(guidance)) : M.Command},
+    project_create: @+name:String -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext ->
+      {U.project_command(None{}, name, D.workspace_json(workspace), D.project_json(guidance)) ==
+        M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance)} : M.Command},
+    project_update: @project:Nat -> @+name:String -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext ->
+      {U.project_command(Some{project}, name, D.workspace_json(workspace), D.project_json(guidance)) ==
+        M.UpdateProject{project, Some{name}, D.workspace_json(workspace), D.project_json(guidance)} : M.Command},
+    task_prepared: @+text:U.Text -> @profile:String -> @reasoning:String ->
+      @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 ->
+      {U.prepared_command(U.NewTask{text, profile, reasoning, config}, observation, now) ==
+        M.Create{profile, reasoning, U.text(text), Context.observed_settings(config, observation)} : M.Command},
+    settings_observations: @+config:Context.Configuration -> @+workspace:D.Workspace ->
+      @+guidance:D.ProjectContext ->
+      settings_observations_law(config, workspace, guidance),
+    inactive_stream_removed: @+task:Nat -> @+operation:Nat -> @+parts:+List<Live.Part> ->
+      @+outputs:+List<Live.Output> -> @+world:M.World() ->
+      @inactive:{Live.active(Live.Output{task, operation, parts}, world) == False{} : Bool} ->
+      {Live.observe(Live.PartialOutput{Live.Output{task, operation, parts}}, outputs, world) ==
+        Live.remove(outputs, task, operation) : +List<Live.Output>},
+    active_stream_retained: @+task:Nat -> @+operation:Nat -> @+parts:+List<Live.Part> ->
+      @+outputs:+List<Live.Output> -> @+world:M.World() ->
+      @active:{Live.active(Live.Output{task, operation, parts}, world) == True{} : Bool} ->
+      {Live.observe(Live.PartialOutput{Live.Output{task, operation, parts}}, outputs, world) ==
+        Live.Output{task, operation, parts} <> Live.remove(outputs, task, operation) : +List<Live.Output>}
+  }
+
+law evidence:
+  Requirements

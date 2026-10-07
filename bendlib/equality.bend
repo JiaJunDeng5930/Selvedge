@@ -1,8 +1,8 @@
 import Base
-import ./domain.bend as D
-import ../REASONING.bend as Reasoning
+import ../harness/DOMAIN.bend as D
+import ../harness/reasoning/MODEL.bend as Reasoning
 import ./json.bend as J
-import ../WORKSPACE.bend as Workspace
+import ../harness/workspace/WORKSPACE.bend as Workspace
 
 def char_equal(compared: (Char & Char) & Cmp) -> Bool:
   ((left, right), order) = compared

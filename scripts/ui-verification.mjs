@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isProofSource } from './check-components.mjs';
 
 function mask(source) {
   return source.replace(/"(?:\\.|[^"\\])*"|#[^\n]*/g, text => text.replace(/[^\n]/g, ' '));
@@ -20,14 +21,10 @@ function inventory(root) {
   return sources;
 }
 
-function isProof(filename) {
-  return filename.split('/').includes('proofs');
-}
-
 function isRule(filename, source) {
-  if (!/^(core|webui)\//.test(filename) || isProof(filename)) return false;
+  if (!/^(interaction|browser)\//.test(filename) || isProofSource(filename)) return false;
   return /(?:^|\/)(?:laws|[^/]+-(?:laws|rules))\.bend$/.test(filename)
-    || filename === 'core/contract.bend' || filename === 'webui/render-contract.bend'
+    || filename === 'interaction/CONTRACT.bend' || filename === 'browser/document/SPEC.bend'
     || declarations(filename, source).some(declaration => declaration.kind === 'law'
       || (declaration.kind === 'type' && /Requirements?$/.test(declaration.name)));
 }
@@ -93,8 +90,9 @@ function canonical(filename, name, aliases) {
 
 function proofFor(rule) {
   const directory = path.posix.dirname(rule);
+  if (path.posix.basename(rule) === 'CONTRACT.bend') return `${directory}/PROOF.bend`;
   const stem = path.posix.basename(rule, '.bend').replace(/-(?:laws|rules)$/, '');
-  return `${directory}/proofs/${stem}.bend`;
+  return `${directory}/${stem}-proof.bend`;
 }
 
 function inspect(root) {
@@ -103,7 +101,7 @@ function inspect(root) {
     ...imports(filename, source), declarations: declarations(filename, source),
   }]));
   const rules = [...sources.keys()].filter(filename => isRule(filename, sources.get(filename))).sort();
-  const proofs = [...sources.keys()].filter(filename => /^(core|webui)\/proofs\//.test(filename)).sort();
+  const proofs = [...sources.keys()].filter(filename => /^(interaction|browser)\//.test(filename) && isProofSource(filename)).sort();
   const witnesses = new Set();
   const laws = new Set();
   for (const rule of rules) {
@@ -114,14 +112,14 @@ function inspect(root) {
   }
   const errors = [];
   for (const [filename, module] of modules) {
-    if (!/^(core|webui)\//.test(filename) || isProof(filename) || path.posix.basename(filename) === 'PROOF.bend') continue;
+    if (!/^(interaction|browser)\//.test(filename) || isProofSource(filename)) continue;
     const seen = new Set();
     const pending = [filename];
     while (pending.length) {
       const current = pending.pop();
       if (seen.has(current)) continue;
       seen.add(current);
-      if (isProof(current)) {
+      if (isProofSource(current)) {
         errors.push(`UI model/rule imports a proof provider: ${filename} -> ${current}`);
         continue;
       }
@@ -151,8 +149,8 @@ function inspect(root) {
       const contracts = moduleDeclarations.filter(declaration =>
         declaration.kind === 'type' && /Requirements?$/.test(declaration.name));
       // This existing aggregate is committed by architecture.surface and filled
-      // by proofs/ui; it does not declare a second facade-local evidence law.
-      if (contracts.length && rule !== 'core/contract.bend') {
+      // by interaction/PROOF; it does not declare a second facade-local evidence law.
+      if (contracts.length && rule !== 'interaction/CONTRACT.bend') {
         errors.push(`UI contract has no public law committing its requirements: ${rule}: ${contracts.map(declaration => declaration.name).join(', ')}`);
       }
       continue;
@@ -181,7 +179,7 @@ export function checkUiSeparation(root) {
 }
 
 function orderProofs(root, discovered) {
-  const proofs = discovered.filter(isProof);
+  const proofs = discovered.filter(isProofSource);
   const dependencies = new Map(proofs.map(filename => [filename, new Set()]));
   const ruleLaws = new Map(discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))).map(filename => [filename,
     new Set(declarations(filename, readFileSync(path.join(root, filename), 'utf8'))

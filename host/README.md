@@ -1,6 +1,6 @@
 # Host effects
 
-The compiled Bend kernel owns authoritative task state. `KERNEL.bend` is compiled
+The compiled Bend kernel owns authoritative task state. `../KERNEL.bend` is compiled
 with the pinned compiler's official `js_lib` backend into
 `.build/kernel-model.mjs`; `kernel-worker.mjs` executes it in a Bun Worker.
 The host accepts authenticated public commands, interprets committed effects,
@@ -10,7 +10,7 @@ commit terminates the kernel; committed inputs replay through the same Bend
 transition at the next start.
 
 The compiler's JavaScript backend, Worker transport and operating system remain
-external boundaries. `transport.c` belongs to the optional `MAIN.bend` native
+external boundaries. `transport.c` belongs to the optional `../MAIN.bend` native
 build; it receives bounded, length-prefixed UTF-8 tokens for the checked decoder
 without owning task state or policy.
 
@@ -41,7 +41,7 @@ profiles. Its catalog refresh commits the ordinary Configure input without
 mutating existing task contracts. Cache freshness and account matching belong to
 this external transport boundary.
 
-`BROWSER.bend` compiles to `public/generated/browser-model.mjs` and runs the UI
+`../BROWSER.bend` compiles to `public/generated/browser-model.mjs` and runs the UI
 production functions in the browser. Bend owns interaction state, layout and
 Document construction. `public/renderer.mjs` interprets the Document as DOM;
 `public/app.mjs` performs authentication, network requests and physical effects.

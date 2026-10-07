@@ -17,16 +17,16 @@ Workspace.
 
 Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
 object organized by meaning, composition, recovery and observation. It contains
-no implementation functions. `bendlib/architecture.bend` binds these concepts to
+no implementation functions. `harness/CONTRACT.bend` binds these concepts to
 the exact production operations and existing list, finite-map, iteration and
 relation theories. The entry carries the domain correspondence and required
 premises, not a parallel hierarchy of project-owned general algebra.
 
-[COMMANDS.bend](COMMANDS.bend) states what every command means. Its resolver owns
+[harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means. Its resolver owns
 the preconditions and produces an operation whose meaning fixes the complete
-post-state, reply, and effects. [MODEL.bend](MODEL.bend) assembles the client
+post-state, reply, and effects. [harness/MODEL.bend](harness/MODEL.bend) assembles the client
 vocabulary and system state. Task-domain values and policy primitives live in
-`bendlib/domain.bend`; [FEATURES.bend](FEATURES.bend) assembles independent feature
+`harness/DOMAIN.bend`; [harness/features/MODEL.bend](harness/features/MODEL.bend) assembles independent feature
 state and input types. These entries distinguish component contracts from their
 application-wide composition.
 
@@ -38,23 +38,31 @@ transparent so callers can inspect and construct the vocabulary they exchange.
 The reasons for this boundary are recorded in
 [ADR 0028](docs/adr/0028-model-representation-boundaries.md).
 
-For implementation/proof details, [PROGRAM.bend](PROGRAM.bend) realizes the
-operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
+For implementation/proof details, [harness/PROGRAM.bend](harness/PROGRAM.bend) realizes the
+operations and runs bounded scheduling. [harness/LAWS.bend](harness/LAWS.bend) states the exact
 command, scheduling, commit and dispatch equations, as well as safety and trace
 properties. [PROOF.bend](PROOF.bend) assembles the local proofs in
-`bendlib/proofs`; their explicit dependency graph follows the semantic boundaries.
-See [INVARIANTS.bend](INVARIANTS.bend) for the validity predicates.
+the owning concept directories; their explicit dependency graph follows the
+semantic boundaries. See [the proof guide](docs/proofs.md).
+See [harness/INVARIANTS.bend](harness/INVARIANTS.bend) for the validity predicates.
+
+The source tree groups execution semantics in [harness](harness/README.md),
+independent capabilities in [features](features/README.md), platform-independent
+interaction in [interaction](interaction/README.md), and browser implementation in
+[browser](browser/README.md). Concept directories stay at most two levels deep;
+proof providers sit beside their definitions as `PROOF.bend` or `*-proof.bend`.
+[ADR 0029](docs/adr/0029-shallow-concept-directories.md) records this organization.
 
 ## Component changes and proof reuse
 
 Feature commands, queries, completions and effects cross stable outer categories.
-`bendlib/feature-*.bend` owns their resolution, interpretation, codecs, resource
+`harness/features` owns their resolution, interpretation, codecs, resource
 checks and proof composition. Adding a feature extends that assembly and the
 feature's own contracts. A shared-resource or scheduling change still requires
 its actual interaction proof.
 
-Follow [UI.bend](UI.bend) and [core/interface.bend](core/interface.bend) for
-the semantic interface, and [bendlib/feature-codec.bend](bendlib/feature-codec.bend)
+Follow [interaction/MODEL.bend](interaction/MODEL.bend) and [interaction/presentation/PROGRAM.bend](interaction/presentation/PROGRAM.bend) for
+the semantic interface, and [harness/features/CODEC.bend](harness/features/CODEC.bend)
 for feature command encoding.
 
 `bun run check:components` checks actual source dependencies, private feature
@@ -108,7 +116,7 @@ workspace for a new task; `{"workspace": {"roots": []}}` explicitly selects no
 workspace roots. The same fields are available through the CLI and command API.
 
 The actual command and context guarantees are bound by
-`bendlib/workspace-architecture.bend` in `CONCEPTS.Harness.working_context`.
+`harness/workspace/CONTRACT.bend` in `CONCEPTS.Harness.working_context`.
 Journal format 2 records these task-local plans, not a global working directory;
 opening an older kernel/format is rejected without automatic migration.
 Command descriptions, validation schemas, lifecycle controls, and client forms
@@ -120,7 +128,7 @@ executable specifications or public rules bound to actual production computation
 Do not maintain another account in documentation of requirements already expressed
 there.
 
-[UI.bend](UI.bend) is the platform-independent interaction entry. Its typed
+[interaction/MODEL.bend](interaction/MODEL.bend) is the platform-independent interaction entry. Its typed
 presentation, form bindings, navigation and action availability are evaluated
 against the command resolver. [BROWSER.bend](BROWSER.bend) compiles these production
 functions into JavaScript that runs directly in the browser. Bend owns local UI

@@ -67,7 +67,7 @@ inventory; run `bun scripts/theory-index.mjs update` after changing the exports.
 `scripts/QuoteCertificate.v` provides shared syntax-only quotation.
 `scripts/ExportStdlib.v` obtains the opaque proof bodies with MetaRocq 1.5.1+9.2.
 `scripts/import-stdlib.mjs` translates that restricted term language to
-`bendlib/stdlib.bend`. It maps lists, append, left fold and equality to Bend Base,
+`../bendlib/stdlib.bend`. It maps lists, append, left fold and equality to Bend Base,
 specializes the imported eliminator when an affine capture cannot be a template,
 and rejects unknown syntax/constants. It does **not** search for a replacement
 proof. Bend checks the resulting certificates and their application interfaces.
@@ -104,8 +104,8 @@ termination check and compilation/runtime remain trusted. Negative tests corrupt
 an imported proof and mutate the actual command interpreter to check these gates.
 
 Consumers instantiate the existing List, Bool and Nat theorems directly.
-`bendlib/architecture.bend` binds the domain interpretations and theorem premises
-to actual queues, histories, effects and replay beneath `CONCEPTS.bend`. There is
+`../harness/CONTRACT.bend` binds the domain interpretations and theorem premises
+to actual queues, histories, effects and replay beneath `../CONCEPTS.bend`. There is
 no second general `Semigroup`, `Refinement`, `InvariantSystem`, `Dynamics` or
 `Simulation` hierarchy. Original iterator theorems supply finite simulation, run
 partition and invariant lifting. The project proves only representation and
@@ -124,7 +124,7 @@ dependencies and unexpected compiler reports, including on cached builds.
 ## Relational protocol bridge
 
 `scripts/ExportRelations.v` quotes the relation/inclusion definitions and existing
-closure proofs. `scripts/import-relations.mjs` emits `bendlib/relations.bend`.
+closure proofs. `scripts/import-relations.mjs` emits `../bendlib/relations.bend`.
 Their production correspondence is required by `CONCEPTS.Composition.protocol`,
 not an optional example. Builds check every bundle even with a cached kernel.
 
