@@ -813,6 +813,9 @@ def layered_bounds_position(+position: Spatial.Position, +rule: Model.Rule, +lef
       Spatial.Box{Nat.add(left, alignment_offset(cross_alignment(rule), Nat.sub(available_width, width))),
         Nat.add(top, alignment_offset(main_alignment(rule), Nat.sub(available_height, height))), width, height}
     case Spatial.CenteredLayer{outside}: centered_bounds(clear_left, clear_top, clear_width, clear_height, width, height)
+    case Spatial.AlignedLayer{outside, horizontal, vertical}:
+      Spatial.Box{Nat.add(clear_left, alignment_offset(horizontal, Nat.sub(clear_width, width))),
+        Nat.add(clear_top, alignment_offset(vertical, Nat.sub(clear_height, height))), width, height}
     case Spatial.AnchoredLayer{anchor_key, anchor, outside, gap, alignment}:
       anchored_bounds(anchor, gap, alignment, clear_left, clear_top, clear_width, clear_height, width, height)
 

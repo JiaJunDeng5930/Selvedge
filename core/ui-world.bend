@@ -81,8 +81,18 @@ type CreationIntroduction is Data:
 type TaskActions is Data:
   TaskActions{details: ControlDeclaration, overflow: +List<ControlDeclaration>}
 
+type TaskStatus is Data:
+  TaskStatus{lifecycle: D.Status, working: Bool}
+
+def task_status(+task: D.Task) -> TaskStatus:
+  TaskStatus{D.task_status(task), Conversation.working(D.task_phase(task), D.task_operations(task))}
+
+def task_status_label(value: TaskStatus) -> String:
+  TaskStatus{lifecycle, working} = value
+  Conversation.status_label(lifecycle, working)
+
 type TaskEntry is Data:
-  TaskEntry{id: Nat, title: String, status: String, selected: Bool, open: ControlDeclaration}
+  TaskEntry{id: Nat, title: String, status: TaskStatus, selected: Bool, open: ControlDeclaration}
 
 type ProjectEntry is Data:
   ProjectEntry{id: Nat, name: String, workspace: D.Workspace, selected: Bool,
@@ -97,7 +107,7 @@ type TaskDetails is Data:
     lineage: +List<Nat>, queued_messages: +List<String>, status: D.Status, phase: D.Phase}
 
 type TaskScene is Data:
-  TaskScene{task: Nat, title: String, status: String, context: Context.EffectiveContext,
+  TaskScene{task: Nat, title: String, status: TaskStatus, context: Context.EffectiveContext,
     timeline: ConversationWorld.Timeline, previews: +List<Live.Output>, composer: Maybe<&2, ComposerScene>, details: TaskDetails, actions: TaskActions}
 
 type ProjectScene is Data:
@@ -651,7 +661,7 @@ def selected_project(selected: Maybe<&2, Nat>, project: Nat) -> Bool:
 
 def task_entry(+task: D.Task, route: U.Route) -> TaskEntry:
   +id = D.task_id(task)
-  TaskEntry{id, Conversation.title(task), Conversation.status(task), U.route_owns(route, id),
+  TaskEntry{id, Conversation.title(task), task_status(task), U.route_owns(route, id),
     control("task/" ++ Nat.show(id), Conversation.title(task), U.Navigate{U.Conversation{id}})}
 
 def task_entries(tasks: +List<D.Task>, +route: U.Route) -> +List<TaskEntry>:
@@ -704,7 +714,7 @@ def task_actions(+id: Nat, +world: M.World()) -> TaskActions:
 def task_scene(+task: D.Task, +session: E.Session, +world: M.World()) -> TaskScene:
   E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   +id = D.task_id(task)
-  TaskScene{id, Conversation.title(task), Conversation.status(task), Context.effective(task), ConversationWorld.timeline(E.reader(readers, id), task, world), Live.for_task(Live.retained(previews, world), id),
+  TaskScene{id, Conversation.title(task), task_status(task), Context.effective(task), ConversationWorld.timeline(E.reader(readers, id), task, world), Live.for_task(Live.retained(previews, world), id),
     composer(U.MessageEditor{id}, session, world), task_details(task), task_actions(id, world)}
 
 def optional_task(found: Maybe<&2, D.Task>, session: E.Session, world: M.World()) -> Maybe<&2, TaskScene>:

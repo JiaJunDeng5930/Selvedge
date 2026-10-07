@@ -2,6 +2,7 @@ import Base
 import ../core/interface.bend as UI
 import ./rendered.bend as Model
 import ./interaction.bend as Geometry
+import ../core/ui-world.bend as View
 
 law stale_frame_retains_state:
   for +current: Nat
@@ -51,4 +52,89 @@ law observed_tab_participation:
   for +scroll: Bool
   for bounds: Geometry.Rect
   for hit: String
-  {Model.tab_stop(Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit}}) == (enabled && tab && (visible || scroll)) : Bool}
+  for paint_bounds: Geometry.Rect
+  {Model.tab_stop(Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit, paint_bounds}}) == (enabled && tab && (visible || scroll)) : Bool}
+
+law dialog_actions_persistent:
+  {Model.persistent(UI.DialogActions{}) == True{} : Bool}
+
+law dialog_actions_bounded:
+  for key: String
+  for found: Maybe<&2, Model.Element>
+  for viewport: Geometry.Rect
+  {Model.region_geometry(UI.DialogActions{}, key, found, viewport) == Model.bounded_dialog(key, found, viewport) : +List<Model.Violation>}
+
+# Independent controls use paint regions; complete layout bounds remain intact.
+def element_paint(element: Model.Element) -> Geometry.Rect:
+  Model.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds} = element
+  paint_bounds
+
+law disjoint_paint_controls_do_not_overlap:
+  for +first: Model.Element
+  for +second: Model.Element
+  for disjoint: {Model.overlaps(element_paint(first), element_paint(second)) == False{} : Bool}
+  {Model.against(first, [second]) == Nil{} : +List<Model.Violation>}
+
+law observed_visible_paint_is_bounded:
+  for +bounds: Geometry.Rect
+  for +paint_bounds: Geometry.Rect
+  for +viewport: Geometry.Rect
+  {Model.paint_geometry_valid(True{}, bounds, paint_bounds, viewport) ==
+    (Geometry.contains(bounds, paint_bounds) && Geometry.contains(viewport, paint_bounds)) : Bool}
+
+law observed_hidden_paint_is_inactive:
+  for bounds: Geometry.Rect
+  for paint_bounds: Geometry.Rect
+  for viewport: Geometry.Rect
+  {Model.paint_geometry_valid(False{}, bounds, paint_bounds, viewport) == True{} : Bool}
+
+
+law observed_code_in_view:
+  for key: String
+  for +visible: Bool
+  for enabled: Bool
+  for tab: Bool
+  for keyboard: Bool
+  for scroll: Bool
+  for bounds: Geometry.Rect
+  for hit: String
+  for +paint_bounds: Geometry.Rect
+  for +viewport: Geometry.Rect
+  {Model.code_in_view(UI.CodeBlock{}, Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) ==
+    (visible && Model.overlaps(paint_bounds, viewport)) : Bool}
+
+law unpainted_code_is_not_in_view:
+  for key: String
+  for enabled: Bool
+  for tab: Bool
+  for keyboard: Bool
+  for scroll: Bool
+  for bounds: Geometry.Rect
+  for hit: String
+  for paint_bounds: Geometry.Rect
+  for viewport: Geometry.Rect
+  {Model.code_in_view(UI.CodeBlock{}, Some{Model.Element{key,False{},enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) == False{} : Bool}
+
+law cropped_disjoint_code_is_not_in_view:
+  for key: String
+  for +visible: Bool
+  for enabled: Bool
+  for tab: Bool
+  for keyboard: Bool
+  for scroll: Bool
+  for bounds: Geometry.Rect
+  for hit: String
+  for +paint_bounds: Geometry.Rect
+  for +viewport: Geometry.Rect
+  for disjoint: {Model.overlaps(paint_bounds, viewport) == False{} : Bool}
+  {Model.code_in_view(UI.CodeBlock{}, Some{Model.Element{key,visible,enabled,tab,keyboard,scroll,bounds,hit,paint_bounds}}, viewport) == False{} : Bool}
+
+law movement_is_interactive:
+  for destinations: +List<UI.Placement>
+  for face: View.CardFace
+  {Model.interactive(UI.MovableCard{destinations, face}) == True{} : Bool}
+
+law movement_enabled_by_offered_input:
+  for +destinations: +List<UI.Placement>
+  for face: View.CardFace
+  {Model.required_enabled(UI.MovableCard{destinations, face}) == UI.has_available_destination(destinations) : Bool}

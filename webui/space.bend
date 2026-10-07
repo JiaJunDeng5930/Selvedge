@@ -1,6 +1,18 @@
 import Base
 import ./enclosure.bend as Enclosure
 
+# Select an original extent to avoid reconstructing unbounded Peano results.
+def choose_extent(+choice: Bool, first: Nat, second: Nat) -> Nat:
+  match choice:
+    case True{}: first
+    case False{}: second
+
+def larger(+first: Nat, +second: Nat) -> Nat:
+  choose_extent(Nat.is_ge(first, second), first, second)
+
+def smaller(+first: Nat, +second: Nat) -> Nat:
+  choose_extent(Nat.is_ge(first, second), second, first)
+
 # Natural measurements describe unconstrained action content. Wrapped height is
 # a separate allocation boundary; these extents do not admit a whole viewport.
 type Demand is Data:
@@ -60,7 +72,7 @@ def following_gap(~A: Data, slots: +List<Slot<A>>, gap: Nat) -> Nat:
 def choose(dimension: Dimension, room: Nat) -> Nat:
   match dimension:
     case Rigid{extent}: extent
-    case Fit{value, preferred_extra, maximum_extra}: Nat.min(Nat.add(value, preferred_extra), room)
+    case Fit{value, preferred_extra, maximum_extra}: smaller(Nat.add(value, preferred_extra), room)
     case Fill{value}: room
 
 def prepend(~A: Data, head: Placement<A>, result: Allocation<A>) -> Allocation<A>:

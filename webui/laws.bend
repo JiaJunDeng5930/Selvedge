@@ -214,13 +214,13 @@ type Requirements is Type:
       {platform_effects(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
           Platform.State{core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})})) ==
           Nil{} : +List<Platform.Effect>},
-    stale_focus_ticket: @core:Core.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String ->
+    stale_focus_ticket: @core:Core.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
       @stale:{Nat.is_eq(received, platform_ticket(platform)) == False{} : Bool} ->
-      {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
-    inactive_focus: @core:Core.State -> @platform:Platform.Platform -> @identity:String ->
+    inactive_focus: @core:Core.State -> @platform:Platform.Platform -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
       @inactive:{Platform.active_focus(core, platform_capacity(platform), identity) == False{} : Bool} ->
-      {Platform.step(Platform.FocusApplied{platform_ticket(platform), Focus.Product{identity}}, Platform.State{core, platform}) ==
+      {Platform.step(Platform.FocusApplied{platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
     synchronize_retained: @drafts:+List<U.Draft> -> @editors:+List<Editor.Editor> ->
       @retained:Retained(drafts, editors) ->

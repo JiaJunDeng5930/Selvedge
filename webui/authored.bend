@@ -28,6 +28,7 @@ import ../bendlib/tasks.bend as Tasks
 import ../BOARD.bend as Board
 
 type Problem is Data:
+  InvalidDialogOrder{}
   OrphanCode{target: Source.NativeTarget}
   ConflictingCodeOwners{expected: Code.Source, actual: Code.Source}
 
@@ -92,6 +93,7 @@ def role_name(+value: UI.Role) -> String:
     case UI.Timeline{}: "timeline"
     case UI.Composer{}: "composer"
     case UI.ComposerActions{}: "composer-actions"
+    case UI.DialogActions{}: "dialog-actions"
     case UI.ApprovalQueue{}: "approvals"
     case UI.UserMessage{}: "user-message"
     case UI.AssistantMessage{}: "agent-message"
@@ -111,11 +113,27 @@ def reading_attributes(+role: UI.Role, +key: UIIdentity.Key) -> +List<Source.Att
 def attributes(+key: UIIdentity.Key, +semantic: String, +role: UI.Role) -> +List<Source.Attribute>:
   List.append(&2, Source.Attribute, [Source.DataAttribute{"native-key", UIIdentity.encode(key)}, Source.DataAttribute{"region", role_name(role)}, Source.DataAttribute{"semantic", semantic}], reading_attributes(role, key))
 
+# Observation identity belongs to the source node receiving the decoration.
+def native_attribute_value(+owned: Bool, +key: UIIdentity.Key, +name: String, +value: String) -> Source.Attribute:
+  match owned:
+    case True{}: Source.DataAttribute{"native-key", UIIdentity.encode(key)}
+    case False{}: Source.DataAttribute{name, value}
+
+def native_attribute(+key: UIIdentity.Key, +attribute: Source.Attribute) -> Source.Attribute:
+  match attribute:
+    case Source.DataAttribute{+name, value}: native_attribute_value(String.eq(name, "native-key"), key, name, value)
+    case other: other
+
+def native_attributes(+key: UIIdentity.Key, +extra: +List<Source.Attribute>) -> +List<Source.Attribute>:
+  match extra:
+    case Nil{}: Nil{}
+    case Con{attribute, rest}: native_attribute(key, attribute) <> native_attributes(key, rest)
+
 def add_attributes(+node: Source.Node, +extra: +List<Source.Attribute>) -> Source.Node:
   match node:
-    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, style, List.append(&2, Source.Attribute, attrs, extra), children}
-    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}: Source.Control{key, tag, style, List.append(&2, Source.Attribute, attrs, extra), name, enabled, first, remaining, children}
-    case Source.Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: Source.Field{key, kind, style, List.append(&2, Source.Attribute, attrs, extra), value, placeholder, options, policy, name, enabled, first, remaining}
+    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, style, List.append(&2, Source.Attribute, attrs, native_attributes(key, extra)), children}
+    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}: Source.Control{key, tag, style, List.append(&2, Source.Attribute, attrs, native_attributes(key, extra)), name, enabled, first, remaining, children}
+    case Source.Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: Source.Field{key, kind, style, List.append(&2, Source.Attribute, attrs, native_attributes(key, extra)), value, placeholder, options, policy, name, enabled, first, remaining}
     case other: other
 
 def role_style(+visual: Design.Style, +role: UI.Role) -> Source.Style:
@@ -123,7 +141,7 @@ def role_style(+visual: Design.Style, +role: UI.Role) -> Source.Style:
     case UI.Main{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
     case UI.Timeline{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
     case UI.Details{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{})
-    case UI.UserMessage{}: Factory.style(visual, Factory.natural_width(visual), Model.NaturalSize{}, Model.Confined{})
+    case UI.UserMessage{}: Factory.style(visual, Factory.adaptive_natural_width(visual), Model.NaturalSize{}, Model.Confined{})
     case _: Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{})
 
 def section_caption(+empty: Bool, +key: UIIdentity.Key, +label: String, +visual: Design.Style) -> +List<Source.Node>:
@@ -230,6 +248,12 @@ def position_style(+visual: Design.Style, +position: Composition.Position) -> So
 
 def region_style(+visual: Design.Style, region: Composition.Region, position: Composition.Position) -> Source.Style:
   match region:
+    case Composition.ConversationTitle{}: Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{})
+    case Composition.TaskActions{}:
+      Factory.with_alignments(Factory.with_direction(
+        Factory.with_frame(Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}),
+          Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.InlineControls{}}}),
+        Model.Horizontal{}), Spatial.Leading{}, Spatial.Centered{})
     case Composition.BoardControls{}:
       Factory.with_direction(Factory.style(Appearance.with_arrangement(visual, Enclosure.SeparateFrames{Enclosure.ComposerControls{}}), Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Model.ResponsiveHorizontal{})
     case Composition.BoardStages{}:
@@ -243,8 +267,16 @@ def context_kind(+value: Context.Observation) -> String:
     case Context.DraftExecution{other}: "custom"
     case Context.CommittedExecution{context}: "committed"
 
+def fact_display_choice(empty: Bool, value: String) -> String:
+  match empty:
+    case True{}: "—"
+    case False{}: value
+
+def fact_display_value(+value: String) -> String:
+  fact_display_choice(String.eq(value, ""), value)
+
 def fact(+key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style) -> Source.Node:
-  group(key, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [text(UIIdentity.part(key, "label"), label, visual, T.Body{}, T.Strong{}), text(UIIdentity.part(key, "value"), value, visual, T.Body{}, T.Regular{})])
+  group(key, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [text(UIIdentity.part(key, "label"), label, visual, T.Body{}, T.Strong{}), text(UIIdentity.part(key, "value"), fact_display_value(value), visual, T.Body{}, T.Regular{})])
 
 def project_instructions(empty: Bool, instructions: String) -> String:
   match empty:
@@ -407,7 +439,9 @@ def card_actions(+values: +List<Child>, +want: Bool) -> +List<Source.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Child{key, role, meaning, control, nodes}, rest}:
-      card_actions_selected(same_boolean(want, more_action(meaning)), nodes, card_actions(rest, want))
+      match meaning:
+        case UI.MovableCard{destinations, face}: card_actions(rest, want)
+        case _: card_actions_selected(same_boolean(want, more_action(meaning)), nodes, card_actions(rest, want))
 
 def card_title(+key: UIIdentity.Key, +title: String, +visual: Design.Style, +actions: +List<Source.Node>) -> +List<Source.Node>:
   match actions:
@@ -419,20 +453,47 @@ def card_grip(+value: Controls.Representation, +key: UIIdentity.Key, +visual: De
     case Controls.Movable{destinations, face, name, handle, geometry, help}: [AuthoredControls.glyph(UIIdentity.part(key, "@grip"), handle, visual, AuthoredControls.face_icon_size(geometry))]
     case _: Nil{}
 
+def card_movement_nodes(values: +List<Child>) -> +List<Source.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Child{key, role, UI.MovableCard{destinations, face}, control, nodes}, rest}: nodes
+    case Con{other, rest}: card_movement_nodes(rest)
+
+def card_movement_control(values: +List<Child>) -> Controls.Representation:
+  match values:
+    case Nil{}: Controls.NoControl{}
+    case Con{Child{key, role, UI.MovableCard{destinations, face}, control, nodes}, rest}: control
+    case Con{other, rest}: card_movement_control(rest)
+
+def card_movement_available(values: +List<Child>) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{Child{key, role, UI.MovableCard{destinations, face}, control, nodes}, rest}: UI.has_available_destination(destinations)
+    case Con{other, rest}: card_movement_available(rest)
+
 def card(+key: UIIdentity.Key, +face: View.CardFace, +visual: Design.Style, +children: +List<Child>, +representation: Controls.Representation, +parameters: Design.LayoutParameters, +movable: Bool) -> Source.Node:
   View.CardFace{+id, +title, description, priority, pinned_value, +status, project, labels, owner, updated} = face
   Source.Control{key, Source.ArticleControl{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"card-id", Nat.show(id)}, Source.DataAttribute{"card-title", title}, Source.DraggableAttribute{FieldOptions.boolean(movable)}], title, movable, Doc.DragCard{UIIdentity.encode(key)}, [Doc.DropCard{UIIdentity.encode(key)}],
-    append(append(card_grip(representation, key, visual), [group(UIIdentity.part(key, "@metadata"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append([text(UIIdentity.part(key, "@reference"), "SV-" ++ Nat.show(id), visual, T.Support{}, T.Regular{}), text(UIIdentity.part(key, "@priority"), Board.priority_label(priority), visual, T.Support{}, T.Regular{})], append(pinned(pinned_value, key, visual), optional_text(status, key, "status", visual)))),
-      group(UIIdentity.part(key, "@actions"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, [group(UIIdentity.part(key, "@open"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, card_title(key, title, visual, card_actions(children, False{}))), group(UIIdentity.part(key, "@more"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, append(card_actions(children, True{}), [AuthoredControls.movable_choices(key, representation, visual, parameters)]))])]),
-      append(optional_text(description, key, "description", visual), append([group(UIIdentity.part(key, "@context"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append(optional_text(project, key, "project", visual), card_labels(labels, key, 0n, visual)))], [box(UIIdentity.part(key, "@footer"), Source.Footer{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.DataAttribute{"card-footer", ""}], append(optional_text(owner, key, "owner", visual), optional_text(updated, key, "updated", visual)))])))}
+    append(append(card_grip(representation, key, visual), [group(UIIdentity.part(key, "@metadata"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append([text(UIIdentity.part(key, "@reference"), Board.identifier(id), visual, T.Support{}, T.Regular{}), text(UIIdentity.part(key, "@priority"), Board.priority_label(priority), visual, T.Support{}, T.Regular{})], append(pinned(pinned_value, key, visual), optional_text(status, key, "status", visual)))),
+      group(UIIdentity.part(key, "@actions"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, [group(UIIdentity.part(key, "@open"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, card_title(key, title, visual, card_actions(children, False{}))), group(UIIdentity.part(key, "@more"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, card_actions(children, True{}))])]),
+      append(optional_text(description, key, "description", visual), append([group(UIIdentity.part(key, "@context"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append(optional_text(project, key, "project", visual), card_labels(labels, key, 0n, visual)))], [group(UIIdentity.part(key, "@movement"), visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, card_movement_nodes(children)), box(UIIdentity.part(key, "@footer"), Source.Footer{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.DataAttribute{"card-footer", ""}], append(optional_text(owner, key, "owner", visual), optional_text(updated, key, "updated", visual)))])))}
 
-def task_children(+values: +List<Child>, +status: String, +visual: Design.Style) -> +List<Source.Node>:
+def task_status_size() -> Nat:
+  16n
+
+def task_status_indicator(+key: UIIdentity.Key, +status: View.TaskStatus, +visual: Design.Style) -> Source.Node:
+  +caption = View.task_status_label(status)
+  box(key, Source.Span{}, Factory.glyph_style(visual, task_status_size(), task_status_size()),
+    [Source.DataAttribute{"native-key", UIIdentity.encode(key)}, Source.RoleAttribute{"img"}, Source.AriaAttribute{"label", caption}, Source.TitleAttribute{caption}],
+    [AuthoredControls.glyph(UIIdentity.part(key, "indicator"), Controls.task_status_glyph(status), visual, task_status_size())])
+
+def task_children(+values: +List<Child>, +status: View.TaskStatus, +visual: Design.Style) -> +List<Source.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Child{+key, role, meaning, control, nodes}, rest}:
       match control:
         case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: append(ordinary(nodes), task_children(rest, status, visual))
-        case _: box(key, Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.AriaAttribute{"label", status}, Source.TitleAttribute{status}], [text(UIIdentity.part(key, "indicator"), "●", visual, T.Support{}, T.Medium{}), text(UIIdentity.part(key, "status"), status, visual, T.Support{}, T.Medium{})]) <> task_children(rest, status, visual)
+        case _: task_status_indicator(key, status, visual) <> task_children(rest, status, visual)
 
 def compound(+key: UIIdentity.Key, +label: String, +field: Forms.Field, +visual: Design.Style, +children: +List<Source.Node>) -> Source.Node:
   box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], children)
@@ -451,7 +512,7 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meani
     case UI.Activate{input, availability}: AuthoredControls.action(key, visual, representation)
     case UI.Choice{kind, icon, selected, description, input, availability}: AuthoredControls.action(key, visual, representation)
     case UI.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
-    case UI.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", status}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
+    case UI.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", View.task_status_label(status)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
     case UI.ProjectChooser{selected}: box(key, Source.Div{}, role_style(visual, role), chooser_selection(selected), content)
     case UI.DirectoryRow{path, primary}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"primary", FieldOptions.boolean(primary)}], [box(UIIdentity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)])
     case UI.ContextSummary{observation}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"context-kind", context_kind(observation)}], text(UIIdentity.part(key, "provenance"), label, visual, T.Support{}, T.Regular{}) <> content)
@@ -460,22 +521,39 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meani
     case UI.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
     case UI.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
     case UI.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}
-    case UI.MovableCard{destinations, face}: card(key, face, visual, children, representation, parameters, AuthoredControls.has_available_destination(destinations))
+    case UI.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
+    case UI.MovableCard{destinations, face}: AuthoredControls.movable_choices(key, representation, visual, parameters)
     case UI.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))
     case UI.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(UI.CodeBlock{}, UI.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
     case UI.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
+    case UI.Fact{value}: fact(key, label, value, visual)
     case UI.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
     case UI.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case UI.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case other: AuthoredControls.input(key, other, representation, visual, parameters)
 
-def dialog_operation(+meaning: UI.Meaning) -> Bool:
-  match meaning:
-    case UI.Activate{input, availability}: True{}
-    case UI.ComposerAction{subject, input, availability}: True{}
-    case UI.PanelToggle{expanded, input, availability}: True{}
-    case UI.Choice{kind, icon, selected, description, input, availability}: False{}
+def dialog_operation(+role: UI.Role) -> Bool:
+  match role:
+    case UI.DialogActions{}: True{}
     case _: False{}
+
+def dialog_only_actions(+children: +List<Child>) -> Bool:
+  match children:
+    case Nil{}: True{}
+    case Con{Child{key, role, meaning, control, nodes}, rest}:
+      dialog_operation(role) && dialog_only_actions(rest)
+
+def dialog_ordered_tail(operation: Bool, only_actions: Unit -> Bool, ordered: Unit -> Bool) -> Bool:
+  match operation:
+    case True{}: only_actions(Unit{})
+    case False{}: ordered(Unit{})
+
+# A declared action region cannot precede content in a dialog.
+def dialog_ordered(+children: +List<Child>) -> Bool:
+  match children:
+    case Nil{}: True{}
+    case Con{Child{key, role, meaning, control, nodes}, rest}:
+      dialog_ordered_tail(dialog_operation(role), unit => dialog_only_actions(rest), unit => dialog_ordered(rest))
 
 # Only a contiguous operation suffix belongs in the footer; earlier controls
 # stay beside the content that followed them in the semantic reading sequence.
@@ -498,7 +576,7 @@ def dialog_parts(+children: +List<Child>) -> DialogParts:
   match children:
     case Nil{}: TrailingActions{Nil{}}
     case Con{Child{key, role, meaning, control, nodes}, rest}:
-      dialog_prepend(dialog_operation(meaning), nodes, dialog_parts(rest))
+      dialog_prepend(dialog_operation(role), nodes, dialog_parts(rest))
 
 def dialog_part_body(+parts: DialogParts) -> +List<Source.Node>:
   match parts:
@@ -516,8 +594,16 @@ def dialog_body(+children: +List<Child>) -> +List<Source.Node>:
 def dialog_actions(+children: +List<Child>) -> +List<Source.Node>:
   dialog_part_actions(dialog_parts(children))
 
+def dialog_partition_style(part: Enclosure.Part, value: Source.Style) -> Source.Style:
+  match part:
+    case Enclosure.Body{}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
+      Source.Style{Source.Layout{direction, main, cross, frame, width, Model.StretchSize{}, minimum, Model.ScrollVertically{}, position}, font, chrome, states}
+    case _: value
+
 def dialog_partition(+key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: Enclosure.Part, +arrangement: Enclosure.Arrangement, +content: +List<Source.Node>) -> Source.Node:
-  box(key, tag, Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), Enclosure.Frame{Enclosure.partition(part), arrangement}), Nil{}, content)
+  +style = Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), Enclosure.Frame{Enclosure.partition(part), arrangement})
+  box(key, tag, dialog_partition_style(part, style), Nil{}, content)
 
 def dialog_optional(+key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: Enclosure.Part, +arrangement: Enclosure.Arrangement, +content: +List<Source.Node>) -> +List<Source.Node>:
   match content:
@@ -542,12 +628,22 @@ def read_only_role(+role: UI.Role, +key: UIIdentity.Key, +label: String, +value:
     case other: rich(key, other, value, visual, code_visual, children, source)
 
 # Native attachments remain the same nodes while passing through ordinary parents.
-def authored_node(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+def authored_node_content(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
   match meaning:
     case UI.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}}: Authored{code_children(key, identity, wrap, visual, children)}
     case UI.ReadOnly{value}: read_only_role(role, key, label, value, visual, Appearance.style(UI.CodeBlock{}, UI.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, None{})
     case UI.RichText{source, value}: read_only_role(role, key, label, value, visual, Appearance.style(UI.CodeBlock{}, UI.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, Some{source})
     case other: Authored{regular(key, label, role, other, visual, control, children, parameters) <> native(all_nodes(children))}
+
+def authored_node_ordered(ordered: Bool, +key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+  match ordered:
+    case False{}: Rejected{key, InvalidDialogOrder{}}
+    case True{}: authored_node_content(key, label, role, meaning, visual, control, children, parameters)
+
+def authored_node(+key: UIIdentity.Key, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Result:
+  match role:
+    case UI.Dialog{}: authored_node_ordered(dialog_ordered(children), key, label, UI.Dialog{}, meaning, visual, control, children, parameters)
+    case other: authored_node_content(key, label, other, meaning, visual, control, children, parameters)
 
 def decorate_nodes(+values: +List<Source.Node>, +attrs: +List<Source.Attribute>) -> +List<Source.Node>:
   match values:

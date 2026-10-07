@@ -16,6 +16,7 @@ def natural_preferred_bound(+observation: Content.Observation) ->
 def demand_policy(+wrapping: T.Wrapping, +observation: Content.Observation) -> Rule.demand_claim(wrapping, observation):
   match wrapping:
     case T.SingleLine{}: {==}
+    case T.UnbrokenLine{}: {==}
     case T.WrapAnywhere{}: {==}
     case T.WrapWords{}: {==}
     case T.ScrollableCode{}: {==}
@@ -25,6 +26,7 @@ def demand_policy(+wrapping: T.Wrapping, +observation: Content.Observation) -> R
 def attributes_policy(+wrapping: T.Wrapping, +text: String) -> Rule.attributes_claim(wrapping, text):
   match wrapping:
     case T.SingleLine{}: {==}
+    case T.UnbrokenLine{}: {==}
     case T.WrapAnywhere{}: {==}
     case T.WrapWords{}: {==}
     case T.ScrollableCode{}: {==}
@@ -39,3 +41,12 @@ def Rule.evidence():
     label => text => choice => +wrapping => key => font => rule => +observation => roots => policies => {==},
     +capacity => +key => +text => choice => font => bounds => canvas => rule => interaction => styles => owned => {==},
     attributes_policy}
+
+def Rule.unbroken_width(observation): {==}
+def Rule.unbroken_dimensions(observation): {==}
+def Rule.unbroken_height(key,height): {==}
+def Rule.unbroken_render(capacity,key,text,choice,font,bounds,canvas,rule,interaction,styles,owned): {==}
+
+def Rule.unbroken_metric(metric):
+  match metric:
+    case T.Metric{key,minimum,preferred,height,advance}: {==}

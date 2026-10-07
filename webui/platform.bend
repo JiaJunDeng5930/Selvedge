@@ -27,7 +27,8 @@ type Input is Data:
   CapacityObserved{capacity: View.Capacity}
   FocusObserved{identity: String}
   ContentFocusObserved{owner: String, identity: String}
-  FocusApplied{ticket: Nat, target: Focus.Target}
+  FocusApplied{ticket: Nat, target: Focus.Target, observed: Maybe<&2, Focus.Target>}
+  PublicationFocusObserved{ticket: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>}
   MotionPreference{reduced: Bool}
 
 type Effect is Data:
@@ -252,6 +253,24 @@ def edit_result(result: Editor.Decision, +owner: U.Editor, core: Core.State, pla
   Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
   editor_result(requested, owner, core, Platform{readers, save_editor(editors, owner, editor), focused, ticket, reduced, capacity, scope})
 
+def focus_confirmed(expected: Focus.Target, observed: Maybe<&2, Focus.Target>) -> Bool:
+  match observed:
+    case None{}: False{}
+    case Some{actual}: Focus.same_target(expected, actual)
+
+def publication_focus_result(owned: Bool, ticket: Nat, before: Focus.Target, core: Core.State, platform: Platform) -> Decision:
+  match owned:
+    case False{}: Decision{unchanged(core), platform, Nil{}}
+    case True{}: Decision{unchanged(core), platform, [Focus{ticket, before}]}
+
+def publication_focus_observed(received: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>, +core: Core.State, platform: Platform) -> Decision:
+  match before after:
+    case Some{+target} None{}:
+      Platform{readers, editors, focused, +ticket, reduced, +capacity, scope} = platform
+      publication_focus_result(Nat.is_eq(received, ticket) && active_target(core, capacity, target), ticket, target, core,
+        Platform{readers, editors, focused, ticket, reduced, capacity, scope})
+    case _ _: Decision{unchanged(core), platform, Nil{}}
+
 def focus_result(owned: Bool, identity: Focus.Target, core: Core.State, platform: Platform) -> Decision:
   match owned:
     case False{}: Decision{unchanged(core), platform, Nil{}}
@@ -276,7 +295,8 @@ def dispatch(state: State, +input: Input) -> Decision:
     case CapacityObserved{value}: after_core(unchanged(Core.State{application, services}), Platform{readers, editors, focused, ticket, reduced, value, scope})
     case FocusObserved{+identity}: observed_focus(Platform{readers, editors, focused, ticket, reduced, capacity, scope}, active_focus(Core.State{application, services}, capacity, identity), Focus.Product{identity}, Core.State{application, services})
     case ContentFocusObserved{+owner, identity}: observed_focus(Platform{readers, editors, focused, ticket, reduced, capacity, scope}, active_content_owner(Core.State{application, services}, capacity, owner), Focus.Content{owner, identity}, Core.State{application, services})
-    case FocusApplied{expected, +identity}: focus_result(Nat.is_eq(expected, ticket) && active_target(Core.State{application, services}, capacity, identity), identity, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
+    case FocusApplied{expected, +identity, observed}: focus_result((Nat.is_eq(expected, ticket) && active_target(Core.State{application, services}, capacity, identity)) && focus_confirmed(identity, observed), identity, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
+    case PublicationFocusObserved{received, before, after}: publication_focus_observed(received, before, after, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
     case MotionPreference{value}: Decision{unchanged(Core.State{application, services}), Platform{readers, editors, focused, ticket, value, capacity, scope}, Nil{}}
 
 def step_raw(input: Input, state: State) -> Decision:

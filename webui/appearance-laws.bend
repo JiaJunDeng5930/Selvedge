@@ -116,7 +116,7 @@ type Requirements is Type:
               Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}}},
             Design.PhasePaint{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
               Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}}},
-            40n, Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n
+            40n, Design.FocusIndicator{Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n}
           }} : Design.Style},
     main_omits_outer_border: @+typography:T.Presentation -> @meaning:UI.Meaning -> {style_border(Appearance.style(UI.Main{}, meaning, typography)) == 0n : Nat}}
 

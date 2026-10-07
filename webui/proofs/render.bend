@@ -67,15 +67,15 @@ def clear_control_geometry(+required: Bool, +key: String, found: Maybe<&2, Rende
     Spec.control_geometry_valid(required, key, found, must_be_visible, viewport) : Bool}:
   match found:
     case None{}: {==}
-    case Some{Rendered.Element{observed_key, +visible, +enabled, tab, +keyboard, +scroll, +bounds, +hit}}:
+    case Some{Rendered.Element{observed_key, +visible, +enabled, tab, +keyboard, +scroll, +bounds, +hit, +paint_bounds}}:
       Equal.trans(Bool,
         Rule.clear(Rendered.control_geometry(required, key,
-          Some{Rendered.Element{observed_key, visible, enabled, tab, keyboard, scroll, bounds, hit}},
+          Some{Rendered.Element{observed_key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}},
           must_be_visible, viewport)),
         Rule.clear(Rendered.issue(Bool.not((required && enabled) || (Bool.not(required) && Bool.not(enabled))), Rendered.DisabledAppearance{key})) &&
           Rule.clear(Rendered.enabled_geometry(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport)),
         Spec.control_geometry_valid(required, key,
-          Some{Rendered.Element{observed_key, visible, enabled, tab, keyboard, scroll, bounds, hit}},
+          Some{Rendered.Element{observed_key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}},
           must_be_visible, viewport),
         clear_append(
           Rendered.issue(Bool.not((required && enabled) || (Bool.not(required) && Bool.not(enabled))), Rendered.DisabledAppearance{key}),
@@ -86,7 +86,7 @@ def clear_control_geometry(+required: Bool, +key: String, found: Maybe<&2, Rende
           Spec.same_bool(required, enabled) &&
             Rule.clear(Rendered.enabled_geometry(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport)),
           Spec.control_geometry_valid(required, key,
-            Some{Rendered.Element{observed_key, visible, enabled, tab, keyboard, scroll, bounds, hit}},
+            Some{Rendered.Element{observed_key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}},
             must_be_visible, viewport),
           Equal.cong(Bool, Bool,
             (head => head && Rule.clear(Rendered.enabled_geometry(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport))),
@@ -112,14 +112,14 @@ def clear_bounded_dialog(key: String, found: Maybe<&2, Rendered.Element>, viewpo
   {Rule.clear(Rendered.bounded_dialog(key, found, viewport)) == Spec.bounded_region(found, viewport) : Bool}:
   match found:
     case None{}: {==}
-    case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, scroll, +bounds, hit}}:
+    case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds}}:
       clear_issue_positive(visible && Geometry.contains(viewport, bounds), Rendered.EscapedDialog{key})
 
 def clear_reachable_toolbar(key: String, found: Maybe<&2, Rendered.Element>) ->
   {Rule.clear(Rendered.reachable_toolbar(key, found)) == Spec.reachable_toolbar(found) : Bool}:
   match found:
     case None{}: {==}
-    case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, +scroll, bounds, hit}}:
+    case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, +scroll, bounds, hit, +paint_bounds}}:
       clear_issue_positive(visible || scroll, Rendered.EscapedDialog{key})
 
 def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) ->
@@ -137,6 +137,7 @@ def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.
     case UI.CodeBlock{}: {==}
     case UI.ApprovalQueue{}: clear_bounded_dialog(key, found, viewport)
     case UI.Section{}: {==}
+    case UI.DialogActions{}: clear_bounded_dialog(key, found, viewport)
     case UI.Dialog{}: clear_bounded_dialog(key, found, viewport)
     case UI.Menu{}: clear_bounded_dialog(key, found, viewport)
     case UI.Details{}: {==}
@@ -289,35 +290,35 @@ def clear_tab_order(expected: +List<String>, actual: +List<String>) ->
 
 def clear_against(+first: Rendered.Element, rest: +List<Rendered.Element>) ->
   {Rule.clear(Rendered.against(first, rest)) == Spec.disjoint_from(first, rest) : Bool}:
-  Rendered.Element{key, visible, enabled, tab, keyboard, scroll, +bounds, hit} = first
+  Rendered.Element{key, visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds} = first
   match rest:
     case Nil{}: {==}
-    case Con{Rendered.Element{+other, v, e, t, k, s, +other_bounds, h}, +tail}:
+    case Con{Rendered.Element{+other, v, e, t, k, s, +other_bounds, h, +other_paint_bounds}, +tail}:
       Equal.trans(Bool,
         Rule.clear(Rendered.against(first, rest)),
-        Rule.clear(Rendered.issue(Rendered.overlaps(bounds, other_bounds), Rendered.OverlappingControls{key, other})) &&
-          Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail)),
+        Rule.clear(Rendered.issue(Rendered.overlaps(paint_bounds, other_paint_bounds), Rendered.OverlappingControls{key, other})) &&
+          Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail)),
         Spec.disjoint_from(first, rest),
         clear_append(
-          Rendered.issue(Rendered.overlaps(bounds, other_bounds), Rendered.OverlappingControls{key, other}),
-          Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail)),
+          Rendered.issue(Rendered.overlaps(paint_bounds, other_paint_bounds), Rendered.OverlappingControls{key, other}),
+          Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail)),
         Equal.trans(Bool,
-          Rule.clear(Rendered.issue(Rendered.overlaps(bounds, other_bounds), Rendered.OverlappingControls{key, other})) &&
-            Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail)),
-          Bool.not(Rendered.overlaps(bounds, other_bounds)) &&
-            Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail)),
-          Bool.not(Rendered.overlaps(bounds, other_bounds)) &&
-            Spec.disjoint_from(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail),
+          Rule.clear(Rendered.issue(Rendered.overlaps(paint_bounds, other_paint_bounds), Rendered.OverlappingControls{key, other})) &&
+            Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail)),
+          Bool.not(Rendered.overlaps(paint_bounds, other_paint_bounds)) &&
+            Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail)),
+          Bool.not(Rendered.overlaps(paint_bounds, other_paint_bounds)) &&
+            Spec.disjoint_from(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail),
           Equal.cong(Bool, Bool,
-            (head_clear => head_clear && Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail))),
-            Rule.clear(Rendered.issue(Rendered.overlaps(bounds, other_bounds), Rendered.OverlappingControls{key, other})),
-            Bool.not(Rendered.overlaps(bounds, other_bounds)),
-            clear_issue(Rendered.overlaps(bounds, other_bounds), Rendered.OverlappingControls{key, other})),
+            (head_clear => head_clear && Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail))),
+            Rule.clear(Rendered.issue(Rendered.overlaps(paint_bounds, other_paint_bounds), Rendered.OverlappingControls{key, other})),
+            Bool.not(Rendered.overlaps(paint_bounds, other_paint_bounds)),
+            clear_issue(Rendered.overlaps(paint_bounds, other_paint_bounds), Rendered.OverlappingControls{key, other})),
           Equal.cong(Bool, Bool,
-            (tail_clear => Bool.not(Rendered.overlaps(bounds, other_bounds)) && tail_clear),
-            Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail)),
-            Spec.disjoint_from(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail),
-            clear_against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail))))
+            (tail_clear => Bool.not(Rendered.overlaps(paint_bounds, other_paint_bounds)) && tail_clear),
+            Rule.clear(Rendered.against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail)),
+            Spec.disjoint_from(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail),
+            clear_against(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail))))
 
 def clear_independent_targets(elements: +List<Rendered.Element>) ->
   {Rule.clear(Rendered.independent_targets(elements)) == Spec.non_overlapping(elements) : Bool}:
@@ -342,8 +343,8 @@ def clear_independent_targets(elements: +List<Rendered.Element>) ->
             Rule.clear(Rendered.independent_targets(rest)), Spec.non_overlapping(rest),
             clear_independent_targets(rest))))
 
-def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
-  {Rule.clear(Rendered.check(active, frame)) == Spec.valid_parts(active, frame) : Bool}:
+def clear_layout_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
+  {Rule.clear(Rendered.layout_check(active, frame)) == Spec.layout_valid_parts(active, frame) : Bool}:
   Rendered.Frame{+viewport, +elements, +focused, +tab_order, +native_focus} = frame
   +node_faults = Rendered.nodes(active, False{}, elements, viewport)
   +focus_faults = Rendered.focus_checks(focused, active, elements, viewport, native_focus)
@@ -364,7 +365,7 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
   +after_tabs = Spec.all_nodes(active, False{}, elements, viewport) &&
     (Spec.focus(focused, active, elements, viewport, native_focus) &&
       (Rendered.tabs_valid(active, elements, native_focus, tab_order) && targets_clear))
-  +target = Spec.valid_parts(active, frame)
+  +target = Spec.layout_valid_parts(active, frame)
   +pair_clear = clear_append(tab_faults, target_faults)
   +focus_tail_clear = Equal.trans(Bool,
     Rule.clear(focus_and_tail_faults),
@@ -374,7 +375,7 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
     Equal.cong(Bool, Bool, (tail_value => focus_clear && tail_value),
       Rule.clear(tab_and_target_faults), middle_clear, pair_clear))
   +body_clear = Equal.trans(Bool,
-    Rule.clear(Rendered.check(active, frame)),
+    Rule.clear(Rendered.layout_check(active, frame)),
     nodes_clear && Rule.clear(focus_and_tail_faults),
     actual_clear,
     clear_append(node_faults, focus_and_tail_faults),
@@ -402,8 +403,46 @@ def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
     clear_independent_targets(Rendered.actionable_elements(active, elements)))
   +nodes_focus_step = Equal.trans(Bool, actual_clear, after_nodes, after_focus, node_step, focus_step)
   +semantic_step = Equal.trans(Bool, after_focus, after_tabs, target, middle_step, target_step)
-  Equal.trans(Bool, Rule.clear(Rendered.check(active, frame)), actual_clear, target, body_clear,
+  Equal.trans(Bool, Rule.clear(Rendered.layout_check(active, frame)), actual_clear, target, body_clear,
     Equal.trans(Bool, actual_clear, after_focus, target, nodes_focus_step, semantic_step))
+
+def clear_paint_geometry(+elements: +List<Rendered.Element>, +viewport: Geometry.Rect) ->
+  {Rule.clear(Rendered.paint_geometry(elements, viewport)) == Spec.paint_geometry_valid(elements, viewport) : Bool}:
+  match elements:
+    case Nil{}: {==}
+    case Con{Rendered.Element{+key, +visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds}, +rest}:
+      +valid = Rendered.paint_geometry_valid(visible, bounds, paint_bounds, viewport)
+      +fault = Rendered.issue(Bool.not(valid), Rendered.InvalidPaintGeometry{key})
+      +tail = Rendered.paint_geometry(rest, viewport)
+      Equal.trans(Bool,
+        Rule.clear(List.append(&2, Rendered.Violation, fault, tail)),
+        Rule.clear(fault) && Rule.clear(tail),
+        valid && Spec.paint_geometry_valid(rest, viewport),
+        clear_append(fault, tail),
+        Equal.trans(Bool,
+          Rule.clear(fault) && Rule.clear(tail), valid && Rule.clear(tail),
+          valid && Spec.paint_geometry_valid(rest, viewport),
+          Equal.cong(Bool, Bool, (head => head && Rule.clear(tail)),
+            Rule.clear(fault), valid, clear_issue_positive(valid, Rendered.InvalidPaintGeometry{key})),
+          Equal.cong(Bool, Bool, (tail_valid => valid && tail_valid),
+            Rule.clear(tail), Spec.paint_geometry_valid(rest, viewport), clear_paint_geometry(rest, viewport))))
+
+def clear_check(+active: +List<UI.Node>, +frame: Rendered.Frame) ->
+  {Rule.clear(Rendered.check(active, frame)) == Spec.valid_parts(active, frame) : Bool}:
+  Rendered.Frame{+viewport, +elements, focused, tab_order, native_focus} = frame
+  +paint = Rendered.paint_geometry(elements, viewport)
+  +layout = Rendered.layout_check(active, frame)
+  Equal.trans(Bool,
+    Rule.clear(Rendered.check(active, frame)), Rule.clear(paint) && Rule.clear(layout),
+    Spec.valid_parts(active, frame), clear_append(paint, layout),
+    Equal.trans(Bool,
+      Rule.clear(paint) && Rule.clear(layout),
+      Spec.paint_geometry_valid(elements, viewport) && Rule.clear(layout),
+      Spec.valid_parts(active, frame),
+      Equal.cong(Bool, Bool, (paint_valid => paint_valid && Rule.clear(layout)),
+        Rule.clear(paint), Spec.paint_geometry_valid(elements, viewport), clear_paint_geometry(elements, viewport)),
+      Equal.cong(Bool, Bool, (layout_valid => Spec.paint_geometry_valid(elements, viewport) && layout_valid),
+        Rule.clear(layout), Spec.layout_valid_parts(active, frame), clear_layout_check(active, frame))))
 
 def reflected(+surface: UI.Surface, +frame: Rendered.Frame) ->
   {Rule.clear(Rendered.violations(surface, frame)) == Spec.valid(surface, frame) : Bool}:
@@ -470,3 +509,10 @@ def Rule.evidence():
         realized)
       realized_faults_imply_valid(Rendered.violations(surface, frame), surface, frame, current, {==}, accepted_realized)
     }
+
+def Rule.dialog_actions_region_geometry(found, viewport): {==}
+
+def Rule.dialog_actions_children_visible(inherited, found, viewport):
+  match inherited:
+    case False{}: {==}
+    case True{}: {==}

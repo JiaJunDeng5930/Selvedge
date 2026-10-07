@@ -5,9 +5,17 @@ import ./source.bend as Source
 import ./physical-content.bend as Content
 import ./physical-space.bend as Model
 import ./physical-renderer.bend as Renderer
+import ./physical-probe.bend as Probe
+import ./physical-plan.bend as Plan
 import ./typography.bend as T
 import ./design.bend as Design
 import ./paint.bend as Paint
+import ./authored-controls.bend as Authoring
+import ./controls.bend as Controls
+import ./appearance.bend as Appearance
+import ./surfaces.bend as Surfaces
+import ../core/interface.bend as UI
+import ../core/ui-world.bend as View
 
 # The marker connects authored control states to the browser's native selectors.
 def first_attribute(values: +List<Doc.Property>) -> Maybe<&2, Doc.Property>:
@@ -166,3 +174,144 @@ law rendered_control_projection:
   for children: +List<Doc.Node>
   for native: Bool
   rendered_control_claim(capacity,key,tag,style,attrs,name,enabled,first,remaining,original_children,font,interaction,styles,children,native)
+
+# Probe and committed field styles consume the same native appearance policy.
+law native_field_probe_appearance:
+  for kind: Source.NativeFieldKind
+  {property_value(Probe.field_box_styles(kind), "appearance") ==
+    Some{Source.native_field_appearance(kind)} : Maybe<&2, String>}
+
+law native_field_rendered_appearance:
+  for kind: Source.NativeFieldKind
+  for rule: Model.Rule
+  {property_value(Renderer.field_padding(kind, rule), "appearance") ==
+    Some{Source.native_field_appearance(kind)} : Maybe<&2, String>}
+
+law toggle_field_probe_appearance:
+  {property_value(Probe.field_box_styles(Source.ToggleField{}), "appearance") ==
+    Some{"none"} : Maybe<&2, String>}
+
+law toggle_field_rendered_appearance:
+  for rule: Model.Rule
+  {property_value(Renderer.field_padding(Source.ToggleField{}, rule), "appearance") ==
+    Some{"none"} : Maybe<&2, String>}
+
+law other_native_field_appearance:
+  for minimum: Nat
+  for multiple: Bool
+  {[Source.native_field_appearance(Source.TextField{}),
+    Source.native_field_appearance(Source.MessageField{}),
+    Source.native_field_appearance(Source.TextAreaField{}),
+    Source.native_field_appearance(Source.SelectField{}),
+    Source.native_field_appearance(Source.MultiSelectField{}),
+    Source.native_field_appearance(Source.NumberField{minimum}),
+    Source.native_field_appearance(Source.FileField{multiple}),
+    Source.native_field_appearance(Source.DirectoryField{}),
+    Source.native_field_appearance(Source.SearchField{}),
+    Source.native_field_appearance(Source.SecretField{})] ==
+    ["none", "none", "none", "none", "none", "none", "none", "none", "none", "none"] : +List<String>}
+
+# These projections inspect the authored and rendered production values.
+def field_axes(node: Source.Node) -> (Model.AxisSize & Model.AxisSize):
+  match node:
+    case Source.Field{key, kind, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: (width, height)
+    case Source.Box{key, tag, style, attrs, Con{caption, Con{field, Nil{}}}}: field_axes(field)
+    case _: (Model.NaturalSize{}, Model.NaturalSize{})
+
+def label_caption(node: Source.Node) -> (Source.BoxTag & Model.AxisSize):
+  match node:
+    case Source.Box{key, tag, style, attrs, Con{Source.Box{caption_key, caption_tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, caption_attrs, children}, rest}}: (tag, width)
+    case _: (Source.Div{}, Model.NaturalSize{})
+
+law toggle_geometry_bounded:
+  {Nat.is_le(Source.toggle_visual_size(Source.native_toggle_geometry()), Source.toggle_target_size(Source.native_toggle_geometry())) == True{} : Bool}
+
+law toggle_geometry_centered:
+  {Source.toggle_center_offset(Source.native_toggle_geometry()) == 8n : Nat}
+
+law toggle_probe_rectangle:
+  {(property_value(Probe.field_box_styles(Source.ToggleField{}), "width"), property_value(Probe.field_box_styles(Source.ToggleField{}), "height")) ==
+    (Some{"32px"}, Some{"32px"}) : (Maybe<&2, String> & Maybe<&2, String>)}
+
+law toggle_target_rectangle:
+  {(property_value(Renderer.toggle_target_styles(), "width"), property_value(Renderer.toggle_target_styles(), "height")) ==
+    (Some{"32px"}, Some{"32px"}) : (Maybe<&2, String> & Maybe<&2, String>)}
+
+law toggle_visual_rectangle:
+  for style: Source.Style
+  {(property_value(Renderer.toggle_visual_styles(style), "width"), property_value(Renderer.toggle_visual_styles(style), "height"), property_value(Renderer.toggle_visual_styles(style), "left"), property_value(Renderer.toggle_visual_styles(style), "top")) ==
+    (Some{"16px"}, Some{"16px"}, Some{"8px"}, Some{"8px"}) : (Maybe<&2, String> & Maybe<&2, String> & Maybe<&2, String> & Maybe<&2, String>)}
+
+def toggle_face_styles(node: Source.Node) -> +List<Doc.Property>:
+  match node:
+    case Source.Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: Renderer.toggle_visual_styles(style)
+    case Source.Box{key, tag, style, attrs, Con{caption, Con{field, Nil{}}}}: toggle_face_styles(field)
+    case _: Nil{}
+
+law production_toggle_face:
+  for key: UIIdentity.Key
+  for meaning: UI.Meaning
+  for name: String
+  for placement: Controls.LabelPlacement
+  for availability: View.Availability
+  for typography: T.Presentation
+  for parameters: Design.LayoutParameters
+  +styles = toggle_face_styles(Authoring.input_widget(Controls.ToggleInput{}, key, meaning, name, placement,
+    availability, Appearance.toggle_field(typography), parameters))
+  {(property_value(styles, "width"), property_value(styles, "height"), property_value(styles, "border-width"),
+      property_value(styles, "border-radius"), property_value(styles, "border-color"), property_value(styles, "background")) ==
+    (Some{"16px"}, Some{"16px"}, Some{"1px"}, Some{"3px"}, Some{Paint.paint(Design.ThemeToken{"--color-token-input-border"})},
+      Some{Paint.paint(Design.SurfacePaint{Surfaces.Field{}, Surfaces.Rest{}})}) :
+    (Maybe<&2, String> & Maybe<&2, String> & Maybe<&2, String> & Maybe<&2, String> & Maybe<&2, String> & Maybe<&2, String>)}
+
+law unchecked_toggle_glyph:
+  for key: UIIdentity.Key
+  {Renderer.toggle_glyph(key, False{}) == Nil{} : +List<Doc.Node>}
+
+law toggle_authoring_allocation:
+  for key: UIIdentity.Key
+  for meaning: UI.Meaning
+  for name: String
+  for placement: Controls.LabelPlacement
+  for availability: View.Availability
+  for visual: Design.Style
+  for parameters: Design.LayoutParameters
+  {field_axes(Authoring.input_widget(Controls.ToggleInput{}, key, meaning, name, placement, availability, visual, parameters)) ==
+    (Model.ExactSize{32n}, Model.ExactSize{32n}) : (Model.AxisSize & Model.AxisSize)}
+
+law beside_label_activation:
+  for key: UIIdentity.Key
+  for name: String
+  for visual: Design.Style
+  for field: Source.Node
+  {label_caption(Authoring.label_field(Controls.BesideInput{}, key, name, visual, field)) ==
+    (Source.Label{}, Model.StretchSize{}) : (Source.BoxTag & Model.AxisSize)}
+
+law toggle_rendered_composition:
+  for key: UIIdentity.Key
+  for style: Source.Style
+  for attrs: +List<Source.Attribute>
+  for attributes: +List<Doc.Property>
+  for styles: +List<Doc.Property>
+  for events: +List<Doc.Event>
+  for children: +List<Doc.Node>
+  {Renderer.native_field_leaf(Source.ToggleField{}, key, style, attrs, attributes, styles, events, children) ==
+    Doc.Element{UIIdentity.encode(UIIdentity.part(key, "toggle-target")), "span", Nil{}, Renderer.properties(styles,
+      [Paint.property("background", "transparent"), Paint.property("border", "0"), Paint.property("padding", "0"),
+         Paint.property("width", Paint.px(Source.toggle_target_size(Source.native_toggle_geometry()))),
+         Paint.property("height", Paint.px(Source.toggle_target_size(Source.native_toggle_geometry())))]), Nil{},
+      [Doc.Element{UIIdentity.encode(key), "input", attributes, Renderer.properties(styles, Renderer.toggle_target_styles()), events, children},
+       Doc.Element{UIIdentity.encode(UIIdentity.part(key, "toggle-visual")), "span", [Paint.property("aria-hidden", "true")],
+         Renderer.toggle_visual_styles(style), Nil{}, Renderer.toggle_glyph(UIIdentity.part(key, "toggle-check"), Renderer.toggle_checked(attrs))}]} : Doc.Node}
+
+
+law measurement_probe_targets:
+  for request: Content.Request
+  for roots: +List<Content.AllocatedNative>
+  {Probe.target_keys(Plan.Job{request, roots, Plan.Measure{}}) == Nil{} : +List<String>}
+
+law native_target_probe_targets:
+  for request: Content.Request
+  for roots: +List<Content.AllocatedNative>
+  {Probe.target_keys(Plan.Job{request, roots, Plan.TargetsOnly{}}) ==
+    Probe.request_declared_target_keys(request) : +List<String>}

@@ -44,3 +44,54 @@ def composer_root(+context: Reading.Context, +key: Identity.Key, +tag: Source.Bo
 
 def bound_construction(+children: +List<Authored.Child>, +key: Identity.Key, +semantic: String, +label: String, +role: UI.Role, +meaning: UI.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Rule.bound_construction(children, key, semantic, label, role, meaning, visual, control, parameters, context):
   {==}
+
+def body_scroll_allocation(+value: Source.Style) ->
+  {Rule.body_scroll_allocation(Authored.dialog_partition_style(Enclosure.Body{}, value)) == True{} : Bool}:
+  Source.Style{layout, font, chrome, states} = value
+  Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
+  {==}
+
+def native_attribute_owner(+key: Identity.Key, +previous: String) -> Rule.native_attribute_owner(key, previous):
+  {==}
+
+def native_attribute_choice(+owned: Bool, +key: Identity.Key, +name: String, +value: String) -> Rule.native_attribute_choice(owned, key, name, value):
+  match owned:
+    case True{}: {==}
+    case False{}: {==}
+
+def native_attribute_data(+key: Identity.Key, +name: String, +value: String) -> Rule.native_attribute_data(key, name, value):
+  native_attribute_choice(String.eq(name, "native-key"), key, name, value)
+
+def native_attribute_other(+key: Identity.Key, +attribute: Source.Attribute) -> Rule.native_attribute_other(key, attribute):
+  match attribute:
+    case Source.DataAttribute{name, value}: True{}
+    case Source.ReadingAttribute{binding}: {==}
+    case Source.EditorBindingAttribute{owner}: {==}
+    case Source.AriaAttribute{name, value}: {==}
+    case Source.RoleAttribute{value}: {==}
+    case Source.TitleAttribute{value}: {==}
+    case Source.TabIndexAttribute{value}: {==}
+    case Source.ValueAttribute{value}: {==}
+    case Source.CheckedAttribute{}: {==}
+    case Source.OpenAttribute{}: {==}
+    case Source.DraggableAttribute{value}: {==}
+    case Source.InertAttribute{}: {==}
+
+def native_attributes_nil(+key: Identity.Key) -> Rule.native_attributes_nil(key):
+  {==}
+
+def native_attributes_cons(+key: Identity.Key, +attribute: Source.Attribute, +rest: +List<Source.Attribute>) -> Rule.native_attributes_cons(key, attribute, rest):
+  {==}
+
+def native_decoration(+node: Source.Node, +extra: +List<Source.Attribute>) -> Rule.native_decoration(node, extra):
+  match node:
+    case Source.Box{key, tag, style, attrs, children}: {==}
+    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}: {==}
+    case Source.Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: {==}
+    case Source.Text{key, value, font, wrapping}: {==}
+    case Source.Glyph{key, drawing, style}: {==}
+    case Source.RichText{key, style, content, attachments, native_owner}: {==}
+    case Source.NativeAttachment{key, target, attrs, style, children}: {==}
+
+def Rule.evidence():
+  Rule.Requirements{native_attribute_owner, native_attribute_data, native_attribute_other, native_attributes_nil, native_attributes_cons, native_decoration, body_scroll_allocation}

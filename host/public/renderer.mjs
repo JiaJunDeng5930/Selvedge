@@ -73,9 +73,15 @@ export class Renderer {
         if (!enabled && node.hasAttribute(name)) node.removeAttribute(name);
       } else if (node.getAttribute(name) !== value) node.setAttribute(name, value);
     }
-    const nextStyles = new Map(list(styles).map(value => [value.name, value.value]));
-    for (const name of record.styles?.keys() ?? []) if (!nextStyles.has(name)) node.style.removeProperty(name);
-    for (const [name, value] of nextStyles) if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
+    const declarations = list(styles).map(value => [value.name, value.value]);
+    const styleSource = JSON.stringify(declarations);
+    const nextStyles = new Map(declarations);
+    if (record.styleSource !== styleSource) {
+      for (const name of record.styles?.keys() ?? []) if (!nextStyles.has(name)) node.style.removeProperty(name);
+      // NOTE: Replay source order because normalized CSSOM values and shorthand/logical declarations interact.
+      for (const [name, value] of declarations) node.style.setProperty(name, value);
+      record.styleSource = styleSource;
+    }
     record.attributes = next;
     record.styles = nextStyles;
   }

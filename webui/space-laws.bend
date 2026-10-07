@@ -91,6 +91,10 @@ def PackedClaim(~A: Data, +slots: +List<Space.Slot<A>>, +gap: Nat, +available: N
 
 type Requirements<-A: Data> is Type:
   Requirements{
+    larger_eq_max: @+first:Nat -> @+second:Nat ->
+      {Space.larger(first, second) == Nat.max(first, second) : Nat},
+    smaller_eq_min: @+first:Nat -> @+second:Nat ->
+      {Space.smaller(first, second) == Nat.min(first, second) : Nat},
     minimum_preferred: @+dimension:Space.Dimension ->
       {Nat.is_le(Space.minimum(dimension), Space.preferred(dimension)) == True{} : Bool},
     preferred_maximum: @+dimension:Space.Dimension ->

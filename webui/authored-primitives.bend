@@ -16,6 +16,15 @@ def natural_width(visual: Design.Style) -> Model.AxisSize:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, +maximum_width_percent, states} = visual
   width_cap(Nat.is_eq(maximum_width_percent, 100n), maximum_width_percent)
 
+def adaptive_width_cap(full_width: Bool, preferred_maximum_percent: Nat) -> Model.AxisSize:
+  match full_width:
+    case True{}: Model.NaturalSize{}
+    case False{}: Model.AdaptiveNaturalSize{preferred_maximum_percent}
+
+def adaptive_natural_width(visual: Design.Style) -> Model.AxisSize:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, +maximum_width_percent, states} = visual
+  adaptive_width_cap(Nat.is_eq(maximum_width_percent, 100n), maximum_width_percent)
+
 def flow_direction(flow: Spatial.Flow) -> Model.Direction:
   match flow:
     case Spatial.BlockFlow{}: Model.Vertical{}

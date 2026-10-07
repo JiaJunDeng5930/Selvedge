@@ -470,16 +470,16 @@ def advance_preserves_bookmark(tape: Rule.Tape) ->
         case Con{Rule.Size{composer, viewport}, rest}: {==}
 
 
-def stale_focus_ticket_raw(core: Core.State, platform: Platform.Platform, received: Nat, identity: String,
+def stale_focus_ticket_raw(core: Core.State, platform: Platform.Platform, received: Nat, identity: String, observed: Maybe<&2, Focus.Target>,
   stale: {Nat.is_eq(received, Rule.platform_ticket(platform)) == False{} : Bool}) ->
-  {Platform.step_raw(Platform.FocusApplied{received, Focus.Product{identity}}, Platform.State{core, platform}) ==
+  {Platform.step_raw(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
   match core:
     case Core.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           Equal.cong(Bool, Platform.Decision,
-            (owned => Platform.focus_result(owned, Focus.Product{identity}, Core.State{application, services},
+            (owned => Platform.focus_result(owned && Platform.focus_confirmed(Focus.Product{identity}, observed), Focus.Product{identity}, Core.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
             Nat.is_eq(received, ticket) && Platform.active_focus(Core.State{application, services}, capacity, identity),
             False{},
@@ -492,16 +492,16 @@ def stale_focus_ticket_raw(core: Core.State, platform: Platform.Platform, receiv
                 Nat.is_eq(received, Rule.platform_ticket(platform)), False{}, stale),
               and_false_left(Platform.active_focus(Core.State{application, services}, capacity, identity))))
 
-def inactive_focus_raw(core: Core.State, platform: Platform.Platform, identity: String,
+def inactive_focus_raw(core: Core.State, platform: Platform.Platform, identity: String, observed: Maybe<&2, Focus.Target>,
   inactive: {Platform.active_focus(core, Rule.platform_capacity(platform), identity) == False{} : Bool}) ->
-  {Platform.step_raw(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}}, Platform.State{core, platform}) ==
+  {Platform.step_raw(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
   match core:
     case Core.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, +ticket, reduced, capacity, scope}:
           Equal.cong(Bool, Platform.Decision,
-            (owned => Platform.focus_result(owned, Focus.Product{identity}, Core.State{application, services},
+            (owned => Platform.focus_result(owned && Platform.focus_confirmed(Focus.Product{identity}, observed), Focus.Product{identity}, Core.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
             Nat.is_eq(Rule.platform_ticket(platform), ticket) &&
               Platform.active_focus(Core.State{application, services}, capacity, identity),
@@ -690,30 +690,30 @@ def modal_enter_decision(+owner: U.Editor, +shift: Bool, +alt: Bool, +modified: 
       Rule.with_saved_editor(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner,
         Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner))))
 
-def stale_focus_ticket(+core: Core.State, +platform: Platform.Platform, received: Nat, identity: String,
+def stale_focus_ticket(+core: Core.State, +platform: Platform.Platform, received: Nat, identity: String, observed: Maybe<&2, Focus.Target>,
   stale: {Nat.is_eq(received, Rule.platform_ticket(platform)) == False{} : Bool}) ->
-  {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}}, Platform.State{core, platform}) ==
+  {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
   Equal.trans(Platform.Decision,
-    Platform.step(Platform.FocusApplied{received, Focus.Product{identity}}, Platform.State{core, platform}),
+    Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}),
     Platform.realized_decision(Platform.Decision{Platform.unchanged(core), platform, Nil{}}),
     Platform.Decision{Platform.unchanged(core), platform, Nil{}},
     Equal.cong(Platform.Decision, Platform.Decision, Platform.realized_decision,
-      Platform.step_raw(Platform.FocusApplied{received, Focus.Product{identity}}, Platform.State{core, platform}),
-      Platform.Decision{Platform.unchanged(core), platform, Nil{}}, stale_focus_ticket_raw(core, platform, received, identity, stale)),
+      Platform.step_raw(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}),
+      Platform.Decision{Platform.unchanged(core), platform, Nil{}}, stale_focus_ticket_raw(core, platform, received, identity, observed, stale)),
     Rules_platform.realized_empty(Platform.unchanged(core), platform))
 
-def inactive_focus(+core: Core.State, +platform: Platform.Platform, identity: String,
+def inactive_focus(+core: Core.State, +platform: Platform.Platform, identity: String, observed: Maybe<&2, Focus.Target>,
   inactive: {Platform.active_focus(core, Rule.platform_capacity(platform), identity) == False{} : Bool}) ->
-  {Platform.step(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}}, Platform.State{core, platform}) ==
+  {Platform.step(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
   Equal.trans(Platform.Decision,
-    Platform.step(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}}, Platform.State{core, platform}),
+    Platform.step(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}),
     Platform.realized_decision(Platform.Decision{Platform.unchanged(core), platform, Nil{}}),
     Platform.Decision{Platform.unchanged(core), platform, Nil{}},
     Equal.cong(Platform.Decision, Platform.Decision, Platform.realized_decision,
-      Platform.step_raw(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}}, Platform.State{core, platform}),
-      Platform.Decision{Platform.unchanged(core), platform, Nil{}}, inactive_focus_raw(core, platform, identity, inactive)),
+      Platform.step_raw(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}),
+      Platform.Decision{Platform.unchanged(core), platform, Nil{}}, inactive_focus_raw(core, platform, identity, observed, inactive)),
     Rules_platform.realized_empty(Platform.unchanged(core), platform))
 
 def stale_reading(+application: E.Application, +services: Services.State, +platform: Platform.Platform,
@@ -790,9 +790,9 @@ def Rule.evidence():
             Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner)), Nil{}},
         modal_enter_decision(owner, shift, alt, modified, identity, initial, restore, occurrence, core, platform))
     ,
-    core => platform => received => identity => stale =>
-      stale_focus_ticket(core, platform, received, identity, stale),
-    core => platform => identity => inactive => inactive_focus(core, platform, identity, inactive),
+    core => platform => received => identity => observed => stale =>
+      stale_focus_ticket(core, platform, received, identity, observed, stale),
+    core => platform => identity => observed => inactive => inactive_focus(core, platform, identity, observed, inactive),
     drafts => editors => retained => synchronize_retained(drafts, editors, retained),
     count => seed =>
       Std.nat_ind(~(steps => @+initial:Rule.Tape ->

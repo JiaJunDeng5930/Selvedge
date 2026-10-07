@@ -70,6 +70,7 @@ def reading_policy(+width: Model.AxisSize, maximum: Nat) -> Rule.reading_policy(
     case Model.LimitedSize{minimum, preferred, maximum_extra}: {==}
     case Model.PercentSize{percent}: {==}
     case Model.CappedNaturalSize{percent}: {==}
+    case Model.AdaptiveNaturalSize{percent}: {==}
 
 def reading_layout(+layout: Source.Layout, maximum: Nat) -> Rule.reading_layout(layout, maximum):
   Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
@@ -109,9 +110,9 @@ def creation_reading_width(+parameters: Design.LayoutParameters) -> Rule.creatio
   {==}
 
 def creation_assembly(+content: Core.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: Typography.Presentation,
-  created: {Shell.scene_structure(content) == Design.MainStructure{Composition.ReadingMeasure{}, Composition.CenteredCreation{}} : Design.MainStructure}) -> Rule.creation_assembly(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font):
+  created: {Shell.scene_structure(content) == Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}} : Design.MainStructure}) -> Rule.creation_assembly(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font):
   Equal.cong(Design.MainStructure, Shell.Result,
-    (structure => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, parameters, layers, base, overlays, anchors), structure, Shell.structure_reading_width(structure, parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme)), Shell.scene_structure(content), Design.MainStructure{Composition.ReadingMeasure{}, Composition.CenteredCreation{}}, created)
+    (structure => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, Shell.structure_reading_width(structure, parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme)), Shell.scene_structure(content), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, created)
 
 def creation_child_layout(+layout: Source.Layout, maximum: Nat) -> Rule.creation_child_layout(layout, maximum):
   Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
@@ -121,13 +122,13 @@ def creation_main(+key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
   {==}
 
-def other_main_fields(+measure: Composition.Measure, +organization: Composition.Body, +key: UIIdentity.Key, tag: Source.BoxTag,
+def other_main_fields(+measure: Composition.Measure, +heading: Composition.Heading, +organization: Composition.Body, +key: UIIdentity.Key, tag: Source.BoxTag,
   direction: Model.Direction, main: Spatial.Alignment, cross: Spatial.Alignment, frame: Enclosure.Frame, width: Model.AxisSize, height: Model.AxisSize, minimum: Enclosure.Extent, scroll: Model.Scroll, position: Spatial.Position, font: Source.FontChoice, chrome: Design.Chrome, states: Design.ControlStates,
   attributes: +List<Source.Attribute>, children: +List<Source.Node>, +maximum: Nat,
-  other: {Rule.other_organization(organization) == True{} : Bool}) -> Rule.other_main(Design.MainStructure{measure, organization}, key, tag,
+  other: {Rule.other_organization(organization) == True{} : Bool}) -> Rule.other_main(Design.MainStructure{measure, heading, organization}, key, tag,
     Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children, maximum):
   match organization:
-    case Composition.CenteredCreation{}: Logic.impossible(Rule.other_main(Design.MainStructure{measure, Composition.CenteredCreation{}}, key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children, maximum), other)
+    case Composition.CenteredCreation{}: Logic.impossible(Rule.other_main(Design.MainStructure{measure, heading, Composition.CenteredCreation{}}, key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children, maximum), other)
     case Composition.ChronologicalReading{}: {==}
     case Composition.ProjectSections{}: {==}
     case Composition.ProjectRows{}: {==}
@@ -135,15 +136,15 @@ def other_main_fields(+measure: Composition.Measure, +organization: Composition.
     case Composition.StageColumns{}: {==}
     case Composition.UnavailableNotice{}: {==}
 
-def other_main_style(+measure: Composition.Measure, +organization: Composition.Body, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, +maximum: Nat,
-  other: {Rule.other_organization(organization) == True{} : Bool}) -> Rule.other_main(Design.MainStructure{measure, organization}, key, tag, style, attributes, children, maximum):
+def other_main_style(+measure: Composition.Measure, +heading: Composition.Heading, +organization: Composition.Body, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, +maximum: Nat,
+  other: {Rule.other_organization(organization) == True{} : Bool}) -> Rule.other_main(Design.MainStructure{measure, heading, organization}, key, tag, style, attributes, children, maximum):
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
-  other_main_fields(measure, organization, key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, maximum, other)
+  other_main_fields(measure, heading, organization, key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, maximum, other)
 
 def other_main(+structure: Design.MainStructure, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, +maximum: Nat,
   other: {Rule.other_structure(structure) == True{} : Bool}) -> Rule.other_main(structure, key, tag, style, attributes, children, maximum):
-  Design.MainStructure{measure, organization} = structure
-  other_main_style(measure, organization, key, tag, style, attributes, children, maximum, other)
+  Design.MainStructure{measure, heading, organization} = structure
+  other_main_style(measure, heading, organization, key, tag, style, attributes, children, maximum, other)
 
 def navigation_box(key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, rest: +List<Source.Node>, +width: Nat) -> Rule.navigation_box(key, tag, style, attributes, children, rest, width):
   Source.Style{Source.Layout{direction, main, cross, frame, old_width, height, minimum, scroll, position}, font, chrome, states} = style
@@ -172,6 +173,7 @@ def settings_classification(+node: Source.Node, +role: UI.Role, +navigation: +Li
     case UI.DestructiveButton{}: settings_group_found(node, navigation, main, settings, other, identified)
     case UI.SelectedButton{}: settings_group_found(node, navigation, main, settings, other, identified)
     case UI.ComposerActions{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case UI.DialogActions{}: settings_group_found(node, navigation, main, settings, other, identified)
     case UI.Timeline{}: settings_group_found(node, navigation, main, settings, other, identified)
     case UI.Activity{}: settings_group_found(node, navigation, main, settings, other, identified)
     case UI.UserMessage{}: settings_group_found(node, navigation, main, settings, other, identified)
@@ -211,7 +213,7 @@ def available_children(children: +List<Source.Node>, maximum: Nat) -> Rule.avail
 
 def page_frame(previous: Enclosure.Frame) -> Rule.page_frame(previous): {==}
 
-def measure_width(parameters: Design.LayoutParameters, organization: Composition.Body) -> Rule.measure_width(parameters, organization): {==}
+def measure_width(parameters: Design.LayoutParameters, heading: Composition.Heading, organization: Composition.Body) -> Rule.measure_width(parameters, heading, organization): {==}
 
 def beside_main_style(style: Source.Style, +required: Nat) -> Rule.beside_main_style(style, required):
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
@@ -228,7 +230,7 @@ def main_placement_input(placement: View.NavigationPlacement, parameters: Design
     case View.CollapsedNavigation{}: {==}
 
 
-def beside_floor_fields(measure: Composition.Measure, organization: Composition.Body, key: UIIdentity.Key, tag: Source.BoxTag, direction: Model.Direction, main: Spatial.Alignment, cross: Spatial.Alignment, frame: Enclosure.Frame, width: Model.AxisSize, height: Model.AxisSize, minimum_width: Nat, minimum_height: Nat, scroll: Model.Scroll, position: Spatial.Position, font: Source.FontChoice, chrome: Design.Chrome, states: Design.ControlStates, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat, +required: Nat) -> Rule.beside_box_floor(Design.MainStructure{measure, organization}, key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}, attributes, children, maximum, required):
+def beside_floor_fields(measure: Composition.Measure, heading: Composition.Heading, organization: Composition.Body, key: UIIdentity.Key, tag: Source.BoxTag, direction: Model.Direction, main: Spatial.Alignment, cross: Spatial.Alignment, frame: Enclosure.Frame, width: Model.AxisSize, height: Model.AxisSize, minimum_width: Nat, minimum_height: Nat, scroll: Model.Scroll, position: Spatial.Position, font: Source.FontChoice, chrome: Design.Chrome, states: Design.ControlStates, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat, +required: Nat) -> Rule.beside_box_floor(Design.MainStructure{measure, heading, organization}, key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}, attributes, children, maximum, required):
   match organization:
     case Composition.CenteredCreation{}: {==}
     case Composition.ChronologicalReading{}: {==}
@@ -238,13 +240,13 @@ def beside_floor_fields(measure: Composition.Measure, organization: Composition.
     case Composition.StageColumns{}: {==}
     case Composition.UnavailableNotice{}: {==}
 
-def beside_floor_style(measure: Composition.Measure, organization: Composition.Body, key: UIIdentity.Key, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat, +required: Nat) -> Rule.beside_box_floor(Design.MainStructure{measure, organization}, key, tag, style, attributes, children, maximum, required):
+def beside_floor_style(measure: Composition.Measure, heading: Composition.Heading, organization: Composition.Body, key: UIIdentity.Key, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat, +required: Nat) -> Rule.beside_box_floor(Design.MainStructure{measure, heading, organization}, key, tag, style, attributes, children, maximum, required):
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  beside_floor_fields(measure, organization, key, tag, direction, main, cross, frame, width, height, minimum_width, minimum_height, scroll, position, font, chrome, states, attributes, children, maximum, required)
+  beside_floor_fields(measure, heading, organization, key, tag, direction, main, cross, frame, width, height, minimum_width, minimum_height, scroll, position, font, chrome, states, attributes, children, maximum, required)
 
 def beside_box_floor(structure: Design.MainStructure, key: UIIdentity.Key, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat, +required: Nat) -> Rule.beside_box_floor(structure, key, tag, style, attributes, children, maximum, required):
-  Design.MainStructure{measure, organization} = structure
-  beside_floor_style(measure, organization, key, tag, style, attributes, children, maximum, required)
+  Design.MainStructure{measure, heading, organization} = structure
+  beside_floor_style(measure, heading, organization, key, tag, style, attributes, children, maximum, required)
 
 def Rule.base_shared_classification(node, role, parts): {==}
 
@@ -263,7 +265,105 @@ def navigation_projection(content: Core.Scene) -> Rule.navigation_projection(con
 def assembly_placement(+content: Core.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: Typography.Presentation, placement: View.NavigationPlacement,
   projected: {Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement}) -> Rule.assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement):
   Equal.cong(View.NavigationPlacement, Shell.Result,
-    (selected => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, selected, parameters, font, theme)), Shell.scene_navigation_placement(content), placement, projected)
+    (selected => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, selected, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, selected, parameters, font, theme)), Shell.scene_navigation_placement(content), placement, projected)
+
+def chronological_main_frame(frame: Enclosure.Frame) -> Rule.chronological_main_frame(frame): {==}
+
+def chronological_main_cross() -> Rule.chronological_main_cross(): {==}
+
+def chronological_main_leading(previous: Spatial.Alignment) -> Rule.chronological_main_leading(previous): {==}
+
+def chronological_reading_width(+parameters: Design.LayoutParameters) -> Rule.chronological_reading_width(parameters):
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  {==}
+
+def conversation_title_font(+font: Source.FontChoice) -> Rule.conversation_title_font(font):
+  match font:
+    case Source.InheritFont{}: {==}
+    case Source.ExplicitFont{presentation}: {==}
+
+def conversation_title_style(+style: Source.Style) -> Rule.conversation_title_style(style):
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  match direction:
+    case Model.Vertical{}: {==}
+    case Model.Horizontal{}: {==}
+    case Model.ResponsiveHorizontal{}: {==}
+    case Model.Layered{}: {==}
+
+def conversation_title_text(+key: UIIdentity.Key, +value: String, +font: Source.FontChoice, wrapping: Typography.Wrapping) -> Rule.conversation_title_text(key, value, font, wrapping): {==}
+
+def conversation_title_box(+key: UIIdentity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +children: +List<Source.Node>) -> Rule.conversation_title_box(key, tag, style, attributes, children): {==}
+
+def conversation_title_children(+values: +List<Source.Node>) -> Rule.conversation_title_children(values):
+  match values:
+    case Nil{}: {==}
+    case Con{Source.NativeAttachment{key, target, attributes, style, children}, rest}: {==}
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}: {==}
+    case Con{Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}, rest}: {==}
+    case Con{Source.Glyph{key, drawing, style}, rest}: {==}
+    case Con{Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}, rest}: {==}
+    case Con{Source.RichText{key, style, content, attachments, native_owner}, rest}: {==}
+    case Con{Source.Text{key, value, font, wrapping}, rest}: {==}
+
+def conversation_title_other(+node: Source.Node) -> Rule.conversation_title_other(node):
+  match node:
+    case Source.NativeAttachment{key, target, attributes, style, children}: {==}
+    case Source.Box{key, tag, style, attributes, children}: Unit{}
+    case Source.Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: {==}
+    case Source.Glyph{key, drawing, style}: {==}
+    case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: {==}
+    case Source.RichText{key, style, content, attachments, native_owner}: {==}
+    case Source.Text{key, value, font, wrapping}: Unit{}
+
+def other_heading_children(+heading: Composition.Heading, key: UIIdentity.Key, style: Source.Style, +children: +List<Source.Node>) -> Rule.other_heading_children(heading, key, style, children):
+  match heading:
+    case Composition.NoHeading{}: {==}
+    case Composition.PageHeading{}: {==}
+    case Composition.ConversationHeading{}: Unit{}
+
+def conversation_header_frame(+key: UIIdentity.Key, +style: Source.Style, title: Source.Node, actions: Source.Node) -> Rule.conversation_header_frame(key, style, title, actions):
+  Source.Style{layout, font, chrome, states} = style
+  {==}
+
+def conversation_main(+measure: Composition.Measure, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, title: Source.Node, actions: Source.Node, remaining: +List<Source.Node>, +maximum: Nat) -> Rule.conversation_main(measure, key, tag, style, attributes, title, actions, remaining, maximum):
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  {==}
+
+def conversation_header(+key: UIIdentity.Key, +style: Source.Style, title: Source.Node, actions: Source.Node) -> Rule.conversation_header(key, style, title, actions):
+  Source.Style{layout, font, chrome, states} = style
+  {==}
+
+def task_action_flow(+visual: Design.Style, position: Composition.Position) -> Rule.task_action_flow(visual, position): {==}
 
 def Rule.evidence():
-  Rule.Requirements{navigation_projection, assembly_placement, beside_box_floor, beside_main_style, compact_main_style, main_population, main_placement_input, measure_width, recipe_structure, available_children, page_frame, front_layer_last, events, interaction, children, wrapper, no_wrapper_events, reading_policy, reading_layout, reading_stretch_width, creation_population, creation_group, creation_group_spacing, creation_reading_width, creation_assembly, creation_child_layout, creation_main, other_main, navigation_box, settings_classification, footer}
+  Rule.Requirements{conversation_title_font, conversation_title_style, conversation_title_text, conversation_title_box, conversation_title_children, conversation_title_other, other_heading_children, chronological_main_frame, chronological_main_cross(), chronological_main_leading, chronological_reading_width, conversation_header_frame, conversation_main, conversation_header, task_action_flow, navigation_projection, assembly_placement, beside_box_floor, beside_main_style, compact_main_style, main_population, main_placement_input, measure_width, recipe_structure, available_children, page_frame, front_layer_last, events, interaction, children, wrapper, no_wrapper_events, reading_policy, reading_layout, reading_stretch_width, creation_population, creation_group, creation_group_spacing, creation_reading_width, creation_assembly, creation_child_layout, creation_main, other_main, navigation_box, settings_classification, footer}
+
+
+def Rule.modal_navigation_geometry(node, capacity, parameters, layers, base, overlays, anchors, docked, floating):
+  View.Capacity{navigation_beside, details_beside} = capacity
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  {==}
+
+
+def Rule.modal_navigation_population(key, tag, style, attributes, children, rest, capacity, parameters, layers, base, overlays, anchors, identified):
+  Equal.cong(UI.Role, Shell.OverlayParts,
+    (role => Shell.split_overlay_node(Source.Box{key, tag, style, attributes, children}, role, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors,
+      Shell.split_overlays(rest, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors))),
+    Shell.base_role(key, overlays), UI.Navigation{}, identified)
+
+def Rule.modal_navigation_box_preserved(key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, capacity, parameters, layers, base, overlays, anchors, docked, floating):
+  View.Capacity{navigation_beside, details_beside} = capacity
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  {==}
+
+
+def Rule.dialog_reading_span(navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width): {==}
+
+def Rule.dialog_floating_geometry(node, parameters, layers, base, overlays, anchors, docked, floating):
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  {==}
+
+
+def Rule.dialog_floating_box_preserved(key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, parameters, layers, base, overlays, anchors, docked, floating):
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  {==}

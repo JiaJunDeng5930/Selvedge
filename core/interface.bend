@@ -36,6 +36,7 @@ type Role is Data:
   DestructiveButton{}
   SelectedButton{}
   ComposerActions{}
+  DialogActions{}
   Timeline{}
   Activity{}
   UserMessage{}
@@ -73,12 +74,13 @@ type Meaning is Data:
   LayerRegion{dismiss: Core.Input, outside: Bool, escape: Bool}
   DirectoryBrowserLocation{value: String}
   PanelToggle{expanded: Bool, input: Core.Input, availability: V.Availability}
+  CardContent{face: V.CardFace}
   MovableCard{destinations: +List<Placement>, face: V.CardFace}
   Region{}
   PageContext{conversation: Maybe<&2, Conversation.Identity>}
   ActivityContent{expanded: Bool, audit: +List<Conversation.AuditFace>}
   ProjectGroup{project: Nat, selected: Bool, expanded: Bool}
-  TaskRow{task: Nat, status: String, selected: Bool}
+  TaskRow{task: Nat, status: V.TaskStatus, selected: Bool}
   ProjectChooser{selected: Maybe<&2, Nat>}
   DirectoryRow{path: String, primary: Bool}
   ContextSummary{observation: Context.Observation}
@@ -90,6 +92,7 @@ type Meaning is Data:
   BoardSearch{filter: B.Filter}
   BoardGroup{grouping: BoardGrouping}
   ReadOnly{text: String}
+  Fact{value: String}
   RichText{source: Code.Source, value: String}
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
@@ -167,6 +170,9 @@ type Gesture is Data:
 def region(parent: Identity.Key, +identity: String, label: String, role: Role, children: +List<Node>) -> Node:
   Node{Identity.Part{parent, identity}, identity, label, role, Region{}, children}
 
+def dialog_actions(parent: Identity.Key, children: +List<Node>) -> Node:
+  region(parent, "@actions", "Actions", DialogActions{}, children)
+
 def action_role(prominence: V.Prominence) -> Role:
   match prominence:
     case V.Primary{}: PrimaryButton{}
@@ -228,7 +234,7 @@ def task_entries(entries: +List<V.TaskEntry>, +parent: Identity.Key, +state: Cor
     case Con{V.TaskEntry{+id, title, +status, +selected, open}, rest}:
       Node{Identity.Entity{parent, "task", Nat.show(id)}, "task-row", "", Section{}, TaskRow{id, status, selected},
         [selected_node(selected, declared(Identity.Entity{parent, "task", Nat.show(id)}, open, state)),
-         Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", Content{}, ReadOnly{status}, Nil{}}]} <> task_entries(rest, parent, state)
+         Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", Content{}, ReadOnly{V.task_status_label(status)}, Nil{}}]} <> task_entries(rest, parent, state)
 
 def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskEntry>, parent: Identity.Key, state: Core.State) -> +List<Node>:
   match expanded:
@@ -529,7 +535,7 @@ def editor(view: Maybe<&2, V.EditorScene>, +parent: Identity.Key, +state: Core.S
   match view:
     case None{}: Nil{}
     case Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}:
-      List.append(&2, Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, Node, feedback_nodes(parent, feedback), [declared(parent, submit, state)]))
+      List.append(&2, Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, Node, feedback_nodes(parent, feedback), [dialog_actions(parent, [declared(parent, submit, state)])]))
 
 def composer_control_resolved(subject: V.ComposerSubject, parent: Identity.Key, control: Core.Control) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
@@ -751,8 +757,12 @@ def archive_placement(archived: Bool, id: Nat, revision: Nat, +state: Core.State
 def card(view: V.CardScene, +parent: Identity.Key, +state: Core.State) -> Node:
   V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
   Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
-  Node{Identity.Entity{parent, "card", Nat.show(id)}, "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, MovableCard{List.append(&2, Placement, placements(destinations, id, B.revision(value), state), archive_placement(B.archived(value), id, B.revision(value), state)), V.card_face(id, value, now, world)},
-    [declared(Identity.Entity{parent, "card", Nat.show(id)}, open, state), more(U.CardSubject{id}, Identity.Entity{parent, "card", Nat.show(id)}, state)]}
+  +key : Identity.Key = Identity.Entity{parent, "card", Nat.show(id)}
+  +face : V.CardFace = V.card_face(id, value, now, world)
+  +offered : +List<Placement> = List.append(&2, Placement, placements(destinations, id, B.revision(value), state), archive_placement(B.archived(value), id, B.revision(value), state))
+  Node{key, "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, CardContent{face},
+    [declared(key, open, state), more(U.CardSubject{id}, key, state),
+      Node{Identity.part(key, "movement"), "card/" ++ Nat.show(id) ++ "/movement", "Move " ++ B.title(B.draft(value)), Field{}, MovableCard{offered, face}, Nil{}}]}
 
 def cards(values: +List<V.CardScene>, +parent: Identity.Key, +state: Core.State) -> +List<Node>:
   match values:
@@ -773,7 +783,7 @@ def columns(values: +List<V.BoardColumn>, +parent: Identity.Key, +state: Core.St
       lane <> columns(rest, parent, state)
 
 def project_fact(+key: Identity.Key, +label: String, text: String) -> Node:
-  Node{key, Identity.encode(key), label, Content{}, ReadOnly{label ++ "\n" ++ text}, Nil{}}
+  Node{key, Identity.encode(key), label, Content{}, Fact{text}, Nil{}}
 
 def agent_observation(+id: Nat, value: B.AgentProfile, edit: V.ControlDeclaration, +parent: Identity.Key, +state: Core.State) -> Node:
   B.AgentProfile{revision, +name, profile, reasoning, instructions, settings, concurrency} = value
@@ -818,9 +828,9 @@ def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timel
   page_region(parent, Composition.TaskActions{}, Composition.HeadingPosition{},
     [declared(Identity.Part{owner, "heading"}, detail, state), more(U.TaskSubject{id}, Identity.Part{owner, "heading"}, state)]) <>
   page_region(parent, Composition.TimelineContent{}, Composition.BodyPosition{},
-    [region(owner, "timeline", "Conversation", Timeline{}, groups(groups_value, id, Identity.Part{owner, "timeline"}, state))]) <>
-  page_region(parent, Composition.StreamingOutput{}, Composition.BodyPosition{},
-    List.append(&2, Node, live_outputs(previews, owner, state), operations(live, owner, state))) <>
+    [region(owner, "timeline", "Conversation", Timeline{},
+      List.append(&2, Node, groups(groups_value, id, Identity.Part{owner, "timeline"}, state),
+        List.append(&2, Node, live_outputs(previews, owner, state), operations(live, owner, state))))]) <>
   List.append(&2, Node, page_latest(return_latest, parent, owner, state),
     List.append(&2, Node, page_approvals(decisions, parent, owner, state), page_composer(input, parent, owner, state, Composition.DockPosition{})))
 
@@ -1358,7 +1368,7 @@ def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: Core.Stat
       Node{Identity.Part{parent, "search"}, "search", "Search models", Field{}, SearchChoices{query}, Nil{}} <> picker_fields(values, identity, parent, state)
     case V.DeliverySelection{identity, values}: picker_fields(values, identity, parent, state)
     case V.ExecutionDetails{value}: execution_details(value, parent)
-    case V.Confirmation{title, confirm, cancel}: [declared(parent, confirm, state), declared(parent, cancel, state)]
+    case V.Confirmation{title, confirm, cancel}: [dialog_actions(parent, [declared(parent, confirm, state), declared(parent, cancel, state)])]
 
 def layer_role(kind: V.LayerKind) -> Role:
   match kind:
@@ -1386,10 +1396,11 @@ def settings_visible(open: Bool, +entered: Bool, close: Core.Input, connect: Cor
     case False{}: Nil{}
     case True{}: [Node{Identity.Place{"/layers/settings"}, "settings", "Settings", Dialog{}, LayerRegion{close, True{}, True{}},
       [Node{Identity.Part{Identity.Place{"/layers/settings"}, "credential"}, "settings/credential", "Access token", Field{}, EnterCredential{entered}, Nil{}},
-       product_action(Identity.Place{"/layers/settings"}, "connect", "Connect", connect, entered),
-       product_action(Identity.Place{"/layers/settings"}, "light", "Light appearance", Core.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
-       product_action(Identity.Place{"/layers/settings"}, "dark", "Dark appearance", Core.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
-       product_action(Identity.Place{"/layers/settings"}, "system", "System appearance", Core.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]}]
+       region(Identity.Place{"/layers/settings"}, "appearance", "Appearance", Section{}, [
+         product_action(Identity.Place{"/layers/settings"}, "light", "Light appearance", Core.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
+         product_action(Identity.Place{"/layers/settings"}, "dark", "Dark appearance", Core.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
+         product_action(Identity.Place{"/layers/settings"}, "system", "System appearance", Core.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]),
+       dialog_actions(Identity.Place{"/layers/settings"}, [product_action(Identity.Place{"/layers/settings"}, "connect", "Connect", connect, entered)])]}]
 
 def settings(view: Core.Settings) -> +List<Node>:
   Core.Settings{open, access, entered, appearance, open_action, close_action, connect_action} = view
@@ -1398,7 +1409,7 @@ def settings(view: Core.Settings) -> +List<Node>:
 def preview_controls(file: B.Attachment, ready: Bool) -> +List<Node>:
   [Node{Identity.Place{"/layers/attachment-preview"}, "attachment-preview", "Attachment preview", Dialog{},
     LayerRegion{Core.ServiceInput{Services.ClosePreview{}}, True{}, True{}},
-    [product_action(Identity.Place{"/layers/attachment-preview"}, "download", "Download", Core.ServiceInput{Services.Download{file}}, ready)]}]
+    [dialog_actions(Identity.Place{"/layers/attachment-preview"}, [product_action(Identity.Place{"/layers/attachment-preview"}, "download", "Download", Core.ServiceInput{Services.Download{file}}, ready)])]}]
 
 def preview(value: Services.Preview) -> +List<Node>:
   match value:
@@ -1437,14 +1448,16 @@ def directory_picker_content(picker: Services.DirectoryPicker) -> +List<Node>:
        directory_visit(Identity.Place{"/layers/directory-picker"}, "retry", "Retry", path)]
     case Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, +parent, entries, truncated}, location, trigger}:
       [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "location"}, "directory-picker/location", "Folder path", Field{}, DirectoryBrowserLocation{location}, Nil{}},
-       product_action(Identity.Place{"/layers/directory-picker"}, "go", "Go", Core.ServiceInput{Services.GoDirectory{}}, True{})]
+       region(Identity.Place{"/layers/directory-picker"}, "navigation", "Folder navigation", Toolbar{},
+         List.append(&2, Node, [product_action(Identity.Place{"/layers/directory-picker"}, "go", "Go", Core.ServiceInput{Services.GoDirectory{}}, True{})], directory_parent(parent)))]
 
 def directory_ready_content(picker: Services.DirectoryPicker) -> +List<Node>:
   match picker:
     case Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}:
-      List.append(&2, Node, directory_parent(parent), List.append(&2, Node, directory_entries(entries),
-        List.append(&2, Node, directory_truncated(truncated), [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "use"}, "directory-picker/use", "Use this folder", PrimaryButton{},
-          Activate{Core.ServiceInput{Services.ChooseDirectory{}}, V.Available{}}, Nil{}}])))
+      [region(Identity.Place{"/layers/directory-picker"}, "folders", "Folders", Section{},
+        List.append(&2, Node, directory_entries(entries), directory_truncated(truncated))),
+       dialog_actions(Identity.Place{"/layers/directory-picker"}, [Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "use"}, "directory-picker/use", "Use this folder", PrimaryButton{},
+         Activate{Core.ServiceInput{Services.ChooseDirectory{}}, V.Available{}}, Nil{}}])]
     case _: Nil{}
 
 def directory_picker(value: Services.DirectoryPicker) -> +List<Node>:
@@ -1460,6 +1473,7 @@ def active_scope(overlays: +List<Node>) -> Maybe<&2, String>:
     case Nil{}: None{}
     case Con{Node{key, semantic, label, Dialog{}, meaning, children}, rest}: Some{Identity.encode(key)}
     case Con{Node{key, semantic, label, Menu{}, meaning, children}, rest}: Some{Identity.encode(key)}
+    case Con{Node{key, semantic, label, Navigation{}, meaning, children}, rest}: Some{Identity.encode(key)}
     case Con{other, rest}: active_scope(rest)
 
 def finish(content: Core.Scene, base: +List<Node>, +overlays: +List<Node>) -> Surface:
@@ -1478,12 +1492,9 @@ def base_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.S
   V.Arrangement{placement} = arrangement
   base_navigation_at(placement, nav, state)
 
-def navigation_dialog(node: Node) -> Node:
-  Node{key, semantic, label, role, meaning, children} = node
-  Node{key, semantic, label, Dialog{}, meaning, children}
 def modal_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, state: Core.State) -> +List<Node>:
   match placement:
-    case V.ModalNavigation{}: [navigation_dialog(navigation(nav, state))]
+    case V.ModalNavigation{}: [navigation(nav, state)]
     case _: Nil{}
 
 def modal_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.State) -> +List<Node>:
@@ -1618,9 +1629,22 @@ def placement_input(values: +List<Placement>, +target: String) -> Maybe<&2, Core
     case Con{Placement{key, label, input, availability}, rest}:
       prefer_input(when_available(String.eq(key, target) && available(availability), input), placement_input(rest, target))
 
+def has_available_destination(values: +List<Placement>) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{Placement{target, label, input, availability}, rest}:
+      available(availability) || has_available_destination(rest)
+
+def card_placements(values: +List<Node>) -> +List<Placement>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Node{key, semantic, label, role, MovableCard{destinations, face}, children}, rest}: destinations
+    case Con{other, rest}: card_placements(rest)
+
 def placement_source(source: Node, target: String) -> Maybe<&2, Core.Input>:
   match source:
     case Node{key, semantic, label, role, MovableCard{destinations, face}, children}: placement_input(destinations, target)
+    case Node{key, semantic, label, role, CardContent{face}, children}: placement_input(card_placements(children), target)
     case _: None{}
 
 def place(source: Maybe<&2, Node>, target: Maybe<&2, Node>) -> Maybe<&2, Core.Input>:

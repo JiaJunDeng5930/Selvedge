@@ -5,6 +5,7 @@ import ../source.bend as Source
 import ../physical-space.bend as Model
 import ../typography.bend as T
 import ../design.bend as Design
+import ../controls.bend as Controls
 import ../physical-control-rules.bend as Rule
 
 def attributes_consume_control_states(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String,
@@ -68,3 +69,46 @@ def Rule.control_attribute_projection(tag,attrs,name,interaction):
 
 def Rule.source_control_interaction(key,tag,style,attrs,name,enabled,first,remaining,children): {==}
 def Rule.rendered_control_projection(capacity,key,tag,style,attrs,name,enabled,first,remaining,original_children,font,interaction,styles,children,native): {==}
+
+def Rule.native_field_probe_appearance(kind): {==}
+
+def Rule.native_field_rendered_appearance(kind, rule):
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  {==}
+
+def Rule.toggle_field_probe_appearance(): {==}
+
+def Rule.toggle_field_rendered_appearance(rule):
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  {==}
+
+def Rule.other_native_field_appearance(minimum, multiple): {==}
+
+def Rule.toggle_geometry_bounded(): {==}
+def Rule.toggle_geometry_centered(): {==}
+def Rule.toggle_probe_rectangle(): {==}
+def Rule.toggle_target_rectangle(): {==}
+def Rule.toggle_visual_rectangle(style):
+  Source.Style{layout, font, Design.Chrome{foreground, background, border, width, radius, shadow}, states} = style
+  {==}
+def Rule.production_toggle_face(key, meaning, name, placement, availability, typography, parameters):
+  match placement:
+    case Controls.AccessibleOnly{}: {==}
+    case Controls.AboveInput{}: {==}
+    case Controls.BesideInput{}: {==}
+def Rule.unchecked_toggle_glyph(key): {==}
+def Rule.toggle_authoring_allocation(key, meaning, name, placement, availability, visual, parameters):
+  match placement visual:
+    case Controls.AccessibleOnly{} Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states}: {==}
+    case Controls.AboveInput{} Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states}: {==}
+    case Controls.BesideInput{} Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states}: {==}
+def Rule.beside_label_activation(key, name, visual, field):
+  Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual
+  {==}
+
+def Rule.toggle_rendered_composition(key, style, attrs, attributes, styles, events, children): {==}
+
+
+def Rule.measurement_probe_targets(request, roots): {==}
+
+def Rule.native_target_probe_targets(request, roots): {==}

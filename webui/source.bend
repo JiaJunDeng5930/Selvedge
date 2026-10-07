@@ -65,6 +65,27 @@ type NativeFieldKind is Data:
   SearchField{}
   SecretField{}
 
+type ToggleGeometry is Data:
+  ToggleGeometry{visual_size: Nat, target_size: Nat}
+
+def native_toggle_geometry() -> ToggleGeometry:
+  ToggleGeometry{16n, 32n}
+
+def toggle_visual_size(value: ToggleGeometry) -> Nat:
+  ToggleGeometry{visual_size, target_size} = value
+  visual_size
+
+def toggle_target_size(value: ToggleGeometry) -> Nat:
+  ToggleGeometry{visual_size, target_size} = value
+  target_size
+
+def toggle_center_offset(value: ToggleGeometry) -> Nat:
+  ToggleGeometry{visual_size, target_size} = value
+  Nat.div(Nat.sub(target_size, visual_size), 2n)
+
+def native_field_appearance(kind: NativeFieldKind) -> String:
+  "none"
+
 type Attribute is Data:
   ReadingAttribute{binding: ReadingBinding.Binding}
   EditorBindingAttribute{key: Identity.Key}
@@ -150,6 +171,17 @@ def physical_rule(style: ResolvedStyle) -> Model.Rule:
   Layout{direction, main_alignment, cross_alignment, frame, width, height, minimum, scroll, position} = layout
   Design.Chrome{foreground, background, border, border_width, radius, shadow} = chrome
   Model.Rule{direction, main_alignment, cross_alignment, frame, border_width, width, height, minimum, scroll, position}
+
+# The toggle border paints an inner visual square; its native hit area has no border.
+def native_field_layout(kind: NativeFieldKind, +rule: Model.Rule) -> Model.Rule:
+  match kind:
+    case ToggleField{}:
+      Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+      Model.Rule{direction, main, cross, frame, 0n, width, height, minimum, scroll, position}
+    case _: rule
+
+def native_field_rule(kind: NativeFieldKind, style: ResolvedStyle) -> Model.Rule:
+  native_field_layout(kind, physical_rule(style))
 
 def box_tag_name(tag: BoxTag) -> String:
   match tag:

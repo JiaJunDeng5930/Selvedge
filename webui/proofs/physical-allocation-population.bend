@@ -3,6 +3,7 @@ import ../../bendlib/stdlib.bend as Std
 import ../physical-space.bend as Model
 import ../physical-allocation.bend as Allocation
 import ../spatial.bend as Spatial
+import ../enclosure.bend as Enclosure
 import ../space.bend as Space
 import ../space-laws.bend as SpaceLaws
 import ./space.bend as SpaceProof
@@ -326,3 +327,10 @@ def Rule.evidence(A, E):
   Rule.Requirements{
     +key => +rule => +children => +available => inline_population(~A, ~E, key, rule, children, available),
     +key => +rule => +direction => +children => +available => block_population(~A, ~E, key, rule, direction, children, available)}
+
+
+def Rule.aligned_layer_bounds(outside, horizontal, vertical, rule, left, top, available_width, available_height, width, height):
+  Enclosure.Insets{inline, block} = outside
+  {==}
+
+def Rule.aligned_layer_clearance(outside, horizontal, vertical): {==}

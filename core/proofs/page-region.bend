@@ -56,6 +56,10 @@ def page_only_regions(+page: View.Page, +parent: Identity.Key, +state: Core.Stat
     case View.AgentsPage{agents, create}: {==}
     case View.MissingObject{message}: {==}
 
+def task_reading(+value: View.TaskScene, +parent: Identity.Key, +state: Core.State) -> Rule.task_reading(value, parent, state):
+  View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, live, decisions, reading, return_latest}, previews, input, details, View.TaskActions{detail, overflow}} = value
+  {==}
+
 def task_title(+value: View.TaskScene, +parent: Identity.Key, +state: Core.State) ->
   {Rule.find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
     Some{[Interface.region(Rule.task_title_key(value, parent), "heading", Rule.task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
@@ -129,6 +133,7 @@ def Rule.evidence():
     +agents => +create => +parent => +state => {==},
     +filter => +columns => +create => working => +settings => +filters => +archive => +parent => +state => {==},
     +heading => +summary => +context => +project => +choose => +parent => +state => {==},
+    task_reading,
     value => parent => state => task_title(value, parent, state),
     value => parent => state => project_title(value, parent, state),
     region => position => gesture => {==},

@@ -1,4 +1,5 @@
 import Base
+import ./design.bend as Design
 import ./authored.bend as Authored
 import ./source.bend as Source
 import ../core/interface.bend as UI
@@ -28,10 +29,10 @@ law choice_content:
   for description: String
   for input: Core.Input
   for availability: View.Availability
-  {Authored.dialog_operation(UI.Choice{kind, classification, selected, description, input, availability}) == False{} : Bool}
+  {Authored.dialog_operation(UI.Button{}) == False{} : Bool}
 
 law choice_group_content:
-  {Authored.dialog_operation(UI.ChoiceGroup{}) == False{} : Bool}
+  {Authored.dialog_operation(UI.Section{}) == False{} : Bool}
 
 law choice_group_partition:
   for key: Identity.Key
@@ -44,5 +45,42 @@ law choice_group_partition:
   for availability: View.Availability
   {Authored.dialog_parts([
     Authored.Child{key, UI.Section{}, UI.ChoiceGroup{}, control, choices},
-    Authored.Child{action_key, UI.Button{}, UI.Activate{input, availability}, action_control, actions}]) ==
+    Authored.Child{action_key, UI.DialogActions{}, UI.Activate{input, availability}, action_control, actions}]) ==
       Authored.BodyAndActions{Authored.ordinary(choices), Authored.ordinary(actions)} : Authored.DialogParts}
+
+law dialog_action_region:
+  {Authored.dialog_operation(UI.DialogActions{}) == True{} : Bool}
+
+law dialog_action_footer:
+  for key: Identity.Key
+  for meaning: UI.Meaning
+  for control: Controls.Representation
+  for +nodes: +List<Source.Node>
+  for +rest: +List<Authored.Child>
+  for ordered: {Authored.dialog_ordered(Authored.Child{key, UI.DialogActions{}, meaning, control, nodes} <> rest) == True{} : Bool}
+  {Authored.dialog_parts(Authored.Child{key, UI.DialogActions{}, meaning, control, nodes} <> rest) ==
+    Authored.TrailingActions{List.append(&2, Source.Node, Authored.ordinary(nodes), dialog_reading_content(rest))} : Authored.DialogParts}
+
+law dialog_ordinary_activation:
+  for key: Identity.Key
+  for role: UI.Role
+  for input: Core.Input
+  for availability: View.Availability
+  for control: Controls.Representation
+  for +nodes: +List<Source.Node>
+  for +rest: +List<Authored.Child>
+  for ordinary: {Authored.dialog_operation(role) == False{} : Bool}
+  {Authored.dialog_parts(Authored.Child{key, role, UI.Activate{input, availability}, control, nodes} <> rest) ==
+    Authored.BodyAndActions{List.append(&2, Source.Node, Authored.ordinary(nodes), Authored.dialog_body(rest)), Authored.dialog_actions(rest)} : Authored.DialogParts}
+
+law dialog_rejects_invalid_order:
+  for key: Identity.Key
+  for label: String
+  for meaning: UI.Meaning
+  for visual: Design.Style
+  for control: Controls.Representation
+  for +children: +List<Authored.Child>
+  for parameters: Design.LayoutParameters
+  for invalid: {Authored.dialog_ordered(children) == False{} : Bool}
+  {Authored.authored_node(key, label, UI.Dialog{}, meaning, visual, control, children, parameters) ==
+    Authored.Rejected{key, Authored.InvalidDialogOrder{}} : Authored.Result}

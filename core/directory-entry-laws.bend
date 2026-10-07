@@ -93,3 +93,32 @@ type DirectoryIdentityRequirements is Type:
 
 law directory_identity_requirements:
   DirectoryIdentityRequirements
+
+law directory_ready_regions:
+  for ticket: Nat
+  for editor: U.Editor
+  for path: String
+  for parent: Maybe<&2, String>
+  for +entries: +List<Services.DirectoryEntry>
+  for truncated: Bool
+  for location: String
+  for trigger: String
+  {UI.directory_ready_content(Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}) ==
+    [UI.region(Identity.Place{"/layers/directory-picker"}, "folders", "Folders", UI.Section{},
+       List.append(&2, UI.Node, UI.directory_entries(entries), UI.directory_truncated(truncated))),
+     UI.dialog_actions(Identity.Place{"/layers/directory-picker"}, [UI.Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "use"}, "directory-picker/use", "Use this folder", UI.PrimaryButton{},
+       UI.Activate{Core.ServiceInput{Services.ChooseDirectory{}}, V.Available{}}, Nil{}}])] : +List<UI.Node>}
+
+law directory_location_navigation_regions:
+  for ticket: Nat
+  for editor: U.Editor
+  for path: String
+  for parent: Maybe<&2, String>
+  for entries: +List<Services.DirectoryEntry>
+  for truncated: Bool
+  for location: String
+  for trigger: String
+  {UI.directory_picker_content(Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}) ==
+    [UI.Node{Identity.Part{Identity.Place{"/layers/directory-picker"}, "location"}, "directory-picker/location", "Folder path", UI.Field{}, UI.DirectoryBrowserLocation{location}, Nil{}},
+     UI.region(Identity.Place{"/layers/directory-picker"}, "navigation", "Folder navigation", UI.Toolbar{},
+       List.append(&2, UI.Node, [UI.product_action(Identity.Place{"/layers/directory-picker"}, "go", "Go", Core.ServiceInput{Services.GoDirectory{}}, True{})], UI.directory_parent(parent)))] : +List<UI.Node>}

@@ -128,7 +128,7 @@ def expected_structure(recipe: Composition.Recipe) -> Composition.Structure:
       Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <> Composition.centered_composer_region(composer), Nil{}}
     case Composition.Recipe{measure, heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       Composition.Structure{[Composition.ConversationTitle{}, Composition.TaskActions{}],
-        [Composition.TimelineContent{}, Composition.StreamingOutput{}],
+        [Composition.TimelineContent{}],
         List.append(&2, Composition.Region, Composition.latest_region(latest),
           List.append(&2, Composition.Region, Composition.decisions_region(decisions), Composition.bottom_composer_region(composer)))}
     case Composition.Recipe{measure, heading, Composition.ProjectSections{}, composer, decisions, latest}:

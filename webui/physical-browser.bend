@@ -1,3 +1,4 @@
+import ./physical-allocation.bend as Allocation
 import ./anchor-geometry.bend as AnchorGeometry
 import ./native-fields.bend as NativeFields
 import ./physical-space.bend as Space
@@ -258,8 +259,17 @@ def publication_for_at(+capacity: Nat, existing: Bool, ready: Bool, current: Boo
 def publication(+capacity: Nat, +last_published: Nat, +state: State) -> Publication:
   publication_for_at(capacity, Bool.not(Nat.is_eq(last_published, 0n)), display_ready(state),
     Nat.is_eq(displayed_generation(state), last_published), state)
+def publication_focus_loss(confirmed: Bool, ticket: Nat, before: Focus.Target) -> Maybe<&2, Platform.Input>:
+  match confirmed:
+    case True{}: Some{Platform.PublicationFocusObserved{ticket, Some{before}, None{}}}
+    case False{}: None{}
+def publication_focus_feedback(+publication: Publication, ticket: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>) -> Maybe<&2, Platform.Input>:
+  match publication before after:
+    case Publish{generation, document, fields} Some{target} None{}:
+      publication_focus_loss(Bool.not(Nat.is_eq(generation, 0n)), ticket, target)
+    case _ _ _: None{}
 def probe_document(+job: Plan.Job) -> Doc.Document: Probe.document(job)
-def probe_target_keys(+request: Content.Request) -> +List<String>: Probe.target_keys(request)
+def probe_target_keys(+job: Plan.Job) -> +List<String>: Probe.target_keys(job)
 def decision_state(value: Decision) -> State:
   Decision{state, effects} = value
   state
@@ -290,7 +300,8 @@ def source_changed(+input: Web.Input) -> Bool:
   match input:
     case Web.FrameObserved{generation, frame}: False{}
     case Web.PlatformInput{Platform.FocusObserved{identity}}: False{}
-    case Web.PlatformInput{Platform.FocusApplied{ticket, identity}}: False{}
+    case Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}: False{}
+    case Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}: False{}
     case Web.PlatformInput{Platform.ReadingInput{task, generation, event}}: False{}
     case Web.PlatformInput{Platform.MotionPreference{reduced}}: False{}
     case _: True{}
@@ -318,12 +329,29 @@ def retry_candidate(+more: Bool, +index: Nat, +state: State) -> Search:
   match more:
     case True{}: Searching{(index + 1n : Nat), state}
     case False{}: Stopped{no_candidate(state)}
+def failure_axis(axis: Allocation.Axis) -> String:
+  match axis:
+    case Allocation.InlineAxis{}: "width"
+    case Allocation.BlockAxis{}: "height"
+def failure_reason(reason: Allocation.FailureReason) -> String:
+  match reason:
+    case Allocation.AuthoredRangeConflict{}: "authored range conflict"
+    case Allocation.InsufficientSpace{}: "insufficient space"
+    case Allocation.AllocationBoundExceeded{budget}: "allocation bound exceeded (budget " ++ Nat.show(budget) ++ ")"
+def failure_message(failure: Allocation.Failure) -> String:
+  Allocation.Failure{key, axis, required, available, reason} = failure
+  "The interface does not fit the available space: " ++ key ++ "; " ++ failure_axis(axis) ++
+    " required " ++ Nat.show(required) ++ "px, available " ++ Nat.show(available) ++ "px; " ++ failure_reason(reason)
+def infeasible_candidate(+more: Bool, +index: Nat, +state: State, failure: Allocation.Failure) -> Search:
+  match more:
+    case True{}: Searching{(index + 1n : Nat), state}
+    case False{}: Stopped{Decision{set_lifecycle(state, Blocked{failure_message(failure)}), Nil{}}}
 def selected(+outcome: Plan.Plan, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: UI.Surface, round: Nat) -> Search:
   match outcome:
     case Plan.Ready{world}: Stopped{admit(world, capacity, engine, state, semantic)}
     case Plan.Awaiting{generation, first, remaining}: Stopped{Decision{set_lifecycle(state, Measuring{index, capacity, engine, semantic, round}), Nil{}}}
     case Plan.Invalid{error}: Stopped{Decision{set_lifecycle(state, Blocked{"Physical source or receipt is invalid"}), Nil{}}}
-    case Plan.Infeasible{failure}: retry_candidate(Nat.is_lt(index, 3n), index, state)
+    case Plan.Infeasible{failure}: infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure)
 def surface_layers(surface: UI.Surface) -> +List<View.Layer>:
   UI.Surface{Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
   layers
@@ -655,7 +683,7 @@ def outside_event(+identity: String, +state: State) -> OutsideDecision:
 def observed_eligible(found: Maybe<&2, Rendered.Element>) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit}}: enabled && (visible || scroll)
+    case Some{Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && (visible || scroll)
 def published_order_eligible(eligible: Bool, key: String, tail: +List<String>) -> +List<String>:
   match eligible:
     case False{}: tail

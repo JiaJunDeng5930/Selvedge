@@ -9,4 +9,4 @@ def code_family(+capacity: Nat, +parent: T.Presentation) ->
     case T.Presentation{tier, emphasis, scale}: {==}
 
 def Rule.evidence():
-  Rule.Requirements{+capacity => +parent => {==}, +capacity => +parent => {==}, code_family}
+  Rule.Requirements{+paint => +width => +inset => {==}, paint => width => inset => {==}, paint => +width => +inset => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, code_family}

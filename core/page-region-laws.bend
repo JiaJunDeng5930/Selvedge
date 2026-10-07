@@ -116,6 +116,14 @@ def owned_page_context(page: View.Page) -> Maybe<&2, Conversation.Identity>:
     case View.TaskPage{View.TaskScene{id, title, status, context, timeline, previews, input, details, actions}}: Some{Conversation.identity(timeline)}
     case _: None{}
 
+def task_reading(+value: View.TaskScene, +parent: Identity.Key, +state: Core.State) -> Type:
+  View.TaskScene{+id, title, status, context, Conversation.Timeline{task, generation, groups, live, decisions, reading, return_latest}, previews, input, details, actions} = value
+  +owner : Identity.Key = Identity.Entity{parent, "task", Nat.show(id)}
+  {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.TimelineContent{}) ==
+    Some{[Interface.region(owner, "timeline", "Conversation", Interface.Timeline{},
+      List.append(&2, Interface.Node, Interface.groups(groups, id, Identity.Part{owner, "timeline"}, state),
+        List.append(&2, Interface.Node, Interface.live_outputs(previews, owner, state), Interface.operations(live, owner, state))))]} : Maybe<&2, +List<Interface.Node>>}
+
 type Requirements is Type:
   Requirements{
     page_payload: @+page:View.Page -> @+state:Core.State ->
@@ -150,6 +158,7 @@ type Requirements is Type:
     creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+choose:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
         Some{[Interface.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>},
+    task_reading: @+value:View.TaskScene -> @+parent:Identity.Key -> @+state:Core.State -> task_reading(value, parent, state),
     task_title: @+value:View.TaskScene -> @+parent: Identity.Key -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
         Some{[Interface.region(task_title_key(value, parent), "heading", task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},

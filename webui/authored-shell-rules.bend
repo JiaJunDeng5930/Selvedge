@@ -3,6 +3,8 @@ import ./presentation-order.bend as Order
 import Base
 import ../core/ui-identity.bend as UIIdentity
 import ./authored-shell.bend as Shell
+import ./authored.bend as Authored
+import ./authored-primitives.bend as Factory
 import ./source.bend as Source
 import ./document.bend as Doc
 import ./physical-space.bend as Model
@@ -74,11 +76,11 @@ def creation_group_spacing(key: UIIdentity.Key, font: Source.FontChoice, maximum
   {Enclosure.frame_gap(frame_of(Shell.layout_of(Shell.creation_group(key, font, maximum, children)))) == Enclosure.separation(Enclosure.Sections{}) : Nat}
 
 def creation_reading_width(+parameters: Design.LayoutParameters) -> Type:
-  {Shell.structure_reading_width(Design.MainStructure{Composition.ReadingMeasure{}, Composition.CenteredCreation{}}, parameters) == Design.reading_maximum_width(parameters) : Nat}
+  {Shell.structure_reading_width(Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, parameters) == Design.reading_maximum_width(parameters) : Nat}
 
 def creation_assembly(+content: Core.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: Typography.Presentation) -> Type:
   {Shell.assemble_surface(Design.Surface{content, theme, base, overlays, scope}, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font) ==
-    Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, parameters, layers, base, overlays, anchors), Design.MainStructure{Composition.ReadingMeasure{}, Composition.CenteredCreation{}}, Design.reading_maximum_width(parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme) : Shell.Result}
+    Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, Design.reading_maximum_width(parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme) : Shell.Result}
 
 def creation_child_layout(+layout: Source.Layout, maximum: Nat) -> Type:
   Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
@@ -86,7 +88,7 @@ def creation_child_layout(+layout: Source.Layout, maximum: Nat) -> Type:
 
 def creation_main(+key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, +maximum: Nat) -> Type:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, +font, chrome, states} = style
-  {Shell.main_box(Design.MainStructure{Composition.ReadingMeasure{}, Composition.CenteredCreation{}}, key, tag, style, attributes, children, maximum) ==
+  {Shell.main_box(Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, key, tag, style, attributes, children, maximum) ==
     Source.Box{key, tag, Source.Style{Source.Layout{Model.Vertical{}, Spatial.Centered{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.area(Enclosure.PageContent{}), Enclosure.SeparateFrames{Enclosure.Sections{}}}, Model.StretchSize{}, Model.StretchSize{}, minimum, Model.ScrollVertically{}, Spatial.InFlow{}}, font, chrome, states}, attributes, [Shell.creation_group(key, font, maximum, children)]} : Source.Node}
 
 def other_organization(organization: Composition.Body) -> Bool:
@@ -95,14 +97,14 @@ def other_organization(organization: Composition.Body) -> Bool:
     case _: True{}
 
 def other_structure(structure: Design.MainStructure) -> Bool:
-  Design.MainStructure{measure, organization} = structure
+  Design.MainStructure{measure, heading, organization} = structure
   other_organization(organization)
 
 def other_main(structure: Design.MainStructure, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, +maximum: Nat) -> Type:
-  Design.MainStructure{measure, +organization} = structure
+  Design.MainStructure{measure, heading, +organization} = structure
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
-  {Shell.main_box(Design.MainStructure{measure, organization}, key, tag, style, attributes, children, maximum) ==
-    Source.Box{key, tag, Source.Style{Source.Layout{direction, Shell.main_leading(organization, main), Shell.main_cross(organization), Shell.main_frame(organization, frame), Model.StretchSize{}, Model.StretchSize{}, minimum, scroll, Spatial.InFlow{}}, font, chrome, states}, attributes, Shell.measure_children(measure, children, maximum)} : Source.Node}
+  {Shell.main_box(Design.MainStructure{measure, heading, organization}, key, tag, style, attributes, children, maximum) ==
+    Source.Box{key, tag, Source.Style{Source.Layout{direction, Shell.main_leading(organization, main), Shell.main_cross(organization), Shell.main_frame(organization, frame), Model.StretchSize{}, Model.StretchSize{}, minimum, scroll, Spatial.InFlow{}}, font, chrome, states}, attributes, Shell.measure_children(measure, Shell.heading_children(heading, key, style, children), maximum)} : Source.Node}
 
 def navigation_box(key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, rest: +List<Source.Node>, +width: Nat) -> Type:
   Source.Style{Source.Layout{direction, main, cross, frame, old_width, height, minimum, scroll, position}, font, chrome, states} = style
@@ -120,7 +122,7 @@ def settings_classification(+node: Source.Node, role: UI.Role, +navigation: +Lis
 
 def recipe_structure(recipe: Composition.Recipe) -> Type:
   Composition.Recipe{measure, heading, organization, composer, decisions, latest} = recipe
-  {Design.main_structure(Composition.Recipe{measure, heading, organization, composer, decisions, latest}) == Design.MainStructure{measure, organization} : Design.MainStructure}
+  {Design.main_structure(Composition.Recipe{measure, heading, organization, composer, decisions, latest}) == Design.MainStructure{measure, heading, organization} : Design.MainStructure}
 
 def available_children(children: +List<Source.Node>, maximum: Nat) -> Type:
   {Shell.measure_children(Composition.AvailableMeasure{}, children, maximum) == children : +List<Source.Node>}
@@ -129,8 +131,8 @@ def page_frame(previous: Enclosure.Frame) -> Type:
   {Shell.main_frame(Composition.StageColumns{}, previous) == Enclosure.Frame{Enclosure.area(Enclosure.PageContent{}), Enclosure.SeparateFrames{Enclosure.Sections{}}} : Enclosure.Frame}
 
 
-def measure_width(parameters: Design.LayoutParameters, organization: Composition.Body) -> Type:
-  {(Shell.structure_reading_width(Design.MainStructure{Composition.ReadingMeasure{}, organization}, parameters), (Shell.structure_reading_width(Design.MainStructure{Composition.OverviewMeasure{}, organization}, parameters), Shell.structure_reading_width(Design.MainStructure{Composition.AvailableMeasure{}, organization}, parameters))) == (Design.reading_maximum_width(parameters), (Design.overview_maximum_width(parameters), 0n)) : Nat & (Nat & Nat)}
+def measure_width(parameters: Design.LayoutParameters, heading: Composition.Heading, organization: Composition.Body) -> Type:
+  {(Shell.structure_reading_width(Design.MainStructure{Composition.ReadingMeasure{}, heading, organization}, parameters), (Shell.structure_reading_width(Design.MainStructure{Composition.OverviewMeasure{}, heading, organization}, parameters), Shell.structure_reading_width(Design.MainStructure{Composition.AvailableMeasure{}, heading, organization}, parameters))) == (Design.reading_maximum_width(parameters), (Design.overview_maximum_width(parameters), 0n)) : Nat & (Nat & Nat)}
 
 def beside_main_style(style: Source.Style, +required: Nat) -> Type:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
@@ -162,10 +164,104 @@ def navigation_projection(content: Core.Scene) -> Type:
   {Shell.scene_navigation_placement(Core.Scene{View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker}) == placement : View.NavigationPlacement}
 
 def assembly_placement(+content: Core.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: Typography.Presentation, placement: View.NavigationPlacement) -> Type:
-  {Shell.assemble_surface(Design.Surface{content, theme, base, overlays, scope}, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font) == Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, placement, parameters, font, theme) : Shell.Result}
+  {Shell.assemble_surface(Design.Surface{content, theme, base, overlays, scope}, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font) == Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, placement, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, placement, parameters, font, theme) : Shell.Result}
+
+def chronological_main_frame(frame: Enclosure.Frame) -> Type:
+  {Shell.main_frame(Composition.ChronologicalReading{}, frame) == Enclosure.Frame{Enclosure.area(Enclosure.PageContent{}), Enclosure.SeparateFrames{Enclosure.Sections{}}} : Enclosure.Frame}
+
+def chronological_main_cross() -> Type:
+  {Shell.main_cross(Composition.ChronologicalReading{}) == Spatial.Centered{} : Spatial.Alignment}
+
+def chronological_main_leading(previous: Spatial.Alignment) -> Type:
+  {Shell.main_leading(Composition.ChronologicalReading{}, previous) == previous : Spatial.Alignment}
+
+def chronological_reading_width(+parameters: Design.LayoutParameters) -> Type:
+  {Shell.structure_reading_width(Design.MainStructure{Composition.ReadingMeasure{}, Composition.ConversationHeading{}, Composition.ChronologicalReading{}}, parameters) == Design.reading_maximum_width(parameters) : Nat}
+
+def conversation_main(+measure: Composition.Measure, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, title: Source.Node, actions: Source.Node, remaining: +List<Source.Node>, +maximum: Nat) -> Type:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  {Shell.main_box(Design.MainStructure{measure, Composition.ConversationHeading{}, Composition.ChronologicalReading{}}, key, tag, style, attributes, title <> actions <> remaining, maximum) ==
+    Source.Box{key, tag, Source.Style{Source.Layout{direction, main, Spatial.Centered{}, Enclosure.Frame{Enclosure.area(Enclosure.PageContent{}), Enclosure.SeparateFrames{Enclosure.Sections{}}}, Model.StretchSize{}, Model.StretchSize{}, minimum, scroll, Spatial.InFlow{}}, font, chrome, states}, attributes,
+      Shell.measure_children(measure, Shell.conversation_heading(key, style, title, actions) <> remaining, maximum)} : Source.Node}
+
+def conversation_title_font(+font: Source.FontChoice) -> Type:
+  match font:
+    case Source.InheritFont{}: {Shell.conversation_title_font(font) == Source.InheritFont{} : Source.FontChoice}
+    case Source.ExplicitFont{presentation}:
+      {Shell.conversation_title_font(font) == Source.ExplicitFont{Typography.with_emphasis(Typography.with_tier(presentation, Typography.Section{}), Typography.Medium{})} : Source.FontChoice}
+
+def conversation_title_style(+style: Source.Style) -> Type:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  match direction:
+    case Model.Vertical{}:
+      {Shell.conversation_title_style(style) == Source.Style{Source.Layout{direction, Spatial.Centered{}, cross, frame, width, height, minimum, scroll, position}, Shell.conversation_title_font(font), chrome, states} : Source.Style}
+    case Model.Horizontal{}:
+      {Shell.conversation_title_style(style) == Source.Style{Source.Layout{direction, main, Spatial.Centered{}, frame, width, height, minimum, scroll, position}, Shell.conversation_title_font(font), chrome, states} : Source.Style}
+    case Model.ResponsiveHorizontal{}:
+      {Shell.conversation_title_style(style) == Source.Style{Source.Layout{direction, main, Spatial.Centered{}, frame, width, height, minimum, scroll, position}, Shell.conversation_title_font(font), chrome, states} : Source.Style}
+    case Model.Layered{}:
+      {Shell.conversation_title_style(style) == Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, Shell.conversation_title_font(font), chrome, states} : Source.Style}
+
+def conversation_title_text(+key: UIIdentity.Key, +value: String, +font: Source.FontChoice, wrapping: Typography.Wrapping) -> Type:
+  {Shell.conversation_title(Source.Text{key, value, font, wrapping}) == Source.Text{key, value, Shell.conversation_title_font(font), Typography.SingleLine{}} : Source.Node}
+
+def conversation_title_box(+key: UIIdentity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +children: +List<Source.Node>) -> Type:
+  {Shell.conversation_title(Source.Box{key, tag, style, attributes, children}) == Source.Box{key, tag, Shell.conversation_title_style(style), attributes, Shell.conversation_title_children(children)} : Source.Node}
+
+def conversation_title_children(+values: +List<Source.Node>) -> Type:
+  match values:
+    case Nil{}: {Shell.conversation_title_children(values) == Nil{} : +List<Source.Node>}
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      {Shell.conversation_title_children(values) == Source.Box{key, tag, Shell.conversation_title_style(style), attributes, Shell.conversation_title_children(children)} <> Shell.conversation_title_children(rest) : +List<Source.Node>}
+    case Con{Source.Text{key, value, font, wrapping}, rest}:
+      {Shell.conversation_title_children(values) == Source.Text{key, value, Shell.conversation_title_font(font), Typography.SingleLine{}} <> Shell.conversation_title_children(rest) : +List<Source.Node>}
+    case Con{other, rest}: {Shell.conversation_title_children(values) == other <> Shell.conversation_title_children(rest) : +List<Source.Node>}
+
+def conversation_title_other(+node: Source.Node) -> Type:
+  match node:
+    case Source.Box{key, tag, style, attributes, children}: Unit
+    case Source.Text{key, value, font, wrapping}: Unit
+    case other: {Shell.conversation_title(node) == other : Source.Node}
+
+def other_heading_children(+heading: Composition.Heading, key: UIIdentity.Key, style: Source.Style, +children: +List<Source.Node>) -> Type:
+  match heading:
+    case Composition.ConversationHeading{}: Unit
+    case other: {Shell.heading_children(heading, key, style, children) == children : +List<Source.Node>}
+
+def conversation_header(+key: UIIdentity.Key, +style: Source.Style, title: Source.Node, actions: Source.Node) -> Type:
+  Source.Style{layout, font, chrome, states} = style
+  {Shell.conversation_heading(key, style, title, actions) ==
+    Source.Box{UIIdentity.part(key, "@heading"), Source.Div{}, Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{},
+      Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.ComposerControls{}}},
+      Model.StretchSize{}, Model.NaturalSize{}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}}, font, chrome, states}, Nil{}, [Shell.conversation_title(title), actions]} : Source.Node}
+
+def conversation_header_frame(+key: UIIdentity.Key, +style: Source.Style, title: Source.Node, actions: Source.Node) -> Type:
+  {frame_of(Shell.layout_of(Shell.conversation_heading(key, style, title, actions))) == Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.ComposerControls{}}} : Enclosure.Frame}
+
+def task_action_flow(+visual: Design.Style, position: Composition.Position) -> Type:
+  {Authored.region_style(visual, Composition.TaskActions{}, position) ==
+    Factory.with_alignments(Factory.with_direction(
+      Factory.with_frame(Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}),
+        Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.InlineControls{}}}),
+      Model.Horizontal{}), Spatial.Leading{}, Spatial.Centered{}) : Source.Style}
 
 type Requirements is Type:
   Requirements{
+    conversation_title_font: @+font:Source.FontChoice -> conversation_title_font(font),
+    conversation_title_style: @+style:Source.Style -> conversation_title_style(style),
+    conversation_title_text: @+key:UIIdentity.Key -> @+value:String -> @+font:Source.FontChoice -> @wrapping:Typography.Wrapping -> conversation_title_text(key, value, font, wrapping),
+    conversation_title_box: @+key:UIIdentity.Key -> @+tag:Source.BoxTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+children:+List<Source.Node> -> conversation_title_box(key, tag, style, attributes, children),
+    conversation_title_children: @+values:+List<Source.Node> -> conversation_title_children(values),
+    conversation_title_other: @+node:Source.Node -> conversation_title_other(node),
+    other_heading_children: @+heading:Composition.Heading -> @key:UIIdentity.Key -> @style:Source.Style -> @+children:+List<Source.Node> -> other_heading_children(heading, key, style, children),
+    chronological_main_frame: @frame:Enclosure.Frame -> chronological_main_frame(frame),
+    chronological_main_cross: chronological_main_cross(),
+    chronological_main_leading: @previous:Spatial.Alignment -> chronological_main_leading(previous),
+    chronological_reading_width: @+parameters:Design.LayoutParameters -> chronological_reading_width(parameters),
+    conversation_header_frame: @+key:UIIdentity.Key -> @+style:Source.Style -> @title:Source.Node -> @actions:Source.Node -> conversation_header_frame(key, style, title, actions),
+    conversation_main: @+measure:Composition.Measure -> @+key:UIIdentity.Key -> @tag:Source.BoxTag -> @+style:Source.Style -> @attributes:+List<Source.Attribute> -> @title:Source.Node -> @actions:Source.Node -> @remaining:+List<Source.Node> -> @+maximum:Nat -> conversation_main(measure, key, tag, style, attributes, title, actions, remaining, maximum),
+    conversation_header: @+key:UIIdentity.Key -> @+style:Source.Style -> @title:Source.Node -> @actions:Source.Node -> conversation_header(key, style, title, actions),
+    task_action_flow: @+visual:Design.Style -> @position:Composition.Position -> task_action_flow(visual, position),
     navigation_projection: @content:Core.Scene -> navigation_projection(content),
     assembly_placement: @+content:Core.Scene -> @+theme:Design.Theme -> @+base:+List<Design.Node> -> @+overlays:+List<Design.Node> -> @scope:Maybe<&2, String> -> @+base_nodes:+List<Source.Node> -> @+overlay_nodes:+List<Source.Node> -> @+capacity:View.Capacity -> @+parameters:Design.LayoutParameters -> @+layers:+List<View.Layer> -> @+anchors:+List<Shell.Anchor> -> @+font:Typography.Presentation -> @placement:View.NavigationPlacement -> @projected:{Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement} -> assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement),
     beside_box_floor: @structure:Design.MainStructure -> @key:UIIdentity.Key -> @tag:Source.BoxTag -> @style:Source.Style -> @attributes:+List<Source.Attribute> -> @children:+List<Source.Node> -> @maximum:Nat -> @+required:Nat -> beside_box_floor(structure, key, tag, style, attributes, children, maximum, required),
@@ -173,7 +269,7 @@ type Requirements is Type:
     compact_main_style: @style:Source.Style -> @required:Nat -> compact_main_style(style, required),
     main_population: @key:UIIdentity.Key -> @tag:Source.BoxTag -> @style:Source.Style -> @attributes:+List<Source.Attribute> -> @children:+List<Source.Node> -> @rest:+List<Source.Node> -> @structure:Design.MainStructure -> @maximum:Nat -> @beside:Bool -> @required:Nat -> main_population(key, tag, style, attributes, children, rest, structure, maximum, beside, required),
     main_placement_input: @placement:View.NavigationPlacement -> @parameters:Design.LayoutParameters -> @structure:Design.MainStructure -> @reading_width:Nat -> @navigation:+List<Source.Node> -> @main:+List<Source.Node> -> @settings:+List<Source.Node> -> @other:+List<Source.Node> -> @docked:+List<Source.Node> -> @font:Typography.Presentation -> main_placement_input(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font),
-    measure_width: @parameters:Design.LayoutParameters -> @organization:Composition.Body -> measure_width(parameters, organization),
+    measure_width: @parameters:Design.LayoutParameters -> @heading:Composition.Heading -> @organization:Composition.Body -> measure_width(parameters, heading, organization),
     recipe_structure: @recipe:Composition.Recipe -> recipe_structure(recipe),
     available_children: @children:+List<Source.Node> -> @maximum:Nat -> available_children(children, maximum),
     page_frame: @previous:Enclosure.Frame -> page_frame(previous),
@@ -193,7 +289,7 @@ type Requirements is Type:
     creation_group_spacing: @key:UIIdentity.Key -> @font:Source.FontChoice -> @maximum:Nat -> @children:+List<Source.Node> -> creation_group_spacing(key, font, maximum, children),
     creation_reading_width: @+parameters:Design.LayoutParameters -> creation_reading_width(parameters),
     creation_assembly: @+content:Core.Scene -> @+theme:Design.Theme -> @+base:+List<Design.Node> -> @+overlays:+List<Design.Node> -> @scope:Maybe<&2, String> -> @+base_nodes:+List<Source.Node> -> @+overlay_nodes:+List<Source.Node> -> @+capacity:View.Capacity -> @+parameters:Design.LayoutParameters -> @+layers:+List<View.Layer> -> @+anchors:+List<Shell.Anchor> -> @+font:Typography.Presentation ->
-      @created:{Shell.scene_structure(content) == Design.MainStructure{Composition.ReadingMeasure{}, Composition.CenteredCreation{}} : Design.MainStructure} -> creation_assembly(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font),
+      @created:{Shell.scene_structure(content) == Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}} : Design.MainStructure} -> creation_assembly(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font),
     creation_child_layout: @+layout:Source.Layout -> @maximum:Nat -> creation_child_layout(layout, maximum),
     creation_main: @+key:UIIdentity.Key -> @tag:Source.BoxTag -> @+style:Source.Style -> @attributes:+List<Source.Attribute> -> @children:+List<Source.Node> -> @+maximum:Nat -> creation_main(key, tag, style, attributes, children, maximum),
     other_main: @+structure:Design.MainStructure -> @+key:UIIdentity.Key -> @tag:Source.BoxTag -> @+style:Source.Style -> @attributes:+List<Source.Attribute> -> @children:+List<Source.Node> -> @+maximum:Nat -> @other:{other_structure(structure) == True{} : Bool} -> other_main(structure, key, tag, style, attributes, children, maximum),
@@ -243,3 +339,123 @@ law base_group_other:
   for +settings: +List<Source.Node>
   for +other: +List<Source.Node>
   {Shell.split_base_region(Order.OtherRegion{}, node, Shell.BaseParts{navigation, main, settings, other}) == Shell.BaseParts{navigation, main, settings, node <> other} : Shell.BaseParts}
+
+
+law modal_navigation_geometry:
+  for +node: Source.Node
+  for +capacity: View.Capacity
+  for +parameters: Design.LayoutParameters
+  for layers: +List<View.Layer>
+  for base: +List<Design.Node>
+  for overlays: +List<Design.Node>
+  for anchors: +List<Shell.Anchor>
+  for docked: +List<Source.Node>
+  for floating: +List<Source.Node>
+  {Shell.split_overlay_node(node, UI.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors, Shell.OverlayParts{docked, floating}) ==
+    Shell.OverlayParts{docked, Shell.resize(node, Model.ExactSize{Design.navigation_width(parameters)}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> floating} : Shell.OverlayParts}
+
+
+law modal_navigation_population:
+  for +key: UIIdentity.Key
+  for +tag: Source.BoxTag
+  for +style: Source.Style
+  for +attributes: +List<Source.Attribute>
+  for +children: +List<Source.Node>
+  for +rest: +List<Source.Node>
+  for +capacity: View.Capacity
+  for +parameters: Design.LayoutParameters
+  for +layers: +List<View.Layer>
+  for +base: +List<Design.Node>
+  for +overlays: +List<Design.Node>
+  for +anchors: +List<Shell.Anchor>
+  for identified: {Shell.base_role(key, overlays) == UI.Navigation{} : UI.Role}
+  {Shell.split_overlays(Source.Box{key, tag, style, attributes, children} <> rest, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors) ==
+    Shell.split_overlay_node(Source.Box{key, tag, style, attributes, children}, UI.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors,
+      Shell.split_overlays(rest, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors)) : Shell.OverlayParts}
+
+law modal_navigation_box_preserved:
+  for +key: UIIdentity.Key
+  for +tag: Source.BoxTag
+  for +direction: Model.Direction
+  for +main: Spatial.Alignment
+  for cross: Spatial.Alignment
+  for +frame: Enclosure.Frame
+  for width: Model.AxisSize
+  for height: Model.AxisSize
+  for +minimum: Enclosure.Extent
+  for scroll: Model.Scroll
+  for position: Spatial.Position
+  for +font: Source.FontChoice
+  for +chrome: Design.Chrome
+  for +states: Design.ControlStates
+  for +attributes: +List<Source.Attribute>
+  for +children: +List<Source.Node>
+  for +capacity: View.Capacity
+  for +parameters: Design.LayoutParameters
+  for layers: +List<View.Layer>
+  for base: +List<Design.Node>
+  for overlays: +List<Design.Node>
+  for anchors: +List<Shell.Anchor>
+  for docked: +List<Source.Node>
+  for floating: +List<Source.Node>
+  {Shell.split_overlay_node(Source.Box{key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, UI.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors, Shell.OverlayParts{docked, floating}) ==
+    Shell.OverlayParts{docked, Source.Box{key, tag, Source.Style{Source.Layout{direction, main, Spatial.Stretch{}, frame, Model.ExactSize{Design.navigation_width(parameters)}, Model.StretchSize{}, minimum, Model.ScrollVertically{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
+
+
+law dialog_reading_span:
+  for navigation_width: Nat
+  for main_minimum_width: Nat
+  for details_width: Nat
+  for +reading_width: Nat
+  for overview_width: Nat
+  for toolbar_height: Nat
+  for input_minimum_height: Nat
+  for input_maximum_height: Nat
+  for +line_height: Nat
+  for creation_height: Nat
+  for lane_width: Nat
+  {Shell.dialog_reading_width(Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width}) == Nat.min(reading_width, Nat.mul(24n, line_height)) : Nat}
+
+def dialog_clearance(parameters: Design.LayoutParameters) -> Enclosure.Insets:
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  Shell.outside_insets(Nat.max(1n, Nat.div(line_height, 4n)))
+
+law dialog_floating_geometry:
+  for +node: Source.Node
+  for +parameters: Design.LayoutParameters
+  for layers: +List<View.Layer>
+  for base: +List<Design.Node>
+  for overlays: +List<Design.Node>
+  for anchors: +List<Shell.Anchor>
+  for docked: +List<Source.Node>
+  for floating: +List<Source.Node>
+  {Shell.float_overlay(UI.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
+    Shell.OverlayParts{docked, Shell.resize(node, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}, Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
+
+
+law dialog_floating_box_preserved:
+  for +key: UIIdentity.Key
+  for +tag: Source.BoxTag
+  for +direction: Model.Direction
+  for +main: Spatial.Alignment
+  for cross: Spatial.Alignment
+  for +frame: Enclosure.Frame
+  for width: Model.AxisSize
+  for height: Model.AxisSize
+  for +minimum: Enclosure.Extent
+  for scroll: Model.Scroll
+  for position: Spatial.Position
+  for +font: Source.FontChoice
+  for +chrome: Design.Chrome
+  for +states: Design.ControlStates
+  for +attributes: +List<Source.Attribute>
+  for +children: +List<Source.Node>
+  for +parameters: Design.LayoutParameters
+  for layers: +List<View.Layer>
+  for base: +List<Design.Node>
+  for overlays: +List<Design.Node>
+  for anchors: +List<Shell.Anchor>
+  for docked: +List<Source.Node>
+  for floating: +List<Source.Node>
+  {Shell.float_overlay(UI.Dialog{}, parameters, Source.Box{key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
+    Shell.OverlayParts{docked, Source.Box{key, tag, Source.Style{Source.Layout{direction, main, Spatial.Stretch{}, frame, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}, Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}

@@ -16,6 +16,7 @@ type Alignment is Data:
 type Position is Data:
   InFlow{}
   CenteredLayer{outside: Enclosure.Insets}
+  AlignedLayer{outside: Enclosure.Insets, horizontal: Alignment, vertical: Alignment}
   AnchoredLayer{anchor_key: String, anchor: Maybe<&2, Box>, outside: Enclosure.Insets,
     gap: Nat, alignment: Alignment}
 

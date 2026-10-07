@@ -37,8 +37,10 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
     case UI.Choice{kind, icon, selected, description, input, availability}: UI.Activate{input, availability}
     case UI.BoardLane{stage, count}: UI.Region{}
     case UI.CardArchive{count}: UI.Region{}
+    case UI.CardContent{face}: UI.Region{}
     case UI.BoardGroup{grouping}: UI.Region{}
     case UI.ReadOnly{text}: UI.Region{}
+    case UI.Fact{value}: UI.Region{}
     case UI.RichText{source, value}: UI.Region{}
     case UI.TaskFacts{details}: UI.Region{}
     case UI.CodeFacts{view}: UI.Region{}
@@ -104,6 +106,7 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
   match face:
     case Controls.IconFace{icon}: None{}
     case Controls.TextFace{text}: Some{text}
+    case Controls.UnbrokenFace{text}: Some{text}
     case Controls.SingleLineFace{text}: Some{text}
     case Controls.IconTextFace{icon, text}: Some{text}
     case Controls.PickerFace{icon, text}: Some{text}
@@ -247,3 +250,21 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law card_content_source_family:
+  for +key: UIIdentity.Key
+  for +semantic: String
+  for +label: String
+  for +role: UI.Role
+  for +face: View.CardFace
+  for +children: +List<UI.Node>
+  for inherited: Controls.SourceFamily
+  {Controls.source_family_at(UI.Node{key, semantic, label, role, UI.CardContent{face}, children}, inherited) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.CardContent{face}, children}} : Controls.SourceFamily}
+
+law card_content_has_no_input:
+  for key: UIIdentity.Key
+  for face: View.CardFace
+  for label: String
+  for role: UI.Role
+  for context: Controls.Context
+  {Controls.represent(key, UI.CardContent{face}, label, role, context) == Controls.NoControl{} : Controls.Representation}

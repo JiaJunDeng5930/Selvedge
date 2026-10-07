@@ -110,3 +110,7 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law unbroken_wrapping:
+  {(Text.white_space(Text.UnbrokenLine{}),(Text.overflow_wrap(Text.UnbrokenLine{}),Text.word_break(Text.UnbrokenLine{}))) ==
+    ("nowrap",("normal","normal")) : (String & (String & String))}

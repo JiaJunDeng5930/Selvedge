@@ -95,3 +95,66 @@ law actual_step_effects_are_external:
   for input: Model.Input
   for state: Model.State
   {external_effects(effects(Model.step(input, state))) == True{} : Bool}
+
+def ticket(platform: Model.Platform) -> Nat:
+  Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  ticket
+
+def capacity(platform: Model.Platform) -> View.Capacity:
+  Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  capacity
+
+def loss_effects(core: Core.State, +platform: Model.Platform, target: Focus.Target) -> +List<Model.Effect>:
+  match target:
+    case Focus.Product{identity}: expected_focus(UI.focus_target(UI.observe(capacity(platform), core), identity), ticket(platform))
+    case Focus.Content{owner, identity}: [Model.Focus{ticket(platform), Focus.Content{owner, identity}}]
+
+law failed_focus_receipt:
+  for +core: Core.State
+  for +platform: Model.Platform
+  for +received: Nat
+  for +target: Focus.Target
+  for +observed: Maybe<&2, Focus.Target>
+  for failed: {Model.focus_confirmed(target, observed) == False{} : Bool}
+  {Model.step(Model.FocusApplied{received, target, observed}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}
+
+law publication_focus_after_some:
+  for core: Core.State
+  for platform: Model.Platform
+  for +received: Nat
+  for +before: Maybe<&2, Focus.Target>
+  for +after: Focus.Target
+  {Model.step(Model.PublicationFocusObserved{received, before, Some{after}}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}
+
+law publication_focus_before_none:
+  for core: Core.State
+  for platform: Model.Platform
+  for +received: Nat
+  for +after: Maybe<&2, Focus.Target>
+  {Model.step(Model.PublicationFocusObserved{received, None{}, after}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}
+
+law publication_focus_stale:
+  for +core: Core.State
+  for +platform: Model.Platform
+  for +received: Nat
+  for +before: Maybe<&2, Focus.Target>
+  for +after: Maybe<&2, Focus.Target>
+  for stale: {Nat.is_eq(received, ticket(platform)) == False{} : Bool}
+  {Model.step(Model.PublicationFocusObserved{received, before, after}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}
+
+law publication_focus_inactive:
+  for +core: Core.State
+  for +platform: Model.Platform
+  for +received: Nat
+  for +target: Focus.Target
+  for inactive: {Model.active_target(core, capacity(platform), target) == False{} : Bool}
+  {Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}
+
+law publication_focus_loss:
+  for +core: Core.State
+  for +platform: Model.Platform
+  for +received: Nat
+  for +target: Focus.Target
+  for current: {Nat.is_eq(received, ticket(platform)) == True{} : Bool}
+  for active: {Model.active_target(core, capacity(platform), target) == True{} : Bool}
+  {Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, loss_effects(core, platform, target)} : Model.Decision}

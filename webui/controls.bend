@@ -91,6 +91,15 @@ type Selection is Data:
   ModelSelection{profile: String}
   DeliverySelection{delivery: UserInput.Delivery}
 
+def task_status_glyph(value: View.TaskStatus) -> Icon:
+  View.TaskStatus{lifecycle, working} = value
+  match lifecycle working:
+    case Domain.Active{} True{}: PlayTriangle{}
+    case Domain.Active{} False{}: Check{}
+    case Domain.Frozen{} _: PauseBars{}
+    case Domain.Stopped{} _: StopSquare{}
+    case Domain.Archived{} _: ArchiveBox{}
+
 type SourceFamily is Data:
   Unscoped{}
   SourceFamily{node: UI.Node}
@@ -104,6 +113,7 @@ type Face is Data:
   IconFace{icon: Icon}
   TextFace{text: String}
   SingleLineFace{text: String}
+  UnbrokenFace{text: String}
   IconTextFace{icon: Icon, text: String}
   # Render the value and a trailing chevron, with room reserved for both.
   PickerFace{leading: Maybe<&2, Icon>, text: String}
@@ -115,6 +125,7 @@ type Face is Data:
 def caption_wrapping(face: Face) -> Typography.Wrapping:
   match face:
     case SingleLineFace{text}: Typography.SingleLine{}
+    case UnbrokenFace{text}: Typography.UnbrokenLine{}
     case PickerFace{leading, text}: Typography.SingleLine{}
     case DisclosureFace{text, expanded}: Typography.SingleLine{}
     case ChoiceFace{text, description, icon, checked}: Typography.NormalWords{}
@@ -336,7 +347,7 @@ def source_family_at(+node: UI.Node, inherited: SourceFamily) -> SourceFamily:
     case UI.ProjectGroup{project, selected, expanded}: SourceFamily{node}
     case UI.TaskRow{task, status, selected}: SourceFamily{node}
     case UI.ProjectChooser{selected}: SourceFamily{node}
-    case UI.MovableCard{destinations, face}: SourceFamily{node}
+    case UI.CardContent{face}: SourceFamily{node}
     case UI.ActivityContent{expanded, audit}: activity_source(role, node, inherited)
     case _: source_scope(role, inherited)
 
@@ -603,8 +614,15 @@ def face_for(purpose: Purpose, label: String, area: Area) -> Face:
     case MenuArea{}: menu_face(purpose, label)
     case _: contextual_face(purpose, label, area)
 
+def working_filter_face(selected: Bool, purpose: Purpose, label: String, area: Area) -> Face:
+  match selected:
+    case True{}: UnbrokenFace{label}
+    case False{}: face_for(purpose, label, area)
+
 def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -> Face:
   match input:
+    case Core.ApplicationInput{Experience.UserInput{UserInput.FilterBoard{Board.Filter{view, search, status, priority, date, assignee, creator, project, tag}}}}:
+      working_filter_face(String.eq(view, "working"), purpose, label, area)
     case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: TextFace{label}
     case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
     case Core.ApplicationInput{Experience.UserInput{UserInput.EditDraft{editor, UserInput.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
@@ -978,7 +996,7 @@ def chooser_presentation(input: Core.Input, +name: String, face: Face, behavior:
 
 def contextual_source_presentation(area: Area, source_family: SourceFamily, +input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match area source_family:
-    case NavigationArea{} SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}:
+    case _ SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}:
       project_presentation(project_control_matches(input, project), project_control_input(input), expanded, name, face, behavior, geometry)
     case NavigationArea{} SourceFamily{UI.Node{owner, semantic, label, role, UI.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
     case _ SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
@@ -1033,7 +1051,7 @@ def source_content_input(input: Core.Input, area: Area, family: SourceFamily, fa
   match input area family face:
     case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.CardDetails{target}, trigger}}}}
       CardArea{} SourceFamily{UI.Node{key, semantic, label, role,
-      UI.MovableCard{destinations, View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
+      UI.CardContent{View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
         title_target(Nat.is_eq(id, target), title)
     case Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{task, group, occurrence, requested}}}
       ActivityArea{} SourceFamily{UI.Node{key, semantic, label, UI.Activity{}, UI.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
@@ -1107,7 +1125,7 @@ def represent(key: UIIdentity.Key, +meaning: UI.Meaning, +label: String, role: U
     case UI.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, UI.availability(enabled))
     case UI.CardArchive{count}: NoControl{}
     case UI.MovableCard{destinations, face}:
-      Movable{destinations, face, "Move " ++ label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
+      Movable{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
         Tooltip{"Move card", 300n, True{}, True{}, False{}}}
     case _: NoControl{}
 

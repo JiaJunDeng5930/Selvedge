@@ -128,9 +128,38 @@ def idle_state(state: State) -> Decision:
   State{application, generation, realization, environment, font} = state
   idle(application, generation, realization, environment, font)
 
-def observe_frame(received: Nat, surface: UI.Surface, frame: Rendered.Frame, state: State) -> Decision:
-  State{application, +generation, realization, environment, font} = state
-  idle(application, generation, Rendered.observe(generation, received, surface, frame, realization), environment, font)
+def visible_focus_recovery(focused_visible: Bool, container_visible: Bool, eligible: Bool, identity: String) -> Maybe<&2, String>:
+  match focused_visible container_visible eligible:
+    case False{} True{} True{}: Some{identity}
+    case _ _ _: None{}
+
+def frame_focus_visible(frame: Rendered.Frame, key: String) -> Bool:
+  Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
+  Rendered.focus_visible(Rendered.find_element(elements, key), viewport)
+
+def scoped_frame_focus_recovery(scope: Focus.Scope, focused: Maybe<&2, String>, +surface: UI.Surface,
+  +frame: Rendered.Frame) -> Maybe<&2, String>:
+  match scope focused:
+    case Focus.Temporary{+identity, initial, restore, occurrence} Some{key}:
+      visible_focus_recovery(frame_focus_visible(frame, key), frame_focus_visible(frame, identity),
+        Platform.found_focus(UI.find_node(UI.active_nodes(surface), identity)), identity)
+    case _ _: None{}
+
+def frame_focus_recovery(surface: UI.Surface, +frame: Rendered.Frame, scope: Focus.Scope) -> Maybe<&2, String>:
+  Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
+  scoped_frame_focus_recovery(scope, focused, surface, frame)
+
+def frame_recovery_effects(owned: Bool, ticket: Nat, generation: Nat, target: Maybe<&2, String>) -> +List<Effect>:
+  match owned target:
+    case True{} Some{key}: [PlatformEffect{Platform.Focus{ticket, Focus.Product{key}}}, MeasureFrame{generation}]
+    case _ _: Nil{}
+
+def observe_frame(+received: Nat, +surface: UI.Surface, +frame: Rendered.Frame, state: State) -> Decision:
+  State{+application, +generation, realization, environment, font} = state
+  Platform.State{+core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = application
+  Decision{State{application, generation, Rendered.observe(generation, received, surface, frame, realization), environment, font},
+    Platform.unchanged(core), frame_recovery_effects(Nat.is_eq(generation, received), ticket, generation,
+      frame_focus_recovery(surface, frame, scope))}
 
 def decision_realization(decision: Decision) -> Rendered.State:
   Decision{State{application, generation, realization, environment, font}, product, effects} = decision

@@ -131,3 +131,5 @@ def Rule.evidence():
     measurement_wrapping,
     advance => columns => {==},
     +capacity => scale => {==}}
+
+def Rule.unbroken_wrapping(): {==}

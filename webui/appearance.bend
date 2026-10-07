@@ -31,8 +31,8 @@ def style_background(value: Design.Style) -> Design.Paint:
 
 def states_background(chrome: Design.Chrome, states: Design.ControlStates, phase: Surfaces.Phase) -> Design.Paint:
   match states phase:
-    case Design.Interactive{Design.PhasePaint{foreground, background}, pressed, opacity, ring, width, offset} Surfaces.Hovered{}: background
-    case Design.Interactive{hover, Design.PhasePaint{foreground, background}, opacity, ring, width, offset} Surfaces.Pressed{}: background
+    case Design.Interactive{Design.PhasePaint{foreground, background}, pressed, opacity, indicator} Surfaces.Hovered{}: background
+    case Design.Interactive{hover, Design.PhasePaint{foreground, background}, opacity, indicator} Surfaces.Pressed{}: background
     case Design.SurfaceFeedback{Design.PhasePaint{foreground, background}, pressed} Surfaces.Hovered{}: background
     case Design.SurfaceFeedback{hover, Design.PhasePaint{foreground, background}} Surfaces.Pressed{}: background
     case _ _: chrome_background(chrome)
@@ -78,6 +78,9 @@ def surface_chrome(radius: Nat, shadow: Bool) -> Design.Chrome:
 def passive() -> Design.ControlStates:
   Design.Passive{}
 
+def default_focus_indicator() -> Design.FocusIndicator:
+  Design.FocusIndicator{paint("--color-token-focus-border"), 2n, 2n}
+
 def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
   pressed_background: Design.Paint) -> Design.ControlStates:
   Design.Chrome{+foreground, background, border, border_width, radius, shadow} = style_chrome
@@ -85,9 +88,7 @@ def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
     Design.PhasePaint{foreground, hover_background},
     Design.PhasePaint{foreground, pressed_background},
     40n,
-    paint("--color-token-focus-border"),
-    2n,
-    2n
+    default_focus_indicator()
   }
 
 def base_style(+typography: T.Presentation) -> Design.Style:
@@ -150,8 +151,12 @@ def compound_field_style(+typography: T.Presentation) -> Design.Style:
 def toggle_extent() -> Nat:
   16n
 
+def toggle_chrome() -> Design.Chrome:
+  chrome(Design.TextForeground{Surfaces.PrimaryText{}}, surface(Surfaces.Field{}, Surfaces.Rest{}),
+    paint("--color-token-input-border"), 1n, 3n, False{})
+
 def toggle_field(+typography: T.Presentation) -> Design.Style:
-  +style_chrome = base_chrome()
+  +style_chrome = toggle_chrome()
   fields(typography, style_chrome, SpatialModel.Centered{}, SpatialModel.BlockFlow{},
     SpatialModel.ContentFlow{}, 0n, 0n, 0n, toggle_extent(), 100n,
     role_interactive(style_chrome, Surfaces.EmbeddedField{}))
@@ -262,6 +267,7 @@ def style(role: UI.Role, meaning: UI.Meaning, +typography: T.Presentation) -> De
     case UI.Composer{}:
       with_content_area(fields(typography, surface_chrome(16n, True{}), SpatialModel.Stretch{},
         SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
+    case UI.DialogActions{}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
     case UI.ComposerActions{}: toolbar_style(SpatialModel.SplitRowFlow{}, typography)
     case UI.Approval{}:
       with_content_area(fields(typography, chrome(Design.TextForeground{Surfaces.PrimaryText{}},
@@ -350,6 +356,7 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.IconFace{icon}: geometry_icon_size(geometry)
     case Controls.PermissionFace{filesystem, network, approval}: geometry_icon_size(geometry)
     case Controls.TextFace{label}: text_line_height(NaturalSize.limit(), text)
+    case Controls.UnbrokenFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.SingleLineFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
@@ -561,6 +568,7 @@ def information_role_fields(role: UI.Role, +meaning: UI.Meaning, inherited: T.Pr
     case UI.Menu{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case UI.Details{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case UI.Toolbar{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case UI.DialogActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case UI.ComposerActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case _ _: inherited
 

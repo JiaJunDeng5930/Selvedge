@@ -2,6 +2,9 @@ import ../../core/ui-identity.bend as UIIdentity
 import Base
 import ../project-presentation-laws.bend as Rule
 import ../design.bend as Design
+import ../authored.bend as Authored
+import ../physical-space.bend as Model
+import ../enclosure.bend as Enclosure
 import ../controls.bend as Controls
 import ../../core/interface.bend as UI
 import ../../core/SYSTEM.bend as Core
@@ -25,12 +28,52 @@ def project_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: String, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
+def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: View.TaskStatus, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
 def chooser_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  {==}
+
+def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: UI.Role, +project: Nat, +selected: Bool, +expanded: Bool, +children: +List<UI.Node>, +input: Core.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
+  {Controls.contextual_source_presentation(area, Controls.SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}, input, name, face, behavior, geometry) ==
+    Controls.project_presentation(Controls.project_control_matches(input, project), Controls.project_control_input(input), expanded, name, face, behavior, geometry) : Controls.ActionPresentation}:
+  match area:
+    case Controls.PageArea{}: {==}
+    case Controls.NavigationArea{}: {==}
+    case Controls.ComposerArea{}: {==}
+    case Controls.ToolbarArea{}: {==}
+    case Controls.CodeArea{}: {==}
+    case Controls.ActivityArea{}: {==}
+    case Controls.ApprovalArea{}: {==}
+    case Controls.MenuArea{}: {==}
+    case Controls.DialogArea{}: {==}
+    case Controls.CollectionArea{}: {==}
+    case Controls.CardArea{}: {==}
+    case Controls.BoardViewArea{}: {==}
+    case Controls.BoardLaneArea{}: {==}
+
+def unscoped_projection(+area: Controls.Area, +input: Core.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
+  {Controls.contextual_source_presentation(area, Controls.Unscoped{}, input, name, face, behavior, geometry) == Controls.ActionPresentation{face, behavior, geometry} : Controls.ActionPresentation}:
+  match area:
+    case Controls.PageArea{}: {==}
+    case Controls.NavigationArea{}: {==}
+    case Controls.ComposerArea{}: {==}
+    case Controls.ToolbarArea{}: {==}
+    case Controls.CodeArea{}: {==}
+    case Controls.ActivityArea{}: {==}
+    case Controls.ApprovalArea{}: {==}
+    case Controls.MenuArea{}: {==}
+    case Controls.DialogArea{}: {==}
+    case Controls.CollectionArea{}: {==}
+    case Controls.CardArea{}: {==}
+    case Controls.BoardViewArea{}: {==}
+    case Controls.BoardLaneArea{}: {==}
+
+def status_indicator_extent(+key: UIIdentity.Key, status: View.TaskStatus, visual: Design.Style) ->
+  {Rule.status_extent(Authored.task_status_indicator(key, status, visual)) == (Model.ExactSize{16n}, (Model.ExactSize{16n}, Enclosure.Extent{16n, 16n})) : Model.AxisSize & (Model.AxisSize & Enclosure.Extent)}:
+  Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual
   {==}
 
 def Rule.evidence():
@@ -40,6 +83,8 @@ def Rule.evidence():
     +project => {==},
     +project => +trigger => {==},
     +name => +expanded => +fallback => {==},
+    project_family_projection,
+    unscoped_projection,
     +area => +family => +input => +availability => +name => +face => +behavior => +geometry => +placement => +help => +feedback => projection_construction(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback),
     +width => +height => +preferred => +icon => +radius => +leading => {==},
     +width => +height => +preferred => +icon => +radius => +leading => {==},
@@ -56,4 +101,12 @@ def Rule.evidence():
     task_reference,
     chooser_reference,
     +typography => +in_main => +start => +key => +semantic => +label => +role => +meaning => +children => +context => {==},
-    +typography => +key => +owner => +owner_semantic => +owner_label => +owner_role => +owner_children => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==}}
+    +typography => +key => +owner => +owner_semantic => +owner_label => +owner_role => +owner_children => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==},
+    {==},
+    {==},
+    working => {==},
+    working => {==},
+    working => {==},
+    +key => +status => +visual => {==},
+    status_indicator_extent,
+    +key => role => meaning => nodes => +rest => +status => +visual => {==}}

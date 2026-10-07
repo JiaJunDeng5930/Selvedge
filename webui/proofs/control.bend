@@ -99,6 +99,7 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: UI.Meaning, l
     case UI.EnterDirectory{editor, text}: {==}
     case UI.DirectoryBrowserLocation{value}: {==}
     case UI.BoardProfile{automatic, selected, choices, enabled}: {==}
+    case UI.CardContent{face}: {==}
     case UI.MovableCard{destinations, face}: {==}
     case UI.BoardLane{stage, count}: {==}
     case UI.CardArchive{count}: {==}
@@ -107,6 +108,7 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: UI.Meaning, l
     case UI.Region{}: {==}
     case UI.LayerRegion{dismiss, outside, escape}: {==}
     case UI.ReadOnly{text}: {==}
+    case UI.Fact{value}: {==}
     case UI.RichText{source, value}: {==}
     case UI.TaskFacts{details}: {==}
     case UI.CodeFacts{view}: {==}
@@ -289,3 +291,6 @@ def Rule.evidence():
     choices => key => editor => field => value => label => role => context => {==},
     choices => key => editor => field => value => label => role => context => {==}
   }
+
+def Rule.card_content_source_family(key, semantic, label, role, face, children, inherited): {==}
+def Rule.card_content_has_no_input(key, face, label, role, context): {==}

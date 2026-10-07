@@ -1,3 +1,4 @@
+import ./physical-allocation.bend as Allocation
 import ../core/operation-receipt.bend as Receipt
 import ./anchor-geometry.bend as AnchorGeometry
 import ./native-fields-rules.bend as NativeRules
@@ -142,11 +143,11 @@ law unmet_frame_status:
 
 
 def element_enabled(element: Rendered.Element) -> Bool:
-  Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit} = element
+  Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit, +paint_bounds} = element
   enabled
 
 def element_reachable(element: Rendered.Element) -> Bool:
-  Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit} = element
+  Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit, +paint_bounds} = element
   visible || scroll
 
 law enabled_reachable_tab_member:
@@ -378,3 +379,85 @@ law render_inspection:
   render_inspection_claim(stored, serial, anchors, lifecycle, displayed)
 law evidence:
   Requirements
+
+
+law unconfirmed_publication_has_no_focus_feedback:
+  for +document: Doc.Document
+  for +fields: +List<Native.Update>
+  for +ticket: Nat
+  for +before: Maybe<&2, Focus.Target>
+  for +after: Maybe<&2, Focus.Target>
+  {Browser.publication_focus_feedback(Browser.Publish{0n, document, fields}, ticket, before, after) == None{} : Maybe<&2, Platform.Input>}
+law retained_publication_has_no_focus_feedback:
+  for +fields: +List<Native.Update>
+  for +ticket: Nat
+  for +before: Maybe<&2, Focus.Target>
+  for +after: Maybe<&2, Focus.Target>
+  {Browser.publication_focus_feedback(Browser.KeepPublished{fields}, ticket, before, after) == None{} : Maybe<&2, Platform.Input>}
+law absent_focus_has_no_publication_feedback:
+  for +publication: Browser.Publication
+  for +ticket: Nat
+  for +after: Maybe<&2, Focus.Target>
+  {Browser.publication_focus_feedback(publication, ticket, None{}, after) == None{} : Maybe<&2, Platform.Input>}
+law owned_focus_has_no_publication_feedback:
+  for +publication: Browser.Publication
+  for +ticket: Nat
+  for +before: Maybe<&2, Focus.Target>
+  for +after: Focus.Target
+  {Browser.publication_focus_feedback(publication, ticket, before, Some{after}) == None{} : Maybe<&2, Platform.Input>}
+law confirmed_publication_focus_loss:
+  for +generation: Nat
+  for +document: Doc.Document
+  for +fields: +List<Native.Update>
+  for +ticket: Nat
+  for +before: Focus.Target
+  for confirmed: {Bool.not(Nat.is_eq(generation, 0n)) == True{} : Bool}
+  {Browser.publication_focus_feedback(Browser.Publish{generation, document, fields}, ticket, Some{before}, None{}) ==
+    Some{Platform.PublicationFocusObserved{ticket, Some{before}, None{}}} : Maybe<&2, Platform.Input>}
+
+
+def failure_axis_text(axis: Allocation.Axis) -> String:
+  match axis:
+    case Allocation.InlineAxis{}: "width"
+    case Allocation.BlockAxis{}: "height"
+def failure_reason_text(reason: Allocation.FailureReason) -> String:
+  match reason:
+    case Allocation.AuthoredRangeConflict{}: "authored range conflict"
+    case Allocation.InsufficientSpace{}: "insufficient space"
+    case Allocation.AllocationBoundExceeded{budget}: "allocation bound exceeded (budget " ++ Nat.show(budget) ++ ")"
+law failure_message:
+  for +key: String
+  for +axis: Allocation.Axis
+  for +required: Nat
+  for +available: Nat
+  for +reason: Allocation.FailureReason
+  {Browser.failure_message(Allocation.Failure{key, axis, required, available, reason}) ==
+    "The interface does not fit the available space: " ++ key ++ "; " ++
+      failure_axis_text(axis) ++
+      " required " ++ Nat.show(required) ++ "px, available " ++ Nat.show(available) ++ "px; " ++
+      failure_reason_text(reason) : String}
+law infeasible_candidate_retries:
+  for +index: Nat
+  for +state: Browser.State
+  for +failure: Allocation.Failure
+  {Browser.infeasible_candidate(True{}, index, state, failure) == Browser.Searching{(index + 1n : Nat), state} : Browser.Search}
+law infeasible_candidate_reports:
+  for +index: Nat
+  for +legacy: Legacy.State
+  for +serial: Nat
+  for +anchors: +List<Shell.Anchor>
+  for +lifecycle: Browser.Lifecycle
+  for +displayed: Maybe<&2, Browser.Published>
+  for +failure: Allocation.Failure
+  {Browser.infeasible_candidate(False{}, index, Browser.State{legacy, serial, anchors, lifecycle, displayed}, failure) ==
+    Browser.Stopped{Browser.Decision{Browser.State{legacy, serial, anchors, Browser.Blocked{Browser.failure_message(failure)}, displayed}, Nil{}}} : Browser.Search}
+law selected_infeasible:
+  for +failure: Allocation.Failure
+  for +index: Nat
+  for +capacity: View.Capacity
+  for +engine: World.Engine
+  for +state: Browser.State
+  for +semantic: UI.Surface
+  for +round: Nat
+  {Browser.selected(Plan.Infeasible{failure}, index, capacity, engine, state, semantic, round) ==
+    Browser.infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure) : Browser.Search}

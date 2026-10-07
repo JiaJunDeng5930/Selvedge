@@ -123,6 +123,7 @@ def face_leading_slot(value: Controls.Geometry) -> Nat:
 def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   match value:
     case Controls.TextFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
+    case Controls.UnbrokenFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.SingleLineFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, T.SingleLine{})]
     case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
     case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
@@ -142,9 +143,7 @@ def face(key: UIIdentity.Key, value: Controls.Face, parent: Design.Style, geomet
   face_members(value, key, parent, geometry)
 
 def enabled(value: View.Availability) -> Bool:
-  match value:
-    case View.Available{}: True{}
-    case _: False{}
+  UI.available(value)
 
 def availability_attributes(value: View.Availability) -> +List<Source.Attribute>:
   match value:
@@ -289,19 +288,39 @@ def label_direction(value: Controls.LabelPlacement) -> Model.Direction:
     case Controls.BesideInput{}: Model.Horizontal{}
     case _: Model.Vertical{}
 
-def label_field(value: Controls.LabelPlacement, +key: UIIdentity.Key, name: String, +visual: Design.Style, field: Source.Node) -> Source.Node:
+def label_tag(value: Controls.LabelPlacement) -> Source.BoxTag:
+  match value:
+    case Controls.BesideInput{}: Source.Label{}
+    case _: Source.Div{}
+
+def label_width(value: Controls.LabelPlacement) -> Model.AxisSize:
+  match value:
+    case Controls.BesideInput{}: Model.StretchSize{}
+    case _: Model.NaturalSize{}
+
+def input_width(value: Controls.Widget) -> Model.AxisSize:
+  match value:
+    case Controls.ToggleInput{}: Model.ExactSize{Source.toggle_target_size(Source.native_toggle_geometry())}
+    case _: Model.StretchSize{}
+
+def input_height(value: Controls.Widget) -> Model.AxisSize:
+  match value:
+    case Controls.ToggleInput{}: Model.ExactSize{Source.toggle_target_size(Source.native_toggle_geometry())}
+    case _: Model.NaturalSize{}
+
+def label_field(+value: Controls.LabelPlacement, +key: UIIdentity.Key, name: String, +visual: Design.Style, field: Source.Node) -> Source.Node:
   match value:
     case Controls.AccessibleOnly{}: field
-    case other:
-      Source.Box{UIIdentity.part(key, "field-wrapper"), Source.Div{}, Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
-        [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
+    case +other:
+      Source.Box{UIIdentity.part(key, "field-wrapper"), label_tag(other), Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
+        [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, label_width(other), Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
 
 def input_widget(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: UI.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match widget:
     case Controls.PlainValue{}:
       Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Factory.binding_attributes(key), [caption(UIIdentity.part(key, "value"), node_value(meaning), visual, T.NormalAnywhere{})]}
     case +other:
-      label_field(placement, key, name, visual, Source.Field{key, field_kind(other), Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(placement, key), availability_attributes(availability))))), node_value(meaning), placeholder(other, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(other, visual, parameters), 1n)), name, enabled(availability), field_first_event(other, key), field_remaining_events(other, key)})
+      label_field(placement, key, name, visual, Source.Field{key, field_kind(other), Factory.style(visual, input_width(other), input_height(other), Model.Confined{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(placement, key), availability_attributes(availability))))), node_value(meaning), placeholder(other, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(other, visual, parameters), 1n)), name, enabled(availability), field_first_event(other, key), field_remaining_events(other, key)})
 
 def input(key: UIIdentity.Key, meaning: UI.Meaning, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
@@ -321,17 +340,14 @@ def placement_choices(values: +List<UI.Placement>) -> +List<Source.Choice>:
       available_placement_choice(UI.available(availability), target, label, placement_choices(rest))
 
 def has_available_destination(values: +List<UI.Placement>) -> Bool:
-  match values:
-    case Nil{}: False{}
-    case Con{UI.Placement{target, label, input, availability}, rest}:
-      UI.available(availability) || has_available_destination(rest)
+  UI.has_available_destination(values)
 
 def movable_choices(+key: UIIdentity.Key, +representation: Controls.Representation, +visual: Design.Style, +parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
     case Controls.Movable{+destinations, face, +name, handle, geometry, help}:
-      Source.Field{UIIdentity.part(key, "destinations"), Source.SelectField{},
+      Source.Field{key, Source.SelectField{},
         Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
-        Factory.binding_attributes(key), "", name,
-        Source.Choice{"", name, True{}} <> placement_choices(destinations),
+        Factory.binding_attributes(key), "", "Move to…",
+        Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations),
         Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{UIIdentity.encode(key)}, Nil{}}
     case _: invalid(key, visual, "invalid-movable-representation")

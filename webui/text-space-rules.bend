@@ -20,12 +20,15 @@ def preferred_width(demand: Space.Demand) -> Nat:
   Space.Demand{minimum, Enclosure.Extent{width, height}} = demand
   width
 
-def demand_claim_parameters(+wrapping: T.Wrapping, +observation: Content.Observation, +minimum: Nat, preferred: Nat, +height: Nat) -> Type:
+def demand_claim_parameters(+wrapping: T.Wrapping, +observation: Content.Observation, +minimum: Nat, +preferred: Nat, +height: Nat) -> Type:
   match wrapping:
     case T.SingleLine{}:
       +visible: Nat = Nat.min(minimum, PhysicalSource.observation_advance(observation))
       {PhysicalSource.text_natural_demand(wrapping, observation) ==
         Space.Demand{Enclosure.Extent{visible, height}, Enclosure.Extent{Nat.max(visible, preferred), height}} : Space.Demand}
+    case T.UnbrokenLine{}:
+      {PhysicalSource.text_natural_demand(wrapping, observation) ==
+        Space.Demand{Enclosure.Extent{preferred, height}, Enclosure.Extent{preferred, height}} : Space.Demand}
     case _:
       {PhysicalSource.text_natural_demand(wrapping, observation) ==
         Space.Demand{Enclosure.Extent{minimum, height}, Enclosure.Extent{preferred, height}} : Space.Demand}
@@ -71,3 +74,49 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law unbroken_width:
+  for +observation: Content.Observation
+  {minimum_width(PhysicalSource.text_natural_demand(T.UnbrokenLine{}, observation)) ==
+    preferred_width(PhysicalSource.text_natural_demand(T.UnbrokenLine{}, observation)) : Nat}
+
+law unbroken_dimensions:
+  for +observation: Content.Observation
+  {PhysicalSource.text_natural_demand(T.UnbrokenLine{}, observation) ==
+    Space.Demand{Enclosure.Extent{PhysicalSource.observation_preferred(observation),PhysicalSource.observation_height(observation)},
+      Enclosure.Extent{PhysicalSource.observation_preferred(observation),PhysicalSource.observation_height(observation)}} : Space.Demand}
+
+law unbroken_height:
+  for key: String
+  for height: Nat
+  {PhysicalSource.text_height(T.UnbrokenLine{},key,height) == Model.FixedHeight{height} : Model.Height}
+
+def unbroken_render_claim(+capacity: Nat, +key: UIIdentity.Key, +text: String, choice: Source.FontChoice, font: T.Presentation,
+  bounds: Spatial.Box, canvas: Enclosure.Extent, rule: Model.Rule, interaction: Model.Interaction<Doc.Event>,
+  styles: +List<Doc.Property>, owned: +List<Renderer.Owned>) -> Type:
+  +value : Content.Value = Content.Value{Source.Text{key,text,choice,T.UnbrokenLine{}},font}
+  {Renderer.leaf_at(capacity,value,UIIdentity.encode(key),bounds,canvas,rule,interaction,styles,owned) ==
+    Doc.Element{UIIdentity.encode(key),"span",Nil{},Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,value),Nil{})),Nil{},[Doc.Text{text}]} : Doc.Node}
+
+law unbroken_render:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +text: String
+  for choice: Source.FontChoice
+  for font: T.Presentation
+  for bounds: Spatial.Box
+  for canvas: Enclosure.Extent
+  for rule: Model.Rule
+  for interaction: Model.Interaction<Doc.Event>
+  for styles: +List<Doc.Property>
+  for owned: +List<Renderer.Owned>
+  unbroken_render_claim(capacity,key,text,choice,font,bounds,canvas,rule,interaction,styles,owned)
+
+def unbroken_metric_claim(metric: T.Metric) -> Type:
+  T.Metric{key,minimum,+preferred,+height,advance} = metric
+  {PhysicalSource.text_natural_dimensions(T.UnbrokenLine{},minimum,preferred,height,advance) ==
+    Space.Demand{Enclosure.Extent{preferred,height},Enclosure.Extent{preferred,height}} : Space.Demand}
+
+law unbroken_metric:
+  for metric: T.Metric
+  unbroken_metric_claim(metric)

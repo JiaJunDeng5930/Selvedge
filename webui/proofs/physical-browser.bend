@@ -1,8 +1,11 @@
+import ../physical-allocation.bend as Allocation
 import ../anchor-geometry.bend as AnchorGeometry
 import ../../core/interface.bend as UI
 import ./native-fields.bend as NativeProof
 import ../native-fields-rules.bend as NativeRules
 import Base
+import ../focus.bend as Focus
+import ../platform.bend as Platform
 import ../physical-browser.bend as Browser
 import ../physical-plan.bend as Plan
 import ../physical-browser-rules.bend as Rule
@@ -142,7 +145,7 @@ def eligible_fields(+enabled: Bool, +visible: Bool, +scroll: Bool,
 
 def Rule.enabled_reachable_tab_member(element, admitted, reachable):
   match element:
-    case Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit}:
+    case Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit, +paint_bounds}:
       eligible_fields(enabled, visible, scroll, admitted, reachable)
 
 def Rule.rejected_native_focus_preserves_state(generation, owner, identity, state, rejected):
@@ -267,3 +270,46 @@ def Rule.evidence():
     +capacity => +last_published => +state => existing => waiting => publication_preserves_pending_at(capacity, last_published, state, existing, waiting),
     +capacity => +last_published => +legacy => +serial => +anchors => +problem => +displayed => blocked_publication_at(capacity, last_published, legacy, serial, anchors, problem, displayed),
     +capacity => +last_published => +state => existing => +ready => current => publication_current_at(capacity, last_published, state, existing, ready, current)}
+
+
+def Rule.unconfirmed_publication_has_no_focus_feedback(document, fields, ticket, before, after):
+  match before:
+    case None{}: {==}
+    case Some{target}:
+      match after:
+        case None{}: {==}
+        case Some{target}: {==}
+def Rule.retained_publication_has_no_focus_feedback(fields, ticket, before, after): {==}
+def Rule.absent_focus_has_no_publication_feedback(publication, ticket, after):
+  match publication:
+    case Browser.KeepPublished{fields}: {==}
+    case Browser.Publish{generation, document, fields}: {==}
+def Rule.owned_focus_has_no_publication_feedback(publication, ticket, before, after):
+  match publication:
+    case Browser.KeepPublished{fields}: {==}
+    case Browser.Publish{generation, document, fields}:
+      match before:
+        case None{}: {==}
+        case Some{target}: {==}
+def Rule.confirmed_publication_focus_loss(generation, document, fields, ticket, before, confirmed):
+  Std.transport(Bool, True{},
+    (ready => {Browser.publication_focus_loss(ready, ticket, before) ==
+      Some{Platform.PublicationFocusObserved{ticket, Some{before}, None{}}} : Maybe<&2, Platform.Input>}),
+    {==}, Bool.not(Nat.is_eq(generation, 0n)), confirmed)
+
+
+def Rule.failure_message(key, axis, required, available, reason):
+  match axis:
+    case Allocation.InlineAxis{}:
+      match reason:
+        case Allocation.AuthoredRangeConflict{}: {==}
+        case Allocation.InsufficientSpace{}: {==}
+        case Allocation.AllocationBoundExceeded{budget}: {==}
+    case Allocation.BlockAxis{}:
+      match reason:
+        case Allocation.AuthoredRangeConflict{}: {==}
+        case Allocation.InsufficientSpace{}: {==}
+        case Allocation.AllocationBoundExceeded{budget}: {==}
+def Rule.infeasible_candidate_retries(index, state, failure): {==}
+def Rule.infeasible_candidate_reports(index, legacy, serial, anchors, lifecycle, displayed, failure): {==}
+def Rule.selected_infeasible(failure, index, capacity, engine, state, semantic, round): {==}

@@ -131,6 +131,7 @@ def font_family(value: Font) -> String:
 
 type Wrapping is Data:
   SingleLine{}
+  UnbrokenLine{}
   WrapAnywhere{}
   WrapWords{}
   ScrollableCode{}
@@ -140,6 +141,7 @@ type Wrapping is Data:
 def white_space(value: Wrapping) -> String:
   match value:
     case SingleLine{}: "nowrap"
+    case UnbrokenLine{}: "nowrap"
     case WrapAnywhere{}: "pre-wrap"
     case WrapWords{}: "pre-wrap"
     case ScrollableCode{}: "pre"

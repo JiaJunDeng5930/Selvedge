@@ -9,6 +9,8 @@ import ./design.bend as Design
 import ./authored-controls.bend as Authored
 import ./source.bend as Source
 import ../core/ui-identity.bend as Identity
+import ../core/interface.bend as UI
+import ../core/ui-world.bend as View
 
 def layout_insets(layout: Controls.ContentLayout) -> (Nat & (Nat & Nat)):
   Controls.ContentLayout{alignment, +content_area, gap} = layout
@@ -54,8 +56,22 @@ law disclosure_face_caption:
   {trigger_caption(Authored.face(key,Controls.DisclosureFace{text,expanded},parent,geometry)) ==
     Some{Source.Text{Identity.part(key,"caption"),text,Source.ExplicitFont{Authored.parent_font(parent)},T.SingleLine{}}} : Maybe<&2,Source.Node>}
 
+law unbroken_caption:
+  for text: String
+  {Controls.caption_wrapping(Controls.UnbrokenFace{text}) == T.UnbrokenLine{} : T.Wrapping}
+
+law unbroken_face_caption:
+  for +key: Identity.Key
+  for +text: String
+  for +parent: Design.Style
+  for geometry: Controls.Geometry
+  {Authored.face(key,Controls.UnbrokenFace{text},parent,geometry) ==
+    [Source.Text{Identity.part(key,"caption"),text,Source.ExplicitFont{Authored.parent_font(parent)},T.UnbrokenLine{}}] : +List<Source.Node>}
+
 type Requirements is Type:
   Requirements{
+    enabled_matches_interface: @+availability:View.Availability ->
+      {Authored.enabled(availability) == UI.available(availability) : Bool},
     choice_caption_words: @text:String -> @description:Maybe<&2,String> -> @icon:Maybe<&2,Controls.Icon> -> @checked:Bool ->
       {Controls.caption_wrapping(Controls.ChoiceFace{text,description,icon,checked}) == T.NormalWords{} : T.Wrapping},
     choice_description_words: {Controls.description_wrapping() == T.NormalWords{} : T.Wrapping},

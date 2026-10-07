@@ -10,6 +10,12 @@ import ./enclosure.bend as Enclosure
 import ./typography.bend as T
 import ./document.bend as Doc
 
+def field_native_footprint(+kind: Authored.NativeFieldKind, +node: Authored.Node, +key: String,
+  +style: Authored.ResolvedStyle, +generation: Nat, +observations: +List<Content.Observation>) -> Type:
+  {Source.field(True{}, kind, node, key, style, generation, observations) ==
+    Source.measured(Content.Request{generation, key, Content.local_value(node, Source.resolved_font(style)), Content.Natural{}, Nil{}, Nil{}},
+      Authored.native_field_rule(kind, style), Nil{}, Nil{}, observations) : Source.Forest}
+
 def native_targets_claim(+snapshot: Content.Snapshot, +observations: +List<Content.Observation>) -> Type:
   {ContentRules.ready_native_targets_valid(Source.prepare(snapshot, observations)) == True{} : Bool}
 
@@ -82,7 +88,9 @@ def first_leaf_demand(forest: Source.Forest) -> Maybe<&2, Space.Demand>:
     case Source.InvalidForest{error}: None{}
 
 type Requirements is Type:
-  Requirements{native_targets: @+snapshot:Content.Snapshot -> @+observations:+List<Content.Observation> ->
+  Requirements{
+    field_native_footprint: @+kind:Authored.NativeFieldKind -> @+node:Authored.Node -> @+key:String -> @+style:Authored.ResolvedStyle -> @+generation:Nat -> @+observations:+List<Content.Observation> -> field_native_footprint(kind, node, key, style, generation, observations),
+    native_targets: @+snapshot:Content.Snapshot -> @+observations:+List<Content.Observation> ->
     native_targets_claim(snapshot, observations),
     field_width_formula: @+capacity:Nat -> @+kind:Authored.NativeFieldKind -> @+policy:Authored.FieldPolicy -> @+font:T.Presentation -> @+observation:Content.Observation ->
       {minimum_width(Source.field_natural_demand_at(capacity, kind, policy, font, observation)) == Nat.max(column_floor(policy, observation), observed_minimum(observation)) : Nat},

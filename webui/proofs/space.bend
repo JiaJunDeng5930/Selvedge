@@ -5,6 +5,34 @@ import ../space.bend as Space
 import ../../bendlib/stdlib.bend as Std
 import ../space-laws.bend as Rule
 
+def choose_extent_successor(+choice: Bool, +first: Nat, +second: Nat) ->
+  {Space.choose_extent(choice, 1n+first, 1n+second) == 1n+Space.choose_extent(choice, first, second) : Nat}:
+  match choice:
+    case True{}: {==}
+    case False{}: {==}
+
+def larger_eq_max(+first: Nat, +second: Nat) ->
+  {Space.larger(first, second) == Nat.max(first, second) : Nat}:
+  match first second:
+    case 0n 0n: {==}
+    case 0n 1n+rest: {==}
+    case 1n+rest 0n: {==}
+    case 1n+left 1n+right:
+      Equal.trans(Nat, Space.larger(1n+left, 1n+right), 1n+Space.larger(left, right), 1n+Nat.max(left, right),
+        choose_extent_successor(Nat.is_ge(left, right), left, right),
+        Equal.cong(Nat, Nat, (n => 1n+n), Space.larger(left, right), Nat.max(left, right), larger_eq_max(left, right)))
+
+def smaller_eq_min(+first: Nat, +second: Nat) ->
+  {Space.smaller(first, second) == Nat.min(first, second) : Nat}:
+  match first second:
+    case 0n 0n: {==}
+    case 0n 1n+rest: {==}
+    case 1n+rest 0n: {==}
+    case 1n+left 1n+right:
+      Equal.trans(Nat, Space.smaller(1n+left, 1n+right), 1n+Space.smaller(left, right), 1n+Nat.min(left, right),
+        choose_extent_successor(Nat.is_ge(left, right), right, left),
+        Equal.cong(Nat, Nat, (n => 1n+n), Space.smaller(left, right), Nat.min(left, right), smaller_eq_min(left, right)))
+
 def zero_le(value: Nat) -> {Nat.is_le(0n, value) == True{} : Bool}:
   match value:
     case 0n: {==}
@@ -156,7 +184,9 @@ def chosen_lower(+dimension: Space.Dimension, +room: Nat,
   {Nat.is_le(Space.minimum(dimension), Space.choose(dimension, room)) == True{} : Bool}:
   match dimension:
     case Space.Rigid{value}: le_refl(value)
-    case Space.Fit{lower, extra, maximum_extra}: min_floor(lower, extra, room, fits)
+    case Space.Fit{lower, extra, maximum_extra}:
+      %Equal.sym(Nat, Space.smaller(Nat.add(lower, extra), room), Nat.min(Nat.add(lower, extra), room), smaller_eq_min(Nat.add(lower, extra), room)) : {Nat.is_le(lower, _) == True{} : Bool}
+      min_floor(lower, extra, room, fits)
     case Space.Fill{lower}: fits
 
 def chosen_room(+dimension: Space.Dimension, +room: Nat,
@@ -164,7 +194,9 @@ def chosen_room(+dimension: Space.Dimension, +room: Nat,
   {Nat.is_le(Space.choose(dimension, room), room) == True{} : Bool}:
   match dimension:
     case Space.Rigid{value}: fits
-    case Space.Fit{lower, extra, maximum_extra}: min_le_second(Nat.add(lower, extra), room)
+    case Space.Fit{lower, extra, maximum_extra}:
+      %Equal.sym(Nat, Space.smaller(Nat.add(lower, extra), room), Nat.min(Nat.add(lower, extra), room), smaller_eq_min(Nat.add(lower, extra), room)) : {Nat.is_le(_, room) == True{} : Bool}
+      min_le_second(Nat.add(lower, extra), room)
     case Space.Fill{lower}: le_refl(room)
 
 def chosen_upper(+dimension: Space.Dimension, +room: Nat) ->
@@ -172,6 +204,7 @@ def chosen_upper(+dimension: Space.Dimension, +room: Nat) ->
   match dimension:
     case Space.Rigid{value}: le_refl(value)
     case Space.Fit{lower, extra, maximum_extra}:
+      %Equal.sym(Nat, Space.smaller(Nat.add(lower, extra), room), Nat.min(Nat.add(lower, extra), room), smaller_eq_min(Nat.add(lower, extra), room)) : {Nat.is_le(_, Nat.add(Nat.add(lower, extra), maximum_extra)) == True{} : Bool}
       le_trans(Nat.min(Nat.add(lower, extra), room), Nat.add(lower, extra), Nat.add(Nat.add(lower, extra), maximum_extra),
         min_le_first(Nat.add(lower, extra), room), le_add(Nat.add(lower, extra), maximum_extra))
     case Space.Fill{lower}: {==}
@@ -356,7 +389,7 @@ def feasible_tag(~A: Data, +feasible: Bool, +slots: +List<Space.Slot<A>>, +gap: 
     case True{}: finish_packed(~A, Space.place_from(~A, slots, gap, 0n, available))
 
 def Rule.evidence(A):
-  Rule.Requirements{dimension_minimum, dimension_maximum,
+  Rule.Requirements{larger_eq_max, smaller_eq_min, dimension_minimum, dimension_maximum,
     +slots => +gap => +available => feasible_tag(~A, Nat.is_le(Space.minimum_sequence(~A, slots, gap), available), slots, gap, available),
     +slots => +gap => +available => does_not_fit => pack_insufficient(~A, slots, gap, available, does_not_fit),
     +slots => +gap => +available => +fits => pack_complete(~A, slots, gap, available, fits)}

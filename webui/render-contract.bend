@@ -21,7 +21,7 @@ def control_geometry_valid(+required: Bool, key: String, found: Maybe<&2, Render
   must_be_visible: Bool, viewport: Geometry.Rect) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Rendered.Element{observed_key, +visible, +enabled, tab, +keyboard, +scroll, +bounds, +hit}}:
+    case Some{Rendered.Element{observed_key, +visible, +enabled, tab, +keyboard, +scroll, +bounds, +hit, +paint_bounds}}:
       same_bool(required, enabled) &&
       enabled_geometry_valid(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport)
 
@@ -35,13 +35,13 @@ def node_controls_valid(is_control: Bool, meaning: UI.Meaning, key: String,
 def bounded_region(found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Rendered.Element{key, +visible, enabled, tab, keyboard, scroll, +bounds, hit}}:
+    case Some{Rendered.Element{key, +visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds}}:
       visible && Geometry.contains(viewport, bounds)
 
 def reachable_toolbar(found: Maybe<&2, Rendered.Element>) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Rendered.Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit}}:
+    case Some{Rendered.Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       visible || scroll
 
 def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
@@ -58,6 +58,7 @@ def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, vie
     case UI.CodeBlock{}: True{}
     case UI.ApprovalQueue{}: bounded_region(found, viewport)
     case UI.Section{}: True{}
+    case UI.DialogActions{}: bounded_region(found, viewport)
     case UI.Dialog{}: bounded_region(found, viewport)
     case UI.Menu{}: bounded_region(found, viewport)
     case UI.Details{}: True{}
@@ -119,12 +120,12 @@ def required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) -> Bool
         case Some{focus_key}: True{}
 
 def disjoint_from(first: Rendered.Element, rest: +List<Rendered.Element>) -> Bool:
-  Rendered.Element{+key, visible, enabled, tab, keyboard, scroll, +bounds, hit} = first
+  Rendered.Element{+key, visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds} = first
   match rest:
     case Nil{}: True{}
-    case Con{Rendered.Element{other, v, e, t, k, s, other_bounds, h}, tail}:
-      Bool.not(Rendered.overlaps(bounds, other_bounds)) &&
-      disjoint_from(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail)
+    case Con{Rendered.Element{other, v, e, t, k, s, other_bounds, h, +other_paint_bounds}, tail}:
+      Bool.not(Rendered.overlaps(paint_bounds, other_paint_bounds)) &&
+      disjoint_from(Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail)
 
 def non_overlapping(elements: +List<Rendered.Element>) -> Bool:
   match elements:
@@ -132,12 +133,22 @@ def non_overlapping(elements: +List<Rendered.Element>) -> Bool:
     case Con{first, +rest}:
       disjoint_from(first, rest) && non_overlapping(rest)
 
-def valid_parts(+active: +List<UI.Node>, frame: Rendered.Frame) -> Bool:
+def layout_valid_parts(+active: +List<UI.Node>, frame: Rendered.Frame) -> Bool:
   Rendered.Frame{+viewport, +elements, +focused, +tab_order, +native_focus} = frame
   all_nodes(active, False{}, elements, viewport) &&
   (focus(focused, active, elements, viewport, native_focus) &&
    (Rendered.tabs_valid(active, elements, native_focus, tab_order) &&
     non_overlapping(Rendered.actionable_elements(active, elements))))
+
+def paint_geometry_valid(elements: +List<Rendered.Element>, +viewport: Geometry.Rect) -> Bool:
+  match elements:
+    case Nil{}: True{}
+    case Con{Rendered.Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, rest}:
+      Rendered.paint_geometry_valid(visible, bounds, paint_bounds, viewport) && paint_geometry_valid(rest, viewport)
+
+def valid_parts(+active: +List<UI.Node>, +frame: Rendered.Frame) -> Bool:
+  Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
+  paint_geometry_valid(elements, viewport) && layout_valid_parts(active, frame)
 
 def valid(+surface: UI.Surface, +frame: Rendered.Frame) -> Bool:
   UI.Surface{content, base, overlays, +scope} = surface

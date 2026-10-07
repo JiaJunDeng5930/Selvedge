@@ -10,6 +10,12 @@ type Target is Data:
   Product{identity: String}
   Content{owner: String, identity: String}
 
+def same_target(first: Target, second: Target) -> Bool:
+  match first second:
+    case Product{first} Product{second}: String.eq(first, second)
+    case Content{first_owner, first} Content{second_owner, second}: String.eq(first_owner, second_owner) && String.eq(first, second)
+    case _ _: False{}
+
 def target_key(target: Target) -> String:
   match target:
     case Product{identity}: identity

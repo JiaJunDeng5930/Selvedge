@@ -54,3 +54,9 @@ def Rule.directory_identity_requirements():
     +path => control => +parent => state => {==},
     path => primary => choose => remove => +parent => state => other => name => {==},
     path => primary => choose => remove => +parent => state => other => name => {==}}
+
+def Rule.directory_ready_regions(ticket, editor, path, parent, entries, truncated, location, trigger):
+  {==}
+
+def Rule.directory_location_navigation_regions(ticket, editor, path, parent, entries, truncated, location, trigger):
+  {==}

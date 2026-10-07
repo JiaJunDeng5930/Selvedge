@@ -10,6 +10,8 @@ import ./interface.bend as Model
 import ./ui-world.bend as V
 import ./user-context.bend as Context
 import ./user-input.bend as U
+import ./user-experience.bend as E
+import ../BOARD.bend as B
 
 law composer_tree_present_agreement:
   for +identity: U.Editor
@@ -180,3 +182,87 @@ law agent_model_permission:
   for concurrency: Nat
   for world: M.World()
   {U.model_permitted(U.Agent{agent, revision, name, profile, reasoning, instructions, context, concurrency}, world) == U.selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning) : Bool}
+
+
+law modal_navigation_preserved:
+  for +nav: V.Navigation
+  for +state: Core.State
+  {Model.modal_navigation_at(V.ModalNavigation{}, nav, state) == [Model.navigation(nav, state)] : +List<Model.Node>}
+
+law overlay_navigation_scope:
+  for +key: Identity.Key
+  for semantic: String
+  for label: String
+  for meaning: Model.Meaning
+  for children: +List<Model.Node>
+  for rest: +List<Model.Node>
+  {Model.active_scope(Model.Node{key, semantic, label, Model.Navigation{}, meaning, children} <> rest) == Some{Identity.encode(key)} : Maybe<&2, String>}
+
+law dialog_actions_region:
+  for +parent: Identity.Key
+  for +children: +List<Model.Node>
+  {Model.dialog_actions(parent, children) == Model.Node{Identity.Part{parent, "@actions"}, "@actions", "Actions", Model.DialogActions{}, Model.Region{}, children} : Model.Node}
+
+law editor_submit_region:
+  for identity: U.Editor
+  for revision: Nat
+  for groups: +List<V.InputGroup>
+  for structure: +List<Forms.Section>
+  for submit: V.ControlDeclaration
+  for feedback: U.Feedback
+  for pending: Bool
+  for +parent: Identity.Key
+  for +state: Core.State
+  {Model.editor(Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}, parent, state) ==
+    List.append(&2, Model.Node, Model.sections(structure, identity, parent, 0n, state, groups),
+      List.append(&2, Model.Node, Model.feedback_nodes(parent, feedback), [Model.dialog_actions(parent, [Model.declared(parent, submit, state)])])) : +List<Model.Node>}
+
+law confirmation_actions_region:
+  for title: String
+  for confirm: V.ControlDeclaration
+  for cancel: V.ControlDeclaration
+  for +parent: Identity.Key
+  for +state: Core.State
+  {Model.layer_content(V.Confirmation{title, confirm, cancel}, parent, state) ==
+    [Model.dialog_actions(parent, [Model.declared(parent, confirm, state), Model.declared(parent, cancel, state)])] : +List<Model.Node>}
+
+def expected_card(view: V.CardScene, +parent: Identity.Key, +state: Core.State) -> Model.Node:
+  V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code, next_layer}}, services} = state
+  +key : Identity.Key = Identity.Entity{parent, "card", Nat.show(id)}
+  +face : V.CardFace = V.card_face(id, value, now, world)
+  +offered : +List<Model.Placement> = List.append(&2, Model.Placement, Model.placements(destinations, id, B.revision(value), state), Model.archive_placement(B.archived(value), id, B.revision(value), state))
+  Model.Node{key, "card/" ++ Nat.show(id), B.title(B.draft(value)), Model.Card{}, Model.CardContent{face},
+    [Model.declared(key, open, state), Model.more(U.CardSubject{id}, key, state),
+      Model.Node{Identity.part(key, "movement"), "card/" ++ Nat.show(id) ++ "/movement", "Move " ++ B.title(B.draft(value)), Model.Field{}, Model.MovableCard{offered, face}, Nil{}}]}
+
+law card_ordered_movement:
+  for +view: V.CardScene
+  for +parent: Identity.Key
+  for +state: Core.State
+  {Model.card(view, parent, state) == expected_card(view, parent, state) : Model.Node}
+
+law card_surface_placement:
+  for +key: Identity.Key
+  for semantic: String
+  for label: String
+  for +face: V.CardFace
+  for +children: +List<Model.Node>
+  for target: String
+  {Model.placement_source(Model.Node{key, semantic, label, Model.Card{}, Model.CardContent{face}, children}, target) == Model.placement_input(Model.card_placements(children), target) : Maybe<&2, Core.Input>}
+
+law card_movement_placement:
+  for +key: Identity.Key
+  for semantic: String
+  for label: String
+  for +face: V.CardFace
+  for +destinations: +List<Model.Placement>
+  for target: String
+  {Model.placement_source(Model.Node{key, semantic, label, Model.Field{}, Model.MovableCard{destinations, face}, Nil{}}, target) == Model.placement_input(destinations, target) : Maybe<&2, Core.Input>}
+
+
+law project_fact_structure:
+  for +key: Identity.Key
+  for +label: String
+  for value: String
+  {Model.project_fact(key, label, value) == Model.Node{key, Identity.encode(key), label, Model.Content{}, Model.Fact{value}, Nil{}} : Model.Node}

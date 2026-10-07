@@ -192,7 +192,9 @@ def page_cross(page: Bool) -> Spatial.Alignment:
     case False{}: Spatial.Centered{}
 
 def main_frame(organization: Composition.Body, frame: Enclosure.Frame) -> Enclosure.Frame:
-  page_frame_policy(page_organization(organization), frame)
+  match organization:
+    case Composition.ChronologicalReading{}: Enclosure.Frame{Enclosure.area(Enclosure.PageContent{}), Enclosure.SeparateFrames{Enclosure.Sections{}}}
+    case _: page_frame_policy(page_organization(organization), frame)
 
 def main_leading(organization: Composition.Body, previous: Spatial.Alignment) -> Spatial.Alignment:
   page_leading(page_organization(organization), previous)
@@ -214,9 +216,61 @@ def organized_main_box(measure: Composition.Measure, organization: Composition.B
     case Composition.CenteredCreation{}: creation_main_box(key, tag, style, attributes, children, maximum)
     case _: ordinary_main_box(measure, organization, key, tag, style, attributes, children, maximum)
 
-def main_box(structure: Design.MainStructure, +key: UIIdentity.Key, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat) -> Source.Node:
-  Design.MainStructure{measure, organization} = structure
-  organized_main_box(measure, organization, key, tag, style, attributes, children, maximum)
+def conversation_title_font(font: Source.FontChoice) -> Source.FontChoice:
+  match font:
+    case Source.InheritFont{}: Source.InheritFont{}
+    case Source.ExplicitFont{presentation}:
+      Source.ExplicitFont{Typography.with_emphasis(Typography.with_tier(presentation, Typography.Section{}), Typography.Medium{})}
+
+def conversation_title_style(style: Source.Style) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  match direction:
+    case Model.Vertical{}:
+      Source.Style{Source.Layout{direction, Spatial.Centered{}, cross, frame, width, height, minimum, scroll, position}, conversation_title_font(font), chrome, states}
+    case Model.Horizontal{}:
+      Source.Style{Source.Layout{direction, main, Spatial.Centered{}, frame, width, height, minimum, scroll, position}, conversation_title_font(font), chrome, states}
+    case Model.ResponsiveHorizontal{}:
+      Source.Style{Source.Layout{direction, main, Spatial.Centered{}, frame, width, height, minimum, scroll, position}, conversation_title_font(font), chrome, states}
+    case Model.Layered{}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, conversation_title_font(font), chrome, states}
+
+def conversation_title_children(values: +List<Source.Node>) -> +List<Source.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      Source.Box{key, tag, conversation_title_style(style), attributes, conversation_title_children(children)} <> conversation_title_children(rest)
+    case Con{Source.Text{key, value, font, wrapping}, rest}:
+      Source.Text{key, value, conversation_title_font(font), Typography.SingleLine{}} <> conversation_title_children(rest)
+    case Con{other, rest}: other <> conversation_title_children(rest)
+
+def conversation_title(node: Source.Node) -> Source.Node:
+  match node:
+    case Source.Box{key, tag, style, attributes, children}:
+      Source.Box{key, tag, conversation_title_style(style), attributes, conversation_title_children(children)}
+    case Source.Text{key, value, font, wrapping}:
+      Source.Text{key, value, conversation_title_font(font), Typography.SingleLine{}}
+    case other: other
+
+def conversation_heading(+key: UIIdentity.Key, +style: Source.Style, title: Source.Node, actions: Source.Node) -> Source.Node:
+  Source.Style{layout, font, chrome, states} = style
+  Source.Box{UIIdentity.part(key, "@heading"), Source.Div{},
+    Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{},
+      Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.ComposerControls{}}},
+      Model.StretchSize{}, Model.NaturalSize{}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}}, font, chrome, states}, Nil{}, [conversation_title(title), actions]}
+
+def conversation_heading_children(key: UIIdentity.Key, style: Source.Style, children: +List<Source.Node>) -> +List<Source.Node>:
+  match children:
+    case Con{title, Con{actions, remaining}}: conversation_heading(key, style, title, actions) <> remaining
+    case other: other
+
+def heading_children(heading: Composition.Heading, key: UIIdentity.Key, style: Source.Style, children: +List<Source.Node>) -> +List<Source.Node>:
+  match heading:
+    case Composition.ConversationHeading{}: conversation_heading_children(key, style, children)
+    case _: children
+
+def main_box(structure: Design.MainStructure, +key: UIIdentity.Key, tag: Source.BoxTag, +style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, maximum: Nat) -> Source.Node:
+  Design.MainStructure{measure, heading, organization} = structure
+  organized_main_box(measure, organization, key, tag, style, attributes, heading_children(heading, key, style, children), maximum)
 
 def minimum_style(style: Source.Style, +required: Nat) -> Source.Style:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
@@ -322,10 +376,23 @@ def floating_position(role: UI.Role, key: UIIdentity.Key, +outside: Enclosure.In
     case UI.Menu{}: menu_position(find_layer(UIIdentity.encode(key), layers), outside, gap, base, overlays, anchors)
     case _: Spatial.CenteredLayer{outside}
 
-def floating_width(role: UI.Role, +reading_width: Nat) -> Model.AxisSize:
+def dialog_reading_span(reading_width: Nat, line_height: Nat) -> Nat:
+  Nat.min(reading_width, Nat.mul(24n, line_height))
+
+def dialog_reading_width(parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  dialog_reading_span(reading_width, line_height)
+
+def floating_width(role: UI.Role, +reading_width: Nat, dialog_width: Nat) -> Model.AxisSize:
   match role:
+    case UI.Dialog{}: Model.CappedStretchSize{dialog_width}
     case UI.Menu{}: Model.CappedNaturalSize{100n}
     case _: Model.LimitedSize{0n, reading_width, reading_width}
+
+def floating_scroll(role: UI.Role) -> Model.Scroll:
+  match role:
+    case UI.Dialog{}: Model.Confined{}
+    case _: Model.ScrollVertically{}
 
 def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
@@ -334,33 +401,42 @@ def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked:
 def outside_insets(+unit: Nat) -> Enclosure.Insets:
   Enclosure.Insets{Nat.mul(2n, unit), Nat.mul(2n, unit)}
 
-def float_overlay(+role: UI.Role, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+def float_overlay(+role: UI.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, +line_height, creation_height, lane_width} = parameters
+  +dialog_width = dialog_reading_span(reading_width, line_height)
   +unit = Nat.max(1n, Nat.div(line_height, 4n))
   +outside = outside_insets(unit)
-  OverlayParts{docked, resize(node, floating_width(role, reading_width), Model.CappedNaturalSize{100n}, Model.ScrollVertically{}, Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
+  OverlayParts{docked, resize(node, floating_width(role, reading_width, dialog_width), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
 
-def overlay_layout(+role: UI.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def standard_overlay_layout(+role: UI.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   match role details_beside:
     case UI.Details{} True{}:
       dock_overlay(parameters, node, docked, floating)
     case _ _:
       float_overlay(role, parameters, node, layers, base, overlays, anchors, docked, floating)
 
-def overlay_capacity(+role: UI.Role, capacity: View.Capacity, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def overlay_layout(+role: UI.Role, +details_beside: Bool, +placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  match role placement:
+    case UI.Navigation{} View.ModalNavigation{}:
+      Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+      OverlayParts{docked, resize(node, Model.ExactSize{navigation_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> floating}
+    case _ _:
+      standard_overlay_layout(role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating)
+
+def overlay_capacity(+role: UI.Role, capacity: View.Capacity, placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   View.Capacity{navigation_beside, details_beside} = capacity
-  overlay_layout(role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating)
+  overlay_layout(role, details_beside, placement, parameters, node, layers, base, overlays, anchors, docked, floating)
 
-def split_overlay_node(+node: Source.Node, +role: UI.Role, capacity: View.Capacity, parameters: Design.LayoutParameters, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, parts: OverlayParts) -> OverlayParts:
+def split_overlay_node(+node: Source.Node, +role: UI.Role, capacity: View.Capacity, placement: View.NavigationPlacement, parameters: Design.LayoutParameters, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, parts: OverlayParts) -> OverlayParts:
   OverlayParts{docked, floating} = parts
-  overlay_capacity(role, capacity, parameters, node, layers, base, overlays, anchors, docked, floating)
+  overlay_capacity(role, capacity, placement, parameters, node, layers, base, overlays, anchors, docked, floating)
 
-def split_overlays(+values: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +base: +List<Design.Node>, +overlays: +List<Design.Node>, +anchors: +List<Anchor>) -> OverlayParts:
+def split_overlays(+values: +List<Source.Node>, +capacity: View.Capacity, +placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +base: +List<Design.Node>, +overlays: +List<Design.Node>, +anchors: +List<Anchor>) -> OverlayParts:
   match values:
     case Nil{}: OverlayParts{Nil{}, Nil{}}
     case Con{+node, rest}:
-      split_overlay_node(node, base_role(Source.key_of(node), overlays), capacity, parameters, layers, base, overlays, anchors,
-        split_overlays(rest, capacity, parameters, layers, base, overlays, anchors))
+      split_overlay_node(node, base_role(Source.key_of(node), overlays), capacity, placement, parameters, layers, base, overlays, anchors,
+        split_overlays(rest, capacity, placement, parameters, layers, base, overlays, anchors))
 
 def back_to_front(floating: +List<Source.Node>) -> +List<Source.Node>:
   List.reverse(&2, Source.Node, floating)
@@ -377,7 +453,7 @@ def measure_width(measure: Composition.Measure, parameters: Design.LayoutParamet
     case Composition.AvailableMeasure{}: 0n
 
 def structure_reading_width(structure: Design.MainStructure, parameters: Design.LayoutParameters) -> Nat:
-  Design.MainStructure{measure, organization} = structure
+  Design.MainStructure{measure, heading, organization} = structure
   measure_width(measure, parameters)
 
 def scene_structure(content: Core.Scene) -> Design.MainStructure:
@@ -391,7 +467,7 @@ def scene_navigation_placement(content: Core.Scene) -> View.NavigationPlacement:
 def assemble_surface(surface: Design.Surface, base_nodes: +List<Source.Node>, overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, layers: +List<View.Layer>, anchors: +List<Anchor>, +font: Typography.Presentation) -> Result:
   Design.Surface{+content, theme, +base, +overlays, active_scope} = surface
   +structure = scene_structure(content)
-  assembled_parts(split_overlays(overlay_nodes, capacity, parameters, layers, base, overlays, anchors), structure, structure_reading_width(structure, parameters), base_nodes, base, scene_navigation_placement(content), parameters, font, theme)
+  assembled_parts(split_overlays(overlay_nodes, capacity, scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, structure_reading_width(structure, parameters), base_nodes, base, scene_navigation_placement(content), parameters, font, theme)
 
 def assemble(base_result: Authored.Result, overlay_result: Authored.Result, +surface: Design.Surface, capacity: View.Capacity, parameters: Design.LayoutParameters, layers: +List<View.Layer>, anchors: +List<Anchor>, +font: Typography.Presentation) -> Result:
   match base_result overlay_result:

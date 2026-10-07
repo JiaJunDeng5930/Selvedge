@@ -2,6 +2,7 @@ import Base
 import ./physical-space.bend as Model
 import ./space.bend as Space
 import ./enclosure.bend as Enclosure
+import ./spatial.bend as Spatial
 
 def extent_contains(outer: Enclosure.Extent, inner: Enclosure.Extent) -> Bool:
   Enclosure.Extent{outer_width, outer_height} = outer
@@ -37,8 +38,57 @@ def allocated_width(result: Maybe<&2, Space.Dimension>, room: Nat) -> Maybe<&2, 
     case None{}: None{}
     case Some{dimension}: Some{Space.choose(dimension, room)}
 
+def adaptive_maximum(+minimum: Nat, +offered: Nat, +nominal_cap: Nat) -> Nat:
+  Space.smaller(offered, Space.larger(minimum, nominal_cap))
+
+def adaptive_fit(+minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat) -> Space.Dimension:
+  +maximum = adaptive_maximum(minimum, offered, nominal_cap)
+  +chosen = Space.smaller(maximum, Space.larger(minimum, preferred))
+  Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(maximum, chosen)}
+
+def adaptive_ceiling(+minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat) -> Nat:
+  +maximum = adaptive_maximum(minimum, offered, nominal_cap)
+  +chosen = Space.smaller(maximum, Space.larger(minimum, preferred))
+  Nat.add(Nat.add(minimum, Nat.sub(chosen, minimum)), Nat.sub(maximum, chosen))
+
+def nominal_percentage(+offered: Nat, +percent: Nat) -> Nat:
+  Nat.add(Nat.mul(Nat.div(offered, 100n), percent), Nat.div(Nat.mul(Nat.mod(offered, 100n), percent), 100n))
+
+def minimum_result(result: Maybe<&2, Space.Dimension>) -> Maybe<&2, Nat>:
+  match result:
+    case None{}: None{}
+    case Some{dimension}: Some{Space.minimum(dimension)}
+
+def maximum_fits(result: Maybe<&2, Space.Dimension>, +offered: Nat) -> Bool:
+  match result:
+    case None{}: False{}
+    case Some{Space.Rigid{extent}}: Nat.is_le(extent, offered)
+    case Some{Space.Fit{minimum, preferred_extra, maximum_extra}}: Nat.is_le(Nat.add(Nat.add(minimum, preferred_extra), maximum_extra), offered)
+    case Some{Space.Fill{minimum}}: False{}
+
 type Requirements<-A: Data, -E: Data> is Type:
   Requirements{
+    adaptive_exact: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+nominal_cap:Nat ->
+      @fits:{Nat.is_le(minimum, offered) == True{} : Bool} ->
+      {Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered) == Some{adaptive_fit(minimum, preferred, offered, nominal_cap)} : Maybe<&2, Space.Dimension>},
+    adaptive_total: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @valid:{Nat.is_le(percent, 100n) == True{} : Bool} -> @fits:{Nat.is_le(minimum, offered) == True{} : Bool} ->
+      {Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered) == Some{adaptive_fit(minimum, preferred, offered, nominal_percentage(offered, percent))} : Maybe<&2, Space.Dimension>},
+    adaptive_minimum: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @valid:{Nat.is_le(percent, 100n) == True{} : Bool} -> @fits:{Nat.is_le(minimum, offered) == True{} : Bool} ->
+      {minimum_result(Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered)) == Some{minimum} : Maybe<&2, Nat>},
+    adaptive_maximum: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @valid:{Nat.is_le(percent, 100n) == True{} : Bool} -> @fits:{Nat.is_le(minimum, offered) == True{} : Bool} ->
+      {maximum_fits(Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered), offered) == True{} : Bool},
+    adaptive_normal: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+nominal_cap:Nat ->
+      @content_fits:{Nat.is_le(minimum, nominal_cap) == True{} : Bool} -> @cap_fits:{Nat.is_le(nominal_cap, offered) == True{} : Bool} ->
+      {Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered) == Model.capped_dimension(Some{nominal_cap}, minimum, preferred) : Maybe<&2, Space.Dimension>},
+    adaptive_invalid: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @invalid:{Nat.is_le(percent, 100n) == False{} : Bool} ->
+      {Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>},
+    adaptive_conflict: @+minimum:Nat -> @+preferred:Nat -> @+offered:Nat -> @+percent:Nat ->
+      @conflict:{Nat.is_le(minimum, offered) == False{} : Bool} ->
+      {Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>},
     capped_stretch_accepted: @+minimum:Nat -> @preferred:Nat -> @offered:Nat -> @+maximum:Nat ->
       @fits:{Nat.is_le(minimum, maximum) == True{} : Bool} ->
       {Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered) == Some{capped_stretch_dimension(minimum, maximum)} : Maybe<&2, Space.Dimension>},
@@ -76,3 +126,11 @@ law evidence:
   for ~A: Data
   for ~E: Data
   Requirements<A, E>
+
+
+law aligned_clearance_contains:
+  for +outside: Enclosure.Insets
+  for +horizontal: Spatial.Alignment
+  for +vertical: Spatial.Alignment
+  for +extent: Enclosure.Extent
+  {extent_contains(Model.clearance_extent(Model.Layered{}, Spatial.AlignedLayer{outside, horizontal, vertical}, extent), extent) == True{} : Bool}

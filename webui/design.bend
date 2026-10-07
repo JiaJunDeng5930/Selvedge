@@ -25,11 +25,11 @@ type Environment is Data:
   Environment{viewport: Viewport, system_dark: Bool, root_font_size_milli: Nat}
 
 type MainStructure is Data:
-  MainStructure{measure: Composition.Measure, organization: Composition.Body}
+  MainStructure{measure: Composition.Measure, heading: Composition.Heading, organization: Composition.Body}
 
 def main_structure(recipe: Composition.Recipe) -> MainStructure:
   Composition.Recipe{measure, heading, body, composer, decisions, latest} = recipe
-  MainStructure{measure, body}
+  MainStructure{measure, heading, body}
 
 type LayoutParameters is Data:
   LayoutParameters{navigation_width: Nat, main_minimum_width: Nat, details_width: Nat,
@@ -60,11 +60,23 @@ type Chrome is Data:
 type PhasePaint is Data:
   PhasePaint{foreground: Paint, background: Paint}
 
+# The ring occupies [inset, inset + width] inside each allocated control edge.
+type FocusIndicator is Data:
+  FocusIndicator{paint: Paint, width: Nat, inset: Nat}
+
+def focus_indicator_outer_inset(value: FocusIndicator) -> Nat:
+  FocusIndicator{paint, width, inset} = value
+  inset
+
+def focus_indicator_inner_inset(value: FocusIndicator) -> Nat:
+  FocusIndicator{paint, width, inset} = value
+  Nat.add(inset, width)
+
 type ControlStates is Data:
   Passive{}
   SurfaceFeedback{hover: PhasePaint, pressed: PhasePaint}
   Interactive{hover: PhasePaint, pressed: PhasePaint, disabled_opacity_percent: Nat,
-    focus_ring: Paint, focus_ring_width: Nat, focus_ring_offset: Nat}
+    focus_indicator: FocusIndicator}
 
 type Style is Data:
   Style{text: T.Presentation, chrome: Chrome, alignment: SpatialModel.Alignment, flow: SpatialModel.Flow,

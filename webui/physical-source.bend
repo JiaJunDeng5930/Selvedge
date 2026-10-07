@@ -64,6 +64,7 @@ def text_rule() -> Model.Rule:
 def text_height(wrapping: T.Wrapping, key: String, height: Nat) -> Model.Height:
   match wrapping:
     case T.SingleLine{}: Model.FixedHeight{height}
+    case T.UnbrokenLine{}: Model.FixedHeight{height}
     case T.WrapAnywhere{}: Model.HeightAtWidth{key}
     case T.WrapWords{}: Model.HeightAtWidth{key}
     case T.ScrollableCode{}: Model.HeightAtWidth{key}
@@ -157,12 +158,15 @@ def observation_advance(observation: Content.Observation) -> Nat:
   Content.Observation{generation, key, purpose, minimum_width, preferred_width, content_height, reference_advance} = observation
   reference_advance
 
-def text_natural_dimensions(wrapping: T.Wrapping, +minimum: Nat, preferred: Nat, +height: Nat, advance: Nat) -> Space.Demand:
+def text_natural_dimensions(wrapping: T.Wrapping, +minimum: Nat, +preferred: Nat, +height: Nat, advance: Nat) -> Space.Demand:
   match wrapping:
     case T.SingleLine{}:
       # The complete single-line value remains available through its native title.
       +visible_minimum: Nat = Nat.min(minimum, advance)
       Space.Demand{Enclosure.Extent{visible_minimum, height}, Enclosure.Extent{Nat.max(visible_minimum, preferred), height}}
+    case T.UnbrokenLine{}:
+      # A complete short caption contributes its full measured width to row selection.
+      Space.Demand{Enclosure.Extent{preferred, height}, Enclosure.Extent{preferred, height}}
     case _: Space.Demand{Enclosure.Extent{minimum, height}, Enclosure.Extent{preferred, height}}
 def text_natural_demand(wrapping: T.Wrapping, +observation: Content.Observation) -> Space.Demand:
   text_natural_dimensions(wrapping, observation_minimum(observation), observation_preferred(observation), observation_height(observation), observation_advance(observation))
@@ -264,12 +268,12 @@ def glyph_result(valid: Bool, +node: Source.Node, +key: String, +style: Source.R
         Source.physical_rule(style), Space.fixed_demand(width, height), Model.FixedHeight{height}}], Nil{}, Nil{}}
     case False{}: InvalidForest{Content.InvalidDrawing{key}}
 
-def field(valid: Bool, node: Source.Node, +key: String, +style: Source.ResolvedStyle,
+def field(valid: Bool, kind: Source.NativeFieldKind, node: Source.Node, +key: String, +style: Source.ResolvedStyle,
   generation: Nat, observations: +List<Content.Observation>) -> Forest:
   match valid:
     case True{}:
       measured(Content.Request{generation, key, Content.local_value(node, resolved_font(style)), Content.Natural{}, Nil{}, Nil{}},
-        Source.physical_rule(style), Nil{}, Nil{}, observations)
+        Source.native_field_rule(kind, style), Nil{}, Nil{}, observations)
     case False{}: InvalidForest{Content.InvalidFieldPolicy{key}}
 
 def rich(attachments: Forest, +node: Source.Node, +key: String, +style: Source.ResolvedStyle,
@@ -371,7 +375,7 @@ def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +gen
       +path = prefix ++ "/" ++ Nat.show(index)
       +node: Source.Node = Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}
       +resolved = Source.resolve_style(style, parent_font)
-      merge(ordinary(context, field(Source.field_policy_valid(policy), node, path, resolved, generation, observations), path),
+      merge(ordinary(context, field(Source.field_policy_valid(policy), kind, node, path, resolved, generation, observations), path),
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
     case Con{Source.RichText{+key, +style, Source.RichContent{+source, +value, +policy}, +attachments, +native_owner}, +rest}:
       +path = prefix ++ "/" ++ Nat.show(index)

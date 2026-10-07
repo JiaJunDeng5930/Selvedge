@@ -11,6 +11,7 @@ type AxisSize is Data:
   LimitedSize{minimum: Nat, preferred_extra: Nat, maximum_extra: Nat}
   PercentSize{percent: Nat}
   CappedNaturalSize{maximum_percent: Nat}
+  AdaptiveNaturalSize{preferred_maximum_percent: Nat}
 
 type Direction is Data:
   Horizontal{}
@@ -52,7 +53,7 @@ type HeightRequest<-A: Data> is Data:
 def extent_max(first: Enclosure.Extent, second: Enclosure.Extent) -> Enclosure.Extent:
   Enclosure.Extent{first_width, first_height} = first
   Enclosure.Extent{second_width, second_height} = second
-  Enclosure.Extent{Nat.max(first_width, second_width), Nat.max(first_height, second_height)}
+  Enclosure.Extent{Space.larger(first_width, second_width), Space.larger(first_height, second_height)}
 
 def interaction_floor(~E: Data, +interaction: Interaction<E>) -> Enclosure.Extent:
   match interaction:
@@ -85,8 +86,8 @@ def fixed_leaf_content(demand: Space.Demand, +height: Nat) -> Space.Demand:
   Space.Demand{minimum, preferred} = demand
   Enclosure.Extent{minimum_width, minimum_height} = minimum
   Enclosure.Extent{preferred_width, preferred_height} = preferred
-  +lower: Enclosure.Extent = Enclosure.Extent{minimum_width, Nat.max(minimum_height, height)}
-  Space.Demand{lower, extent_max(lower, Enclosure.Extent{preferred_width, Nat.max(preferred_height, height)})}
+  +lower: Enclosure.Extent = Enclosure.Extent{minimum_width, Space.larger(minimum_height, height)}
+  Space.Demand{lower, extent_max(lower, Enclosure.Extent{preferred_width, Space.larger(preferred_height, height)})}
 
 def intrinsic_leaf_content(demand: Space.Demand) -> Space.Demand:
   Space.Demand{+minimum, preferred} = demand
@@ -100,12 +101,12 @@ def leaf_content_demand(+demand: Space.Demand, height: Height) -> Space.Demand:
 def horizontal_extent(gap: Nat, first: Enclosure.Extent, rest: Enclosure.Extent) -> Enclosure.Extent:
   Enclosure.Extent{first_width, first_height} = first
   Enclosure.Extent{rest_width, rest_height} = rest
-  Enclosure.Extent{Nat.add(first_width, Nat.add(gap, rest_width)), Nat.max(first_height, rest_height)}
+  Enclosure.Extent{Nat.add(first_width, Nat.add(gap, rest_width)), Space.larger(first_height, rest_height)}
 
 def vertical_extent(gap: Nat, first: Enclosure.Extent, rest: Enclosure.Extent) -> Enclosure.Extent:
   Enclosure.Extent{first_width, first_height} = first
   Enclosure.Extent{rest_width, rest_height} = rest
-  Enclosure.Extent{Nat.max(first_width, rest_width), Nat.add(first_height, Nat.add(gap, rest_height))}
+  Enclosure.Extent{Space.larger(first_width, rest_width), Nat.add(first_height, Nat.add(gap, rest_height))}
 
 def combine_extent(+direction: Direction, gap: Nat, first: Enclosure.Extent, rest: Enclosure.Extent) -> Enclosure.Extent:
   match direction:
@@ -117,6 +118,7 @@ def position_outside(+position: Spatial.Position) -> Enclosure.Insets:
   match position:
     case Spatial.InFlow{}: Enclosure.Insets{0n, 0n}
     case Spatial.CenteredLayer{outside}: outside
+    case Spatial.AlignedLayer{outside, horizontal, vertical}: outside
     case Spatial.AnchoredLayer{anchor_key, anchor, outside, gap, alignment}: outside
 
 def clearance_extent_layered(outside: Enclosure.Insets, extent: Enclosure.Extent) -> Enclosure.Extent:
@@ -198,19 +200,31 @@ def capped_dimension(+extent: Maybe<&2, Nat>, +minimum: Nat, +preferred: Nat) ->
   match extent:
     case None{}: None{}
     case Some{+cap}:
-      +chosen = Nat.min(cap, Nat.max(minimum, preferred))
+      +chosen = Space.smaller(cap, Space.larger(minimum, preferred))
       accept_dimension(Nat.is_le(minimum, cap), Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)})
 
-def materialize(+size: AxisSize, +minimum: Nat, +preferred: Nat, offered: Nat) -> Maybe<&2, Space.Dimension>:
+# A preferred cap yields to content minima while the offered space stays hard.
+def adaptive_checked(+fits: Bool, +minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat) -> Maybe<&2, Space.Dimension>:
+  +maximum = Space.smaller(offered, Space.larger(minimum, nominal_cap))
+  +chosen = Space.smaller(maximum, Space.larger(minimum, preferred))
+  accept_dimension(fits, Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(maximum, chosen)})
+
+def adaptive_dimension(extent: Maybe<&2, Nat>, +minimum: Nat, preferred: Nat, +offered: Nat) -> Maybe<&2, Space.Dimension>:
+  match extent:
+    case None{}: None{}
+    case Some{cap}: adaptive_checked(Nat.is_le(minimum, offered), minimum, preferred, offered, cap)
+
+def materialize(+size: AxisSize, +minimum: Nat, +preferred: Nat, +offered: Nat) -> Maybe<&2, Space.Dimension>:
   match size:
-    case NaturalSize{}: Some{Space.Fit{minimum, Nat.sub(Nat.max(minimum, preferred), minimum), 0n}}
+    case NaturalSize{}: Some{Space.Fit{minimum, Nat.sub(Space.larger(minimum, preferred), minimum), 0n}}
     case StretchSize{}: Some{Space.Fill{minimum}}
     case CappedStretchSize{maximum}: accept_dimension(Nat.is_le(minimum, maximum), Space.Fit{minimum, Nat.sub(maximum, minimum), 0n})
     case ExactSize{+extent}: accept_dimension(Nat.is_le(minimum, extent), Space.Rigid{extent})
     case LimitedSize{+authored_minimum, +preferred_extra, maximum_extra}:
       +maximum = Nat.add(Nat.add(authored_minimum, preferred_extra), maximum_extra)
-      +lower = Nat.max(minimum, authored_minimum)
-      +chosen = Nat.min(maximum, Nat.max(lower, preferred))
+      +lower = Space.larger(minimum, authored_minimum)
+      +chosen = Space.smaller(maximum, Space.larger(lower, preferred))
       accept_dimension(Nat.is_le(lower, maximum), Space.Fit{lower, Nat.sub(chosen, lower), Nat.sub(maximum, chosen)})
     case PercentSize{+percent}: percentage_dimension(percentage_extent(offered, percent), minimum)
     case CappedNaturalSize{+maximum_percent}: capped_dimension(percentage_extent(offered, maximum_percent), minimum, preferred)
+    case AdaptiveNaturalSize{+preferred_maximum_percent}: adaptive_dimension(percentage_extent(offered, preferred_maximum_percent), minimum, preferred, offered)

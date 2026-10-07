@@ -1,4 +1,5 @@
 import Base
+import ../focus.bend as Focus
 import ../MODEL.bend as Model
 import ../../core/interface.bend as UI
 import ../rendered.bend as Rendered
@@ -21,7 +22,42 @@ def Rule.contextless_frame_silent(state, received, frame):
   match state:
     case Model.State{application, generation, realization, environment, font}: {==}
 
-def Rule.observe_frame_exact(application, generation, previous, environment, font, received, surface, frame): {==}
+def Rule.observe_frame_exact(core, readers, editors, focused, ticket, reduced, capacity, scope, generation, previous, environment, font, received, surface, frame): {==}
+
+def Rule.visible_focus_recovery_visible(visible, eligible, identity): {==}
+
+def Rule.visible_focus_recovery_hidden(focused, eligible, identity):
+  match focused:
+    case False{}: {==}
+    case True{}: {==}
+
+def Rule.visible_focus_recovery_ineligible(focused, visible, identity):
+  match focused visible:
+    case False{} False{}: {==}
+    case False{} True{}: {==}
+    case True{} _: {==}
+
+def Rule.visible_focus_recovery_target(identity): {==}
+
+def Rule.frame_focus_recovery_document(surface, frame):
+  match frame:
+    case Rendered.Frame{viewport, elements, focused, tab_order, native_focus}: {==}
+
+def Rule.frame_focus_recovery_unfocused(surface, viewport, elements, tab_order, native_focus, scope):
+  match scope:
+    case Focus.Document{}: {==}
+    case Focus.Temporary{identity, initial, restore, occurrence}: {==}
+
+def Rule.frame_focus_recovery_temporary(surface, viewport, elements, key, tab_order, native_focus, identity, initial, restore, occurrence): {==}
+
+def Rule.frame_recovery_effects_stale(ticket, generation, target): {==}
+
+def Rule.frame_recovery_effects_absent(owned, ticket, generation):
+  match owned:
+    case False{}: {==}
+    case True{}: {==}
+
+def Rule.frame_recovery_effects_target(ticket, generation, identity): {==}
 
 def observation_sound(requirements: RenderRules.Requirements, +generation: Nat, +received: Nat,
   +surface: UI.Surface, +frame: Rendered.Frame, +previous: Rendered.State,
@@ -33,5 +69,5 @@ def observation_sound(requirements: RenderRules.Requirements, +generation: Nat, 
 
 def Rule.observed_realization_sound(application, generation, previous, environment, font, received, surface, frame, owned, realized):
   match application:
-    case Platform.State{core, platform}:
+    case Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}:
       observation_sound(RenderRules.evidence, generation, received, surface, frame, previous, owned, realized)

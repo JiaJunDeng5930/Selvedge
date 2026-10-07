@@ -5,6 +5,7 @@ import ../SYSTEM.bend as Core
 import ../interface-rules.bend as Rule
 import ../interface.bend as Model
 import ../ui-world.bend as V
+import ../user-experience.bend as E
 
 def Rule.composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state):
   match footer:
@@ -88,3 +89,28 @@ def Rule.new_task_model_permission(message, profile, reasoning, context, world):
 
 def Rule.agent_model_permission(agent, revision, name, profile, reasoning, instructions, context, concurrency, world):
   {==}
+
+
+def Rule.modal_navigation_preserved(nav, state): {==}
+
+def Rule.overlay_navigation_scope(key, semantic, label, meaning, children, rest): {==}
+
+def Rule.dialog_actions_region(parent, children):
+  {==}
+
+def Rule.editor_submit_region(identity, revision, groups, structure, submit, feedback, pending, parent, state):
+  {==}
+
+def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
+  {==}
+
+def Rule.card_ordered_movement(view, parent, state):
+  V.CardScene{id, value, open, actions, linked, destinations, candidates} = view
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  {==}
+
+def Rule.card_surface_placement(key, semantic, label, face, children, target): {==}
+def Rule.card_movement_placement(key, semantic, label, face, destinations, target): {==}
+
+
+def Rule.project_fact_structure(key, label, value): {==}

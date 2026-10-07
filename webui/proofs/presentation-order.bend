@@ -135,6 +135,7 @@ def ordered_children_matches_specification(+values: +List<UI.Node>, role: UI.Rol
     case UI.DestructiveButton{}: {==}
     case UI.SelectedButton{}: {==}
     case UI.ComposerActions{}: {==}
+    case UI.DialogActions{}: {==}
     case UI.Timeline{}: {==}
     case UI.Activity{}: {==}
     case UI.UserMessage{}: {==}
@@ -165,6 +166,7 @@ def non_dialog_order(role: UI.Role, +values: +List<UI.Node>, +context: Controls.
     case UI.DestructiveButton{}: {==}
     case UI.SelectedButton{}: {==}
     case UI.ComposerActions{}: {==}
+    case UI.DialogActions{}: {==}
     case UI.Timeline{}: {==}
     case UI.Activity{}: {==}
     case UI.UserMessage{}: {==}
@@ -632,6 +634,7 @@ def Rule.remaining_role_classification(key, role, belongs):
     case UI.DestructiveButton{}: {==}
     case UI.SelectedButton{}: {==}
     case UI.ComposerActions{}: {==}
+    case UI.DialogActions{}: {==}
     case UI.Timeline{}: {==}
     case UI.Activity{}: {==}
     case UI.UserMessage{}: {==}

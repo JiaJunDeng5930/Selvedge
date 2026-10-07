@@ -12,6 +12,10 @@ import ../space.bend as Space
 import ../enclosure.bend as Enclosure
 import ../typography.bend as T
 
+def field_native_footprint(+kind: Authored.NativeFieldKind, +node: Authored.Node, +key: String,
+  +style: Authored.ResolvedStyle, +generation: Nat, +observations: +List<Content.Observation>) ->
+  Rule.field_native_footprint(kind, node, key, style, generation, observations): {==}
+
 def admitted(+duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content.Prepared,
   proof: {Content.duplicate_native_slot(Content.native_slots(prepared)) == duplicate : Maybe<&2, Content.NativeSlot>}) ->
   {ContentRules.ready_native_targets_valid(Source.admit_duplicate(duplicate, prepared)) == True{} : Bool}:
@@ -139,6 +143,6 @@ def field_production_demand(+capacity: Nat, +label: UIIdentity.Key, +kind: Autho
     case Authored.FieldPolicy{columns, minimum_lines, maximum_lines}: {==}
 
 def Rule.evidence():
-  Rule.Requirements{+snapshot => +observations => native_targets(snapshot, observations),
+  Rule.Requirements{field_native_footprint, +snapshot => +observations => native_targets(snapshot, observations),
     field_width_formula, field_column_floor, field_observed_minimum, field_preferred_width,
     field_minimum_height, field_preferred_height, field_production_demand}

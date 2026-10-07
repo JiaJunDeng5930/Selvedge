@@ -79,13 +79,20 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
       return result;
     } finally { signal.removeEventListener('abort', abort); }
   }
+  function disposeProbe(probe) {
+    probe.observer?.disconnect(); probe.renderer.dispose(); probe.root.remove();
+  }
   function destroyContainer() {
     if (frame !== null) window.cancelAnimationFrame(frame);
     frame = null;
-    for (const probe of probes.values()) {
-      probe.observer?.disconnect(); probe.renderer.dispose(); probe.root.remove();
-    }
+    for (const probe of probes.values()) disposeProbe(probe);
     probes.clear(); container?.remove(); container = null;
+  }
+  function pruneProbes(generation) {
+    for (const [identity, probe] of probes) {
+      if (probe.generation === generation) continue;
+      disposeProbe(probe); probes.delete(identity);
+    }
   }
   function ensureContainer() {
     if (!surface.isConnected || !document.body?.isConnected || !window?.getComputedStyle) {
@@ -115,13 +122,14 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
     });
   }
   function getProbe(request, width) {
-    const identity = JSON.stringify([natural(request.generation, 'request generation'), request.key, width]);
+    const generation = natural(request.generation, 'request generation');
+    const identity = JSON.stringify([generation, request.key, width]);
     let probe = probes.get(identity);
     if (probe) return probe;
     const root = document.createElement('div');
     root.style.cssText = 'display:block;margin:0;padding:0;border:0;min-width:0;max-width:none;min-height:0;max-height:none;height:auto;box-sizing:content-box;';
     container.appendChild(root);
-    probe = { root, content: null, baseline: null, observer: null };
+    probe = { generation, root, content: null, baseline: null, observer: null };
     probe.renderer = new Renderer(root, {
       event() {},
       codeKey: (source, ordinal) => bend.code_key(source, ordinal),
@@ -169,6 +177,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
       const captured = revision;
       active = true;
       try {
+        pruneProbes(generation);
         ensureContainer();
         if (!document.fonts?.ready) throw new Error('Document font readiness is unavailable');
         await wait(document.fonts.ready, captured);
@@ -205,7 +214,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
               content_height: extent(multilineContentHeight(content, window), 'content height'), reference_advance: referenceAdvance(content) });
           }
           if (width !== null) {
-            for (const target of list(bend.probe_target_keys(request))) {
+            for (const target of list(bend.probe_target_keys(job))) {
               if (typeof target !== 'string') throw new TypeError('Invalid canonical native target key');
               const box = probe.renderer.targetBounds(target, content);
               targets.push({ owner_key: request.key, width, target, left: origin(box.left, 'target left'), top: origin(box.top, 'target top'),

@@ -38,7 +38,10 @@ let revision = 0;
 let dragged = null;
 let renderQueued = false;
 let renderedGeneration = null;
+let displayedFrameRequest = null;
+let requestedFrameGeneration = null;
 let pendingFocus = null;
+let applyingFocus = false;
 let physicalRevision = 0;
 let physicalActive = false;
 let physicalQueued = null;
@@ -162,7 +165,14 @@ function render() {
   switch (publication.$) {
     case 'KeepPublished': break;
     case 'Publish': {
+      const ticket = Bend.focus_ticket(state);
+      const before = observedFocus();
       renderer.render(publication.document, publication.generation);
+      const after = observedFocus();
+      const feedback = Bend.publication_focus_feedback(publication, ticket, before, after);
+      if (feedback.$ === 'Some') queueMicrotask(() => {
+        if (!disposed) platform(feedback.value);
+      });
       renderedGeneration = publication.generation > 0n ? publication.generation : null;
       // Publication establishes the baseline; only later native content reflow requests a new measurement.
       displayedGeometry = geometrySignature();
@@ -173,9 +183,9 @@ function render() {
     default: throw new TypeError(`Unknown publication ${publication.$}`);
   }
   renderer.synchronizeFields(publication.fields);
-  root.dataset.renderInspection = JSON.stringify(decodeBendValue(Bend.render_inspection(state)));
+  root.dataset.renderInspection = JSON.stringify(encodeBendValue(Bend.render_inspection(state)));
   root.dataset.renderStatus = Bend.render_status(state);
-  root.dataset.renderViolations = JSON.stringify(decodeBendValue(list(Bend.render_violations(state))));
+  root.dataset.renderViolations = JSON.stringify(encodeBendValue(list(Bend.render_violations(state))));
   schedulePhysical();
   for (const effect of effects) Promise.resolve(execute(effect)).catch(error => console.error(error));
 }
@@ -235,16 +245,43 @@ async function runPhysical() {
     schedulePhysical();
   }
 }
+function observedFocus() {
+  nativeLinks();
+  const node = document.activeElement;
+  if (!node || node === document.body || !root.contains(node)) return value('None');
+  const anchor = nativeAnchor(node);
+  if (anchor) {
+    const contentOwner = nativeContentOwner(anchor);
+    if (contentOwner && anchor.dataset.nativeLinkKey) return value('Some', {
+      value: value('Content', { owner: contentOwner, identity: anchor.dataset.nativeLinkKey }),
+    });
+    return value('None');
+  }
+  const identity = owner(node);
+  return identity ? value('Some', { value: value('Product', { identity }) }) : value('None');
+}
+function sameFocus(target, observed) {
+  if (observed.$ !== 'Some' || target.$ !== observed.value.$) return false;
+  return target.identity === observed.value.identity && (target.$ !== 'Content' || target.owner === observed.value.owner);
+}
 function applyFocus(physical) {
   if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus = null; return; }
   const target = physical.target;
   const node = target.$ === 'Product' ? renderer.target(target.identity)
     : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
-  if (!node) { pendingFocus = physical; return; }
-  pendingFocus = null;
-  node.focus({ preventScroll: false });
-  platform(value('FocusApplied', { ticket: physical.ticket, target }));
+  pendingFocus = physical;
+  if (!node) return;
+  // Programmatic focus is correlated by its receipt; user focus changes revoke its ticket.
+  applyingFocus = true;
+  try { node.focus({ preventScroll: false }); } finally { applyingFocus = false; }
+  const observed = observedFocus();
+  if (sameFocus(target, observed)) pendingFocus = null;
+  platform(value('FocusApplied', { ticket: physical.ticket, target, observed }));
 }
+function retryPendingFocus() {
+  if (!disposed && pendingFocus && document.visibilityState === 'visible') applyFocus(pendingFocus);
+}
+
 function commit(decision) {
   state = decision.state; render();
   for (const effect of list(decision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
@@ -397,7 +434,10 @@ function frameGeometry(node, bounds) {
     const style = getComputedStyle(ancestor);
     if (ancestor.hidden || style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) painted = false;
     if (ancestor === node) continue;
-    const clip = ancestor.getBoundingClientRect();
+    const border = ancestor.getBoundingClientRect();
+    const clip = { left: border.left + ancestor.clientLeft, top: border.top + ancestor.clientTop,
+      right: border.left + ancestor.clientLeft + ancestor.clientWidth,
+      bottom: border.top + ancestor.clientTop + ancestor.clientHeight };
     if (style.overflowX !== 'visible') {
       intersection.left = Math.max(intersection.left, clip.left);
       intersection.right = Math.min(intersection.right, clip.right);
@@ -411,7 +451,9 @@ function frameGeometry(node, bounds) {
   }
   const visible = painted && hasArea(intersection);
   const control = node.tabIndex >= 0 || node.matches('button,input,select,textarea,a[href],area[href],summary,[contenteditable="true"]');
-  return { visible, scrollReachable: painted && control && scrollable,
+  const paintBounds = value('Rect', { left: intersection.left, top: intersection.top,
+    right: Math.max(intersection.left, intersection.right), bottom: Math.max(intersection.top, intersection.bottom) });
+  return { visible, paintBounds, scrollReachable: painted && control && scrollable,
     hitOwner: visible ? focusIdentity(document.elementFromPoint((intersection.left + intersection.right) / 2, (intersection.top + intersection.bottom) / 2)) : '' };
 }
 function frame() {
@@ -422,7 +464,7 @@ function frame() {
     const enabled = !node.disabled && !node.closest('[inert]') && node.getAttribute('aria-disabled') !== 'true';
     const tab = enabled && node.tabIndex >= 0;
     return value('Element', { key: focusIdentity(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
-      center_hit_owner: geometry.hitOwner });
+      center_hit_owner: geometry.hitOwner, paint_bounds: geometry.paintBounds });
   });
   const focused = focusIdentity(document.activeElement);
   const tabOrder = nodes.filter(node => {
@@ -436,8 +478,13 @@ function frame() {
     native_focus: linked(anchors.map(anchor => value('NativeFocus', { identity: anchor.dataset.nativeLinkKey, owner: nativeContentOwner(anchor) }))) });
 }
 function requestDisplayedFrame(generation) {
-  requestAnimationFrame(() => {
-    if (renderedGeneration === generation && root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') {
+  requestedFrameGeneration = generation;
+  if (disposed || displayedFrameRequest !== null) return;
+  displayedFrameRequest = requestAnimationFrame(() => {
+    displayedFrameRequest = null;
+    const generation = requestedFrameGeneration;
+    requestedFrameGeneration = null;
+    if (!disposed && renderedGeneration === generation && root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') {
       native(value('FrameObserved', { generation, frame: frame() }));
     }
   });
@@ -577,7 +624,7 @@ function applyReading(physical) {
       if (currentReadingMeasurement(surface)) { measureUserAnchor(surface); break; }
       const observed = anchor(surface); if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed })); break;
     }
-    case 'ReserveComposer': { const content = root.querySelector(`[data-reading-content][data-reading-task="${physical.task}"]`); if (content) content.style.paddingBottom = `${effect.height}px`; break; }
+    case 'ReserveComposer': { const content = root.querySelector(`[data-reading-content][data-reading-task="${physical.task}"]`); if (content) content.style.setProperty('--reading-composer-reserve', `${effect.height}px`); break; }
     default: throw new TypeError(`Unknown reading effect ${effect.$}`);
   }
 }
@@ -652,6 +699,7 @@ document.fonts.addEventListener('loadingerror', environment);
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 motion.addEventListener('change', () => platform(value('MotionPreference', { reduced: bool(motion.matches) })));
 root.addEventListener('focusin', () => {
+  if (applyingFocus) return;
   nativeLinks();
   const anchor = nativeAnchor(document.activeElement);
   if (!anchor) { platform(value('FocusObserved', { identity: owner(document.activeElement) })); return; }
@@ -664,10 +712,15 @@ root.addEventListener('focusin', () => {
 });
 window.addEventListener('pagehide', () => {
   disposed = true;
+  if (displayedFrameRequest !== null) cancelAnimationFrame(displayedFrameRequest);
+  displayedFrameRequest = null;
+  requestedFrameGeneration = null;
   codeObservationGroups.clear();
   codeObservationScheduled = false;
   clearInterval(clockTimer);
   document.removeEventListener('visibilitychange', clockVisibilityChanged);
+  document.removeEventListener('visibilitychange', retryPendingFocus);
+  window.removeEventListener('focus', retryPendingFocus);
   for (const timer of feedbackTimers) clearTimeout(timer);
   feedbackTimers.clear();
   physicalRevision++;
@@ -690,6 +743,8 @@ for (const effect of bootEffects) Promise.resolve(execute(effect)).catch(error =
 observeClock();
 clockTimer = setInterval(observeClock, 60_000);
 document.addEventListener('visibilitychange', clockVisibilityChanged);
+document.addEventListener('visibilitychange', retryPendingFocus);
+window.addEventListener('focus', retryPendingFocus);
 native(value('Mount'));
 const hash = new URLSearchParams(location.hash.slice(1));
 if (hash.has('token')) { token = hash.get('token'); history.replaceState(null, '', location.pathname + location.search); }
@@ -799,6 +854,7 @@ function endReadingPointer(event) {
 window.addEventListener('pointerup', endReadingPointer, true);
 window.addEventListener('pointercancel', endReadingPointer, true);
 root.addEventListener('scroll', event => {
+  if (renderedGeneration !== null) requestDisplayedFrame(renderedGeneration);
   const surface = event.target;
   if (!surface.matches?.('[data-reading-scroll]')) return;
   if (!currentReadingMeasurement(surface) && readingUserOwned.has(surface) && !readingCorrections.has(surface)) {

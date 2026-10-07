@@ -8,7 +8,7 @@ import ./interaction.bend as Geometry
 type Element is Data:
   Element{key: String, visible: Bool, enabled: Bool, tab_stop: Bool,
     keyboard_reachable: Bool, scroll_reachable: Bool, bounds: Geometry.Rect,
-    center_hit_owner: String}
+    center_hit_owner: String, paint_bounds: Geometry.Rect}
 
 type NativeFocus is Data:
   NativeFocus{identity: String, owner: String}
@@ -22,6 +22,7 @@ type Violation is Data:
   UnreachableControl{key: String}
   OccludedControl{key: String}
   OverlappingControls{first: String, second: String}
+  InvalidPaintGeometry{key: String}
   EscapedDialog{key: String}
   InvisibleFocus{}
   FocusOutsideScope{}
@@ -47,6 +48,7 @@ def field_control(entry: Forms.Entry) -> Bool:
 
 def interactive(meaning: UI.Meaning) -> Bool:
   match meaning:
+    case UI.MovableCard{destinations, face}: True{}
     case UI.ComposerAction{subject, input, availability}: True{}
     case UI.Activate{input, availability}: True{}
     case UI.PanelToggle{expanded, input, availability}: True{}
@@ -63,6 +65,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
 
 def required_enabled(meaning: UI.Meaning) -> Bool:
   match meaning:
+    case UI.MovableCard{destinations, face}: UI.has_available_destination(destinations)
     case UI.ComposerAction{subject, input, availability}: enabled(availability)
     case UI.Activate{input, availability}: enabled(availability)
     case UI.PanelToggle{expanded, input, availability}: enabled(availability)
@@ -79,12 +82,13 @@ def choose_element(same: Bool, element: Element, fallback: Maybe<&2, Element>) -
 def find_element(elements: +List<Element>, +key: String) -> Maybe<&2, Element>:
   match elements:
     case Nil{}: None{}
-    case Con{Element{+current, visible, enabled, tab, keyboard, scroll, bounds, hit}, rest}:
-      choose_element(String.eq(current, key), Element{current, visible, enabled, tab, keyboard, scroll, bounds, hit}, find_element(rest, key))
+    case Con{Element{+current, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}, rest}:
+      choose_element(String.eq(current, key), Element{current, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, find_element(rest, key))
 
 def persistent(role: UI.Role) -> Bool:
   match role:
     case UI.Composer{}: True{}
+    case UI.DialogActions{}: True{}
     case UI.Approval{}: False{}
     case UI.Toolbar{}: False{}
     case _: False{}
@@ -105,14 +109,14 @@ def enabled_geometry(required: Bool, +key: String, +visible: Bool, keyboard: Boo
 def control_geometry(+required: Bool, +key: String, found: Maybe<&2, Element>, must_be_visible: Bool, viewport: Geometry.Rect) -> +List<Violation>:
   match found:
     case None{}: [MissingElement{key}]
-    case Some{Element{observed, visible, +enabled, tab, keyboard, scroll, bounds, hit}}:
+    case Some{Element{observed, visible, +enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       List.append(&2, Violation, issue(Bool.not(((required && enabled) || (Bool.not(required) && Bool.not(enabled)))), DisabledAppearance{key}),
         enabled_geometry(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport))
 
 def bounded_dialog(key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match found:
     case None{}: [MissingElement{key}]
-    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit}}:
+    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       issue(Bool.not(visible && Geometry.contains(viewport, bounds)), EscapedDialog{key})
 
 def dialog_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
@@ -129,7 +133,7 @@ def node_controls(is_control: Bool, meaning: UI.Meaning, key: String, found: May
 def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation>:
   match found:
     case None{}: [MissingElement{key}]
-    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit}}:
+    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
       issue(Bool.not(visible || scroll), EscapedDialog{key})
 
 def region_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
@@ -138,6 +142,7 @@ def region_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewp
     case UI.NavigationHeader{}: bounded_dialog(key, found, viewport)
     case UI.Main{}: bounded_dialog(key, found, viewport)
     case UI.Composer{}: bounded_dialog(key, found, viewport)
+    case UI.DialogActions{}: bounded_dialog(key, found, viewport)
     case UI.Toolbar{}: reachable_toolbar(key, found)
     case UI.ApprovalQueue{}: bounded_dialog(key, found, viewport)
     case other: dialog_geometry(other, key, found, viewport)
@@ -149,7 +154,7 @@ def overlaps(first: Geometry.Rect, second: Geometry.Rect) -> Bool:
 
 def code_in_view(role: UI.Role, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
   match role found:
-    case UI.CodeBlock{} Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: overlaps(bounds, viewport)
+    case UI.CodeBlock{} Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}}: visible && overlaps(paint_bounds, viewport)
     case _ _: False{}
 def node_geometry(found: Maybe<&2, Element>, +meaning: UI.Meaning, role: UI.Role, +key: String, persistent: Bool, +viewport: Geometry.Rect) -> +List<Violation>:
   match found:
@@ -167,7 +172,7 @@ def nodes(entries: +List<UI.Node>, +inherited: Bool, +elements: +List<Element>, 
 def tab_stop(found: Maybe<&2, Element>) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: enabled && tab && (visible || scroll)
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && tab && (visible || scroll)
 
 def tab_entry(included: Bool, key: String, rest: +List<String>) -> +List<String>:
   match included:
@@ -187,7 +192,7 @@ def read_only(found: Maybe<&2, UI.Node>) -> Bool:
 
 def native_element(found: Maybe<&2, Element>) -> Bool:
   match found:
-    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: enabled && tab && keyboard && (visible || scroll)
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && tab && keyboard && (visible || scroll)
     case None{}: False{}
 
 def exists(found: Maybe<&2, UI.Node>) -> Bool:
@@ -239,7 +244,7 @@ def tabs_valid(+active: +List<UI.Node>, +elements: +List<Element>, +native_focus
 def focus_visible(found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
   match found:
     case None{}: False{}
-    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}}: visible && Geometry.contains(viewport, bounds)
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: visible && Geometry.contains(viewport, bounds)
 
 
 def focus_owned(+nodes: +List<UI.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, +key: String) -> Bool:
@@ -261,7 +266,7 @@ def required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) -> +Lis
 
 def include_element(included: Bool, found: Maybe<&2, Element>, rest: +List<Element>) -> +List<Element>:
   match included found:
-    case True{} Some{Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit}}: Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit} <> rest
+    case True{} Some{Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds} <> rest
     case _ _: rest
 
 def actionable_elements(nodes: +List<UI.Node>, +elements: +List<Element>) -> +List<Element>:
@@ -272,24 +277,43 @@ def actionable_elements(nodes: +List<UI.Node>, +elements: +List<Element>) -> +Li
         List.append(&2, Element, actionable_elements(children, elements), actionable_elements(rest, elements)))
 
 def against(first: Element, rest: +List<Element>) -> +List<Violation>:
-  Element{+key, visible, enabled, tab, keyboard, scroll, +bounds, hit} = first
+  Element{+key, visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds} = first
   match rest:
     case Nil{}: Nil{}
-    case Con{Element{other, v, e, t, k, s, other_bounds, h}, tail}:
-      List.append(&2, Violation, issue(overlaps(bounds, other_bounds), OverlappingControls{key, other}),
-        against(Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit}, tail))
+    case Con{Element{other, v, e, t, k, s, other_bounds, h, +other_paint_bounds}, tail}:
+      List.append(&2, Violation, issue(overlaps(paint_bounds, other_paint_bounds), OverlappingControls{key, other}),
+        against(Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail))
 
 def independent_targets(elements: +List<Element>) -> +List<Violation>:
   match elements:
     case Nil{}: Nil{}
     case Con{first, +rest}: List.append(&2, Violation, against(first, rest), independent_targets(rest))
 
-def check(+active: +List<UI.Node>, frame: Frame) -> +List<Violation>:
+def layout_check(+active: +List<UI.Node>, frame: Frame) -> +List<Violation>:
   Frame{+viewport, +elements, focused, tab_order, +native_focus} = frame
   List.append(&2, Violation, nodes(active, False{}, elements, viewport),
     List.append(&2, Violation, focus_checks(focused, active, elements, viewport, native_focus),
       List.append(&2, Violation, issue(Bool.not(tabs_valid(active, elements, native_focus, tab_order)), WrongTabOrder{}),
         independent_targets(actionable_elements(active, elements)))))
+
+# Visible paint must be a positive region inside both the layout and viewport.
+# The DOM adapter owns correspondence with actual ancestor clipping.
+def paint_geometry_valid(visible: Bool, +bounds: Geometry.Rect, +paint_bounds: Geometry.Rect, +viewport: Geometry.Rect) -> Bool:
+  match visible:
+    case False{}: True{}
+    case True{}: Geometry.contains(bounds, paint_bounds) && Geometry.contains(viewport, paint_bounds)
+
+def paint_geometry(elements: +List<Element>, +viewport: Geometry.Rect) -> +List<Violation>:
+  match elements:
+    case Nil{}: Nil{}
+    case Con{Element{+key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, rest}:
+      List.append(&2, Violation,
+        issue(Bool.not(paint_geometry_valid(visible, bounds, paint_bounds, viewport)), InvalidPaintGeometry{key}),
+        paint_geometry(rest, viewport))
+
+def check(+active: +List<UI.Node>, +frame: Frame) -> +List<Violation>:
+  Frame{+viewport, +elements, focused, tab_order, native_focus} = frame
+  List.append(&2, Violation, paint_geometry(elements, viewport), layout_check(active, frame))
 
 def violations(+surface: UI.Surface, +frame: Frame) -> +List<Violation>:
   UI.Surface{content, base, overlays, +scope} = surface

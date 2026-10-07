@@ -25,7 +25,7 @@ type Requirements is Type:
        Interface.selected_node(String.eq(view, "working"), Interface.declared(parent,
          View.ControlDeclaration{"view/working", "工作中", View.Secondary{},
            U.FilterBoard{B.Filter{"working", search, status, priority, date, assignee, creator, project, labels}}, View.Available{}}, state)) : Interface.Node},
-    linked_conversation_control: @+id: Nat -> @+title: String -> @+status: String -> @+selected: Bool -> @+open: View.ControlDeclaration -> @+parent: Identity.Key -> @+state: Core.State ->
+    linked_conversation_control: @+id: Nat -> @+title: String -> @+status: View.TaskStatus -> @+selected: Bool -> @+open: View.ControlDeclaration -> @+parent: Identity.Key -> @+state: Core.State ->
       {Interface.linked_card_controls(Some{View.TaskEntry{id, title, status, selected, open}}, parent, state) ==
     [Interface.declared(parent, open, state)] : +List<Interface.Node>},
     unlinked_has_no_conversation: @parent: Identity.Key -> @state: Core.State ->

@@ -1,4 +1,5 @@
 import Base
+import ./interaction.bend as Geometry
 import ../core/interface.bend as UI
 import ./render-contract.bend as Spec
 import ./rendered.bend as Rendered
@@ -27,3 +28,14 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+law dialog_actions_region_geometry:
+  for found: Maybe<&2, Rendered.Element>
+  for viewport: Geometry.Rect
+  {Spec.region_geometry_valid(UI.DialogActions{}, found, viewport) == Spec.bounded_region(found, viewport) : Bool}
+
+law dialog_actions_children_visible:
+  for inherited: Bool
+  for found: Maybe<&2, Rendered.Element>
+  for viewport: Geometry.Rect
+  {Spec.child_persistent(inherited, UI.DialogActions{}, found, viewport) == True{} : Bool}

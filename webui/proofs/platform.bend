@@ -115,3 +115,124 @@ def realized_decision_external(decision: Model.Decision) ->
 
 def Rule.actual_step_effects_are_external(input, state):
   realized_decision_external(Model.step_raw(input, state))
+
+def and_right_false(value: Bool) -> {value && False{} == False{} : Bool}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def and_left_false(value: Bool) -> {False{} && value == False{} : Bool}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def and_left_true(value: Bool) -> {True{} && value == value : Bool}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def Rule.failed_focus_receipt(core, platform, received, target, observed, failed):
+  Core.State{+application, +services} = core
+  Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
+  +accepted = Nat.is_eq(received, ticket) && Model.active_target(Core.State{application, services}, capacity, target)
+  Equal.trans(Model.Decision,
+    Model.step(Model.FocusApplied{received, target, observed}, Model.State{core, platform}),
+    Model.realized_decision(Model.Decision{Model.unchanged(core), platform, Nil{}}),
+    Model.Decision{Model.unchanged(core), platform, Nil{}},
+    Equal.cong(Bool, Model.Decision,
+      (confirmed => Model.realized_decision(Model.focus_result(confirmed, target, core, platform))),
+      accepted && Model.focus_confirmed(target, observed), False{},
+      Equal.trans(Bool, accepted && Model.focus_confirmed(target, observed), accepted && False{}, False{},
+        Equal.cong(Bool, Bool, (confirmed => accepted && confirmed), Model.focus_confirmed(target, observed), False{}, failed),
+        and_right_false(accepted))), Rule.realized_empty(Model.unchanged(core), platform))
+
+def publication_raw_empty(+core: Core.State, +platform: Model.Platform, received: Nat, +target: Focus.Target,
+  inactive: {Nat.is_eq(received, Rule.ticket(platform)) && Model.active_target(core, Rule.capacity(platform), target) == False{} : Bool}) ->
+  {Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}:
+  Core.State{+application, +services} = core
+  Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
+  Equal.trans(Model.Decision,
+    Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}),
+    Model.realized_decision(Model.Decision{Model.unchanged(core), platform, Nil{}}),
+    Model.Decision{Model.unchanged(core), platform, Nil{}},
+    Equal.cong(Bool, Model.Decision,
+      (owned => Model.realized_decision(Model.publication_focus_result(owned, ticket, target, core, platform))),
+      Nat.is_eq(received, ticket) && Model.active_target(core, capacity, target), False{}, inactive),
+    Rule.realized_empty(Model.unchanged(core), platform))
+
+def Rule.publication_focus_after_some(core, platform, received, before, after):
+  match core:
+    case Core.State{application, services}:
+      match platform:
+        case Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
+          match before:
+            case None{}: Rule.realized_empty(Model.unchanged(core), platform)
+            case Some{target}: Rule.realized_empty(Model.unchanged(core), platform)
+
+def Rule.publication_focus_before_none(core, platform, received, after):
+  match core:
+    case Core.State{application, services}:
+      match platform:
+        case Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
+          match after:
+            case None{}: Rule.realized_empty(Model.unchanged(core), platform)
+            case Some{target}: Rule.realized_empty(Model.unchanged(core), platform)
+
+def Rule.publication_focus_stale(core, platform, received, before, after, stale):
+  match before after:
+    case Some{+target} None{}:
+      publication_raw_empty(core, platform, received, target,
+        Equal.trans(Bool,
+          Nat.is_eq(received, Rule.ticket(platform)) && Model.active_target(core, Rule.capacity(platform), target),
+          False{} && Model.active_target(core, Rule.capacity(platform), target), False{},
+          Equal.cong(Bool, Bool, (current => current && Model.active_target(core, Rule.capacity(platform), target)),
+            Nat.is_eq(received, Rule.ticket(platform)), False{}, stale),
+          and_left_false(Model.active_target(core, Rule.capacity(platform), target))))
+    case None{} after: Rule.publication_focus_before_none(core, platform, received, after)
+    case Some{target} Some{after}: Rule.publication_focus_after_some(core, platform, received, Some{target}, after)
+
+def Rule.publication_focus_inactive(core, platform, received, target, inactive):
+  publication_raw_empty(core, platform, received, target,
+    Equal.trans(Bool,
+      Nat.is_eq(received, Rule.ticket(platform)) && Model.active_target(core, Rule.capacity(platform), target),
+      Nat.is_eq(received, Rule.ticket(platform)) && False{}, False{},
+      Equal.cong(Bool, Bool, (active => Nat.is_eq(received, Rule.ticket(platform)) && active),
+        Model.active_target(core, Rule.capacity(platform), target), False{}, inactive),
+      and_right_false(Nat.is_eq(received, Rule.ticket(platform)))))
+
+def realized_loss_focus(found: Maybe<&2, String>, ticket: Nat) ->
+  {Model.realized_product_focus(found, ticket, Nil{}) == Rule.expected_focus(found, ticket) : +List<Model.Effect>}:
+  match found:
+    case None{}: {==}
+    case Some{key}: {==}
+
+def realized_loss(+core: Core.State, +platform: Model.Platform, target: Focus.Target) ->
+  {Model.realized_decision(Model.Decision{Model.unchanged(core), platform, [Model.Focus{Rule.ticket(platform), target}]}) == Model.Decision{Model.unchanged(core), platform, Rule.loss_effects(core, platform, target)} : Model.Decision}:
+  Core.State{+application, +services} = core
+  Model.Platform{readers, editors, focused, +ticket, reduced, +capacity, scope} = platform
+  match target:
+    case Focus.Product{identity}:
+      Equal.cong(+List<Model.Effect>, Model.Decision,
+        (effects => Model.Decision{Model.unchanged(core), platform, effects}),
+        Model.realized_product_focus(UI.focus_target(UI.observe(capacity, core), identity), ticket, Nil{}),
+        Rule.expected_focus(UI.focus_target(UI.observe(capacity, core), identity), ticket),
+        realized_loss_focus(UI.focus_target(UI.observe(capacity, core), identity), ticket))
+    case Focus.Content{owner, identity}: {==}
+
+def Rule.publication_focus_loss(core, platform, received, target, current, active):
+  Core.State{+application, +services} = core
+  Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
+  Equal.trans(Model.Decision,
+    Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}),
+    Model.realized_decision(Model.Decision{Model.unchanged(core), platform, [Model.Focus{ticket, target}]}),
+    Model.Decision{Model.unchanged(core), platform, Rule.loss_effects(core, platform, target)},
+    Equal.cong(Bool, Model.Decision,
+      (owned => Model.realized_decision(Model.publication_focus_result(owned, ticket, target, core, platform))),
+      Nat.is_eq(received, ticket) && Model.active_target(core, capacity, target), True{},
+      Equal.trans(Bool,
+        Nat.is_eq(received, ticket) && Model.active_target(core, capacity, target),
+        True{} && Model.active_target(core, capacity, target), True{},
+        Equal.cong(Bool, Bool, (valid => valid && Model.active_target(core, capacity, target)), Nat.is_eq(received, ticket), True{}, current),
+        Equal.trans(Bool, True{} && Model.active_target(core, capacity, target), Model.active_target(core, capacity, target), True{},
+          and_left_true(Model.active_target(core, capacity, target)), active))),
+    realized_loss(core, platform, target))

@@ -8,6 +8,18 @@ import ../../bendlib/proofs/algebra.bend as Alg
 import ./space.bend as Order
 import ../../bendlib/proofs/logic.bend as Logic
 
+def demand_max_left(+first: Nat, +second: Nat) ->
+  {Nat.is_le(first, Space.larger(first, second)) == True{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(first, Space.larger(first, second)), Nat.is_le(first, Nat.max(first, second)), True{},
+    Equal.cong(Nat, Bool, (n => Nat.is_le(first, n)), Space.larger(first, second), Nat.max(first, second), Order.larger_eq_max(first, second)),
+    Order.max_left(first, second))
+
+def demand_max_right(+first: Nat, +second: Nat) ->
+  {Nat.is_le(second, Space.larger(first, second)) == True{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(second, Space.larger(first, second)), Nat.is_le(second, Nat.max(first, second)), True{},
+    Equal.cong(Nat, Bool, (n => Nat.is_le(second, n)), Space.larger(first, second), Nat.max(first, second), Order.larger_eq_max(first, second)),
+    Order.max_right(first, second))
+
 def and_left(+a: Bool, +b: Bool, evidence: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
   Order.first({a == True{} : Bool}, {b == True{} : Bool}, Order.and_parts(a, b, evidence))
 
@@ -18,15 +30,15 @@ def max_contains_first(+first: Enclosure.Extent, +second: Enclosure.Extent) ->
   {ModelRules.extent_contains(Model.extent_max(first, second), first) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = first
   Enclosure.Extent{+x, +y} = second
-  Order.and_join(Nat.is_le(w, Nat.max(w, x)), Nat.is_le(h, Nat.max(h, y)),
-    Order.max_left(w, x), Order.max_left(h, y))
+  Order.and_join(Nat.is_le(w, Space.larger(w, x)), Nat.is_le(h, Space.larger(h, y)),
+    demand_max_left(w, x), demand_max_left(h, y))
 
 def max_contains_second(+first: Enclosure.Extent, +second: Enclosure.Extent) ->
   {ModelRules.extent_contains(Model.extent_max(first, second), second) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = first
   Enclosure.Extent{+x, +y} = second
-  Order.and_join(Nat.is_le(x, Nat.max(w, x)), Nat.is_le(y, Nat.max(h, y)),
-    Order.max_right(w, x), Order.max_right(h, y))
+  Order.and_join(Nat.is_le(x, Space.larger(w, x)), Nat.is_le(y, Space.larger(h, y)),
+    demand_max_right(w, x), demand_max_right(h, y))
 
 def contains_trans(+outer: Enclosure.Extent, +middle: Enclosure.Extent, +inner: Enclosure.Extent,
   +first: {ModelRules.extent_contains(outer, middle) == True{} : Bool},
@@ -50,13 +62,13 @@ def combine_first_horizontal(+gap: Nat, +first: Enclosure.Extent, +rest: Enclosu
   {ModelRules.extent_contains(Model.horizontal_extent(gap, first, rest), first) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = first
   Enclosure.Extent{+x, +y} = rest
-  Order.and_join(Nat.is_le(w, Nat.add(w, Nat.add(gap, x))), Nat.is_le(h, Nat.max(h, y)), Order.le_add(w, Nat.add(gap, x)), Order.max_left(h, y))
+  Order.and_join(Nat.is_le(w, Nat.add(w, Nat.add(gap, x))), Nat.is_le(h, Space.larger(h, y)), Order.le_add(w, Nat.add(gap, x)), demand_max_left(h, y))
 
 def combine_first_vertical(+gap: Nat, +first: Enclosure.Extent, +rest: Enclosure.Extent) ->
   {ModelRules.extent_contains(Model.vertical_extent(gap, first, rest), first) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = first
   Enclosure.Extent{+x, +y} = rest
-  Order.and_join(Nat.is_le(w, Nat.max(w, x)), Nat.is_le(h, Nat.add(h, Nat.add(gap, y))), Order.max_left(w, x), Order.le_add(h, Nat.add(gap, y)))
+  Order.and_join(Nat.is_le(w, Space.larger(w, x)), Nat.is_le(h, Nat.add(h, Nat.add(gap, y))), demand_max_left(w, x), Order.le_add(h, Nat.add(gap, y)))
 
 def combine_first(+direction: Model.Direction, +gap: Nat, +first: Enclosure.Extent, +rest: Enclosure.Extent) ->
   {ModelRules.extent_contains(Model.combine_extent(direction, gap, first, rest), first) == True{} : Bool}:
@@ -70,14 +82,14 @@ def combine_rest_horizontal(+gap: Nat, +first: Enclosure.Extent, +rest: Enclosur
   {ModelRules.extent_contains(Model.horizontal_extent(gap, first, rest), rest) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = first
   Enclosure.Extent{+x, +y} = rest
-  Order.and_join(Nat.is_le(x, Nat.add(w, Nat.add(gap, x))), Nat.is_le(y, Nat.max(h, y)),
-    Order.le_trans(x, Nat.add(gap, x), Nat.add(w, Nat.add(gap, x)), add_contains_second(gap, x), add_contains_second(w, Nat.add(gap, x))), Order.max_right(h, y))
+  Order.and_join(Nat.is_le(x, Nat.add(w, Nat.add(gap, x))), Nat.is_le(y, Space.larger(h, y)),
+    Order.le_trans(x, Nat.add(gap, x), Nat.add(w, Nat.add(gap, x)), add_contains_second(gap, x), add_contains_second(w, Nat.add(gap, x))), demand_max_right(h, y))
 
 def combine_rest_vertical(+gap: Nat, +first: Enclosure.Extent, +rest: Enclosure.Extent) ->
   {ModelRules.extent_contains(Model.vertical_extent(gap, first, rest), rest) == True{} : Bool}:
   Enclosure.Extent{+w, +h} = first
   Enclosure.Extent{+x, +y} = rest
-  Order.and_join(Nat.is_le(x, Nat.max(w, x)), Nat.is_le(y, Nat.add(h, Nat.add(gap, y))), Order.max_right(w, x),
+  Order.and_join(Nat.is_le(x, Space.larger(w, x)), Nat.is_le(y, Nat.add(h, Nat.add(gap, y))), demand_max_right(w, x),
     Order.le_trans(y, Nat.add(gap, y), Nat.add(h, Nat.add(gap, y)), add_contains_second(gap, y), add_contains_second(h, Nat.add(gap, y))))
 
 def combine_rest(+direction: Model.Direction, +gap: Nat, +first: Enclosure.Extent, +rest: Enclosure.Extent) ->
@@ -93,12 +105,15 @@ def max_zero(+value: Nat) -> {Nat.max(value, 0n) == value : Nat}:
     case 0n: {==}
     case 1n+rest: {==}
 
+def demand_max_zero(+value: Nat) -> {Space.larger(value, 0n) == value : Nat}:
+  Equal.trans(Nat, Space.larger(value, 0n), Nat.max(value, 0n), value, Order.larger_eq_max(value, 0n), max_zero(value))
+
 def combine_empty(+extent: Enclosure.Extent) ->
   {Model.combine_extent(Model.Horizontal{}, 0n, extent, Enclosure.Extent{0n, 0n}) == extent : Enclosure.Extent}:
   Enclosure.Extent{+w, +h} = extent
-  Equal.trans(Enclosure.Extent, Enclosure.Extent{Nat.add(w, 0n), Nat.max(h, 0n)}, Enclosure.Extent{w, Nat.max(h, 0n)}, Enclosure.Extent{w, h},
-    Equal.cong(Nat, Enclosure.Extent, (n => Enclosure.Extent{n, Nat.max(h, 0n)}), Nat.add(w, 0n), w, Alg.nat_add_zero(w)),
-    Equal.cong(Nat, Enclosure.Extent, (n => Enclosure.Extent{w, n}), Nat.max(h, 0n), h, max_zero(h)))
+  Equal.trans(Enclosure.Extent, Enclosure.Extent{Nat.add(w, 0n), Space.larger(h, 0n)}, Enclosure.Extent{w, Space.larger(h, 0n)}, Enclosure.Extent{w, h},
+    Equal.cong(Nat, Enclosure.Extent, (n => Enclosure.Extent{n, Space.larger(h, 0n)}), Nat.add(w, 0n), w, Alg.nat_add_zero(w)),
+    Equal.cong(Nat, Enclosure.Extent, (n => Enclosure.Extent{w, n}), Space.larger(h, 0n), h, demand_max_zero(h)))
 
 def singleton_minimum(+first: Space.Demand) ->
   {Model.minimum_demand(Model.prepend_demand(Model.Horizontal{}, 0n, first, Space.fixed_demand(0n, 0n))) == Model.minimum_demand(first) : Enclosure.Extent}:
@@ -231,10 +246,13 @@ def limited_conflict(+minimum: Nat, +preferred: Nat, offered: Nat, +authored: Na
   conflict: {Nat.is_le(minimum, Nat.add(Nat.add(authored, extra), maximum_extra)) == False{} : Bool}) ->
   {Model.materialize(Model.LimitedSize{authored, extra, maximum_extra}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
   +maximum = Nat.add(Nat.add(authored, extra), maximum_extra)
-  +lower = Nat.max(minimum, authored)
-  +chosen = Nat.min(maximum, Nat.max(lower, preferred))
+  +lower = Space.larger(minimum, authored)
+  +chosen = Space.smaller(maximum, Space.larger(lower, preferred))
   Equal.cong(Bool, Maybe<&2, Space.Dimension>, (fits => Model.accept_dimension(fits, Space.Fit{lower, Nat.sub(chosen, lower), Nat.sub(maximum, chosen)})),
-    Nat.is_le(lower, maximum), False{}, lower_conflict(minimum, authored, maximum, conflict))
+    Nat.is_le(lower, maximum), False{},
+    Equal.trans(Bool, Nat.is_le(lower, maximum), Nat.is_le(Nat.max(minimum, authored), maximum), False{},
+      Equal.cong(Nat, Bool, (n => Nat.is_le(n, maximum)), lower, Nat.max(minimum, authored), Order.larger_eq_max(minimum, authored)),
+      lower_conflict(minimum, authored, maximum, conflict)))
 
 def invalid_percent(+minimum: Nat, preferred: Nat, +offered: Nat, +percent: Nat,
   invalid: {Nat.is_le(percent, 100n) == False{} : Bool}) ->
@@ -264,7 +282,7 @@ def capped_extent_conflict(+extent: Maybe<&2, Nat>, +minimum: Nat, +preferred: N
   match extent:
     case None{}: {==}
     case Some{+cap}:
-      +chosen = Nat.min(cap, Nat.max(minimum, preferred))
+      +chosen = Space.smaller(cap, Space.larger(minimum, preferred))
       capped_rejected(Nat.is_le(minimum, cap), Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)}, conflict)
 
 def capped_conflict(+minimum: Nat, +preferred: Nat, +offered: Nat, +maximum_percent: Nat,
@@ -315,9 +333,11 @@ def capped_stretch_width(+minimum: Nat, preferred: Nat, offered: Nat, +maximum: 
   {ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room) == Some{Nat.min(room, maximum)} : Maybe<&2, Nat>}:
   accepted = Equal.cong(Maybe<&2, Space.Dimension>, Maybe<&2, Nat>, (result => ModelRules.allocated_width(result, room)),
     Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), Some{ModelRules.capped_stretch_dimension(minimum, maximum)}, capped_stretch_accepted(minimum, preferred, offered, maximum, fits))
+  selected = Equal.cong(Nat, Maybe<&2, Nat>, (n => Some{n}), Space.smaller(Nat.add(minimum, Nat.sub(maximum, minimum)), room), Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room), Order.smaller_eq_min(Nat.add(minimum, Nat.sub(maximum, minimum)), room))
   bounded = Equal.cong(Nat, Maybe<&2, Nat>, (cap => Some{Nat.min(cap, room)}), Nat.add(minimum, Nat.sub(maximum, minimum)), maximum, capped_stretch_balance(minimum, maximum, fits))
   Equal.trans(Maybe<&2, Nat>, ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room),
-    Some{Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, Some{Nat.min(room, maximum)}, accepted,
+    Some{Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, Some{Nat.min(room, maximum)},
+    Equal.trans(Maybe<&2, Nat>, ModelRules.allocated_width(Model.materialize(Model.CappedStretchSize{maximum}, minimum, preferred, offered), room), Some{Space.smaller(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, Some{Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, accepted, selected),
     Equal.trans(Maybe<&2, Nat>, Some{Nat.min(Nat.add(minimum, Nat.sub(maximum, minimum)), room)}, Some{Nat.min(maximum, room)}, Some{Nat.min(room, maximum)}, bounded,
       Equal.cong(Nat, Maybe<&2, Nat>, (n => Some{n}), Nat.min(maximum, room), Nat.min(room, maximum), minimum_commutes(maximum, room))))
 
@@ -329,8 +349,156 @@ def capped_stretch_attained(+minimum: Nat, preferred: Nat, offered: Nat, +maximu
     Equal.cong(Nat, Maybe<&2, Nat>, (n => Some{n}), Nat.min(room, maximum), maximum,
       Equal.trans(Nat, Nat.min(room, maximum), Nat.min(maximum, room), maximum, minimum_commutes(room, maximum), minimum_attained(maximum, room, room_fits))))
 
+def adaptive_exact(+minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat,
+  +fits: {Nat.is_le(minimum, offered) == True{} : Bool}) ->
+  {Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered) == Some{ModelRules.adaptive_fit(minimum, preferred, offered, nominal_cap)} : Maybe<&2, Space.Dimension>}:
+  Equal.cong(Bool, Maybe<&2, Space.Dimension>,
+    valid => Model.adaptive_checked(valid, minimum, preferred, offered, nominal_cap),
+    Nat.is_le(minimum, offered), True{}, fits)
+
+def adaptive_total(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: Nat,
+  +valid: {Nat.is_le(percent, 100n) == True{} : Bool}, +fits: {Nat.is_le(minimum, offered) == True{} : Bool}) ->
+  {Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered) == Some{ModelRules.adaptive_fit(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent))} : Maybe<&2, Space.Dimension>}:
+  Equal.trans(Maybe<&2, Space.Dimension>,
+    Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered),
+    Model.adaptive_dimension(Some{ModelRules.nominal_percentage(offered, percent)}, minimum, preferred, offered),
+    Some{ModelRules.adaptive_fit(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent))},
+    Equal.cong(Bool, Maybe<&2, Space.Dimension>,
+      accepted => Model.adaptive_dimension(Model.percentage_checked(accepted, offered, percent), minimum, preferred, offered),
+      Nat.is_le(percent, 100n), True{}, valid),
+    adaptive_exact(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent), fits))
+
+def adaptive_minimum(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: Nat,
+  +valid: {Nat.is_le(percent, 100n) == True{} : Bool}, +fits: {Nat.is_le(minimum, offered) == True{} : Bool}) ->
+  {ModelRules.minimum_result(Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered)) == Some{minimum} : Maybe<&2, Nat>}:
+  Equal.cong(Maybe<&2, Space.Dimension>, Maybe<&2, Nat>, result => ModelRules.minimum_result(result),
+    Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered),
+    Some{ModelRules.adaptive_fit(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent))},
+    adaptive_total(minimum, preferred, offered, percent, valid, fits))
+
+# Existing packing arithmetic supplies the order and subtraction balance facts.
+def smaller_floor(+minimum: Nat, +first: Nat, +second: Nat,
+  first_fits: {Nat.is_le(minimum, first) == True{} : Bool}, second_fits: {Nat.is_le(minimum, second) == True{} : Bool}) ->
+  {Nat.is_le(minimum, Space.smaller(first, second)) == True{} : Bool}:
+  +extra = Nat.sub(first, minimum)
+  Equal.trans(Bool, Nat.is_le(minimum, Space.smaller(first, second)), Nat.is_le(minimum, Nat.min(first, second)), True{},
+    Equal.cong(Nat, Bool, size => Nat.is_le(minimum, size), Space.smaller(first, second), Nat.min(first, second), Order.smaller_eq_min(first, second)),
+    Equal.trans(Bool, Nat.is_le(minimum, Nat.min(first, second)), Nat.is_le(minimum, Nat.min(Nat.add(minimum, extra), second)), True{},
+      Equal.cong(Nat, Bool, size => Nat.is_le(minimum, Nat.min(size, second)), first, Nat.add(minimum, extra),
+        Equal.sym(Nat, Nat.add(minimum, extra), first, capped_stretch_balance(minimum, first, first_fits))),
+      Order.min_floor(minimum, extra, second, second_fits)))
+
+def smaller_left(+first: Nat, +second: Nat) -> {Nat.is_le(Space.smaller(first, second), first) == True{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(Space.smaller(first, second), first), Nat.is_le(Nat.min(first, second), first), True{},
+    Equal.cong(Nat, Bool, size => Nat.is_le(size, first), Space.smaller(first, second), Nat.min(first, second), Order.smaller_eq_min(first, second)),
+    Order.min_le_first(first, second))
+
+def adaptive_fit_maximum(+minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat,
+  +fits: {Nat.is_le(minimum, offered) == True{} : Bool}) ->
+  {ModelRules.adaptive_ceiling(minimum, preferred, offered, nominal_cap) == ModelRules.adaptive_maximum(minimum, offered, nominal_cap) : Nat}:
+  +maximum = ModelRules.adaptive_maximum(minimum, offered, nominal_cap)
+  +chosen = Space.smaller(maximum, Space.larger(minimum, preferred))
+  +maximum_floor = smaller_floor(minimum, offered, Space.larger(minimum, nominal_cap), fits, demand_max_left(minimum, nominal_cap))
+  +chosen_floor = smaller_floor(minimum, maximum, Space.larger(minimum, preferred), maximum_floor, demand_max_left(minimum, preferred))
+  Equal.trans(Nat, ModelRules.adaptive_ceiling(minimum, preferred, offered, nominal_cap),
+    Nat.add(chosen, Nat.sub(maximum, chosen)), maximum,
+    Equal.cong(Nat, Nat, size => Nat.add(size, Nat.sub(maximum, chosen)),
+      Nat.add(minimum, Nat.sub(chosen, minimum)), chosen, capped_stretch_balance(minimum, chosen, chosen_floor)),
+    capped_stretch_balance(chosen, maximum, smaller_left(maximum, Space.larger(minimum, preferred))))
+
+def adaptive_fit_bound(+minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat,
+  +fits: {Nat.is_le(minimum, offered) == True{} : Bool}) ->
+  {Nat.is_le(ModelRules.adaptive_ceiling(minimum, preferred, offered, nominal_cap), offered) == True{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(ModelRules.adaptive_ceiling(minimum, preferred, offered, nominal_cap), offered),
+    Nat.is_le(ModelRules.adaptive_maximum(minimum, offered, nominal_cap), offered), True{},
+    Equal.cong(Nat, Bool, size => Nat.is_le(size, offered),
+      ModelRules.adaptive_ceiling(minimum, preferred, offered, nominal_cap), ModelRules.adaptive_maximum(minimum, offered, nominal_cap),
+      adaptive_fit_maximum(minimum, preferred, offered, nominal_cap, fits)),
+    smaller_left(offered, Space.larger(minimum, nominal_cap)))
+
+def adaptive_maximum(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: Nat,
+  +valid: {Nat.is_le(percent, 100n) == True{} : Bool}, +fits: {Nat.is_le(minimum, offered) == True{} : Bool}) ->
+  {ModelRules.maximum_fits(Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered), offered) == True{} : Bool}:
+  Equal.trans(Bool,
+    ModelRules.maximum_fits(Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered), offered),
+    Nat.is_le(ModelRules.adaptive_ceiling(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent)), offered), True{},
+    Equal.cong(Maybe<&2, Space.Dimension>, Bool, result => ModelRules.maximum_fits(result, offered),
+      Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered),
+      Some{ModelRules.adaptive_fit(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent))},
+      adaptive_total(minimum, preferred, offered, percent, valid, fits)),
+    adaptive_fit_bound(minimum, preferred, offered, ModelRules.nominal_percentage(offered, percent), fits))
+
+def maximum_attained(+minimum: Nat, +maximum: Nat,
+  +fits: {Nat.is_le(minimum, maximum) == True{} : Bool}) -> {Space.larger(minimum, maximum) == maximum : Nat}:
+  match minimum maximum:
+    case 0n 0n: {==}
+    case 0n 1n+b: {==}
+    case 1n+a 0n: Logic.impossible({Space.larger(1n+a, 0n) == 0n : Nat}, fits)
+    case 1n+a 1n+b:
+      Equal.trans(Nat, Space.larger(1n+a, 1n+b), 1n+Space.larger(a, b), 1n+b,
+        Order.choose_extent_successor(Nat.is_ge(a, b), a, b),
+        Equal.cong(Nat, Nat, value => 1n+value, Space.larger(a, b), b, maximum_attained(a, b, fits)))
+
+def smaller_attained(+maximum: Nat, +cap: Nat,
+  +fits: {Nat.is_le(cap, maximum) == True{} : Bool}) -> {Space.smaller(maximum, cap) == cap : Nat}:
+  Equal.trans(Nat, Space.smaller(maximum, cap), Nat.min(maximum, cap), cap,
+    Order.smaller_eq_min(maximum, cap),
+    Equal.trans(Nat, Nat.min(maximum, cap), Nat.min(cap, maximum), cap,
+      minimum_commutes(maximum, cap), minimum_attained(cap, maximum, fits)))
+
+def adaptive_normal(+minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat,
+  +content_fits: {Nat.is_le(minimum, nominal_cap) == True{} : Bool}, +cap_fits: {Nat.is_le(nominal_cap, offered) == True{} : Bool}) ->
+  {Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered) == Model.capped_dimension(Some{nominal_cap}, minimum, preferred) : Maybe<&2, Space.Dimension>}:
+  +effective = ModelRules.adaptive_maximum(minimum, offered, nominal_cap)
+  +effective_same = Equal.trans(Nat, effective, Space.smaller(offered, nominal_cap), nominal_cap,
+    Equal.cong(Nat, Nat, size => Space.smaller(offered, size), Space.larger(minimum, nominal_cap), nominal_cap, maximum_attained(minimum, nominal_cap, content_fits)),
+    smaller_attained(offered, nominal_cap, cap_fits))
+  +chosen = Space.smaller(nominal_cap, Space.larger(minimum, preferred))
+  Equal.trans(Maybe<&2, Space.Dimension>,
+    Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered),
+    Some{Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(nominal_cap, chosen)}},
+    Model.capped_dimension(Some{nominal_cap}, minimum, preferred),
+    Equal.trans(Maybe<&2, Space.Dimension>,
+      Model.adaptive_dimension(Some{nominal_cap}, minimum, preferred, offered),
+      Some{ModelRules.adaptive_fit(minimum, preferred, offered, nominal_cap)},
+      Some{Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(nominal_cap, chosen)}},
+      adaptive_exact(minimum, preferred, offered, nominal_cap, Order.le_trans(minimum, nominal_cap, offered, content_fits, cap_fits)),
+      Equal.cong(Nat, Maybe<&2, Space.Dimension>, maximum => Some{Space.Fit{minimum, Nat.sub(Space.smaller(maximum, Space.larger(minimum, preferred)), minimum), Nat.sub(maximum, Space.smaller(maximum, Space.larger(minimum, preferred)))}},
+        effective, nominal_cap, effective_same)),
+    Equal.sym(Maybe<&2, Space.Dimension>, Model.capped_dimension(Some{nominal_cap}, minimum, preferred), Some{Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(nominal_cap, chosen)}},
+      Equal.cong(Bool, Maybe<&2, Space.Dimension>, accepted => Model.accept_dimension(accepted, Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(nominal_cap, chosen)}),
+        Nat.is_le(minimum, nominal_cap), True{}, content_fits)))
+
+def adaptive_invalid(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: Nat,
+  invalid: {Nat.is_le(percent, 100n) == False{} : Bool}) ->
+  {Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
+  Equal.cong(Bool, Maybe<&2, Space.Dimension>,
+    valid => Model.adaptive_dimension(Model.percentage_checked(valid, offered, percent), minimum, preferred, offered),
+    Nat.is_le(percent, 100n), False{}, invalid)
+
+def adaptive_conflict_extent(+extent: Maybe<&2, Nat>, +minimum: Nat, +preferred: Nat, +offered: Nat,
+  conflict: {Nat.is_le(minimum, offered) == False{} : Bool}) ->
+  {Model.adaptive_dimension(extent, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
+  match extent:
+    case None{}: {==}
+    case Some{cap}:
+      Equal.cong(Bool, Maybe<&2, Space.Dimension>, valid => Model.adaptive_checked(valid, minimum, preferred, offered, cap),
+        Nat.is_le(minimum, offered), False{}, conflict)
+
+def adaptive_conflict(+minimum: Nat, +preferred: Nat, +offered: Nat, +percent: Nat,
+  conflict: {Nat.is_le(minimum, offered) == False{} : Bool}) ->
+  {Model.materialize(Model.AdaptiveNaturalSize{percent}, minimum, preferred, offered) == None{} : Maybe<&2, Space.Dimension>}:
+  adaptive_conflict_extent(Model.percentage_extent(offered, percent), minimum, preferred, offered, conflict)
+
 def ModelRules.evidence(A, E):
   ModelRules.Requirements{
+    (+minimum => +preferred => +offered => +cap => fits => adaptive_exact(minimum, preferred, offered, cap, fits)),
+    (+minimum => +preferred => +offered => +percent => valid => fits => adaptive_total(minimum, preferred, offered, percent, valid, fits)),
+    (+minimum => +preferred => +offered => +percent => valid => fits => adaptive_minimum(minimum, preferred, offered, percent, valid, fits)),
+    (+minimum => +preferred => +offered => +percent => valid => fits => adaptive_maximum(minimum, preferred, offered, percent, valid, fits)),
+    (+minimum => +preferred => +offered => +cap => content_fits => cap_fits => adaptive_normal(minimum, preferred, offered, cap, content_fits, cap_fits)),
+    (+minimum => +preferred => +offered => +percent => invalid => adaptive_invalid(minimum, preferred, offered, percent, invalid)),
+    (+minimum => +preferred => +offered => +percent => conflict => adaptive_conflict(minimum, preferred, offered, percent, conflict)),
     capped_stretch_accepted, capped_stretch_rejected, capped_stretch_width, capped_stretch_attained,
     (tree => preferred_content(~A, ~E, tree <> Nil{}, Model.Horizontal{}, 0n)),
     (trees => direction => gap => children_content(~A, ~E, trees, direction, gap)),
@@ -340,3 +508,7 @@ def ModelRules.evidence(A, E):
     (minimum => preferred => offered => percent => invalid => invalid_percent(minimum, preferred, offered, percent, invalid)),
     (minimum => preferred => offered => percent => invalid => invalid_cap(minimum, preferred, offered, percent, invalid)),
     (minimum => preferred => offered => maximum_percent => conflict => capped_conflict(minimum, preferred, offered, maximum_percent, conflict))}
+
+
+def ModelRules.aligned_clearance_contains(outside, horizontal, vertical, extent):
+  clearance_layered_contains(outside, extent)

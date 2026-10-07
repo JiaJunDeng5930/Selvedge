@@ -108,4 +108,7 @@ def Rule.evidence():
     +parent => state => {==},
     +first => +rest => +parent => +state => {==},
     +project => +world => route => +revision => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => +feedback => +directory_entry => +rest => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
-    +project => +world => route => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==}}
+    +project => +world => route => +readers => layers => attention => +navigation => +filter => +now => +next => +pending => +previews => +code => next_layer => {==},
+    +task => {==},
+    +lifecycle => +working => {==},
+    +task => {==}}

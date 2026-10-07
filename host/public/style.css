@@ -6,7 +6,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
 [hidden] { display: none !important; }
-:focus-visible { outline: 2px solid var(--border-focus, Highlight); outline-offset: 2px; }
+:focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
 pre, code { font-family: var(--rich-code-font); }
 .markdown p { margin: 0 0 1em; }
 .markdown p:last-child { margin-bottom: 0; }
@@ -24,7 +24,6 @@ pre, code { font-family: var(--rich-code-font); }
 .native-control:hover:enabled { background: var(--native-hover-background, var(--native-rest-background)); color: var(--native-hover-color, var(--native-rest-color)); }
 .native-control:active:enabled { background: var(--native-pressed-background, var(--native-rest-background)); color: var(--native-pressed-color, var(--native-rest-color)); }
 .native-control:disabled { opacity: var(--native-disabled-opacity); }
-.native-control:focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
 
 .markdown { font-size: var(--rich-body-size); line-height: var(--rich-body-line); font-weight: var(--rich-body-weight); }
 .markdown h1 { font-size: var(--rich-title-size); line-height: var(--rich-title-line); font-weight: var(--rich-title-weight); }

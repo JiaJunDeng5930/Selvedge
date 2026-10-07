@@ -52,6 +52,17 @@ def field_content_styles_match(textarea: Bool) -> +List<Doc.Property>:
 def field_content_styles(kind: Source.NativeFieldKind) -> +List<Doc.Property>:
   field_content_styles_match(String.eq(Renderer.field_tag(kind), "textarea"))
 
+def field_target_styles(kind: Source.NativeFieldKind) -> +List<Doc.Property>:
+  match kind:
+    case Source.ToggleField{}:
+      +size = Source.toggle_target_size(Source.native_toggle_geometry())
+      [Paint.property("width", Paint.px(size)), Paint.property("height", Paint.px(size))]
+    case _: Nil{}
+
+def field_box_styles(+kind: Source.NativeFieldKind) -> +List<Doc.Property>:
+  Renderer.properties([Paint.property("display", "block"), Paint.property("margin", "0"), Paint.property("border", "0"),
+   Paint.property("padding", "0"), Paint.property("appearance", Source.native_field_appearance(kind)), Paint.property("box-sizing", "border-box")], field_target_styles(kind))
+
 def disabled(enabled: Bool) -> +List<Doc.Property>:
   match enabled:
     case True{}: Nil{}
@@ -76,8 +87,7 @@ def primitive_value(+value: Content.Value, +key: String, +purpose: Content.Purpo
             Renderer.properties([Paint.property("class", "native-control"), Paint.property("placeholder", placeholder),
               Paint.property("aria-label", name), Paint.property("tabindex", "-1")], disabled(enabled))))),
           Renderer.properties(field_content_styles(kind), Renderer.properties(Renderer.primitive_styles(value), Renderer.properties(field_width(purpose),
-            [Paint.property("display", "block"), Paint.property("margin", "0"), Paint.property("border", "0"),
-             Paint.property("padding", "0"), Paint.property("appearance", "none"), Paint.property("box-sizing", "border-box")]))),
+            field_box_styles(kind)))),
           Nil{}, Renderer.choices(options, UIIdentity.part(source_key, "field"))}]}
     case Content.Value{Source.RichText{source_key, style, Source.RichContent{+source, +text, policy}, attachments, native_owner}, font}:
       # Original Code.Source gives parser targets and native portals the same owner.
@@ -112,6 +122,12 @@ def policy_target_keys(values: +List<Content.NativePolicy>) -> +List<String>:
     case Con{Content.NativePolicy{owner, target, attrs, style}, rest}:
       Source.target_key(target) <> policy_target_keys(rest)
 
-def target_keys(request: Content.Request) -> +List<String>:
+def request_declared_target_keys(request: Content.Request) -> +List<String>:
   Content.Request{generation, key, value, purpose, roots, policies} = request
   List.append(&2, String, root_target_keys(roots), policy_target_keys(policies))
+
+
+def target_keys(job: Plan.Job) -> +List<String>:
+  match job:
+    case Plan.Job{request, roots, Plan.TargetsOnly{}}: request_declared_target_keys(request)
+    case Plan.Job{request, roots, Plan.Measure{}}: Nil{}

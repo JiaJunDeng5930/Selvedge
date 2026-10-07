@@ -2,6 +2,7 @@ import ./webui/anchor-geometry.bend as AnchorGeometry
 import ./webui/native-fields.bend as NativeFields
 import ./webui/rendered.bend as Rendered
 import ./webui/focus.bend as Focus
+import ./webui/platform.bend as Platform
 import ./webui/physical-plan.bend as Plan
 import ./webui/physical-content.bend as Content
 import ./webui/browser.bend as Legacy
@@ -80,7 +81,7 @@ def remeasure(state: Browser.State) -> Browser.Decision: Browser.remeasure(state
 
 def probe_document(job: Plan.Job) -> Document.Document: Browser.probe_document(job)
 
-def probe_target_keys(request: Content.Request) -> +List<String>: Browser.probe_target_keys(request)
+def probe_target_keys(job: Plan.Job) -> +List<String>: Browser.probe_target_keys(job)
 
 def publication(last_published: Nat, state: Browser.State) -> Browser.Publication: Browser.publication(NaturalSize.limit(), last_published, state)
 
@@ -94,3 +95,5 @@ def code_dom_key(source: Code.Source, ordinal: Nat) -> String: Code.dom_key(Code
 
 
 def render_inspection(state: Browser.State) -> Browser.RenderInspection: Browser.render_inspection(state)
+
+def publication_focus_feedback(publication: Browser.Publication, ticket: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>) -> Maybe<&2, Platform.Input>: Browser.publication_focus_feedback(publication, ticket, before, after)

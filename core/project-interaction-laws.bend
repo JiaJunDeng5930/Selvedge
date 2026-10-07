@@ -13,6 +13,7 @@ import ../BOARD.bend as B
 import ../COMMANDS.bend as Commands
 import ../bendlib/domain.bend as D
 import ../bendlib/tasks.bend as Tasks
+import ../bendlib/conversation.bend as Conversation
 import ../bendlib/association-map.bend as Finite
 
 def disclosure(state: E.NavigationState) -> +List<Nat>:
@@ -69,11 +70,11 @@ type Requirements is Type:
     chooser_single_name: @+id:Nat -> @+name:String -> @+workspace:D.Workspace ->
       {(View.creation_heading(Some{View.ProjectChoice{id, name, workspace}}), View.project_choice_label(Some{View.ProjectChoice{id, name, workspace}})) ==
     ("Work on", name) : Sigma<&2, &2, String, (_ => String)>},
-    task_status_visible: @+id:Nat -> @title:String -> @+status:String -> @+selected:Bool -> @+open:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
+    task_status_visible: @+id:Nat -> @title:String -> @+status:View.TaskStatus -> @+selected:Bool -> @+open:View.ControlDeclaration -> @+parent: Identity.Key -> @+state:Core.State ->
       {Interface.task_entries([View.TaskEntry{id, title, status, selected, open}], parent, state) ==
         [Interface.Node{Identity.Entity{parent, "task", Nat.show(id)}, "task-row", "", Interface.Section{}, Interface.TaskRow{id, status, selected},
           [Interface.selected_node(selected, Interface.declared(Identity.Entity{parent, "task", Nat.show(id)}, open, state)),
-           Interface.Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", Interface.Content{}, Interface.ReadOnly{status}, Nil{}}]}] : +List<Interface.Node>},
+           Interface.Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", Interface.Content{}, Interface.ReadOnly{View.task_status_label(status)}, Nil{}}]}] : +List<Interface.Node>},
     deletion_retains_other: @+prefix:+List<Nat> -> @+other:Nat -> @+suffix:+List<Nat> -> @+id:Nat -> @distinct:{Nat.is_eq(id, other) == False{} : Bool} ->
       {List.contains(~Nat, ~Nat.is_eq, E.without_collapsed_project(List.append(&2, Nat, prefix, other <> suffix), id), other) == True{} : Bool},
     toggle_retains_other: @+intent:E.NavigationIntent -> @+prefix:+List<Nat> -> @+other:Nat -> @+suffix:+List<Nat> -> @+id:Nat -> @distinct:{Nat.is_eq(id, other) == False{} : Bool} ->
@@ -118,7 +119,10 @@ type Requirements is Type:
     missing_draft_focus: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @route:U.Route -> @+readers:+List<Finite.Entry(E.Reader)> -> @layers:+List<E.Layer> -> @attention:String -> @+navigation:E.NavigationState -> @+filter:B.Filter -> @+now:U32 -> @+next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> -> @+code:+List<Content.Block> -> @next_layer:Nat ->
       {E.activate_selected(U.SelectProject{project}, E.Application{world, E.Session{route, Nil{}, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}) ==
         E.local(world, E.Session{U.Start{}, Nil{}, readers, Nil{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), E.navigation_after_visit(navigation), filter, now, next, pending, previews, code, next_layer},
-          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}}
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
+    task_status_source: @+task:D.Task -> {View.task_status(task) == View.TaskStatus{D.task_status(task), Conversation.working(D.task_phase(task), D.task_operations(task))} : View.TaskStatus},
+    task_status_label: @+lifecycle:D.Status -> @+working:Bool -> {View.task_status_label(View.TaskStatus{lifecycle, working}) == Conversation.status_label(lifecycle, working) : String},
+    task_status_caption: @+task:D.Task -> {View.task_status_label(View.task_status(task)) == Conversation.status(task) : String}}
 
 law evidence:
   Requirements

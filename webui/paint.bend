@@ -69,13 +69,20 @@ def rich_properties_at(+capacity: Nat, +parent: T.Presentation) -> +List<Doc.Pro
 def rich_properties(+parent: T.Presentation) -> +List<Doc.Property>:
   rich_properties_at(NaturalSize.limit(), parent)
 
+def focus_indicator_style(+indicator: Design.FocusIndicator) -> +List<Doc.Property>:
+  Design.FocusIndicator{paint_value, width, inset} = indicator
+  [property("--native-focus-ring", paint(paint_value)),
+   property("--native-focus-width", px(width)),
+   property("--native-focus-offset", "-" ++ px(Design.focus_indicator_inner_inset(Design.FocusIndicator{paint_value, width, inset})))]
+
 def states_style(value: Design.ControlStates) -> +List<Doc.Property>:
   match value:
     case Design.Passive{}: Nil{}
     case Design.SurfaceFeedback{Design.PhasePaint{hfg, hbg}, Design.PhasePaint{pfg, pbg}}:
       [property("--native-hover-background", paint(hbg)), property("--native-hover-color", paint(hfg)), property("--native-pressed-background", paint(pbg)), property("--native-pressed-color", paint(pfg))]
-    case Design.Interactive{Design.PhasePaint{hfg, hbg}, Design.PhasePaint{pfg, pbg}, opacity, ring, width, offset}:
-      [property("--native-hover-background", paint(hbg)), property("--native-hover-color", paint(hfg)), property("--native-pressed-background", paint(pbg)), property("--native-pressed-color", paint(pfg)),
-       property("--native-disabled-opacity", Nat.show(opacity) ++ "%"), property("--native-focus-ring", paint(ring)), property("--native-focus-width", px(width)), property("--native-focus-offset", px(offset))]
+    case Design.Interactive{Design.PhasePaint{hfg, hbg}, Design.PhasePaint{pfg, pbg}, opacity, indicator}:
+      List.append(&2, Doc.Property,
+        [property("--native-hover-background", paint(hbg)), property("--native-hover-color", paint(hfg)), property("--native-pressed-background", paint(pbg)), property("--native-pressed-color", paint(pfg)),
+         property("--native-disabled-opacity", Nat.show(opacity) ++ "%")], focus_indicator_style(indicator))
 
 
