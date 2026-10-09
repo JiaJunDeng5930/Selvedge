@@ -88,6 +88,7 @@ def evaluate_all(+capacity: Nat, calculations: +List<Calculation>) -> Maybe<&2, 
     case Con{head, tail}: prepend(evaluate(capacity, head), evaluate_all(capacity, tail))
 
 # CSS typography can retain an upper cap; layout admission uses the checked result.
+
 def saturated(capacity: Nat, result: Maybe<&2, Nat>) -> Nat:
   match result:
     case Some{value}: value

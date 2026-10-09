@@ -13,6 +13,7 @@ type Alignment is Data:
 
 # Layer anchors are observed trigger bounds in the same viewport coordinates.
 # Outside clearance belongs to the container boundary, independently of frame padding.
+
 type Position is Data:
   InFlow{}
   CenteredLayer{outside: Enclosure.Insets}
@@ -50,6 +51,7 @@ type Axis is Data:
 
 # Clip before adding coordinates: observed origins may be negative and extents
 # may reach Nat's limit, so an origin-plus-extent sum is not an admissible input.
+
 def clip_axis(origin: Origin, +extent: Nat, +limit: Nat) -> Axis:
   match origin:
     case Forward{distance}:

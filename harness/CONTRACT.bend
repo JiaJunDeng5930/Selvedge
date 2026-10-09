@@ -4,7 +4,6 @@ import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
-import ../features/board/MODEL.bend as Board
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ./INVARIANTS.bend as I
@@ -57,6 +56,7 @@ law plugin_boundary:
 # The after protocol transfers an execution receipt to a sequence of one-use
 # callback rights. Its result edits preserve call identity and execution error;
 # its audit records are deliberately outside the default model projection.
+
 type ResultBoundary is Type:
   ResultBoundary{
     receipt: @+plugin: D.PluginRef -> @+pending: +List<D.PluginRef> -> @+operation: D.Operation() ->
@@ -183,6 +183,7 @@ law task_machine:
 # Lists are the existing free-word representation, and fold-left is its action.
 # Store only the domain/representation correspondence. Consumers instantiate
 # Std.fold_left_app or Std.app_assoc directly; no local monoid/action hierarchy.
+
 def HistoryAction() -> Type:
   @+history:D.History -> @+messages:+List<D.Message> ->
     {D.history_append(messages, history) == List.foldl(~&2, ~D.Message, ~D.History, ~D.history_step, messages, history) : D.History}
@@ -197,6 +198,7 @@ law journal_interpretation:
 
 # Decisions have associative composition, but no global identity: the first
 # reply and the last world have different ownership. Only effects form a monoid.
+
 def DecisionComposition() -> Type:
   @+first:M.Decision() -> @+second:M.Decision() -> @+third:M.Decision() ->
     {P.combine(P.combine(first, second), third) == P.combine(first, P.combine(second, third)) : M.Decision()}
@@ -206,6 +208,7 @@ law decisions:
 
 # A context cut, recovery normalization, and interruption are three different
 # idempotent projections. Idempotence does not assert summary fidelity or undo.
+
 def ContextProjection() -> Type:
   @+history:D.History -> {D.context_history(D.context_history(history)) == D.context_history(history) : D.History}
 
@@ -234,6 +237,7 @@ law observations:
 
 # Batch recovery and public views are monoid homomorphisms. Their partition and
 # composition laws are imported map theorems, not special recovery/API proofs.
+
 def RecoveryBatches() -> Type:
   @+tasks:+List<D.Task> -> {Protocol.recovery(tasks) == Std.map(~D.Task, ~D.Task, ~Protocol.recover, tasks) : +List<D.Task>}
 
@@ -285,6 +289,7 @@ law native_interface:
 
 # Interpretation is part of the journal object, rather than a nearby theorem
 # that could describe some other fold with the same carrier.
+
 type Journal is Type:
   Journal{interpretation: @+world:M.World() -> @+inputs:+List<M.Input> ->
       {P.replay(inputs, world) == List.foldl(~&2, ~M.Input, ~M.World(), ~P.next, inputs, world) : M.World()},
@@ -325,6 +330,7 @@ law notifications:
 
 # Noninterference of the actual state coordinates, not of arbitrary external
 # effects. Work settlement owns its right and notification, not a model ticket.
+
 type Coordination is Type:
   Coordination{
     settlement_phase: @operation:D.Operation() -> @value:J.Json -> @error:Bool -> @task:D.Task ->

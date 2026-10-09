@@ -9,8 +9,9 @@ import ../../harness/conversation/CONTRACT.bend as Spec
 import ../../harness/MODEL.bend as M
 import ../../bendlib/json.bend as J
 import ../presentation/PROGRAM.bend as InterfaceView
-import ../STATE.bend as Core
 import ../INPUT.bend as U
+import ../presentation/SURFACE.bend as SurfaceTypes
+import ../TYPES.bend as InteractionTypes
 
 def request_context(value: Actual.DecisionRequest) -> D.TaskContext:
   match value:
@@ -39,29 +40,29 @@ def RenderedParameter(-value: J.Json) -> Type:
 def expected_argument_label(name: String) -> String:
   OperationParameters.label(name)
 
-def expected_fields(fields: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) -> +List<InterfaceView.Node>:
+def expected_fields(fields: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match fields:
     case Nil{}: Nil{}
     case Con{J.Field{name, value}, rest}:
-      InterfaceView.Node{Identity.Part{parent, "argument/" ++ Nat.show(index)}, "argument/" ++ Nat.show(index),
-        expected_argument_label(name), InterfaceView.Content{}, InterfaceView.ReadOnly{expected_parameter(value)}, Nil{}} <>
+      SurfaceTypes.Node{Identity.Part{parent, "argument/" ++ Nat.show(index)}, "argument/" ++ Nat.show(index),
+        expected_argument_label(name), SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{expected_parameter(value)}, Nil{}} <>
         expected_fields(rest, (index + 1n : Nat), parent)
 
-def expected_arguments(arguments: J.Json, +parent: Identity.Key) -> +List<InterfaceView.Node>:
+def expected_arguments(arguments: J.Json, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match arguments:
     case J.Object{fields}: expected_fields(fields, 0n, parent)
-    case other: [InterfaceView.Node{Identity.Part{parent, "arguments"}, "arguments", "Arguments", InterfaceView.Content{}, InterfaceView.ReadOnly{expected_parameter(other)}, Nil{}}]
+    case other: [SurfaceTypes.Node{Identity.Part{parent, "arguments"}, "arguments", "Arguments", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{expected_parameter(other)}, Nil{}}]
 
-def expected_directory(context: D.TaskContext, +parent: Identity.Key) -> +List<InterfaceView.Node>:
+def expected_directory(context: D.TaskContext, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
   match primary:
     case None{}: Nil{}
-    case Some{path}: [InterfaceView.Node{Identity.Part{parent, "default-directory"}, "default-directory", "Default working directory", InterfaceView.Content{}, InterfaceView.ReadOnly{path}, Nil{}}]
+    case Some{path}: [SurfaceTypes.Node{Identity.Part{parent, "default-directory"}, "default-directory", "Default working directory", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{path}, Nil{}}]
 
-def expected_metadata(call: D.Call, context: D.TaskContext, +parent: Identity.Key) -> +List<InterfaceView.Node>:
+def expected_metadata(call: D.Call, context: D.TaskContext, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   D.Call{id, name, arguments} = call
-  InterfaceView.Node{Identity.Part{parent, "tool"}, "tool", "Tool", InterfaceView.Content{}, InterfaceView.ReadOnly{name}, Nil{}} <>
-    List.append(&2, InterfaceView.Node, expected_arguments(arguments, parent), expected_directory(context, parent))
+  SurfaceTypes.Node{Identity.Part{parent, "tool"}, "tool", "Tool", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{name}, Nil{}} <>
+    List.append(&2, SurfaceTypes.Node, expected_arguments(arguments, parent), expected_directory(context, parent))
 
 def reviewer_name(reviewer: D.Profile) -> String:
   D.Profile{key, provider, name, reasoning, options} = reviewer
@@ -75,6 +76,7 @@ def audit_message(message: D.Message) -> Bool:
     case _: True{}
 
 # Comparison reflexivity is needed to bind a reader's choice to its own group.
+
 def activity_presentation(values: +List<Actual.VisibleGroup>) -> Bool & String:
   match values:
     case Con{Actual.VisibleActivity{id, attention, expanded, summary, audit, expand, collapse}, rest}: (expanded, summary)
@@ -96,18 +98,18 @@ type Requirements is Type:
       {timeline_decisions(Actual.timeline(reader, task, world)) ==
         Actual.decisions(D.task_operations(task), D.task_context(task), D.task_id(task), world) : +List<Actual.DecisionRequest>},
     approval_metadata: @+call:D.Call -> @+context:D.TaskContext -> @+parent: Identity.Key ->
-      {InterfaceView.approval_metadata(call, context, parent) == expected_metadata(call, context, parent) : +List<InterfaceView.Node>},
+      {InterfaceView.approval_metadata(call, context, parent) == expected_metadata(call, context, parent) : +List<SurfaceTypes.Node>},
     serialized_parameter: @+value:J.Json -> RenderedParameter(value),
-    human_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+approve:U.Input -> @+deny:U.Input -> @+enabled:Bool -> @+parent: Identity.Key -> @+state:Core.State ->
+    human_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+approve:U.Input -> @+deny:U.Input -> @+enabled:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {InterfaceView.approvals([Actual.HumanDecision{operation, call, context, approve, deny, enabled}], parent, state) ==
-        [InterfaceView.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Approval required", InterfaceView.Approval{}, InterfaceView.Region{}, List.append(&2, InterfaceView.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+        [SurfaceTypes.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Approval required", SurfaceTypes.Approval{}, SurfaceTypes.Region{}, List.append(&2, SurfaceTypes.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
             [InterfaceView.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "approve", "Approve once", approve, enabled, state),
-             InterfaceView.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "deny", "Deny", deny, enabled, state)])}] : +List<InterfaceView.Node>},
-    automatic_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+reviewer:D.Profile -> @+parent: Identity.Key -> @state:Core.State ->
+             InterfaceView.user_action(Identity.Entity{parent, "approval", Nat.show(operation)}, "deny", "Deny", deny, enabled, state)])}] : +List<SurfaceTypes.Node>},
+    automatic_decision: @+operation:Nat -> @call:D.Call -> @context:D.TaskContext -> @+reviewer:D.Profile -> @+parent: Identity.Key -> @state:InteractionTypes.State ->
       {InterfaceView.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
-        [InterfaceView.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", InterfaceView.Approval{}, InterfaceView.Region{}, List.append(&2, InterfaceView.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
-            [InterfaceView.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", InterfaceView.Content{},
-              InterfaceView.ReadOnly{reviewer_name(reviewer)}, Nil{}}])}] : +List<InterfaceView.Node>},
+        [SurfaceTypes.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", SurfaceTypes.Approval{}, SurfaceTypes.Region{}, List.append(&2, SurfaceTypes.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", SurfaceTypes.Content{},
+              SurfaceTypes.ReadOnly{reviewer_name(reviewer)}, Nil{}}])}] : +List<SurfaceTypes.Node>},
     approval_detail: @+task:Nat -> @+operation:Nat -> @+call:D.Call -> @+reviewer:D.ApprovalReviewer -> @+outcome:D.ApprovalOutcome ->
       {Actual.audit_detail(D.ApprovalRecord{task, operation, call, reviewer, outcome}) ==
         Actual.json_detail(J.show(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome}))) : String},

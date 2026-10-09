@@ -102,6 +102,7 @@ def routes(tools: +List<D.Tool>, +plugins: +List<D.Plugin>) -> Bool:
 # This fold interprets observed certificates only. No source-name label can
 # replace a missing record, reorder the chain, change a call's identity, or turn
 # a rejection into permission. Its result is checked again at effect admission.
+
 def begin(state: Progress, call: D.Call, chain: +List<D.PluginRef>) -> Progress:
   match state:
     case Absent{}: Awaiting{call, chain}
@@ -179,6 +180,7 @@ def recovered(+task: D.Task) -> D.Task:
 # The after protocol interprets the immutable execution receipt and its ordered
 # certificates. An operation can own execution OR a result callback, never both.
 # The raw error flag is not a plugin-editable field.
+
 type ResultProgress is Data:
   MissingResult{}
   AwaitingResult{call: D.Call, value: J.Json, error: Bool, pending: +List<D.PluginRef>}
@@ -195,6 +197,7 @@ type ResultAction is Data:
 
 # One interpretation of a plugin outcome is shared by authorization replay and
 # actual delivery. In particular, value replacement cannot clear execution error.
+
 def result_action(outcome: D.AfterOutcome, value: J.Json, error: Bool) -> ResultAction:
   match outcome:
     case D.KeepResult{}: ResultValue{value, error}

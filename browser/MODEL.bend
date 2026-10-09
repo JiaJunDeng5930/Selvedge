@@ -1,7 +1,6 @@
 import Base
 import ../interaction/MODEL.bend as Product
 import ../harness/MODEL.bend as Program
-import ../interaction/STATE.bend as Core
 import ../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../interaction/presentation/MODEL.bend as View
 import ./runtime/PLATFORM.bend as Platform
@@ -12,10 +11,13 @@ import ./appearance/MODEL.bend as Appearance
 import ./appearance/FONT.bend as F
 import ./document/presentation-order.bend as Order
 import ./document/MODEL.bend as CodeObservation
+import ../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../interaction/TYPES.bend as InteractionTypes
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
     environment: Design.Environment, typography: F.State}
+
 def application(state: State) -> Platform.State:
   State{value_application, value_generation, value_realization, value_environment, value_typography} = state
   value_application
@@ -44,7 +46,7 @@ type Input is Data:
   Mount{}
   PlatformInput{input: Platform.Input}
   EnvironmentObserved{environment: Design.Environment}
-  ElementInput{key: String, gesture: InterfaceView.Gesture}
+  ElementInput{key: String, gesture: SurfaceTypes.Gesture}
   FrameObserved{generation: Nat, frame: Rendered.Frame}
   NativeFocusObserved{generation: Nat, owner: String, identity: String}
   CodeSourcesObserved{generation: Nat, observations: +List<CodeObservation.Observation>}
@@ -55,7 +57,7 @@ type Effect is Data:
   MeasureFrame{generation: Nat}
 
 type Decision is Data:
-  Decision{state: State, product: Core.Decision, effects: +List<Effect>}
+  Decision{state: State, product: InteractionTypes.Decision, effects: +List<Effect>}
 
 def with_realization(value: Rendered.State, state: State) -> State:
   State{value_application, value_generation, value_realization, value_environment, value_typography} = state
@@ -74,7 +76,7 @@ def capacity(+platform: Platform.Platform) -> View.Capacity:
   +capacity = Platform.capacity(platform)
   capacity
 
-def surface(+state: Platform.State) -> InterfaceView.Surface:
+def surface(+state: Platform.State) -> SurfaceTypes.Surface:
   +core = Platform.core(state)
   +platform = Platform.platform(state)
   Product.observe(capacity(platform), core)
@@ -89,7 +91,7 @@ def resolved_content_focus(owned: Bool, ticket: Nat, owner: String, identity: St
     case True{}: [PlatformEffect{Platform.Focus{ticket, Focus.Content{owner, identity}}}]
     case False{}: Nil{}
 
-def resolved_effect(effect: Platform.Effect, +surface: InterfaceView.Surface) -> +List<Effect>:
+def resolved_effect(effect: Platform.Effect, +surface: SurfaceTypes.Surface) -> +List<Effect>:
   match effect:
     case Platform.Focus{ticket, Focus.Product{target}}: resolved_focus(ticket, InterfaceView.focus_target(surface, target))
     case Platform.Focus{ticket, Focus.Content{+owner, identity}}:
@@ -98,7 +100,7 @@ def resolved_effect(effect: Platform.Effect, +surface: InterfaceView.Surface) ->
       resolved_focus(ticket, InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)))
     case other: [PlatformEffect{other}]
 
-def platform_effects(effects: +List<Platform.Effect>, +surface: InterfaceView.Surface) -> +List<Effect>:
+def platform_effects(effects: +List<Platform.Effect>, +surface: SurfaceTypes.Surface) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
     case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
@@ -114,11 +116,11 @@ def idle(+application: Platform.State, generation: Nat, realization: Rendered.St
 
 # Element identities remain stable while generations correlate physical observations.
 
-def appearance_surface(surface: InterfaceView.Surface, environment: Design.Environment, font: F.State) -> Design.Surface:
+def appearance_surface(surface: SurfaceTypes.Surface, environment: Design.Environment, font: F.State) -> Design.Surface:
   Design.Environment{viewport, dark, root} = environment
   Appearance.present(surface, dark, F.scale(font))
 
-def model_core(+state: Platform.State) -> Core.State:
+def model_core(+state: Platform.State) -> InteractionTypes.State:
   +core = Platform.core(state)
   core
 
@@ -126,7 +128,7 @@ def model_platform(+state: Platform.State) -> Platform.Platform:
   +platform = Platform.platform(state)
   platform
 
-def observed_surface(state: State) -> InterfaceView.Surface:
+def observed_surface(state: State) -> SurfaceTypes.Surface:
   State{application, generation, realization, environment, font} = state
   Order.ordered_surface(surface(application))
 
@@ -173,7 +175,7 @@ def frame_focus_visible(frame: Rendered.Frame, key: String) -> Bool:
   Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
   Rendered.focus_visible(Rendered.find_element(elements, key), viewport)
 
-def scoped_frame_focus_recovery(scope: Focus.Scope, focused: Maybe<&2, String>, +surface: InterfaceView.Surface,
+def scoped_frame_focus_recovery(scope: Focus.Scope, focused: Maybe<&2, String>, +surface: SurfaceTypes.Surface,
   +frame: Rendered.Frame) -> Maybe<&2, String>:
   match scope focused:
     case Focus.Temporary{+identity, initial, restore, occurrence} Some{key}:
@@ -181,7 +183,7 @@ def scoped_frame_focus_recovery(scope: Focus.Scope, focused: Maybe<&2, String>, 
         Platform.found_focus(InterfaceView.find_node(InterfaceView.active_nodes(surface), identity)), identity)
     case _ _: None{}
 
-def frame_focus_recovery(surface: InterfaceView.Surface, +frame: Rendered.Frame, scope: Focus.Scope) -> Maybe<&2, String>:
+def frame_focus_recovery(surface: SurfaceTypes.Surface, +frame: Rendered.Frame, scope: Focus.Scope) -> Maybe<&2, String>:
   Rendered.Frame{viewport, elements, focused, tab_order, native_focus} = frame
   scoped_frame_focus_recovery(scope, focused, surface, frame)
 
@@ -190,7 +192,7 @@ def frame_recovery_effects(owned: Bool, ticket: Nat, generation: Nat, target: Ma
     case True{} Some{key}: [PlatformEffect{Platform.Focus{ticket, Focus.Product{key}}}, MeasureFrame{generation}]
     case _ _: Nil{}
 
-def observe_frame(+received: Nat, +surface: InterfaceView.Surface, +frame: Rendered.Frame, +state: State) -> Decision:
+def observe_frame(+received: Nat, +surface: SurfaceTypes.Surface, +frame: Rendered.Frame, +state: State) -> Decision:
   State{+application, +generation, realization, environment, font} = state
   +core = Platform.core(application)
   +observed_platform_1 = Platform.platform(application)
@@ -231,9 +233,9 @@ def production_dispatch(state: State, input: Input) -> Decision:
 def step(input: Input, state: State) -> Decision:
   production_dispatch(state, input)
 
-def product(decision: Decision) -> Core.Decision:
+def product(decision: Decision) -> InteractionTypes.Decision:
   Decision{state, product, effects} = decision
   product
 
-def platform_product(decision: Platform.Decision) -> Core.Decision:
+def platform_product(decision: Platform.Decision) -> InteractionTypes.Decision:
   Platform.decision_product(decision)

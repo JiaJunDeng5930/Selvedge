@@ -5,7 +5,6 @@ import ../appearance/TYPOGRAPHY.bend as T
 import ./physical-space.bend as SpaceModel
 import ./PROGRAM.bend as Allocation
 import ./GEOMETRY.bend as Spatial
-import ./enclosure.bend as Enclosure
 import ../document/MODEL.bend as Doc
 
 type Value is Data:
@@ -34,6 +33,7 @@ type Purpose is Data:
 
 # Receipts belong to this immutable visit; authored content and environment changes
 # require a new generation before any previous observation can be reused.
+
 type Snapshot is Data:
   Snapshot{generation: Nat, source: Source.Node, default_font: T.Presentation}
 
@@ -47,6 +47,7 @@ type NativePolicy is Data:
 
 # The key names the positional physical path within the snapshot, independently
 # of authored labels. RichText alone carries its native roots and policies.
+
 type Request is Data:
   Request{generation: Nat, key: String, value: Value, purpose: Purpose,
     native_roots: +List<NativeRoot>, native_policies: +List<NativePolicy>}

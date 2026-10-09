@@ -12,8 +12,7 @@ import ../services/CONTEXT.bend as Context
 import ./MODEL.bend as E
 import ./PROGRAM.bend as ExperienceProgram
 import ../INPUT.bend as U
-import ./session-laws.bend as Rule
-import ./CONTRACT.bend as RuleContract
+import ./CONTRACT.bend as Rule
 import ../../harness/transport/command-codec.bend as CommandCodec
 import ../submission/PROOF.bend as SubmissionProof
 
@@ -189,32 +188,32 @@ def Rule.evidence():
   }
 
 def native_decision(+decision: M.Decision(), session: E.Session, durable: Bool) ->
-  {RuleContract.runtime_observation(E.native_result(decision, session, None{}, durable)) == decision : M.Decision()}:
+  {Rule.runtime_observation(E.native_result(decision, session, None{}, durable)) == decision : M.Decision()}:
   C.Decision{program, reply, effects} = decision
   E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   {==}
 
 def runtime_input(+input: M.Input, +program: M.World(), session: E.Session) ->
-  {RuleContract.runtime_observation(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session})) ==
+  {Rule.runtime_observation(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session})) ==
     Program.transition(input, program) : M.Decision()}:
   native_decision(Program.transition(input, program), session, M.durable(input))
 
 # Requests preserve the entire application until the server supplies a receipt.
 
 def accepted_confirmation_refinement(ok: Bool, +result: J.Json, destination: U.Route, application: E.Application) ->
-  {E.with_native(E.confirmation_outcome(ok, destination, application), result, Nil{}, False{}) == RuleContract.accepted_confirmation_spec(ok, result, destination, application) : E.Decision}:
+  {E.with_native(E.confirmation_outcome(ok, destination, application), result, Nil{}, False{}) == Rule.accepted_confirmation_spec(ok, result, destination, application) : E.Decision}:
   match ok:
     case True{}: {==}
     case False{}: {==}
 
 def confirmation_result_refinement(owned: Bool, +result: J.Json, destination: U.Route, application: E.Application) ->
-  {E.complete_confirmation(owned, result, destination, application) == RuleContract.confirmation_result_spec(owned, result, destination, application) : E.Decision}:
+  {E.complete_confirmation(owned, result, destination, application) == Rule.confirmation_result_spec(owned, result, destination, application) : E.Decision}:
   match owned:
     case False{}: {==}
     case True{}: accepted_confirmation_refinement(J.boolean(J.get(result, "ok")), result, destination, application)
 
 def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Command, +trigger: String, +occurrence: Nat) ->
-  {E.confirmation_owned(layers, command, trigger, occurrence) == RuleContract.confirmation_spec(layers, command, trigger, occurrence) : Bool}:
+  {E.confirmation_owned(layers, command, trigger, occurrence) == Rule.confirmation_spec(layers, command, trigger, occurrence) : Bool}:
   match layers:
     case Nil{}: {==}
     case Con{E.Layer{panel, current_trigger, target, query, layer_occurrence}, rest}:
@@ -235,7 +234,7 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.DeliveryPicker{task}: {==}
 
 def completed_refinement(+completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session, previous: M.World()) ->
-  {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == RuleContract.completion_spec(completion, program, result, session) : E.Decision}:
+  {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == Rule.completion_spec(completion, program, result, session) : E.Decision}:
   match completion:
     case E.DirectCompletion{}: {==}
     case E.DraftCompletion{draft}: {==}
@@ -244,15 +243,15 @@ def completed_refinement(+completion: E.Completion, +program: M.World(), +result
       +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, program)}
       Equal.trans(E.Decision,
         E.complete_confirmation(E.confirmation_owned(layers, command, trigger, occurrence), result, destination, updated),
-        E.complete_confirmation(RuleContract.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
-        RuleContract.confirmation_result_spec(RuleContract.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
+        E.complete_confirmation(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
+        Rule.confirmation_result_spec(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
         Equal.cong(Bool, E.Decision, (owned => E.complete_confirmation(owned, result, destination, updated)),
-          E.confirmation_owned(layers, command, trigger, occurrence), RuleContract.confirmation_spec(layers, command, trigger, occurrence),
+          E.confirmation_owned(layers, command, trigger, occurrence), Rule.confirmation_spec(layers, command, trigger, occurrence),
           confirmation_identity_refinement(layers, command, trigger, occurrence)),
-        confirmation_result_refinement(RuleContract.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated))
+        confirmation_result_refinement(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated))
 
-def RuleContract.command_evidence():
-  RuleContract.CommandRequirements{
+def Rule.command_evidence():
+  Rule.CommandRequirements{
     completion => program => result => session => previous => completed_refinement(completion, program, result, session, previous),
     +command => +application => +submitted => {==},
     +program => +session => previous => {==},

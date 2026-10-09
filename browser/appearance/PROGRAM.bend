@@ -8,10 +8,8 @@ import ../controls/SURFACES.bend as Surfaces
 def property(name: String, value: String) -> Doc.Property:
   Doc.Property{name, value}
 
-
 def px(value: Nat) -> String:
   Nat.show(value) ++ "px"
-
 
 def surface_color(value: Surfaces.Color) -> String:
   match value:
@@ -34,9 +32,6 @@ def paint(value: Design.Paint) -> String:
     case Design.SurfacePaint{role, phase}: surface_background(role, phase)
     case Design.SurfaceForeground{role}: surface_color(Surfaces.foreground(role))
     case Design.TextForeground{tone}: surface_color(Surfaces.text_foreground(tone))
-
-
-
 
 def text_properties(+value: T.TextStyle) -> +List<Doc.Property>:
   [property("font-family", T.font_family(T.resolved_font(value))), property("font-size", px(T.resolved_size(value))),
@@ -88,5 +83,4 @@ def states_style(value: Design.ControlStates) -> +List<Doc.Property>:
       List.append(&2, Doc.Property,
         [property("--native-hover-background", paint(hbg)), property("--native-hover-color", paint(hfg)), property("--native-pressed-background", paint(pbg)), property("--native-pressed-color", paint(pfg)),
          property("--native-disabled-opacity", Nat.show(opacity) ++ "%")], focus_indicator_style(indicator))
-
 

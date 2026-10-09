@@ -7,7 +7,6 @@ import ./features/MODEL.bend as F
 import ../bendlib/effects.bend as Effects
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
-import ./reasoning/MODEL.bend as Reasoning
 import ./MODEL.bend as M
 import ../bendlib/json.bend as J
 import ./tasks/PROGRAM.bend as T
@@ -233,6 +232,7 @@ def feature_result(resolution: FeatureResolution.Resolution) -> Operation:
 
 # Exhaustiveness is checked by Bend. Client schemas describe MODEL.Command;
 # these clauses give each decoded constructor its operational meaning.
+
 def resolve(command: M.Command, +world: M.World()) -> Operation:
   match command:
     case M.Create{profile, reasoning, message, options}:

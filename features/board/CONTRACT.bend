@@ -1,14 +1,11 @@
 import Base
 import ../../harness/features/operations.bend as FeatureOps
 import ../../harness/features/protocol.bend as FeatureProtocol
-import ../../harness/features/MODEL.bend as Features
 import ./MODEL.bend as B
 import ../../harness/MODEL.bend as M
-import ../../interaction/MODEL.bend as ProductUI
 import ./PROGRAM.bend as Actual
 import ./SPEC.bend as Spec
 import ./resolution.bend as R
-import ../../bendlib/json.bend as J
 
 # These equalities cover the entire decision, including cancellation, tickets,
 # replies and ordered effects. Specifications never import the interpreter.

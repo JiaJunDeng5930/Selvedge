@@ -46,6 +46,7 @@ type Comparison is Data:
 
 # JSON is nested through lists and fields. One work list avoids mutual recursion;
 # exhaustion rejects a comparison rather than treating unchecked data as equal.
+
 def json_go(fuel: Nat, pending: +List<Comparison>) -> Bool:
   match fuel pending:
     case _ Nil{}: True{}
@@ -108,6 +109,7 @@ def contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
 # A branch may explicitly replace execution coordinates and their root guidance.
 # Its model identity, tool definitions, plugin routes and resource bounds remain
 # inherited. Existing tasks still use exact contract equality in retained().
+
 def inherited_contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
   D.Contract{D.Model{profile_a, reasoning_a, guidance_a}, tools_a, fork_a, descendants_a, plugins_a, context_a} = left
   D.Contract{D.Model{profile_b, reasoning_b, guidance_b}, tools_b, fork_b, descendants_b, plugins_b, context_b} = right

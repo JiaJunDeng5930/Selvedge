@@ -8,10 +8,7 @@ import ./SPEC.bend as Spec
 import ./context.bend as Context
 import ../execution/OPERATIONS.bend as Ops
 import ../features/MODEL.bend as F
-import ../MODEL.bend as M
 import ./CONTRACT.bend as A
-import ../tasks/PROGRAM.bend as T
-import ../../bendlib/json.bend as J
 
 def route_meaning(+policy: R.Policy, +lease: R.Lease) ->
   {Actual.route(policy, lease) == R.requirement(policy, lease) : R.Plan}:

@@ -15,6 +15,7 @@ def smaller(+first: Nat, +second: Nat) -> Nat:
 
 # Natural measurements describe unconstrained action content. Wrapped height is
 # a separate allocation boundary; these extents do not admit a whole viewport.
+
 type Demand is Data:
   Demand{minimum: Enclosure.Extent, preferred: Enclosure.Extent}
 
@@ -80,6 +81,7 @@ def prepend(~A: Data, head: Placement<A>, result: Allocation<A>) -> Allocation<A
   Allocation{head <> placements, unused}
 
 # Reserve every remaining minimum before allocating the current child.
+
 def place_from(~A: Data, slots: +List<Slot<A>>, +gap: Nat, +offset: Nat, +budget: Nat) -> Allocation<A>:
   match slots:
     case Nil{}: Allocation{Nil{}, budget}

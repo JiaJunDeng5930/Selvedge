@@ -1,13 +1,12 @@
 import Base
 import ./focus/MODEL.bend as Focus
 import ./MODEL.bend as Model
-import ../interaction/presentation/PROGRAM.bend as InterfaceView
 import ./document/RENDERED.bend as Rendered
 import ./document/SPEC.bend as Spec
 import ./document/CONTRACT.bend as RenderRules
-import ./document/PROOF.bend as RenderProof
 import ./model-rules.bend as Rule
 import ./runtime/PLATFORM.bend as Platform
+import ../interaction/presentation/SURFACE.bend as SurfaceTypes
 
 def Rule.resolved_scope_focus(ticket, previous, current, surface): {==}
 
@@ -61,7 +60,7 @@ def Rule.frame_recovery_effects_absent(owned, ticket, generation):
 def Rule.frame_recovery_effects_target(ticket, generation, identity): {==}
 
 def observation_sound(requirements: RenderRules.Requirements, +generation: Nat, +received: Nat,
-  +surface: InterfaceView.Surface, +frame: Rendered.Frame, +previous: Rendered.State,
+  +surface: SurfaceTypes.Surface, +frame: Rendered.Frame, +previous: Rendered.State,
   owned: {Nat.is_eq(generation, received) == True{} : Bool},
   realized: {Rendered.observe(generation, received, surface, frame, previous) == Rendered.Realized{generation, frame} : Rendered.State}) ->
   {Spec.valid(surface, frame) == True{} : Bool}:

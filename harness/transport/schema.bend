@@ -7,6 +7,7 @@ def object(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
 
 # The schema fragment used by built-in commands and tools. MCP schemas are
 # preserved verbatim and validated by their server, not misrepresented here.
+
 def exists(fields: +List<J.Field>, +name: String) -> Bool:
   match fields:
     case Nil{}: False{}
@@ -69,6 +70,7 @@ def valid(schema: J.Json, value: J.Json) -> Bool:
 
 # Extension schemas use exactly the native decidable fragment. Unsupported
 # JSON Schema keywords are rejected at registration, never silently ignored.
+
 def contains(strings: +List<String>, +value: String) -> Bool:
   match strings:
     case Nil{}: False{}

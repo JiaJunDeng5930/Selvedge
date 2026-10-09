@@ -19,6 +19,7 @@ def context_kind(kind: String) -> ContextKind:
 
 # Titles are observations of the user's request, never browser-generated names
 # or mutable task identities. Whitespace-only messages do not name a thread.
+
 def request_title(text: String, fallback: String) -> String:
   match text:
     case "": fallback
@@ -55,6 +56,7 @@ def status(+task: D.Task) -> String:
 
 # The provider's textual content is a shared decoding primitive. It does not
 # decide placement, visibility of diagnostics, authorization, or execution.
+
 def content_part(kind: String, value: J.Json) -> String:
   match kind:
     case "output_text": J.text(J.get(value, "text"))

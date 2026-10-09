@@ -160,6 +160,7 @@ def Laws.context_has_no_call_authority(value):
 
 # These are representation correspondences for the domain's history projection,
 # not a second generic filter algebra. Only user-authored requests survive a cut.
+
 def Laws.retained_users_projected(history):
   match history:
     case D.EmptyHistory{}: {==}

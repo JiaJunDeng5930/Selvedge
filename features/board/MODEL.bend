@@ -80,12 +80,14 @@ type Outcome is Data:
   SuggestionFailed{reason: String}
 
 # Navigation is an opaque observation cursor, not a second card registry.
+
 type Filter is Data:
   Filter{view: String, search: String, status: +List<String>, priority: +List<String>,
     date: +List<String>, assignee: +List<String>, creator: +List<String>,
     project: +List<String>, label: +List<String>}
 
 # Model observations.
+
 def cards(state: State) -> +List<Finite.Entry(Card)>:
   State{cards, next_card, agents, next_agent, automatic, draft_profile} = state
   cards
@@ -181,6 +183,7 @@ def agent_concurrency(agent: AgentProfile) -> Nat:
   concurrency
 
 # Model birth and intended updates.
+
 def initial() -> State:
   State{Nil{}, 0, Nil{}, 0, False{}, ""}
 
@@ -347,6 +350,7 @@ def before_position(before: Maybe<&2, Nat>, entries: +List<Finite.Entry(Card)>) 
 
 # The association list also records manual order. Ordinary updates replace
 # their existing slot; only an explicit move changes that slot.
+
 def with_stage(stage: Stage, draft: Draft) -> Draft:
   Draft{title, description, old, priority, owner, project, labels, attachments} = draft
   Draft{title, description, stage, priority, owner, project, labels, attachments}

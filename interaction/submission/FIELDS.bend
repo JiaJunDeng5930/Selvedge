@@ -57,6 +57,7 @@ type Section is Data:
 
 # The value and allowed choices remain in the typed InputGroup observation.
 # This defines their product-level grouping, order and editing affordance.
+
 type Value is Data:
   Toggle{enabled: Bool}
   Text{value: String}

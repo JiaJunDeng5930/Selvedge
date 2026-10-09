@@ -28,7 +28,6 @@ import ../features/board/scheduling-spec.bend as BoardSchedulingSpec
 # Accepted updates pass through resolution, realization and bounded scheduling.
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
 # The host owns no task state, lifecycle table, fork rule, or recovery decision.
-
 def tasks(world: M.World()) -> +List<D.Task>:
   Commands.entries(world)
 
@@ -133,6 +132,7 @@ def execute_branch(+task: D.Task, +count: Nat, +messages: +List<String>, selecti
 
 # PROGRAM realizes the resolved operation. The refinement proof compares the
 # entire decision with COMMANDS.meaning, including replies and requested work.
+
 def review_result(resolution: Approvals.Resolution, world: M.World()) -> M.Decision():
   match resolution:
     case Approvals.Ignore{}: respond(world, J.Object{[J.Field{"accepted", J.Boolean{False{}}}]})
@@ -344,6 +344,7 @@ def defer(decision: M.Decision()) -> M.Decision():
 
 # A finite input transition cannot promise that an agent will finish. It makes
 # bounded progress and explicitly requests another turn if internal work remains.
+
 def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -> M.Decision():
   match fuel candidate:
     case 0n None{}: decision
@@ -400,6 +401,7 @@ def check_live(+decision: M.Decision(), +previous: M.World()) -> M.Decision():
 
 # Reflection checks the declared predicates on the actual candidate. Rejection
 # retains the old state and emits no effects; output admission has the same rule.
+
 def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   check_live(live_decision(decision), previous)
 

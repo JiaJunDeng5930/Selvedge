@@ -23,6 +23,7 @@ def metadata(generation: Nat, +key: String, +purpose: Content.Purpose, mode: Pla
    Paint.property("aria-hidden", "true"), Paint.property("inert", "")]
 
 # Visibility preserves intrinsic browser layout while this subtree receives no input.
+
 def hidden_styles() -> +List<Doc.Property>:
   [Paint.property("position", "fixed"), Paint.property("left", "-100000px"), Paint.property("top", "0"),
    Paint.property("visibility", "hidden"), Paint.property("pointer-events", "none"),
@@ -38,6 +39,7 @@ def field_content_attributes_match(textarea: Bool) -> +List<Doc.Property>:
   match textarea:
     case True{}: [Paint.property("data-physical-field-content", "")]
     case False{}: Nil{}
+
 def field_content_attributes(kind: Source.NativeFieldKind) -> +List<Doc.Property>:
   field_content_attributes_match(String.eq(Renderer.field_tag(kind), "textarea"))
 
@@ -125,7 +127,6 @@ def policy_target_keys(values: +List<Content.NativePolicy>) -> +List<String>:
 def request_declared_target_keys(request: Content.Request) -> +List<String>:
   Content.Request{generation, key, value, purpose, roots, policies} = request
   List.append(&2, String, root_target_keys(roots), policy_target_keys(policies))
-
 
 def target_keys(job: Plan.Job) -> +List<String>:
   match job:

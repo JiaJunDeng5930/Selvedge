@@ -13,33 +13,27 @@ import ./session/MODEL.bend as E
 import ./conversation/MODEL.bend as Conversation
 import ./presentation/MODEL.bend as View
 import ./services/MODEL.bend as Services
-import ./presentation/surface-laws.bend as SurfaceLaws
-import ./session/session-laws.bend as SessionLaws
-import ./submission/submission-laws.bend as SubmissionLaws
-import ./presentation/boundary-laws.bend as BoundaryLaws
-import ./presentation/composition-laws.bend as CompositionLaws
+import ./presentation/CONTRACT.bend as SurfaceLaws
+import ./session/CONTRACT.bend as SessionLaws
+import ./submission/CONTRACT.bend as SubmissionLaws
 import ./conversation/CONTRACT.bend as ConversationPresentationLaws
-import ./presentation/board-presentation-laws.bend as BoardPresentationLaws
-import ./presentation/board-capability-laws.bend as BoardCapabilityLaws
-import ./services/context-laws.bend as ExecutionContextLaws
-import ./presentation/project-interaction-laws.bend as ProjectInteractionLaws
-import ./presentation/directory-entry-laws.bend as DirectoryEntryLaws
-import ./submission/feedback-laws.bend as SubmissionFeedbackLaws
+import ./services/CONTRACT.bend as ExecutionContextLaws
+import ./TYPES.bend as InteractionTypes
 
 # Evidence about the public product entry, not a parallel presentation engine.
 # Platform realization requirements belong to webui and do not enter this type.
 type Interaction is Type:
   Interaction{
-    interaction: SurfaceLaws.Requirements,
+    interaction: SurfaceLaws.SurfaceRequirements,
     sessions: SessionLaws.Requirements,
-    boundaries: BoundaryLaws.Requirements,
-    composition: CompositionLaws.Requirements
+    boundaries: SurfaceLaws.BoundaryRequirements,
+    composition: SurfaceLaws.CompositionRequirements
   }
 
 type Drafts is Type:
   Drafts{
-    submissions: SubmissionLaws.Requirements,
-    submission_feedback: SubmissionFeedbackLaws.Requirements,
+    submissions: SubmissionLaws.SubmissionRequirements,
+    submission_feedback: SubmissionLaws.FeedbackRequirements,
     reopened_submissions: SubmissionLaws.ReopenRequirements,
     draft_identity: @+task:Nat -> @+text:U.Text -> @previous:U.Delivery -> @+selected:U.Delivery -> @world:M.World() ->
       {U.apply_edit(U.ChooseDelivery{selected}, U.Message{task, text, previous}, world) == Done{U.Message{task, text, selected}} : Result<&2, &2, String, U.Body>},
@@ -54,7 +48,7 @@ type Drafts is Type:
 type Presentation is Type:
   Presentation{
     conversation_presentation: ConversationPresentationLaws.Requirements,
-    board_presentation: BoardPresentationLaws.Requirements,
+    board_presentation: SurfaceLaws.BoardPresentationRequirements,
     timeline: @+reader:E.Reader -> @+task:D.Task -> @+world:M.World() ->
       {ConversationSpec.timeline_sources(Conversation.timeline(reader, task, world)) == D.history_messages(D.task_history(task), Nil{}) : +List<D.Message>},
     displayed_text: @+messages:+List<D.Message> -> @+offset:Nat -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->
@@ -63,10 +57,10 @@ type Presentation is Type:
 
 type Capabilities is Type:
   Capabilities{
-    board_capabilities: BoardCapabilityLaws.Requirements,
-    execution_context: ExecutionContextLaws.Requirements,
-    project_interaction: ProjectInteractionLaws.Requirements,
-    directory_entry: DirectoryEntryLaws.Requirements
+    board_capabilities: SurfaceLaws.BoardCapabilityRequirements,
+    execution_context: ExecutionContextLaws.ContextRequirements,
+    project_interaction: SurfaceLaws.ProjectInteractionRequirements,
+    directory_entry: SurfaceLaws.DirectoryEntryRequirements
   }
 
 type Requirements is Type:
@@ -77,6 +71,6 @@ type Requirements is Type:
     capabilities: Capabilities,
     runtime: @+input:M.Input -> @+program:M.World() -> @+session:E.Session -> @+services:Services.State ->
       {Core.runtime(ProductUI.step(ProductUI.Engine{input}, Core.from_application(E.from_program(program, session), services))) == Program.transition(input, program) : M.Decision()},
-    observation: @+capacity:View.Capacity -> @+state:Core.State ->
-      {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : Core.Scene}
+    observation: @+capacity:View.Capacity -> @+state:InteractionTypes.State ->
+      {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : InteractionTypes.Scene}
   }

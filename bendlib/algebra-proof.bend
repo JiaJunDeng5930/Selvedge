@@ -21,7 +21,6 @@ import ../harness/tasks/PROOF.bend as TasksProof
 import ../harness/history/PROOF.bend as TracesProof
 
 # Local proof obligations for the algebra boundary. No runtime policy lives here.
-
 def nat_add_zero(+value: Nat) -> {Nat.add(value, 0n) == value : Nat}:
   match value:
     case 0n: {==}
@@ -106,6 +105,7 @@ def Concepts.scheduling():
 # Only the one-step correspondence is local. Nat.iter_swap_gen supplies every
 # finite run, including its complete decision receipts; there is no local
 # Dynamics/Simulation hierarchy or copied induction theorem.
+
 def Concepts.traces():
   (count => tape => Std.iter_swap_gen(~Transcript.Tape, ~Transcript.Tape, ~Transcript.identity,
     ~Traces.implementation, ~Transcript.step, ~(tape => Laws.trace_step(tape)), count, tape))

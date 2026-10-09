@@ -77,13 +77,17 @@ def symbol(icon: Controls.Icon) -> Symbol:
     case Controls.Check{}: Symbol{"m4 10 4 4 8-8", Source.StrokedDrawing{14n}}
 
 # Path and paint are projections of the same admitted glyph.
+
 def symbol_path(value: Symbol) -> String:
   Symbol{path, paint} = value
   path
+
 def path(icon: Controls.Icon) -> String:
   symbol_path(symbol(icon))
+
 def symbol_drawing(value: Symbol, +size: Nat) -> Source.Drawing:
   Symbol{path, paint} = value
   Source.Drawing{"0 0 20 20", [Source.DrawingPath{path}], size, size, paint}
+
 def drawing(icon: Controls.Icon, +size: Nat) -> Source.Drawing:
   symbol_drawing(symbol(icon), size)

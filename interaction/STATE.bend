@@ -3,7 +3,6 @@ import ./conversation/CODE.bend as Content
 import ./conversation/OUTPUT.bend as Live
 import ../harness/MODEL.bend as M
 import ../features/board/MODEL.bend as B
-import ../bendlib/json.bend as J
 import ../bendlib/association-map.bend as Finite
 import ./INPUT.bend as U
 import ./session/MODEL.bend as E
@@ -12,55 +11,34 @@ import ./presentation/MODEL.bend as View
 import ./submission/FIELDS.bend as Forms
 import ./services/MODEL.bend as Services
 import ../bendlib/component.bend as C
+import ./TYPES.bend as InteractionTypes
+import ./presentation/VIEW.bend as View2
 
-type State is Data:
-  State{application: E.Application, services: Services.State}
-
-def application(state: State) -> E.Application:
-  State{application, services} = state
+def application(state: InteractionTypes.State) -> E.Application:
+  InteractionTypes.State{application, services} = state
   application
 
-def services(state: State) -> Services.State:
-  State{application, services} = state
+def services(state: InteractionTypes.State) -> Services.State:
+  InteractionTypes.State{application, services} = state
   services
 
-def with_application(value: E.Application, state: State) -> State:
-  State{application, services} = state
-  State{value, services}
+def with_application(value: E.Application, state: InteractionTypes.State) -> InteractionTypes.State:
+  InteractionTypes.State{application, services} = state
+  InteractionTypes.State{value, services}
 
-def with_services(value: Services.State, state: State) -> State:
-  State{application, services} = state
-  State{application, value}
+def with_services(value: Services.State, state: InteractionTypes.State) -> InteractionTypes.State:
+  InteractionTypes.State{application, services} = state
+  InteractionTypes.State{application, value}
 
-def from_application(application: E.Application, services: Services.State) -> State:
-  State{application, services}
+def from_application(application: E.Application, services: Services.State) -> InteractionTypes.State:
+  InteractionTypes.State{application, services}
 
-type Input is Data:
-  ApplicationInput{input: E.Input}
-  ServiceInput{input: Services.Input}
-  EditField{editor: U.Editor, field: Forms.Field, value: Forms.Value}
-  RemoveAttachment{editor: U.Editor, id: String}
+def initial(program: M.World()) -> InteractionTypes.State:
+  InteractionTypes.State{E.initial(program), Services.initial()}
 
-type Decision is Data:
-  Decision{state: State, reply: J.Json, runtime_effects: +List<M.Effect()>,
-    interaction_effects: +List<E.Effect>, service_effects: +List<Services.Effect>, durable: Bool}
-
-type Settings is Data:
-  Settings{open: Bool, access: Services.Access, credential_entered: Bool,
-    appearance: Services.Appearance, open_action: Input, close_action: Input, connect_action: Input}
-
-type Scene is Data:
-  Scene{surface: View.Scene, settings: Settings,
-    transfers: +List<Finite.Entry(Services.Transfer)>, preview: Services.Preview, code: +List<Content.Scene>, directory_picker: Services.DirectoryPicker}
-
-type Control is Data:
-  Control{identity: String, label: String, prominence: View.Prominence, input: Input, availability: View.Availability}
-def initial(program: M.World()) -> State:
-  State{E.initial(program), Services.initial()}
-
-def application_result(decision: E.Decision, services: Services.State) -> Decision:
+def application_result(decision: E.Decision, services: Services.State) -> InteractionTypes.Decision:
   E.Decision{application, reply, runtime, interaction, durable} = decision
-  Decision{State{application, services}, reply, runtime, interaction, Nil{}, durable}
+  InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, Nil{}, durable}
 
 def keep_file(same: Bool, file: B.Attachment, rest: +List<B.Attachment>) -> +List<B.Attachment>:
   match same:
@@ -140,9 +118,9 @@ def external_effect(effect: Services.Effect) -> Bool:
     case Services.SessionReady{}: False{}
     case _: True{}
 
-def application_result_with_services(decision: E.Decision, services: Services.State, effects: +List<Services.Effect>) -> Decision:
+def application_result_with_services(decision: E.Decision, services: Services.State, effects: +List<Services.Effect>) -> InteractionTypes.Decision:
   E.Decision{application, reply, runtime, interaction, durable} = decision
-  Decision{State{application, services}, reply, runtime, interaction, effects, durable}
+  InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, effects, durable}
 
 def session_attention(application: E.Application) -> String:
   +observed_session = E.session(application)
@@ -159,7 +137,7 @@ def service_attention(decision: E.Decision, effects: +List<Services.Effect>) -> 
   E.Decision{+application, reply, runtime, interaction, durable} = decision
   E.Decision{application, reply, runtime, service_interactions(effects, application), durable}
 
-def service_result(decision: Services.Decision, application: E.Application) -> Decision:
+def service_result(decision: Services.Decision, application: E.Application) -> InteractionTypes.Decision:
   Services.Decision{services, +effects} = decision
   application_result_with_services(service_attention(E.unchanged(service_effects(effects, application)), effects), services,
     List.filter(~Services.Effect, external_effect, effects))
@@ -179,7 +157,7 @@ def submission_blocked_access(access: Services.Access, transfers: +List<Finite.E
 def submission_blocked(+services: Services.State, input: E.Input) -> Bool:
   submission_blocked_access(Services.access(services), Services.transfers(services), input)
 
-def apply_application(blocked: Bool, input: E.Input, +application: E.Application, +services: Services.State) -> Decision:
+def apply_application(blocked: Bool, input: E.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match blocked:
     case True{}: application_result(E.refuse(application, "Connect and finish pending file uploads before submitting"), services)
     case False{}: application_result(ExperienceProgram.step(input, application), services)
@@ -194,17 +172,17 @@ def accepts_files(editor: U.Editor, application: E.Application) -> Bool:
   drafts = E.drafts(observed_session)
   is_card_draft(E.find_draft(drafts, editor))
 
-def add_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> Decision:
+def add_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match allowed:
     case True{}: service_result(Services.step(input, services), application)
     case False{}: application_result(E.refuse(application, "Attachments belong to a card draft"), services)
 
-def directory_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> Decision:
+def directory_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match allowed:
     case True{}: service_result(Services.step(input, services), application)
     case False{}: application_result(E.refuse(application, "The workspace editor is not available"), services)
 
-def service_input(input: Services.Input, +application: E.Application, +services: Services.State) -> Decision:
+def service_input(input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match input:
     case Services.OpenDirectoryPicker{+editor, path, trigger}:
       directory_allowed(accepts_directory(editor, application), Services.OpenDirectoryPicker{editor, path, trigger}, application, services)
@@ -218,6 +196,7 @@ def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.V
   +program = E.program(application)
   session = E.session(application)
   apply_edit(Forms.edit_for(body, field, value, program), editor, E.from_program(program, session))
+
 def edit_exposed(exposed: Bool, body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
   match exposed:
     case False{}: E.refuse(application, "This field is not part of this editor")
@@ -234,20 +213,22 @@ def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, +appli
   +drafts = E.drafts(observed_session)
   edit_found(E.find_draft(drafts, editor), editor, field, value,
     E.from_program(program, observed_session))
-def dispatch(state: State, +input: Input) -> Decision:
-  State{application, +services} = state
+
+def dispatch(state: InteractionTypes.State, +input: InteractionTypes.Input) -> InteractionTypes.Decision:
+  InteractionTypes.State{application, +services} = state
   match input:
-    case ApplicationInput{+input}: apply_application(submission_blocked(services, input), input, application, services)
-    case ServiceInput{+input}: service_input(input, application, services)
-    case EditField{editor, field, value}: application_result(edit_field(editor, field, value, application), services)
-    case RemoveAttachment{editor, id}: application_result(edit_attachment(editor, None{}, id, application), services)
+    case InteractionTypes.ApplicationInput{+input}: apply_application(submission_blocked(services, input), input, application, services)
+    case InteractionTypes.ServiceInput{+input}: service_input(input, application, services)
+    case InteractionTypes.EditField{editor, field, value}: application_result(edit_field(editor, field, value, application), services)
+    case InteractionTypes.RemoveAttachment{editor, id}: application_result(edit_attachment(editor, None{}, id, application), services)
 
 def code_scenes(application: E.Application) -> +List<Content.Scene>:
   +observed_session = E.session(application)
   code_blocks = E.code_blocks(observed_session)
   List.foldr(~&2, ~Content.Block, ~(+List<Content.Scene>), ~(block => rest => Content.observe(block) <> rest), code_blocks, Nil{})
-def observe(capacity: View.Capacity, state: State) -> Scene:
-  State{+application, +observed_state} = state
+
+def observe(capacity: View.Capacity, state: InteractionTypes.State) -> InteractionTypes.Scene:
+  InteractionTypes.State{+application, +observed_state} = state
   access = Services.access(observed_state)
   credential = Services.credential(observed_state)
   settings = Services.settings_open(observed_state)
@@ -255,26 +236,28 @@ def observe(capacity: View.Capacity, state: State) -> Scene:
   transfers = Services.transfers(observed_state)
   preview = Services.preview(observed_state)
   directory_picker = Services.directory_picker(observed_state)
-  Scene{View.observe(capacity, application),
-    Settings{settings, access, Bool.not(String.eq(credential, "")), appearance,
-      ServiceInput{Services.OpenSettings{}}, ServiceInput{Services.CloseSettings{}}, ServiceInput{Services.Connect{}}}, transfers, preview, code_scenes(application), directory_picker}
+  InteractionTypes.Scene{View2.observe(capacity, application),
+    InteractionTypes.Settings{settings, access, Bool.not(String.eq(credential, "")), appearance,
+      InteractionTypes.ServiceInput{Services.OpenSettings{}}, InteractionTypes.ServiceInput{Services.CloseSettings{}}, InteractionTypes.ServiceInput{Services.Connect{}}}, transfers, preview, code_scenes(application), directory_picker}
 
-def step(input: Input, state: State) -> Decision:
+def step(input: InteractionTypes.Input, state: InteractionTypes.State) -> InteractionTypes.Decision:
   dispatch(state, input)
 
 # Renderers observe a control through this entry, so service readiness and the
 # domain command contract cannot disagree about whether activation is allowed.
+
 def control_availability(blocked: Bool, intrinsic: View.Availability) -> View.Availability:
   match blocked:
     case True{}: View.Unavailable{"Connect and finish pending file uploads before submitting"}
     case False{}: intrinsic
-def control(state: State, declaration: View.ControlDeclaration) -> Control:
-  State{application, services} = state
-  View.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
-  Control{identity, label, prominence, ApplicationInput{E.UserInput{input}}, control_availability(submission_blocked(services, E.UserInput{input}), availability)}
 
-def runtime(decision: Decision) -> M.Decision():
-  Decision{+observed_state, reply, effects, interaction, service, durable} = decision
+def control(state: InteractionTypes.State, declaration: View.ControlDeclaration) -> InteractionTypes.Control:
+  InteractionTypes.State{application, services} = state
+  View.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
+  InteractionTypes.Control{identity, label, prominence, InteractionTypes.ApplicationInput{E.UserInput{input}}, control_availability(submission_blocked(services, E.UserInput{input}), availability)}
+
+def runtime(decision: InteractionTypes.Decision) -> M.Decision():
+  InteractionTypes.Decision{+observed_state, reply, effects, interaction, service, durable} = decision
   +observed_application = application(observed_state)
   program = E.program(observed_application)
   C.Decision{program, reply, effects}

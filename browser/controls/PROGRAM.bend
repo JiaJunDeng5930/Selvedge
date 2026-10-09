@@ -5,7 +5,6 @@ import ../layout/enclosure.bend as Enclosure
 import ../layout/SPACE.bend as Space
 import ../appearance/TYPOGRAPHY.bend as Typography
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
-import ../../interaction/STATE.bend as Core
 import ../../interaction/INPUT.bend as UserInput
 import ../../interaction/session/MODEL.bend as Experience
 import ../../interaction/presentation/MODEL.bend as View
@@ -16,6 +15,8 @@ import ../../interaction/services/CONTEXT.bend as Workspace
 import ../../harness/DOMAIN.bend as Domain
 import ../../features/board/MODEL.bend as Board
 import ../../features/board/filter.bend as Filter
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/TYPES.bend as InteractionTypes
 
 # The visible face never determines the command. The binding below is retained
 # from the product observation, including unavailable actions and their reasons.
@@ -102,7 +103,7 @@ def task_status_glyph(value: View.TaskStatus) -> Icon:
 
 type SourceFamily is Data:
   Unscoped{}
-  SourceFamily{node: InterfaceView.Node}
+  SourceFamily{node: SurfaceTypes.Node}
 
 type Context is Data:
   Context{area: Area, selection: Selection, code: Maybe<&2, Code.Scene>,
@@ -155,6 +156,7 @@ type Geometry is Data:
     radius: Nat, leading_slot: Nat}
 
 # Icon controls expose the square footprint consumed by layout and rendering.
+
 type ContentLayout is Data:
   ContentLayout{alignment: SpatialModel.ContentAlignment, content_area: Enclosure.ContentArea, gap: Nat}
 
@@ -207,14 +209,14 @@ type LabelPlacement is Data:
 
 type Representation is Data:
   NoControl{}
-  Action{input: Core.Input, availability: View.Availability, name: String,
+  Action{input: InteractionTypes.Input, availability: View.Availability, name: String,
     face: Face, behavior: Behavior, geometry: Geometry, placement: Placement,
     help: Help, feedback: Feedback}
-  Input{binding: InterfaceView.Meaning, name: String, widget: Widget,
+  Input{binding: SurfaceTypes.Meaning, name: String, widget: Widget,
     label: LabelPlacement, availability: View.Availability}
   # The grip opens the same destination list for keyboard users that supplies
   # pointer dragging. Each destination retains its own product command/status.
-  Movable{destinations: +List<InterfaceView.Placement>, face: View.CardFace, name: String, handle: Icon,
+  Movable{destinations: +List<SurfaceTypes.Placement>, face: View.CardFace, name: String, handle: Icon,
     geometry: Geometry, help: Help}
 
 def panel_header(representation: Representation) -> Bool:
@@ -269,29 +271,29 @@ def page_execution(page: View.Page) -> Maybe<&2, Workspace.Observation>:
     case View.TaskPage{View.TaskScene{task, title, status, context, timeline, previews, composer, details, actions}}: composer_execution(composer)
     case _: None{}
 
-def initial(content: Core.Scene) -> Context:
-  Core.Scene{View.Scene{navigation, main, layers, arrangement, attention},
-    Core.Settings{open, access, entered, appearance, open_action, close_action, connect},
+def initial(content: InteractionTypes.Scene) -> Context:
+  InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention},
+    InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect},
     transfers, preview, code, directory_picker} = content
   Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main), Unscoped{}}
 
-def area_for(role: InterfaceView.Role, inherited: Area) -> Area:
+def area_for(role: SurfaceTypes.Role, inherited: Area) -> Area:
   match role:
-    case InterfaceView.Navigation{}: NavigationArea{}
-    case InterfaceView.NavigationHeader{}: NavigationArea{}
-    case InterfaceView.Card{}: CardArea{}
-    case InterfaceView.Composer{}: ComposerArea{}
-    case InterfaceView.ComposerActions{}: ComposerArea{}
-    case InterfaceView.Heading{}: ToolbarArea{}
-    case InterfaceView.CodeBlock{}: CodeArea{}
-    case InterfaceView.Activity{}: ActivityArea{}
-    case InterfaceView.ApprovalQueue{}: ApprovalArea{}
-    case InterfaceView.Approval{}: ApprovalArea{}
-    case InterfaceView.Menu{}: MenuArea{}
-    case InterfaceView.Dialog{}: DialogArea{}
-    case InterfaceView.Details{}: DialogArea{}
-    case InterfaceView.Field{}: CollectionArea{}
-    case InterfaceView.Toolbar{}:
+    case SurfaceTypes.Navigation{}: NavigationArea{}
+    case SurfaceTypes.NavigationHeader{}: NavigationArea{}
+    case SurfaceTypes.Card{}: CardArea{}
+    case SurfaceTypes.Composer{}: ComposerArea{}
+    case SurfaceTypes.ComposerActions{}: ComposerArea{}
+    case SurfaceTypes.Heading{}: ToolbarArea{}
+    case SurfaceTypes.CodeBlock{}: CodeArea{}
+    case SurfaceTypes.Activity{}: ActivityArea{}
+    case SurfaceTypes.ApprovalQueue{}: ApprovalArea{}
+    case SurfaceTypes.Approval{}: ApprovalArea{}
+    case SurfaceTypes.Menu{}: MenuArea{}
+    case SurfaceTypes.Dialog{}: DialogArea{}
+    case SurfaceTypes.Details{}: DialogArea{}
+    case SurfaceTypes.Field{}: CollectionArea{}
+    case SurfaceTypes.Toolbar{}:
       match inherited:
         case ComposerArea{}: ComposerArea{}
         case _: ToolbarArea{}
@@ -322,46 +324,46 @@ def selection_at(layers: +List<View.Layer>, +key: UIIdentity.Key, inherited: Sel
       select_layer(UIIdentity.same(InterfaceView.layer_key(initial_attention), key), layer_selection(content),
         selection_at(rest, key, inherited))
 
-def code_at(meaning: InterfaceView.Meaning, inherited: Maybe<&2, Code.Scene>) -> Maybe<&2, Code.Scene>:
+def code_at(meaning: SurfaceTypes.Meaning, inherited: Maybe<&2, Code.Scene>) -> Maybe<&2, Code.Scene>:
   match meaning:
-    case InterfaceView.CodeFacts{scene}: Some{scene}
+    case SurfaceTypes.CodeFacts{scene}: Some{scene}
     case _: inherited
 
-def area_for_node(role: InterfaceView.Role, meaning: InterfaceView.Meaning, inherited: Area) -> Area:
+def area_for_node(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, inherited: Area) -> Area:
   match meaning:
-    case InterfaceView.BoardGroup{InterfaceView.ViewChoices{}}: BoardViewArea{}
-    case InterfaceView.BoardGroup{InterfaceView.SecondaryActions{}}: ToolbarArea{}
-    case InterfaceView.BoardGroup{InterfaceView.PrimaryAction{}}: ToolbarArea{}
-    case InterfaceView.BoardLane{stage, count}: BoardLaneArea{}
+    case SurfaceTypes.BoardGroup{SurfaceTypes.ViewChoices{}}: BoardViewArea{}
+    case SurfaceTypes.BoardGroup{SurfaceTypes.SecondaryActions{}}: ToolbarArea{}
+    case SurfaceTypes.BoardGroup{SurfaceTypes.PrimaryAction{}}: ToolbarArea{}
+    case SurfaceTypes.BoardLane{stage, count}: BoardLaneArea{}
     case _: area_for(role, inherited)
 
-def source_scope(role: InterfaceView.Role, inherited: SourceFamily) -> SourceFamily:
+def source_scope(role: SurfaceTypes.Role, inherited: SourceFamily) -> SourceFamily:
   match role:
-    case InterfaceView.Dialog{}: Unscoped{}
-    case InterfaceView.Menu{}: Unscoped{}
+    case SurfaceTypes.Dialog{}: Unscoped{}
+    case SurfaceTypes.Menu{}: Unscoped{}
     case _: inherited
 
-def activity_source(role: InterfaceView.Role, node: InterfaceView.Node, inherited: SourceFamily) -> SourceFamily:
+def activity_source(role: SurfaceTypes.Role, node: SurfaceTypes.Node, inherited: SourceFamily) -> SourceFamily:
   match role:
-    case InterfaceView.Activity{}: SourceFamily{node}
+    case SurfaceTypes.Activity{}: SourceFamily{node}
     case _: source_scope(role, inherited)
 
-def source_family_at(+node: InterfaceView.Node, inherited: SourceFamily) -> SourceFamily:
-  InterfaceView.Node{key, semantic, label, +role, meaning, children} = node
+def source_family_at(+node: SurfaceTypes.Node, inherited: SourceFamily) -> SourceFamily:
+  SurfaceTypes.Node{key, semantic, label, +role, meaning, children} = node
   match meaning:
-    case InterfaceView.ProjectGroup{project, selected, expanded}: SourceFamily{node}
-    case InterfaceView.TaskRow{task, status, selected}: SourceFamily{node}
-    case InterfaceView.ProjectChooser{selected}: SourceFamily{node}
-    case InterfaceView.CardContent{face}: SourceFamily{node}
-    case InterfaceView.ActivityContent{expanded, audit}: activity_source(role, node, inherited)
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: SourceFamily{node}
+    case SurfaceTypes.TaskRow{task, status, selected}: SourceFamily{node}
+    case SurfaceTypes.ProjectChooser{selected}: SourceFamily{node}
+    case SurfaceTypes.CardContent{face}: SourceFamily{node}
+    case SurfaceTypes.ActivityContent{expanded, audit}: activity_source(role, node, inherited)
     case _: source_scope(role, inherited)
 
 def source_reference(context: Context) -> SourceFamily:
   Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
   source_family
 
-def enter(+node: InterfaceView.Node, context: Context) -> Context:
-  InterfaceView.Node{+key, semantic, label, +role, +meaning, children} = node
+def enter(+node: SurfaceTypes.Node, context: Context) -> Context:
+  SurfaceTypes.Node{+key, semantic, label, +role, +meaning, children} = node
   Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, source_family} = context
   Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
     code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(node, source_family)}
@@ -511,14 +513,14 @@ def service_purpose(input: Services.Input, appearance: Services.Appearance, acce
     case Services.Connect{}: Connect{access}
     case _: NamedAction{}
 
-def purpose_fields(key: UIIdentity.Key, event: Core.Input, selection: Selection, code: Maybe<&2, Code.Scene>,
+def purpose_fields(key: UIIdentity.Key, event: InteractionTypes.Input, selection: Selection, code: Maybe<&2, Code.Scene>,
   appearance: Services.Appearance, access: Services.Access, settings_open: Bool, layers: +List<View.Layer>) -> Purpose:
   match event:
-    case Core.ApplicationInput{Experience.UserInput{input}}: user_purpose(key, input, selection, layers)
-    case Core.ApplicationInput{Experience.ContentInput{identity, input}}: content_purpose(input, code)
-    case Core.ServiceInput{input}: service_purpose(input, appearance, access, settings_open)
-    case Core.RemoveAttachment{editor, id}: RemoveValue{}
-    case Core.EditField{editor, Forms.WorkspaceDirectories{}, Forms.WorkspaceChange{Workspace.RemoveRoot{path}}}: RemoveValue{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{input}}: user_purpose(key, input, selection, layers)
+    case InteractionTypes.ApplicationInput{Experience.ContentInput{identity, input}}: content_purpose(input, code)
+    case InteractionTypes.ServiceInput{input}: service_purpose(input, appearance, access, settings_open)
+    case InteractionTypes.RemoveAttachment{editor, id}: RemoveValue{}
+    case InteractionTypes.EditField{editor, Forms.WorkspaceDirectories{}, Forms.WorkspaceChange{Workspace.RemoveRoot{path}}}: RemoveValue{}
     case _: NamedAction{}
 
 def navigation_icon(expanded: Bool) -> Icon:
@@ -626,13 +628,13 @@ def working_filter_face(selected: Bool, purpose: Purpose, label: String, area: A
     case True{}: UnbrokenFace{label}
     case False{}: face_for(purpose, label, area)
 
-def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -> Face:
+def input_face(input: InteractionTypes.Input, purpose: Purpose, label: String, area: Area) -> Face:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.FilterBoard{Board.Filter{view, search, status, priority, date, assignee, creator, project, tag}}}}:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.FilterBoard{Board.Filter{view, search, status, priority, date, assignee, creator, project, tag}}}}:
       working_filter_face(String.eq(view, "working"), purpose, label, area)
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: UnbrokenFace{label}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.EditDraft{editor, UserInput.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: UnbrokenFace{label}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.EditDraft{editor, UserInput.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
       IconFace{CloseCross{}}
     case _: face_for(purpose, label, area)
 
@@ -656,9 +658,9 @@ def contextual_behavior(purpose: Purpose, selected: Bool, area: Area) -> Behavio
     case BoardViewArea{}: Toggle{selected}
     case _: behavior_for(purpose, selected)
 
-def selected_role(role: InterfaceView.Role) -> Bool:
+def selected_role(role: SurfaceTypes.Role) -> Bool:
   match role:
-    case InterfaceView.SelectedButton{}: True{}
+    case SurfaceTypes.SelectedButton{}: True{}
     case _: False{}
 
 def name_for(purpose: Purpose, label: String) -> String:
@@ -726,7 +728,6 @@ def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match face:
     case ChoiceFace{text, description, icon, checked}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
     case other: geometry_nonchoice(purpose, other, area)
-
 
 def placement_for(purpose: Purpose, area: Area) -> Placement:
   match purpose area:
@@ -797,8 +798,8 @@ def composer_action_fields(+subject: View.ComposerSubject, +label: String,
         help_for(face, availability, feedback, name), feedback}
     case _: value
 
-def action_for_purpose(+intent: Purpose, +area: Area, +input: Core.Input,
-  +availability: View.Availability, label: String, role: InterfaceView.Role) -> Representation:
+def action_for_purpose(+intent: Purpose, +area: Area, +input: InteractionTypes.Input,
+  +availability: View.Availability, label: String, role: SurfaceTypes.Role) -> Representation:
   +control_name = name_for(intent, label)
   +control_face = input_face(input, intent, control_name, area)
   +response = feedback_for(intent)
@@ -806,15 +807,15 @@ def action_for_purpose(+intent: Purpose, +area: Area, +input: Core.Input,
     contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
 
-def make_action(+key: UIIdentity.Key, +input: Core.Input, +availability: View.Availability, label: String,
-  role: InterfaceView.Role, +context: Context) -> Representation:
+def make_action(+key: UIIdentity.Key, +input: InteractionTypes.Input, +availability: View.Availability, label: String,
+  role: SurfaceTypes.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   action_for_purpose(intent, area, input, availability, label, role)
 
-def panel_toggle_face(input: Core.Input, expanded: Bool, fallback: Face) -> Face:
+def panel_toggle_face(input: InteractionTypes.Input, expanded: Bool, fallback: Face) -> Face:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.TogglePanel{UserInput.TaskDetails{task}, trigger}}}}:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.TogglePanel{UserInput.TaskDetails{task}, trigger}}}}:
       IconFace{inspector_icon(expanded)}
     case _: fallback
 
@@ -825,12 +826,12 @@ def panel_toggle_fields(+expanded: Bool, value: Representation) -> Representatio
         geometry, placement, help, feedback}
     case _: value
 
-def make_panel_toggle(key: UIIdentity.Key, expanded: Bool, input: Core.Input, availability: View.Availability,
-  label: String, role: InterfaceView.Role, context: Context) -> Representation:
+def make_panel_toggle(key: UIIdentity.Key, expanded: Bool, input: InteractionTypes.Input, availability: View.Availability,
+  label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
   panel_toggle_fields(expanded, make_action(key, input, availability, label, role, context))
 
-def make_composer_action(key: UIIdentity.Key, subject: View.ComposerSubject, input: Core.Input,
-  availability: View.Availability, +label: String, role: InterfaceView.Role, +context: Context) -> Representation:
+def make_composer_action(key: UIIdentity.Key, subject: View.ComposerSubject, input: InteractionTypes.Input,
+  availability: View.Availability, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
   composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
 
@@ -857,22 +858,22 @@ def classification_icon(classification: Maybe<&2, Filter.Classification>) -> May
     case None{}: None{}
     case Some{value}: Some{classification_glyph(value)}
 
-def choice_behavior(kind: InterfaceView.ChoiceKind, area: Area, selected: Bool) -> Behavior:
+def choice_behavior(kind: SurfaceTypes.ChoiceKind, area: Area, selected: Bool) -> Behavior:
   match kind area:
-    case InterfaceView.SingleChoice{} MenuArea{}: Radio{selected}
-    case InterfaceView.SingleChoice{} _: ChoiceRadio{selected}
-    case InterfaceView.MultipleChoice{} MenuArea{}: MenuCheckbox{selected}
-    case InterfaceView.MultipleChoice{} _: ChoiceCheckbox{selected}
+    case SurfaceTypes.SingleChoice{} MenuArea{}: Radio{selected}
+    case SurfaceTypes.SingleChoice{} _: ChoiceRadio{selected}
+    case SurfaceTypes.MultipleChoice{} MenuArea{}: MenuCheckbox{selected}
+    case SurfaceTypes.MultipleChoice{} _: ChoiceCheckbox{selected}
 
-def choice_action(kind: InterfaceView.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
+def choice_action(kind: SurfaceTypes.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
   match value:
     case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
       +actual_face: Face = ChoiceFace{name, description, icon, selected}
       Action{input, availability, name, actual_face, choice_behavior(kind, area, selected), geometry_for(purpose, actual_face, area), placement, help, feedback}
     case other: other
 
-def make_choice(+key: UIIdentity.Key, kind: InterfaceView.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: Core.Input, availability: View.Availability,
-  label: String, role: InterfaceView.Role, +context: Context) -> Representation:
+def make_choice(+key: UIIdentity.Key, kind: SurfaceTypes.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: InteractionTypes.Input, availability: View.Availability,
+  label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   choice_action(kind, classification_icon(classification), selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
@@ -926,7 +927,7 @@ def label_placement(widget: Widget) -> LabelPlacement:
     case DirectoryChooser{face}: AccessibleOnly{}
     case _: AboveInput{}
 
-def make_input(meaning: InterfaceView.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
+def make_input(meaning: SurfaceTypes.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
   Input{meaning, name, widget, label_placement(widget), availability}
 
 def field_availability(entry: Forms.Entry) -> View.Availability:
@@ -941,20 +942,20 @@ type ProjectControl is Data:
   ProjectMore{}
   ProjectOther{}
 
-def project_control_input(input: Core.Input) -> ProjectControl:
+def project_control_input(input: InteractionTypes.Input) -> ProjectControl:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{project}}}}: ProjectDisclosure{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{project}}}}: ProjectName{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{project}}}}: ProjectCreate{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{project}}, trigger}}}}: ProjectMore{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{project}}}}: ProjectDisclosure{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{project}}}}: ProjectName{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{project}}}}: ProjectCreate{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{project}}, trigger}}}}: ProjectMore{}
     case _: ProjectOther{}
 
-def project_control_matches(input: Core.Input, project: Nat) -> Bool:
+def project_control_matches(input: InteractionTypes.Input, project: Nat) -> Bool:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{id}}}}: Nat.is_eq(id, project)
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{Some{id}}}}}: Nat.is_eq(id, project)
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{Some{id}}}}}: Nat.is_eq(id, project)
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{id}}, trigger}}}}: Nat.is_eq(id, project)
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{id}}}}: Nat.is_eq(id, project)
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{Some{id}}}}}: Nat.is_eq(id, project)
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{Some{id}}}}}: Nat.is_eq(id, project)
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{id}}, trigger}}}}: Nat.is_eq(id, project)
     case _: False{}
 
 def disclosure_glyph(expanded: Bool) -> Icon:
@@ -990,36 +991,36 @@ def project_presentation(matches: Bool, +kind: ProjectControl, +expanded: Bool, 
     case True{}: ActionPresentation{project_face(kind, name, expanded, face), project_behavior(kind, expanded, behavior), project_geometry(kind, geometry)}
     case False{}: ActionPresentation{face, behavior, geometry}
 
-def task_presentation(input: Core.Input, task: Nat, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
+def task_presentation(input: InteractionTypes.Input, task: Nat, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Conversation{id}}}}}:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Conversation{id}}}}}:
       project_presentation(Nat.is_eq(id, task), ProjectName{}, False{}, name, face, behavior, geometry)
     case _: ActionPresentation{face, behavior, geometry}
 
-def chooser_presentation(input: Core.Input, +name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
+def chooser_presentation(input: InteractionTypes.Input, +name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: ActionPresentation{PickerFace{Some{Folder{}}, name}, behavior, geometry}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: ActionPresentation{PickerFace{Some{Folder{}}, name}, behavior, geometry}
     case _: ActionPresentation{face, behavior, geometry}
 
-def contextual_source_presentation(area: Area, source_family: SourceFamily, +input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
+def contextual_source_presentation(area: Area, source_family: SourceFamily, +input: InteractionTypes.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match area source_family:
-    case _ SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectGroup{project, selected, expanded}, children}}:
+    case _ SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}:
       project_presentation(project_control_matches(input, project), project_control_input(input), expanded, name, face, behavior, geometry)
-    case NavigationArea{} SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
-    case _ SourceFamily{InterfaceView.Node{owner, semantic, label, role, InterfaceView.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
+    case NavigationArea{} SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
+    case _ SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
     case _ _: ActionPresentation{face, behavior, geometry}
 
-def uses_source_presentation(input: Core.Input) -> Bool:
+def uses_source_presentation(input: InteractionTypes.Input) -> Bool:
   match input:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{project}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{project}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{project}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{project}}, trigger}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Conversation{task}}}}}: True{}
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ToggleProjectGroup{project}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectProject{project}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.BeginTask{project}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ObjectActions{UserInput.ProjectSubject{project}}, trigger}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Conversation{task}}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.ProjectPicker{}, trigger}}}}: True{}
     case _: False{}
 
-def dispatch_source_presentation(enabled: Bool, area: Area, source_family: SourceFamily, input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
+def dispatch_source_presentation(enabled: Bool, area: Area, source_family: SourceFamily, input: InteractionTypes.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match enabled:
     case True{}: contextual_source_presentation(area, source_family, input, name, face, behavior, geometry)
     case False{}: ActionPresentation{face, behavior, geometry}
@@ -1046,26 +1047,27 @@ def same_disclosure_state(first: Bool, second: Bool) -> Bool:
     case _ _: False{}
 
 # Correlate the action with the actual declaration under this activity source.
-def summary_declaration(children: +List<InterfaceView.Node>, task: Nat, group: Nat, occurrence: Nat, expanded: Bool, caption: String) -> SourceContent:
+
+def summary_declaration(children: +List<SurfaceTypes.Node>, task: Nat, group: Nat, occurrence: Nat, expanded: Bool, caption: String) -> SourceContent:
   match children:
-    case Con{InterfaceView.Node{key, semantic, label, role,
-      InterfaceView.Activate{Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
+    case Con{SurfaceTypes.Node{key, semantic, label, role,
+      SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
       summary_target(Nat.is_eq(task, actual_task) && (Nat.is_eq(group, actual_group) &&
         (Nat.is_eq(occurrence, actual_occurrence) && same_disclosure_state(expanded, actual_expanded))), caption)
     case _: OrdinaryContent{}
 
-def source_content_input(input: Core.Input, area: Area, family: SourceFamily, face: Face) -> SourceContent:
+def source_content_input(input: InteractionTypes.Input, area: Area, family: SourceFamily, face: Face) -> SourceContent:
   match input area family face:
-    case Core.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.CardDetails{target}, trigger}}}}
-      CardArea{} SourceFamily{InterfaceView.Node{key, semantic, label, role,
-      InterfaceView.CardContent{View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.CardDetails{target}, trigger}}}}
+      CardArea{} SourceFamily{SurfaceTypes.Node{key, semantic, label, role,
+      SurfaceTypes.CardContent{View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
         title_target(Nat.is_eq(id, target), title)
-    case Core.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{task, group, occurrence, requested}}}
-      ActivityArea{} SourceFamily{InterfaceView.Node{key, semantic, label, InterfaceView.Activity{}, InterfaceView.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.SetDisclosure{task, group, occurrence, requested}}}
+      ActivityArea{} SourceFamily{SurfaceTypes.Node{key, semantic, label, SurfaceTypes.Activity{}, SurfaceTypes.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
         summary_declaration(children, task, group, occurrence, requested, label)
     case _ _ _ _: OrdinaryContent{}
 
-def source_content(area: Area, family: SourceFamily, input: Core.Input, face: Face) -> SourceContent:
+def source_content(area: Area, family: SourceFamily, input: InteractionTypes.Input, face: Face) -> SourceContent:
   source_content_input(input, area, family, face)
 
 def summary_presentation(face: Face, behavior: Behavior, geometry: Geometry, caption: String) -> ActionPresentation:
@@ -1087,7 +1089,7 @@ def content_presentation(content: SourceContent, value: ActionPresentation) -> A
     case TitleContent{caption}: title_presentation(value, caption)
     case SummaryContent{caption}: summary_action_presentation(value, caption)
 
-def source_presentation(+area: Area, +source_family: SourceFamily, +input: Core.Input, name: String, +face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
+def source_presentation(+area: Area, +source_family: SourceFamily, +input: InteractionTypes.Input, name: String, +face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   content_presentation(source_content(area, source_family, input, face),
     dispatch_source_presentation(uses_source_presentation(input), area, source_family, input, name, face, behavior, geometry))
 
@@ -1100,7 +1102,7 @@ def representation_content(context: Context, value: Representation) -> SourceCon
   Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   source_representation_content(value, area, family)
 
-def presented_action(input: Core.Input, availability: View.Availability, name: String, projection: ActionPresentation, placement: Placement, help: Help, feedback: Feedback) -> Representation:
+def presented_action(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: ActionPresentation, placement: Placement, help: Help, feedback: Feedback) -> Representation:
   ActionPresentation{face, behavior, geometry} = projection
   Action{input, availability, name, face, behavior, geometry, placement, help, feedback}
 
@@ -1110,28 +1112,28 @@ def source_action(area: Area, source_family: SourceFamily, value: Representation
       presented_action(input, availability, name, source_presentation(area, source_family, input, name, face, behavior, geometry), placement, help, feedback)
     case _: value
 
-def represent_action(key: UIIdentity.Key, +input: Core.Input, availability: View.Availability, label: String, role: InterfaceView.Role, +context: Context) -> Representation:
+def represent_action(key: UIIdentity.Key, +input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, open, layers, execution, +source_family} = context
   source_action(area, source_family, make_action(key, input, availability, label, role, context))
 
-def represent(key: UIIdentity.Key, +meaning: InterfaceView.Meaning, +label: String, role: InterfaceView.Role, +context: Context) -> Representation:
+def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
-    case InterfaceView.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
-    case InterfaceView.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
-    case InterfaceView.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
-    case InterfaceView.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)
-    case InterfaceView.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
-    case InterfaceView.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
-    case InterfaceView.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
-    case InterfaceView.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
-    case InterfaceView.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
-    case InterfaceView.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
-    case InterfaceView.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, InterfaceView.availability(enabled))
-    case InterfaceView.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
-    case InterfaceView.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})
-    case InterfaceView.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, InterfaceView.availability(enabled))
-    case InterfaceView.CardArchive{count}: NoControl{}
-    case InterfaceView.MovableCard{destinations, face}:
+    case SurfaceTypes.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
+    case SurfaceTypes.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
+    case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)
+    case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
+    case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
+    case SurfaceTypes.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
+    case SurfaceTypes.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
+    case SurfaceTypes.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
+    case SurfaceTypes.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
+    case SurfaceTypes.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, InterfaceView.availability(enabled))
+    case SurfaceTypes.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
+    case SurfaceTypes.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, InterfaceView.availability(enabled))
+    case SurfaceTypes.CardArchive{count}: NoControl{}
+    case SurfaceTypes.MovableCard{destinations, face}:
       Movable{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
         Tooltip{"Move card", 300n, True{}, True{}, False{}}}
     case _: NoControl{}

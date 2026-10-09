@@ -1,6 +1,5 @@
 import Base
 import ../features/CODEC.bend as FeatureCodec
-import ../features/MODEL.bend as Features
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
 import ../../bendlib/json.bend as J

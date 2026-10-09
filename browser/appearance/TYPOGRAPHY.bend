@@ -27,6 +27,7 @@ type Emphasis is Data:
   Strong{}
 
 # Splitting the scale avoids an overflowing product before division.
+
 def scaling_calculation(+nominal: Nat, scale: Scale) -> NaturalSize.Calculation:
   Scale{+additional_milli} = scale
   +whole: NaturalSize.Calculation = NaturalSize.Quotient{NaturalSize.Value{additional_milli}, NaturalSize.Value{1000n}}
@@ -94,6 +95,7 @@ def resolve(+capacity: Nat, +tier: Tier, emphasis: Emphasis, +scale: Scale) -> T
   TextStyle{font(tier), text_size, Nat.max(1n+text_size, scaled(capacity, nominal_leading(tier), scale)), weight(emphasis)}
 
 # Styles retain semantic intent until rendering and measurement resolve it.
+
 type Presentation is Data:
   Presentation{tier: Tier, emphasis: Emphasis, scale: Scale}
 
@@ -158,6 +160,7 @@ def word_break(value: Wrapping) -> String:
   "normal"
 
 # A generation batches actual text probes; foreign measurements are observations.
+
 type Probe is Data:
   Probe{key: String, text: String, style: TextStyle, wrapping: Wrapping,
     available_width: Maybe<&2, Nat>, reference_text: String}
@@ -196,6 +199,7 @@ def same_spec(first: MeasurementSpec, second: MeasurementSpec) -> Bool:
                         Bool.and(same_width(first_width, second_width), String.eq(first_reference, second_reference)))))))))))
 
 # Admission checks external data; they do not establish physical measurement accuracy.
+
 def metric_admission(expected_key: String, reference: String, metric: Metric) -> Bool:
   Metric{actual_key, minimum, preferred, height, advance} = metric
   Bool.and(String.eq(expected_key, actual_key),

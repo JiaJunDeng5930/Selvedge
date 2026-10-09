@@ -5,7 +5,6 @@ import ../bendlib/association-map.bend as Finite
 import ../bendlib/stdlib.bend as Std
 import ../interaction/STATE.bend as Core
 import ../interaction/services/MODEL.bend as Services
-import ../interaction/presentation/PROGRAM.bend as Interface
 import ../interaction/presentation/MODEL.bend as View
 import ../interaction/session/MODEL.bend as E
 import ../interaction/INPUT.bend as U
@@ -19,11 +18,12 @@ import ./controls/GEOMETRY.bend as Physical
 import ./runtime/PLATFORM.bend as Platform
 import ./reading/MODEL.bend as Reading
 import ./document/RENDERED.bend as Rendered
-import ./appearance/paint-rules.bend as PaintRules
-import ./layout/physical-renderer-rules.bend as RendererRules
+import ./appearance/CONTRACT.bend as PaintRules
+import ./layout/render-contract.bend as RendererRules
+import ../interaction/TYPES.bend as InteractionTypes
+import ../interaction/presentation/SURFACE.bend as SurfaceTypes
 
-
-def model_core(application: Platform.State) -> Core.State:
+def model_core(application: Platform.State) -> InteractionTypes.State:
   Platform.core(application)
 
 def platform_effects(decision: Platform.Decision) -> +List<Platform.Effect>:
@@ -129,18 +129,18 @@ type Environment is Type:
       {font_state(Model.step(Model.EnvironmentObserved{environment}, state)) ==
         F.begin((Model.generation(state) + 1n : Nat), Model.environment_root(environment)) : F.State},
     typography_product: @+state: Model.State -> @+observation: F.Observation -> {Model.product(Model.step(Model.TypographyObserved{observation}, state)) ==
-    Platform.unchanged(model_core(model_application(state))) : Core.Decision}
+    Platform.unchanged(model_core(model_application(state))) : InteractionTypes.Decision}
   }
 
 type Product is Type:
   Product{
     product_refinement: @input:Product.Input -> @state:Model.State ->
       {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}}, state)) ==
-        Product.step(input, Platform.core(Model.application(state))) : Core.Decision},
-    element_refinement: @key:String -> @gesture:Interface.Gesture -> @state:Model.State ->
+        Product.step(input, Platform.core(Model.application(state))) : InteractionTypes.Decision},
+    element_refinement: @key:String -> @gesture:SurfaceTypes.Gesture -> @state:Model.State ->
       {Model.product(Model.step(Model.ElementInput{key, gesture}, state)) ==
         Product.step(Product.Element{Platform.capacity(Platform.platform(Model.application(state))), key, gesture},
-          Platform.core(Model.application(state))) : Core.Decision}
+          Platform.core(Model.application(state))) : InteractionTypes.Decision}
   }
 
 type Realization is Type:
@@ -181,7 +181,7 @@ type Reading is Type:
         Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>} ->
       {Platform.layout_for(E.from_program(program, conversation_session(session, task)), bookmarks) ==
         [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>},
-    after_core_keeps_bookmarks: @decision:Core.Decision -> @platform:Platform.Platform ->
+    after_core_keeps_bookmarks: @decision:InteractionTypes.Decision -> @platform:Platform.Platform ->
       {decision_bookmarks(Platform.after_core(decision, platform)) == platform_bookmarks(platform) :
         +List<Finite.Entry(Reading.Bookmark)>},
     layout_sequence_preserves_bookmark: @count:Nat -> @seed:Tape ->
@@ -191,26 +191,26 @@ type Reading is Type:
 type Editing is Type:
   Editing{
     ime_entry: @owner:U.Editor -> @selection:Physical.Selection -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
-      @core:Core.State -> @platform:Platform.Platform ->
+      @core:InteractionTypes.State -> @platform:Platform.Platform ->
       @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor} ->
       {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core),
           with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}} : Platform.Decision},
-    ready_enter: @owner:U.Editor -> @selection:Physical.Selection -> @modified:Bool -> @core:Core.State ->
+    ready_enter: @owner:U.Editor -> @selection:Physical.Selection -> @modified:Bool -> @core:InteractionTypes.State ->
       @platform:Platform.Platform ->
       @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor} ->
       @enabled:{Platform.editor_enabled(core, owner, platform_capacity(platform)) == True{} : Bool} ->
       @permitted:{Focus.permits_composer(platform_scope(platform)) == True{} : Bool} ->
       {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
         Platform.from_core(core, platform))) ==
-        Product.step(Product.SubmitComposer{platform_capacity(platform), owner}, core) : Core.Decision},
+        Product.step(Product.SubmitComposer{platform_capacity(platform), owner}, core) : InteractionTypes.Decision},
     temporary_enter_product: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
-      @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:Core.State -> @platform:Platform.Platform ->
+      @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:InteractionTypes.State -> @platform:Platform.Platform ->
       {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
           Platform.from_core(core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})))) ==
-          Platform.unchanged(core) : Core.Decision},
+          Platform.unchanged(core) : InteractionTypes.Decision},
     temporary_enter_effects: @owner:U.Editor -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
-      @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:Core.State -> @platform:Platform.Platform ->
+      @identity:String -> @initial:String -> @restore:String -> @+occurrence:Maybe<&2, Nat> -> @core:InteractionTypes.State -> @platform:Platform.Platform ->
       {platform_effects(Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
           Platform.from_core(core, with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})))) ==
           Nil{} : +List<Platform.Effect>}
@@ -218,11 +218,11 @@ type Editing is Type:
 
 type Focus is Type:
   Focus{
-    stale_focus_ticket: @core:Core.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
+    stale_focus_ticket: @core:InteractionTypes.State -> @platform:Platform.Platform -> @received:Nat -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
       @stale:{Nat.is_eq(received, platform_ticket(platform)) == False{} : Bool} ->
       {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
-    inactive_focus: @core:Core.State -> @platform:Platform.Platform -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
+    inactive_focus: @core:InteractionTypes.State -> @platform:Platform.Platform -> @identity:String -> @observed:Maybe<&2, Focus.Target> ->
       @inactive:{Platform.active_focus(core, platform_capacity(platform), identity) == False{} : Bool} ->
       {Platform.step(Platform.FocusApplied{platform_ticket(platform), Focus.Product{identity}, observed}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision},
@@ -239,8 +239,8 @@ type Requirements is Type:
     reading: Reading,
     editing: Editing,
     focus: Focus,
-    paint: PaintRules.Requirements,
-    physical_renderer: RendererRules.Requirements
+    paint: PaintRules.PaintRequirements,
+    physical_renderer: RendererRules.RendererRequirements
   }
 
 law evidence:

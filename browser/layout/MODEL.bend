@@ -1,7 +1,6 @@
 import Base
 import ../../bendlib/json.bend as J
 import ./CONTENT.bend as Content
-import ./physical-content-rules.bend as ContentRules
 import ./physical-content-measurement.bend as Measurements
 import ./SOURCE.bend as PhysicalSource
 import ./physical-native.bend as Native
@@ -11,13 +10,16 @@ import ./physical-space.bend as SpaceModel
 import ./GEOMETRY.bend as Spatial
 import ../document/SOURCE.bend as Source
 import ../document/MODEL.bend as Doc
+
 type ReceiptStatus is Data:
   Unchanged{}
   Accepted{}
   Rejected{reason: String}
+
 type Engine is Data:
   Engine{snapshot: Content.Snapshot, viewport: Spatial.Box,
     observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>, receipt_status: ReceiptStatus}
+
 def observations(state: Engine) -> +List<Content.Observation>:
   Engine{value_snapshot, value_viewport, value_observations, value_viewports, value_receipt_status} = state
   value_observations
@@ -53,6 +55,7 @@ def measure_jobs(requests: +List<Content.Request>) -> +List<PhysicalPlan.Job>:
 type Discovery is Data:
   Discovered{jobs: +List<PhysicalPlan.Job>, roots: +List<Content.AllocatedNative>}
   InvalidDiscovery{error: Content.Error}
+
 def merge(first: Discovery, +second: Discovery) -> Discovery:
   match first:
     case InvalidDiscovery{error}: InvalidDiscovery{error}
@@ -150,7 +153,7 @@ def plan_jobs(plan: PhysicalPlan.Plan) -> +List<PhysicalPlan.Job>:
 
 def request_matches(request: Content.Request, key: String, purpose: Content.Purpose) -> Bool:
   Content.Request{generation, request_key, value, request_purpose, roots, policies} = request
-  String.eq(request_key, key) && ContentRules.same_purpose(request_purpose, purpose)
+  String.eq(request_key, key) && Measurements.same_purpose(request_purpose, purpose)
 
 def pick_job(matches: Bool, +request: Content.Request, rest: Maybe<&2, Content.Request>) -> Maybe<&2, Content.Request>:
   match matches:
@@ -208,6 +211,7 @@ def has_named_field(fields: +List<J.Field>, +name: String) -> Bool:
 
 type Batch is Data:
   Batch{observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>}
+
 def has_field(value: J.Json, name: String) -> Bool:
   match value:
     case J.Object{fields}: has_named_field(fields, name)
@@ -235,7 +239,7 @@ def measurement_valid_member(member: Bool, valid: Bool, +request: Content.Reques
   measurement_valid_result(measurement_guard(member, valid, request, batch), observation, observations, viewports)
 
 def measurement_valid(valid: Bool, +request: Content.Request, +observation: Content.Observation, batch: Batch) -> Result<&2, &2, String, Batch>:
-  measurement_valid_member(ContentRules.observation_matches(request, observation), valid, request, observation, batch)
+  measurement_valid_member(Measurements.observation_matches(request, observation), valid, request, observation, batch)
 
 def is_natural_result(result: Maybe<&2, Nat>) -> Bool:
   match result:
@@ -365,7 +369,7 @@ def decode_receipts(result: Result<&2, &2, String, J.Json>, jobs: +List<Physical
 def observation_identity(observation: Content.Observation, candidate: Content.Observation) -> Bool:
   Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
   Content.Observation{other_generation, other_key, other_purpose, other_minimum, other_preferred, other_height, other_advance} = candidate
-  Nat.is_eq(generation, other_generation) && String.eq(key, other_key) && ContentRules.same_purpose(purpose, other_purpose)
+  Nat.is_eq(generation, other_generation) && String.eq(key, other_key) && Measurements.same_purpose(purpose, other_purpose)
 
 def remove_observation_result(result: Bool, value: Content.Observation, filtered_tail: +List<Content.Observation>) -> +List<Content.Observation>:
   match result:

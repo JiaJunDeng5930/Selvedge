@@ -16,12 +16,10 @@ import ./approval/HOOKS.bend as Hooks
 import ./workspace/WORKSPACE.bend as Workspace
 import ./workspace/PROJECTS.bend as Projects
 import ./approval/MODEL.bend as Approvals
-import ../bendlib/association-map.bend as Finite
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
 # LAWS. They are requirements about actual values, not a second task simulator.
-
 def missing_tool(found: Maybe<&2, D.Tool>) -> Bool:
   match found:
     case None{}: True{}
@@ -144,6 +142,7 @@ def original_call(history: D.History, +call: D.Call, +budget: Nat) -> Bool:
 
 # Announcements are historical snapshots. A pending review may later be running
 # or processing a result without rewriting the already-published tool output.
+
 def announced_value(+value: J.Json, +operation: D.Operation(), +policy: D.ApprovalPolicy, +budget: Nat) -> Bool:
   Same.json(budget, value, Ops.running(Ops.with_stage(D.Executing{}, operation))) ||
     (Bool.not(Workspace.full_access(policy)) && Approvals.requested(T.call_arguments(Ops.call(operation))) &&
@@ -275,6 +274,7 @@ def tasks(remaining: +List<D.Task>, +expected_id: Nat, +all: +List<D.Task>, +nex
 # Canonical identities imply uniqueness. Each parent is older, exists, and has
 # exactly the recorded ancestor tail and contract. Quotas count archived tasks.
 # Every outstanding ticket is fresh within the allocation bound and is unique.
+
 def feature_tickets(tickets: +List<Nat>, +tasks: +List<D.Task>) -> Bool:
   match tickets:
     case Nil{}: True{}
@@ -329,6 +329,7 @@ def archived_suffix(count: Nat, history: D.History, +owner: Nat, +operations: +L
 
 # Existing task identities, contracts and ancestry cannot be rewritten or
 # deleted. History only grows, and archival also seals history and queued input.
+
 def archive_retained(status: D.Status, +previous: D.Task, +candidate: D.Task, +budget: Nat) -> Bool:
   match status:
     case D.Archived{}:
@@ -340,6 +341,7 @@ def archive_retained(status: D.Status, +previous: D.Task, +candidate: D.Task, +b
 
 # Archival seals new work. A self-archive invocation may still own its result
 # callback: only that already-owned receipt suffix may be appended afterwards.
+
 def retained(previous: +List<D.Task>, candidate: +List<D.Task>, +budget: Nat) -> Bool:
   match previous candidate:
     case Nil{} _: True{}
@@ -403,6 +405,7 @@ def keep_effect(cancelled: Bool, effect: M.Effect(), rest: +List<M.Effect()>) ->
 # Several internal steps share one commit. An archive later in that decision
 # withdraws an earlier, still-unexecuted intent; cancelling it after dispatch
 # would unnecessarily cross the external-effect boundary.
+
 def after_ticket(found: Maybe<&2, D.Operation()>, ticket: Nat) -> Bool:
   match found:
     case Some{(id, D.OperationBody{call, announced, D.ResultPending{expected, plugin, pending, value, error}})}: Nat.is_eq(ticket, expected)
@@ -467,6 +470,7 @@ def settled_calls(remaining: D.History, +whole: D.History) -> Bool:
 
 # A context cut cannot strand a tool call on the omitted side of a checkpoint.
 # The same admission certificate used for all effects enforces this precondition.
+
 def summary_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, +sent_history: D.History, +budget: Nat) -> Bool:
   match found:
     case Some{D.Task{id, lineage, contract, D.Active{}, history, queued, D.SummaryPending{expected, resume}, operations, notified}}:
@@ -544,6 +548,7 @@ def has_effect_ticket(effects: +List<M.Effect()>, +ticket: Nat) -> Bool:
 
 # A dispatched effect must describe the final pending phase exactly, have a
 # freshly allocated correlation ticket, and occur only once in this decision.
+
 def context_effect(found: Maybe<&2, D.Task>, context: D.TaskContext, budget: Nat) -> Bool:
   match found:
     case None{}: False{}
@@ -634,5 +639,6 @@ def decision_limits(previous: M.World(), candidate: M.Decision(), limits_value: 
       +ticket_before = D.state_next_ticket(task_state)
       change(C.Frame{task_state, board_before}, C.Frame{task_state_2, board_after}) &&
         effects(pending, after, ticket_before, budget) && feature_effects(pending, board_after, profiles(env_after))
+
 def decision(+previous: M.World(), candidate: M.Decision()) -> Bool:
   decision_limits(previous, candidate, D.state_limits(C.local(D.State, F.State(), previous)))

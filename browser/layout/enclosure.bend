@@ -63,6 +63,7 @@ def ambient(inline: Nat, block: Nat) -> ContentArea:
   Ambient{Insets{inline, block}}
 
 # The dialog owns these partitions; the outer shell delegates its allocation.
+
 def partition_inline() -> Nat:
   24n
 
@@ -98,6 +99,7 @@ def required_extent(content_width: Nat, content_height: Nat, +border: Nat,
     Nat.add(content_height, Nat.mul(2n, Nat.add(border, block(area))))}
 
 # Child relationships belong to the enclosing frame, independently of its paint.
+
 type Separation is Data:
   NavigationRows{}
   MenuItems{}

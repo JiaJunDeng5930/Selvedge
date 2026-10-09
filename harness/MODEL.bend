@@ -18,6 +18,7 @@ def Effect() -> Data:
 
 # A public query observes a world without acquiring permission to advance it.
 # A tool may use the same query, then durably append its own tool result.
+
 type Query is Data:
   Read{task_id: Nat, after: Nat, limit: Nat}
   ListTasks{}
@@ -68,6 +69,7 @@ def control_spec(+control: D.Control, description: String) -> CommandSpec:
     D.command_schema([J.Field{"task_id", D.task_id_schema()}], [J.Text{"task_id"}])}
 
 # Clients obtain their command descriptions and validation schema from here.
+
 def feature_specs(specs: +List<F.CommandSpec>) -> +List<CommandSpec>:
   match specs:
     case Nil{}: Nil{}
@@ -161,6 +163,7 @@ type InputMode is Data:
 
 # Persistence and scheduling derive from the same classification. Configuration
 # commits a catalog without starting work before startup recovery has run.
+
 def input_mode(input: Input) -> InputMode:
   match input:
     case UserCommand{Observe{query}}: Observation{}

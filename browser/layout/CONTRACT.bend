@@ -1,13 +1,13 @@
 import Base
-import ./physical-content-rules.bend as ContentRules
+import ./measurement-contract.bend as ContentRules
 import ./SOURCE.bend as PhysicalSource
 import ./physical-plan.bend as PhysicalPlan
 import ./MODEL.bend as World
 import ./CONTENT.bend as Content
-import ./physical-width-rules.bend as Width
-import ./physical-height-rules.bend as Height
-import ./physical-allocation-population-rules.bend as Population
+import ./allocation-contract.bend as Width
 import ../document/MODEL.bend as Doc
+import ./physical-content-measurement.bend as ContentRules2
+
 def stale_claim(+generation: Nat, +receipts: +List<String>, +engine: World.Engine) -> Type:
   {World.receive(generation, receipts, engine) == engine : World.Engine}
 
@@ -29,11 +29,12 @@ type Requirements is Type:
       {Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) == False{} : Bool} ->
       stale_claim(generation, receipts, engine),
     rejection: @+valid:Bool -> @+request:Content.Request -> @+observation:Content.Observation -> @+batch:World.Batch ->
-      {ContentRules.observation_matches(request, observation) == False{} : Bool} ->
+      {ContentRules2.observation_matches(request, observation) == False{} : Bool} ->
       rejected_measurement_claim(valid, request, observation, batch),
     production: @+engine:World.Engine -> production_claim(engine),
-    width: Width.Requirements<Content.Value, Doc.DOMEvent>,
-    height: Height.Requirements<Content.Value, Doc.DOMEvent>,
-    population: Population.Requirements<Content.Value, Doc.DOMEvent>}
+    width: Width.WidthRequirements<Content.Value, Doc.DOMEvent>,
+    height: Width.HeightRequirements<Content.Value, Doc.DOMEvent>,
+    population: Width.AllocationPopulationRequirements<Content.Value, Doc.DOMEvent>}
+
 law evidence:
   Requirements

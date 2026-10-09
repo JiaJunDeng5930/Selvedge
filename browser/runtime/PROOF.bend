@@ -1,17 +1,15 @@
 import Base
 import ./SEMANTICS.bend as Browser
-import ./browser-receipt-laws.bend as Rule
+import ./CONTRACT.bend as Rule
 import ../../interaction/submission/MODEL.bend as Receipt
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/INPUT.bend as U
 import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
-import ./frontend-utility-rules.bend as RuleFrontendUtilityRules
 import ./frontend-utility.bend as Utility
 import ../appearance/TYPOGRAPHY.bend as T
 import ./native-fields.bend as Native
-import ./native-fields-rules.bend as RuleNativeFieldsRules
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../bendlib/stdlib.bend as Std
 import ../document/SOURCE.bend as Source
@@ -23,8 +21,6 @@ import ../document/RENDERED.bend as Rendered
 import ./PLATFORM.bend as Platform
 import ../appearance/DESIGN.bend as Design
 import ../appearance/FONT.bend as F
-import ../../interaction/STATE.bend as Core
-import ./browser-laws.bend as RuleBrowserLaws
 import ../PROOF.bend as Proof_laws
 import ../../interaction/presentation/CONTRACT.bend as Rules_interface_program_rules
 import ../document/presentation-order.bend as Order
@@ -32,35 +28,36 @@ import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
 import ../focus/MODEL.bend as Focus
 import ../layout/physical-plan.bend as Plan
-import ./CONTRACT.bend as RuleContract
 import ../layout/MODEL.bend as World
 import ../layout/CONTENT.bend as Content
 import ../controls/SHELL.bend as Shell
 import ../../interaction/presentation/MODEL.bend as View
 import ../../bendlib/logic-proof.bend as Logic
 import ../document/FRAME.bend as SourceFrame
-import ./recovery-rules.bend as RuleRecoveryRules
-import ../document/source-frame-rules.bend as FrameRules
-import ../document/PROOF.bend as FrameProof
+import ../document/render-contract.bend as FrameRules
 import ./request.bend as Request
 import ../../harness/transport/command-codec.bend as Codec
-import ./request-laws.bend as RuleRequestLaws
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/TYPES.bend as InteractionTypes
 
 def receipt_recorded(+receipt: Maybe<&2, Receipt.Receipt>, decision: Browser.Decision) ->
   {Browser.decision_receipt(Browser.receipt_decision(receipt, decision)) == receipt : Maybe<&2, Receipt.Receipt>}:
   match decision:
     case Browser.Decision{Browser.State{web, sequence, next, pending, previous}, effects}: {==}
+
 def direct(+ticket: Nat, received: Nat, world: M.World(), +code: String, +message: String,
   command: J.Json, +origin: String, status: Browser.RequestStatus, state: Browser.State) ->
   Rule.direct_claim(ticket, received, world, code, message, command, origin, status, state):
   receipt_recorded(Some{Receipt.Receipt{ticket, origin, code, message}},
     Browser.complete_ticket(ticket, received, world, D.failure(code, message), E.DirectCompletion{}, state))
+
 def confirmation(+ticket: Nat, received: Nat, world: M.World(), +code: String, +message: String,
   command: J.Json, +origin: String, status: Browser.RequestStatus, selected: M.Command,
   trigger: String, destination: U.Route, occurrence: Nat, state: Browser.State) ->
   Rule.confirmation_claim(ticket, received, world, code, message, command, origin, status, selected, trigger, destination, occurrence, state):
   receipt_recorded(Some{Receipt.Receipt{ticket, origin, code, message}},
     Browser.complete_ticket(ticket, received, world, D.failure(code, message), E.ConfirmationCompletion{selected, trigger, destination, occurrence}, state))
+
 def unknown_receipt(ticket: Nat, reason: String, +state: Browser.State) ->
   {Browser.decision_receipt(Browser.failed_completion(ticket, reason, state)) == Browser.operation_receipt(state) : Maybe<&2, Receipt.Receipt>}:
   match state:
@@ -71,8 +68,8 @@ def accepted_receipt(command: J.Json, completion: E.Completion, origin: String, 
   match state:
     case Browser.State{web, sequence, next, pending, receipt}: {==}
 
-def Rule.evidence():
-  Rule.Requirements{direct, confirmation,
+def Rule.browser_receipt_evidence():
+  Rule.BrowserReceiptRequirements{direct, confirmation,
     received => world => reply => +state => {==},
     draft => receipt => +decision => {==},
     ticket => reason => +state => unknown_receipt(ticket, reason, state),
@@ -103,50 +100,55 @@ def owned(+purpose: Utility.Purpose, +font: T.Presentation, +glyph_only: Bool) -
         case False{}: {==}
         case True{}: {==}
 
-def RuleFrontendUtilityRules.evidence():
-  RuleFrontendUtilityRules.Requirements{supported, +font => +reason => {==}, owned}
+def Rule.frontend_utility_evidence():
+  Rule.FrontendUtilityRequirements{supported, +font => +reason => {==}, owned}
 
 def unchanged(+record: Native.Record, +value: String,
-  proof: {Native.canonical_same(Native.record_canonical(record), value) == True{} : Bool}) -> RuleNativeFieldsRules.unchanged_claim(value, record):
+  proof: {Native.canonical_same(Native.record_canonical(record), value) == True{} : Bool}) -> Rule.unchanged_claim(value, record):
   match record:
     case Native.Record{identity, +canonical, +session}:
       Std.transport(Bool, True{},
         (same => {Native.synchronized(same, value, Native.Record{identity, canonical, session}) == Native.Decision{Native.Record{identity, canonical, session}, False{}, False{}} : Native.Decision}),
         {==}, Native.canonical_same(canonical, value), proof)
-def unmatched(+binding: Native.Binding, +found: Maybe<&2, InterfaceView.Node>,
-  proof: {Native.owned_node(binding, found) == False{} : Bool}) -> RuleNativeFieldsRules.unmatched_claim(binding, found):
+
+def unmatched(+binding: Native.Binding, +found: Maybe<&2, SurfaceTypes.Node>,
+  proof: {Native.owned_node(binding, found) == False{} : Bool}) -> Rule.unmatched_claim(binding, found):
   Std.transport(Bool, False{},
     (owned => {Native.update_owned(owned, binding, found) == Nil{} : +List<Native.Update>}),
     {==}, Native.owned_node(binding, found), proof)
-def matching(+binding: Native.Binding, +node: InterfaceView.Node,
-  proof: {Native.owned_node(binding, Some{node}) == True{} : Bool}) -> RuleNativeFieldsRules.matching_claim(binding, node):
+
+def matching(+binding: Native.Binding, +node: SurfaceTypes.Node,
+  proof: {Native.owned_node(binding, Some{node}) == True{} : Bool}) -> Rule.matching_claim(binding, node):
   match binding node:
-    case Native.Binding{+key, +kind, identity, original} InterfaceView.Node{current, semantic, label, role, +meaning, children}:
+    case Native.Binding{+key, +kind, identity, original} SurfaceTypes.Node{current, semantic, label, role, +meaning, children}:
       Std.transport(Bool, True{},
-        (owned => {Native.update_owned(owned, Native.Binding{key, kind, identity, original}, Some{InterfaceView.Node{current, semantic, label, role, meaning, children}}) == Native.projected(key, kind, semantic, meaning) : +List<Native.Update>}),
+        (owned => {Native.update_owned(owned, Native.Binding{key, kind, identity, original}, Some{SurfaceTypes.Node{current, semantic, label, role, meaning, children}}) == Native.projected(key, kind, semantic, meaning) : +List<Native.Update>}),
         {==}, Native.owned_node(binding, Some{node}), proof)
+
 def changed_composing(+identity: Maybe<&2, Native.Identity>, +old: Maybe<&2, String>, +value: String,
-  proof: {Native.canonical_same(old, value) == False{} : Bool}) -> RuleNativeFieldsRules.changed_composing_claim(identity, old, value):
+  proof: {Native.canonical_same(old, value) == False{} : Bool}) -> Rule.changed_composing_claim(identity, old, value):
   Std.transport(Bool, False{},
     (same => {Native.synchronized(same, value, Native.Record{identity, old, Native.Composing{}}) == Native.Decision{Native.Record{identity, Some{value}, Native.SupersededComposing{}}, False{}, True{}} : Native.Decision}),
     {==}, Native.canonical_same(old, value), proof)
-def transaction(+record: Native.Record) -> RuleNativeFieldsRules.transaction_claim(record):
+
+def transaction(+record: Native.Record) -> Rule.transaction_claim(record):
   match record:
     case Native.Record{identity, canonical, session}: {==}
 
 def equal_rebind(+old: Native.Identity, +identity: Native.Identity, +canonical: Maybe<&2, String>, +session: Native.Session,
-  proof: {Native.same_identity(old, identity) == True{} : Bool}) -> RuleNativeFieldsRules.equal_rebind_claim(old, identity, canonical, session):
+  proof: {Native.same_identity(old, identity) == True{} : Bool}) -> Rule.equal_rebind_claim(old, identity, canonical, session):
   Std.transport(Bool, True{},
     (same => {Native.rebound(same, identity, Native.Record{Some{old}, canonical, session}) == Native.Decision{Native.Record{Some{old}, canonical, session}, False{}, False{}} : Native.Decision}),
     {==}, Native.same_identity(old, identity), proof)
+
 def changed_rebind(+old: Native.Identity, +identity: Native.Identity, +canonical: Maybe<&2, String>, +session: Native.Session,
-  proof: {Native.same_identity(old, identity) == False{} : Bool}) -> RuleNativeFieldsRules.changed_rebind_claim(old, identity, canonical, session):
+  proof: {Native.same_identity(old, identity) == False{} : Bool}) -> Rule.changed_rebind_claim(old, identity, canonical, session):
   Std.transport(Bool, False{},
     (same => {Native.rebound(same, identity, Native.Record{Some{old}, canonical, session}) == Native.Decision{Native.Record{Some{identity}, canonical, Native.rebind_session(session)}, False{}, True{}} : Native.Decision}),
     {==}, Native.same_identity(old, identity), proof)
 
-def RuleNativeFieldsRules.evidence():
-  RuleNativeFieldsRules.Requirements{
+def Rule.native_fields_evidence():
+  Rule.NativeFieldsRequirements{
     +identity => +canonical => +session => {==},
     +old => +identity => +canonical => +session => proof => equal_rebind(old, identity, canonical, session, proof),
     +old => +identity => +canonical => +session => proof => changed_rebind(old, identity, canonical, session, proof),
@@ -165,13 +167,15 @@ def RuleNativeFieldsRules.evidence():
     +key => +semantic => +meaning => {==},
     +key => +semantic => +meaning => {==}}
 
+def Rule.updates_empty(nodes): {==}
 
+def Rule.updates_complete(binding, rest, nodes): {==}
 
-def RuleNativeFieldsRules.updates_empty(nodes): {==}
-def RuleNativeFieldsRules.updates_complete(binding, rest, nodes): {==}
-def RuleNativeFieldsRules.updates_basis(fields, controls, surface): {==}
-def RuleNativeFieldsRules.update_owner(key, kind, semantic, meaning, nodes): {==}
-def RuleNativeFieldsRules.all_field_projections(kind, key, semantic, meaning):
+def Rule.updates_basis(fields, controls, surface): {==}
+
+def Rule.update_owner(key, kind, semantic, meaning, nodes): {==}
+
+def Rule.all_field_projections(kind, key, semantic, meaning):
   match kind:
     case Source.TextField{}: {==}
     case Source.MessageField{}: {==}
@@ -185,42 +189,42 @@ def RuleNativeFieldsRules.all_field_projections(kind, key, semantic, meaning):
     case Source.SearchField{}: {==}
     case Source.SecretField{}: {==}
 
-def RuleNativeFieldsRules.edit_text_rejected(key, text, state, owned):
+def Rule.edit_text_rejected(key, text, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.edit_text_owned(allowed, key, text, state)),
     BrowserModel.field_owned(key, state), False{}, owned)
 
-def RuleNativeFieldsRules.edit_text_accepted(key, text, state, owned):
+def Rule.edit_text_accepted(key, text, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.edit_text_owned(allowed, key, text, state)),
     BrowserModel.field_owned(key, state), True{}, owned)
 
-def RuleNativeFieldsRules.confirm_text_rejected(key, keyboard, composing, control, alt, shift, meta, state, owned):
+def Rule.confirm_text_rejected(key, keyboard, composing, control, alt, shift, meta, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.confirm_text_owned(allowed, key, keyboard, composing, control, alt, shift, meta, state)),
     BrowserModel.field_owned(key, state), False{}, owned)
 
-def RuleNativeFieldsRules.confirm_text_accepted(key, keyboard, composing, control, alt, shift, meta, state, owned):
+def Rule.confirm_text_accepted(key, keyboard, composing, control, alt, shift, meta, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.confirm_text_owned(allowed, key, keyboard, composing, control, alt, shift, meta, state)),
     BrowserModel.field_owned(key, state), True{}, owned)
 
-def RuleNativeFieldsRules.edit_toggle_rejected(key, enabled, state, owned):
+def Rule.edit_toggle_rejected(key, enabled, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.edit_toggle_owned(allowed, key, enabled, state)),
     BrowserModel.field_owned(key, state), False{}, owned)
 
-def RuleNativeFieldsRules.edit_toggle_accepted(key, enabled, state, owned):
+def Rule.edit_toggle_accepted(key, enabled, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.edit_toggle_owned(allowed, key, enabled, state)),
     BrowserModel.field_owned(key, state), True{}, owned)
 
-def RuleNativeFieldsRules.attach_rejected(key, file, state, owned):
+def Rule.attach_rejected(key, file, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.attach_owned(allowed, key, file, state)),
     BrowserModel.field_owned(key, state), False{}, owned)
 
-def RuleNativeFieldsRules.attach_accepted(key, file, state, owned):
+def Rule.attach_accepted(key, file, state, owned):
   Equal.cong(Bool, BrowserModel.Decision,
     (allowed => BrowserModel.attach_owned(allowed, key, file, state)),
     BrowserModel.field_owned(key, state), True{}, owned)
@@ -253,7 +257,7 @@ def consumed_ticket(+pending: +List<Browser.Pending>, +ticket: Nat) ->
 # A stale snapshot never touches the program or any local interaction state.
 
 def stale_snapshot(+received: Nat, +world: M.World(), +state: Browser.State,
-  stale: {Nat.is_lt(RuleBrowserLaws.sequence(state), received) == False{} : Bool}) ->
+  stale: {Nat.is_lt(Rule.sequence(state), received) == False{} : Bool}) ->
   {Browser.snapshot(received, world, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
   Browser.State{web, current, next, pending, receipt} = state
   Equal.cong(Bool, Browser.Decision,
@@ -289,7 +293,7 @@ def uncertain_retains_tickets(+requests: +List<Browser.Pending>, +ticket: Nat, +
           Browser.owns_ticket(Browser.uncertain_pending(rest, ticket, reason), observed), Browser.owns_ticket(rest, observed),
           uncertain_retains_tickets(rest, ticket, reason, observed)))
 
-def document_key_event(+key: String, +shift: Bool, +state: Browser.State) -> RuleBrowserLaws.document_key_event_law(key, shift, state):
+def document_key_event(+key: String, +shift: Bool, +state: Browser.State) -> Rule.document_key_event_law(key, shift, state):
   Browser.State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}, sequence, next, requests, receipt} = state
   {==}
 
@@ -297,41 +301,41 @@ def receipt_input(observation: F.Observation, state: Browser.State) ->
   {Browser.measurements(observation, state) == Browser.step(Browser.Native{Web.TypographyObserved{observation}}, state) : Browser.Decision}:
   {==}
 
-def finish_unchanged_transport(web: Web.State, core: Core.State, effects: +List<Web.Effect>, sequence: Nat,
+def finish_unchanged_transport(web: Web.State, core: InteractionTypes.State, effects: +List<Web.Effect>, sequence: Nat,
   next: Nat, pending: +List<Browser.Pending>, origin: String) ->
-  {RuleBrowserLaws.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin, None{})) ==
+  {Rule.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin, None{})) ==
     (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))}:
   match core:
-    case Core.State{application, services}: {==}
+    case InteractionTypes.State{application, services}: {==}
 
-def finished_receipt_transport(decision: Web.Decision, +core: Core.State,
-  unchanged: {Web.product(decision) == Platform.unchanged(core) : Core.Decision},
+def finished_receipt_transport(decision: Web.Decision, +core: InteractionTypes.State,
+  unchanged: {Web.product(decision) == Platform.unchanged(core) : InteractionTypes.Decision},
   +sequence: Nat, +next: Nat, +pending: +List<Browser.Pending>, +origin: String) ->
-  {RuleBrowserLaws.transport(Browser.finish(decision, sequence, next, pending, origin, None{})) == (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))}:
+  {Rule.transport(Browser.finish(decision, sequence, next, pending, origin, None{})) == (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))}:
   Web.Decision{+web, +product, +effects} = decision
   Equal.trans((Nat & (Nat & +List<Browser.Pending>)),
-    RuleBrowserLaws.transport(Browser.finish(Web.Decision{web, product, effects}, sequence, next, pending, origin, None{})),
-    RuleBrowserLaws.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin, None{})),
+    Rule.transport(Browser.finish(Web.Decision{web, product, effects}, sequence, next, pending, origin, None{})),
+    Rule.transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin, None{})),
     (sequence, (next, pending)),
-    Equal.cong(Core.Decision, (Nat & (Nat & +List<Browser.Pending>)),
-      (current => RuleBrowserLaws.transport(Browser.finish(Web.Decision{web, current, effects}, sequence, next, pending, origin, None{}))),
+    Equal.cong(InteractionTypes.Decision, (Nat & (Nat & +List<Browser.Pending>)),
+      (current => Rule.transport(Browser.finish(Web.Decision{web, current, effects}, sequence, next, pending, origin, None{}))),
       product, Platform.unchanged(core), unchanged),
     finish_unchanged_transport(web, core, effects, sequence, next, pending, origin))
 
 def nodes_current_surface(+web: Web.State, sequence: Nat, next: Nat, +pending: +List<Browser.Pending>) ->
-  {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<InterfaceView.Node>}:
+  {Browser.nodes(Browser.State{web, sequence, next, pending, None{}}) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(web)), pending))) : +List<SurfaceTypes.Node>}:
   match web:
     case Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment, font}: {==}
 
 def state_measurements_transport_evidence(+model_state: Browser.State, +observation: F.Observation) ->
-  {RuleBrowserLaws.transport(Browser.measurements(observation, Browser.with_receipt(None{}, model_state))) ==
+  {Rule.transport(Browser.measurements(observation, Browser.with_receipt(None{}, model_state))) ==
     (Browser.sequence(model_state), (Browser.next_ticket(model_state), Browser.pending(model_state))) : (Nat & (Nat & +List<Browser.Pending>))}:
   Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
   finished_receipt_transport(Web.step(Web.TypographyObserved{observation}, web),
     Interaction.model_core(Interaction.model_application(web)), Proof_laws.typography_product(web, observation), sequence, next, pending, "")
 
 def state_nodes_current_surface_evidence(+model_state: Browser.State) ->
-  {Browser.nodes(Browser.with_receipt(None{}, model_state)) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(Browser.web(model_state))), Browser.pending(model_state)))) : +List<InterfaceView.Node>}:
+  {Browser.nodes(Browser.with_receipt(None{}, model_state)) == InterfaceView.active_nodes(Order.ordered_surface(Browser.mask_surface(Web.surface(Interaction.model_application(Browser.web(model_state))), Browser.pending(model_state)))) : +List<SurfaceTypes.Node>}:
   Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
   nodes_current_surface(web, sequence, next, pending)
 
@@ -342,12 +346,12 @@ def state_failed_transition_evidence(+model_state: Browser.State, ticket: Nat, e
   {==}
 
 def state_failed_preserves_web_evidence(+model_state: Browser.State, ticket: Nat, error: String) ->
-  {RuleBrowserLaws.web_state(Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state))) == Browser.web(model_state) : Web.State}:
+  {Rule.web_state(Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state))) == Browser.web(model_state) : Web.State}:
   Browser.State{+web, +sequence, +next, +requests, +original_1} = model_state
   {==}
 
 def state_failed_retains_ticket_evidence(+model_state: Browser.State, ticket: Nat, error: String, observed: Nat) ->
-  {Browser.owns_ticket(RuleBrowserLaws.pending(Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state))), observed) ==
+  {Browser.owns_ticket(Rule.pending(Browser.step(Browser.Failed{ticket, error}, Browser.with_receipt(None{}, model_state))), observed) ==
         Browser.owns_ticket(Browser.pending(model_state), observed) : Bool}:
   Browser.State{+web, +sequence, +next, +requests, +original_1} = model_state
   uncertain_retains_tickets(requests, ticket, error, observed)
@@ -368,8 +372,8 @@ def state_stale_completion_evidence(+model_state: Browser.State, ticket: Nat, re
   Browser.State{+web, +current, +next, +pending, +original_1} = model_state
   {==}
 
-def RuleBrowserLaws.evidence():
-  RuleBrowserLaws.Requirements{
+def Rule.browser_evidence():
+  Rule.BrowserRequirements{
     state_measurements_transport_evidence,
     finish_unchanged_transport,
     receipt_input,
@@ -389,27 +393,27 @@ def RuleBrowserLaws.evidence():
 
 def stale_frames(+received: Nat, +frame: Rendered.Frame, +state: BrowserModel.State,
   proof: {BrowserModel.frame_owned(received, state) == False{} : Bool}) ->
-  RuleContract.stale_frames_claim(received, frame, state):
+  Rule.stale_frames_claim(received, frame, state):
   Std.transport(Bool, False{},
     (owned => {BrowserModel.received_frame(owned, frame, state) == BrowserModel.Decision{state, Nil{}} : BrowserModel.Decision}),
     {==}, BrowserModel.frame_owned(received, state), proof)
 
 def stale_measurements(+received: BrowserModel.MeasurementTicket, +tokens: +List<String>, +state: BrowserModel.State,
   proof: {BrowserModel.measurement_owned(received, state) == False{} : Bool}) ->
-  RuleContract.stale_measurements_claim(received, tokens, state):
+  Rule.stale_measurements_claim(received, tokens, state):
   Std.transport(Bool, False{},
     (owned => {BrowserModel.measured_current(owned, tokens, state) == BrowserModel.Decision{state, Nil{}} : BrowserModel.Decision}),
     {==}, BrowserModel.measurement_owned(received, state), proof)
 
-def ready_document(+rendering_capacity: Nat, +legacy: Browser.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: InterfaceView.Surface) ->
-  RuleContract.ready_document_claim(BrowserModel.State{legacy, serial, anchors, BrowserModel.Displaying{layout_capacity, engine, semantic}, Some{BrowserModel.published(world, layout_capacity, legacy, semantic)}}, rendering_capacity, layout_capacity, engine, world, semantic):
+def ready_document(+rendering_capacity: Nat, +legacy: Browser.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface) ->
+  Rule.ready_document_claim(BrowserModel.State{legacy, serial, anchors, BrowserModel.Displaying{layout_capacity, engine, semantic}, Some{BrowserModel.published(world, layout_capacity, legacy, semantic)}}, rendering_capacity, layout_capacity, engine, world, semantic):
   match legacy:
     case Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}:
       match world:
         case Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}: {==}
 
 def anchor_preserves_program(+key: String, +left: AnchorGeometry.Origin, +top: AnchorGeometry.Origin, +width: Nat, +height: Nat, +state: BrowserModel.State) ->
-  RuleContract.anchor_preserves_program_claim(key, left, top, width, height, state):
+  Rule.anchor_preserves_program_claim(key, left, top, width, height, state):
   match state:
     case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
       match legacy:
@@ -422,7 +426,7 @@ def anchor_preserves_program(+key: String, +left: AnchorGeometry.Origin, +top: A
                     case Design.Viewport{viewport_width, viewport_height}: {==}
 
 def pending_publication_at(+text_capacity: Nat, +last_published: Nat, +state: BrowserModel.State,
-  waiting: {RuleContract.publication_pending(state) == True{} : Bool}) ->
+  waiting: {Rule.publication_pending(state) == True{} : Bool}) ->
   {BrowserModel.publication_for_at(text_capacity, True{}, BrowserModel.display_ready(state), Nat.is_eq(BrowserModel.displayed_generation(state), last_published), state) == BrowserModel.KeepPublished{BrowserModel.native_updates(state)} : BrowserModel.Publication}:
   match state:
     case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
@@ -442,7 +446,7 @@ def pending_publication_at(+text_capacity: Nat, +last_published: Nat, +state: Br
 
 def publication_preserves_pending_at(+text_capacity: Nat, +last_published: Nat, +state: BrowserModel.State,
   existing: {Bool.not(Nat.is_eq(last_published, 0n)) == True{} : Bool},
-  waiting: {RuleContract.publication_pending(state) == True{} : Bool}) -> RuleContract.publication_preserves_pending_claim_at(text_capacity, last_published, state):
+  waiting: {Rule.publication_pending(state) == True{} : Bool}) -> Rule.publication_preserves_pending_claim_at(text_capacity, last_published, state):
   Std.transport(Bool, True{},
     (has_existing => {BrowserModel.publication_for_at(text_capacity, has_existing, BrowserModel.display_ready(state),
       Nat.is_eq(BrowserModel.displayed_generation(state), last_published), state) == BrowserModel.KeepPublished{BrowserModel.native_updates(state)} : BrowserModel.Publication}),
@@ -470,7 +474,7 @@ def ready_publication_at(+text_capacity: Nat, +state: BrowserModel.State, ready:
           {BrowserModel.publication_for_at(text_capacity, True{}, True{}, True{}, BrowserModel.State{legacy, serial, anchors, BrowserModel.Blocked{problem}, displayed}) == BrowserModel.KeepPublished{BrowserModel.native_updates(BrowserModel.State{legacy, serial, anchors, BrowserModel.Blocked{problem}, displayed})} : BrowserModel.Publication}, ready)
 
 def blocked_publication_at(+capacity: Nat, +last_published: Nat, +legacy: Browser.State, +serial: Nat,
-  +anchors: +List<Shell.Anchor>, +problem: String, +displayed: Maybe<&2, BrowserModel.Published>) -> RuleContract.blocked_publication_claim_at(BrowserModel.State{legacy, serial, anchors, BrowserModel.Blocked{problem}, displayed}, capacity, last_published, problem):
+  +anchors: +List<Shell.Anchor>, +problem: String, +displayed: Maybe<&2, BrowserModel.Published>) -> Rule.blocked_publication_claim_at(BrowserModel.State{legacy, serial, anchors, BrowserModel.Blocked{problem}, displayed}, capacity, last_published, problem):
   match legacy:
     case Browser.State{web, sequence, ticket, pending, receipt}:
       match web:
@@ -479,7 +483,7 @@ def blocked_publication_at(+capacity: Nat, +last_published: Nat, +legacy: Browse
 def publication_current_at(+text_capacity: Nat, +last_published: Nat, +state: BrowserModel.State,
   existing: {Bool.not(Nat.is_eq(last_published, 0n)) == True{} : Bool},
   +ready: {BrowserModel.display_ready(state) == True{} : Bool},
-  current: {Nat.is_eq(BrowserModel.displayed_generation(state), last_published) == True{} : Bool}) -> RuleContract.publication_current_claim_at(text_capacity, last_published, state):
+  current: {Nat.is_eq(BrowserModel.displayed_generation(state), last_published) == True{} : Bool}) -> Rule.publication_current_claim_at(text_capacity, last_published, state):
   Std.transport(Bool, True{},
     (has_existing => {BrowserModel.publication_for_at(text_capacity, has_existing, BrowserModel.display_ready(state),
       Nat.is_eq(BrowserModel.displayed_generation(state), last_published), state) == BrowserModel.KeepPublished{BrowserModel.native_updates(state)} : BrowserModel.Publication}),
@@ -491,22 +495,22 @@ def publication_current_at(+text_capacity: Nat, +last_published: Nat, +state: Br
       BrowserModel.display_ready(state), ready),
     Bool.not(Nat.is_eq(last_published, 0n)), existing)
 
-def frame_capture_program(+frame: Rendered.Frame, +state: BrowserModel.State) -> RuleContract.frame_capture_program_claim(frame, state):
+def frame_capture_program(+frame: Rendered.Frame, +state: BrowserModel.State) -> Rule.frame_capture_program_claim(frame, state):
   match state:
     case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
       match displayed:
         case None{}: {==}
         case Some{BrowserModel.Published{world, semantic, scope, basis, old}}: {==}
 
-def RuleContract.forwarded_frame_uses_published_surface(model_state, world, semantic, scope, basis, old, frame):
+def Rule.forwarded_frame_uses_published_surface(model_state, world, semantic, scope, basis, old, frame):
   BrowserModel.State{+stored, +serial, +anchors, +lifecycle, +original_1} = model_state
   {==}
 
-def RuleContract.failed_font_candidate_blocked(model_state, font_generation, scale, index):
+def Rule.failed_font_candidate_blocked(model_state, font_generation, scale, index):
   BrowserModel.State{Browser.State{Web.State{+application, +generation, +realization, +environment, +original_1}, +sequence, +ticket, +pending, +original_2}, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
 
-def RuleContract.unmet_frame_status(model_state, semantic, frame_generation, frame, violations, capacity, engine):
+def Rule.unmet_frame_status(model_state, semantic, frame_generation, frame, violations, capacity, engine):
   BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +original_2}, +serial, +anchors, +original_3, +displayed} = model_state
   {==}
 
@@ -523,19 +527,19 @@ def eligible_fields(+enabled: Bool, +visible: Bool, +scroll: Bool,
     case True{} False{} True{}: {==}
     case True{} False{} False{}: reachable
 
-def RuleContract.enabled_reachable_tab_member(element, admitted, reachable):
+def Rule.enabled_reachable_tab_member(element, admitted, reachable):
   match element:
     case Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit, +paint_bounds}:
       eligible_fields(enabled, visible, scroll, admitted, reachable)
 
-def RuleContract.rejected_native_focus_preserves_state(generation, owner, identity, state, rejected):
+def Rule.rejected_native_focus_preserves_state(generation, owner, identity, state, rejected):
   Equal.cong(Bool, BrowserModel.Decision,
     (owned => BrowserModel.native_focus_if_owned(owned, owner, identity, state)),
     BrowserModel.native_observation_owned(generation, owner, identity, state), False{}, rejected)
 
-def RuleContract.missing_native_frame_rejects(semantic, owner, identity): {==}
+def Rule.missing_native_frame_rejects(semantic, owner, identity): {==}
 
-def RuleContract.stale_native_focus_preserves_state(generation, owner, identity, state, stale):
+def Rule.stale_native_focus_preserves_state(generation, owner, identity, state, stale):
   match state:
     case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
       match displayed:
@@ -546,17 +550,17 @@ def RuleContract.stale_native_focus_preserves_state(generation, owner, identity,
               Rendered.read_only(InterfaceView.find_node(InterfaceView.active_nodes(semantic), owner)) && BrowserModel.native_frame_owned(frame, semantic, owner, identity), owner, identity, state)),
             Nat.is_eq(generation, published), False{}, stale)
 
-def RuleContract.stale_measurement_failure(ticket, reason, state, stale):
+def Rule.stale_measurement_failure(ticket, reason, state, stale):
   Std.transport(Bool, False{},
     (owned => {BrowserModel.measurement_failed(owned, reason, state) == BrowserModel.Decision{state, Nil{}} : BrowserModel.Decision}),
     {==}, BrowserModel.measurement_owned(ticket, state), stale)
 
-def RuleContract.current_measurement_failure(ticket, reason, state, owned):
+def Rule.current_measurement_failure(ticket, reason, state, owned):
   Std.transport(Bool, True{},
     (accepted => {BrowserModel.measurement_failed(accepted, reason, state) == BrowserModel.utility_measurement_failure(reason, state) : BrowserModel.Decision}),
     {==}, BrowserModel.measurement_owned(ticket, state), owned)
 
-def RuleContract.measurement_ownership_only_measuring(ticket, state, owned):
+def Rule.measurement_ownership_only_measuring(ticket, state, owned):
   match ticket:
     case BrowserModel.MeasurementTicket{generation, received_round}:
       match state:
@@ -571,7 +575,7 @@ def RuleContract.measurement_ownership_only_measuring(ticket, state, owned):
             case BrowserModel.Displaying{capacity, engine, semantic}: owned
             case BrowserModel.Blocked{problem}: owned
 
-def RuleContract.measurement_request_unavailable(state, inactive):
+def Rule.measurement_request_unavailable(state, inactive):
   match state:
     case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
       match lifecycle:
@@ -588,7 +592,7 @@ def RuleContract.measurement_request_unavailable(state, inactive):
             {BrowserModel.measurement_request(BrowserModel.State{legacy, serial, anchors, BrowserModel.Measuring{index, capacity, engine, semantic, round}, displayed}) == None{} : Maybe<&2, BrowserModel.MeasurementRequest>},
             Equal.sym(Bool, True{}, False{}, inactive))
 
-def RuleContract.measurement_wrong_round(model_state, generation, received_round, round, index, capacity, engine, semantic, same_generation, stale_round):
+def Rule.measurement_wrong_round(model_state, generation, received_round, round, index, capacity, engine, semantic, same_generation, stale_round):
   BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
   Std.transport(Bool, True{},
     (same => {same && Nat.is_eq(received_round, round) == False{} : Bool}),
@@ -597,26 +601,26 @@ def RuleContract.measurement_wrong_round(model_state, generation, received_round
       {==}, Nat.is_eq(received_round, round), stale_round),
     Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))), same_generation)
 
-def RuleContract.measurement_request_canonical(model_state, index, capacity, engine, semantic, round, generation, first, remaining, awaiting):
+def Rule.measurement_request_canonical(model_state, index, capacity, engine, semantic, round, generation, first, remaining, awaiting):
   BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
   Std.transport(Plan.Plan, Plan.Awaiting{generation, first, remaining},
     (plan => {BrowserModel.measurement_request_plan(plan, World.snapshot_generation(World.snapshot(engine)), round) ==
       Some{BrowserModel.MeasurementRequest{BrowserModel.MeasurementTicket{World.snapshot_generation(World.snapshot(engine)), round}, Plan.Awaiting{generation, first, remaining}}} : Maybe<&2, BrowserModel.MeasurementRequest>}),
     {==}, World.plan(engine), awaiting)
 
-def RuleContract.render_violations_unmet(model_state, observed_generation, frame, violations):
+def Rule.render_violations_unmet(model_state, observed_generation, frame, violations):
   BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
 
-def RuleContract.render_violations_awaiting(model_state, observed_generation):
+def Rule.render_violations_awaiting(model_state, observed_generation):
   BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
 
-def RuleContract.render_violations_realized(model_state, observed_generation, frame):
+def Rule.render_violations_realized(model_state, observed_generation, frame):
   BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
 
-def RuleContract.pending_frame_effects(state):
+def Rule.pending_frame_effects(state):
   match state:
     case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}: {==}
     case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityRejected{problem}, displayed}: {==}
@@ -632,18 +636,18 @@ def RuleContract.pending_frame_effects(state):
     case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, None{}}: {==}
     case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, published_semantic, scope, basis, frame}}}: {==}
 
-def RuleContract.retained_frame_decision(first, state):
+def Rule.retained_frame_decision(first, state):
   Std.transport(+List<Browser.Effect>, BrowserModel.pending_frame_effects(state),
     (effects => {BrowserModel.accepted(False{}, first, state) == BrowserModel.Decision{state,
       List.append(&2, Browser.Effect, first, effects)} : BrowserModel.Decision}),
-    {==}, RuleContract.pending_frame_effects_expected(state),
+    {==}, Rule.pending_frame_effects_expected(state),
     Equal.sym(+List<Browser.Effect>, BrowserModel.pending_frame_effects(state),
-      RuleContract.pending_frame_effects_expected(state), RuleContract.pending_frame_effects(state)))
+      Rule.pending_frame_effects_expected(state), Rule.pending_frame_effects(state)))
 
-def RuleContract.rebuilt_frame_decision(first, state): {==}
+def Rule.rebuilt_frame_decision(first, state): {==}
 
 def inspection_product(+stored: Browser.State, +displayed: Maybe<&2, BrowserModel.Published>) ->
-  {BrowserModel.render_inspection_owned(False{}, stored, displayed) == RuleContract.inspection_owned_expected(False{}, stored, displayed) : BrowserModel.RenderInspection}:
+  {BrowserModel.render_inspection_owned(False{}, stored, displayed) == Rule.inspection_owned_expected(False{}, stored, displayed) : BrowserModel.RenderInspection}:
   match stored:
     case Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}:
       match displayed:
@@ -657,8 +661,9 @@ def inspection_product(+stored: Browser.State, +displayed: Maybe<&2, BrowserMode
       match displayed:
         case None{}: {==}
         case Some{BrowserModel.Published{world, semantic, scope, basis, published_frame}}: {==}
+
 def inspection_owned(+utility: Bool, +stored: Browser.State, +displayed: Maybe<&2, BrowserModel.Published>) ->
-  {BrowserModel.render_inspection_owned(utility, stored, displayed) == RuleContract.inspection_owned_expected(utility, stored, displayed) : BrowserModel.RenderInspection}:
+  {BrowserModel.render_inspection_owned(utility, stored, displayed) == Rule.inspection_owned_expected(utility, stored, displayed) : BrowserModel.RenderInspection}:
   match utility:
     case True{}:
       match displayed:
@@ -666,24 +671,24 @@ def inspection_owned(+utility: Bool, +stored: Browser.State, +displayed: Maybe<&
         case Some{BrowserModel.Published{world, semantic, scope, basis, frame}}: {==}
     case False{}: inspection_product(stored, displayed)
 
-def RuleContract.render_inspection(model_state):
+def Rule.render_inspection(model_state):
   BrowserModel.State{+stored, +serial, +anchors, +lifecycle, +displayed} = model_state
   inspection_owned(BrowserModel.auxiliary_owned(BrowserModel.State{stored, serial, anchors, lifecycle, displayed}), stored, displayed)
 
-def state_ready_document_evidence(+model_state: BrowserModel.State, +rendering_capacity: Nat, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: InterfaceView.Surface) ->
-  RuleContract.ready_document_claim(BrowserModel.with_displayed(Some{BrowserModel.published(world, layout_capacity, BrowserModel.legacy(model_state), semantic)}, BrowserModel.with_lifecycle(BrowserModel.Displaying{layout_capacity, engine, semantic}, model_state)), rendering_capacity, layout_capacity, engine, world, semantic):
+def state_ready_document_evidence(+model_state: BrowserModel.State, +rendering_capacity: Nat, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface) ->
+  Rule.ready_document_claim(BrowserModel.with_displayed(Some{BrowserModel.published(world, layout_capacity, BrowserModel.legacy(model_state), semantic)}, BrowserModel.with_lifecycle(BrowserModel.Displaying{layout_capacity, engine, semantic}, model_state)), rendering_capacity, layout_capacity, engine, world, semantic):
   BrowserModel.State{+legacy, +serial, +anchors, +original_1, +original_2} = model_state
   ready_document(rendering_capacity, legacy, serial, anchors, layout_capacity, engine, world, semantic)
 
 def state_blocked_publication_at_evidence(+model_state: BrowserModel.State, +capacity: Nat, +last_published: Nat, +problem: String) ->
-  RuleContract.blocked_publication_claim_at(BrowserModel.with_lifecycle(BrowserModel.Blocked{problem}, model_state), capacity, last_published, problem):
+  Rule.blocked_publication_claim_at(BrowserModel.with_lifecycle(BrowserModel.Blocked{problem}, model_state), capacity, last_published, problem):
   BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
   blocked_publication_at(capacity, last_published, legacy, serial, anchors, problem, displayed)
 
-def RuleContract.evidence():
-  RuleContract.Requirements{
+def Rule.evidence():
+  Rule.Requirements{
     +shift => +identity => +initial => +restore => +occurrence => +basis => +semantic => +frame => +state => {==},
-    RuleNativeFieldsRules.evidence,
+    Rule.native_fields_evidence,
     +frame => +state => frame_capture_program(frame, state),
     +key => +shift => +basis => +semantic => +frame => +state => {==},
     +received => +frame => +state => proof => stale_frames(received, frame, state, proof),
@@ -694,32 +699,36 @@ def RuleContract.evidence():
     state_blocked_publication_at_evidence,
     +capacity => +last_published => +state => existing => +ready => current => publication_current_at(capacity, last_published, state, existing, ready, current)}
 
-def RuleContract.unconfirmed_publication_has_no_focus_feedback(document, fields, ticket, before, after):
+def Rule.unconfirmed_publication_has_no_focus_feedback(document, fields, ticket, before, after):
   match before:
     case None{}: {==}
     case Some{target}:
       match after:
         case None{}: {==}
         case Some{target}: {==}
-def RuleContract.retained_publication_has_no_focus_feedback(fields, ticket, before, after): {==}
-def RuleContract.absent_focus_has_no_publication_feedback(publication, ticket, after):
+
+def Rule.retained_publication_has_no_focus_feedback(fields, ticket, before, after): {==}
+
+def Rule.absent_focus_has_no_publication_feedback(publication, ticket, after):
   match publication:
     case BrowserModel.KeepPublished{fields}: {==}
     case BrowserModel.Publish{generation, document, fields}: {==}
-def RuleContract.owned_focus_has_no_publication_feedback(publication, ticket, before, after):
+
+def Rule.owned_focus_has_no_publication_feedback(publication, ticket, before, after):
   match publication:
     case BrowserModel.KeepPublished{fields}: {==}
     case BrowserModel.Publish{generation, document, fields}:
       match before:
         case None{}: {==}
         case Some{target}: {==}
-def RuleContract.confirmed_publication_focus_loss(generation, document, fields, ticket, before, confirmed):
+
+def Rule.confirmed_publication_focus_loss(generation, document, fields, ticket, before, confirmed):
   Std.transport(Bool, True{},
     (ready => {BrowserModel.publication_focus_loss(ready, ticket, before) ==
       Some{Platform.PublicationFocusObserved{ticket, Some{before}, None{}}} : Maybe<&2, Platform.Input>}),
     {==}, Bool.not(Nat.is_eq(generation, 0n)), confirmed)
 
-def RuleContract.failure_message(key, axis, required, available, reason):
+def Rule.failure_message(key, axis, required, available, reason):
   match axis:
     case Allocation.InlineAxis{}:
       match reason:
@@ -731,11 +740,14 @@ def RuleContract.failure_message(key, axis, required, available, reason):
         case Allocation.AuthoredRangeConflict{}: {==}
         case Allocation.InsufficientSpace{}: {==}
         case Allocation.AllocationBoundExceeded{budget}: {==}
-def RuleContract.infeasible_candidate_retries(index, state, failure): {==}
-def RuleContract.infeasible_candidate_reports(model_state, index, failure):
+
+def Rule.infeasible_candidate_retries(index, state, failure): {==}
+
+def Rule.infeasible_candidate_reports(model_state, index, failure):
   BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
-def RuleContract.selected_infeasible(failure, index, capacity, engine, state, semantic, round): {==}
+
+def Rule.selected_infeasible(failure, index, capacity, engine, state, semantic, round): {==}
 
 def state_utility_publication_evidence(+model_state: BrowserModel.State, +world: Content.AllocatedWorld, +purpose: Utility.Purpose, +engine: World.Engine) ->
   {BrowserModel.utility_publish(world, purpose, engine, model_state) ==
@@ -743,7 +755,7 @@ def state_utility_publication_evidence(+model_state: BrowserModel.State, +world:
   BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
 
-def state_correlated_frame_evidence(+model_state: BrowserModel.State, +frame: Rendered.Frame, +world: Content.AllocatedWorld, +semantic: InterfaceView.Surface, +scope: Focus.Scope, +basis: Native.Basis, +old: Maybe<&2, Rendered.Frame>) ->
+def state_correlated_frame_evidence(+model_state: BrowserModel.State, +frame: Rendered.Frame, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface, +scope: Focus.Scope, +basis: Native.Basis, +old: Maybe<&2, Rendered.Frame>) ->
   {BrowserModel.correlated_frame_owned(True{}, frame, BrowserModel.with_displayed(Some{BrowserModel.Published{world, semantic, scope, basis, old}}, model_state)) ==
         BrowserModel.utility_frame_result(SourceFrame.check(world, frame), frame, BrowserModel.with_displayed(Some{BrowserModel.Published{world, semantic, scope, basis, old}}, model_state)) : BrowserModel.Decision}:
   BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +original_1} = model_state
@@ -761,10 +773,10 @@ def state_rejected_frame_evidence(+model_state: BrowserModel.State, +first: Rend
   BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
   {==}
 
-def RuleRecoveryRules.evidence():
-  RuleRecoveryRules.Requirements{
-    RuleFrontendUtilityRules.evidence(),
-    FrameRules.evidence(),
+def Rule.recovery_evidence():
+  Rule.RecoveryRequirements{
+    Rule.frontend_utility_evidence(),
+    FrameRules.source_frame_evidence(),
     +capacity => +lifecycle => +world => +font => {==},
     +capacity => +lifecycle => +font => {==},
     state_utility_publication_evidence,
@@ -807,14 +819,14 @@ def unrelated_pending(+entry: Browser.Pending, +rest: +List<Browser.Pending>, +t
     Nat.is_eq(current, ticket), False{}, distinct)
 
 def confirmation_failed_world(owned: Bool, reason: String, destination: U.Route, +program: M.World(), session: E.Session) ->
-  {RuleRequestLaws.decision_world(E.complete_confirmation(owned, D.failure("command_not_submitted", reason), destination,
+  {Rule.decision_world(E.complete_confirmation(owned, D.failure("command_not_submitted", reason), destination,
     E.Application{program, session})) == program : M.World()}:
   match owned:
     case False{}: {==}
     case True{}: {==}
 
 def rejected_world(completion: E.Completion, reason: String, +program: M.World(), +session: E.Session) ->
-  {RuleRequestLaws.decision_world(E.complete_command(program, D.failure("command_not_submitted", reason), completion,
+  {Rule.decision_world(E.complete_command(program, D.failure("command_not_submitted", reason), completion,
     E.Application{program, session})) == program : M.World()}:
   match completion:
     case E.DirectCompletion{}: {==}
@@ -845,7 +857,7 @@ def owned_field_absent(+fields: +List<J.Field>) ->
       omission_step(String.eq(name, "guidance"), name, value, Request.without_guidance(rest), {==}, owned_field_absent(rest))
 
 def state_current_world_evidence(+model_state: E.Application, completion: E.Completion, reason: String) ->
-  {RuleRequestLaws.decision_world(E.complete_command(E.program(model_state), D.failure("command_not_submitted", reason), completion, model_state)) == E.program(model_state) : M.World()}:
+  {Rule.decision_world(E.complete_command(E.program(model_state), D.failure("command_not_submitted", reason), completion, model_state)) == E.program(model_state) : M.World()}:
   E.Application{+program, +session} = model_state
   rejected_world(completion, reason, program, session)
 
@@ -872,8 +884,8 @@ def state_uncertain_evidence(+model_state: Browser.State, ticket: Nat, reason: S
   Browser.State{+web, +sequence, +next, +pending, +original_1} = model_state
   {==}
 
-def RuleRequestLaws.evidence():
-  RuleRequestLaws.Requirements{
+def Rule.request_evidence():
+  Rule.RequestRequirements{
     state_current_world_evidence,
     owned_field_absent,
     profile => reasoning => message => fields => {==},

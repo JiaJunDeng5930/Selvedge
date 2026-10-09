@@ -7,7 +7,6 @@ import ../PROGRAM.bend as P
 import ../LAWS.bend as Laws
 import ./CONTRACT.bend as Boundary
 import ../protocol/PROOF.bend as ProtocolProof
-import ../execution/OPERATIONS.bend as Ops
 import ../features/MODEL.bend as F
 import ../../bendlib/effects.bend as Effects
 import ./HOOKS.bend as Hooks
@@ -15,8 +14,6 @@ import ../INVARIANTS.bend as I
 import ../execution/notifications.bend as N
 import ../transport/presentation.bend as View
 import ../../bendlib/json.bend as J
-import ../tasks/PROGRAM.bend as T
-import ../../bendlib/stdlib.bend as Std
 import ../CONTRACT.bend as AContract
 
 def human_waits(call:D.Call, remaining:+List<D.Attempt>, task:D.Task, world:M.World()) ->

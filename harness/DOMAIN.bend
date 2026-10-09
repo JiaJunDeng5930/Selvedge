@@ -35,6 +35,7 @@ def control_name(control: Control) -> String:
     case Archive{}: "archive"
 
 # This table is also used to derive the controls exposed to clients.
+
 def control(status: Status, request: Control) -> Maybe<&2, Status>:
   match status request:
     case Active{} Freeze{}: Some{Frozen{}}
@@ -173,6 +174,7 @@ type Recovery is Data:
 
 # An external observation can be repeated, but may observe a newer revision.
 # Mutation permission and restart permission derive from this single classification.
+
 type Execution is Data:
   InternalOperation{}
   ExternalMutation{}
@@ -189,6 +191,7 @@ type Tool is Data:
 
 # Internal task operations and their outputs commit in the same journal record.
 # External execution has no such atomicity. Its unknown outcomes are not retried.
+
 def execution_recovery(execution: Execution) -> Recovery:
   match execution:
     case ExternalMutation{}: OutcomeUnknown{}
@@ -253,6 +256,7 @@ def integer_schema(description: String, minimum: Nat, maximum: Nat) -> J.Json:
 
 # These definitions are the provider manifest and the executable tool vocabulary.
 # A task freezes them at birth; catalog reloads only affect route availability.
+
 def task_id_schema() -> J.Json:
   integer_schema("Task identity", 0n, U32.to_nat(4294967295))
 
@@ -266,10 +270,12 @@ def reasoning_seen(found: Bool, +value: String, seen: +List<String>) -> +List<St
   match found:
     case True{}: seen
     case False{}: value <> seen
+
 def reasoning_unique_result(found: Bool, value: String, rest: +List<String>) -> +List<String>:
   match found:
     case True{}: rest
     case False{}: value <> rest
+
 def unique_reasoning_values(values: +List<String>, +seen: +List<String>) -> +List<String>:
   match values:
     case Nil{}: Nil{}
@@ -394,6 +400,7 @@ def profiles_json(profiles: +List<Profile>) -> +List<J.Json>:
 # Project guidance is a frozen external observation, not a hidden prompt read.
 # The host snapshots only the canonical workspace's root AGENTS.md. Its content
 # and revision enter Configure before task creation and remain in the contract.
+
 type ProjectContext is Data:
   NoProject{}
   ProjectContext{workspace: String, revision: String, instructions: String}
@@ -410,6 +417,7 @@ def project_json(project: ProjectContext) -> J.Json:
 
 # Freeze the selected model identity and project snapshot, not just mutable keys.
 # Credentials and endpoint availability remain external inputs.
+
 type Model is Data:
   Model{profile: Profile, reasoning: String, project: ProjectContext}
 
@@ -427,6 +435,7 @@ def model_guidance(model: Model) -> ProjectContext:
 
 # Location, OS restrictions and exception review are independent coordinates.
 # A task freezes these values in its contract; projects only supply birth defaults.
+
 type Workspace is Data:
   Workspace{roots: +List<String>, primary: Maybe<&2, String>}
 
@@ -489,6 +498,7 @@ type Project is Data:
   Project{name: String, workspace: Workspace, guidance: ProjectContext}
 
 # Project identities use the same imported finite-map carrier as operation rights.
+
 type Projects is Data:
   Projects{entries: +List<Finite.Entry(Project)>, next_id: U32}
 
@@ -623,6 +633,7 @@ type HookOutcome is Data:
 # Result processing has no authority to change a call or undo its effects. The
 # execution error flag belongs to the original result; a rewrite changes only
 # its value. Denial/failure suppresses delivery and supplies an explicit error.
+
 type AfterOutcome is Data:
   KeepResult{}
   RewriteResult{value: J.Json}
@@ -653,6 +664,7 @@ def hook_json(outcome: HookOutcome) -> J.Json:
 # A tool call and its running operation have different lifetimes. An operation
 # owns one committed ticket. Announced means that an explicit running status has
 # entered a committed model request, not that the external work succeeded.
+
 type OperationBody is Data:
   OperationBody{call: Call, announced: Bool, stage: OperationStage}
 
@@ -660,6 +672,7 @@ type OperationBody is Data:
 # key; the invocation, publication bit and executing/result state are its value.
 # Keeping identity outside the payload makes ownership lookup/removal direct
 # instances of the existing association-list theory rather than a second map.
+
 def Operation() -> Data:
   Finite.Entry(OperationBody)
 
@@ -686,18 +699,21 @@ type Message is Data:
 # A model may produce ordered answers, invocations, and opaque continuation data.
 # It cannot construct user messages or tool results. Continuation data is retained
 # without granting it the execution authority of a FunctionCall constructor.
+
 type ModelItem is Data:
   Say{text: String}
   Invoke{call: Call}
   Context{value: J.Json}
 
 # Sharing a prefix is a value-level relation, independent of task ownership.
+
 type History is Data:
   EmptyHistory{}
   HistoryNode{previous: History, message: Message}
 
 # An opaque provider checkpoint has no call authority. Its encryption and
 # upstream meaning are external assumptions; the domain owns its context cut.
+
 def is_provider_checkpoint(+value: J.Json) -> Bool:
   String.eq(J.text(J.get(value, "type")), "compaction")
 
@@ -707,6 +723,7 @@ def provider_checkpoint_limit_bytes() -> Nat:
 # Remote v2 summaries retain client-authored user requests, not tool output that
 # the host encodes as unprivileged user-role transport notices. Full audit history
 # remains available even when an opaque checkpoint replaces working context.
+
 def retained_users(history: History) -> History:
   match history:
     case EmptyHistory{}: EmptyHistory{}
@@ -721,6 +738,7 @@ def provider_context_node(checkpoint: Bool, previous: History, value: J.Json) ->
 
 # The durable history is never shortened. Text checkpoints select their exact
 # suffix; provider checkpoints additionally retain original user requests.
+
 def context_node(previous: History, message: Message) -> History:
   match message:
     case ContextCheckpoint{summary}: HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}
@@ -761,6 +779,7 @@ def history_append(messages: +List<Message>, history: History) -> History:
 # Compaction must consume an opportunity to reduce context. A single checkpoint
 # cannot be compacted again without intervening input/work; this gives recovery
 # a structural bound instead of an ephemeral host retry counter.
+
 def history_nonempty(history: History) -> Bool:
   match history:
     case EmptyHistory{}: False{}
@@ -782,6 +801,7 @@ def branch_history(history: History, call_id: String, branch: Nat) -> History:
 
 # A child inherits observations, not the occurrence of those observations.
 # This marker identifies the birth suffix without changing its public fork return.
+
 def child_history(history: History, task_id: Nat, call_id: String, branch: Nat) -> History:
   HistoryNode{history, ForkResult{task_id, call_id, branch}}
 
@@ -796,6 +816,7 @@ type Phase is Data:
 
 # A copied history does not confer permission to repeat an external effect.
 # Fork inheritance and interrupted execution both produce recovery attempts.
+
 type Attempt is Data:
   InitialAttempt{call: Call}
   RecoveryAttempt{call: Call}
@@ -836,6 +857,7 @@ type Work is Data:
 
 # Frozen tasks settle arriving results but dispatch nothing. Stopped tasks may
 # settle already accepted calls; only fresh user input reactivates model work.
+
 def work(status: Status, phase: Phase) -> Work:
   match status phase:
     case Archived{} _: NoWork{}
@@ -919,6 +941,7 @@ def operations_pending(operations: +List<Operation()>) -> Bool:
 # Control and operations form a product, not mutually exclusive phases. A quiet
 # batch waits for an event instead of polling the model. Summary snapshots may
 # not race an operation completion and then erase a result they never observed.
+
 def enabled_work(work: Work, pending: Bool, notified: Bool) -> Work:
   match work pending notified:
     case RequestNextModel{} True{} False{}: BecomeIdle{}
@@ -991,6 +1014,7 @@ def execution_limits() -> ExecutionLimits:
 
 # Resource bounds are explicit model parameters. Laws hold for any such bounds;
 # the native entry point supplies these defaults when it constructs the world.
+
 type Notice is Data:
   Notice{kind: EventKind, task_id: Maybe<&2, Nat>, cursor: Maybe<&2, Nat>,
     payload: Maybe<&2, J.Json>, recipients: +List<PluginRef>}
@@ -1034,13 +1058,13 @@ type Outcome is Data:
 
 # A client retains only this opaque navigation cursor and unsent widget input.
 # Neither value is a task snapshot or an authority to execute a command.
+
 def success(result: J.Json) -> J.Json:
   J.Object{[J.Field{"ok", J.Boolean{True{}}}, J.Field{"result", result}]}
 
 def failure(code: String, message: String) -> J.Json:
   J.Object{[J.Field{"ok", J.Boolean{False{}}},
     J.Field{"error", J.Object{[J.Field{"code", J.Text{code}}, J.Field{"message", J.Text{message}}]}}]}
-
 
 def valid_provider_checkpoint(+value: J.Json) -> Bool:
   # The host validates the encrypted wire payload and its byte bound. Here the
@@ -1051,6 +1075,7 @@ def valid_summary(+summary: String) -> Bool:
   nonempty(summary) && Nat.is_le(J.utf8_length(summary), summary_limit_bytes())
 
 # Only task execution and its shared project/ticket resources live here.
+
 type State is Data:
   State{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits, projects: Projects}
 

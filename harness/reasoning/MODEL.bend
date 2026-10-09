@@ -15,6 +15,7 @@ type Policy is Data:
 
 # A lease counts future model generations, including the next generation.
 # Tool calls, retries of one HTTP request and compaction do not spend steps.
+
 type Lease is Data:
   NoLease{}
   Lease{effort: String, remaining: Nat}
@@ -107,6 +108,7 @@ def supported(yes: Bool, effort: String, remaining: Nat) -> Plan:
 # Independent executable requirement: a positive, supported lease authorizes
 # exactly one generation and leaves its predecessor. No lease asks the evaluator.
 # The production router is in bendlib/reasoning.bend, not a callback supplied here.
+
 def requirement(policy: Policy, lease: Lease) -> Plan:
   match policy lease:
     case Fixed{} _: FixedPlan{}

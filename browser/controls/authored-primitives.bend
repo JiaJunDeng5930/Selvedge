@@ -80,6 +80,7 @@ def with_alignments(value: Source.Style, main: Spatial.Alignment, cross: Spatial
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}
 
 # The enclosing control owns the interaction floor; the glyph owns only its drawing extent.
+
 def glyph_style(parent: Design.Style, +width: Nat, +height: Nat) -> Source.Style:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = parent
   Design.Chrome{foreground, background, border, border_width, radius, shadow} = chrome
@@ -90,6 +91,7 @@ def glyph_style(parent: Design.Style, +width: Nat, +height: Nat) -> Source.Style
     Design.Passive{}}
 
 # Content groups inherit typography and foreground without the parent's enclosure.
+
 def content_style(parent: Design.Style, direction: Model.Direction, width: Model.AxisSize,
   height: Model.AxisSize, gap: Nat) -> Source.Style:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = parent

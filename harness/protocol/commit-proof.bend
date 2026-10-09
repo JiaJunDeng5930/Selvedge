@@ -17,7 +17,6 @@ import ./PROOF.bend as ProtocolProof
 import ../execution/notifications.bend as Notifications
 
 # Local proof obligations for the commit boundary. No runtime policy lives here.
-
 def guard_semantics(+state_valid: Bool, +change_valid: Bool, +decision: M.Decision(), +previous: M.World()) ->
   {P.admitted(state_valid, change_valid, decision, previous) == Commit.guard(state_valid, change_valid, decision, previous) : M.Decision()}:
   match state_valid change_valid:

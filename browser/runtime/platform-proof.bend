@@ -1,9 +1,10 @@
 import Base
-import ../../interaction/STATE.bend as Core
-import ./platform-rules.bend as Rule
+import ./CONTRACT.bend as Rule
 import ./PLATFORM.bend as Model
 import ../focus/MODEL.bend as Focus
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
+import ../../interaction/TYPES.bend as InteractionTypes
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 
 def Rule.editing_retains_selection(revision, body, directory_entry, editor):
   {==}
@@ -15,8 +16,8 @@ def Rule.merge_reflow_product(product, effects, refreshed):
     case Model.Decision{ignored, platform, reconciliation}: {==}
 
 def Rule.changed_capacity_product(decision, capacity):
-  Model.Decision{Core.Decision{+state, reply, runtime, interaction, services, durable}, Model.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects} = decision
-  Rule.merge_reflow_product(Core.Decision{state, reply, runtime, interaction, services, durable}, effects, Model.after_core(Model.unchanged(state),
+  Model.Decision{InteractionTypes.Decision{+state, reply, runtime, interaction, services, durable}, Model.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects} = decision
+  Rule.merge_reflow_product(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable}, effects, Model.after_core(Model.unchanged(state),
     Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))
 
 def Rule.retained_capacity_product(same, decision, capacity):
@@ -30,12 +31,12 @@ def Rule.reflow_preserves_product(decision, capacity):
     Model.Decision{product, Model.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity)
 
 def Rule.realized_preserves_product(decision):
-  Model.Decision{Core.Decision{core, reply, runtime, interaction, services, durable},
+  Model.Decision{InteractionTypes.Decision{core, reply, runtime, interaction, services, durable},
     Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}, effects} = decision
   {==}
 
 def Rule.realized_empty(product, platform):
-  Core.Decision{core, reply, runtime, interaction, services, durable} = product
+  InteractionTypes.Decision{core, reply, runtime, interaction, services, durable} = product
   Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
   {==}
 
@@ -45,7 +46,7 @@ def realized_focus(+found: Maybe<&2, String>, +ticket: Nat, +rest: +List<Model.E
     case None{}: {==}
     case Some{key}: {==}
 
-def effects_realized(+surface: InterfaceView.Surface, source: +List<Model.Effect>) ->
+def effects_realized(+surface: SurfaceTypes.Surface, source: +List<Model.Effect>) ->
   {Model.realized_effects(surface, source) == Rule.expected_effects(surface, source) : +List<Model.Effect>}:
   match source:
     case Nil{}: {==}
@@ -79,7 +80,7 @@ def effects_realized(+surface: InterfaceView.Surface, source: +List<Model.Effect
 
 def actual_decision_effects(decision: Model.Decision) ->
   {Rule.effects(Model.realized_decision(decision)) == Rule.expected_effects(Rule.decision_surface(decision), Rule.effects(decision)) : +List<Model.Effect>}:
-  Model.Decision{Core.Decision{+core, reply, runtime, interaction, services, durable},
+  Model.Decision{InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable},
     Model.Platform{readers, editors, focused, ticket, reduced, +capacity, scope}, effects} = decision
   effects_realized(InterfaceView.observe(capacity, core), effects)
 
@@ -108,7 +109,7 @@ def Rule.realized_effects_are_external(surface, source):
 
 def realized_decision_external(decision: Model.Decision) ->
   {Rule.external_effects(Rule.effects(Model.realized_decision(decision))) == True{} : Bool}:
-  Model.Decision{Core.Decision{+core, reply, runtime, interaction, services, durable},
+  Model.Decision{InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable},
     Model.Platform{readers, editors, focused, ticket, reduced, +capacity, scope}, effects} = decision
   Rule.realized_effects_are_external(InterfaceView.observe(capacity, core), effects)
 
@@ -132,9 +133,9 @@ def and_left_true(value: Bool) -> {True{} && value == value : Bool}:
 
 def Rule.failed_focus_receipt(model_state, received, target, observed, failed):
   Model.State{+core, +platform} = model_state
-  Core.State{+application, +services} = core
+  InteractionTypes.State{+application, +services} = core
   Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
-  +accepted = Nat.is_eq(received, ticket) && Model.active_target(Core.State{application, services}, capacity, target)
+  +accepted = Nat.is_eq(received, ticket) && Model.active_target(InteractionTypes.State{application, services}, capacity, target)
   Equal.trans(Model.Decision,
     Model.step(Model.FocusApplied{received, target, observed}, Model.State{core, platform}),
     Model.realized_decision(Model.Decision{Model.unchanged(core), platform, Nil{}}),
@@ -146,10 +147,10 @@ def Rule.failed_focus_receipt(model_state, received, target, observed, failed):
         Equal.cong(Bool, Bool, (confirmed => accepted && confirmed), Model.focus_confirmed(target, observed), False{}, failed),
         and_right_false(accepted))), Rule.realized_empty(Model.unchanged(core), platform))
 
-def publication_raw_empty(+core: Core.State, +platform: Model.Platform, received: Nat, +target: Focus.Target,
+def publication_raw_empty(+core: InteractionTypes.State, +platform: Model.Platform, received: Nat, +target: Focus.Target,
   inactive: {Nat.is_eq(received, Rule.ticket(platform)) && Model.active_target(core, Rule.capacity(platform), target) == False{} : Bool}) ->
   {Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}) == Model.Decision{Model.unchanged(core), platform, Nil{}} : Model.Decision}:
-  Core.State{+application, +services} = core
+  InteractionTypes.State{+application, +services} = core
   Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
   Equal.trans(Model.Decision,
     Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}),
@@ -163,7 +164,7 @@ def publication_raw_empty(+core: Core.State, +platform: Model.Platform, received
 def Rule.publication_focus_after_some(model_state, received, before, after):
   Model.State{+core, +platform} = model_state
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           match before:
@@ -173,7 +174,7 @@ def Rule.publication_focus_after_some(model_state, received, before, after):
 def Rule.publication_focus_before_none(model_state, received, after):
   Model.State{+core, +platform} = model_state
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Model.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           match after:
@@ -210,9 +211,9 @@ def realized_loss_focus(found: Maybe<&2, String>, ticket: Nat) ->
     case None{}: {==}
     case Some{key}: {==}
 
-def realized_loss(+core: Core.State, +platform: Model.Platform, target: Focus.Target) ->
+def realized_loss(+core: InteractionTypes.State, +platform: Model.Platform, target: Focus.Target) ->
   {Model.realized_decision(Model.Decision{Model.unchanged(core), platform, [Model.Focus{Rule.ticket(platform), target}]}) == Model.Decision{Model.unchanged(core), platform, Rule.loss_effects(core, platform, target)} : Model.Decision}:
-  Core.State{+application, +services} = core
+  InteractionTypes.State{+application, +services} = core
   Model.Platform{readers, editors, focused, +ticket, reduced, +capacity, scope} = platform
   match target:
     case Focus.Product{identity}:
@@ -225,7 +226,7 @@ def realized_loss(+core: Core.State, +platform: Model.Platform, target: Focus.Ta
 
 def Rule.publication_focus_loss(model_state, received, target, current, active):
   Model.State{+core, +platform} = model_state
-  Core.State{+application, +services} = core
+  InteractionTypes.State{+application, +services} = core
   Model.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope} = platform
   Equal.trans(Model.Decision,
     Model.step(Model.PublicationFocusObserved{received, Some{target}, None{}}, Model.State{core, platform}),

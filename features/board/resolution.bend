@@ -5,12 +5,8 @@ import ../../harness/DOMAIN.bend as D
 import ./MODEL.bend as B
 import ../../harness/MODEL.bend as M
 import ../../harness/workspace/WORKSPACE.bend as Workspace
-import ../../harness/workspace/PROJECTS.bend as Projects
-import ../../harness/reasoning/MODEL.bend as Reasoning
 import ./STATE.bend as S
-import ./CODEC.bend as Codec
 import ../../bendlib/association-map.bend as Finite
-import ../../bendlib/json.bend as J
 import ../../harness/tasks/PROGRAM.bend as T
 
 # A resolution is either a refusal, a finite registry change, or a request to

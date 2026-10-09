@@ -49,6 +49,7 @@ def task_policy(task: D.Task) -> R.Policy:
 # Configuration updates are trusted native items, never opaque model output.
 # A checkpoint starts a new provider context, so its next generation needs a
 # fresh update, even if its selected effort happens to match the old one.
+
 def after_checkpoint(checkpoint: Bool, previous: Maybe<&2, String>) -> Maybe<&2, String>:
   match checkpoint:
     case True{}: None{}
@@ -145,6 +146,7 @@ def sampling(owner: Nat, model: D.Model, history: D.History) -> J.Json:
 # The evaluator never receives encrypted continuation data, model-private
 # reasoning or an arbitrary ModelContext object. Only these public text parts
 # can cross the evaluator intent boundary. Transport truncation is labelled.
+
 def public_part_named(kind: String, +part: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
     case "output_text": J.Object{[J.Field{"text", J.Text{J.text(J.get(part, "text"))}}]} <> rest
@@ -171,6 +173,7 @@ def public_context_named(kind: String, +value: J.Json, rest: +List<J.Json>) -> +
 # read_task can return another task's provider items inside ordinary tool JSON.
 # Project public structure recursively before it becomes evaluator text. This
 # also handles structured MCP results; it does not guess at arbitrary strings.
+
 def public_field(name: String, value: J.Json) -> J.Field:
   match name:
     case "encrypted_content": J.Field{"encrypted_content", J.Text{"[Private provider continuation omitted]"}}

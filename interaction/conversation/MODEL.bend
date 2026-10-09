@@ -67,6 +67,7 @@ def latest_attention(later: Maybe<&2, Nat>, earlier: Maybe<&2, Nat>) -> Maybe<&2
 
 # Identity comes from the first audit occurrence. Attention comes from the most
 # recent failure. Explicit disclosure choices remain owned by the reader.
+
 def prepend_audit(+index: Nat, failed: Bool, message: D.Message, tail: +List<Group>) -> +List<Group>:
   match tail:
     case Con{Activity{id, attention, entries}, rest}:
@@ -110,9 +111,6 @@ def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: 
   match kind:
     case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
     case _: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
-
-
-
 
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
@@ -160,7 +158,6 @@ def audit_faces(entries: +List<Audit>) -> +List<AuditFace>:
   match entries:
     case Nil{}: Nil{}
     case Con{Audit{index, +message}, rest}: AuditFace{index, audit_kind(message), audit_title(message), message} <> audit_faces(rest)
-
 
 def failure_candidate(failed: Bool, entry: Audit) -> Maybe<&2, Audit>:
   match failed:

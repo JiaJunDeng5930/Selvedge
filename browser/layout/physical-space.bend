@@ -68,6 +68,7 @@ def outer_extent(~E: Data, content: Enclosure.Extent, rule: Rule, interaction: I
 
 # Scroll viewport floors are independent of overflowing content; preferred
 # demand still retains the full content extent for allocation and scrolling.
+
 def viewport_content_minimum(content: Enclosure.Extent, +scroll: Scroll) -> Enclosure.Extent:
   Enclosure.Extent{width, height} = content
   match scroll:
@@ -81,6 +82,7 @@ type AxisDemand is Data:
 
 # Authored lower bounds participate before ancestors choose their own size.
 # Percentage constraints remain relative to the eventual offered extent.
+
 def axis_demand(+size: AxisSize, +minimum: Nat, +preferred: Nat) -> AxisDemand:
   match size:
     case NaturalSize{}: AxisDemand{minimum, Nat.max(minimum, preferred)}
@@ -191,6 +193,7 @@ def prepend_demand(+direction: Direction, +gap: Nat, first: Space.Demand, rest: 
 
 # Responsive intrinsic requirements retain column height; row feasibility uses
 # the same fold with Horizontal at the offered-width allocation boundary.
+
 def content_demand(~A: Data, ~E: Data, +trees: +List<Tree<A, E>>, +direction: Direction, +gap: Nat) -> Space.Demand:
   match trees:
     case Nil{}: Space.fixed_demand(0n, 0n)
@@ -216,6 +219,7 @@ def accept_dimension(+fits: Bool, value: Space.Dimension) -> Maybe<&2, Space.Dim
     case True{}: Some{value}
 
 # Reject invalid percentages before evaluating quotient/remainder arithmetic.
+
 def percentage_checked(+valid: Bool, +offered: Nat, +percent: Nat) -> Maybe<&2, Nat>:
   match valid:
     case False{}: None{}
@@ -238,6 +242,7 @@ def capped_dimension(+extent: Maybe<&2, Nat>, +minimum: Nat, +preferred: Nat) ->
       accept_dimension(Nat.is_le(minimum, cap), Space.Fit{minimum, Nat.sub(chosen, minimum), Nat.sub(cap, chosen)})
 
 # A preferred cap yields to content minima while the offered space stays hard.
+
 def adaptive_checked(+fits: Bool, +minimum: Nat, +preferred: Nat, +offered: Nat, +nominal_cap: Nat) -> Maybe<&2, Space.Dimension>:
   +maximum = Space.smaller(offered, Space.larger(minimum, nominal_cap))
   +chosen = Space.smaller(maximum, Space.larger(minimum, preferred))

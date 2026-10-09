@@ -4,9 +4,7 @@ import ../IDENTITY.bend as Identity
 import ../presentation/PROGRAM.bend as Interface
 import ../INPUT.bend as U
 import ../presentation/MODEL.bend as View
-import ../STATE.bend as Core
 import ./FIELDS.bend as Forms
-import ./feedback-laws.bend as RuleFeedbackLaws
 import ../../harness/MODEL.bend as M
 import ../../features/board/MODEL.bend as B
 import ../../harness/DOMAIN.bend as D
@@ -17,7 +15,8 @@ import ../session/PROGRAM.bend as ExperienceProgram
 import ../services/CONTEXT.bend as Context
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
-import ./submission-laws.bend as RuleSubmissionLaws
+import ../TYPES.bend as InteractionTypes
+import ../presentation/SURFACE.bend as SurfaceTypes
 
 def Rule.evidence():
   Rule.Requirements{
@@ -29,7 +28,7 @@ def Rule.evidence():
       +conversation => +children => +rest => +overlays => +scope => {==}}
 
 def choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Observed, +groups: +List<View.InputGroup>) ->
-  {Interface.entry_choices(entry, field, value, groups) == RuleFeedbackLaws.expected_choices(entry, field, value, groups) : +List<Forms.ChoiceValue>}:
+  {Interface.entry_choices(entry, field, value, groups) == Rule.expected_choices(entry, field, value, groups) : +List<Forms.ChoiceValue>}:
   match entry:
     case Forms.SingleLine{}: {==}
     case Forms.Multiline{}: {==}
@@ -40,22 +39,22 @@ def choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Ob
     case Forms.DirectoryCollection{}: {==}
     case Forms.FileCollection{}: {==}
 
-def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: Identity.Key, +state: Core.State, +groups: +List<View.InputGroup>) ->
+def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<View.InputGroup>) ->
   {Interface.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==
-    Interface.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, Interface.Field{},
-      Interface.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field),
-        RuleFeedbackLaws.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups)},
-      Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)} : Interface.Node}:
-  Equal.cong(+List<Forms.ChoiceValue>, Interface.Node,
-    choices => Interface.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, Interface.Field{},
-      Interface.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field), choices},
+    SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
+      SurfaceTypes.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field),
+        Rule.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups)},
+      Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)} : SurfaceTypes.Node}:
+  Equal.cong(+List<Forms.ChoiceValue>, SurfaceTypes.Node,
+    choices => SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
+      SurfaceTypes.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field), choices},
       Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)},
     Interface.entry_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    RuleFeedbackLaws.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
+    Rule.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
     choices_agreement(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups))
 
-def RuleFeedbackLaws.evidence():
-  RuleFeedbackLaws.Requirements{
+def Rule.feedback_evidence():
+  Rule.FeedbackRequirements{
     field => label => entry => editor => parent => state => groups => field_payload(field, label, entry, editor, parent, state, groups),
     +parent => revision => +reason => {==},
     parent => {==},
@@ -64,7 +63,7 @@ def RuleFeedbackLaws.evidence():
     +identity => revision => message => +footer => context => +submit => submitted => +reason => pending => +parent => +state => {==}}
 
 def with_native_preserves_drafts(+decision: E.Decision, +result: J.Json, +effects: +List<M.Effect()>, durable: Bool) ->
-  {RuleSubmissionLaws.decision_drafts(E.with_native(decision, result, effects, durable)) == RuleSubmissionLaws.decision_drafts(decision) : +List<U.Draft>}:
+  {Rule.decision_drafts(E.with_native(decision, result, effects, durable)) == Rule.decision_drafts(decision) : +List<U.Draft>}:
   E.Decision{application, ignored_reply, ignored_runtime, interaction, ignored_durable} = decision
   {==}
 
@@ -72,28 +71,28 @@ def close_layers_preserves_drafts(+layers: +List<E.Layer>, program: M.World(), r
   +drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>, +session_layers: +List<E.Layer>,
   attention: String, navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
   +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>, next_layer: Nat) ->
-  {RuleSubmissionLaws.decision_drafts(E.close_layers(layers, program,
+  {Rule.decision_drafts(E.close_layers(layers, program,
     E.Session{route, drafts, readers, session_layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer})) == drafts : +List<U.Draft>}:
   match layers:
     case Nil{}: {==}
     case Con{E.Layer{panel, trigger, initial, query, layer_occurrence}, rest}: {==}
 
 def close_panel_preserves_drafts(+application: E.Application) ->
-  {RuleSubmissionLaws.decision_drafts(E.close_panel(application)) == RuleSubmissionLaws.application_drafts(application) : +List<U.Draft>}:
+  {Rule.decision_drafts(E.close_panel(application)) == Rule.application_drafts(application) : +List<U.Draft>}:
   E.Application{program, E.Session{route, +drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   close_layers_preserves_drafts(layers, program, route, drafts, readers, layers, attention, navigation, filter,
     now, next, pending, previews, code_blocks, next_layer)
 
 def finish_layer_preserves_drafts(same: Bool, +application: E.Application) ->
-  {RuleSubmissionLaws.decision_drafts(E.finish_layer(same, application)) == RuleSubmissionLaws.application_drafts(application) : +List<U.Draft>}:
+  {Rule.decision_drafts(E.finish_layer(same, application)) == Rule.application_drafts(application) : +List<U.Draft>}:
   match same:
     case False{}: {==}
     case True{}: close_panel_preserves_drafts(application)
 
 def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layers: +List<E.Layer>,
   +result: J.Json, +application: E.Application) ->
-  {RuleSubmissionLaws.decision_drafts(E.finish_at_location(U.MessageEditor{task}, route, layers, result, application)) ==
-    RuleSubmissionLaws.application_drafts(application) : +List<U.Draft>}:
+  {Rule.decision_drafts(E.finish_at_location(U.MessageEditor{task}, route, layers, result, application)) ==
+    Rule.application_drafts(application) : +List<U.Draft>}:
   match route layers:
     case U.Start{} Nil{}: {==}
     case U.Start{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
@@ -194,8 +193,8 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
 
 def message_finish_submission_preserves_drafts(+directory_entry: String, +task: Nat, +revision: Nat, +message: U.Text,
   +delivery: U.Delivery, feedback: U.Feedback, +result: J.Json, +application: E.Application) ->
-  {RuleSubmissionLaws.decision_drafts(E.finish_submission(True{}, U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry},
-      result, application)) == RuleSubmissionLaws.application_drafts(application) : +List<U.Draft>}:
+  {Rule.decision_drafts(E.finish_submission(True{}, U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry},
+      result, application)) == Rule.application_drafts(application) : +List<U.Draft>}:
   E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   message_finish_location_preserves_drafts(task, route, layers, result, application)
 
@@ -282,13 +281,13 @@ def failed_native(+submitted: U.Draft, +program: M.World(), +result: J.Json,
 
 def accepted_message_settlement_snapshot(+directory_entry: String, +revision: Nat, +task: Nat, +message: U.Text, +delivery: U.Delivery,
   +feedback: U.Feedback, +result: J.Json, +session: E.Session,
-  +lookup: {E.find_draft(RuleSubmissionLaws.session_drafts(session), U.MessageEditor{task}) ==
+  +lookup: {E.find_draft(Rule.session_drafts(session), U.MessageEditor{task}) ==
     Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}} : Maybe<&2, U.Draft>},
   current: {E.owns_submission(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, session) == True{} : Bool},
   accepted: {J.boolean(J.get(result, "ok")) == True{} : Bool}) ->
-  {RuleSubmissionLaws.session_drafts(E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session)) ==
+  {Rule.session_drafts(E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session)) ==
     E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
-      RuleSubmissionLaws.session_drafts(session)) : +List<U.Draft>}:
+      Rule.session_drafts(session)) : +List<U.Draft>}:
   E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   found_owned = Equal.cong(Maybe<&2, U.Draft>, Bool,
     (found => E.same_revision(found, revision)),
@@ -340,33 +339,33 @@ def accepted_message_settlement_snapshot(+directory_entry: String, +revision: Na
                   E.settled_current(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, True{}, ok, revision, result))),
                 J.boolean(J.get(result, "ok")), True{}, accepted),
               {==}))))))
-  Equal.cong(E.Session, +List<U.Draft>, (updated => RuleSubmissionLaws.session_drafts(updated)),
+  Equal.cong(E.Session, +List<U.Draft>, (updated => Rule.session_drafts(updated)),
     E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session),
     target, settled)
 
 def accepted_message(+directory_entry: String, +revision: Nat, +task: Nat, +message: U.Text, +delivery: U.Delivery,
   +feedback: U.Feedback, +program: M.World(), +result: J.Json, +effects: +List<M.Effect()>,
   +session: E.Session, durable: Bool,
-  +lookup: {E.find_draft(RuleSubmissionLaws.session_drafts(session), U.MessageEditor{task}) ==
+  +lookup: {E.find_draft(Rule.session_drafts(session), U.MessageEditor{task}) ==
     Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}} : Maybe<&2, U.Draft>},
   +current: {E.owns_submission(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, session) == True{} : Bool},
   +accepted: {J.boolean(J.get(result, "ok")) == True{} : Bool}) ->
-  {RuleSubmissionLaws.decision_drafts(E.native_session(Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}},
+  {Rule.decision_drafts(E.native_session(Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}},
       program, result, effects, session, durable)) ==
     E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
-      RuleSubmissionLaws.session_drafts(session)) : +List<U.Draft>}:
+      Rule.session_drafts(session)) : +List<U.Draft>}:
   +submitted: U.Draft = U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}
   +settled: E.Session = E.settle(submitted, result, session)
   target: +List<U.Draft> = E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
-    RuleSubmissionLaws.session_drafts(session))
+    Rule.session_drafts(session))
   guard_true = Equal.trans(Bool,
     J.boolean(J.get(result, "ok")) && True{}, True{}, True{},
     Equal.cong(Bool, Bool, (ok => ok && True{}), J.boolean(J.get(result, "ok")), True{}, accepted), {==})
   owner_true = Equal.cong(Bool, +List<U.Draft>,
-    (owned => RuleSubmissionLaws.decision_drafts(native_session_owned(owned, Some{submitted}, program, result, effects, session, durable))),
+    (owned => Rule.decision_drafts(native_session_owned(owned, Some{submitted}, program, result, effects, session, durable))),
     E.owns_submission(submitted, session), True{}, current)
   reply_true = Equal.cong(Bool, +List<U.Draft>,
-    (guard => RuleSubmissionLaws.decision_drafts(E.with_native(E.finish_submission(guard, submitted, result,
+    (guard => Rule.decision_drafts(E.with_native(E.finish_submission(guard, submitted, result,
       E.Application{program, settled}), result, effects, durable))),
     J.boolean(J.get(result, "ok")) && True{}, True{}, guard_true)
   after_message = message_finish_submission_preserves_drafts(directory_entry, task, revision, message, delivery, feedback,
@@ -374,53 +373,53 @@ def accepted_message(+directory_entry: String, +revision: Nat, +task: Nat, +mess
   after_settlement = accepted_message_settlement_snapshot(directory_entry, revision, task, message, delivery, feedback,
     result, session, lookup, current, accepted)
   Equal.trans(+List<U.Draft>,
-    RuleSubmissionLaws.decision_drafts(E.native_session(Some{submitted}, program, result, effects, session, durable)),
-    RuleSubmissionLaws.decision_drafts(native_session_owned(E.owns_submission(submitted, session), Some{submitted}, program, result, effects, session, durable)),
+    Rule.decision_drafts(E.native_session(Some{submitted}, program, result, effects, session, durable)),
+    Rule.decision_drafts(native_session_owned(E.owns_submission(submitted, session), Some{submitted}, program, result, effects, session, durable)),
     target,
     {==},
     Equal.trans(+List<U.Draft>,
-      RuleSubmissionLaws.decision_drafts(native_session_owned(E.owns_submission(submitted, session), Some{submitted}, program, result, effects, session, durable)),
-      RuleSubmissionLaws.decision_drafts(native_session_owned(True{}, Some{submitted}, program, result, effects, session, durable)),
+      Rule.decision_drafts(native_session_owned(E.owns_submission(submitted, session), Some{submitted}, program, result, effects, session, durable)),
+      Rule.decision_drafts(native_session_owned(True{}, Some{submitted}, program, result, effects, session, durable)),
       target, owner_true,
       Equal.trans(+List<U.Draft>,
-        RuleSubmissionLaws.decision_drafts(native_session_owned(True{}, Some{submitted}, program, result, effects, session, durable)),
-        RuleSubmissionLaws.decision_drafts(E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && True{}, submitted, result,
+        Rule.decision_drafts(native_session_owned(True{}, Some{submitted}, program, result, effects, session, durable)),
+        Rule.decision_drafts(E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && True{}, submitted, result,
           E.Application{program, settled}), result, effects, durable)),
         target,
         {==},
         Equal.trans(+List<U.Draft>,
-          RuleSubmissionLaws.decision_drafts(E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && True{}, submitted, result,
+          Rule.decision_drafts(E.with_native(E.finish_submission(J.boolean(J.get(result, "ok")) && True{}, submitted, result,
             E.Application{program, settled}), result, effects, durable)),
-          RuleSubmissionLaws.decision_drafts(E.with_native(E.finish_submission(True{}, submitted, result,
+          Rule.decision_drafts(E.with_native(E.finish_submission(True{}, submitted, result,
             E.Application{program, settled}), result, effects, durable)),
           target, reply_true,
           Equal.trans(+List<U.Draft>,
-            RuleSubmissionLaws.decision_drafts(E.with_native(E.finish_submission(True{}, submitted, result,
+            Rule.decision_drafts(E.with_native(E.finish_submission(True{}, submitted, result,
               E.Application{program, settled}), result, effects, durable)),
-            RuleSubmissionLaws.application_drafts(E.Application{program, settled}),
+            Rule.application_drafts(E.Application{program, settled}),
             target,
             Equal.trans(+List<U.Draft>,
-              RuleSubmissionLaws.decision_drafts(E.with_native(E.finish_submission(True{}, submitted, result,
+              Rule.decision_drafts(E.with_native(E.finish_submission(True{}, submitted, result,
                 E.Application{program, settled}), result, effects, durable)),
-              RuleSubmissionLaws.decision_drafts(E.finish_submission(True{}, submitted, result, E.Application{program, settled})),
-              RuleSubmissionLaws.application_drafts(E.Application{program, settled}),
+              Rule.decision_drafts(E.finish_submission(True{}, submitted, result, E.Application{program, settled})),
+              Rule.application_drafts(E.Application{program, settled}),
               with_native_preserves_drafts(E.finish_submission(True{}, submitted, result,
                 E.Application{program, settled}), result, effects, durable),
               after_message),
             Equal.trans(+List<U.Draft>,
-              RuleSubmissionLaws.application_drafts(E.Application{program, settled}),
-              RuleSubmissionLaws.session_drafts(settled),
+              Rule.application_drafts(E.Application{program, settled}),
+              Rule.session_drafts(settled),
               target, {==}, after_settlement))))))
 
 def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.DirectoryObservation>,
   +application: E.Application,
-  absent: {E.find_pending(RuleSubmissionLaws.pending_entries(application), ticket) == None{} : Maybe<&2, E.Pending>}) ->
+  absent: {E.find_pending(Rule.pending_entries(application), ticket) == None{} : Maybe<&2, E.Pending>}) ->
   {ExperienceProgram.step(E.DirectoriesObserved{ticket, result}, application) ==
     E.Decision{application, D.failure("interaction_refused", "The directory observation has no pending request"), Nil{}, Nil{}, False{}} : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer}} = application
   Equal.cong(Maybe<&2, E.Pending>, E.Decision,
     (found => E.observed_pending(found, result, application)),
-    E.find_pending(RuleSubmissionLaws.pending_entries(application), ticket), None{}, absent)
+    E.find_pending(Rule.pending_entries(application), ticket), None{}, absent)
 
 def encapsulated_preparation_snapshot(+session: E.Session, +program: M.World(), +workspace: D.Workspace, +draft: U.Draft) ->
   {E.prepare(E.from_program(program, session), Some{workspace}, draft) ==
@@ -429,8 +428,8 @@ def encapsulated_preparation_snapshot(+session: E.Session, +program: M.World(), 
   E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer} = session
   {==}
 
-def RuleSubmissionLaws.evidence():
-  RuleSubmissionLaws.Requirements{
+def Rule.submission_evidence():
+  Rule.SubmissionRequirements{
     submitted => result => session => absent => stale_settlement(submitted, result, session, absent),
     submitted => program => result => effects => session => durable => absent => stale_native(submitted, program, result, effects, session, durable, absent),
     submitted => program => result => effects => session => durable => failed => failed_native(submitted, program, result, effects, session, durable, failed),
@@ -460,5 +459,5 @@ def reopened_older_ownership(directory_entry: String, old_entry: String, +previo
       U.same_editor(U.owner(fallback), U.owner(old_body)), True{}, same),
     Equal.cong(Cmp, Bool, Cmp.is_eq, Nat.cmp((previous + 1n : Nat), older), GT{}, before))
 
-def reopen_evidence() -> RuleSubmissionLaws.ReopenRequirements:
-  RuleSubmissionLaws.ReopenRequirements{directory_entry => previous => body => submitted => reply => fallback => session => {==}, reopened_older_ownership}
+def reopen_evidence() -> Rule.ReopenRequirements:
+  Rule.ReopenRequirements{directory_entry => previous => body => submitted => reply => fallback => session => {==}, reopened_older_ownership}

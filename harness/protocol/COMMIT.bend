@@ -75,6 +75,7 @@ def update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M
 
 # Scheduling is a supplied deterministic transducer, constrained by the exact
 # zero/idle/successor equations in LAWS, not a fairness or termination assumption.
+
 def command(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request: M.Command, +world: M.World()) -> M.Decision():
   match request:
     case M.Observe{query}: deliver(False{}, Commands.meaning(Commands.Observe{query}, world), world)

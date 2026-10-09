@@ -55,6 +55,7 @@ def safety(-start: Reach.State, -end: Reach.State, proof: Reach.path(start, end)
 # This induction establishes only the representation correspondence from the
 # concrete journal fold to input-labelled edges. Reachability algebra, arbitrary
 # batching, simulation and safety are not re-proved over project traces.
+
 def Journal(events: +List<M.Input>) -> Type:
   @+state:Reach.State -> Reach.path(state, Reach.run(events, state))
 

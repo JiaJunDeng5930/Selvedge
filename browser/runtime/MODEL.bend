@@ -21,12 +21,9 @@ import ../document/SOURCE.bend as Source
 import ../appearance/DESIGN.bend as Design
 import ../appearance/FONT.bend as F
 import ../appearance/TYPOGRAPHY.bend as T
-import ../appearance/PROGRAM.bend as Paint
 import ../layout/natural-size.bend as NaturalSize
-import ../document/presentation-order.bend as Order
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/presentation/MODEL.bend as View
-import ../../interaction/STATE.bend as Core
 import ../focus/MODEL.bend as Focus
 import ../../harness/MODEL.bend as M
 import ../editor/MODEL.bend as Editor
@@ -36,26 +33,33 @@ import ../../interaction/conversation/CODE.bend as Code
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/MODEL.bend as Product
 import ../../bendlib/json.bend as J
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/TYPES.bend as InteractionTypes
 
 type MeasurementTicket is Data:
   MeasurementTicket{generation: Nat, round: Nat}
+
 type MeasurementRequest is Data:
   MeasurementRequest{ticket: MeasurementTicket, plan: Plan.Plan}
+
 type Lifecycle is Data:
   WaitingEnvironment{}
   WaitingFont{}
-  Measuring{candidate_index: Nat, capacity: View.Capacity, engine: World.Engine, semantic: InterfaceView.Surface, round: Nat}
-  Displaying{capacity: View.Capacity, engine: World.Engine, semantic: InterfaceView.Surface}
+  Measuring{candidate_index: Nat, capacity: View.Capacity, engine: World.Engine, semantic: SurfaceTypes.Surface, round: Nat}
+  Displaying{capacity: View.Capacity, engine: World.Engine, semantic: SurfaceTypes.Surface}
   UtilityMeasuring{purpose: Utility.Purpose, engine: World.Engine, round: Nat, glyph_only: Bool}
   UtilityDisplaying{purpose: Utility.Purpose, engine: World.Engine}
   UtilityRejected{problem: String}
   Blocked{problem: String}
+
 type Published is Data:
-  Published{world: Content.AllocatedWorld, semantic: InterfaceView.Surface, scope: Focus.Scope,
+  Published{world: Content.AllocatedWorld, semantic: SurfaceTypes.Surface, scope: Focus.Scope,
     basis: NativeFields.Basis, frame: Maybe<&2, Rendered.Frame>}
+
 type State is Data:
   State{legacy: Legacy.State, generation: Nat, anchors: +List<Shell.Anchor>, lifecycle: Lifecycle,
     displayed: Maybe<&2, Published>}
+
 def generation(state: State) -> Nat:
   State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
   value_generation
@@ -83,25 +87,31 @@ def with_displayed(value: Maybe<&2, Published>, state: State) -> State:
 type RenderInspection is Data:
   RenderInspection{frame: Maybe<&2, Rendered.Frame>, expected_tabs: Maybe<&2, +List<String>>,
     native_valid: Maybe<&2, Bool>, current_layer: Maybe<&2, String>, dismiss_target: Maybe<&2, Legacy.DismissTarget>}
+
 type Publication is Data:
   KeepPublished{fields: +List<NativeFields.Update>}
   Publish{generation: Nat, document: CodeObservation.Document, fields: +List<NativeFields.Update>}
+
 type Decision is Data:
   Decision{state: State, effects: +List<Legacy.Effect>}
+
 type KeyResult is Data:
   KeyResult{handled: Bool, decision: Decision}
+
 type Search is Data:
   Searching{index: Nat, state: State}
   Stopped{decision: Decision}
+
 type OutsideDecision is Data:
   OutsideDecision{handled: Bool, decision: Decision}
+
 def realization_frame(realization: Rendered.State) -> Maybe<&2, Rendered.Frame>:
   match realization:
     case Rendered.AwaitingFrame{generation}: None{}
     case Rendered.Realized{generation, frame}: Some{frame}
     case Rendered.Unmet{generation, frame, violations}: Some{frame}
 
-def inspect_frame(frame: Maybe<&2, Rendered.Frame>, +active: +List<InterfaceView.Node>, +layer: Maybe<&2, String>, +dismiss: Maybe<&2, Legacy.DismissTarget>) -> RenderInspection:
+def inspect_frame(frame: Maybe<&2, Rendered.Frame>, +active: +List<SurfaceTypes.Node>, +layer: Maybe<&2, String>, +dismiss: Maybe<&2, Legacy.DismissTarget>) -> RenderInspection:
   match frame:
     case None{}: RenderInspection{None{}, None{}, None{}, layer, dismiss}
     case Some{+observed}:
@@ -194,18 +204,18 @@ def candidate(+index: Nat) -> View.Capacity:
     case 2n: View.Capacity{False{}, True{}}
     case _: View.Capacity{False{}, False{}}
 
-def semantic_surface(+capacity: View.Capacity, +state: Legacy.State) -> InterfaceView.Surface:
+def semantic_surface(+capacity: View.Capacity, +state: Legacy.State) -> SurfaceTypes.Surface:
   Legacy.semantic_surface(capacity, state)
 
-def published(+world: Content.AllocatedWorld, +capacity: View.Capacity, +state: Legacy.State, +semantic: InterfaceView.Surface) -> Published:
+def published(+world: Content.AllocatedWorld, +capacity: View.Capacity, +state: Legacy.State, +semantic: SurfaceTypes.Surface) -> Published:
   Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies} = world
   Published{world, semantic, Focus.realized_scope(semantic, Legacy.active_focus_scope(state)), NativeFields.basis([source], semantic), None{}}
 
-def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>, +semantic: InterfaceView.Surface) -> Decision:
+def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>, +semantic: SurfaceTypes.Surface) -> Decision:
   Legacy.Decision{+accepted, collected} = decision
   Decision{State{accepted, serial, anchors, Displaying{capacity, engine, semantic}, Some{published(world, capacity, accepted, semantic)}}, collected}
 
-def current_legacy_surface(+state: Legacy.State) -> InterfaceView.Surface:
+def current_legacy_surface(+state: Legacy.State) -> SurfaceTypes.Surface:
   +observed_web_1 = Legacy.web(state)
   +observed_application_2 = Web.application(observed_web_1)
   +observed_platform_3 = Platform.platform(observed_application_2)
@@ -213,7 +223,7 @@ def current_legacy_surface(+state: Legacy.State) -> InterfaceView.Surface:
   +capacity = Platform.capacity(observed_platform_3)
   Legacy.semantic_surface(capacity, state)
 
-def current_surface(+state: State) -> InterfaceView.Surface:
+def current_surface(+state: State) -> SurfaceTypes.Surface:
   current_legacy_surface(legacy(state))
 
 def published_world(value: Published) -> Content.AllocatedWorld:
@@ -232,7 +242,7 @@ def field_owned(+key: String, +state: State) -> Bool:
     case None{}: False{}
     case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.field_owned(basis, key, current_surface(state))
 
-def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: InterfaceView.Surface) -> Decision:
+def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
   State{+observed_state_1, serial, anchors, lifecycle, displayed} = state
   +observed_web_2 = Legacy.web(observed_state_1)
   +observed_application_3 = Web.application(observed_web_2)
@@ -481,15 +491,15 @@ def infeasible_candidate(+more: Bool, +index: Nat, +state: State, failure: Alloc
     case True{}: Searching{(index + 1n : Nat), state}
     case False{}: Stopped{Decision{set_lifecycle(state, Blocked{failure_message(failure)}), Nil{}}}
 
-def selected(+outcome: Plan.Plan, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: InterfaceView.Surface, round: Nat) -> Search:
+def selected(+outcome: Plan.Plan, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface, round: Nat) -> Search:
   match outcome:
     case Plan.Ready{world}: Stopped{admit(world, capacity, engine, state, semantic)}
     case Plan.Awaiting{generation, first, remaining}: Stopped{Decision{set_lifecycle(state, Measuring{index, capacity, engine, semantic, round}), Nil{}}}
     case Plan.Invalid{error}: Stopped{Decision{set_lifecycle(state, Blocked{"Physical source or receipt is invalid"}), Nil{}}}
     case Plan.Infeasible{failure}: infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure)
 
-def surface_layers(surface: InterfaceView.Surface) -> +List<View.Layer>:
-  InterfaceView.Surface{Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
+def surface_layers(surface: SurfaceTypes.Surface) -> +List<View.Layer>:
+  SurfaceTypes.Surface{InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
   layers
 
 def viewport_box(environment: Design.Environment) -> AnchorGeometry.Box:
@@ -551,13 +561,13 @@ def pending(+state: Legacy.State) -> +List<Legacy.Pending>:
 def feedback_root(+source: Source.Node, +entries: +List<Legacy.Pending>, +font: T.Presentation) -> Source.Node:
   only_root(feedback_nodes(source <> Nil{}, entries, font), source)
 
-def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: AnchorGeometry.Box, +state: State, +semantic: InterfaceView.Surface) -> Search:
+def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: AnchorGeometry.Box, +state: State, +semantic: SurfaceTypes.Surface) -> Search:
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), feedback_root(source, pending(legacy), font), font}, viewport)
   selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)
 
 def authored(+result: Shell.ShellAuthorship, +index: Nat, +capacity: View.Capacity, +font: T.Presentation,
-  +viewport: AnchorGeometry.Box, +state: State, +semantic: InterfaceView.Surface) -> Search:
+  +viewport: AnchorGeometry.Box, +state: State, +semantic: SurfaceTypes.Surface) -> Search:
   match result:
     case Shell.Rejected{key, problem}: Stopped{Decision{set_lifecycle(state, Blocked{"Unsupported authored content: " ++ UIIdentity.encode(key)}), Nil{}}}
     case Shell.Ready{source}: frozen(source, index, capacity, font, viewport, state, semantic)
@@ -875,7 +885,7 @@ def native_pair(entries: +List<Rendered.NativeFocus>, +owner: String, +identity:
     case Nil{}: False{}
     case Con{Rendered.NativeFocus{key, parent}, rest}: (String.eq(key, identity) && String.eq(parent, owner)) || native_pair(rest, owner, identity)
 
-def native_frame_owned(frame: Maybe<&2, Rendered.Frame>, +semantic: InterfaceView.Surface, +owner: String, +identity: String) -> Bool:
+def native_frame_owned(frame: Maybe<&2, Rendered.Frame>, +semantic: SurfaceTypes.Surface, +owner: String, +identity: String) -> Bool:
   match frame:
     case None{}: False{}
     case Some{Rendered.Frame{viewport, +elements, focused, order, +native_focus}}:
@@ -909,7 +919,7 @@ def step(+input: Legacy.Input, +state: State) -> Decision:
   match input:
     case Legacy.Native{Web.CodeSourcesObserved{generation, observations}}: code_sources(generation, observations, state)
     case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.CodeSource{identity, text}}}}: Decision{state, Nil{}}
-    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{Core.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{text}}}}}}}: Decision{state, Nil{}}
+    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{text}}}}}}}: Decision{state, Nil{}}
     case Legacy.Native{Web.NativeFocusObserved{generation, owner, identity}}: native_focus_observed(generation, owner, identity, state)
     case Legacy.Native{Web.PlatformInput{Platform.ContentFocusObserved{owner, identity}}}: Decision{state, Nil{}}
     case Legacy.Native{Web.FrameObserved{generation, frame}}:
@@ -942,7 +952,7 @@ def published_order_eligible(eligible: Bool, key: String, tail: +List<String>) -
     case False{}: tail
     case True{}: key <> tail
 
-def published_order(order: +List<String>, +basis: NativeFields.Basis, +elements: +List<Rendered.Element>, +semantic: InterfaceView.Surface, +native_focus: +List<Rendered.NativeFocus>) -> +List<String>:
+def published_order(order: +List<String>, +basis: NativeFields.Basis, +elements: +List<Rendered.Element>, +semantic: SurfaceTypes.Surface, +native_focus: +List<Rendered.NativeFocus>) -> +List<String>:
   match order:
     case Nil{}: Nil{}
     case Con{+key, rest}:
@@ -969,7 +979,7 @@ def published_target(found: Maybe<&2, String>, native_focus: +List<Rendered.Nati
     case None{}: None{}
     case Some{key}: Some{native_target(native_focus, key)}
 
-def published_cycle(scope: Focus.Scope, basis: NativeFields.Basis, +semantic: InterfaceView.Surface, frame: Maybe<&2, Rendered.Frame>, reverse: Bool) -> Maybe<&2, Focus.Target>:
+def published_cycle(scope: Focus.Scope, basis: NativeFields.Basis, +semantic: SurfaceTypes.Surface, frame: Maybe<&2, Rendered.Frame>, reverse: Bool) -> Maybe<&2, Focus.Target>:
   match frame:
     case None{}: None{}
     case Some{Rendered.Frame{viewport, +elements, focused, +order, +native_focus}}:
@@ -982,13 +992,13 @@ def published_escape(found: Maybe<&2, Legacy.DismissTarget>, +state: State) -> K
     case Some{Legacy.DismissTarget{identity, input, outside, +escape}}:
       KeyResult{escape, accept(escape, Legacy.dismiss_permitted(escape && Legacy.outside_layer_owned(identity, Legacy.current_layer_key(legacy(state))), input, legacy(state)), state)}
 
-def published_key_kind(tab: Bool, escape: Bool, shift: Bool, scope: Focus.Scope, basis: NativeFields.Basis, semantic: InterfaceView.Surface, frame: Maybe<&2, Rendered.Frame>, +state: State) -> KeyResult:
+def published_key_kind(tab: Bool, escape: Bool, shift: Bool, scope: Focus.Scope, basis: NativeFields.Basis, semantic: SurfaceTypes.Surface, frame: Maybe<&2, Rendered.Frame>, +state: State) -> KeyResult:
   match tab escape:
     case True{} _: KeyResult{True{}, accept(False{}, Legacy.cycle_target_found(published_cycle(scope, basis, semantic, frame, shift), legacy(state)), state)}
     case False{} True{}: published_escape(Legacy.dismiss_target(InterfaceView.active_nodes(semantic)), state)
     case False{} False{}: KeyResult{False{}, Decision{state, Nil{}}}
 
-def published_key(+key: String, shift: Bool, +scope: Focus.Scope, basis: NativeFields.Basis, semantic: InterfaceView.Surface, frame: Maybe<&2, Rendered.Frame>, +state: State) -> KeyResult:
+def published_key(+key: String, shift: Bool, +scope: Focus.Scope, basis: NativeFields.Basis, semantic: SurfaceTypes.Surface, frame: Maybe<&2, Rendered.Frame>, +state: State) -> KeyResult:
   match scope:
     case Focus.Document{}: KeyResult{False{}, Decision{state, Nil{}}}
     case Focus.Temporary{identity, initial, restore, occurrence}:
@@ -1003,7 +1013,7 @@ def key_captured(+key: String, +shift: Bool, +state: State) -> KeyResult:
 def key_event(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame, +state: State) -> KeyResult:
   key_captured(key, shift, decision_state(received_frame(frame_owned(received, state), frame, state)))
 
-def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: InterfaceView.Surface, round: Nat) -> Decision:
+def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface, round: Nat) -> Decision:
   match status:
     case World.Rejected{reason}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
     case _: finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine, state, semantic, round)))
@@ -1064,17 +1074,17 @@ def capacity_index(capacity: View.Capacity) -> Nat:
     case View.Capacity{False{}, True{}}: 2n
     case _: 3n
 
-def refrozen_source(source: Source.Node, font: T.Presentation, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: InterfaceView.Surface) -> Decision:
+def refrozen_source(source: Source.Node, font: T.Presentation, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), source, font}, viewport)
   finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine,
     State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)))
 
-def refrozen(snapshot: Content.Snapshot, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: InterfaceView.Surface) -> Decision:
+def refrozen(snapshot: Content.Snapshot, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
   Content.Snapshot{old, source, font} = snapshot
   refrozen_source(source, font, viewport, index, capacity, state, semantic)
 
-def refreeze(+index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: InterfaceView.Surface) -> Decision:
+def refreeze(+index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
   State{legacy, +serial, anchors, lifecycle, displayed} = state
   refrozen(World.snapshot(engine), World.viewport(engine), index, capacity, State{legacy, serial, anchors, lifecycle, displayed}, semantic)
 

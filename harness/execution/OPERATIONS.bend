@@ -120,6 +120,7 @@ def announced_history(operations: +List<D.Operation()>, history: D.History) -> D
 
 # Running statuses enter history only when an actual model request needs them.
 # Fast completions remain ordinary function results, without a gratuitous turn.
+
 def publish(+task: D.Task) -> D.Task:
   D.with_notified(False{}, D.with_operations(Std.map(~D.Operation(), ~D.Operation(), ~announce, D.task_operations(task)),
     D.with_history(announced_history(D.task_operations(task), D.task_history(task)), task)))
@@ -154,6 +155,7 @@ def cancelled(operation: D.Operation(), task: D.Task) -> D.Task:
 
 # Fold an abandonment reason through the exact live rights. This is not a retry
 # queue: it records unknown outcomes and removes execution authority.
+
 type Closure is Data:
   Closure{history: D.History, code: String, reason: String}
 

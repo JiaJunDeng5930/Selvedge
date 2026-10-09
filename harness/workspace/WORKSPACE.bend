@@ -194,6 +194,7 @@ def resolve(+options: J.Json, base: D.TaskContext, guidance: D.ProjectContext,
 
 # Directory inclusion is used only on admitted canonical observations. A model
 # may delegate equal or narrower authority, never gain permissions through fork.
+
 def below(+child: String, +parent: String) -> Bool:
   String.eq(parent, "/") || String.eq(child, parent) || String.starts_with(child, parent ++ "/")
 

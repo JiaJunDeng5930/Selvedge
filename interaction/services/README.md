@@ -2,7 +2,7 @@
 
 Owns client service state, execution context and permissions used by interaction.
 
-Start with [MODEL.bend](MODEL.bend), [CONTEXT.bend](CONTEXT.bend), [context-laws.bend](context-laws.bend), [permissions-laws.bend](permissions-laws.bend).
+Start with [MODEL.bend](MODEL.bend), [CONTEXT.bend](CONTEXT.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
 
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state

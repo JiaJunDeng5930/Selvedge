@@ -225,6 +225,7 @@ def connect(state: State, entered: Bool) -> Decision:
   match entered:
     case False{}: Decision{State{CredentialRequired{}, "", True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
     case True{}: Decision{State{Connecting{next}, "", settings, appearance, (next + 1n : Nat), lose_transfers(transfers, "Connection replaced"), NoPreview{}, directory_picker}, [Authenticate{next, credential}]}
+
 def replace_directory(state: State, directory_picker: DirectoryPicker) -> State:
   State{access, credential, settings, appearance, next, transfers, preview, old_picker} = state
   State{access, credential, settings, appearance, next, transfers, preview, directory_picker}

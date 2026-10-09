@@ -7,8 +7,8 @@ import ../controls/SURFACES.bend as Surfaces
 import ../../interaction/presentation/COMPOSITION.bend as Composition
 import ../controls/PROGRAM.bend as Controls
 import ./TYPOGRAPHY.bend as T
-import ../../interaction/presentation/PROGRAM.bend as InterfaceView
-import ../../interaction/STATE.bend as Core
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/TYPES.bend as InteractionTypes
 
 type FactContentLayout is Data:
   FactContentLayout{content: Enclosure.Frame, facts: Enclosure.Frame}
@@ -18,6 +18,7 @@ def fact_content_layout() -> FactContentLayout:
     Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.Sections{}}}}
 
 # CSS pixels describe the Web viewport; product composition remains unit-free.
+
 type Viewport is Data:
   Viewport{width: Nat, height: Nat}
 
@@ -46,6 +47,7 @@ type Theme is Data:
 
 # Paint names refer to the already imported Desktop theme, including its dark
 # variant. The browser resolves the tokens rather than inventing another palette.
+
 type Paint is Data:
   Transparent{}
   ThemeToken{name: String}
@@ -61,6 +63,7 @@ type PhasePaint is Data:
   PhasePaint{foreground: Paint, background: Paint}
 
 # The ring occupies [inset, inset + width] inside each allocated control edge.
+
 type FocusIndicator is Data:
   FocusIndicator{paint: Paint, width: Nat, inset: Nat}
 
@@ -84,23 +87,23 @@ type Style is Data:
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Node is Data:
-  Node{key: UIIdentity.Key, semantic: String, label: String, role: InterfaceView.Role,
-    meaning: InterfaceView.Meaning, style: Style, control: Controls.Representation,
+  Node{key: UIIdentity.Key, semantic: String, label: String, role: SurfaceTypes.Role,
+    meaning: SurfaceTypes.Meaning, style: Style, control: Controls.Representation,
     children: +List<Node>}
 
 type Surface is Data:
-  Surface{content: Core.Scene, theme: Theme, base: +List<Node>,
+  Surface{content: InteractionTypes.Scene, theme: Theme, base: +List<Node>,
     overlays: +List<Node>, active_scope: Maybe<&2, String>}
 
-def semantic_nodes(nodes: +List<Node>) -> +List<InterfaceView.Node>:
+def semantic_nodes(nodes: +List<Node>) -> +List<SurfaceTypes.Node>:
   match nodes:
     case Nil{}: Nil{}
     case Con{Node{key, semantic, label, role, meaning, style, control, children}, rest}:
-      InterfaceView.Node{key, semantic, label, role, meaning, semantic_nodes(children)} <> semantic_nodes(rest)
+      SurfaceTypes.Node{key, semantic, label, role, meaning, semantic_nodes(children)} <> semantic_nodes(rest)
 
-def semantic_surface(surface: Surface) -> InterfaceView.Surface:
+def semantic_surface(surface: Surface) -> SurfaceTypes.Surface:
   Surface{content, theme, base, overlays, active_scope} = surface
-  InterfaceView.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
+  SurfaceTypes.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
 
 def navigation_width(value: LayoutParameters) -> Nat:
   LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
@@ -154,7 +157,6 @@ def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advanc
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
     toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}}]
-
 
 def parameters(+capacity: Nat, scale: T.Scale, body: T.Metric) -> Maybe<&2, LayoutParameters>:
   T.Metric{key, minimum, preferred, height, advance} = body

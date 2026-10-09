@@ -2,7 +2,11 @@
 
 Combines application interaction state, user inputs and observable scenes independently of browser geometry.
 
-Start with [MODEL.bend](MODEL.bend), [STATE.bend](STATE.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
+Start with [MODEL.bend](MODEL.bend), [TYPES.bend](TYPES.bend), [STATE.bend](STATE.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
+
+`TYPES.bend` defines the input, state and observation vocabulary. `STATE.bend`
+owns the computations over those values; clients that exchange vocabulary do
+not need to import its implementation.
 
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state

@@ -25,6 +25,7 @@ def same(left: Key, right: Key) -> Bool:
     case _ _: False{}
 
 # Tags and quoted fields preserve the boundary between an identity and its parts.
+
 def encode(key: Key) -> String:
   match key:
     case Place{path}: "[\"place\",\"" ++ J.escape(path) ++ "\"]"

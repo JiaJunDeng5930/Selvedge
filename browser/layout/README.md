@@ -2,10 +2,22 @@
 
 Allocates measured content in physical space and realizes renderer plans and receipts.
 
-Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
+Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend) and
+[CONTRACT.bend](CONTRACT.bend). The contract composes the boundaries in
+[geometry-contract.bend](geometry-contract.bend),
+[allocation-contract.bend](allocation-contract.bend),
+[measurement-contract.bend](measurement-contract.bend) and
+[render-contract.bend](render-contract.bend).
 
-The imports in these entries compose the subordinate concepts and their required
-evidence. Read named observations and intended updates before private state
-representations. Local proofs are collected in the concept's `PROOF.bend`;
-independent evidence used across concepts remains separate where needed to keep
-the imports acyclic. The root [PROOF.bend](../../PROOF.bend) assembles the production evidence.
+Evidence follows complete responsibilities: [geometry-proof.bend](geometry-proof.bend)
+for geometry, [allocation-proof.bend](allocation-proof.bend) for packing and
+allocation, [sizing-proof.bend](sizing-proof.bend) for measured dimensions and their
+source correspondence, and [render-proof.bend](render-proof.bend) for renderer
+realization. [PROOF.bend](PROOF.bend) assembles the receipt and lifecycle evidence
+needed by its clients. The repository [PROOF.bend](../../PROOF.bend) imports all
+production providers.
+
+Measurement receipt validation belongs to
+[physical-content-measurement.bend](physical-content-measurement.bend), beside the
+production computation that consumes it. The executable contracts remain the
+authority for the obligations, independently of proof-file organization.

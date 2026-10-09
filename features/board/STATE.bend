@@ -5,14 +5,11 @@ import ../../harness/DOMAIN.bend as D
 import ./MODEL.bend as B
 import ../../harness/MODEL.bend as M
 import ../../harness/workspace/PROJECTS.bend as Projects
-import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../bendlib/association-map.bend as Finite
 import ./CODEC.bend as Codec
 import ../../bendlib/json.bend as J
-import ../../harness/transport/schema.bend as Schema
 import ../../harness/tasks/PROGRAM.bend as T
-import ../../harness/execution/OPERATIONS.bend as Ops
 
 # Board/task relations are shared domain predicates. Neither the browser nor
 # the effect interpreter maintains these associations or decides their locks.

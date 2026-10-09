@@ -8,7 +8,6 @@ import ../approval/HOOKS.bend as Hooks
 import ../INVARIANTS.bend as I
 import ../../bendlib/json.bend as J
 import ../tasks/PROGRAM.bend as T
-import ./OPERATIONS.bend as Ops
 import ../../bendlib/equality.bend as Same
 import ../transport/presentation.bend as View
 import ../protocol/PROGRAM.bend as Protocol
@@ -234,6 +233,7 @@ def fit(rendered: Result<&2, &2, String, String>, bytes: U32, enriched: M.Decisi
 
 # Notification payloads and queueing are optional observations. Full-envelope
 # pressure can omit the entire optional batch, never reject the underlying work.
+
 def admit_limits(+durable: Bool, previous: M.World(), +enriched: M.Decision(), plain: M.Decision(), limits_value: D.ExecutionLimits) -> M.Decision():
   match previous limits_value:
     case C.Frame{+task_state, +board} D.ExecutionLimits{steps, render, +bytes}:

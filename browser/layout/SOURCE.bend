@@ -1,9 +1,6 @@
 import Base
-import ../../bendlib/stdlib.bend as Std
 import ../document/SOURCE.bend as Source
-import ../document/source-rules.bend as SourceRules
 import ./CONTENT.bend as Content
-import ./physical-content-rules.bend as Rules
 import ./physical-content-measurement.bend as Measurements
 import ./physical-space.bend as Model
 import ./SPACE.bend as Space
@@ -28,6 +25,7 @@ type ForestPair is Data:
   ForestPair{first: Forest, second: Forest}
 
 # Missing measurements retain preorder; any invalid subtree prevents preparation.
+
 def merge_pair(pair: ForestPair) -> Forest:
   match pair:
     case ForestPair{InvalidForest{error}, second}: InvalidForest{error}
@@ -168,6 +166,7 @@ def text_natural_dimensions(wrapping: T.Wrapping, +minimum: Nat, +preferred: Nat
       # A complete short caption contributes its full measured width to row selection.
       Space.Demand{Enclosure.Extent{preferred, height}, Enclosure.Extent{preferred, height}}
     case _: Space.Demand{Enclosure.Extent{minimum, height}, Enclosure.Extent{preferred, height}}
+
 def text_natural_demand(wrapping: T.Wrapping, +observation: Content.Observation) -> Space.Demand:
   text_natural_dimensions(wrapping, observation_minimum(observation), observation_preferred(observation), observation_height(observation), observation_advance(observation))
 
@@ -187,6 +186,7 @@ def field_natural_height(variable: Bool, policy: Source.FieldPolicy, +font: T.Pr
 
 # Native content remains part of the demand; multiline fields bound the viewport
 # by the same line policy used when sampling their height at an allocated width.
+
 def field_natural_demand_at(capacity: Nat, +kind: Source.NativeFieldKind, +policy: Source.FieldPolicy,
   +font: T.Presentation, +observation: Content.Observation) -> Space.Demand:
   Source.FieldPolicy{columns, minimum_lines, maximum_lines} = policy
@@ -325,7 +325,7 @@ def native_code_policy(valid: Bool, owner: String, +key: String,
 def code_body_children(children: +List<Source.Node>, owner: String, +key: String,
   target: Source.NativeTarget, attributes: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Forest:
   match children:
-    case Nil{}: native_code_policy(SourceRules.native_code_policy_valid(style), owner, key, target, attributes, style)
+    case Nil{}: native_code_policy(Source.native_code_policy_valid(style), owner, key, target, attributes, style)
     case Con{first, rest}: InvalidForest{Content.InvalidNativeContentChildren{key}}
 
 def owned_code_body(valid: Bool, children: +List<Source.Node>, owner: String, +key: String,
@@ -344,6 +344,7 @@ def native_code_body(context: Context, children: +List<Source.Node>, +key: Strin
 
 # This list-first recursion visits the authored tree and every owned native region.
 # Helpers consume completed recursive results and never traverse source indirectly.
+
 def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +generation: Nat,
   +prefix: String, +index: Nat, +context: Context, +observations: +List<Content.Observation>) -> Forest:
   match nodes:
@@ -398,6 +399,7 @@ def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +gen
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
 
 # Native targets are admitted together before any prepared forest leaves this boundary.
+
 def admit_duplicate(duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content.Prepared) -> Content.Preparation:
   match duplicate:
     case None{}: Content.Ready{prepared}

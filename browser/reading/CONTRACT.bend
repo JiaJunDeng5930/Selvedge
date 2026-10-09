@@ -7,10 +7,8 @@ law history_layout:
   for anchor: Physical.Anchor
   {Model.layout(U.ReadHistory{}, Model.Bookmark{Some{anchor}}) == [Model.PreserveAnchor{anchor}] : +List<Model.Effect>}
 
-
 law missing_history_anchor:
   {Model.layout(U.ReadHistory{}, Model.Bookmark{None{}}) == [Model.MeasureAnchor{}] : +List<Model.Effect>}
-
 
 type ScrollOwnershipRequirements is Type:
   ScrollOwnershipRequirements{
@@ -21,7 +19,6 @@ type ScrollOwnershipRequirements is Type:
 
 law scroll_ownership_evidence:
   ScrollOwnershipRequirements
-
 
 law latest_layout:
   for bookmark: Model.Bookmark

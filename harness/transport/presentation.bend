@@ -1,6 +1,5 @@
 import Base
 import ../features/CODEC.bend as FeatureCodec
-import ../features/MODEL.bend as F
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as Component
 import ../DOMAIN.bend as D

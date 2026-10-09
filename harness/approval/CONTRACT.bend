@@ -3,7 +3,6 @@ import ../../bendlib/effects.bend as Effects
 import ../features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
-import ../../features/board/MODEL.bend as Board
 import ../MODEL.bend as M
 import ./MODEL.bend as A
 import ../PROGRAM.bend as P

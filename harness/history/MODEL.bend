@@ -67,6 +67,7 @@ def run(events: +List<M.Input>, state: State) -> State:
   List.foldl(~&2, ~M.Input, ~State, ~advance, events, state)
 
 # These results come from the original relation library, not project recursion.
+
 def bind_preorder(evidence: R.Preorder<State, (first => last => R.Closure<State, actual_edge, first, last>)>) -> R.Preorder<State, path>:
   R.Preorder{reflexive, transitive} = evidence
   R.Preorder{(state => reflexive(state)),
@@ -81,6 +82,7 @@ def batches(-start: State, -end: State, proof: R.Closure<State, path, start, end
 # A relational protocol is the standard closure of its actual input-labelled
 # edges. The project owes only single-step meaning/safety and the journal/fold
 # correspondence. The imported theorems supply arbitrary-path lifting.
+
 type Protocol is Type:
   Protocol{
     input: @input:M.Input -> @state:State -> path(state, actual(input, state)),

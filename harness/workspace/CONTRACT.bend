@@ -6,7 +6,6 @@ import ./WORKSPACE.bend as W
 import ./PROJECTS.bend as Projects
 import ../COMMANDS.bend as Commands
 import ../protocol/PROGRAM.bend as Protocol
-import ../../bendlib/association-map.bend as Finite
 import ../../bendlib/json.bend as J
 import ../../bendlib/equality.bend as Same
 

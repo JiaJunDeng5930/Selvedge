@@ -3,7 +3,6 @@ import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
-import ../features/board/MODEL.bend as Board
 import ../bendlib/stdlib.bend as Std
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
@@ -120,6 +119,7 @@ law plugin_observation_budget_failure:
 
 # User-facing decisions are native entities too. The adapter cannot choose a
 # different command resolver or manufacture state/effects while projecting it.
+
 law delivery_observation_world:
   for +durable: Bool
   for +decision: M.Decision()
@@ -136,6 +136,7 @@ law delivery_observation_effects:
 
 # Unlike safety, these equalities prohibit both an always-rejecting command
 # interpreter and a safe no-op. State, reply, and effects are all observable.
+
 law review_semantics:
   for +resolution: Approvals.Resolution
   for +world: M.World()
@@ -232,6 +233,7 @@ law frontend_packet:
 
 # These correspondences close the scheduling parameter in the complete command
 # specification. They quantify over every resolved action and every finite run.
+
 law execution_semantics:
   for +action: Execution.Action
   for +world: M.World()
@@ -275,6 +277,7 @@ law recovery_view_composition:
 
 # These equations completely fix the bounded scheduler: zero fuel, quiescence,
 # one successor step, and its dispatch gate. ContinueScheduling is observable.
+
 law scheduling_disabled:
   for +decision: M.Decision()
   {P.scheduled(False{}, decision) == decision : M.Decision()}
@@ -319,6 +322,7 @@ law scheduling_combines_outputs:
 
 # Dispatch and settlement are functional obligations too. A pending phase alone
 # does not mean that its request was emitted, and a safe no-op cannot settle it.
+
 law model_work:
   for +task: D.Task
   for +world: M.World()
@@ -394,6 +398,7 @@ law accepted_summary_settlement:
       D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision()}
 
 # Recovery is a committed state-machine path, not an adapter-owned retry loop.
+
 law context_recovery_work:
   for +task: D.Task
   for +world: M.World()
@@ -468,6 +473,7 @@ law checkpoint_preserves_project_contract:
 
 # A step either leaves the world unchanged with no effects, or preserves the
 # declared world and transition predicates. This also covers rejected replies.
+
 def Admitted(+previous: M.World(), +decision: M.Decision()) -> Type:
   Result<&1, &1,
     {P.decision_world(decision) == previous : M.World()} & {P.decision_effects(decision) == Nil{} : +List<M.Effect()>},
@@ -481,6 +487,7 @@ law transition_admitted:
 # The executable predicate includes canonical task identities, forest ancestry,
 # inherited contracts, descendant quotas, and unique pending correlation tickets.
 # Safety is closed under every admitted input and every finite execution trace.
+
 law initial_world_valid:
   {I.world(M.initial()) == True{} : Bool}
 
@@ -497,6 +504,7 @@ law replay_preserves_world:
   {I.world(P.replay(events, world)) == True{} : Bool}
 
 # Archived tasks are terminal. No later user input changes their history/queue.
+
 law archived_terminal:
   for request: D.Control
   {D.control(D.Archived{}, request) == None{} : Maybe<&2, D.Status>}
@@ -515,6 +523,7 @@ law archived_input_unchanged:
     D.Task{id, lineage, contract, D.Archived{}, history, queue, phase, operations, notified} : D.Task}
 
 # Freeze suspends dispatch; stop permits settlement but never requests a model.
+
 law frozen_no_dispatch:
   for phase: D.Phase
   {D.work(D.Frozen{}, phase) == D.NoWork{} : D.Work}
@@ -543,6 +552,7 @@ law interrupt_idempotent:
   {T.interrupt(T.interrupt(task)) == T.interrupt(task) : D.Task}
 
 # The task contract does not change when its lifecycle or work phase changes.
+
 law status_preserves_contract:
   for status: D.Status
   for +task: D.Task
@@ -554,6 +564,7 @@ law phase_preserves_contract:
   {D.task_contract(D.with_phase(phase, task)) == D.task_contract(task) : D.Contract}
 
 # FIFO is a list-monoid law instantiated by the actual input-queue operation.
+
 law queue_order:
   for +first: String
   for +second: String
@@ -563,6 +574,7 @@ law queue_order:
 
 # A child shares the parent's history prefix and immutable contract, has a new
 # task-parent edge, and receives no copy of the parent's waiting user messages.
+
 law child_contract:
   for id: Nat
   for +parent: D.Task
@@ -601,6 +613,7 @@ law child_queue_empty:
   {D.task_queue(P.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<String>}
 
 # Recovery and inheritance do not grant permission to repeat an external effect.
+
 law unknown_effect_not_repeated:
   for call: D.Call
   {D.may_execute(D.OutcomeUnknown{}, D.RecoveryAttempt{call}) == False{} : Bool}
@@ -611,6 +624,7 @@ law internal_effect_retry_safe:
 
 # Shell and MCP effects must never be replayed merely because their result was
 # lost. Their arguments do not establish that an arbitrary command is read-only.
+
 law bash_recovery_blocked:
   for call: D.Call
   {D.may_execute(D.recovery(D.Harness{D.Bash{}}), D.RecoveryAttempt{call}) == False{} : Bool}
@@ -626,6 +640,7 @@ law recover_phase_idempotent:
   {T.recover_phase(T.recover_phase(phase)) == T.recover_phase(phase) : D.Phase}
 
 # Rejected correlation leaves state untouched before the scheduling stage.
+
 law unmatched_model_result_unchanged:
   for outcome: D.Outcome
   for allowed: +List<String>
@@ -644,6 +659,7 @@ law unmatched_tool_result_unchanged:
 # History append and journal replay are actions of the list monoid: processing
 # concatenated inputs equals processing the first part then the second part.
 # Replay uses PROGRAM.next, not a specification-only simulator.
+
 law history_append_composition:
   for +first: +List<D.Message>
   for +second: +List<D.Message>
@@ -664,6 +680,7 @@ law replay_empty:
 
 # All public queries, including invalid pages and failed output admission, leave
 # the entire world unchanged and dispatch no effects. They need no journal entry.
+
 law observation_preserves_world:
   for +query: M.Query
   for +world: M.World()
@@ -680,6 +697,7 @@ law observation_not_durable:
 
 # Inserting a query anywhere in an input trace preserves its final world.
 # Query replies remain observable; this statement concerns task state, not replies.
+
 law observation_replay:
   for +query: M.Query
   for +first: +List<M.Input>
@@ -704,6 +722,7 @@ law context_has_no_call_authority:
 
 # This is an idempotent context projection, not a semantic-equivalence claim
 # about model-generated text. The append-only history invariant is unchanged.
+
 law context_projection_idempotent:
   for +history: D.History
   {D.context_history(D.context_history(history)) == D.context_history(history) : D.History}

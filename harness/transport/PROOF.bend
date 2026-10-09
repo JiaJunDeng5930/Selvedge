@@ -9,13 +9,11 @@ import ./MODEL.bend as Interface
 import ./wire.bend as Wire
 import ../protocol/commit-proof.bend as CommitProof
 import ../../bendlib/logic-proof.bend as Logic
-import ./json-render-rules.bend as Rule
+import ./CONTRACT.bend as Rule
 import ../DOMAIN.bend as D
-import ./profile-rules.bend as RuleProfileRules
 import ../reasoning/MODEL.bend as R
 
 # Local proof obligations for the frontend boundary. No runtime policy lives here.
-
 def Laws.frontend_input(input, world):
   match input:
     case Fail{reason}: {==}
@@ -72,6 +70,7 @@ def escape_refines(+text: String) -> {J.escape(text) == Rule.required_escape(tex
     escape_collected_refines(text, Nil{}, ""), escape_append_empty(Rule.required_escape(text)))
 
 # Equality elimination closes the impossible exhausted-budget branches.
+
 def exhausted(+job: J.Render,
   enough: {Nat.is_ge(0n, J.required(job)) == True{} : Bool}) ->
   Rule.Completed(J.render(0n, job)):
@@ -91,6 +90,7 @@ def exhausted(+job: J.Render,
 
 # Base supplies both maximum bounds. This local bridge passes an enclosing
 # render budget through such a bound without re-proving the maximum theorems.
+
 def budget_lower_bound(+budget: Nat, +ceiling: Nat, +lower: Nat,
   fits: {Nat.is_ge(budget, ceiling) == True{} : Bool},
   bound: {Nat.is_ge(ceiling, lower) == True{} : Bool}) ->
@@ -173,10 +173,11 @@ def render_complete(+job: J.Render) -> Rule.Completed(J.render(J.required(job), 
 def show_complete(+value: J.Json) -> Rule.Completed(J.show(value)):
   render_complete(J.One{value})
 
-def Rule.evidence():
-  Rule.Requirements{sufficient, render_complete, show_complete, escape_refines}
+def Rule.json_render_evidence():
+  Rule.JsonRenderRequirements{sufficient, render_complete, show_complete, escape_refines}
 
 # These local eliminators project the actual validity predicates' conjuncts.
+
 def left_true(+left: Bool, +right: Bool, evidence: {(left && right) == True{} : Bool}) ->
   {left == True{} : Bool}:
   match left:
@@ -238,7 +239,7 @@ def explicit_selection(+profile: D.Profile, +selection: String,
   Equal.cong(Bool, String, (defaulted => D.profile_selection_default(defaulted, selection, profile)),
     String.eq(selection, "default"), False{}, explicit)
 
-def RuleProfileRules.evidence():
-  RuleProfileRules.Requirements{
+def Rule.profile_evidence():
+  Rule.ProfileRequirements{
     default_permitted, fixed_selection_member,
     profile => {==}, explicit_selection}

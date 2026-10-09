@@ -142,19 +142,16 @@ def choose_block(same: Bool, block: Block, fallback: Block) -> Block:
     case True{}: block
     case False{}: fallback
 
-
 def find_block(blocks: +List<Block>, +identity: Identity) -> Block:
   match blocks:
     case Nil{}: Block{identity, "", initial_code_view(), 0n}
     case Con{Block{+key, source, view, next}, rest}:
       choose_block(same(key, identity), Block{key, source, view, next}, find_block(rest, identity))
 
-
 def replace_block(same: Bool, old: Block, rest: +List<Block>, current: Block, fallback: +List<Block>) -> +List<Block>:
   match same:
     case True{}: current <> rest
     case False{}: old <> fallback
-
 
 def save_block(blocks: +List<Block>, +identity: Identity, +current: Block) -> +List<Block>:
   match blocks:

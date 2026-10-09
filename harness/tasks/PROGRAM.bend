@@ -36,6 +36,7 @@ def replace(tasks: +List<D.Task>, +task: D.Task) -> +List<D.Task>:
       replacement(Nat.is_eq(D.task_id(old), D.task_id(task)), old, task) <> replace(rest, task)
 
 # The storage algorithm depends only on its carrier's task observation and write.
+
 def update_carrier(~S: Data, ~read: S -> +List<D.Task>, ~write: @values:+List<D.Task> -> @state:S -> S,
   task: D.Task, +state: S) -> S:
   write(replace(read(state), task), state)
@@ -356,6 +357,7 @@ def after_summary(resume: Bool) -> D.Phase:
 # Failure ends this summary attempt, not independently queued user requests.
 # With no new input the task stays idle; frozen input stays queued. This never
 # installs a partial checkpoint or an invocation from the rejected summary.
+
 def summary_failure(message: String, task: D.Task) -> D.Task:
   promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task)))
 

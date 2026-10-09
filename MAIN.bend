@@ -1,9 +1,7 @@
 import Base
 import ./harness/DOMAIN.bend as D
 import ./harness/MODEL.bend as M
-import ./harness/PROGRAM.bend as P
 import ./bendlib/json.bend as J
-import ./harness/transport/wire.bend as Wire
 import ./harness/transport/PROGRAM.bend as Frontend
 import ./harness/transport/MODEL.bend as Interface
 

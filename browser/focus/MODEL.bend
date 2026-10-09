@@ -5,9 +5,14 @@ import ../../interaction/session/MODEL.bend as E
 import ../../interaction/INPUT.bend as U
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/services/MODEL.bend as Services
+import ../../interaction/presentation/VIEW.bend as View2
+import ../../interaction/TYPES.bend as InteractionTypes
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+
 type Target is Data:
   Product{identity: String}
   Content{owner: String, identity: String}
+
 def same_target(first: Target, second: Target) -> Bool:
   match first second:
     case Product{first} Product{second}: String.eq(first, second)
@@ -22,6 +27,7 @@ def target_key(target: Target) -> String:
 type Scope is Data:
   Document{}
   Temporary{identity: String, initial: String, restore: String, occurrence: Maybe<&2, Nat>}
+
 def identity(scope: Scope) -> String:
   match scope:
     case Document{}: "document"
@@ -46,7 +52,7 @@ def dismissal_scope(dismissal: View.Dismissal, identity: String, initial: String
     case View.OutsideOrEscape{action}: Temporary{identity, initial, trigger, None{}}
 
 def panel_scope(+panel: U.Panel, initial: String, +trigger: String, beside: Bool) -> Scope:
-  dismissal_scope(View.layer_dismissal(panel, trigger), E.panel_target(panel), initial, trigger, beside)
+  dismissal_scope(View2.layer_dismissal(panel, trigger), E.panel_target(panel), initial, trigger, beside)
 
 def scope_occurrence(scope: Scope, occurrence: Nat) -> Scope:
   match scope:
@@ -77,7 +83,7 @@ def directory_scope(picker: Services.DirectoryPicker, fallback: Scope) -> Scope:
     case Services.LoadingDirectory{ticket, editor, path, trigger}: Temporary{"directory-picker", "directory-picker", trigger, None{}}
     case Services.FailedDirectory{ticket, editor, path, reason, trigger}: Temporary{"directory-picker", "directory-picker", trigger, None{}}
 
-def logical_scope(+state: Core.State, capacity: View.Capacity) -> Scope:
+def logical_scope(+state: InteractionTypes.State, capacity: View.Capacity) -> Scope:
   View.Capacity{navigation_beside, details_beside} = capacity
   +observed_application_1 = Core.application(state)
   +observed_session_2 = E.session(observed_application_1)
@@ -119,13 +125,13 @@ def scope_restore_target(found: Maybe<&2, String>, initial: String) -> String:
     case Some{key}: key
     case None{}: initial
 
-def temporary_scope_target(previous: Scope, initial: String, surface: InterfaceView.Surface) -> String:
+def temporary_scope_target(previous: Scope, initial: String, surface: SurfaceTypes.Surface) -> String:
   match previous:
     case Document{}: initial
     case Temporary{old_id, old_initial, restore, occurrence}:
       scope_restore_target(InterfaceView.matching_focus(InterfaceView.active_nodes(surface), restore), initial)
 
-def scope_target(previous: Scope, current: Scope, surface: InterfaceView.Surface) -> String:
+def scope_target(previous: Scope, current: Scope, surface: SurfaceTypes.Surface) -> String:
   match current:
     case Document{}: restore(previous)
     case Temporary{id, initial, trigger, occurrence}: temporary_scope_target(previous, initial, surface)
@@ -140,19 +146,19 @@ def resolved_target(found: Maybe<&2, String>) -> String:
     case Some{key}: key
     case None{}: ""
 
-def choose_scope_occurrence(occurrence: Maybe<&2, Nat>, active: Maybe<&2, String>, +surface: InterfaceView.Surface, +scope: Scope) -> Scope:
+def choose_scope_occurrence(occurrence: Maybe<&2, Nat>, active: Maybe<&2, String>, +surface: SurfaceTypes.Surface, +scope: Scope) -> Scope:
   match active:
     case None{}: Document{}
     case Some{key}: Temporary{key, resolved_target(InterfaceView.focus_target(surface, initial(scope))), resolved_target(InterfaceView.all_focus_target(surface, restore(scope))), occurrence}
 
-def choose_scope(active: Maybe<&2, String>, surface: InterfaceView.Surface, +scope: Scope) -> Scope:
+def choose_scope(active: Maybe<&2, String>, surface: SurfaceTypes.Surface, +scope: Scope) -> Scope:
   choose_scope_occurrence(scope_occurrence_of(scope), active, surface, scope)
 
-def realized_scope(+surface: InterfaceView.Surface, scope: Scope) -> Scope:
-  InterfaceView.Surface{content, base, overlays, +active} = surface
+def realized_scope(+surface: SurfaceTypes.Surface, scope: Scope) -> Scope:
+  SurfaceTypes.Surface{content, base, overlays, +active} = surface
   choose_scope(active, surface, scope)
 
-def current(+state: Core.State, +capacity: View.Capacity) -> Scope:
+def current(+state: InteractionTypes.State, +capacity: View.Capacity) -> Scope:
   realized_scope(InterfaceView.observe(capacity, state), logical_scope(state, capacity))
 
 def next_tab(remaining: +List<String>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:

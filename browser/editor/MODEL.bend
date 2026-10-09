@@ -1,8 +1,8 @@
 import Base
 import ../../interaction/INPUT.bend as U
 import ../controls/GEOMETRY.bend as Physical
-import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/submission/FIELDS.bend as Forms
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 
 type Editor is Data:
   Editor{owner: U.Editor, selection: Physical.Selection, composing: Bool}
@@ -31,7 +31,6 @@ type FieldKind is Data:
   MetadataWide{}
   CaptureOption{}
 
-
 def card_field(field: Forms.Field) -> FieldKind:
   match field:
     case Forms.CardTitle{}: WorkTitle{}
@@ -46,7 +45,7 @@ def card_field(field: Forms.Field) -> FieldKind:
     case Forms.AssistanceProfile{}: CaptureOption{}
     case _: Ordinary{}
 
-def field_kind(meaning: InterfaceView.Meaning) -> FieldKind:
+def field_kind(meaning: SurfaceTypes.Meaning) -> FieldKind:
   match meaning:
-    case InterfaceView.Edit{U.CardEditor{card}, field, entry, value, choices}: card_field(field)
+    case SurfaceTypes.Edit{U.CardEditor{card}, field, entry, value, choices}: card_field(field)
     case _: Ordinary{}

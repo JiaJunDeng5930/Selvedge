@@ -43,6 +43,7 @@ type Query is Data:
 
 # Only resolution constructs these accepted operations. A retry returns the
 # retained receipt without another effect. Forgetting explicitly ends retention.
+
 type Change is Data:
   SetGrants{grants: +List<Finite.Entry(Grant)>}
   Start{operation: Nat, job: Job}
@@ -56,6 +57,7 @@ type Resolution is Data:
   Accept{change: Change}
 
 # Model observations.
+
 def grants(state: State) -> +List<Finite.Entry(Grant)>:
   State{grants, jobs, next} = state
   grants
@@ -105,11 +107,13 @@ def job_outcome(job: Job) -> Outcome:
   outcome
 
 # Model intended updates.
+
 def with_outcome(value: Outcome, job: Job) -> Job:
   Job{connection, project, request, arguments, workspace, sandbox, previous} = job
   Job{connection, project, request, arguments, workspace, sandbox, value}
 
 # Model birth.
+
 def initial() -> State:
   State{Nil{}, Nil{}, 0n}
 

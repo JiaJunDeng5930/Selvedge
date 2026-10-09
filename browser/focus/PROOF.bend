@@ -4,14 +4,13 @@ import ./MODEL.bend as Model
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/IDENTITY.bend as Identity
 import ../../interaction/services/MODEL.bend as Services
-import ../../interaction/STATE.bend as Core
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/INPUT.bend as U
 import ../runtime/SEMANTICS.bend as Browser
-import ./dismissal-laws.bend as RuleDismissalLaws
 import ../runtime/PLATFORM.bend as Platform
-import ./focus-retention-laws.bend as RuleFocusRetentionLaws
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/TYPES.bend as InteractionTypes
 
 def Rule.cycle_evidence():
   Rule.CycleRequirements{order => focused => reverse => {==}, +key => +focused => previous => +first => +last => matching =>
@@ -28,14 +27,13 @@ def Rule.cycle_evidence():
 
 def Rule.realized_restore(content, base, overlays, active, scope, key, found):
   Equal.cong(Maybe<&2, String>, String, Model.resolved_target,
-    InterfaceView.all_focus_target(InterfaceView.Surface{content, base, overlays, Some{active}}, Model.restore(scope)), Some{Identity.encode(key)}, found)
+    InterfaceView.all_focus_target(SurfaceTypes.Surface{content, base, overlays, Some{active}}, Model.restore(scope)), Some{Identity.encode(key)}, found)
 
 def Rule.settings_restore(content, base, overlays, active, fallback):
   {==}
 
 def Rule.settings_resolved_restore(content, base, overlays, active, fallback, key, found):
   Rule.realized_restore(content, base, overlays, active, Model.settings_scope(True{}, fallback), key, found)
-
 
 def Rule.document_restores_previous(previous, surface): {==}
 
@@ -49,43 +47,49 @@ def Rule.nested_scope_without_active_trigger_uses_initial(old_identity, old_init
   Equal.cong(Maybe<&2, String>, String, (candidate => Model.scope_restore_target(candidate, initial)),
     InterfaceView.matching_focus(InterfaceView.active_nodes(surface), trigger), None{}, absent)
 
-
 def Rule.panel_policy(panel, initial, trigger, beside): {==}
+
 def Rule.persistent_scope(action, identity, initial, trigger, beside):
   match beside:
     case True{}: {==}
     case False{}: {==}
+
 def Rule.temporary_scope(action, identity, initial, trigger, beside): {==}
+
 def Rule.settings_policy(open, fallback):
   match open:
     case True{}: {==}
     case False{}: {==}
+
 def Rule.preview_policy(preview, fallback):
   match preview:
     case Services.NoPreview{}: {==}
     case Services.LoadingPreview{ticket, file, trigger}: {==}
     case Services.ReadyPreview{file, resource, image, trigger}: {==}
     case Services.FailedPreview{file, reason, trigger}: {==}
+
 def Rule.directory_policy(picker, fallback):
   match picker:
     case Services.NoDirectoryPicker{}: {==}
     case Services.ReadyDirectory{ticket, editor, catalog, location, trigger}: {==}
     case Services.LoadingDirectory{ticket, editor, path, trigger}: {==}
     case Services.FailedDirectory{ticket, editor, path, reason, trigger}: {==}
-def Rule.realized_document(content, base, overlays, scope): {==}
-def Rule.realized_active(content, base, overlays, active, scope): {==}
-def Rule.current_scope(state, capacity): {==}
 
+def Rule.realized_document(content, base, overlays, scope): {==}
+
+def Rule.realized_active(content, base, overlays, active, scope): {==}
+
+def Rule.current_scope(state, capacity): {==}
 
 def Rule.logical_priority(state, capacity):
   match state capacity:
-    case Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
+    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
 
 def Rule.current_surface(state, capacity, surface, observed):
-  Equal.cong(InterfaceView.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), InterfaceView.observe(capacity, state), surface, observed)
+  Equal.cong(SurfaceTypes.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), InterfaceView.observe(capacity, state), surface, observed)
 
 def toggle_absent(+application: E.Application, +panel: U.Panel, +trigger: String,
-  absent: {E.panel_present(RuleDismissalLaws.application_layers(application), E.panel_target(panel)) == False{} : Bool}) ->
+  absent: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == False{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == E.open_panel(panel, trigger, application) : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}
@@ -93,21 +97,21 @@ def toggle_absent(+application: E.Application, +panel: U.Panel, +trigger: String
     E.panel_present(layers, E.panel_target(panel)), False{}, absent)
 
 def toggle_present(+application: E.Application, +panel: U.Panel, +trigger: String,
-  present: {E.panel_present(RuleDismissalLaws.application_layers(application), E.panel_target(panel)) == True{} : Bool}) ->
-  {E.toggle_panel(panel, trigger, application) == RuleDismissalLaws.closed_application(application, panel, trigger) : E.Decision}:
+  present: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == True{} : Bool}) ->
+  {E.toggle_panel(panel, trigger, application) == Rule.closed_application(application, panel, trigger) : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}
   Equal.cong(Bool, E.Decision, (owned => E.toggle_panel_selected(owned, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), True{}, present)
 
-def outside_false(+identity: String, same: Bool, input: Core.Input, +state: Browser.State) ->
+def outside_false(+identity: String, same: Bool, input: InteractionTypes.Input, +state: Browser.State) ->
   {Browser.outside_permitted((same && False{}) && Browser.outside_layer_owned(identity, Browser.current_layer_key(state)), input, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision}:
   match same:
     case True{}: {==}
     case False{}: {==}
 
-def RuleDismissalLaws.evidence():
-  RuleDismissalLaws.Requirements{
+def Rule.dismissal_evidence():
+  Rule.DismissalRequirements{
     toggle_absent,
     toggle_present,
     task => trigger => {==},
@@ -134,7 +138,7 @@ def RuleDismissalLaws.evidence():
     {==},
     {==}}
 
-def RuleDismissalLaws.all_panel_policies(panel, trigger):
+def Rule.all_panel_policies(panel, trigger):
   match panel:
     case U.ProjectPicker{}: {==}
     case U.ObjectActions{subject}: {==}
@@ -200,15 +204,15 @@ def retained_root_handoff(+identity: String, +old_initial: String, +initial: Str
       (owned => Platform.retained_root_handoff(owned, String.eq(identity, identity) && String.eq(old_initial, identity), Bool.not(String.eq(old_initial, initial)))),
       String.eq(focused, old_initial), True{}, retained), resolved_target)
 
-def after_core_effects(+decision: Core.Decision, platform: Platform.Platform, +current: Model.Scope) ->
-  {RuleFocusRetentionLaws.effects(Platform.after_core_scoped(decision, platform, current)) ==
-    RuleFocusRetentionLaws.expected_effects(decision, platform, current) : +List<Platform.Effect>}:
+def after_core_effects(+decision: InteractionTypes.Decision, platform: Platform.Platform, +current: Model.Scope) ->
+  {Rule.effects(Platform.after_core_scoped(decision, platform, current)) ==
+    Rule.expected_effects(decision, platform, current) : +List<Platform.Effect>}:
   match decision platform:
-    case Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable}
+    case InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, service, durable}
       Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}: {==}
 
-def RuleFocusRetentionLaws.evidence():
-  RuleFocusRetentionLaws.Requirements{{==}, key => semantic => label => role => +meaning => children => unavailable => unavailable, +previous => +identity => +initial => +restore => +occurrence => +ticket => same =>
+def Rule.focus_retention_evidence():
+  Rule.FocusRetentionRequirements{{==}, key => semantic => label => role => +meaning => children => unavailable => unavailable, +previous => +identity => +initial => +restore => +occurrence => +ticket => same =>
       Equal.cong(Bool, +List<Platform.Effect>,
         (trigger => Platform.scope_effects(trigger, previous, Model.Temporary{identity, initial, restore, occurrence}, Nil{},
           Platform.focus_revision(trigger, Nil{}, ticket))),
@@ -242,9 +246,11 @@ def RuleFocusRetentionLaws.evidence():
             String.eq(focused, old_initial), False{}, moved)))
     }
 
-def RuleFocusRetentionLaws.content_focus_has_no_root_handoff(previous, current, owner, identity): {==}
-def RuleFocusRetentionLaws.active_content_uses_owner(core, capacity, owner, identity): {==}
-def RuleFocusRetentionLaws.retained_content_no_focus_transition(previous, current, owner, identity, same):
+def Rule.content_focus_has_no_root_handoff(previous, current, owner, identity): {==}
+
+def Rule.active_content_uses_owner(core, capacity, owner, identity): {==}
+
+def Rule.retained_content_no_focus_transition(previous, current, owner, identity, same):
   match current:
     case Model.Document{}:
       Equal.cong(Bool, Bool, (changed => (changed || False{}) || False{}),
@@ -253,6 +259,6 @@ def RuleFocusRetentionLaws.retained_content_no_focus_transition(previous, curren
       Equal.cong(Bool, Bool, (changed => (changed || False{}) || False{}),
         Model.changed(previous, Model.Temporary{scope_identity, initial, restore, occurrence}), False{}, same)
 
-def RuleFocusRetentionLaws.content_observation_preserves_core(platform, owner, identity, core):
+def Rule.content_observation_preserves_core(platform, owner, identity, core):
   match platform:
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}: {==}

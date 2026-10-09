@@ -1,6 +1,5 @@
 import Base
 import ../../bendlib/effects.bend as Effects
-import ../../harness/DOMAIN.bend as D
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ./MODEL.bend as B
@@ -12,7 +11,6 @@ import ../../bendlib/json.bend as J
 
 # Queue selection and continuation are authoritative semantic primitives.
 # These equations import neither the executor nor a scheduler callback.
-
 def decision_world(decision: M.Decision()) -> M.World():
   C.Decision{world, reply, effects} = decision
   world

@@ -1,5 +1,5 @@
-import ../../bendlib/stdlib.bend as Std
 import Base
+import ../../bendlib/stdlib.bend as Std
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
 import ../../harness/MODEL.bend as M
@@ -7,7 +7,6 @@ import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/workspace/WORKSPACE.bend as W
 import ../../features/board/MODEL.bend as B
 import ../../harness/features/MODEL.bend as F
-import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/component.bend as C
 import ../../bendlib/association-map.bend as Finite
@@ -44,6 +43,7 @@ type NavigationState is Data:
 
 # Execution and human participation form one system. Observations are projections
 # of this value, not an independently supplied tree of enabled widgets.
+
 type Application is Data:
   Application{program: M.World(), session: Session}
 
@@ -154,7 +154,6 @@ def with_next_layer(value: Nat, state: Session) -> Session:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer} = state
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, value}
 
-
 type Completion is Data:
   DirectCompletion{}
   DraftCompletion{draft: U.Draft}
@@ -179,7 +178,6 @@ type Input is Data:
   CommandCompleted{program: M.World(), reply: J.Json, completion: Completion}
   DirectoriesObserved{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   ClockObserved{now: U32}
-
 
 def first_profile(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
@@ -317,12 +315,12 @@ def reading_decision(position: U.ReadingIntent, old: Reader, +task: Nat, program
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   local(program, Session{route, drafts, (task, Reader{generation, position, disclosures}) <> Finite.remove(~Reader, readers, task),
     layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
+
 def read(+task: Nat, intent: U.ReadingIntent, application: Application) -> Decision:
   Application{program, +session} = application
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   +old = reader(readers, task)
   reading_decision(intent, old, task, program, session)
-
 
 def navigation_intent_after_visit(intent: NavigationIntent) -> NavigationIntent:
   match intent:
@@ -341,6 +339,7 @@ def navigation_intent(expanded: Bool) -> NavigationIntent:
   match expanded:
     case True{}: OpenNavigation{}
     case False{}: ClosedNavigation{}
+
 def set_navigation(expanded: Bool, state: NavigationState) -> NavigationState:
   NavigationState{intent, collapsed} = state
   NavigationState{navigation_intent(expanded), collapsed}
@@ -688,6 +687,7 @@ def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J
 def retain_previews(session: Session, world: M.World()) -> Session:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks, next_layer}
+
 def native_result(decision: M.Decision(), session: Session, submitted: Maybe<&2, U.Draft>, durable: Bool) -> Decision:
   C.Decision{+program, +result, effects} = decision
   native_session(submitted, program, result, effects, retain_previews(session, program), durable)
@@ -791,7 +791,6 @@ def observed(ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObserv
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   observed_pending(find_pending(pending, ticket), result, application)
 
-
 def confirmation_outcome(ok: Bool, destination: U.Route, application: Application) -> Decision:
   match ok:
     case True{}: navigate(destination, application)
@@ -862,6 +861,7 @@ def keep_disclosure(same: Bool, value: Disclosure, rest: +List<Disclosure>) -> +
   match same:
     case True{}: rest
     case False{}: value <> rest
+
 def without_disclosure(disclosures: +List<Disclosure>, +group: Nat) -> +List<Disclosure>:
   match disclosures:
     case Nil{}: Nil{}
@@ -877,11 +877,11 @@ def disclose(+task: Nat, group: Nat, occurrence: Nat, expanded: Bool, applicatio
   local(program, Session{route, drafts, (task, disclosed_reader(reader(readers, task), group, occurrence, expanded)) <> Finite.remove(~Reader, readers, task),
     layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
 
-
 def navigation_focus(expanded: Bool) -> String:
   match expanded:
     case True{}: "new-task"
     case False{}: "navigation/toggle"
+
 def search_choices(query: String, application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   match layers:
@@ -910,6 +910,7 @@ def dismiss_action_menu(leaves: Bool, application: Application) -> Application:
 
 def activate(+action: U.Action, application: Application) -> Decision:
   activate_selected(action, dismiss_action_menu(action_leaves_menu(action), application))
+
 def user(input: U.Input, application: Application) -> Decision:
   match input:
     case U.Activate{action}: activate(action, application)
@@ -925,10 +926,10 @@ def user(input: U.Input, application: Application) -> Decision:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer}} = application
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, Nil{})
 
-
 def observe_preview(observation: Live.Observation, application: Application) -> Decision:
   Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
   local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks, next_layer}, Nil{})
+
 def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}

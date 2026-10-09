@@ -21,7 +21,6 @@ import ./OPERATIONS.bend as Ops
 import ../../bendlib/json.bend as J
 
 # Local proof obligations for the execution boundary. No runtime policy lives here.
-
 def Laws.execution_semantics(action, world):
   match action world:
     case Execution.Rest{} _: {==}
@@ -90,6 +89,7 @@ def Laws.schedule_semantics(fuel, candidate, decision):
 # Its independent equation invokes COMMANDS.command instead. The original
 # imported induction principle lifts that one-command correspondence to every
 # budget and complete decision; no host scheduler or finite replay is assumed.
+
 def board_settlement(+ok: Bool, +id: Nat, +card: B.Card, +before: M.Decision(), +result: M.Decision()) ->
   {BoardScheduling.settled(ok, id, card, before, result) == BoardSchedulingSpec.required_result(ok, id, card, before, result) : M.Decision()}:
   match ok before result:
@@ -212,6 +212,7 @@ def Laws.oversized_operation_barrier(task):
 
 # Stable operation identity is the association-list key. The project proves
 # only the value adapter; deletion absence is the original ExtLib theorem.
+
 def A.operation_rights():
   A.OperationRights{
     (operations => id => {==}),

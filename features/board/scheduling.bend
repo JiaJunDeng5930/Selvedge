@@ -10,7 +10,6 @@ import ../../bendlib/json.bend as J
 
 # Execute the bounded board pump with PROGRAM's public command implementation.
 # Its required decisions live in the independent specification module.
-
 def failure_text(+reply: J.Json) -> String:
   J.text(J.get(J.get(reply, "error"), "code")) ++ ": " ++ J.text(J.get(J.get(reply, "error"), "message"))
 

@@ -1,5 +1,4 @@
 import Base
-import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ./PROGRAM.bend as Tasks
 

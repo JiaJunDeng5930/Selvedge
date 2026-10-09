@@ -144,6 +144,7 @@ def grant_corresponds(history: D.History, +owner: Nat, +id: Nat, +call: D.Call,
 
 # Reviewer input contains a bounded set of actual user requests, newest first.
 # Tool output, repository guidance and assistant text never become policy.
+
 def user_requests(count: Nat, history: D.History) -> +List<J.Json>:
   match count history:
     case 0n _: Nil{}

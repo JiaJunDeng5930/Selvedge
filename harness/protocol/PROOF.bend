@@ -19,7 +19,6 @@ import ../CONTRACT.bend as A
 import ../execution/OPERATIONS.bend as Ops
 
 # Local proof obligations for the protocol boundary. No runtime policy lives here.
-
 def query_semantics(+query: M.Query, +world: M.World()) ->
   {P.query(query, world) == Commands.query(query, world) : J.Json}:
   {==}

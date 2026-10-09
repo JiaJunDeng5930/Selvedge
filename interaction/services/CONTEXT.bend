@@ -54,6 +54,7 @@ type ApprovalValue is Data:
 
 # This is the information visible while composing. Entered paths are deliberately
 # not described as the actual workspace or as successfully observed directories.
+
 type Preview is Data:
   ContextUnavailable{reason: String}
   ProspectiveContext{origin: Origin, project: Maybe<&2, Nat>, workspace: WorkspaceValue,
@@ -229,6 +230,7 @@ def preview(+config: Configuration, world: M.World()) -> Preview:
   preview_selected(inherited(origin, world), config)
 
 # A task's observation uses its contract, never the project's current defaults.
+
 def modify_workspace(+config: Configuration, change: WorkspaceEdit, world: M.World()) -> Result<&2, &2, String, Configuration>:
   edit_preview(preview(config, world), change, config)
 

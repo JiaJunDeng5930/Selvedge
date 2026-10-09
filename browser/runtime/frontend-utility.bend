@@ -6,7 +6,6 @@ import ../controls/authored-primitives.bend as Factory
 import ../controls/CONTROLS.bend as AuthoredControls
 import ../controls/PROGRAM.bend as Controls
 import ../appearance/MODEL.bend as Appearance
-import ../appearance/DESIGN.bend as Design
 import ../layout/physical-space.bend as Space
 import ../layout/GEOMETRY.bend as Spatial
 import ../appearance/TYPOGRAPHY.bend as T
@@ -22,7 +21,9 @@ def message(purpose: Purpose) -> String:
     case Recovery{message}: message
 
 def root_key() -> Identity.Key: Identity.place("@browser/utility")
+
 def retry_key() -> Identity.Key: Identity.part(root_key(), "retry")
+
 def owned(node: Source.Node) -> Bool:
   Identity.same(Source.key_of(node), root_key())
 

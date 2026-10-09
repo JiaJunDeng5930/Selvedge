@@ -3,9 +3,7 @@ import ../harness/MODEL.bend as M
 import ../interaction/MODEL.bend as Product
 import ../bendlib/association-map.bend as Finite
 import ../bendlib/stdlib.bend as Std
-import ../interaction/STATE.bend as Core
 import ../interaction/services/MODEL.bend as Services
-import ../interaction/presentation/PROGRAM.bend as Interface
 import ../interaction/presentation/MODEL.bend as View
 import ../interaction/session/MODEL.bend as E
 import ../interaction/INPUT.bend as U
@@ -20,62 +18,61 @@ import ./runtime/PLATFORM.bend as Platform
 import ./reading/MODEL.bend as Reading
 import ./document/RENDERED.bend as Rendered
 import ./CONTRACT.bend as Rule
-import ./appearance/paint-rules.bend as PaintRules
-import ./layout/physical-renderer-rules.bend as RendererRules
-import ./appearance/PROOF.bend as ProofPaint
-import ./layout/PROOF.bend as ProofRenderer
+import ./appearance/CONTRACT.bend as PaintRules
+import ./layout/render-contract.bend as RendererRules
 import ../bendlib/logic-proof.bend as Logic
 import ./editor/CONTRACT.bend as Rules_editor_rules
 import ./model-rules.bend as Rules_model_rules
 import ./reading/CONTRACT.bend as Rules_reading_rules
-import ./runtime/platform-proof.bend as Proof_platform
-import ./runtime/platform-rules.bend as Rules_platform
+import ./runtime/CONTRACT.bend as Rules_platform
+import ../interaction/TYPES.bend as InteractionTypes
+import ../interaction/presentation/SURFACE.bend as SurfaceTypes
 
-def after_core_scoped_preserves(decision: Core.Decision, platform: Platform.Platform,
+def after_core_scoped_preserves(decision: InteractionTypes.Decision, platform: Platform.Platform,
   current_scope: Focus.Scope) ->
   {Model.platform_product(Platform.after_core_scoped(decision, platform, current_scope)) ==
-    decision : Core.Decision}:
+    decision : InteractionTypes.Decision}:
   match decision:
-    case Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable}:
+    case InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, service, durable}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}: {==}
 
-def after_core_preserves_decision(decision: Core.Decision, platform: Platform.Platform) ->
-  {Model.platform_product(Platform.after_core(decision, platform)) == decision : Core.Decision}:
+def after_core_preserves_decision(decision: InteractionTypes.Decision, platform: Platform.Platform) ->
+  {Model.platform_product(Platform.after_core(decision, platform)) == decision : InteractionTypes.Decision}:
   match decision:
-    case Core.Decision{Core.State{+application, +services}, reply, runtime, interaction, service, durable}:
+    case InteractionTypes.Decision{InteractionTypes.State{+application, +services}, reply, runtime, interaction, service, durable}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, +capacity, scope}:
           after_core_scoped_preserves(
-            Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable},
+            InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, service, durable},
             Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope},
-            Focus.current(Core.State{application, services}, capacity))
+            Focus.current(InteractionTypes.State{application, services}, capacity))
 
-def product_input_result_raw(input: Product.Input, +core: Core.State, +platform: Platform.Platform) ->
+def product_input_result_raw(input: Product.Input, +core: InteractionTypes.State, +platform: Platform.Platform) ->
   {Model.platform_product(Platform.step_raw(Platform.ProductInput{input}, Platform.State{core, platform})) ==
-    Product.step(input, core) : Core.Decision}:
+    Product.step(input, core) : InteractionTypes.Decision}:
   match core:
-    case Core.State{+application, +services}:
+    case InteractionTypes.State{+application, +services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
-          after_core_preserves_decision(Product.step(input, Core.State{application, services}),
+          after_core_preserves_decision(Product.step(input, InteractionTypes.State{application, services}),
             Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})
 
-def product_input_result(+input: Product.Input, +core: Core.State, +platform: Platform.Platform) ->
+def product_input_result(+input: Product.Input, +core: InteractionTypes.State, +platform: Platform.Platform) ->
   {Model.platform_product(Platform.step(Platform.ProductInput{input}, Platform.State{core, platform})) ==
-    Product.step(input, core) : Core.Decision}:
-  Equal.trans(Core.Decision,
+    Product.step(input, core) : InteractionTypes.Decision}:
+  Equal.trans(InteractionTypes.Decision,
     Model.platform_product(Platform.step(Platform.ProductInput{input}, Platform.State{core, platform})),
     Model.platform_product(Platform.step_raw(Platform.ProductInput{input}, Platform.State{core, platform})),
     Product.step(input, core),
     Rules_platform.realized_preserves_product(Platform.step_raw(Platform.ProductInput{input}, Platform.State{core, platform})),
     product_input_result_raw(input, core, platform))
 
-def product_refinement(+input: Product.Input, +core: Core.State, +platform: Platform.Platform,
+def product_refinement(+input: Product.Input, +core: InteractionTypes.State, +platform: Platform.Platform,
   generation: Nat, realization: Rendered.State, environment: Design.Environment, font: F.State) ->
   {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-    Model.State{Platform.State{core, platform}, generation, realization, environment, font})) == Product.step(input, core) : Core.Decision}:
-  Equal.trans(Core.Decision,
+    Model.State{Platform.State{core, platform}, generation, realization, environment, font})) == Product.step(input, core) : InteractionTypes.Decision}:
+  Equal.trans(InteractionTypes.Decision,
     Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
       Model.State{Platform.State{core, platform}, generation, realization, environment, font})),
     Model.platform_product(Platform.step(Platform.ProductInput{input}, Platform.State{core, platform})),
@@ -89,13 +86,13 @@ def model_capacity_matches_platform(platform: Platform.Platform) ->
   match platform:
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}: {==}
 
-def element_refinement(+key: String, +gesture: Interface.Gesture, +core: Core.State,
+def element_refinement(+key: String, +gesture: SurfaceTypes.Gesture, +core: InteractionTypes.State,
   +platform: Platform.Platform, generation: Nat, realization: Rendered.State,
   environment: Design.Environment, font: F.State) ->
   {Model.product(Model.step(Model.ElementInput{key, gesture},
     Model.State{Platform.State{core, platform}, generation, realization, environment, font})) ==
-    Product.step(Product.Element{Rule.platform_capacity(platform), key, gesture}, core) : Core.Decision}:
-  Equal.trans(Core.Decision,
+    Product.step(Product.Element{Rule.platform_capacity(platform), key, gesture}, core) : InteractionTypes.Decision}:
+  Equal.trans(InteractionTypes.Decision,
     Model.product(Model.step(Model.ElementInput{key, gesture},
       Model.State{Platform.State{core, platform}, generation, realization, environment, font})),
     Model.platform_product(Platform.after_core(
@@ -104,14 +101,14 @@ def element_refinement(+key: String, +gesture: Interface.Gesture, +core: Core.St
     Rules_model_rules.production_commit_preserves_product(Platform.after_core(
       Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform),
       (generation + 1n : Nat), environment, font),
-    Equal.trans(Core.Decision,
+    Equal.trans(InteractionTypes.Decision,
       Model.platform_product(Platform.after_core(
         Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform)),
       Product.step(Product.Element{Model.capacity(platform), key, gesture}, core),
       Product.step(Product.Element{Rule.platform_capacity(platform), key, gesture}, core),
       after_core_preserves_decision(Product.step(Product.Element{Model.capacity(platform), key, gesture}, core),
         platform),
-      Equal.cong(View.Capacity, Core.Decision,
+      Equal.cong(View.Capacity, InteractionTypes.Decision,
         (capacity => Product.step(Product.Element{capacity, key, gesture}, core)),
         Model.capacity(platform), Rule.platform_capacity(platform), model_capacity_matches_platform(platform))))
 
@@ -122,7 +119,7 @@ def frame_silent(received: Nat, frame: Rendered.Frame, application: Platform.Sta
       Model.State{application, generation, realization, environment, font},
       Platform.unchanged(Rule.model_core(application)), Nil{}} : Model.Decision}:
   match application:
-    case Platform.State{Core.State{application, services}, platform}: {==}
+    case Platform.State{InteractionTypes.State{application, services}, platform}: {==}
 
 def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.State,
   +generation: Nat, +realization: Rendered.State, +environment: Design.Environment, +font: F.State,
@@ -134,14 +131,13 @@ def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.S
 
 def stale_reading_raw(application: E.Application, services: Services.State, platform: Platform.Platform,
   task: Nat, generation: Nat, event: Reading.ReadingEvent,
-  inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> {Platform.step_raw(Platform.ReadingInput{task, generation, event}, Platform.State{Core.State{application, services}, platform}) == Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}} : Platform.Decision}:
+  inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> {Platform.step_raw(Platform.ReadingInput{task, generation, event}, Platform.State{InteractionTypes.State{application, services}, platform}) == Platform.Decision{Platform.unchanged(InteractionTypes.State{application, services}), platform, Nil{}} : Platform.Decision}:
   match platform:
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
       Equal.cong(Bool, Platform.Decision,
-        (owned => Platform.read(owned, task, generation, event, Core.State{application, services},
+        (owned => Platform.read(owned, task, generation, event, InteractionTypes.State{application, services},
           Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
         Platform.active_reader(application, task, generation), False{}, inactive)
-
 
 def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +generation: Nat,
   +disclosures: +List<E.Disclosure>, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>,
@@ -190,47 +186,47 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
     [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}],
     effect, generation_effect)
 
-def after_core_keeps_bookmarks(decision: Core.Decision, platform: Platform.Platform) ->
+def after_core_keeps_bookmarks(decision: InteractionTypes.Decision, platform: Platform.Platform) ->
   {Rule.decision_bookmarks(Platform.after_core(decision, platform)) == Rule.platform_bookmarks(platform) :
     +List<Finite.Entry(Reading.Bookmark)>}:
   match decision:
-    case Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable}:
+    case InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, service, durable}:
       Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
       {==}
 
 def ime_entry_raw(+owner: U.Editor, +selection: Physical.Selection, +shift: Bool, +alt: Bool, +modified: Bool,
-  +core: Core.State, +platform: Platform.Platform,
+  +core: InteractionTypes.State, +platform: Platform.Platform,
   editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor}) ->
   {Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core),
       Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}} : Platform.Decision}:
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           editor_result = Rules_editor_rules.composing_enter(owner, selection, shift, alt, modified,
-            Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+            Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
               Focus.permits_composer(scope), False{})
           local_result = Equal.trans(Editor.Decision,
             Editor.step(Platform.find_editor(editors, owner), Editor.Enter{shift, alt, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
             Editor.step(Editor.Editor{owner, selection, True{}}, Editor.Enter{shift, alt, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
             Editor.Decision{Editor.Editor{owner, selection, True{}}, False{}},
             Equal.cong(Editor.Editor, Editor.Decision,
               (editor => Editor.step(editor, Editor.Enter{shift, alt, modified},
-                Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+                Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                   Focus.permits_composer(scope), False{})),
               Platform.find_editor(editors, owner), Editor.Editor{owner, selection, True{}}, editor_observed),
             editor_result)
           Equal.cong(Editor.Decision, Platform.Decision,
-            (result => Platform.edit_result(result, owner, Core.State{application, services},
+            (result => Platform.edit_result(result, owner, InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
             Editor.step(Platform.find_editor(editors, owner), Editor.Enter{shift, alt, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
             Editor.Decision{Editor.Editor{owner, selection, True{}}, False{}}, local_result)
 
@@ -246,7 +242,7 @@ def ready_enter_key(modified: Bool) ->
   {==}
 
 def ready_enter_editor(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool,
-  +core: Core.State, +platform: Platform.Platform,
+  +core: InteractionTypes.State, +platform: Platform.Platform,
   editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor},
   enabled: {Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) == True{} : Bool},
   permitted: {Focus.permits_composer(Rule.platform_scope(platform)) == True{} : Bool}) ->
@@ -255,15 +251,15 @@ def ready_enter_editor(+owner: U.Editor, +selection: Physical.Selection, +modifi
       Focus.permits_composer(Rule.platform_scope(platform)), False{}) ==
     Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}} : Editor.Decision}:
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
-          enabled_scope = both_true(Platform.editor_enabled(Core.State{application, services}, owner, capacity),
+          enabled_scope = both_true(Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity),
             Focus.permits_composer(scope), enabled, permitted)
           selected_editor: Editor.Editor = Editor.Editor{owner, selection, False{}}
           literal_enabled = Equal.cong(Bool, Editor.Decision,
             (value => Editor.step(selected_editor, Editor.Enter{False{}, False{}, modified}, value, False{})),
-            Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+            Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
               Focus.permits_composer(scope), True{}, enabled_scope)
           literal_submit = Equal.cong(Bool, Editor.Decision,
             (requested => Editor.Decision{selected_editor, requested}),
@@ -271,84 +267,84 @@ def ready_enter_editor(+owner: U.Editor, +selection: Physical.Selection, +modifi
             True{}, ready_enter_key(modified))
           literal_result = Equal.trans(Editor.Decision,
             Editor.step(selected_editor, Editor.Enter{False{}, False{}, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
             Editor.step(selected_editor, Editor.Enter{False{}, False{}, modified}, True{}, False{}),
             Editor.Decision{selected_editor, True{}}, literal_enabled, literal_submit)
           Equal.trans(Editor.Decision,
             Editor.step(Platform.find_editor(editors, owner), Editor.Enter{False{}, False{}, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
             Editor.step(selected_editor, Editor.Enter{False{}, False{}, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
             Editor.Decision{selected_editor, True{}},
             Equal.cong(Editor.Editor, Editor.Decision,
               (editor => Editor.step(editor, Editor.Enter{False{}, False{}, modified},
-                Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+                Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                   Focus.permits_composer(scope), False{})),
               Platform.find_editor(editors, owner), selected_editor, editor_observed),
             literal_result)
 
-def ready_enter_raw(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool, +core: Core.State,
+def ready_enter_raw(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool, +core: InteractionTypes.State,
   +platform: Platform.Platform,
   editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor},
   enabled: {Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) == True{} : Bool},
   permitted: {Focus.permits_composer(Rule.platform_scope(platform)) == True{} : Bool}) ->
   {Model.platform_product(Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
     Platform.State{core, platform})) ==
-    Product.step(Product.SubmitComposer{Rule.platform_capacity(platform), owner}, core) : Core.Decision}:
+    Product.step(Product.SubmitComposer{Rule.platform_capacity(platform), owner}, core) : InteractionTypes.Decision}:
   match core:
-    case Core.State{+application, +services}:
+    case InteractionTypes.State{+application, +services}:
       match platform:
         case Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope}:
           selected = Editor.step(Platform.find_editor(editors, owner),
             Editor.Enter{False{}, False{}, modified},
-            Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+            Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
               Focus.permits_composer(scope), False{})
           selected_ok = ready_enter_editor(owner, selection, modified,
-            Core.State{application, services},
+            InteractionTypes.State{application, services},
             Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope},
             editor_observed, enabled, permitted)
-          decision_ok = Equal.cong(Editor.Decision, Core.Decision,
+          decision_ok = Equal.cong(Editor.Decision, InteractionTypes.Decision,
             (result => Model.platform_product(Platform.edit_result(result, owner,
-              Core.State{application, services},
+              InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))),
             selected, Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}}, selected_ok)
-          Equal.trans(Core.Decision,
+          Equal.trans(InteractionTypes.Decision,
             Model.platform_product(Platform.step_raw(Platform.EditorInput{owner,
               Editor.Enter{False{}, False{}, modified}},
-              Platform.State{Core.State{application, services},
+              Platform.State{InteractionTypes.State{application, services},
                 Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}})),
             Model.platform_product(Platform.edit_result(
               Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}}, owner,
-              Core.State{application, services},
+              InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
-            Product.step(Product.SubmitComposer{capacity, owner}, Core.State{application, services}),
-            Equal.trans(Core.Decision,
+            Product.step(Product.SubmitComposer{capacity, owner}, InteractionTypes.State{application, services}),
+            Equal.trans(InteractionTypes.Decision,
               Model.platform_product(Platform.step_raw(Platform.EditorInput{owner,
                 Editor.Enter{False{}, False{}, modified}},
-                Platform.State{Core.State{application, services},
+                Platform.State{InteractionTypes.State{application, services},
                   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}})),
               Model.platform_product(Platform.edit_result(selected, owner,
-                Core.State{application, services},
+                InteractionTypes.State{application, services},
                 Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
               Model.platform_product(Platform.edit_result(
                 Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}}, owner,
-                Core.State{application, services},
+                InteractionTypes.State{application, services},
                 Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
-              Equal.cong(Editor.Decision, Core.Decision,
+              Equal.cong(Editor.Decision, InteractionTypes.Decision,
                 (result => Model.platform_product(Platform.edit_result(result, owner,
-                  Core.State{application, services},
+                  InteractionTypes.State{application, services},
                   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))),
                 Editor.step(Platform.find_editor(editors, owner),
                   Editor.Enter{False{}, False{}, modified},
-                  Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+                  Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                     Focus.permits_composer(scope), False{}),
                 selected, {==}),
               decision_ok),
             after_core_preserves_decision(
-              Product.step(Product.SubmitComposer{capacity, owner}, Core.State{application, services}),
+              Product.step(Product.SubmitComposer{capacity, owner}, InteractionTypes.State{application, services}),
               Platform.Platform{readers,
                 Platform.save_editor(editors, owner, Editor.Editor{owner, selection, False{}}),
                 focused, ticket, reduced, capacity, scope}))
@@ -382,7 +378,7 @@ def enter_disabled_editor(editor: Editor.Editor, shift: Bool, alt: Bool, modifie
     enter_disabled(composing, shift, alt, modified, False{}))
 
 def modal_enter_decision_raw(+owner: U.Editor, +shift: Bool, +alt: Bool, +modified: Bool,
-  identity: String, initial: String, restore: String, +occurrence: Maybe<&2, Nat>, +core: Core.State, +platform: Platform.Platform) ->
+  identity: String, initial: String, restore: String, +occurrence: Maybe<&2, Nat>, +core: InteractionTypes.State, +platform: Platform.Platform) ->
   {Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}) ==
     Platform.Decision{Platform.unchanged(core),
@@ -390,7 +386,7 @@ def modal_enter_decision_raw(+owner: U.Editor, +shift: Bool, +alt: Bool, +modifi
         Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner)), Nil{}} :
     Platform.Decision}:
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope}:
           temporary = Rule.with_scope(
@@ -398,29 +394,29 @@ def modal_enter_decision_raw(+owner: U.Editor, +shift: Bool, +alt: Bool, +modifi
             Focus.Temporary{identity, initial, restore, occurrence})
           selected: Editor.Editor = Platform.find_editor(editors, owner)
           disabled = Equal.trans(Bool,
-            Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+            Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
               Focus.permits_composer(Focus.Temporary{identity, initial, restore, occurrence}),
-            Platform.editor_enabled(Core.State{application, services}, owner, capacity) && False{},
+            Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) && False{},
             False{},
             Equal.cong(Bool, Bool,
-              (permits => Platform.editor_enabled(Core.State{application, services}, owner, capacity) && permits),
+              (permits => Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) && permits),
               Focus.permits_composer(Focus.Temporary{identity, initial, restore, occurrence}), False{}, {==}),
-            and_false_right(Platform.editor_enabled(Core.State{application, services}, owner, capacity)))
+            and_false_right(Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity)))
           local_result = Equal.trans(Editor.Decision,
             Editor.step(selected, Editor.Enter{shift, alt, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(Focus.Temporary{identity, initial, restore, occurrence}), False{}),
             Editor.step(selected, Editor.Enter{shift, alt, modified}, False{}, False{}),
             Editor.Decision{selected, False{}},
             Equal.cong(Bool, Editor.Decision,
               (enabled => Editor.step(selected, Editor.Enter{shift, alt, modified}, enabled, False{})),
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(Focus.Temporary{identity, initial, restore, occurrence}), False{}, disabled),
             enter_disabled_editor(selected, shift, alt, modified))
           Equal.cong(Editor.Decision, Platform.Decision,
-            (result => Platform.edit_result(result, owner, Core.State{application, services}, temporary)),
+            (result => Platform.edit_result(result, owner, InteractionTypes.State{application, services}, temporary)),
             Editor.step(selected, Editor.Enter{shift, alt, modified},
-              Platform.editor_enabled(Core.State{application, services}, owner, capacity) &&
+              Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(Focus.Temporary{identity, initial, restore, occurrence}), False{}),
             Editor.Decision{selected, False{}}, local_result)
 
@@ -468,46 +464,45 @@ def advance_preserves_bookmark(tape: Rule.Tape) ->
         case Nil{}: {==}
         case Con{Rule.Size{composer, viewport}, rest}: {==}
 
-
-def stale_focus_ticket_raw(core: Core.State, platform: Platform.Platform, received: Nat, identity: String, observed: Maybe<&2, Focus.Target>,
+def stale_focus_ticket_raw(core: InteractionTypes.State, platform: Platform.Platform, received: Nat, identity: String, observed: Maybe<&2, Focus.Target>,
   stale: {Nat.is_eq(received, Rule.platform_ticket(platform)) == False{} : Bool}) ->
   {Platform.step_raw(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           Equal.cong(Bool, Platform.Decision,
-            (owned => Platform.focus_result(owned && Platform.focus_confirmed(Focus.Product{identity}, observed), Focus.Product{identity}, Core.State{application, services},
+            (owned => Platform.focus_result(owned && Platform.focus_confirmed(Focus.Product{identity}, observed), Focus.Product{identity}, InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
-            Nat.is_eq(received, ticket) && Platform.active_focus(Core.State{application, services}, capacity, identity),
+            Nat.is_eq(received, ticket) && Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity),
             False{},
             Equal.trans(Bool,
-              Nat.is_eq(received, ticket) && Platform.active_focus(Core.State{application, services}, capacity, identity),
-              False{} && Platform.active_focus(Core.State{application, services}, capacity, identity),
+              Nat.is_eq(received, ticket) && Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity),
+              False{} && Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity),
               False{},
               Equal.cong(Bool, Bool,
-                (expected => expected && Platform.active_focus(Core.State{application, services}, capacity, identity)),
+                (expected => expected && Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity)),
                 Nat.is_eq(received, Rule.platform_ticket(platform)), False{}, stale),
-              and_false_left(Platform.active_focus(Core.State{application, services}, capacity, identity))))
+              and_false_left(Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity))))
 
-def inactive_focus_raw(core: Core.State, platform: Platform.Platform, identity: String, observed: Maybe<&2, Focus.Target>,
+def inactive_focus_raw(core: InteractionTypes.State, platform: Platform.Platform, identity: String, observed: Maybe<&2, Focus.Target>,
   inactive: {Platform.active_focus(core, Rule.platform_capacity(platform), identity) == False{} : Bool}) ->
   {Platform.step_raw(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
   match core:
-    case Core.State{application, services}:
+    case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, +ticket, reduced, capacity, scope}:
           Equal.cong(Bool, Platform.Decision,
-            (owned => Platform.focus_result(owned && Platform.focus_confirmed(Focus.Product{identity}, observed), Focus.Product{identity}, Core.State{application, services},
+            (owned => Platform.focus_result(owned && Platform.focus_confirmed(Focus.Product{identity}, observed), Focus.Product{identity}, InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
             Nat.is_eq(Rule.platform_ticket(platform), ticket) &&
-              Platform.active_focus(Core.State{application, services}, capacity, identity),
+              Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity),
             False{},
             Equal.trans(Bool,
               Nat.is_eq(Rule.platform_ticket(platform), ticket) &&
-                Platform.active_focus(Core.State{application, services}, capacity, identity),
+                Platform.active_focus(InteractionTypes.State{application, services}, capacity, identity),
               Nat.is_eq(Rule.platform_ticket(platform), ticket) && False{},
               False{},
               Equal.cong(Bool, Bool,
@@ -520,29 +515,26 @@ def production_commit_font(decision: Platform.Decision, generation: Nat, environ
   Platform.Decision{product, platform, effects} = decision
   {==}
 
-
 def idle_product(application: Platform.State, generation: Nat, realization: Rendered.State,
   environment: Design.Environment, font: F.State) ->
-  {Model.product(Model.idle(application, generation, realization, environment, font)) == Platform.unchanged(Rule.model_core(application)) : Core.Decision}:
+  {Model.product(Model.idle(application, generation, realization, environment, font)) == Platform.unchanged(Rule.model_core(application)) : InteractionTypes.Decision}:
   match application:
     case Platform.State{core, platform}: {==}
 
 def production_typography_product(owned: Bool, +application: Platform.State, generation: Nat,
   realization: Rendered.State, environment: Design.Environment, font: F.State, observation: F.Observation) ->
   {Model.product(Model.production_typography_owned(owned, application, generation, realization, environment, font, observation)) ==
-    Platform.unchanged(Rule.model_core(application)) : Core.Decision}:
+    Platform.unchanged(Rule.model_core(application)) : InteractionTypes.Decision}:
   match owned:
     case True{}: idle_product(application, generation, realization, environment, F.accept(font, Nil{}, observation))
     case False{}: idle_product(application, generation, realization, environment, font)
 
-
 def typography_product(+state: Model.State, +observation: F.Observation) ->
   {Model.product(Model.step(Model.TypographyObserved{observation}, state)) ==
-    Platform.unchanged(Rule.model_core(Rule.model_application(state))) : Core.Decision}:
+    Platform.unchanged(Rule.model_core(Rule.model_application(state))) : InteractionTypes.Decision}:
   Model.State{+application, generation, realization, environment, +font} = state
   F.Observation{+received, metrics} = observation
   production_typography_product(Nat.is_eq(F.generation(font), received), application, generation, realization, environment, font, F.Observation{received, metrics})
-
 
 def capacity_booleans(+a: Bool, +b: Bool, +c: Bool, +d: Bool,
   same: {Platform.same_capacity(View.Capacity{a, b}, View.Capacity{c, d}) == True{} : Bool}) ->
@@ -572,32 +564,32 @@ def capacity_equal(first: View.Capacity, second: View.Capacity,
   View.Capacity{c, d} = second
   capacity_booleans(a, b, c, d, same)
 
-def scoped_capacity(decision: Core.Decision, platform: Platform.Platform, scope: Focus.Scope) ->
+def scoped_capacity(decision: InteractionTypes.Decision, platform: Platform.Platform, scope: Focus.Scope) ->
   {Rule.decision_capacity(Platform.after_core_scoped(decision, platform, scope)) == Rule.platform_capacity(platform) : View.Capacity}:
-  Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable} = decision
+  InteractionTypes.Decision{InteractionTypes.State{application, services}, reply, runtime, interaction, service, durable} = decision
   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, old_scope} = platform
   {==}
 
-def reconciled_capacity(+decision: Core.Decision, platform: Platform.Platform) ->
+def reconciled_capacity(+decision: InteractionTypes.Decision, platform: Platform.Platform) ->
   {Rule.decision_capacity(Platform.after_core(decision, platform)) == Rule.platform_capacity(platform) : View.Capacity}:
-  Core.Decision{+state, reply, runtime, interaction, services, durable} = decision
+  InteractionTypes.Decision{+state, reply, runtime, interaction, services, durable} = decision
   Platform.Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
-  scoped_capacity(Core.Decision{state, reply, runtime, interaction, services, durable},
+  scoped_capacity(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable},
     Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Focus.current(state, capacity))
 
-def merge_capacity(product: Core.Decision, effects: +List<Platform.Effect>, +refreshed: Platform.Decision) ->
+def merge_capacity(product: InteractionTypes.Decision, effects: +List<Platform.Effect>, +refreshed: Platform.Decision) ->
   {Rule.decision_capacity(Platform.merge_reflow(product, effects, refreshed)) == Rule.decision_capacity(refreshed) : View.Capacity}:
   match refreshed:
     case Platform.Decision{ignored, platform, reconciliation}: {==}
 
 def changed_capacity_fields(decision: Platform.Decision, +capacity: View.Capacity) ->
   {Rule.decision_capacity(Platform.changed_capacity(decision, capacity)) == capacity : View.Capacity}:
-  Platform.Decision{Core.Decision{+state, +reply, +runtime, +interaction, +services, +durable},
+  Platform.Decision{InteractionTypes.Decision{+state, +reply, +runtime, +interaction, +services, +durable},
     Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, old_capacity, +scope}, +effects} = decision
   Equal.trans(View.Capacity,
-    Rule.decision_capacity(Platform.merge_reflow(Core.Decision{state, reply, runtime, interaction, services, durable}, effects, Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))),
+    Rule.decision_capacity(Platform.merge_reflow(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable}, effects, Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))),
     Rule.decision_capacity(Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})), capacity,
-    merge_capacity(Core.Decision{state, reply, runtime, interaction, services, durable}, effects, Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
+    merge_capacity(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable}, effects, Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
     reconciled_capacity(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))
 
 def retained_capacity_fields(same: Bool, +decision: Platform.Decision, +capacity: View.Capacity,
@@ -613,7 +605,6 @@ def reflow_capacity_fields(+decision: Platform.Decision, +capacity: View.Capacit
   retained_capacity_fields(Platform.same_capacity(old_capacity, capacity),
     Platform.Decision{product, Platform.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity, {==})
 
-
 def reflow_same(+decision: Platform.Decision, +capacity: View.Capacity,
   same: {Platform.same_capacity(Rule.decision_capacity(decision), capacity) == True{} : Bool}) ->
   {Platform.reflow_capacity(decision, capacity) == decision : Platform.Decision}:
@@ -623,7 +614,7 @@ def reflow_same(+decision: Platform.Decision, +capacity: View.Capacity,
     Platform.same_capacity(old_capacity, capacity), True{}, same)
 
 def ime_entry(+owner: U.Editor, +selection: Physical.Selection, +shift: Bool, +alt: Bool, +modified: Bool,
-  +core: Core.State, +platform: Platform.Platform,
+  +core: InteractionTypes.State, +platform: Platform.Platform,
   editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor}) ->
   {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, platform}) ==
@@ -644,15 +635,15 @@ def ime_entry(+owner: U.Editor, +selection: Physical.Selection, +shift: Bool, +a
     Rules_platform.realized_empty(Platform.unchanged(core),
       Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}})))
 
-def ready_enter(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool, +core: Core.State,
+def ready_enter(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool, +core: InteractionTypes.State,
   +platform: Platform.Platform,
   editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor},
   enabled: {Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) == True{} : Bool},
   permitted: {Focus.permits_composer(Rule.platform_scope(platform)) == True{} : Bool}) ->
   {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
     Platform.State{core, platform})) ==
-    Product.step(Product.SubmitComposer{Rule.platform_capacity(platform), owner}, core) : Core.Decision}:
-  Equal.trans(Core.Decision,
+    Product.step(Product.SubmitComposer{Rule.platform_capacity(platform), owner}, core) : InteractionTypes.Decision}:
+  Equal.trans(InteractionTypes.Decision,
     Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
     Platform.State{core, platform})),
     Model.platform_product(Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
@@ -663,7 +654,7 @@ def ready_enter(+owner: U.Editor, +selection: Physical.Selection, +modified: Boo
     ready_enter_raw(owner, selection, modified, core, platform, editor_observed, enabled, permitted))
 
 def modal_enter_decision(+owner: U.Editor, +shift: Bool, +alt: Bool, +modified: Bool,
-  +identity: String, +initial: String, +restore: String, +occurrence: Maybe<&2, Nat>, +core: Core.State, +platform: Platform.Platform) ->
+  +identity: String, +initial: String, +restore: String, +occurrence: Maybe<&2, Nat>, +core: InteractionTypes.State, +platform: Platform.Platform) ->
   {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}) ==
     Platform.Decision{Platform.unchanged(core),
@@ -689,7 +680,7 @@ def modal_enter_decision(+owner: U.Editor, +shift: Bool, +alt: Bool, +modified: 
       Rule.with_saved_editor(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner,
         Rule.platform_editors(Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence}), owner))))
 
-def stale_focus_ticket(+core: Core.State, +platform: Platform.Platform, received: Nat, identity: String, observed: Maybe<&2, Focus.Target>,
+def stale_focus_ticket(+core: InteractionTypes.State, +platform: Platform.Platform, received: Nat, identity: String, observed: Maybe<&2, Focus.Target>,
   stale: {Nat.is_eq(received, Rule.platform_ticket(platform)) == False{} : Bool}) ->
   {Platform.step(Platform.FocusApplied{received, Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
@@ -702,7 +693,7 @@ def stale_focus_ticket(+core: Core.State, +platform: Platform.Platform, received
       Platform.Decision{Platform.unchanged(core), platform, Nil{}}, stale_focus_ticket_raw(core, platform, received, identity, observed, stale)),
     Rules_platform.realized_empty(Platform.unchanged(core), platform))
 
-def inactive_focus(+core: Core.State, +platform: Platform.Platform, identity: String, observed: Maybe<&2, Focus.Target>,
+def inactive_focus(+core: InteractionTypes.State, +platform: Platform.Platform, identity: String, observed: Maybe<&2, Focus.Target>,
   inactive: {Platform.active_focus(core, Rule.platform_capacity(platform), identity) == False{} : Bool}) ->
   {Platform.step(Platform.FocusApplied{Rule.platform_ticket(platform), Focus.Product{identity}, observed}, Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core), platform, Nil{}} : Platform.Decision}:
@@ -719,14 +710,15 @@ def stale_reading(+application: E.Application, +services: Services.State, +platf
   task: Nat, generation: Nat, event: Reading.ReadingEvent,
   inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Rule.stale_reading_law(application, services, platform, task, generation, event, inactive):
   Equal.trans(Platform.Decision,
-    Platform.step(Platform.ReadingInput{task, generation, event}, Platform.State{Core.State{application, services}, platform}),
-    Platform.realized_decision(Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}}),
-    Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}},
+    Platform.step(Platform.ReadingInput{task, generation, event}, Platform.State{InteractionTypes.State{application, services}, platform}),
+    Platform.realized_decision(Platform.Decision{Platform.unchanged(InteractionTypes.State{application, services}), platform, Nil{}}),
+    Platform.Decision{Platform.unchanged(InteractionTypes.State{application, services}), platform, Nil{}},
     Equal.cong(Platform.Decision, Platform.Decision, Platform.realized_decision,
-      Platform.step_raw(Platform.ReadingInput{task, generation, event}, Platform.State{Core.State{application, services}, platform}),
-      Platform.Decision{Platform.unchanged(Core.State{application, services}), platform, Nil{}},
+      Platform.step_raw(Platform.ReadingInput{task, generation, event}, Platform.State{InteractionTypes.State{application, services}, platform}),
+      Platform.Decision{Platform.unchanged(InteractionTypes.State{application, services}), platform, Nil{}},
       stale_reading_raw(application, services, platform, task, generation, event, inactive)),
-    Rules_platform.realized_empty(Platform.unchanged(Core.State{application, services}), platform))
+    Rules_platform.realized_empty(Platform.unchanged(InteractionTypes.State{application, services}), platform))
+
 def stale_typography_state(+state: Model.State, +received: Nat, +metrics: +List<T.Metric>,
   stale: {Nat.is_eq(F.generation(Model.typography(state)), received) == False{} : Bool}) ->
   {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, state) == Model.idle_state(state) : Model.Decision}:
@@ -744,15 +736,15 @@ def environment_resets_font_state(+state: Model.State, +environment: Design.Envi
 
 def product_refinement_state(+input: Product.Input, +state: Model.State) ->
   {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}}, state)) ==
-    Product.step(input, Platform.core(Model.application(state))) : Core.Decision}:
+    Product.step(input, Platform.core(Model.application(state))) : InteractionTypes.Decision}:
   Model.State{application, generation, realization, environment, font} = state
   Platform.State{core, platform} = application
   product_refinement(input, core, platform, generation, realization, environment, font)
 
-def element_refinement_state(+key: String, +gesture: Interface.Gesture, +state: Model.State) ->
+def element_refinement_state(+key: String, +gesture: SurfaceTypes.Gesture, +state: Model.State) ->
   {Model.product(Model.step(Model.ElementInput{key, gesture}, state)) ==
     Product.step(Product.Element{Platform.capacity(Platform.platform(Model.application(state))), key, gesture},
-      Platform.core(Model.application(state))) : Core.Decision}:
+      Platform.core(Model.application(state))) : InteractionTypes.Decision}:
   Model.State{application, generation, realization, environment, font} = state
   Platform.State{core, platform} = application
   element_refinement(key, gesture, core, platform, generation, realization, environment, font)
@@ -822,7 +814,7 @@ def Rule.evidence():
       owner => selection => modified => core => platform => editor_observed => enabled => permitted =>
       ready_enter(owner, selection, modified, core, platform, editor_observed, enabled, permitted),
       owner => shift => alt => modified => identity => initial => restore => +occurrence => core => platform =>
-      Equal.cong(Platform.Decision, Core.Decision, Model.platform_product,
+      Equal.cong(Platform.Decision, InteractionTypes.Decision, Model.platform_product,
         Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
           Platform.State{core, Rule.with_scope(platform, Focus.Temporary{identity, initial, restore, occurrence})}),
         Platform.Decision{Platform.unchanged(core),
@@ -842,5 +834,5 @@ def Rule.evidence():
       stale_focus_ticket(core, platform, received, identity, observed, stale),
       core => platform => identity => observed => inactive => inactive_focus(core, platform, identity, observed, inactive),
       drafts => editors => retained => synchronize_retained(drafts, editors, retained)},
-    PaintRules.evidence(),
-    RendererRules.evidence()}
+    PaintRules.paint_evidence(),
+    RendererRules.renderer_evidence()}

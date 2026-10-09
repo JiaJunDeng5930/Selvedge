@@ -6,7 +6,6 @@ import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/effects.bend as Effects
-import ../../bendlib/association-map.bend as Finite
 
 def registry(world: M.World()) -> G.State:
   F.chatgpt(C.rest(D.State, F.State(), world))

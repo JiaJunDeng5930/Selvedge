@@ -16,6 +16,7 @@ def submit_key(composing: Bool, enter: Bool, multiline: Bool, modified: Bool,
 
 # A stack expresses temporary focus ownership. Only its top owner can close;
 # Escape cannot dismiss a menu and the dialog beneath it in the same event.
+
 def contains(outer: Rect, inner: Rect) -> Bool:
   Rect{left, top, right, bottom} = outer
   Rect{+inner_left, +inner_top, +inner_right, +inner_bottom} = inner

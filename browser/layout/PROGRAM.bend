@@ -572,6 +572,7 @@ def collect_width_outcomes(~A: Data, ~E: Data, outcomes: +List<WidthOutcome<A, E
   List.foldr(~&2, ~WidthOutcome<A, E>, ~MeasuredChildren<A, E>, ~(first => rest => merge_width(~A, ~E, first, rest)), outcomes, ChildrenMeasured{Nil{}})
 
 # Continuations retain parent work as data; the quoted iterator owns repetition.
+
 type WidthReturn<-A: Data, -E: Data> is Data:
   WidthRootReturn{}
   WidthContainerReturn{key: String, value: A, interaction: Model.Interaction<E>, rule: Model.Rule,
@@ -642,6 +643,7 @@ def width_step(~A: Data, ~E: Data, state: WidthState<A, E>, +samples: +List<Mode
     case WidthDone{result}: WidthDone{result}
 
 # Leaf work is four steps; each forest root also reserves its parent's visit edge.
+
 def width_forest_work(~A: Data, ~E: Data, trees: +List<Model.Tree<A, E>>) -> Nat:
   match trees:
     case Nil{}: 0n
@@ -656,6 +658,7 @@ def finish_width_iteration(~A: Data, ~E: Data, state: WidthState<A, E>, +key: St
     case _: WidthFailure{Failure{key, InlineAxis{}, budget, width, AllocationBoundExceeded{budget}}}
 
 # Samples stay in the runtime seed; the quoted iterator callback is closed.
+
 type WidthExecution<-A: Data, -E: Data> is Data:
   WidthExecution{state: WidthState<A, E>, samples: +List<Model.HeightSample>}
 
@@ -872,6 +875,7 @@ def height_step(~A: Data, ~E: Data, state: HeightState<A, E>) -> HeightState<A, 
     case HeightDone{result}: HeightDone{result}
 
 # Leaf work is three steps; the root's unused parent edge leaves one slack step.
+
 def height_forest_work(~A: Data, ~E: Data, trees: +List<MeasuredTree<A, E>>) -> Nat:
   match trees:
     case Nil{}: 0n

@@ -13,7 +13,6 @@ def Rule.missing_history_anchor():
 def Rule.scroll_ownership_evidence():
   Rule.ScrollOwnershipRequirements{intent => bookmark => reduced => {==}}
 
-
 def Rule.latest_layout(bookmark):
   match bookmark:
     case Model.Bookmark{anchor}: {==}

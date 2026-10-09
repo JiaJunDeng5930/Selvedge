@@ -8,11 +8,10 @@ import ../../harness/conversation/PROOF.bend as History
 import ../../harness/MODEL.bend as M
 import ../../bendlib/json.bend as J
 import ../presentation/PROGRAM.bend as InterfaceView
-import ../STATE.bend as Core
-import ../INPUT.bend as U
 import ../../bendlib/stdlib.bend as Std
-import ../../harness/transport/json-render-rules.bend as JsonRender
-import ../../harness/transport/PROOF.bend as JsonRenderProof
+import ../../harness/transport/CONTRACT.bend as JsonRender
+import ../presentation/SURFACE.bend as SurfaceTypes
+import ../TYPES.bend as InteractionTypes
 
 def false_goal(P: Type, value: Bool) -> Type:
   match value:
@@ -29,12 +28,12 @@ def serialized_parameter_witness(+value: J.Json, witness: JsonRender.Completed(J
     Equal.cong(Result<&2, &2, String, String>, String, InterfaceView.approval_serialized,
       J.show(value), Done{text}, completed)))
 
-def serialized_parameter_requirements(+value: J.Json, requirements: JsonRender.Requirements) -> Rule.RenderedParameter(value):
-  JsonRender.Requirements{sufficient, render_complete, show_complete, _} = requirements
+def serialized_parameter_requirements(+value: J.Json, requirements: JsonRender.JsonRenderRequirements) -> Rule.RenderedParameter(value):
+  JsonRender.JsonRenderRequirements{sufficient, render_complete, show_complete, _} = requirements
   serialized_parameter_witness(value, show_complete(value))
 
 def serialized_parameter(+value: J.Json) -> Rule.RenderedParameter(value):
-  serialized_parameter_requirements(value, JsonRender.evidence())
+  serialized_parameter_requirements(value, JsonRender.json_render_evidence())
 
 def request_context(+reviewer: D.ApprovalReviewer, id: Nat, call: D.Call, +context: D.TaskContext, task: Nat, world: M.World()) ->
   {Rule.request_context(Actual.decision(reviewer, id, call, context, task, world)) == context : D.TaskContext}:
@@ -67,73 +66,73 @@ def argument_label(+name: String) -> {InterfaceView.approval_argument_label(name
   {==}
 
 def fields(+values: List<&2, J.Field>, +index: Nat, +parent: Identity.Key) ->
-  {InterfaceView.approval_fields(values, index, parent) == Rule.expected_fields(values, index, parent) : +List<InterfaceView.Node>}:
+  {InterfaceView.approval_fields(values, index, parent) == Rule.expected_fields(values, index, parent) : +List<SurfaceTypes.Node>}:
   match values:
     case Nil{}: {==}
     case Con{J.Field{+name, +value}, +rest}:
       +key = "argument/" ++ Nat.show(index)
-      Equal.trans(+List<InterfaceView.Node>,
+      Equal.trans(+List<SurfaceTypes.Node>,
         InterfaceView.approval_fields(J.Field{name, value} <> rest, index, parent),
         InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <>
           InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
         Rule.expected_fields(J.Field{name, value} <> rest, index, parent),
-        Equal.trans(+List<InterfaceView.Node>,
+        Equal.trans(+List<SurfaceTypes.Node>,
           InterfaceView.approval_fields(J.Field{name, value} <> rest, index, parent),
           InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), InterfaceView.approval_value(value)) <>
             InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
           InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <>
             InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
-          Equal.cong(String, +List<InterfaceView.Node>, label => InterfaceView.approval_fact(parent, key, label, InterfaceView.approval_value(value)) <>
+          Equal.cong(String, +List<SurfaceTypes.Node>, label => InterfaceView.approval_fact(parent, key, label, InterfaceView.approval_value(value)) <>
             InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
             InterfaceView.approval_argument_label(name), Rule.expected_argument_label(name), argument_label(name)),
-          Equal.cong(String, +List<InterfaceView.Node>, text => InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), text) <>
+          Equal.cong(String, +List<SurfaceTypes.Node>, text => InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), text) <>
             InterfaceView.approval_fields(rest, (index + 1n : Nat), parent),
             InterfaceView.approval_value(value), Rule.expected_parameter(value), parameter(value))),
-        Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>, tail =>
+        Equal.cong(+List<SurfaceTypes.Node>, +List<SurfaceTypes.Node>, tail =>
           InterfaceView.approval_fact(parent, key, Rule.expected_argument_label(name), Rule.expected_parameter(value)) <> tail,
           InterfaceView.approval_fields(rest, (index + 1n : Nat), parent), Rule.expected_fields(rest, (index + 1n : Nat), parent),
           fields(rest, (index + 1n : Nat), parent)))
 
 def arguments(+value: J.Json, +parent: Identity.Key) ->
-  {InterfaceView.approval_arguments(value, parent) == Rule.expected_arguments(value, parent) : +List<InterfaceView.Node>}:
+  {InterfaceView.approval_arguments(value, parent) == Rule.expected_arguments(value, parent) : +List<SurfaceTypes.Node>}:
   match value:
     case J.Object{values}: fields(values, 0n, parent)
     case J.Null{}:
-      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+      Equal.cong(String, +List<SurfaceTypes.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
         InterfaceView.approval_value(J.Null{}), Rule.expected_parameter(J.Null{}), parameter(J.Null{}))
     case J.Boolean{value}:
-      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+      Equal.cong(String, +List<SurfaceTypes.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
         InterfaceView.approval_value(J.Boolean{value}), Rule.expected_parameter(J.Boolean{value}), parameter(J.Boolean{value}))
     case J.Number{lexeme}:
-      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+      Equal.cong(String, +List<SurfaceTypes.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
         InterfaceView.approval_value(J.Number{lexeme}), Rule.expected_parameter(J.Number{lexeme}), parameter(J.Number{lexeme}))
     case J.Text{text}:
-      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+      Equal.cong(String, +List<SurfaceTypes.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
         InterfaceView.approval_value(J.Text{text}), Rule.expected_parameter(J.Text{text}), parameter(J.Text{text}))
     case J.Array{items}:
-      Equal.cong(String, +List<InterfaceView.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
+      Equal.cong(String, +List<SurfaceTypes.Node>, text => [InterfaceView.approval_fact(parent, "arguments", "Arguments", text)],
         InterfaceView.approval_value(J.Array{items}), Rule.expected_parameter(J.Array{items}), parameter(J.Array{items}))
 
 def directory(+context: D.TaskContext, +parent: Identity.Key) ->
-  {InterfaceView.approval_directory(context, parent) == Rule.expected_directory(context, parent) : +List<InterfaceView.Node>}:
+  {InterfaceView.approval_directory(context, parent) == Rule.expected_directory(context, parent) : +List<SurfaceTypes.Node>}:
   D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
   match primary:
     case None{}: {==}
     case Some{path}: {==}
 
 def metadata(+call: D.Call, +context: D.TaskContext, +parent: Identity.Key) ->
-  {InterfaceView.approval_metadata(call, context, parent) == Rule.expected_metadata(call, context, parent) : +List<InterfaceView.Node>}:
+  {InterfaceView.approval_metadata(call, context, parent) == Rule.expected_metadata(call, context, parent) : +List<SurfaceTypes.Node>}:
   D.Call{+id, +name, +values} = call
-  Equal.trans(+List<InterfaceView.Node>,
+  Equal.trans(+List<SurfaceTypes.Node>,
     InterfaceView.approval_metadata(D.Call{id, name, values}, context, parent),
     InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
-      List.append(&2, InterfaceView.Node, Rule.expected_arguments(values, parent), InterfaceView.approval_directory(context, parent)),
+      List.append(&2, SurfaceTypes.Node, Rule.expected_arguments(values, parent), InterfaceView.approval_directory(context, parent)),
     Rule.expected_metadata(D.Call{id, name, values}, context, parent),
-    Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>, items => InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
-      List.append(&2, InterfaceView.Node, items, InterfaceView.approval_directory(context, parent)),
+    Equal.cong(+List<SurfaceTypes.Node>, +List<SurfaceTypes.Node>, items => InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
+      List.append(&2, SurfaceTypes.Node, items, InterfaceView.approval_directory(context, parent)),
       InterfaceView.approval_arguments(values, parent), Rule.expected_arguments(values, parent), arguments(values, parent)),
-    Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>, items => InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
-      List.append(&2, InterfaceView.Node, Rule.expected_arguments(values, parent), items),
+    Equal.cong(+List<SurfaceTypes.Node>, +List<SurfaceTypes.Node>, items => InterfaceView.approval_fact(parent, "tool", "Tool", name) <>
+      List.append(&2, SurfaceTypes.Node, Rule.expected_arguments(values, parent), items),
       InterfaceView.approval_directory(context, parent), Rule.expected_directory(context, parent), directory(context, parent)))
 
 def audit_classification(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, is_audit: {Rule.audit_message(message) == True{} : Bool}) ->
@@ -156,6 +155,7 @@ def audit_classification(+message: D.Message, +index: Nat, +tail: +List<Actual.G
     case D.ForkResult{task_id, call_id, branch}: {==}
 
 # Comparison reflexivity is needed to bind a reader's choice to its own group.
+
 def same_group(+group: Nat) -> {Nat.is_eq(group, group) == True{} : Bool}:
   match group:
     case 0n: {==}
@@ -200,11 +200,11 @@ def audit_identity(+index: Nat, failed: Bool, message: D.Message, tail: +List<Ac
 
 # The oldest audit occurrence owns the run even after its suffix grows.
 
-def automatic_decision(+operation: Nat, call: D.Call, context: D.TaskContext, +reviewer: D.Profile, +parent: Identity.Key, state: Core.State) ->
+def automatic_decision(+operation: Nat, call: D.Call, context: D.TaskContext, +reviewer: D.Profile, +parent: Identity.Key, state: InteractionTypes.State) ->
   {InterfaceView.approvals([Actual.AutomaticDecision{operation, call, context, reviewer}], parent, state) ==
-        [InterfaceView.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", InterfaceView.Approval{}, InterfaceView.Region{}, List.append(&2, InterfaceView.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
-            [InterfaceView.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", InterfaceView.Content{},
-              InterfaceView.ReadOnly{Rule.reviewer_name(reviewer)}, Nil{}}])}] : +List<InterfaceView.Node>}:
+        [SurfaceTypes.Node{Identity.Entity{parent, "approval", Nat.show(operation)}, "approval/" ++ Nat.show(operation), "Automatic review", SurfaceTypes.Approval{}, SurfaceTypes.Region{}, List.append(&2, SurfaceTypes.Node, InterfaceView.approval_metadata(call, context, Identity.Entity{parent, "approval", Nat.show(operation)}),
+            [SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "approval", Nat.show(operation)}, "reviewer"}, "reviewer", "Reviewer model", SurfaceTypes.Content{},
+              SurfaceTypes.ReadOnly{Rule.reviewer_name(reviewer)}, Nil{}}])}] : +List<SurfaceTypes.Node>}:
   match reviewer:
     case D.Profile{key, provider, name, reasoning, options}: {==}
 

@@ -185,6 +185,7 @@ def input(+event: M.Input, +world: M.World()) -> M.Decision():
 # An accepted internal function call must settle even when the requested command
 # is refused. A branch additionally continues already accepted calls in each
 # child, subject to their recovery policy. It is not a public idle-only fork.
+
 type Invocation is Data:
   Internal{operation: Commands.Operation}
   Branch{count: Nat, messages: +List<String>, selection: Workspace.Selection}

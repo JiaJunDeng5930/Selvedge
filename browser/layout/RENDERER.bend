@@ -34,6 +34,7 @@ def attributes(+values: +List<Source.Attribute>) -> +List<Doc.Property>:
     case Con{+value, +rest}: List.append(&2, Doc.Property, Source.attribute_properties(value), attributes(rest))
 
 # Observation identity does not grant interaction ownership to passive content.
+
 def authored_observation_key(+values: +List<Source.Attribute>, +fallback: String) -> String:
   match values:
     case Nil{}: fallback
@@ -341,6 +342,7 @@ def drawing(+key: UIIdentity.Key, +value: Source.Drawing, +bounds: Spatial.Box, 
     diagnostic(key, "drawing-exceeds-allocated-content"))
 
 # The allocator has already excluded border and frame from this content extent.
+
 def rich_content_frame(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> Doc.Node:
   Enclosure.Extent{width, height} = extent
   Model.Rule{direction, main, cross, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
@@ -400,6 +402,7 @@ def native_field_leaf(+kind: Source.NativeFieldKind, +key: UIIdentity.Key, +styl
 
 
 # NOTE: Toggle drawing has a passive wrapper; the input owns observation.
+
 def observed_field(+kind: Source.NativeFieldKind, +key: String, node: Doc.Node) -> Doc.Node:
   match kind:
     case Source.ToggleField{}:
@@ -468,6 +471,7 @@ def container(+value: Content.Value, +interaction: Model.Interaction<Doc.DOMEven
   container_at(NaturalSize.limit(), value, interaction, styles, children, native)
 
 # Positional metric keys never replace authored DOM keys.
+
 def forest(+values: +List<Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>>, +origin: Spatial.Box, +fixed: Bool, +native: Bool, +owned: +List<Owned>) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
@@ -550,6 +554,7 @@ def native_roots(+values: +List<Content.AllocatedNative>) -> +List<Owned>:
 
 # Bound code bodies carry their block's state; RichPolicy remains only the
 # default for code fences that have not acquired a native target policy.
+
 def native_wrapping(target: Source.NativeTarget) -> +List<Doc.Property>:
   match target:
     case Source.ToolbarTarget{identity}: Nil{}
@@ -593,6 +598,7 @@ def emit_world(+tree: Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>, +ro
     case True{}: forest([tree], Spatial.Box{0n, 0n, 0n, 0n}, True{}, False{}, List.append(&2, Owned, native_roots(roots), native_policies(policies, tree)))
 
 # Theme aliases must resolve on the same document root as their imported tokens.
+
 def theme_attribute(matches: Bool, value: String, fallback: +List<Doc.Property>) -> +List<Doc.Property>:
   match matches:
     case True{}: [Doc.Property{"data-theme", value}]

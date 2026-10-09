@@ -73,6 +73,7 @@ def complete(-StateRest: Data, -EffectRest: Data, stage: D.OperationStage, outco
 
 # Internal invocations acquire a result right only when a chain exists. Public
 # commands use their own authority and do not enter model-tool hook protocols.
+
 def internal_chain(-StateRest: Data, -EffectRest: Data, chain: +List<D.PluginRef>, +call: D.Call, remaining: +List<D.Attempt>, value: J.Json,
   error: Bool, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match chain world:

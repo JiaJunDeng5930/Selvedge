@@ -144,6 +144,7 @@ def approval_outcome(allow: Bool, reason: String) -> D.ApprovalOutcome:
 
 # Both observation and activation use this meaning. A renderer cannot choose a
 # different command while retaining the enabled state of another command.
+
 def direct_command(action: Action) -> Maybe<&2, M.Command>:
   match action:
     case ControlTask{task, control}: Some{M.ChangeStatus{task, control}}
@@ -335,7 +336,6 @@ def valid_origin(body: Body) -> Bool:
     case Fork{task, count, messages, Context.Configuration{origin, workspace, sandbox, approval}}: fork_origin(origin, task)
     case _: True{}
 
-
 def selected_model_permitted(found: Maybe<&2, D.Profile>, reasoning: String) -> Bool:
   match found:
     case None{}: False{}
@@ -354,6 +354,7 @@ def contents(draft: Draft) -> Body:
 def next_capture(draft: B.Draft) -> B.Draft:
   B.Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
   B.Draft{"", "", stage, priority, owner, project, labels, Nil{}}
+
 def after_accept(body: Body) -> Body:
   match body:
     case NewTask{message, profile, reasoning, context}: NewTask{initial_text(""), profile, reasoning, context}
@@ -367,7 +368,6 @@ def subject_key(subject: Subject) -> String:
     case ProjectSubject{id}: "project/" ++ Nat.show(id)
     case CardSubject{id}: "card/" ++ Nat.show(id)
     case AgentSubject{id}: "agent/" ++ Nat.show(id)
-
 
 def workspace_capable(body: Body) -> Bool:
   match body:

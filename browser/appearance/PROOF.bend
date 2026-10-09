@@ -1,23 +1,20 @@
+import ../layout/geometry-proof.bend as ProofGeometryProof
 import Base
-import ./font-observation-laws.bend as Rule
+import ./CONTRACT.bend as Rule
 import ./FONT.bend as F
 import ./TYPOGRAPHY.bend as T
-import ./paint-rules.bend as RulePaintRules
 import ./PROGRAM.bend as Paint
 import ../../bendlib/logic-proof.bend as Logic
-import ./typography-laws.bend as RuleTypographyLaws
 import ../layout/natural-size.bend as NaturalSize
 import ../layout/GEOMETRY.bend as SpatialModel
-import ./CONTRACT.bend as RuleContract
 import ../layout/SPACE.bend as Space
 import ../layout/enclosure.bend as Enclosure
 import ../../interaction/services/MODEL.bend as Services
-import ../../interaction/presentation/PROGRAM.bend as InterfaceView
-import ../../interaction/STATE.bend as Core
 import ./DESIGN.bend as Design
 import ./MODEL.bend as Appearance
 import ../controls/PROGRAM.bend as Controls
-import ../layout/PROOF.bend as ImportedEnclosure
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/TYPES.bend as InteractionTypes
 
 def Rule.stale(state, received, metrics, different):
   Equal.cong(Bool, F.State, (owned => F.receive(owned, state, Nil{}, metrics)),
@@ -157,23 +154,23 @@ def ready_no_outstanding(+generation: Nat, +scale: T.Scale, +body: T.Metric, +co
     F.missing(specifications, content), Nil{}, complete)
 
 def code_family(+capacity: Nat, +parent: T.Presentation) ->
-  {RulePaintRules.property_value(Paint.rich_properties_at(capacity, parent), "--rich-code-font") == "var(--font-mono, monospace)" : String}:
+  {Rule.property_value(Paint.rich_properties_at(capacity, parent), "--rich-code-font") == "var(--font-mono, monospace)" : String}:
   match parent:
     case T.Presentation{tier, emphasis, scale}: {==}
 
 def emphasis_preserves_context(+parent: T.Presentation, emphasis: T.Emphasis) ->
-  {RulePaintRules.presentation_context(T.with_emphasis(parent, emphasis)) == RulePaintRules.presentation_context(parent) : (T.Tier & T.Scale)}:
+  {Rule.presentation_context(T.with_emphasis(parent, emphasis)) == Rule.presentation_context(parent) : (T.Tier & T.Scale)}:
   match parent:
     case T.Presentation{tier, original, scale}: {==}
 
 def emphasis_preserves_resolved_context(+capacity: Nat, +parent: T.Presentation, emphasis: T.Emphasis) ->
-  {RulePaintRules.resolved_context(T.resolve_presentation(capacity, T.with_emphasis(parent, emphasis))) ==
-    RulePaintRules.resolved_context(T.resolve_presentation(capacity, parent)) : (T.Font & (Nat & Nat))}:
+  {Rule.resolved_context(T.resolve_presentation(capacity, T.with_emphasis(parent, emphasis))) ==
+    Rule.resolved_context(T.resolve_presentation(capacity, parent)) : (T.Font & (Nat & Nat))}:
   match parent:
     case T.Presentation{tier, original, scale}: {==}
 
-def RulePaintRules.evidence():
-  RulePaintRules.Requirements{+paint => +width => +inset => {==}, paint => width => inset => {==}, paint => +width => +inset => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, emphasis_preserves_context, emphasis_preserves_resolved_context, code_family}
+def Rule.paint_evidence():
+  Rule.PaintRequirements{+paint => +width => +inset => {==}, paint => width => inset => {==}, paint => +width => +inset => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, +capacity => +parent => {==}, emphasis_preserves_context, emphasis_preserves_resolved_context, code_family}
 
 def successor_zero(rest: Nat) ->
   {True{} == Nat.is_ge(rest, 0n) : Bool}:
@@ -246,20 +243,20 @@ def code_support_leading(+capacity: Nat, scale: T.Scale, emphasis: T.Emphasis) -
   {==}
 
 def measurement_content(key: String, text: String, style: T.TextStyle, wrapping: T.Wrapping, available: Maybe<&2,Nat>, reference: String) ->
-  {RuleTypographyLaws.spec_content(T.spec(T.Probe{key,text,style,wrapping,available,reference})) == (key,(text,(available,reference))) : (String & (String & (Maybe<&2,Nat> & String)))}:
+  {Rule.spec_content(T.spec(T.Probe{key,text,style,wrapping,available,reference})) == (key,(text,(available,reference))) : (String & (String & (Maybe<&2,Nat> & String)))}:
   T.TextStyle{family,size,leading,weight} = style
   {==}
 
 def measurement_wrapping(key: String, text: String, style: T.TextStyle, +wrapping: T.Wrapping, available: Maybe<&2,Nat>, reference: String) ->
-  {RuleTypographyLaws.spec_wrapping(T.spec(T.Probe{key,text,style,wrapping,available,reference})) == (T.white_space(wrapping),(T.overflow_wrap(wrapping),T.word_break(wrapping))) : (String & (String & String))}:
+  {Rule.spec_wrapping(T.spec(T.Probe{key,text,style,wrapping,available,reference})) == (T.white_space(wrapping),(T.overflow_wrap(wrapping),T.word_break(wrapping))) : (String & (String & String))}:
   T.TextStyle{family,size,leading,weight} = style
   {==}
 
 def presentation_parameters(+capacity: Nat, +presentation: T.Presentation, +new_tier: T.Tier, +new_emphasis: T.Emphasis, +new_scale: T.Scale) ->
-  {RuleTypographyLaws.presentation_fields(T.with_tier(presentation, new_tier)) == (new_tier, (RuleTypographyLaws.presentation_emphasis(presentation), T.presentation_scale(presentation))) : (T.Tier & (T.Emphasis & T.Scale))} &
-  {RuleTypographyLaws.presentation_fields(T.with_emphasis(presentation, new_emphasis)) == (RuleTypographyLaws.presentation_tier(presentation), (new_emphasis, T.presentation_scale(presentation))) : (T.Tier & (T.Emphasis & T.Scale))} &
-  {RuleTypographyLaws.presentation_fields(T.with_scale(presentation, new_scale)) == (RuleTypographyLaws.presentation_tier(presentation), (RuleTypographyLaws.presentation_emphasis(presentation), new_scale)) : (T.Tier & (T.Emphasis & T.Scale))} &
-  {T.resolve_presentation(capacity, presentation) == T.resolve(capacity, RuleTypographyLaws.presentation_tier(presentation), RuleTypographyLaws.presentation_emphasis(presentation), T.presentation_scale(presentation)) : T.TextStyle}:
+  {Rule.presentation_fields(T.with_tier(presentation, new_tier)) == (new_tier, (Rule.presentation_emphasis(presentation), T.presentation_scale(presentation))) : (T.Tier & (T.Emphasis & T.Scale))} &
+  {Rule.presentation_fields(T.with_emphasis(presentation, new_emphasis)) == (Rule.presentation_tier(presentation), (new_emphasis, T.presentation_scale(presentation))) : (T.Tier & (T.Emphasis & T.Scale))} &
+  {Rule.presentation_fields(T.with_scale(presentation, new_scale)) == (Rule.presentation_tier(presentation), (Rule.presentation_emphasis(presentation), new_scale)) : (T.Tier & (T.Emphasis & T.Scale))} &
+  {T.resolve_presentation(capacity, presentation) == T.resolve(capacity, Rule.presentation_tier(presentation), Rule.presentation_emphasis(presentation), T.presentation_scale(presentation)) : T.TextStyle}:
   T.Presentation{tier, emphasis, scale} = presentation
   ({==}, {==}, {==}, {==})
 
@@ -274,14 +271,14 @@ def admitted_flags(+keys: Bool, +widths: Bool, +height: Bool, reference: Bool,
 
 def admitted_metric_boundaries(+specification: T.MeasurementSpec, +metric: T.Metric,
   accepted: {T.valid_metric(specification, metric) == True{} : Bool}) ->
-  {String.eq(RuleTypographyLaws.specification_key(specification), RuleTypographyLaws.metric_key(metric)) == True{} : Bool} &
-    ({RuleTypographyLaws.metric_widths(metric) == True{} : Bool} & {RuleTypographyLaws.metric_height(metric) == True{} : Bool}):
+  {String.eq(Rule.specification_key(specification), Rule.metric_key(metric)) == True{} : Bool} &
+    ({Rule.metric_widths(metric) == True{} : Bool} & {Rule.metric_height(metric) == True{} : Bool}):
   match specification metric:
     case T.MeasurementSpec{expected_key, text, family, size, line_height, weight, space, wrap, word_break, width, reference} T.Metric{actual_key, minimum, preferred, height, advance}:
       admitted_flags(String.eq(expected_key, actual_key), Nat.is_le(minimum, preferred), Nat.is_gt(height, 0n), Bool.or(String.eq(reference, ""), Nat.is_gt(advance, 0n)), accepted)
 
-def RuleTypographyLaws.evidence():
-  RuleTypographyLaws.Requirements{admitted_metric_boundaries, {==}, {==},
+def Rule.typography_evidence():
+  Rule.TypographyRequirements{admitted_metric_boundaries, {==}, {==},
     presentation_parameters,
     positive_clamp,
     support_positive,
@@ -303,68 +300,68 @@ def RuleTypographyLaws.evidence():
     advance => columns => {==},
     +capacity => scale => {==}}
 
-def RuleTypographyLaws.unbroken_wrapping(): {==}
+def Rule.unbroken_wrapping(): {==}
 
-def nodes_preserve_semantics_at(values: +List<InterfaceView.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
-  {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<InterfaceView.Node>}:
+def nodes_preserve_semantics_at(values: +List<SurfaceTypes.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
+  {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<SurfaceTypes.Node>}:
   match values:
     case Nil{}: {==}
-    case Con{InterfaceView.Node{+key, ++semantic, +label, +role, +meaning, +children}, +rest}:
-      +local = Controls.enter(InterfaceView.Node{key, semantic, label, role, meaning, children}, context)
+    case Con{SurfaceTypes.Node{+key, ++semantic, +label, +role, +meaning, +children}, +rest}:
+      +local = Controls.enter(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, context)
       +inside = Appearance.enters_main(role, in_main)
       +inherited_text = Appearance.information_role(role, meaning, typography, inside, start)
       +child_text = Design.style_text(Appearance.prepared_style(key, semantic, role, meaning, local,
         Controls.represent(key, meaning, label, role, local), inherited_text))
-      +children_step = Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>,
-        (prepared_children => Con{InterfaceView.Node{key, semantic, label, role, meaning, prepared_children},
+      +children_step = Equal.cong(+List<SurfaceTypes.Node>, +List<SurfaceTypes.Node>,
+        (prepared_children => Con{SurfaceTypes.Node{key, semantic, label, role, meaning, prepared_children},
           Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))}),
         Design.semantic_nodes(Appearance.nodes_at(children, local, child_text, inside, start)), children,
         nodes_preserve_semantics_at(children, local, child_text, inside, start))
-      +rest_step = Equal.cong(+List<InterfaceView.Node>, +List<InterfaceView.Node>,
-        (prepared_rest => Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, prepared_rest}),
+      +rest_step = Equal.cong(+List<SurfaceTypes.Node>, +List<SurfaceTypes.Node>,
+        (prepared_rest => Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, prepared_rest}),
         Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start)), rest,
         nodes_preserve_semantics_at(rest, context, typography, in_main, start))
-      Equal.trans(+List<InterfaceView.Node>,
-        Con{InterfaceView.Node{key, semantic, label, role, meaning,
+      Equal.trans(+List<SurfaceTypes.Node>,
+        Con{SurfaceTypes.Node{key, semantic, label, role, meaning,
           Design.semantic_nodes(Appearance.nodes_at(children, local, child_text, inside, start))},
           Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{InterfaceView.Node{key, semantic, label, role, meaning, children},
+        Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children},
           Design.semantic_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
-        Con{InterfaceView.Node{key, semantic, label, role, meaning, children}, rest}, children_step, rest_step)
+        Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}, children_step, rest_step)
 
-def present_preserves_semantics(+surface: InterfaceView.Surface, system_dark: Bool, +scale: T.Scale) ->
-  {Design.semantic_surface(Appearance.present(surface, system_dark, scale)) == surface : InterfaceView.Surface}:
+def present_preserves_semantics(+surface: SurfaceTypes.Surface, system_dark: Bool, +scale: T.Scale) ->
+  {Design.semantic_surface(Appearance.present(surface, system_dark, scale)) == surface : SurfaceTypes.Surface}:
   match surface:
-    case InterfaceView.Surface{+content, +base, +overlays, +active_scope}:
+    case SurfaceTypes.Surface{+content, +base, +overlays, +active_scope}:
       match content:
-        case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
+        case InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
-            case Core.Settings{open, access, entered, appearance, open_action, close_action, connect}:
+            case InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect}:
               +context = Controls.initial(content)
-              +base_step = Equal.cong(+List<InterfaceView.Node>, InterfaceView.Surface,
-                (prepared_base => InterfaceView.Surface{content, prepared_base,
+              +base_step = Equal.cong(+List<SurfaceTypes.Node>, SurfaceTypes.Surface,
+                (prepared_base => SurfaceTypes.Surface{content, prepared_base,
                   Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope}),
                 Design.semantic_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))), base,
                 nodes_preserve_semantics_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content)))
-              +overlays_step = Equal.cong(+List<InterfaceView.Node>, InterfaceView.Surface,
-                (prepared_overlays => InterfaceView.Surface{content, base, prepared_overlays, active_scope}),
+              +overlays_step = Equal.cong(+List<SurfaceTypes.Node>, SurfaceTypes.Surface,
+                (prepared_overlays => SurfaceTypes.Surface{content, base, prepared_overlays, active_scope}),
                 Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), overlays,
                 nodes_preserve_semantics_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))
-              Equal.trans(InterfaceView.Surface,
-                InterfaceView.Surface{content, Design.semantic_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))),
+              Equal.trans(SurfaceTypes.Surface,
+                SurfaceTypes.Surface{content, Design.semantic_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))),
                   Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope},
-                InterfaceView.Surface{content, base, Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope},
-                InterfaceView.Surface{content, base, overlays, active_scope}, base_step, overlays_step)
+                SurfaceTypes.Surface{content, base, Design.semantic_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), active_scope},
+                SurfaceTypes.Surface{content, base, overlays, active_scope}, base_step, overlays_step)
 
-def present_uses_configured_appearance(surface: InterfaceView.Surface, system_dark: Bool, +scale: T.Scale) ->
-  {RuleContract.presented_theme(surface, system_dark, scale) ==
-    Appearance.theme(RuleContract.configured_appearance(surface), system_dark) : Design.Theme}:
+def present_uses_configured_appearance(surface: SurfaceTypes.Surface, system_dark: Bool, +scale: T.Scale) ->
+  {Rule.presented_theme(surface, system_dark, scale) ==
+    Appearance.theme(Rule.configured_appearance(surface), system_dark) : Design.Theme}:
   match surface:
-    case InterfaceView.Surface{content, base, overlays, active_scope}:
+    case SurfaceTypes.Surface{content, base, overlays, active_scope}:
       match content:
-        case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
+        case InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
-            case Core.Settings{open, access, credential_entered, appearance,
+            case InteractionTypes.Settings{open, access, credential_entered, appearance,
               open_action, close_action, connect_action}: {==}
 
 def light_appearance_wins(system_dark: Bool) ->
@@ -380,19 +377,19 @@ def dark_appearance_wins(system_dark: Bool) ->
     case False{}: {==}
 
 def system_appearance_follows_os(system_dark: Bool) ->
-  {Appearance.theme(Services.SystemAppearance{}, system_dark) == RuleContract.system_theme(system_dark) : Design.Theme}:
+  {Appearance.theme(Services.SystemAppearance{}, system_dark) == Rule.system_theme(system_dark) : Design.Theme}:
   match system_dark:
     case True{}: {==}
     case False{}: {==}
 
 def regular_heading_role(inherited: T.Presentation, text: String, in_main: Bool) ->
-  {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{RuleContract.primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
+  {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{Rule.primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
   match in_main:
     case True{}: {==}
     case False{}: {==}
 
 def heading_tier_total(in_main: Bool, start: Bool) ->
-  {Appearance.heading_tier(in_main,start) == RuleContract.heading_tier(in_main,start) : T.Tier}:
+  {Appearance.heading_tier(in_main,start) == Rule.heading_tier(in_main,start) : T.Tier}:
   match in_main start:
     case True{} True{}: {==}
     case True{} False{}: {==}
@@ -400,13 +397,13 @@ def heading_tier_total(in_main: Bool, start: Bool) ->
     case False{} False{}: {==}
 
 def secondary_heading_role(inherited: T.Presentation, text: String, start: Bool) ->
-  {Appearance.information_role(InterfaceView.Heading{},InterfaceView.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
+  {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
   match start:
     case True{}: {==}
     case False{}: {==}
 
 def lane_output(value: Design.Style) ->
-  {Appearance.lane_style(value) == RuleContract.lane_output(value) : Design.Style}:
+  {Appearance.lane_style(value) == Rule.lane_output(value) : Design.Style}:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
   Design.Chrome{foreground, background, border, width, radius, shadow} = chrome
   Enclosure.Frame{content, arrangement} = frame
@@ -429,7 +426,7 @@ def action_minimum_from_layout(+layout: Controls.ContentLayout, +value: Design.S
     Design.style_minimum_height(styled),
     Nat.max(Controls.geometry_minimum_height(geometry), Enclosure.extent_height(Enclosure.required_extent(0n, height, Appearance.style_border_width(value), space))),
     flow_preserves_minimum(styled, Appearance.action_flow(face, Controls.ContentLayout{alignment, space, gap})),
-    ImportedEnclosure.minimum_extent(value, geometry, space, gap, height))
+    ProofGeometryProof.minimum_extent(value, geometry, space, gap, height))
 
 def action_minimum_formula(+value: Design.Style, +face: Controls.Face, +geometry: Controls.Geometry) ->
   {Design.style_minimum_height(Appearance.action_style(value, face, geometry)) == Nat.max(Controls.geometry_minimum_height(geometry), Enclosure.extent_height(Enclosure.required_extent(0n, Appearance.intrinsic_content_height(face, Design.style_text(value), geometry), Appearance.style_border_width(value), Controls.layout_content_area(Controls.content_layout(face))))) : Nat}:
@@ -454,8 +451,8 @@ def field_minimum_fits_content(+capacity: Nat, +value: Design.Style, +border: Na
     case Design.Style{+text, Design.Chrome{foreground, background, paint, old_border, old_radius, shadow}, alignment, flow, overflow, +frame, old_minimum, maximum, states}:
       Nat.max_ge_r(minimum, Enclosure.extent_height(Appearance.field_required_extent(capacity, value, border)))
 
-def RuleContract.evidence():
-  RuleContract.Requirements{action_minimum_retains_geometry, action_minimum_fits_content, field_minimum_fits_content,
+def Rule.evidence():
+  Rule.Requirements{action_minimum_retains_geometry, action_minimum_fits_content, field_minimum_fits_content,
     +key => +semantic => +label => +role => +meaning => +context => +inherited => +in_main => +start => {==},
     editor => field => value => choices => inherited => in_main => start => {==},
     text => inherited => in_main => start => {==},

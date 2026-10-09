@@ -30,6 +30,7 @@ law completion_meaning:
 # settlement are fixed above; this structure cannot be instantiated with a
 # different scheduler or an always-refusing substitute. Quality of the model's
 # choice and the Jev/HTTP/tokenizer boundaries are not propositions here.
+
 type ReasoningBoundary is Type:
   ReasoningBoundary{
     routing: @+policy:R.Policy -> @+lease:R.Lease ->

@@ -1,6 +1,5 @@
 import Base
 import ./CONTENT.bend as Content
-import ./physical-content-rules.bend as Rules
 import ./physical-content-measurement.bend as Measurements
 import ./SOURCE.bend as PhysicalSource
 import ./physical-space.bend as Model
@@ -29,7 +28,7 @@ def viewport_matches(query: Query, value: Content.NativeViewport) -> Bool:
   Query{generation, owner, purpose, target} = query
   Content.NativeViewport{observed_generation, observed_owner, observed_purpose, observed_target, bounds} = value
   Nat.is_eq(generation, observed_generation) && String.eq(owner, observed_owner)
-    && Rules.same_purpose(purpose, observed_purpose)
+    && Measurements.same_purpose(purpose, observed_purpose)
     && String.eq(Source.target_key(target), Source.target_key(observed_target))
 
 def viewport(+query: Query, values: +List<Content.NativeViewport>) -> Maybe<&2, Content.NativeViewport>:
@@ -141,6 +140,7 @@ def targets(queries: +List<Query>, +native_roots: +List<Content.NativeRoot>, +pr
     case Nil{}: roots(native_roots, prepared, observations, viewports, generation, purpose)
 
 # Ownership comes from the immutable prepared physical tree, never request-carried roots.
+
 def rich_owner(values: +List<Model.Tree<Content.Value, Doc.DOMEvent>>, +owner: String) -> Bool:
   match values:
     case Nil{}: False{}
@@ -185,5 +185,5 @@ def resolve_valid(valid: Bool, +prepared: Content.Prepared, +request: Content.Re
     case True{}: prepared_resolution(prepared, request, observations, viewports)
 
 def resolve(+prepared: Content.Prepared, +request: Content.Request, +observations: +List<Content.Observation>, +viewports: +List<Content.NativeViewport>) -> NativeAllocation:
-  resolve_valid(rich_request(request) && Rules.same_request_owner(prepared_snapshot(prepared), request)
+  resolve_valid(rich_request(request) && Measurements.same_request_owner(prepared_snapshot(prepared), request)
     && rich_owner([prepared_tree(prepared)], request_key(request)), prepared, request, observations, viewports)

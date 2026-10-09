@@ -1,7 +1,6 @@
 import Base
 import ../reading/MODEL.bend as ReadingBinding
 import ../../interaction/IDENTITY.bend as Identity
-import ../../bendlib/stdlib.bend as Std
 import ../layout/GEOMETRY.bend as Spatial
 import ../layout/enclosure.bend as Enclosure
 import ../layout/physical-space.bend as Model
@@ -173,6 +172,7 @@ def physical_rule(style: ResolvedStyle) -> Model.Rule:
   Model.Rule{direction, main_alignment, cross_alignment, frame, border_width, width, height, minimum, scroll, position}
 
 # The toggle border paints an inner visual square; its native hit area has no border.
+
 def native_field_layout(kind: NativeFieldKind, +rule: Model.Rule) -> Model.Rule:
   match kind:
     case ToggleField{}:
@@ -282,5 +282,65 @@ def field_policy_valid(policy: FieldPolicy) -> Bool:
   Nat.is_le(1n, minimum_columns) && Nat.is_le(1n, minimum_lines) && Nat.is_le(minimum_lines, maximum_lines)
 
 # The extras encode strictly positive viewport minima and a nonnegative range.
+
 def field_policy(columns_extra: Nat, +lines_extra: Nat, additional_lines: Nat) -> FieldPolicy:
   FieldPolicy{1n+columns_extra, 1n+lines_extra, Nat.add(1n+lines_extra, additional_lines)}
+
+def native_code_direction_valid(direction: Model.Direction) -> Bool:
+  match direction:
+    case Model.Horizontal{}: False{}
+    case Model.Vertical{}: True{}
+    case Model.Layered{}: False{}
+    case Model.ResponsiveHorizontal{}: False{}
+
+def native_code_alignment_valid(alignment: Spatial.Alignment) -> Bool:
+  match alignment:
+    case Spatial.Stretch{}: False{}
+    case Spatial.Leading{}: True{}
+    case Spatial.Trailing{}: False{}
+    case Spatial.Centered{}: False{}
+
+def native_code_size_valid(size: Model.AxisSize) -> Bool:
+  match size:
+    case Model.NaturalSize{}: True{}
+    case Model.StretchSize{}: False{}
+    case Model.CappedStretchSize{maximum}: False{}
+    case Model.ExactSize{extent}: False{}
+    case Model.LimitedSize{minimum, preferred_extra, maximum_extra}: False{}
+    case Model.PercentSize{percent}: False{}
+    case Model.CappedNaturalSize{maximum_percent}: False{}
+    case Model.AdaptiveNaturalSize{preferred_maximum_percent}: False{}
+
+def native_code_scroll_valid(scroll: Model.Scroll) -> Bool:
+  match scroll:
+    case Model.Confined{}: True{}
+    case Model.ScrollHorizontally{}: False{}
+    case Model.ScrollVertically{}: False{}
+    case Model.ScrollBoth{}: False{}
+
+def native_code_position_valid(position: Spatial.Position) -> Bool:
+  match position:
+    case Spatial.InFlow{}: True{}
+    case Spatial.CenteredLayer{outside}: False{}
+    case Spatial.AlignedLayer{outside, horizontal, vertical}: False{}
+    case Spatial.AnchoredLayer{anchor_key, anchor, outside, gap, alignment}: False{}
+
+def native_code_layout_valid(layout: Layout) -> Bool:
+  Layout{direction, main_alignment, cross_alignment, +frame, width, height,
+    Enclosure.Extent{minimum_width, minimum_height}, scroll, position} = layout
+  native_code_direction_valid(direction)
+    && native_code_alignment_valid(main_alignment) && native_code_alignment_valid(cross_alignment)
+    && native_code_size_valid(width) && native_code_size_valid(height)
+    && Nat.is_eq(minimum_width, 0n) && Nat.is_eq(minimum_height, 0n)
+    && native_code_scroll_valid(scroll) && native_code_position_valid(position)
+    && Nat.is_eq(Enclosure.inline(Enclosure.frame_content(frame)), 0n)
+    && Nat.is_eq(Enclosure.block(Enclosure.frame_content(frame)), 0n)
+    && Nat.is_eq(Enclosure.frame_gap(frame), 0n)
+
+def native_code_chrome_valid(chrome: Design.Chrome) -> Bool:
+  Design.Chrome{foreground, background, border, border_width, radius, shadow} = chrome
+  Nat.is_eq(border_width, 0n)
+
+def native_code_policy_valid(style: ResolvedStyle) -> Bool:
+  ResolvedStyle{layout, font, chrome, states} = style
+  native_code_layout_valid(layout) && native_code_chrome_valid(chrome)

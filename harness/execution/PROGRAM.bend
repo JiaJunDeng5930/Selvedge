@@ -121,6 +121,7 @@ def hook_available(present: Bool, plugin: D.PluginRef, pending: +List<D.PluginRe
 
 # Every route crosses this boundary before internal/external classification and
 # argument validation. Each accepted rewrite is revalidated at the final gate.
+
 def chain(pending: +List<D.PluginRef>, +tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, +world: M.World()) -> Action:
   match pending:
     case Nil{}: available(T.available(catalog(world), tool), tool, call, remaining, task, world)
@@ -256,6 +257,7 @@ def defer(decision: M.Decision()) -> M.Decision():
 
 # Independent finite-run specification. Exhaustion is an explicit continuation,
 # not a termination/fairness claim about the remote model or operating system.
+
 def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -> M.Decision():
   match fuel candidate:
     case 0n None{}: decision

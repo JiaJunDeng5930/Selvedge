@@ -13,20 +13,12 @@ import ./session/PROOF.bend as ExistingProof
 import ../harness/CONTRACT.bend as Architecture
 import ./CONTRACT.bend as Contract
 import ../harness/conversation/PROOF.bend as Conversation
-import ./presentation/surface-laws.bend as SurfaceLaws
-import ./session/session-laws.bend as SessionLaws
-import ./submission/submission-laws.bend as SubmissionLaws
-import ./presentation/boundary-laws.bend as BoundaryLaws
-import ./presentation/composition-laws.bend as CompositionLaws
+import ./presentation/CONTRACT.bend as SurfaceLaws
+import ./submission/CONTRACT.bend as SubmissionLaws
 import ./conversation/CONTRACT.bend as ConversationPresentationLaws
-import ./presentation/board-presentation-laws.bend as BoardPresentationLaws
-import ./presentation/board-capability-laws.bend as BoardCapabilityLaws
-import ./services/context-laws.bend as ExecutionContextLaws
-import ./presentation/project-interaction-laws.bend as ProjectInteractionLaws
-import ./presentation/directory-entry-laws.bend as DirectoryEntryLaws
-import ./submission/feedback-laws.bend as SubmissionFeedbackLaws
+import ./services/CONTRACT.bend as ExecutionContextLaws
 import ./submission/PROOF.bend as CoreSubmissionProof
-import ./presentation/CONTRACT.bend as InterfaceRules
+import ./TYPES.bend as InteractionTypes
 
 def place_payload(path: String) ->
   {Identity.place(path) == Identity.Place{path} : Identity.Key}:
@@ -97,7 +89,7 @@ def lifted(decision: E.Decision, services: Services.State) ->
   {==}
 
 def runtime_input(+input: M.Input, +program: M.World(), +session: E.Session, services: Services.State) ->
-  {Core.runtime(Core.step(Core.ApplicationInput{E.RuntimeInput{input}}, Core.State{E.Application{program, session}, services})) ==
+  {Core.runtime(Core.step(InteractionTypes.ApplicationInput{E.RuntimeInput{input}}, InteractionTypes.State{E.Application{program, session}, services})) ==
     Program.transition(input, program) : M.Decision()}:
   Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = services
   Equal.trans(M.Decision(),
@@ -109,26 +101,26 @@ def runtime_input(+input: M.Input, +program: M.World(), +session: E.Session, ser
 def Architecture.surface():
   Contract.Requirements{
     Contract.Interaction{
-      SurfaceLaws.evidence(),
-      SessionLaws.evidence(),
-      BoundaryLaws.evidence(),
-      CompositionLaws.evidence()},
+      SurfaceLaws.surface_evidence(),
+      Existing.evidence(),
+      SurfaceLaws.boundary_evidence(),
+      SurfaceLaws.composition_evidence()},
     Contract.Drafts{
-      SubmissionLaws.evidence(),
-      SubmissionFeedbackLaws.evidence(),
+      SubmissionLaws.submission_evidence(),
+      SubmissionLaws.feedback_evidence(),
       CoreSubmissionProof.reopen_evidence(),
       task => text => previous => selected => world => {==},
       directory_entry => revision => body => feedback => submitted => reply => {==},
       revision => title => description => stage => priority => owner => project => labels => attachments => assist => profile => {==}},
     Contract.Presentation{
       ConversationPresentationLaws.evidence(),
-      BoardPresentationLaws.evidence(),
+      SurfaceLaws.board_presentation_evidence(),
       reader => task => world => Conversation.timeline_history(reader, task, world),
       messages => offset => task => disclosures => Conversation.observed_text(messages, offset, task, disclosures)},
     Contract.Capabilities{
-      BoardCapabilityLaws.evidence(),
-      ExecutionContextLaws.evidence(),
-      ProjectInteractionLaws.evidence(),
-      DirectoryEntryLaws.evidence()},
+      SurfaceLaws.board_capability_evidence(),
+      ExecutionContextLaws.context_evidence(),
+      SurfaceLaws.project_interaction_evidence(),
+      SurfaceLaws.directory_entry_evidence()},
     input => program => session => services => runtime_input(input, program, session, services),
-    capacity => +state => InterfaceRules.assembled_content(Core.observe(capacity, state), state)}
+    capacity => +state => SurfaceLaws.assembled_content(Core.observe(capacity, state), state)}

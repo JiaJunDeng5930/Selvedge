@@ -50,10 +50,12 @@ The source tree groups execution semantics in [harness](harness/README.md),
 independent capabilities in [features](features/README.md), platform-independent
 interaction in [interaction](interaction/README.md), and browser implementation in
 [browser](browser/README.md). Concept directories stay at most two levels deep;
-local proofs are collected beside their definitions in each concept's `PROOF.bend`,
-with independent evidence retained where cross-concept imports require it.
+contracts and proofs sit beside their owning concepts and group complete
+responsibilities. Concept `PROOF.bend` entries assemble the evidence they need,
+and the root proof entry imports the production providers.
 [ADR 0029](docs/adr/0029-shallow-concept-directories.md) records the directory organization;
-[ADR 0030](docs/adr/0030-concept-local-proof-providers.md) explains proof consolidation.
+[ADR 0031](docs/adr/0031-public-vocabulary-and-proof-boundaries.md) explains the public
+vocabulary and proof boundaries.
 
 ## Component changes and proof reuse
 
@@ -63,9 +65,13 @@ checks and proof composition. Adding a feature extends that assembly and the
 feature's own contracts. A shared-resource or scheduling change still requires
 its actual interaction proof.
 
-Follow [interaction/MODEL.bend](interaction/MODEL.bend) and [interaction/presentation/PROGRAM.bend](interaction/presentation/PROGRAM.bend) for
-the semantic interface, and [harness/features/CODEC.bend](harness/features/CODEC.bend)
-for feature command encoding.
+Follow [interaction/MODEL.bend](interaction/MODEL.bend) for application interaction
+and [interaction/TYPES.bend](interaction/TYPES.bend) for its input, state and
+observation vocabulary. Presentation separates [scene vocabulary](interaction/presentation/MODEL.bend),
+[node and gesture vocabulary](interaction/presentation/SURFACE.bend),
+[scene generation](interaction/presentation/VIEW.bend), and
+[surface behavior](interaction/presentation/PROGRAM.bend).
+[harness/features/CODEC.bend](harness/features/CODEC.bend) encodes feature commands.
 
 `bun run check:components` checks actual source dependencies, private feature
 patterns, and construction or pattern matching of declared private model

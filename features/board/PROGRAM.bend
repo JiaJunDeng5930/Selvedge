@@ -7,7 +7,6 @@ import ./MODEL.bend as B
 import ../../harness/MODEL.bend as M
 import ./STATE.bend as S
 import ./resolution.bend as R
-import ./CODEC.bend as Codec
 import ../../bendlib/json.bend as J
 import ../../harness/tasks/PROGRAM.bend as T
 
@@ -55,6 +54,7 @@ def change(change: R.Change, +world: M.World()) -> M.Decision():
 
 # Called only after the existing accepted Start operation. The same atomic
 # native decision contains task birth and the new card association.
+
 def started(+id: Nat, +task_id: Nat, +card: B.Card, now: U32, decision: M.Decision()) -> M.Decision():
   C.Decision{+world, ignored, effects} = decision
   C.Decision{S.store(B.put(id, B.linked(task_id, card, now), S.registry(world), B.next_card(S.registry(world))), world),
