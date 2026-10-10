@@ -53,6 +53,7 @@ import ./browser/runtime/platform-proof.bend as PlatformProof
 import ./browser/PROOF.bend as BrowserProof
 import ./browser/runtime/SEMANTICS.bend as Semantics
 import ./browser/runtime/PROOF.bend as RuntimeProof
+import ./browser/controls/PROOF.bend as ControlsProof
 
 # Bind the execution interface to its production operations and proofs.
 def execution_model() -> Model.Execution<M.World(), M.Decision()>:

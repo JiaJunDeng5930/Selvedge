@@ -1,4 +1,5 @@
 import Base
+import ../appearance/PROGRAM.bend as Paint
 import ../document/SOURCE.bend as Source
 import ./physical-space.bend as Model
 import ../document/MODEL.bend as Doc
@@ -263,3 +264,93 @@ def RulePhysicalControlRules.unbroken_render(capacity,key,text,choice,font,bound
 def RulePhysicalControlRules.unbroken_metric(metric):
   match metric:
     case T.Metric{key,minimum,preferred,height,advance}: {==}
+
+
+def centered_drawing_offset(+available: Nat, +size: Nat) ->
+  {Renderer.drawing_offset(SpatialModel.Centered{}, available, size) == Nat.div(Nat.sub(available, size), 2n) : Nat}:
+  {==}
+
+def centered_drawing_styles(+key: Identity.Key, +value: Source.Drawing, +bounds: SpatialModel.Box,
+  +direction: Model.Direction, +frame: E.Frame, +border: Nat, +width_rule: Model.AxisSize,
+  +height_rule: Model.AxisSize, +minimum: E.Extent, +scroll: Model.Scroll, +position: SpatialModel.Position,
+  fits: {RulePhysicalControlRules.drawing_fits(value, bounds,
+    RulePhysicalControlRules.centered_drawing_rule(direction, frame, border, width_rule, height_rule, minimum, scroll, position)) == True{} : Bool}) ->
+  RulePhysicalControlRules.centered_drawing_styles_claim(key, value, bounds, direction, frame, border, width_rule, height_rule, minimum, scroll, position):
+  Source.Drawing{+view_box, +paths, +width, +height, +paint} = value
+  SpatialModel.Box{left, top, +outer_width, +outer_height} = bounds
+  match direction:
+    case Model.Horizontal{}:
+      +insets = E.frame_content(frame)
+      +inner_width = Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, E.inline(insets))))
+      +inner_height = Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, E.block(insets))))
+      +styles: +List<Doc.Property> = [Doc.Property{"position", "absolute"},
+        Doc.Property{"left", Paint.px(Nat.add(E.inline(insets), Nat.div(Nat.sub(inner_width, width), 2n)))},
+        Doc.Property{"top", Paint.px(Nat.add(E.block(insets), Nat.div(Nat.sub(inner_height, height), 2n)))},
+        Doc.Property{"width", Paint.px(width)}, Doc.Property{"height", Paint.px(height)}]
+      +rendered: Doc.Node = Doc.Element{Identity.encode(Identity.part(key, "svg")), "svg",
+        Paint.property("viewBox", view_box) <> Paint.property("aria-hidden", "true") <> Renderer.drawing_paint(paint),
+        [Paint.property("position", "absolute"),
+         Paint.property("left", Paint.px(Nat.add(E.inline(insets), Renderer.drawing_offset(Renderer.drawing_inline_alignment(Model.Horizontal{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_width, width)))),
+         Paint.property("top", Paint.px(Nat.add(E.block(insets), Renderer.drawing_offset(Renderer.drawing_block_alignment(Model.Horizontal{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_height, height)))),
+         Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height))], Nil{}, Renderer.paths(paths, key)}
+      backwards = Equal.sym(Bool, Nat.is_le(width, inner_width) && Nat.is_le(height, inner_height), True{}, fits)
+      %backwards : {RulePhysicalControlRules.drawing_styles(Renderer.choose(Doc.Node, _, rendered,
+        Renderer.diagnostic(key, "drawing-exceeds-allocated-content"))) == styles : +List<Doc.Property>}
+      {==}
+    case Model.Vertical{}:
+      +insets = E.frame_content(frame)
+      +inner_width = Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, E.inline(insets))))
+      +inner_height = Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, E.block(insets))))
+      +styles: +List<Doc.Property> = [Doc.Property{"position", "absolute"},
+        Doc.Property{"left", Paint.px(Nat.add(E.inline(insets), Nat.div(Nat.sub(inner_width, width), 2n)))},
+        Doc.Property{"top", Paint.px(Nat.add(E.block(insets), Nat.div(Nat.sub(inner_height, height), 2n)))},
+        Doc.Property{"width", Paint.px(width)}, Doc.Property{"height", Paint.px(height)}]
+      +rendered: Doc.Node = Doc.Element{Identity.encode(Identity.part(key, "svg")), "svg",
+        Paint.property("viewBox", view_box) <> Paint.property("aria-hidden", "true") <> Renderer.drawing_paint(paint),
+        [Paint.property("position", "absolute"),
+         Paint.property("left", Paint.px(Nat.add(E.inline(insets), Renderer.drawing_offset(Renderer.drawing_inline_alignment(Model.Vertical{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_width, width)))),
+         Paint.property("top", Paint.px(Nat.add(E.block(insets), Renderer.drawing_offset(Renderer.drawing_block_alignment(Model.Vertical{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_height, height)))),
+         Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height))], Nil{}, Renderer.paths(paths, key)}
+      backwards = Equal.sym(Bool, Nat.is_le(width, inner_width) && Nat.is_le(height, inner_height), True{}, fits)
+      %backwards : {RulePhysicalControlRules.drawing_styles(Renderer.choose(Doc.Node, _, rendered,
+        Renderer.diagnostic(key, "drawing-exceeds-allocated-content"))) == styles : +List<Doc.Property>}
+      {==}
+    case Model.Layered{}:
+      +insets = E.frame_content(frame)
+      +inner_width = Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, E.inline(insets))))
+      +inner_height = Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, E.block(insets))))
+      +styles: +List<Doc.Property> = [Doc.Property{"position", "absolute"},
+        Doc.Property{"left", Paint.px(Nat.add(E.inline(insets), Nat.div(Nat.sub(inner_width, width), 2n)))},
+        Doc.Property{"top", Paint.px(Nat.add(E.block(insets), Nat.div(Nat.sub(inner_height, height), 2n)))},
+        Doc.Property{"width", Paint.px(width)}, Doc.Property{"height", Paint.px(height)}]
+      +rendered: Doc.Node = Doc.Element{Identity.encode(Identity.part(key, "svg")), "svg",
+        Paint.property("viewBox", view_box) <> Paint.property("aria-hidden", "true") <> Renderer.drawing_paint(paint),
+        [Paint.property("position", "absolute"),
+         Paint.property("left", Paint.px(Nat.add(E.inline(insets), Renderer.drawing_offset(Renderer.drawing_inline_alignment(Model.Layered{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_width, width)))),
+         Paint.property("top", Paint.px(Nat.add(E.block(insets), Renderer.drawing_offset(Renderer.drawing_block_alignment(Model.Layered{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_height, height)))),
+         Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height))], Nil{}, Renderer.paths(paths, key)}
+      backwards = Equal.sym(Bool, Nat.is_le(width, inner_width) && Nat.is_le(height, inner_height), True{}, fits)
+      %backwards : {RulePhysicalControlRules.drawing_styles(Renderer.choose(Doc.Node, _, rendered,
+        Renderer.diagnostic(key, "drawing-exceeds-allocated-content"))) == styles : +List<Doc.Property>}
+      {==}
+    case Model.ResponsiveHorizontal{}:
+      +insets = E.frame_content(frame)
+      +inner_width = Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, E.inline(insets))))
+      +inner_height = Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, E.block(insets))))
+      +styles: +List<Doc.Property> = [Doc.Property{"position", "absolute"},
+        Doc.Property{"left", Paint.px(Nat.add(E.inline(insets), Nat.div(Nat.sub(inner_width, width), 2n)))},
+        Doc.Property{"top", Paint.px(Nat.add(E.block(insets), Nat.div(Nat.sub(inner_height, height), 2n)))},
+        Doc.Property{"width", Paint.px(width)}, Doc.Property{"height", Paint.px(height)}]
+      +rendered: Doc.Node = Doc.Element{Identity.encode(Identity.part(key, "svg")), "svg",
+        Paint.property("viewBox", view_box) <> Paint.property("aria-hidden", "true") <> Renderer.drawing_paint(paint),
+        [Paint.property("position", "absolute"),
+         Paint.property("left", Paint.px(Nat.add(E.inline(insets), Renderer.drawing_offset(Renderer.drawing_inline_alignment(Model.ResponsiveHorizontal{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_width, width)))),
+         Paint.property("top", Paint.px(Nat.add(E.block(insets), Renderer.drawing_offset(Renderer.drawing_block_alignment(Model.ResponsiveHorizontal{}, SpatialModel.Centered{}, SpatialModel.Centered{}), inner_height, height)))),
+         Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height))], Nil{}, Renderer.paths(paths, key)}
+      backwards = Equal.sym(Bool, Nat.is_le(width, inner_width) && Nat.is_le(height, inner_height), True{}, fits)
+      %backwards : {RulePhysicalControlRules.drawing_styles(Renderer.choose(Doc.Node, _, rendered,
+        Renderer.diagnostic(key, "drawing-exceeds-allocated-content"))) == styles : +List<Doc.Property>}
+      {==}
+
+def RulePhysicalControlRules.centered_drawing_evidence():
+  RulePhysicalControlRules.CenteredDrawingRequirements{centered_drawing_offset, centered_drawing_styles}

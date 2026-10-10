@@ -1344,3 +1344,28 @@ type FormInputRequirements is Type:
 
 law form_input_evidence:
   FormInputRequirements
+
+# Every value of the icon button grammar is interpreted by the production control path.
+
+def icon_button_centered_law(+button: A.IconButton) -> Type:
+  {A.icon_button_centered(A.icon_button_source(button)) == True{} : Bool}
+
+def icon_button_adoption_law(+button: A.IconButton) -> Type:
+  A.IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response} = button
+  {A.action(key, visual, Controls.Action{input, availability, name, Controls.IconFace{icon}, state, geometry, placement, assistance, response}) == A.icon_button_source(button) : S.Node}
+
+def icon_button_replace_icon_law(+button: A.IconButton, icon: Controls.Icon) -> Type:
+  icon_button_centered_law(A.icon_button_replace_icon(button, icon))
+
+def icon_button_resize_law(+button: A.IconButton, geometry: Controls.Geometry) -> Type:
+  icon_button_centered_law(A.icon_button_resize(button, geometry))
+
+type IconButtonRequirements is Type:
+  IconButtonRequirements{
+    centered: @+button:A.IconButton -> icon_button_centered_law(button),
+    adoption: @+button:A.IconButton -> icon_button_adoption_law(button),
+    replace_icon: @+button:A.IconButton -> @icon:Controls.Icon -> icon_button_replace_icon_law(button, icon),
+    resize: @+button:A.IconButton -> @geometry:Controls.Geometry -> icon_button_resize_law(button, geometry)}
+
+law icon_button_evidence:
+  IconButtonRequirements

@@ -1379,3 +1379,33 @@ application and display factories remain in the runtime proof; the root connects
 them through the shared opaque carrier. This division keeps concrete evidence
 construction separate from generic model use without claiming that all existing
 modules are compiler-private.
+
+## 2026-10-10: controlled icon-button construction
+
+This small experiment chooses a dedicated `AuthoredControls.IconButton` Data
+syntax and a single source interpreter, rather than allowing arbitrary layout
+or offsets in its inputs. Universal production-bound obligations are the chosen
+way to cover instances, icon replacement and resizing without caller proofs.
+The reason to group these parts is their common action purpose and preserving
+operations, not classification alone. [ADR 0033](adr/0033-controlled-icon-button-construction.md)
+records the choice; executable contracts remain the source of requirements.
+
+The geometric target is the existing rounded half of remaining space, including
+content insets for drawing positions and the existing fit premise. An oversized
+drawing retains its diagnostic. This scope adds no claim about optical ink
+centering or actual browser DOM bounds, and does not migrate all controls or
+make all general Source buttons private. This entry records the fixed experiment
+scope.
+
+The root proof reported `ALL PROOFS CHECK`, and `scripts/check.mjs` passed.
+Both icon-button boundary tests passed: the real client returned `True`, an
+arbitrary `Source.Node` was rejected by type checking, and otherwise type-correct
+button, glyph and SVG-offset mutations were rejected by their named production
+obligations. The architecture and UI-verification checks also passed all eight
+tests. These results do not establish locality or full-suite completion.
+
+The first button mutation was accepted because the root proof did not import
+the controls proof provider. Explicitly assembling that provider in the root
+made the repeated mutation fail its obligation. A valid local proof does not
+protect production when the production evidence entry never includes it;
+mutation checks exposed this assembly gap.

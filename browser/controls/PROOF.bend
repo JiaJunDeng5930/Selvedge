@@ -1303,3 +1303,23 @@ def Rule.context_control_evidence():
     {==},
     {==},
     +profile => {==}}
+
+def icon_button_centered(+button: A.IconButton) -> Rule.icon_button_centered_law(button):
+  A.IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response} = button
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual
+  Design.Chrome{foreground, background, border, border_width, radius, shadow} = chrome
+  Controls.Geometry{demand, size, geometry_radius, leading} = geometry
+  Space.Demand{minimum, preferred} = demand
+  Enclosure.Extent{width, height} = minimum
+  {==}
+
+def icon_button_adoption(+button: A.IconButton) -> Rule.icon_button_adoption_law(button):
+  A.IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response} = button
+  {==}
+
+def Rule.icon_button_evidence():
+  Rule.IconButtonRequirements{
+    icon_button_centered,
+    icon_button_adoption,
+    +button => icon => icon_button_centered(A.icon_button_replace_icon(button, icon)),
+    +button => geometry => icon_button_centered(A.icon_button_resize(button, geometry))}

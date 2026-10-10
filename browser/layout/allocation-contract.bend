@@ -331,3 +331,8 @@ law height_evidence:
   for ~A: Data
   for ~E: Data
   HeightRequirements<A, E>
+
+
+law centered_allocation_offset:
+  for +unused: Nat
+  {Allocation.alignment_offset(Spatial.Centered{}, unused) == Nat.div(unused, 2n) : Nat}

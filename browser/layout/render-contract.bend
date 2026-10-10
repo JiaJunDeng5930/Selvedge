@@ -540,3 +540,51 @@ type RendererRequirements is Type:
 
 law renderer_evidence:
   RendererRequirements
+
+
+def drawing_styles(node: Doc.Node) -> +List<Doc.Property>:
+  match node:
+    case Doc.Element{key, tag, attrs, styles, events, children}: styles
+    case _: Nil{}
+
+def centered_drawing_rule(direction: Model.Direction, frame: Enclosure.Frame, border: Nat,
+  width: Model.AxisSize, height: Model.AxisSize, minimum: Enclosure.Extent,
+  scroll: Model.Scroll, position: Spatial.Position) -> Model.Rule:
+  Model.Rule{direction, Spatial.Centered{}, Spatial.Centered{}, frame, border, width, height, minimum, scroll, position}
+
+def drawing_fits(+value: Source.Drawing, +bounds: Spatial.Box, rule: Model.Rule) -> Bool:
+  Source.Drawing{view_box, paths, +width, +height, paint} = value
+  Spatial.Box{left, top, +outer_width, +outer_height} = bounds
+  Model.Rule{direction, main, cross, +frame, +border, width_rule, height_rule, minimum, scroll, position} = rule
+  +insets = Enclosure.frame_content(frame)
+  Nat.is_le(width, Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, Enclosure.inline(insets))))) &&
+    Nat.is_le(height, Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, Enclosure.block(insets)))))
+
+def centered_drawing_styles_claim(+key: UIIdentity.Key, +value: Source.Drawing, +bounds: Spatial.Box,
+  +direction: Model.Direction, +frame: Enclosure.Frame, +border: Nat, +width_rule: Model.AxisSize,
+  +height_rule: Model.AxisSize, +minimum: Enclosure.Extent, +scroll: Model.Scroll, +position: Spatial.Position) -> Type:
+  Source.Drawing{view_box, paths, +width, +height, paint} = value
+  Spatial.Box{left, top, +outer_width, +outer_height} = bounds
+  +insets = Enclosure.frame_content(frame)
+  +inner_width = Nat.sub(outer_width, Nat.mul(2n, Nat.add(border, Enclosure.inline(insets))))
+  +inner_height = Nat.sub(outer_height, Nat.mul(2n, Nat.add(border, Enclosure.block(insets))))
+  {drawing_styles(Renderer.drawing(key, value, bounds,
+      centered_drawing_rule(direction, frame, border, width_rule, height_rule, minimum, scroll, position))) ==
+    [Paint.property("position", "absolute"),
+     Paint.property("left", Paint.px(Nat.add(Enclosure.inline(insets), Nat.div(Nat.sub(inner_width, width), 2n)))),
+     Paint.property("top", Paint.px(Nat.add(Enclosure.block(insets), Nat.div(Nat.sub(inner_height, height), 2n)))),
+     Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height))] : +List<Doc.Property>}
+
+type CenteredDrawingRequirements is Type:
+  CenteredDrawingRequirements{
+    offset: @+available:Nat -> @+size:Nat ->
+      {Renderer.drawing_offset(Spatial.Centered{}, available, size) == Nat.div(Nat.sub(available, size), 2n) : Nat},
+    rendered: @+key:UIIdentity.Key -> @+value:Source.Drawing -> @+bounds:Spatial.Box ->
+      @+direction:Model.Direction -> @+frame:Enclosure.Frame -> @+border:Nat ->
+      @+width_rule:Model.AxisSize -> @+height_rule:Model.AxisSize -> @+minimum:Enclosure.Extent ->
+      @+scroll:Model.Scroll -> @+position:Spatial.Position ->
+      @fits:{drawing_fits(value, bounds, centered_drawing_rule(direction, frame, border, width_rule, height_rule, minimum, scroll, position)) == True{} : Bool} ->
+      centered_drawing_styles_claim(key, value, bounds, direction, frame, border, width_rule, height_rule, minimum, scroll, position)}
+
+law centered_drawing_evidence:
+  CenteredDrawingRequirements
