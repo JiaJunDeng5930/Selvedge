@@ -10,6 +10,7 @@ boundary faults rather than repeat proved finite state-transition examples.
 | --- | --- |
 | Missing, false, circular, unsafe or corrupted proof evidence | `pure-proof.test.mjs`, `proof-gate.test.mjs`, `whole-program-proof.test.mjs` |
 | Specification import independence, IO-only native entry, proof-carrying conceptual entry and acyclic proof dependencies | `architecture.test.mjs` |
+| Generic clients execute the production model and use its laws without concrete state; the compiler rejects matching hidden execution and application carriers as implementation constructors | `model-abstraction.test.mjs` |
 | Certificate translation rejection and compiler rejection of mutated algebra, map and closure evidence | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
 | Production board/reasoning mutations remain type-correct and fail their obligations | `board-proof.test.mjs`, `reasoning-proof.test.mjs` |
 | Component extension and contract-preserving replacement with unrelated source files frozen; native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |

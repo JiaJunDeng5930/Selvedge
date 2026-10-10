@@ -9,12 +9,12 @@ import ./harness/workspace/CONTRACT.bend as Workspace
 import ./CONCEPTS.bend as Entry
 import ./harness/reasoning/PROOF.bend as ReasoningProof
 import ./harness/tasks/PROOF.bend as TasksProof
-import ./harness/PROOF.bend as LocalityProof
 import ./features/board/PROOF.bend as BoardProof
 import ./harness/features/laws.bend as FeatureLaws
 import ./harness/protocol/PROOF.bend as ProtocolProof
 import ./harness/execution/PROOF.bend as ExecutionProof
 import ./harness/protocol/commit-proof.bend as CommitProof
+import ./harness/PROOF.bend as LocalityProof
 import ./harness/history/PROOF.bend as TracesProof
 import ./harness/transport/CONTRACT.bend as JsonRenderRules
 import ./harness/transport/PROOF.bend as FrontendProof
@@ -42,6 +42,34 @@ import ./interaction/services/PROOF.bend as CoreExecutionContextProof
 import ./interaction/session/PROOF.bend as CoreSessionProof
 import ./interaction/PROOF.bend as UIProof
 
+import ./MODEL.bend as Model
+import ./harness/MODEL.bend as M
+import ./harness/PROGRAM.bend as Program
+import ./harness/INVARIANTS.bend as Invariants
+import ./browser/editor/PROOF.bend as EditorProof
+import ./browser/focus/PROOF.bend as FocusProof
+import ./browser/reading/PROOF.bend as ReadingProof
+import ./browser/runtime/platform-proof.bend as PlatformProof
+import ./browser/PROOF.bend as BrowserProof
+import ./browser/runtime/SEMANTICS.bend as Semantics
+import ./browser/runtime/PROOF.bend as RuntimeProof
+
+# Bind the execution interface to its production operations and proofs.
+def execution_model() -> Model.Execution<M.World(), M.Decision()>:
+  Model.Execution{
+    M.initial(), world => Invariants.world(world), input => world => Program.transition(input, world),
+    input => world => Concepts.interaction_specification(input, world), decision => Program.decision_world(decision),
+    decision => Program.decision_reply(decision), decision => Program.decision_effects(decision), input => M.durable(input),
+    Laws.initial_world_valid(),
+    state => input => valid => Laws.transition_preserves_world(state, input, valid),
+    input => state => Laws.interaction_transition(input, state),
+    query => state => Laws.observation_preserves_world(query, state),
+    query => state => Laws.observation_has_no_effects(query, state),
+    query => Laws.observation_not_durable(query),
+    events => state => Program.replay(events, state),
+    events => state => valid => Laws.replay_preserves_world(events, state, valid),
+    query => first => second => state => Laws.observation_replay(query, first, second, state)}
+
 # Assemble the conceptual program only after every local obligation is closed.
 def Entry.harness():
   Entry.Harness{
@@ -67,3 +95,9 @@ def json_render_evidence() -> JsonRenderRules.JsonRenderRequirements:
 
 def profile_evidence() -> JsonRenderRules.ProfileRequirements:
   JsonRenderRules.profile_evidence()
+
+def Model.system():
+  (M.World(), (M.Decision(), Model.System{
+    execution_model(),
+    (Semantics.State, (Semantics.Input, (Semantics.Decision, (Semantics.Pending, (Semantics.Effect,
+      Model.Interface{RuntimeProof.application_model(), RuntimeProof.display_model()})))))}))

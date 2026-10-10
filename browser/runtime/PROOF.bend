@@ -1,4 +1,6 @@
 import Base
+import ../../MODEL.bend as Model
+import ../document/MODEL.bend as Document
 import ./SEMANTICS.bend as Browser
 import ./CONTRACT.bend as Rule
 import ../../interaction/submission/MODEL.bend as Receipt
@@ -904,3 +906,58 @@ def Rule.request_evidence():
     revision => body => feedback => directory_entry => submitted => reason => {==},
     state_uncertain_evidence,
     id => message => {==}}
+
+# Bind the application and display interfaces beside their representations.
+def application_state(decision: Browser.Decision) -> Browser.State:
+  Browser.Decision{state, effects} = decision
+  state
+
+def application_effects(decision: Browser.Decision) -> +List<Browser.Effect>:
+  Browser.Decision{state, effects} = decision
+  effects
+
+def display_effects(decision: BrowserModel.Decision) -> +List<Browser.Effect>:
+  BrowserModel.Decision{state, effects} = decision
+  effects
+
+def completion_dispatch(+ticket: Nat, +serial: Nat, +world: M.World(), +reply: J.Json, +state: Browser.State) ->
+  {Browser.step(Browser.Completed{ticket, serial, world, reply}, state) ==
+    Browser.completed(Browser.find(Browser.pending(state), ticket), serial, world, reply, state) : Browser.Decision}:
+  match state:
+    case Browser.State{web, sequence, next, pending, receipt}: {==}
+
+def application_model() -> Model.Application<M.World(), Browser.State, Browser.Input, Browser.Decision, Browser.Pending, Browser.Effect>:
+  Model.Application{
+    world => serial => Browser.initial(world, serial),
+    user => Browser.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.UserInput{user}}}}}},
+    serial => world => Browser.Snapshot{serial, world},
+    ticket => serial => world => reply => Browser.Completed{ticket, serial, world, reply},
+    input => state => Browser.step(input, state), decision => application_state(decision), decision => application_effects(decision),
+    state => effects => Browser.Decision{state, effects},
+    state => Browser.program(state), state => Browser.sequence(state),
+    ticket => state => Browser.find(Browser.pending(state), ticket),
+    serial => world => state => Browser.snapshot(serial, world, state),
+    found => serial => world => reply => state => Browser.completed(found, serial, world, reply, state),
+    capacity => state => Browser.semantic_surface(capacity, state),
+    world => serial => {==},
+    serial => world => state => {==},
+    ticket => serial => world => reply => state => completion_dispatch(ticket, serial, world, reply, state),
+    serial => world => state => stale => stale_snapshot(serial, world, state, stale),
+    serial => world => reply => state => {==}}
+
+def display_model() -> Model.DisplayModel(M.World(), Browser.State, Browser.Input, Browser.Effect,
+  world => serial => Browser.initial(world, serial), state => Browser.program(state)):
+  (BrowserModel.State, (BrowserModel.Decision, (BrowserModel.Publication,
+    (+List<Native.Update>, (Document.Document,
+      Model.Display{
+        world => serial => BrowserModel.initial(world, serial), state => BrowserModel.legacy(state),
+        state => BrowserModel.program(state),
+        input => state => BrowserModel.step(input, state), decision => BrowserModel.decision_state(decision),
+        decision => display_effects(decision), capacity => state => BrowserModel.observe(capacity, state),
+        capacity => last => state => BrowserModel.publication(capacity, last, state),
+        state => Rule.publication_pending(state),
+        state => BrowserModel.native_updates(state), fields => BrowserModel.KeepPublished{fields},
+        world => serial => {==},
+        state => {==},
+        capacity => last => state => published => pending =>
+          publication_preserves_pending_at(capacity, last, state, published, pending)})))))

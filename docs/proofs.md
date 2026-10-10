@@ -1,4 +1,21 @@
-# Local proof boundaries
+# Operational model and local proof boundaries
+
+The root [MODEL.bend](../MODEL.bend) is the default model context. Its
+`Execution`, `Application`, and `Display` records carry operations and universal
+properties of those exact fields. `SystemModel` connects them through one hidden
+`World`, with nested packages hiding the other state and result carriers. Generic
+clients use operations, projections, observations, and proof fields; they cannot
+match an abstract state carrier as a concrete implementation constructor.
+Commands and observations retain their transparent public vocabulary.
+
+The root [PROOF.bend](../PROOF.bend) supplies the concrete instance using actual
+production functions and existing evidence. Full-result equations retain the
+reply and effect obligations of the underlying contracts; equality of a state
+projection alone would not establish them. The package supplies a surface for
+reasoning without opening representations, while the concrete proof providers
+remain responsible for their representation-specific obligations. This does not
+claim compiler-enforced privacy for all existing modules. See
+[ADR 0032](adr/0032-operational-model-abstraction.md) for the rationale.
 
 The component-local providers `../harness/tasks/PROOF.bend` and `../harness/reasoning/PROOF.bend`
 quantify over unknown surrounding state and effect types. The application
@@ -31,8 +48,9 @@ Preservation is scoped to the component operation that owns it. A law quantifyin
 over all future feature events while freezing their entire state would prevent
 legitimate extensions.
 
-The root [PROOF.bend](../PROOF.bend) assembles `CONCEPTS.Harness` and imports all
-production providers. Local proof units group complete responsibilities beside
+The root [PROOF.bend](../PROOF.bend) also retains the `CONCEPTS.Harness`
+composition and imports all production providers. [CONCEPTS.bend](../CONCEPTS.bend)
+is a detailed evidence-composition entry rather than the overall operational model. Local proof units group complete responsibilities beside
 their owning concepts. A concept's `PROOF.bend` retains the aggregate evidence its
 clients need; it need not import every local provider if that would create a
 backedge. Contract composition still requires each responsibility's evidence.

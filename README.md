@@ -15,35 +15,43 @@ Workspace.
 
 ## Read the program
 
-Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
-object organized by meaning, composition, recovery and observation. It contains
-no implementation functions. `harness/CONTRACT.bend` binds these concepts to
-the exact production operations and existing list, finite-map, iteration and
-relation theories. The entry carries the domain correspondence and required
-premises, not a parallel hierarchy of project-owned general algebra.
+Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
+system. `Execution`, `Application`, and `Display` expose operations and universally
+quantified properties bound to those same operation fields. `SystemModel` packages
+the layers around a shared, hidden `World`; its nested packages hide their state
+and result carriers. A generic client can initialize, advance, observe, and reason
+about the system through these fields without matching its internal state
+constructors. Public command and observation vocabulary remains transparent.
 
-[harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means. Its resolver owns
-the preconditions and produces an operation whose meaning fixes the complete
+[PROOF.bend](PROOF.bend) instantiates this interface with the actual production
+functions and their existing proofs. For representation-independent reasoning,
+read `MODEL.bend` before opening the implementation modules. This package boundary
+does not make every existing module private: concrete adapters and
+representation-specific proofs still inspect concrete state in their own modules.
+[ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the choice.
+
+For detailed execution requirements,
+[harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means.
+Its resolver owns the preconditions and produces an operation whose meaning fixes the complete
 post-state, reply, and effects. [harness/MODEL.bend](harness/MODEL.bend) assembles the client
 vocabulary and system state. Task-domain values and policy primitives live in
 `harness/DOMAIN.bend`; [harness/features/MODEL.bend](harness/features/MODEL.bend) assembles independent feature
 state and input types. These entries distinguish component contracts from their
 application-wide composition.
 
-Follow each model's named state observations and updates before its private
-representation. Upper models compose those operations; lower aggregate state
-constructors belong to their declared implementation and representation-proof
-owners. Public command and view values, including `Board.AgentProfile`, remain
-transparent so callers can inspect and construct the vocabulary they exchange.
-The reasons for this boundary are recorded in
-[ADR 0028](docs/adr/0028-model-representation-boundaries.md).
+Within a concrete component, follow named observations and updates before its
+representation. Aggregate state constructors belong to their declared
+implementation and representation-proof owners. Public values, including
+`Board.AgentProfile`, remain available to their callers. The component boundaries
+are described in [ADR 0028](docs/adr/0028-model-representation-boundaries.md).
 
 For implementation/proof details, [harness/PROGRAM.bend](harness/PROGRAM.bend) realizes the
 operations and runs bounded scheduling. [harness/LAWS.bend](harness/LAWS.bend) states the exact
 command, scheduling, commit and dispatch equations, as well as safety and trace
 properties. [PROOF.bend](PROOF.bend) assembles the local proofs in
-the owning concept directories; their explicit dependency graph follows the
-semantic boundaries. See [the proof guide](docs/proofs.md).
+the owning concept directories and supplies the operational model instance.
+[CONCEPTS.bend](CONCEPTS.bend) retains the detailed `Harness` proof composition
+for inspecting that evidence. See [the proof guide](docs/proofs.md).
 See [harness/INVARIANTS.bend](harness/INVARIANTS.bend) for the validity predicates.
 
 The source tree groups execution semantics in [harness](harness/README.md),

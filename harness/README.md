@@ -2,7 +2,9 @@
 
 Resolves commands, composes task and feature state, and executes bounded transitions.
 
-Start with [MODEL.bend](MODEL.bend), [COMMANDS.bend](COMMANDS.bend), [CONTRACT.bend](CONTRACT.bend), [PROGRAM.bend](PROGRAM.bend).
+For the representation-independent execution interface, start with the root
+[MODEL.bend](../MODEL.bend). Its production binding is supplied by the root proof.
+For concrete harness requirements and implementation, start with [MODEL.bend](MODEL.bend), [COMMANDS.bend](COMMANDS.bend), [CONTRACT.bend](CONTRACT.bend), [PROGRAM.bend](PROGRAM.bend).
 
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state

@@ -1350,3 +1350,32 @@ native-entry and host-syntax gates. The independent plugin also installed and
 loaded its MCP SDK outside the monorepo. Live ChatGPT/Tunnel validation remains
 outside this local delivery because no associated tunnel or runtime key is
 available.
+
+
+## 2026-10-10: opaque carriers and affine operation fields
+
+On the pinned Bend 2.0.34 compiler, functions stored in an operation record have
+`Type`, with affine usage. Trying to copy an `effects` field as `+effects` failed
+with expected `Data` and observed `Type`. Moving calls to static `~` API methods
+did not remove the boundary: after unpacking the existential system, a client
+that passed its hidden `World` to those methods failed because `World` was a
+variable rather than a closed compile-time argument. Closed templates work when
+their arguments are available at compile time; an existential carrier recovered
+at runtime does not meet that condition.
+
+The execution interface therefore exposes the existing production `PROGRAM.replay`
+operation for an arbitrary finite sequence of inputs. Its evidence reuses
+`replay_preserves_world` and `observation_replay`. This lets a generic client
+express a finite execution through one affine operation field without copying a
+dynamic function dictionary. It adds neither a replay implementation nor a general
+algebra, and retains the single-step refinement of the complete decision. The
+root model remains a typed operational model with universal laws and affine
+operation fields.
+
+The execution instance is assembled in the root proof because the replay law's
+history provider refers back to the harness proof. Putting that factory in the
+harness proof would create a dependency cycle. Representation-sensitive
+application and display factories remain in the runtime proof; the root connects
+them through the shared opaque carrier. This division keeps concrete evidence
+construction separate from generic model use without claiming that all existing
+modules are compiler-private.
