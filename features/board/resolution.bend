@@ -520,3 +520,22 @@ def resolve(+command: B.Command, +world: M.World()) -> Resolution:
     case B.Link{+id, +revision, task, now}: with_card(B.find(S.registry(world), id), revision, command, world)
     case B.Regenerate{+id, +revision, profile, now}: with_card(B.find(S.registry(world), id), revision, command, world)
     case B.Pin{+id, +revision, pinned, now}: with_card(B.find(S.registry(world), id), revision, command, world)
+
+# Capturing the source world keeps the calculated resolution attached to its request.
+type CommandRequest is Data:
+  CommandRequest{command: B.Command, world: M.World()}
+
+def request_resolution(request: CommandRequest) -> Resolution:
+  CommandRequest{command, world} = request
+  resolve(command, world)
+
+def ConstructedCommand() -> Type:
+  Categories.Membership<Categories.Construction<CommandRequest, Resolution>,
+    Categories.constructed_by(CommandRequest, Resolution, request_resolution)>
+
+def construct_command(command: B.Command, world: M.World()) -> ConstructedCommand():
+  Categories.construct(CommandRequest, Resolution, request_resolution, CommandRequest{command, world})
+
+def change_resolution(member: ConstructedCommand()) -> Resolution:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result

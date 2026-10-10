@@ -1198,9 +1198,8 @@ def completion_dispatch(+ticket: Nat, +serial: Nat, +world: M.World(), +reply: J
   match state:
     case Browser.State{web, sequence, next, pending, receipt}: {==}
 
-def application_model() -> Model.Application(M.World(), Browser.State, Browser.Input, Browser.Decision, Browser.Pending, Browser.Effect):
-  Categories.Membership{
-    Model.ApplicationOperations{
+def application_operations() -> Model.ApplicationOperations<M.World(), Browser.State, Browser.Input, Browser.Decision, Browser.Pending, Browser.Effect>:
+  Model.ApplicationOperations{
       world => serial => Browser.initial(world, serial),
       user => Browser.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.UserInput{user}}}}}},
       serial => world => Browser.Snapshot{serial, world},
@@ -1211,7 +1210,13 @@ def application_model() -> Model.Application(M.World(), Browser.State, Browser.I
       ticket => state => Browser.find(Browser.pending(state), ticket),
       serial => world => state => Browser.snapshot(serial, world, state),
       found => serial => world => reply => state => Browser.completed(found, serial, world, reply, state),
-      capacity => state => Browser.semantic_surface(capacity, state)},
+      capacity => state => Browser.semantic_surface(capacity, state)}
+
+def application_model() -> Model.Application(M.World(), Browser.State, Browser.Input, Browser.Decision, Browser.Pending, Browser.Effect):
+  Categories.Membership{
+    Categories.Implementation{application_operations(), application_operations()},
+      Categories.Intersection{Model.ApplicationFaithfulness{a0 => a1 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => a2 => a3 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => a2 => {==}, a0 => a1 => a2 => a3 => a4 => {==}, a0 => a1 => {==}},
+
       Categories.Intersection{
       Model.ApplicationInitialization{world => serial => {==}},
       Categories.Intersection{
@@ -1220,27 +1225,31 @@ def application_model() -> Model.Application(M.World(), Browser.State, Browser.I
           ticket => serial => world => reply => state => completion_dispatch(ticket, serial, world, reply, state)},
         Model.ApplicationOrdering{
           serial => world => state => stale => stale_snapshot(serial, world, state, stale),
-          serial => world => reply => state => {==}}}}}
+          serial => world => reply => state => {==}}}}}}
 
-def display_model() -> Model.DisplayModel(M.World(), Browser.State, Browser.Input, Browser.Effect,
-  world => serial => Browser.initial(world, serial), state => Browser.program(state)):
-  (BrowserModel.State, (BrowserModel.Decision, (BrowserModel.Publication,
-          (+List<Native.Update>, (Document.Document,
-      Categories.Membership{
-        Model.DisplayOperations{
+def display_operations() -> Model.DisplayOperations<M.World(), Browser.State, Browser.Input, Browser.Effect, BrowserModel.State, BrowserModel.Decision, BrowserModel.Publication, +List<Native.Update>, Document.Document>:
+  Model.DisplayOperations{
           world => serial => BrowserModel.initial(world, serial), state => BrowserModel.legacy(state),
           state => BrowserModel.program(state),
           input => state => BrowserModel.step(input, state), decision => BrowserModel.decision_state(decision),
           decision => display_effects(decision), capacity => state => BrowserModel.observe(capacity, state),
           capacity => last => state => BrowserModel.publication(capacity, last, state),
           state => Rule.publication_pending(state),
-          state => BrowserModel.native_updates(state), fields => BrowserModel.KeepPublished{fields}},
+          state => BrowserModel.native_updates(state), fields => BrowserModel.KeepPublished{fields}}
+
+def display_model() -> Model.DisplayModel(M.World(), Browser.State, Browser.Input, Browser.Effect,
+  world => serial => Browser.initial(world, serial), state => Browser.program(state)):
+  (BrowserModel.State, (BrowserModel.Decision, (BrowserModel.Publication,
+          (+List<Native.Update>, (Document.Document,
+      Categories.Membership{
+        Categories.Implementation{display_operations(), display_operations()},
+      Categories.Intersection{Model.DisplayFaithfulness{a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => a2 => {==}, a0 => {==}, a0 => {==}, a0 => {==}},
           Categories.Intersection{
           Model.DisplayComposition{
             world => serial => {==},
             state => {==}},
           Model.DisplayRetention{capacity => last => state => published => pending =>
-            publication_preserves_pending_at(capacity, last, state, published, pending)}}})))))
+            publication_preserves_pending_at(capacity, last, state, published, pending)}}}})))))
 
 
 def recovery_evidence(+request: Utility.RecoveryButton) -> Utility.authored_recovery(Utility.RecoveryObservation{request, Utility.recovery_source(request)}):

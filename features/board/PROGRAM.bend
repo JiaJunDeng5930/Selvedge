@@ -41,7 +41,7 @@ def request_text(+id: Nat, +card: B.Card, profile: D.Profile, +retitle: Bool, ne
     D.success(card_result(id, B.revision(card))),
     [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
 
-def change(change: R.Change, +world: M.World()) -> M.Decision():
+def change_calculation(change: R.Change, +world: M.World()) -> M.Decision():
   match change:
     case R.StoreCard{id, card, next}: save(id, card, next, world)
     case R.Relocate{+id, +card, position}: respond(S.store(B.reposition(id, card, position, S.registry(world)), world), card_result(id, B.revision(card)))

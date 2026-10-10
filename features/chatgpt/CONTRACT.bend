@@ -18,9 +18,9 @@ import ../board/MODEL.bend as Board
 type Boundary is Type:
   Boundary{
     refinement: @+change:G.Change -> @+state:G.State ->
-      {Actual.realize(change, state) == Spec.meaning(change, state) : C.Decision<G.State, G.Effect>},
+      {Actual.realize_calculation(change, state) == Spec.meaning(change, state) : C.Decision<G.State, G.Effect>},
     assembled: @+change:G.Change -> @+world:M.World() ->
-      {State.embed(Actual.realize(change, State.registry(world)), world) ==
+      {State.embed(Actual.realize_calculation(change, State.registry(world)), world) ==
        State.embed(Spec.meaning(change, State.registry(world)), world) : M.Decision()},
     written: @+value:G.State -> @+world:M.World() -> {State.registry(State.store(value, world)) == value : G.State},
     core_frame: @+value:G.State -> @+world:M.World() ->
@@ -40,7 +40,7 @@ type Boundary is Type:
     hidden: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State ->
       {View.read_job(connection, project, None{}, id, state) == View.forbidden() : J.Json},
     removed: @+id:Nat -> @+state:G.State ->
-      {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
+      {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize_calculation(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
     restarted: @+job:G.Job -> {G.outcome(job) == G.Running{} : G.Outcome} ->
       {G.outcome(G.recover_job(job)) ==
        G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome}}

@@ -141,12 +141,12 @@ def full_meaning(+value: Nat, +world: M.World()) ->
 
   for (const [filename, definition, step, implementation] of [
     ['harness/features/SPEC.bend', 'meaning', 'Counter.required', false],
-    ['harness/features/execution.bend', 'realize', 'CounterActual.set', true],
+    ['harness/features/execution.bend', 'realize_calculation', 'CounterActual.set', true],
   ]) await modify(directory, filename, source => {
     let result = importing(importing(source, '../../COUNTER.bend', 'Counter'), '../../bendlib/counter-assembly.bend', 'CounterAssembly');
     if (implementation) result = importing(result, '../../bendlib/counter-execution.bend', 'CounterActual');
     result = clause(result, definition, `    case O.CounterSet{value}: CounterAssembly.embed(${step}(value, CounterAssembly.state(world)), world)`);
-    return clause(result, 'event', '    case O.CounterObserved{}: CounterAssembly.observation(world)');
+    return clause(result, implementation ? 'event_calculation' : 'event', '    case O.CounterObserved{}: CounterAssembly.observation(world)');
   });
 
   await modify(directory, 'harness/features/laws.bend', source => {

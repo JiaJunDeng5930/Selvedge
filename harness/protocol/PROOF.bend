@@ -165,7 +165,7 @@ def Laws.invocation_semantics(operation, call, remaining, task, world):
   match operation world:
     case Protocol.Internal{+operation} _:
       +id = D.task_id(task)
-      +realized = P.realize(operation, world)
+      +realized = P.realize_calculation(operation, world)
       +meaning = Commands.meaning(operation, world)
       Equal.trans(M.Decision(), P.finish_internal(id, call, remaining, realized), Protocol.finish(id, call, remaining, realized),
         Protocol.finish(id, call, remaining, meaning), finish_internal_semantics(id, call, remaining, realized),
@@ -222,3 +222,33 @@ def A.result_boundary():
     (ticket => plugin => pending => value => error => outcome => operation => task => world => {==}),
     (call => remaining => value => error => task => world => {==}),
     (plugin => pending => call => remaining => value => error => task => state => board => {==})}
+
+
+def command_consumer_correspondence_world(request: Commands.CommandRequest) -> M.World():
+  Commands.CommandRequest{command, world} = request
+  world
+
+def command_consumer_correspondence_calculation(+request: Commands.CommandRequest, +result: Commands.Operation, evidence: {result == Commands.command_resolution(request) : Commands.Operation}) ->
+  {P.realize_calculation(result, command_consumer_correspondence_world(request)) == P.realize_calculation(Commands.command_resolution(request), command_consumer_correspondence_world(request)) : M.Decision()}:
+  Commands.CommandRequest{command, +world} = request
+  Equal.cong(Commands.Operation, M.Decision(), (value => P.realize_calculation(value, world)), result, Commands.command_resolution(request), evidence)
+
+def Laws.command_consumer_correspondence(member):
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  Commands.CommandRequest{command, world} = request
+  command_consumer_correspondence_calculation(Commands.CommandRequest{command, world}, result, evidence)
+
+
+def input_consumer_correspondence_world(request: Protocol.InputRequest) -> M.World():
+  Protocol.InputRequest{input, world} = request
+  world
+
+def input_consumer_correspondence_calculation(+request: Protocol.InputRequest, +result: Protocol.ResolvedEvent, evidence: {result == Protocol.input_resolution(request) : Protocol.ResolvedEvent}) ->
+  {P.realize_event_calculation(result, input_consumer_correspondence_world(request)) == P.realize_event_calculation(Protocol.input_resolution(request), input_consumer_correspondence_world(request)) : M.Decision()}:
+  Protocol.InputRequest{input, +world} = request
+  Equal.cong(Protocol.ResolvedEvent, M.Decision(), (value => P.realize_event_calculation(value, world)), result, Protocol.input_resolution(request), evidence)
+
+def Laws.input_consumer_correspondence(member):
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  Protocol.InputRequest{input, world} = request
+  input_consumer_correspondence_calculation(Protocol.InputRequest{input, world}, result, evidence)

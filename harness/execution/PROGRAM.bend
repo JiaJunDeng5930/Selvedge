@@ -276,14 +276,14 @@ def grant_valid_accepts(request: GrantValidRequest) -> Bool:
 def grant_valid_category() -> GrantValidRequest -> Type:
   Categories.holds(GrantValidRequest, grant_valid_accepts)
 
-def grant_valid_accepted(member: Categories.Membership<GrantValidRequest, grant_valid_category()>) -> Action:
+def grant_available_calculation(member: Categories.Membership<GrantValidRequest, grant_valid_category()>) -> Action:
   Categories.Membership{request, evidence} = member
   GrantValidRequest{+reviewer, +tool, +operation, +task, +world} = request
   Granted{reviewer, tool, operation, task}
 
 def grant_valid_admitted(admission: Maybe<&1, Categories.Membership<GrantValidRequest, grant_valid_category()>>, request: GrantValidRequest) -> Action:
   match admission:
-    case Some{member}: grant_valid_accepted(member)
+    case Some{member}: grant_available_calculation(member)
     case None{}:
       GrantValidRequest{+reviewer, +tool, +operation, +task, +world} = request
       GrantFailure{operation, task}
@@ -320,7 +320,7 @@ def resolve(work: D.Work, +task: D.Task, world: M.World()) -> Action:
     case D.RunNextTool{}: tool(D.task_phase(task), task, world)
     case D.RunGrantedOperation{}: grant(Ops.find_granted(D.task_operations(task)), task, world)
 
-def meaning(action: Action, world: M.World()) -> M.Decision():
+def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
   match action world:
     case Rest{} _:
       C.Decision{world, D.success(J.Null{}), Nil{}}
@@ -381,8 +381,8 @@ def meaning(action: Action, world: M.World()) -> M.Decision():
     case Failure{code, reason, call, remaining, task} _:
       C.Decision{Commands.replace(T.complete_tool(call, remaining, D.failure(code, reason), True{}, task), world), D.success(J.Null{}), Nil{}}
 
-def work(work: D.Work, +task: D.Task, +world: M.World()) -> M.Decision():
-  meaning(resolve(work, task, world), world)
+def work_calculation(work: D.Work, +task: D.Task, +world: M.World()) -> M.Decision():
+  meaning_calculation(resolve(work, task, world), world)
 
 def world(decision: M.Decision()) -> M.World():
   C.Decision{world, reply, effects} = decision
@@ -406,7 +406,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work(D.task_work(task), task, world(decision)))
+      +next = combine(decision, work_calculation(D.task_work(task), task, world(decision)))
       schedule(p, T.runnable(Commands.entries(world(next))), next)
 
 def budget_limits(world: M.World(), limits_value: D.ExecutionLimits) -> Nat:
@@ -424,3 +424,35 @@ def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
     case True{}: scheduled_prepared(BoardScheduling.required_prepare(decision))
+
+
+type WorkRequest is Data:
+  WorkRequest{task_id: Nat, world: M.World()}
+
+def work_resolution_found(found: Maybe<&2, D.Task>, +world: M.World()) -> Action:
+  match found:
+    case None{}: Rest{}
+    case Some{+task}: resolve(D.task_work(task), task, world)
+
+def work_resolution(request: WorkRequest) -> Action:
+  WorkRequest{task_id, +world} = request
+  work_resolution_found(T.find(Commands.entries(world), task_id), world)
+
+def ConstructedWork() -> Type:
+  Categories.Membership<Categories.Construction<WorkRequest, Action>,
+    Categories.constructed_by(WorkRequest, Action, work_resolution)>
+
+def construct_work(task_id: Nat, world: M.World()) -> ConstructedWork():
+  Categories.construct(WorkRequest, Action, work_resolution, WorkRequest{task_id, world})
+
+def meaning(member: ConstructedWork()) -> M.Decision():
+  Categories.Membership{Categories.Construction{WorkRequest{task_id, world}, action}, evidence} = member
+  meaning_calculation(action, world)
+
+def work(task_id: Nat, world: M.World()) -> M.Decision():
+  meaning(construct_work(task_id, world))
+
+def work_consumer_correspondence_required(member: ConstructedWork()) -> M.Decision():
+  Categories.Membership{Categories.Construction{+request, result}, evidence} = member
+  WorkRequest{task_id, world} = request
+  meaning_calculation(work_resolution(request), world)

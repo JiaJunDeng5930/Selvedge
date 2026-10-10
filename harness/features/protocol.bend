@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as F
 import ../MODEL.bend as M
 import ../../features/board/MODEL.bend as B
@@ -43,3 +44,17 @@ def resolve(completion: F.Completion, world: M.World()) -> Maybe<&2, O.ResolvedE
   match completion:
     case F.ChatGPTCompleted{+id, value, error}: chatgpt(ChatGPT.settle(Finite.find(~ChatGPT.Job, ChatGPT.jobs(ChatGPTState.registry(world)), id), id, value, error))
     case F.BoardTextCompleted{+id, ticket, outcome}: board_text(B.find(State.registry(world), id), id, ticket, outcome)
+
+type EventRequest is Data:
+  EventRequest{completion: F.Completion, world: M.World()}
+
+def event_resolution(request: EventRequest) -> Maybe<&2, O.ResolvedEvent>:
+  EventRequest{completion, world} = request
+  resolve(completion, world)
+
+def ConstructedEvent() -> Type:
+  Categories.Membership<Categories.Construction<EventRequest, Maybe<&2, O.ResolvedEvent>>,
+    Categories.constructed_by(EventRequest, Maybe<&2, O.ResolvedEvent>, event_resolution)>
+
+def construct_event(completion: F.Completion, world: M.World()) -> ConstructedEvent():
+  Categories.construct(EventRequest, Maybe<&2, O.ResolvedEvent>, event_resolution, EventRequest{completion, world})

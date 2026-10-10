@@ -229,7 +229,7 @@ def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
       projects = D.state_projects(task_state_2)
       C.Decision{C.Frame{D.with_state_tasks(recovery(tasks), task_state_2), FeatureState.recover(board)}, D.success(J.Null{}), Nil{}}
     case Tick{}: C.Decision{world, D.success(J.Null{}), Nil{}}
-    case Review{resolution}: Approvals.meaning(F.State(), F.Effect, resolution, world)
+    case Review{resolution}: Approvals.meaning_calculation(F.State(), F.Effect, resolution, world)
 
 def input(+event: M.Input, +world: M.World()) -> M.Decision():
   meaning(resolve(event, world), world)
@@ -361,3 +361,18 @@ def invoked(operation: Invocation, +call: D.Call, +remaining: +List<D.Attempt>, 
       C.Frame{+task_state, +board} = world
       next_task = D.state_next_task(task_state)
       branched_invocation(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, task), T.call_id(call), remaining, texts), call, remaining, task, world)
+
+
+type InputRequest is Data:
+  InputRequest{input: M.Input, world: M.World()}
+
+def input_resolution(request: InputRequest) -> ResolvedEvent:
+  InputRequest{input, world} = request
+  resolve(input, world)
+
+def ConstructedInput() -> Type:
+  Categories.Membership<Categories.Construction<InputRequest, ResolvedEvent>,
+    Categories.constructed_by(InputRequest, ResolvedEvent, input_resolution)>
+
+def construct_input(input: M.Input, world: M.World()) -> ConstructedInput():
+  Categories.construct(InputRequest, ResolvedEvent, input_resolution, InputRequest{input, world})

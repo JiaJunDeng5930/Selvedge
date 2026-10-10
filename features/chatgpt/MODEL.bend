@@ -328,7 +328,7 @@ def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, pro
       run_existing(retry(jobs(state), connection, request), connection, project, request,
         arguments, D.Workspace{roots, Some{root}}, sandbox, state)
 
-def run_granted(+connection: Nat, +project: Nat, request: String, arguments: J.Json,
+def run_project_grant_calculation(+connection: Nat, +project: Nat, request: String, arguments: J.Json,
   projects: D.Projects, state: State, admitted: Categories.Membership<Grant, ProjectGrant(project)>) -> Resolution:
   Categories.Membership{grant, evidence} = admitted
   run_project(Projects.find(projects, project), grant, connection, project, request, arguments, state)
@@ -337,7 +337,7 @@ def run_authorized(+connection: Nat, +project: Nat, found: Maybe<&1, Categories.
   arguments: J.Json, projects: D.Projects, state: State) -> Resolution:
   match found:
     case None{}: Refuse{"project_forbidden", "This connection has no grant for that project"}
-    case Some{admitted}: run_granted(connection, project, request, arguments, projects, state, admitted)
+    case Some{admitted}: run_project_grant_calculation(connection, project, request, arguments, projects, state, admitted)
 
 def cancel_pending(running: Bool, id: Nat, job: Job) -> Resolution:
   match running:
@@ -389,7 +389,7 @@ def found_job(found: Maybe<&2, Job>, +connection: Nat, +project: Nat, id: Nat, r
     case Some{job}:
       owner_admission(connection, project, id, remove, Categories.admit(Job, job => owned(connection, project, job), job))
 
-def edit_granted(+connection: Nat, project: Nat, +id: Nat, remove: Bool, state: State,
+def edit_project_grant_calculation(+connection: Nat, project: Nat, +id: Nat, remove: Bool, state: State,
   admitted: Categories.Membership<Grant, ProjectGrant(project)>) -> Resolution:
   Categories.Membership{grant, evidence} = admitted
   found_job(Finite.find(~Job, jobs(state), id), connection, project, id, remove)
@@ -397,7 +397,7 @@ def edit_granted(+connection: Nat, project: Nat, +id: Nat, remove: Bool, state: 
 def edit_authorized(+connection: Nat, +project: Nat, found: Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>, +id: Nat, remove: Bool, state: State) -> Resolution:
   match found:
     case None{}: Refuse{"project_forbidden", "This connection has no grant for that project"}
-    case Some{admitted}: edit_granted(connection, project, id, remove, state, admitted)
+    case Some{admitted}: edit_project_grant_calculation(connection, project, id, remove, state, admitted)
 
 def run_command_valid(command: Command) -> Bool:
   match command:
@@ -499,3 +499,31 @@ def effect_valid(effect: Effect, state: State) -> Bool:
   match effect:
     case Execute{+id, job}: same_live(Finite.find(~Job, jobs(state), id), id, job)
     case Stop{id}: stopped(Finite.find(~Job, jobs(state), id))
+
+type CommandRequest is Data:
+  CommandRequest{command: Command, state: State, projects: D.Projects}
+
+def request_resolution(request: CommandRequest) -> Resolution:
+  CommandRequest{command, state, projects} = request
+  resolve(command, state, projects)
+
+def ConstructedCommand() -> Type:
+  Categories.Membership<Categories.Construction<CommandRequest, Resolution>,
+    Categories.constructed_by(CommandRequest, Resolution, request_resolution)>
+
+def construct_command(command: Command, state: State, projects: D.Projects) -> ConstructedCommand():
+  Categories.construct(CommandRequest, Resolution, request_resolution, CommandRequest{command, state, projects})
+
+type CompletionRequest is Data:
+  CompletionRequest{id: Nat, value: J.Json, error: Bool, state: State}
+
+def completion_resolution(request: CompletionRequest) -> Maybe<&2, Change>:
+  CompletionRequest{+id, value, error, +state} = request
+  settle(Finite.find(~Job, jobs(state), id), id, value, error)
+
+def ConstructedCompletion() -> Type:
+  Categories.Membership<Categories.Construction<CompletionRequest, Maybe<&2, Change>>,
+    Categories.constructed_by(CompletionRequest, Maybe<&2, Change>, completion_resolution)>
+
+def construct_completion(id: Nat, value: J.Json, error: Bool, state: State) -> ConstructedCompletion():
+  Categories.construct(CompletionRequest, Maybe<&2, Change>, completion_resolution, CompletionRequest{id, value, error, state})

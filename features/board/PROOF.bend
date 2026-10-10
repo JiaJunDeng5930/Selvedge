@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
@@ -43,7 +44,7 @@ def reposition_meaning(+id: Nat, +card: B.Card, +position: Nat, +board: B.State)
     case B.State{cards, next_card, agents, next_agent, automatic, draft_profile}: {==}
 
 def relocate_meaning(+id: Nat, +card: B.Card, +position: Nat, +world: M.World()) ->
-  {Actual.change(R.Relocate{id, card, position}, world) == Spec.change(R.Relocate{id, card, position}, world) : M.Decision()}:
+  {Actual.change_calculation(R.Relocate{id, card, position}, world) == Spec.change(R.Relocate{id, card, position}, world) : M.Decision()}:
   Equal.cong(B.State, M.Decision(),
     value => C.Decision{S.store(value, world), D.success(Actual.card_result(id, B.revision(card))), Nil{}},
     B.reposition(id, card, position, S.registry(world)), Spec.reposition(id, card, position, S.registry(world)),
@@ -113,3 +114,18 @@ def A.board_boundary():
     (expected => revision => retitle => current => ticket => {==}),
     (id => card => ticket => outcome => {==}),
     (title => description => draft => title_only(title, description, draft))}
+
+def command_calculation(construction: Categories.Construction<R.CommandRequest, R.Resolution>) -> R.Resolution:
+  Categories.Construction{R.CommandRequest{command, world}, result} = construction
+  R.resolve(command, world)
+
+def command_equation(member: R.ConstructedCommand()) ->
+  {R.change_resolution(member) == command_calculation(Categories.value(
+    Categories.Construction<R.CommandRequest, R.Resolution>,
+    Categories.constructed_by(R.CommandRequest, R.Resolution, R.request_resolution), member)) : R.Resolution}:
+  Categories.Membership{Categories.Construction{R.CommandRequest{command, world}, result}, evidence} = member
+  evidence
+
+def constructed_command_equation(+command: B.Command, +world: M.World()) ->
+  {R.change_resolution(R.construct_command(command, world)) == R.resolve(command, world) : R.Resolution}:
+  command_equation(R.construct_command(command, world))

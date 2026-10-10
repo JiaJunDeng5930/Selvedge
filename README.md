@@ -16,8 +16,9 @@ Workspace.
 ## Read the program
 
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
-system. `Execution`, `Application`, and `Display` pair actual operation values
-with evidence of their open semantic categories. Categories are predicates over
+system. `Execution`, `Application`, and `Display` pair explicit specification and
+operation bundles with evidence of their open semantic categories and pointwise
+agreement of every operation field. Categories are predicates over
 values; inclusion supplies a universally quantified implication, and intersection
 requires both memberships of the same value. Syntax sum types describe the values
 clients can construct, rather than an inheritance tree of semantic categories.
@@ -31,7 +32,8 @@ Public command and observation vocabulary remains transparent.
 
 [PROOF.bend](PROOF.bend) instantiates this interface with actual production
 functions and their proofs. [bendlib/categories.bend](bendlib/categories.bend)
-provides shared membership, inclusion, intersection and checked admission; its
+provides shared membership, inclusion, intersection, checked admission and
+context-bound construction; its
 filled definitions can be used by production models without importing proof
 providers. Owner-local model entries define what their categories require.
 A successful admission continuation consumes evidence indexed by the actual
@@ -50,6 +52,12 @@ modules. This boundary does not hide every raw constructor or make all modules
 private. [ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the
 abstract carriers; [ADR 0034](docs/adr/0034-open-category-construction.md) records
 the category construction and admission decision.
+[ADR 0035](docs/adr/0035-context-bound-construction.md) explains why complete
+operation consumers receive a construction containing the original request and
+state, together with evidence of canonical resolution. Follow the harness and
+feature READMEs for their constructor and consumer entry points.
+`*_calculation` functions remain implementation and proof primitives; transparent
+vocabulary and accessible Bend imports do not provide module encapsulation.
 
 For detailed execution requirements,
 [harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means.

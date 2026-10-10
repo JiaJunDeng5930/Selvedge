@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as G
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
@@ -19,7 +20,7 @@ def respond(state: G.State, reply: J.Json) -> C.Decision<G.State, G.Effect>:
 def interrupted(+id: Nat, +job: G.Job, +state: G.State) -> C.Decision<G.State, G.Effect>:
   C.Decision{put(id, job, state, G.next(state)), D.success(G.receipt(id, job)), [G.Stop{id}]}
 
-def realize(change: G.Change, +state: G.State) -> C.Decision<G.State, G.Effect>:
+def realize_calculation(change: G.Change, +state: G.State) -> C.Decision<G.State, G.Effect>:
   match change:
     case G.SetGrants{entries}:
       G.State{previous, jobs, next} = state
@@ -35,3 +36,23 @@ def realize(change: G.Change, +state: G.State) -> C.Decision<G.State, G.Effect>:
     case G.Complete{id, job, value, error}:
       respond(put(id, G.with_outcome(G.Finished{value, error}, job), state, G.next(state)),
         J.Object{[J.Field{"accepted", J.Boolean{True{}}}]})
+
+# Calculation helpers interpret the canonical result; public consumers capture
+# their state exclusively from the construction request.
+def resolution_calculation(resolution: G.Resolution, state: G.State) -> C.Decision<G.State, G.Effect>:
+  match resolution:
+    case G.Refuse{code, reason}: C.Decision{state, D.failure(code, reason), Nil{}}
+    case G.Accept{change}: realize_calculation(change, state)
+
+def realize(member: G.ConstructedCommand()) -> C.Decision<G.State, G.Effect>:
+  Categories.Membership{Categories.Construction{G.CommandRequest{command, state, projects}, resolution}, evidence} = member
+  resolution_calculation(resolution, state)
+
+def completion_calculation(change: Maybe<&2, G.Change>, state: G.State) -> Maybe<&2, C.Decision<G.State, G.Effect>>:
+  match change:
+    case None{}: None{}
+    case Some{change}: Some{realize_calculation(change, state)}
+
+def realize_completion(member: G.ConstructedCompletion()) -> Maybe<&2, C.Decision<G.State, G.Effect>>:
+  Categories.Membership{Categories.Construction{G.CompletionRequest{id, value, error, state}, change}, evidence} = member
+  completion_calculation(change, state)

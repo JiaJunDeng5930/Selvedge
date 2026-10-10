@@ -257,7 +257,7 @@ law branch_results:
   BranchResults()
 
 def ActionMeaning() -> Type:
-  @+action:Execution.Action -> @+world:M.World() -> {P.realize_action(action, world) == Execution.meaning(action, world) : M.Decision()}
+  @+action:Execution.Action -> @+world:M.World() -> {P.realize_action_calculation(action, world) == Execution.meaning_calculation(action, world) : M.Decision()}
 
 law actions:
   ActionMeaning()

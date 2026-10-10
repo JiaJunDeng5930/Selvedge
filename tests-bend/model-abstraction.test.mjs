@@ -33,23 +33,34 @@ def is_empty(-Element: Data, values: +List<Element>) -> Bool:
     case Nil{}: True{}
     case Con{head, tail}: False{}
 
-def query_effects(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision), query: Commands.Query, state: World) -> +List<Commands.Effect()>:
+def query_effects_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>, query: Commands.Query, state: World) -> +List<Commands.Effect()>:
   Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
   effects(run(Commands.UserCommand{Commands.Observe{query}}, state))
 
-def query_law(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision)) ->
-  @+query:Commands.Query -> @+state:World ->
-  {query_effects(World, Decision, execution, query, state) == Nil{} : +List<Commands.Effect()>}:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
-  query_effects
-
-def execution_client(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision)) -> World & Bool:
+def execution_client_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>) -> World & Bool:
   Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
   +initial_world = initial
   +read_only_query = {Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}} : Commands.Input}
   query_empty = is_empty(Commands.Effect(), effects(run(read_only_query, initial_world)))
   +replayed_world = replay({read_only_query <> read_only_query <> Nil{} : +List<Commands.Input>}, initial_world)
   (replayed_world, Bool.and(valid(replayed_world), query_empty))
+
+def query_effects(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision), query: Commands.Query, state: World) -> +List<Commands.Effect()>:
+  query_effects_plain(World, Decision, Model.execution_operations(World, Decision, execution), query, state)
+
+def query_law_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>) ->
+  @+query:Commands.Query -> @+state:World ->
+  {query_effects_plain(World, Decision, execution, query, state) == Nil{} : +List<Commands.Effect()>}:
+  Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
+  query_effects
+
+def query_law(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision)) ->
+  @+query:Commands.Query -> @+state:World ->
+  {query_effects(World, Decision, execution, query, state) == Nil{} : +List<Commands.Effect()>}:
+  query_law_plain(World, Decision, Model.execution_operations(World, Decision, execution))
+
+def execution_client(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision)) -> World & Bool:
+  execution_client_plain(World, Decision, Model.execution_operations(World, Decision, execution))
 
 def application_decision(-World: Data, -State: Data, -Decision: Data, -Pending: Data,
   snapshot: @serial:Nat -> @world:World -> @state:State -> Decision,
@@ -59,24 +70,40 @@ def application_decision(-World: Data, -State: Data, -Decision: Data, -Pending: 
     case True{}: snapshot(0n, initial_world, application_state)
     case False{}: settle(None{}, 0n, initial_world, Json.Null{}, application_state)
 
-def application_client(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data,
-  application: Model.Application(World, State, Input, Decision, Pending, Effect), +initial_world: World, mode: Bool) -> Bool:
+def application_client_plain(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data,
+  application: Categories.Membership<Model.ApplicationOperations<World, State, Input, Decision, Pending, Effect>, Model.application(World, State, Input, Decision, Pending, Effect)>, +initial_world: World, mode: Bool) -> Bool:
   Categories.Membership{Model.ApplicationOperations{${applicationFields}}, ${applicationEvidence}} = application
   +application_state = initial(initial_world, 1n)
   decision = application_decision(World, State, Decision, Pending, snapshot, settle, initial_world, application_state, mode)
   is_empty(Effect, effects(decision))
+
+def application_client(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data,
+  application: Model.Application(World, State, Input, Decision, Pending, Effect), +initial_world: World, mode: Bool) -> Bool:
+  application_client_plain(World, State, Input, Decision, Pending, Effect,
+    Model.application_operations(World, State, Input, Decision, Pending, Effect, application), initial_world, mode)
 
 def apply_client(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data,
   result: World & Bool, application: Model.Application(World, State, Input, Decision, Pending, Effect), mode: Bool) -> Bool:
   (initial_world, execution_valid) = result
   Bool.and(execution_valid, application_client(World, State, Input, Decision, Pending, Effect, application, initial_world, mode))
 
+def display_client(-World: Data, -State: Data, -Input: Data, -Effect: Data, -DisplayState: Data, -DisplayDecision: Data, -Publication: Data, -Fields: Data, -Document: Data,
+  -Initialize: World -> Nat -> State, -Program: State -> World,
+  display: Categories.Membership<Model.DisplayOperations<World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document>,
+    Model.display(World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document, Initialize, Program)>) -> Bool:
+  Categories.Membership{Model.DisplayOperations{${displayFields.split(', ').map(name => `display_${name}`).join(', ')}}, ${displayEvidence}} = display
+  True{}
+
 def client(packed: Model.SystemModel(), mode: Bool) -> Bool:
 ${unpackSystem}
 ${unpackInterface}
   (DisplayState, (DisplayDecision, (Publication, (Fields, (Document, display))))) = packed_display
-  Categories.Membership{Model.DisplayOperations{${displayFields.split(', ').map(name => `display_${name}`).join(', ')}}, ${displayEvidence}} = display
-  apply_client(World, State, Input, Result, Pending, Effect, execution_client(World, Decision, execution), application, mode)
+  display_ok = display_client(World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document,
+    Model.application_initial(World, State, Input, Result, Pending, Effect, application),
+    Model.application_program(World, State, Input, Result, Pending, Effect, application), Model.display_operations(World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document,
+    Model.application_initial(World, State, Input, Result, Pending, Effect, application),
+    Model.application_program(World, State, Input, Result, Pending, Effect, application), display))
+  Bool.and(display_ok, apply_client(World, State, Input, Result, Pending, Effect, execution_client(World, Decision, execution), application, mode))
 
 def toy_operations() -> Model.ExecutionOperations<Bool, Bool>:
   Model.ExecutionOperations{False{}, state => True{}, input => state => state,
@@ -93,7 +120,9 @@ def toy_evidence() -> Model.execution(Bool, Bool, toy_operations()):
         Model.ExecutionHistory{events => state => valid_state => {==}, query => first => second => state => {==}}}}}
 
 def toy_model() -> Model.Execution(Bool, Bool):
-  Categories.Membership{toy_operations(), toy_evidence()}
+  Categories.Membership{Categories.Implementation{toy_operations(), toy_operations()},
+    Categories.Intersection{Model.ExecutionFaithfulness{{==}, state => {==}, input => state => {==}, input => state => {==},
+      decision => {==}, decision => {==}, decision => {==}, input => {==}, events => state => {==}}, toy_evidence()}}
 
 def derive(-Value: Type, -A: Value -> Type, -B: Value -> Type,
   inclusion: Categories.Inclusion<Value, A, B>, -value: Value, evidence: A(value)) -> B(value):
@@ -104,19 +133,25 @@ def consume_safe(packed: Categories.Membership<Model.ExecutionOperations<Bool, B
   Categories.Membership{Model.ExecutionOperations{${executionFields}}, Model.ExecutionSafety{initial_valid, preserves_valid}} = packed
   valid(world(run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, initial)))
 
-def safe_client(packed: Model.Execution(Bool, Bool)) -> Bool:
+def safe_client_plain(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool)>) -> Bool:
   Categories.Membership{ops, evidence} = packed
   consume_safe(Categories.Membership{ops, derive(Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool),
     Model.execution_safe(Bool, Bool), Model.execution_is_safe(Bool, Bool), ops, evidence)})
+
+def safe_client(packed: Model.Execution(Bool, Bool)) -> Bool:
+  safe_client_plain(Model.execution_operations(Bool, Bool, packed))
 
 def consume_refined(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution_refined(Bool, Bool)>) -> Bool:
   Categories.Membership{Model.ExecutionOperations{${executionFields}}, Model.ExecutionRefinement{refinement}} = packed
   run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, True{})
 
-def refined_client(packed: Model.Execution(Bool, Bool)) -> Bool:
+def refined_client_plain(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool)>) -> Bool:
   Categories.Membership{ops, evidence} = packed
   consume_refined(Categories.Membership{ops, derive(Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool),
     Model.execution_refined(Bool, Bool), Model.execution_is_refined(Bool, Bool), ops, evidence)})
+
+def refined_client(packed: Model.Execution(Bool, Bool)) -> Bool:
+  refined_client_plain(Model.execution_operations(Bool, Bool, packed))
 
 # A client can add an actual output equation without changing the root categories.
 def client_output(ops: Model.ExecutionOperations<Bool, Bool>) -> Type:
@@ -141,22 +176,28 @@ function leakageProbe(kind) {
   const world = kind === 'world';
   return `${imports}import ../../${world ? 'bendlib/component' : 'browser/runtime/SEMANTICS'}.bend as Concrete
 ${world ? `
-def expose_world(-World: Data, world: World) -> Bool:
-  Concrete.Frame{local, rest} = world
+def expose_world(-World: Data, value: World) -> Bool:
+  Concrete.Frame{local, rest} = value
   True{}
+
+def expose_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>) -> Bool:
+  Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
+  expose_world(World, initial)
 ` : `
 def expose_application(-State: Data, state: State) -> Bool:
   Concrete.State{web, sequence, next_ticket, pending, receipt} = state
   True{}
+def expose_plain(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data,
+  application: Categories.Membership<Model.ApplicationOperations<World, State, Input, Decision, Pending, Effect>, Model.application(World, State, Input, Decision, Pending, Effect)>, initial_world: World) -> Bool:
+  Categories.Membership{Model.ApplicationOperations{${applicationFields}}, ${applicationEvidence}} = application
+  expose_application(State, initial(initial_world, 0n))
 `}
 
 def expose(packed: Model.SystemModel()) -> Bool:
 ${unpackSystem}
-  Categories.Membership{Model.ExecutionOperations{${world ? executionFields : executionFields.replace(/^initial,/, 'execution_initial,')}}, ${executionEvidence}} = execution
-${world ? `  expose_world(World, initial)` : `${unpackInterface}
-  Categories.Membership{Model.ApplicationOperations{${applicationFields}}, ${applicationEvidence}} = application
-  expose_application(State, initial(execution_initial, 0n))`}
-
+${world ? `  expose_plain(World, Decision, Model.execution_operations(World, Decision, execution))` : `${unpackInterface}
+  expose_plain(World, State, Input, Result, Pending, Effect, Model.application_operations(World, State, Input, Result, Pending, Effect, application),
+    Model.execution_field_initial(World, Decision, Model.execution_actual(World, Decision, Categories.value(Categories.Implementation<Model.ExecutionOperations<World, Decision>>, Model.execution_implementation(World, Decision), execution))))`}
 
 def main() -> Bool:
   expose(Model.system())

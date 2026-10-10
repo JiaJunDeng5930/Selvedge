@@ -16,7 +16,7 @@ import ../../bendlib/json.bend as J
 type ApprovalBoundary is Type:
   ApprovalBoundary{
     realization: @+resolution:A.Resolution -> @+world:M.World() ->
-      {P.review_result(resolution, world) == A.meaning(F.State(), F.Effect, resolution, world) : M.Decision()},
+      {P.review_result(resolution, world) == A.meaning_calculation(F.State(), F.Effect, resolution, world) : M.Decision()},
     human_waits: @call:D.Call -> @remaining:+List<D.Attempt> -> @task:D.Task -> @world:M.World() ->
       {P.decision_effects(P.approval_request(D.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect()>},
     model_waits: @+profile:D.Profile -> @+call:D.Call -> @+remaining:+List<D.Attempt> -> @+task:D.Task ->
@@ -44,3 +44,23 @@ type ApprovalBoundary is Type:
 
 law approval_boundary:
   ApprovalBoundary
+
+
+law review_construction_meaning:
+  for -StateRest: Data
+  for -EffectRest: Data
+  for +request: A.ReviewRequest<StateRest>
+  {A.meaning(StateRest, EffectRest, A.construct_review(StateRest, request)) ==
+    A.meaning_calculation(StateRest, EffectRest, A.review_resolution(StateRest, request),
+      review_world(StateRest, request)) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}
+
+def review_world(-StateRest: Data, request: A.ReviewRequest<StateRest>) -> C.Frame<D.State, StateRest>:
+  A.ReviewRequest{origin, task_id, operation_id, outcome, world} = request
+  world
+
+
+law review_consumer_correspondence:
+  for -StateRest: Data
+  for -EffectRest: Data
+  for member: A.ConstructedReview(StateRest)
+  {A.meaning(StateRest, EffectRest, member) == A.review_consumer_required(StateRest, EffectRest, member) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}

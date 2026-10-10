@@ -35,6 +35,20 @@ def intersection_second(-Value: Type, -A: Value -> Type, -B: Value -> Type) -> I
 type Membership<-Value: Type, -category: Value -> Type> is Type:
   Membership{value: Value, evidence: category(value)}
 
+type Construction<-Request: Data, -Result: Data> is Data:
+  Construction{request: Request, result: Result}
+
+def constructed_by(-Request: Data, -Result: Data, -producer: Request -> Result, construction: Construction<Request, Result>) -> Type:
+  Construction{request, result} = construction
+  {result == producer(request) : Result}
+
+def construct(-Request: Data, -Result: Data, producer: Request -> Result, +request: Request) -> Membership<Construction<Request, Result>, constructed_by(Request, Result, producer)>:
+  +result = producer(request)
+  Membership{Construction{request, result}, {==}}
+
+type Implementation<-Operations: Type> is Type:
+  Implementation{specification: Operations, operations: Operations}
+
 def holds(-Value: Data, -predicate: Value -> Bool) -> Value -> Type:
   value => {predicate(value) == True{} : Bool}
 

@@ -140,12 +140,12 @@ law delivery_observation_effects:
 law review_semantics:
   for +resolution: Approvals.Resolution
   for +world: M.World()
-  {P.review_result(resolution, world) == Approvals.meaning(F.State(), F.Effect, resolution, world) : M.Decision()}
+  {P.review_result(resolution, world) == Approvals.meaning_calculation(F.State(), F.Effect, resolution, world) : M.Decision()}
 
 law operation_semantics:
   for +operation: Commands.Operation
   for +world: M.World()
-  {P.realize(operation, world) == Commands.meaning(operation, world) : M.Decision()}
+  {P.realize_calculation(operation, world) == Commands.meaning(operation, world) : M.Decision()}
 
 law command_semantics:
   for +command: M.Command
@@ -155,7 +155,7 @@ law command_semantics:
 law event_semantics:
   for +event: Protocol.ResolvedEvent
   for +world: M.World()
-  {P.realize_event(event, world) == Protocol.meaning(event, world) : M.Decision()}
+  {P.realize_event_calculation(event, world) == Protocol.meaning(event, world) : M.Decision()}
 
 law input_semantics:
   for +input: M.Input
@@ -237,13 +237,13 @@ law frontend_packet:
 law execution_semantics:
   for +action: Execution.Action
   for +world: M.World()
-  {P.realize_action(action, world) == Execution.meaning(action, world) : M.Decision()}
+  {P.realize_action_calculation(action, world) == Execution.meaning_calculation(action, world) : M.Decision()}
 
 law work_semantics:
   for +work: D.Work
   for +task: D.Task
   for +world: M.World()
-  {P.work(work, task, world) == Execution.work(work, task, world) : M.Decision()}
+  {P.work_calculation(work, task, world) == Execution.work_calculation(work, task, world) : M.Decision()}
 
 law schedule_semantics:
   for +fuel: Nat
@@ -301,7 +301,7 @@ law scheduling_exhausted:
     C.Decision{world, reply, List.append(&2, M.Effect(), effects, [Effects.ContinueScheduling{}])} : M.Decision()}
 
 def scheduled_step(+task: D.Task, +decision: M.Decision()) -> M.Decision():
-  P.combine(decision, P.work(D.task_work(task), task, P.decision_world(decision)))
+  P.combine(decision, P.work_calculation(D.task_work(task), task, P.decision_world(decision)))
 
 law scheduling_progress:
   for +fuel: Nat
@@ -326,23 +326,23 @@ law scheduling_combines_outputs:
 law model_work:
   for +task: D.Task
   for +world: M.World()
-  {P.work(D.RequestNextModel{}, task, world) == P.model_request(task, world) : M.Decision()}
+  {P.work_calculation(D.RequestNextModel{}, task, world) == P.model_request(task, world) : M.Decision()}
 
 law tool_work:
   for +task: D.Task
   for +world: M.World()
-  {P.work(D.RunNextTool{}, task, world) == P.run_tool(D.task_phase(task), task, world) : M.Decision()}
+  {P.work_calculation(D.RunNextTool{}, task, world) == P.run_tool(D.task_phase(task), task, world) : M.Decision()}
 
 law idle_work:
   for +task: D.Task
   for +world: M.World()
-  {P.work(D.BecomeIdle{}, task, world) ==
+  {P.work_calculation(D.BecomeIdle{}, task, world) ==
     C.Decision{Commands.replace(D.with_phase(D.Idle{}, task), world), D.success(J.Null{}), Nil{}} : M.Decision()}
 
 law no_work:
   for task: D.Task
   for +world: M.World()
-  {P.work(D.NoWork{}, task, world) == C.Decision{world, D.success(J.Null{}), Nil{}} : M.Decision()}
+  {P.work_calculation(D.NoWork{}, task, world) == C.Decision{world, D.success(J.Null{}), Nil{}} : M.Decision()}
 
 law tool_dispatch:
   for +board: F.State()
@@ -359,12 +359,12 @@ law tool_dispatch:
 law small_context_dispatch:
   for +task: D.Task
   for +world: M.World()
-  {P.realize_action(Execution.model_with_operations(False{}, False{}, task), world) == P.model_request_direct(task, world) : M.Decision()}
+  {P.realize_action_calculation(Execution.model_with_operations(False{}, False{}, task), world) == P.model_request_direct(task, world) : M.Decision()}
 
 law large_context_dispatch:
   for +task: D.Task
   for +world: M.World()
-  {P.realize_action(Execution.model_with_operations(True{}, False{}, task), world) == P.summary_request(task, True{}, world) : M.Decision()}
+  {P.realize_action_calculation(Execution.model_with_operations(True{}, False{}, task), world) == P.summary_request(task, True{}, world) : M.Decision()}
 
 law oversized_operation_barrier:
   for +task: D.Task
@@ -402,7 +402,7 @@ law accepted_summary_settlement:
 law context_recovery_work:
   for +task: D.Task
   for +world: M.World()
-  {P.work(D.RequestContextSummary{}, task, world) == P.summary_request(task, True{}, world) : M.Decision()}
+  {P.work_calculation(D.RequestContextSummary{}, task, world) == P.summary_request(task, True{}, world) : M.Decision()}
 
 law context_recovery_ready:
   for task: D.Task
@@ -798,3 +798,13 @@ law summary_failure_empty_stops:
   for +notified: Bool
   {T.summary_failure(message, D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
     D.Task{id, lineage, contract, status, D.HistoryNode{history, D.FailureMessage{message}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
+
+
+law command_consumer_correspondence:
+  for member: Commands.ConstructedCommand()
+  {P.realize(member) == P.command_consumer_correspondence_required(member) : M.Decision()}
+
+
+law input_consumer_correspondence:
+  for member: Protocol.ConstructedInput()
+  {P.realize_event(member) == P.input_consumer_correspondence_required(member) : M.Decision()}

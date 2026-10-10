@@ -109,8 +109,8 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       block.replace(/\[Effects\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],
     ['never run the scheduler', source => replaceBody(source, 'scheduled', 'decision')],
     ['drop the continuation at fuel exhaustion', source => replaceBody(source, 'defer', 'decision')],
-    ['ignore the complete resolved execution alphabet', source => replaceBody(source, 'realize_action', 'respond(world, J.Null{})')],
-    ['turn every selected task into a safe no-op', source => replaceBody(source, 'work', 'respond(world, J.Null{})')],
+    ['ignore the complete resolved execution alphabet', source => replaceBody(source, 'realize_action_calculation', 'respond(world, J.Null{})')],
+    ['turn every selected task into a safe no-op', source => replaceBody(source, 'work_calculation', 'respond(world, J.Null{})')],
     ['discard earlier effects when combining scheduler steps', source => alterDefinition(source, 'combine', block =>
       replaceOnce(block, 'List.append(&2, M.Effect(), effects, added)', 'added'))],
     ['reject even admitted decisions', source => replaceBody(source, 'admitted',
@@ -119,14 +119,14 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
     ['claim successful tool settlement without appending it', source => alterDefinition(source, 'tool_matched', block =>
       replaceOnce(block, 'Results.begin(F.State(), F.Effect, operation, value, error, task, world)',
         'respond(world, accepted(True{}))'))],
-    ['silently discard every resolved input', source => replaceBody(source, 'realize_event', 'respond(world, J.Null{})')],
+    ['silently discard every resolved input', source => replaceBody(source, 'realize_event_calculation', 'respond(world, J.Null{})')],
     ['claim acceptance of an ignored completion', source => replaceOnce(source,
       'case Protocol.Ignore{}: respond(world, accepted(False{}))',
       'case Protocol.Ignore{}: respond(world, accepted(True{}))')],
     ['skip recovery while retaining a safe world', source => alterDefinition(source, 'recover_tasks', block =>
       replaceOnce(block, 'Protocol.recovery(tasks)', 'tasks'))],
     ['execute an internal command without settling its caller', source => alterDefinition(source, 'realize_invocation', block =>
-      replaceOnce(block, 'finish_internal(D.task_id(task), call, remaining, realize(operation, world))', 'realize(operation, world)'))],
+      replaceOnce(block, 'finish_internal(D.task_id(task), call, remaining, realize_calculation(operation, world))', 'realize_calculation(operation, world)'))],
     ['lose accepted calls after an internal fork', source => alterDefinition(source, 'commit_invoked_fork', block =>
       replaceOnce(block, 'Results.internal(F.State(), F.Effect, call, remaining,', 'Results.internal(F.State(), F.Effect, call, Nil{},'))],
     ['strand new FIFO input after summary failure', source => alterDefinition(source, 'summary_failure', block =>

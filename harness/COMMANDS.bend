@@ -437,7 +437,7 @@ def query(query: M.Query, +world: M.World()) -> J.Json:
 def meaning(operation: Operation, +world: M.World()) -> M.Decision():
   match operation:
     case Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
-    case Review{resolution}: Approvals.meaning(F.State(), F.Effect, resolution, world)
+    case Review{resolution}: Approvals.meaning_calculation(F.State(), F.Effect, resolution, world)
     case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
     case FeatureOperation{operation}: FeatureSpec.meaning(start, operation, world)
     case Deliver{+task, message}:
@@ -464,3 +464,18 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
 
 def command(+request: M.Command, +world: M.World()) -> M.Decision():
   meaning(resolve(request, world), world)
+
+
+type CommandRequest is Data:
+  CommandRequest{command: M.Command, world: M.World()}
+
+def command_resolution(request: CommandRequest) -> Operation:
+  CommandRequest{command, world} = request
+  resolve(command, world)
+
+def ConstructedCommand() -> Type:
+  Categories.Membership<Categories.Construction<CommandRequest, Operation>,
+    Categories.constructed_by(CommandRequest, Operation, command_resolution)>
+
+def construct_command(command: M.Command, world: M.World()) -> ConstructedCommand():
+  Categories.construct(CommandRequest, Operation, command_resolution, CommandRequest{command, world})

@@ -112,14 +112,14 @@ def matched_accepts(request: MatchedRequest) -> Bool:
 def matched_category() -> MatchedRequest -> Type:
   Categories.holds(MatchedRequest, matched_accepts)
 
-def matched_accepted(member: Categories.Membership<MatchedRequest, matched_category()>) -> Resolution:
+def matched_origin_calculation(member: Categories.Membership<MatchedRequest, matched_category()>) -> Resolution:
   Categories.Membership{request, evidence} = member
   MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
   decided(normalized(outcome), operation, task, reviewer)
 
 def matched_admitted(admission: Maybe<&1, Categories.Membership<MatchedRequest, matched_category()>>, request: MatchedRequest) -> Resolution:
   match admission:
-    case Some{member}: matched_accepted(member)
+    case Some{member}: matched_origin_calculation(member)
     case None{}:
       MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
       stale(origin)
@@ -156,7 +156,7 @@ def denial_value(+outcome: D.ApprovalOutcome) -> J.Json:
 def acknowledgement(accepted: Bool) -> J.Json:
   D.success(J.Object{[J.Field{"accepted", J.Boolean{accepted}}]})
 
-def meaning(-StateRest: Data, -EffectRest: Data, resolution: Resolution, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+def meaning_calculation(-StateRest: Data, -EffectRest: Data, resolution: Resolution, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match resolution:
     case Ignore{}: C.Decision{world, acknowledgement(False{}), Nil{}}
     case Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
@@ -209,3 +209,29 @@ def review_effects(-EffectRest: Data, reviewer: D.ApprovalReviewer, +task: D.Tas
     case D.HumanReviewer{}: Nil{}
     case D.ModelReviewer{profile}:
       [Effects.RequestApproval{D.task_id(task), ticket, profile, call, D.task_context(task), D.task_history(task)}]
+
+
+type ReviewRequest<-StateRest: Data> is Data:
+  ReviewRequest{origin: Origin, task_id: Nat, operation_id: Nat, outcome: D.ApprovalOutcome, world: C.Frame<D.State, StateRest>}
+
+def review_resolution(-StateRest: Data, request: ReviewRequest<StateRest>) -> Resolution:
+  ReviewRequest{origin, task_id, operation_id, outcome, +world} = request
+  state = C.local(D.State, StateRest, world)
+  resolve(T.find(D.state_tasks(state), task_id), origin, operation_id, outcome)
+
+def ConstructedReview(-StateRest: Data) -> Type:
+  Categories.Membership<Categories.Construction<ReviewRequest<StateRest>, Resolution>,
+    Categories.constructed_by(ReviewRequest<StateRest>, Resolution, review_resolution(StateRest))>
+
+def construct_review(-StateRest: Data, request: ReviewRequest<StateRest>) -> ConstructedReview(StateRest):
+  Categories.construct(ReviewRequest<StateRest>, Resolution, review_resolution(StateRest), request)
+
+def meaning(-StateRest: Data, -EffectRest: Data, member: ConstructedReview(StateRest)) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  Categories.Membership{Categories.Construction{ReviewRequest{origin, task_id, operation_id, outcome, world}, resolution}, evidence} = member
+  meaning_calculation(StateRest, EffectRest, resolution, world)
+
+
+def review_consumer_required(-StateRest: Data, -EffectRest: Data, member: ConstructedReview(StateRest)) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  Categories.Membership{Categories.Construction{+request, resolution}, evidence} = member
+  ReviewRequest{origin, task_id, operation_id, outcome, world} = request
+  meaning_calculation(StateRest, EffectRest, review_resolution(StateRest, request), world)

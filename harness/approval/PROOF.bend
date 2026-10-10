@@ -173,3 +173,22 @@ def AContract.plugin_boundary():
     (owner => other => id => plugin => outcome => pending => state => different =>
       Laws.hook_foreign_owner(owner, other, id, plugin, outcome, pending, state, different)),
     (source => before => decision => Laws.plugin_observation_extension(source, before, decision))}
+
+
+def Boundary.review_construction_meaning(StateRest, EffectRest, request):
+  A.ReviewRequest{origin, task_id, operation_id, outcome, world} = request
+  {==}
+
+
+def review_consumer_calculation(-StateRest: Data, -EffectRest: Data, +request: A.ReviewRequest<StateRest>, +resolution: A.Resolution,
+  evidence: {resolution == A.review_resolution(StateRest, request) : A.Resolution}) ->
+  {A.meaning_calculation(StateRest, EffectRest, resolution, Boundary.review_world(StateRest, request)) ==
+    A.meaning_calculation(StateRest, EffectRest, A.review_resolution(StateRest, request), Boundary.review_world(StateRest, request)) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  A.ReviewRequest{origin, task_id, operation_id, outcome, +world} = request
+  Equal.cong(A.Resolution, C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>,
+    (value => A.meaning_calculation(StateRest, EffectRest, value, world)), resolution, A.review_resolution(StateRest, request), evidence)
+
+def Boundary.review_consumer_correspondence(StateRest, EffectRest, member):
+  Categories.Membership{Categories.Construction{request, resolution}, evidence} = member
+  A.ReviewRequest{origin, task_id, operation_id, outcome, world} = request
+  review_consumer_calculation(StateRest, EffectRest, A.ReviewRequest{origin, task_id, operation_id, outcome, world}, resolution, evidence)

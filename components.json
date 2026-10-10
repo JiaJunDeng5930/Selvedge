@@ -1276,7 +1276,8 @@
       "features/board/SPEC.bend",
       "features/board/STATE.bend",
       "features/board/resolution.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "bendlib/categories.bend"
     ],
     "features/board/resolution.bend": [
       "bendlib/categories.bend",
@@ -1338,7 +1339,8 @@
       "bendlib/component.bend",
       "bendlib/json.bend",
       "features/chatgpt/MODEL.bend",
-      "harness/DOMAIN.bend"
+      "harness/DOMAIN.bend",
+      "bendlib/categories.bend"
     ],
     "features/chatgpt/PROOF.bend": [
       "bendlib/association-map.bend",
@@ -1351,7 +1353,9 @@
       "features/chatgpt/STATE.bend",
       "harness/DOMAIN.bend",
       "harness/MODEL.bend",
-      "harness/features/MODEL.bend"
+      "harness/features/MODEL.bend",
+      "bendlib/categories.bend",
+      "bendlib/json.bend"
     ],
     "features/chatgpt/SPEC.bend": [
       "bendlib/association-map.bend",
@@ -1595,7 +1599,12 @@
       "harness/DOMAIN.bend",
       "harness/MODEL.bend",
       "harness/features/operations.bend",
-      "harness/workspace/WORKSPACE.bend"
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/categories.bend",
+      "bendlib/component.bend",
+      "bendlib/json.bend",
+      "harness/features/resolution.bend",
+      "harness/features/protocol.bend"
     ],
     "harness/features/laws.bend": [
       "features/board/CONTRACT.bend",
@@ -1611,7 +1620,12 @@
       "harness/features/SPEC.bend",
       "harness/features/execution.bend",
       "harness/features/operations.bend",
-      "harness/workspace/WORKSPACE.bend"
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/categories.bend",
+      "bendlib/json.bend",
+      "harness/features/MODEL.bend",
+      "harness/features/resolution.bend",
+      "harness/features/protocol.bend"
     ],
     "harness/features/protocol.bend": [
       "bendlib/association-map.bend",
@@ -1621,7 +1635,8 @@
       "features/chatgpt/STATE.bend",
       "harness/MODEL.bend",
       "harness/features/MODEL.bend",
-      "harness/features/operations.bend"
+      "harness/features/operations.bend",
+      "bendlib/categories.bend"
     ],
     "harness/features/resolution.bend": [
       "bendlib/json.bend",
@@ -1634,7 +1649,8 @@
       "harness/features/MODEL.bend",
       "harness/features/operations.bend",
       "harness/workspace/PROJECTS.bend",
-      "harness/workspace/WORKSPACE.bend"
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/categories.bend"
     ],
     "harness/protocol/COMMIT.bend": [
       "bendlib/categories.bend",
