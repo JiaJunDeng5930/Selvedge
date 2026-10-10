@@ -1,8 +1,8 @@
 # Verification responsibilities
 
 The formal entry is [PROOF.bend](../PROOF.bend), with production obligations in
-[LAWS.bend](../LAWS.bend), [INVARIANTS.bend](../INVARIANTS.bend),
-[core/interface.bend](../core/interface.bend). Follow those entries for the executable
+[LAWS.bend](../harness/LAWS.bend), [INVARIANTS.bend](../harness/INVARIANTS.bend),
+[interaction/presentation/PROGRAM.bend](../interaction/presentation/PROGRAM.bend). Follow those entries for the executable
 requirements and their evidence. Tests target compiler, certificate and external
 boundary faults rather than repeat proved finite state-transition examples.
 
@@ -10,9 +10,11 @@ boundary faults rather than repeat proved finite state-transition examples.
 | --- | --- |
 | Missing, false, circular, unsafe or corrupted proof evidence | `pure-proof.test.mjs`, `proof-gate.test.mjs`, `whole-program-proof.test.mjs` |
 | Specification import independence, IO-only native entry, proof-carrying conceptual entry and acyclic proof dependencies | `architecture.test.mjs` |
+| Generic clients execute the production model and use its laws without concrete state; the compiler rejects matching hidden execution and application carriers as implementation constructors | `model-abstraction.test.mjs` |
 | Certificate translation rejection and compiler rejection of mutated algebra, map and closure evidence | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
 | Production board/reasoning mutations remain type-correct and fail their obligations | `board-proof.test.mjs`, `reasoning-proof.test.mjs` |
 | Component extension and contract-preserving replacement with unrelated source files frozen; native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
+| Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; source-boundary mutants are checked as legal Bend independently of semantic proof mutants |
 | Bend-generated JavaScript, Worker and codec transport: Unicode, embedded controls, exact numeric lexemes and malformed completion envelopes | `kernel-boundaries.test.mjs` |
 | Pending approval decoder rejects extra authority fields, absent reasons, invalid decisions and oversized reasons | `approval-decoding.test.mjs` |
 | HTTP approval, SQLite grants and actual subprocess authorization, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs`, `fixtures/approved-tool.mjs`; the child checks its committed grant before writing outside the workspace |

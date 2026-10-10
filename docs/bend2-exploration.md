@@ -1,8 +1,8 @@
 # Bend 2 migration: exploration record
 
 This record collects findings from implementing the executable model. The current
-requirements themselves live in `LAWS.bend`, the domain in `MODEL.bend`, and the
-executed transition in `PROGRAM.bend`. Dates describe observations on this branch,
+requirements themselves live in `../harness/LAWS.bend`, the domain in `../harness/MODEL.bend`, and the
+executed transition in `../harness/PROGRAM.bend`. Dates describe observations on this branch,
 not claims about all Bend versions.
 
 ## Task-board integration
@@ -27,8 +27,8 @@ An outer-sandbox denial is recorded separately from product test results.
 ## 2026-09-24: establish the existing implementation
 
 The starting worktree already contained a native Bend kernel, a Node host, and
-twelve passing kernel/journal tests. Bend 2.0.27 checked `PROOF.bend` and compiled
-`MAIN.bend`. This established an executable baseline, not full service validation:
+twelve passing kernel/journal tests. Bend 2.0.27 checked `../PROOF.bend` and compiled
+`../MAIN.bend`. This established an executable baseline, not full service validation:
 there were no tests yet for the HTTP, provider, process, or MCP integrations.
 
 ### A theorem needs the same program entity as the running implementation
@@ -48,7 +48,7 @@ proved helpers cannot establish a whole-program preservation theorem.
 ### Termination describes a transition, not the life of a service
 
 The checked program consumes explicit scheduling and rendering budgets. Remaining
-work becomes a `ContinueScheduling` effect. The external stdin loop in `MAIN.bend`
+work becomes a `ContinueScheduling` effect. The external stdin loop in `../MAIN.bend`
 uses unchecked recursion and constructs no proof. This provides a useful place to
 separate a total mathematical operation from an indefinitely available service;
 it does not prove fairness or eventual completion of a task.
@@ -859,7 +859,7 @@ themselves do not generate polling rounds.
 
 The old browser obtained schemas from Bend but still interpreted task snapshots,
 provider messages and action rules. Thus the conceptual entry described only part
-of the program's behavior. `UI.bend` now owns a typed presentation tree and its
+of the program's behavior. `../interaction/MODEL.bend` now owns a typed presentation tree and its
 events; `CONCEPTS.Observation.surface` binds its submission, projection and command
 gates. Every platform can render this same value without reconstructing a task
 model. The remaining client state is an opaque cursor plus unsubmitted widget
@@ -1187,7 +1187,7 @@ recreated every cursor from its board projection. A new component's cursor was
 therefore reset on its next request. Cursor field encoding, decoding, validation
 and clock observation now belong to feature assembly. Shared surface types live
 below both renderers, so adding a feature view does not require a UI dependency
-cycle. The extension test builds the unchanged `MAIN.bend` and checks actual
+cycle. The extension test builds the unchanged `../MAIN.bend` and checks actual
 transport, rendering, refresh and board-navigation round trips.
 
 The task-storage replacement experiment appends the empty list to an unknown
@@ -1350,3 +1350,32 @@ native-entry and host-syntax gates. The independent plugin also installed and
 loaded its MCP SDK outside the monorepo. Live ChatGPT/Tunnel validation remains
 outside this local delivery because no associated tunnel or runtime key is
 available.
+
+
+## 2026-10-10: opaque carriers and affine operation fields
+
+On the pinned Bend 2.0.34 compiler, functions stored in an operation record have
+`Type`, with affine usage. Trying to copy an `effects` field as `+effects` failed
+with expected `Data` and observed `Type`. Moving calls to static `~` API methods
+did not remove the boundary: after unpacking the existential system, a client
+that passed its hidden `World` to those methods failed because `World` was a
+variable rather than a closed compile-time argument. Closed templates work when
+their arguments are available at compile time; an existential carrier recovered
+at runtime does not meet that condition.
+
+The execution interface therefore exposes the existing production `PROGRAM.replay`
+operation for an arbitrary finite sequence of inputs. Its evidence reuses
+`replay_preserves_world` and `observation_replay`. This lets a generic client
+express a finite execution through one affine operation field without copying a
+dynamic function dictionary. It adds neither a replay implementation nor a general
+algebra, and retains the single-step refinement of the complete decision. The
+root model remains a typed operational model with universal laws and affine
+operation fields.
+
+The execution instance is assembled in the root proof because the replay law's
+history provider refers back to the harness proof. Putting that factory in the
+harness proof would create a dependency cycle. Representation-sensitive
+application and display factories remain in the runtime proof; the root connects
+them through the shared opaque carrier. This division keeps concrete evidence
+construction separate from generic model use without claiming that all existing
+modules are compiler-private.

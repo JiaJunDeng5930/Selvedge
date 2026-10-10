@@ -15,44 +15,79 @@ Workspace.
 
 ## Read the program
 
-Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
-object organized by meaning, composition, recovery and observation. It contains
-no implementation functions. `bendlib/architecture.bend` binds these concepts to
-the exact production operations and existing list, finite-map, iteration and
-relation theories. The entry carries the domain correspondence and required
-premises, not a parallel hierarchy of project-owned general algebra.
+Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
+system. `Execution`, `Application`, and `Display` expose operations and universally
+quantified properties bound to those same operation fields. `SystemModel` packages
+the layers around a shared, hidden `World`; its nested packages hide their state
+and result carriers. A generic client can initialize, advance, observe, and reason
+about the system through these fields without matching its internal state
+constructors. Public command and observation vocabulary remains transparent.
 
-[COMMANDS.bend](COMMANDS.bend) states what every command means. Its resolver owns
-the preconditions and produces an operation whose meaning fixes the complete
-post-state, reply, and effects. [MODEL.bend](MODEL.bend) assembles the client
+[PROOF.bend](PROOF.bend) instantiates this interface with the actual production
+functions and their existing proofs. For representation-independent reasoning,
+read `MODEL.bend` before opening the implementation modules. This package boundary
+does not make every existing module private: concrete adapters and
+representation-specific proofs still inspect concrete state in their own modules.
+[ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the choice.
+
+For detailed execution requirements,
+[harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means.
+Its resolver owns the preconditions and produces an operation whose meaning fixes the complete
+post-state, reply, and effects. [harness/MODEL.bend](harness/MODEL.bend) assembles the client
 vocabulary and system state. Task-domain values and policy primitives live in
-`bendlib/domain.bend`; [FEATURES.bend](FEATURES.bend) assembles independent feature
+`harness/DOMAIN.bend`; [harness/features/MODEL.bend](harness/features/MODEL.bend) assembles independent feature
 state and input types. These entries distinguish component contracts from their
 application-wide composition.
 
-For implementation/proof details, [PROGRAM.bend](PROGRAM.bend) realizes the
-operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
+Within a concrete component, follow named observations and updates before its
+representation. Aggregate state constructors belong to their declared
+implementation and representation-proof owners. Public values, including
+`Board.AgentProfile`, remain available to their callers. The component boundaries
+are described in [ADR 0028](docs/adr/0028-model-representation-boundaries.md).
+
+For implementation/proof details, [harness/PROGRAM.bend](harness/PROGRAM.bend) realizes the
+operations and runs bounded scheduling. [harness/LAWS.bend](harness/LAWS.bend) states the exact
 command, scheduling, commit and dispatch equations, as well as safety and trace
 properties. [PROOF.bend](PROOF.bend) assembles the local proofs in
-`bendlib/proofs`; their explicit dependency graph follows the semantic boundaries.
-See [INVARIANTS.bend](INVARIANTS.bend) for the validity predicates.
+the owning concept directories and supplies the operational model instance.
+[CONCEPTS.bend](CONCEPTS.bend) retains the detailed `Harness` proof composition
+for inspecting that evidence. See [the proof guide](docs/proofs.md).
+See [harness/INVARIANTS.bend](harness/INVARIANTS.bend) for the validity predicates.
+
+The source tree groups execution semantics in [harness](harness/README.md),
+independent capabilities in [features](features/README.md), platform-independent
+interaction in [interaction](interaction/README.md), and browser implementation in
+[browser](browser/README.md). Concept directories stay at most two levels deep;
+contracts and proofs sit beside their owning concepts and group complete
+responsibilities. Concept `PROOF.bend` entries assemble the evidence they need,
+and the root proof entry imports the production providers.
+[ADR 0029](docs/adr/0029-shallow-concept-directories.md) records the directory organization;
+[ADR 0031](docs/adr/0031-public-vocabulary-and-proof-boundaries.md) explains the public
+vocabulary and proof boundaries.
 
 ## Component changes and proof reuse
 
 Feature commands, queries, completions and effects cross stable outer categories.
-`bendlib/feature-*.bend` owns their resolution, interpretation, codecs, resource
+`harness/features` owns their resolution, interpretation, codecs, resource
 checks and proof composition. Adding a feature extends that assembly and the
 feature's own contracts. A shared-resource or scheduling change still requires
 its actual interaction proof.
 
-Follow [UI.bend](UI.bend) and [core/interface.bend](core/interface.bend) for
-the semantic interface, and [bendlib/feature-codec.bend](bendlib/feature-codec.bend)
-for feature command encoding.
+Follow [interaction/MODEL.bend](interaction/MODEL.bend) for application interaction
+and [interaction/TYPES.bend](interaction/TYPES.bend) for its input, state and
+observation vocabulary. Presentation separates [scene vocabulary](interaction/presentation/MODEL.bend),
+[node and gesture vocabulary](interaction/presentation/SURFACE.bend),
+[scene generation](interaction/presentation/VIEW.bend), and
+[surface behavior](interaction/presentation/PROGRAM.bend).
+[harness/features/CODEC.bend](harness/features/CODEC.bend) encodes feature commands.
 
-`bun run check:components` checks actual source dependencies and private feature
-patterns against `components.json`; it runs during normal checks and builds,
-including cached builds. `bun run test:locality` freezes existing source files in
-temporary copies, extends state and component vocabularies, replaces a component
+`bun run check:components` checks actual source dependencies, private feature
+patterns, and construction or pattern matching of declared private model
+constructors against `components.json`; it runs during normal checks and builds,
+including cached builds. Model owners are explicit source paths. This source
+check complements the proof gate, which still requires complete decisions,
+completion correlation and ordered effects. `bun run test:locality` freezes existing
+source files in temporary copies, extends state and component vocabularies, replaces a component
 without changing its contract or clients, and builds the unchanged native entry.
 It challenges the source and semantic checks separately.
 These checks constrain source changes, not human reading time or whole-build time.
@@ -97,7 +132,7 @@ workspace for a new task; `{"workspace": {"roots": []}}` explicitly selects no
 workspace roots. The same fields are available through the CLI and command API.
 
 The actual command and context guarantees are bound by
-`bendlib/workspace-architecture.bend` in `CONCEPTS.Harness.working_context`.
+`harness/workspace/CONTRACT.bend` in `CONCEPTS.Harness.working_context`.
 Journal format 2 records these task-local plans, not a global working directory;
 opening an older kernel/format is rejected without automatic migration.
 Command descriptions, validation schemas, lifecycle controls, and client forms
@@ -109,7 +144,7 @@ executable specifications or public rules bound to actual production computation
 Do not maintain another account in documentation of requirements already expressed
 there.
 
-[UI.bend](UI.bend) is the platform-independent interaction entry. Its typed
+[interaction/MODEL.bend](interaction/MODEL.bend) is the platform-independent interaction entry. Its typed
 presentation, form bindings, navigation and action availability are evaluated
 against the command resolver. [BROWSER.bend](BROWSER.bend) compiles these production
 functions into JavaScript that runs directly in the browser. Bend owns local UI

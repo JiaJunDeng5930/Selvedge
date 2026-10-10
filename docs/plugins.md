@@ -1,6 +1,6 @@
 # Plugins and hooks
 
-The extension entry is `HOOKS.bend`, bound by `CONCEPTS.Extensibility`. Plugins are
+The extension entry is `../harness/approval/HOOKS.bend`, bound by `CONCEPTS.Extensibility`. Plugins are
 trusted local executables speaking newline-delimited UTF-8 JSON-RPC 2.0 over stdio.
 They do not need to be JavaScript modules or share a runtime with the Bend binary.
 The included Bun example only demonstrates that wire contract.
@@ -110,7 +110,7 @@ exactly `{"decision":"allow"}`, `{"decision":"rewrite","arguments":{...}}`, or
 object. The host can report exceptions, malformed replies, unavailable revisions
 and timeouts.
 
-See [HOOKS.bend](../HOOKS.bend) for the authoritative authorization-record semantics.
+See [HOOKS.bend](../harness/approval/HOOKS.bend) for the authoritative authorization-record semantics.
 
 Cancellation is advisory for the plugin process: the callback may already have
 performed its own effects, which Selvedge cannot roll back.
@@ -158,7 +158,7 @@ Excluding audit records from model context does not provide confidential erasure
 authorized history reads, including `read_task`, can expose audit records.
 A confidentiality policy must also govern those reads and any external artifacts.
 
-See [results.bend](../bendlib/results.bend) and [protocol.bend](../bendlib/protocol.bend) for the authoritative result-processing and completion-admission semantics.
+See [RESULTS.bend](../harness/protocol/RESULTS.bend) and [PROGRAM.bend](../harness/protocol/PROGRAM.bend) for the authoritative result-processing and completion-admission semantics.
 
 ## Post-commit observations
 

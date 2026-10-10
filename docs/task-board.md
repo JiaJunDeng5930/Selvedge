@@ -41,6 +41,6 @@ are downloaded. Submission waits for uploads. Stored references are checked
 again at the service boundary; arbitrary local paths cannot substitute for uploads.
 
 Use `bun host/cli.mjs describe` for the live API fields. The authoritative board
-command definitions are in [board-codec.bend](../bendlib/board-codec.bend).
+command definitions are in [CODEC.bend](../features/board/CODEC.bend).
 
 `bun run test` runs the proof/host boundary suite.

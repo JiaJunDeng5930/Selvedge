@@ -6,6 +6,7 @@ type Frame<-S: Data, -R: Data> is Data:
   Frame{local: S, rest: R}
 
 # A component decision retains the reply and the ordered effects, not just state.
+
 type Decision<-S: Data, -E: Data> is Data:
   Decision{state: S, reply: J.Json, effects: +List<E>}
 

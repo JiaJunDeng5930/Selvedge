@@ -1,8 +1,11 @@
 # Contributing to Selvedge
 
 Read [README.md](README.md) and the relevant module README before changing code.
-The executable requirements in MODEL, INVARIANTS, and LAWS are the entry point
-for behavior changes. PROGRAM executes those definitions; PROOF checks the
+The executable requirements in [harness/MODEL.bend](harness/MODEL.bend),
+[harness/INVARIANTS.bend](harness/INVARIANTS.bend) and
+[harness/LAWS.bend](harness/LAWS.bend) are the entry point for behavior changes.
+[harness/PROGRAM.bend](harness/PROGRAM.bend) executes those definitions;
+[PROOF.bend](PROOF.bend) checks the
 required facts. Do not weaken a requirement merely to make an implementation pass.
 
 ## Setup and checks

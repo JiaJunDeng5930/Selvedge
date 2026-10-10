@@ -1,53 +1,76 @@
 import Base
-import ./bendlib/feature-laws.bend as FeatureLaws
-import ./bendlib/proofs/locality.bend as LocalityProof
-import ./LAWS.bend as Laws
-import ./bendlib/architecture.bend as Concepts
+import ./harness/LAWS.bend as Laws
+import ./interaction/presentation/CONTRACT.bend as InterfaceProgramRules
+import ./harness/CONTRACT.bend as Concepts
+import ./harness/approval/CONTRACT.bend as Approval
+import ./features/board/CONTRACT.bend as Board
+import ./harness/reasoning/CONTRACT.bend as Reasoning
+import ./harness/workspace/CONTRACT.bend as Workspace
 import ./CONCEPTS.bend as Entry
-import ./bendlib/proofs/algebra.bend as AlgebraProof
-import ./bendlib/proofs/commit.bend as CommitProof
-import ./bendlib/proofs/execution.bend as ExecutionProof
-import ./bendlib/proofs/frontend.bend as FrontendProof
-import ./bendlib/proofs/observations.bend as ObservationsProof
-import ./bendlib/proofs/protocol.bend as ProtocolProof
-import ./bendlib/proofs/safety.bend as SafetyProof
-import ./bendlib/proofs/tasks.bend as TasksProof
-import ./bendlib/proofs/traces.bend as TracesProof
-import ./bendlib/proofs/operations.bend as OperationsProof
-import ./core/proofs/surface.bend as CoreSurfaceProof
-import ./core/proofs/session.bend as CoreSessionProof
-import ./core/proofs/boundary.bend as CoreBoundaryProof
-import ./core/proofs/page-region.bend as CorePageRegionProof
-import ./core/proofs/interface.bend as CoreInterfaceProof
-import ./core/proofs/composition.bend as CoreCompositionProof
-import ./core/proofs/conversation-presentation.bend as CoreConversationPresentationProof
-import ./core/proofs/board-presentation.bend as CoreBoardPresentationProof
-import ./core/proofs/board-capability.bend as CoreBoardCapabilityProof
-import ./core/proofs/execution-context.bend as CoreExecutionContextProof
-import ./core/proofs/project-interaction.bend as CoreProjectInteractionProof
-import ./core/proofs/directory-entry.bend as CoreDirectoryEntryProof
-import ./core/proofs/submission-feedback.bend as CoreSubmissionFeedbackProof
-import ./bendlib/proofs/ui.bend as UIProof
-import ./bendlib/proofs/plugins.bend as PluginsProof
-import ./bendlib/proofs/results.bend as ResultsProof
-import ./bendlib/proofs/reachability.bend as ReachabilityProof
-import ./bendlib/workspace-architecture.bend as Workspace
-import ./bendlib/proofs/workspaces.bend as WorkspacesProof
-import ./bendlib/approval-architecture.bend as Approval
-import ./bendlib/proofs/approvals.bend as ApprovalsProof
-import ./bendlib/reasoning-architecture.bend as Reasoning
-import ./bendlib/proofs/reasoning.bend as ReasoningProof
-import ./bendlib/board-architecture.bend as Board
-import ./bendlib/proofs/board.bend as BoardProof
-import ./core/interface-program-rules.bend as InterfaceProgramRules
-import ./core/proofs/interface-program.bend as CoreInterfaceProgramProof
-import ./bendlib/json-render-rules.bend as JsonRenderRules
-import ./bendlib/proofs/json-render.bend as JsonRenderProof
-import ./bendlib/profile-rules.bend as ProfileRules
-import ./bendlib/proofs/profiles.bend as ProfilesProof
+import ./harness/reasoning/PROOF.bend as ReasoningProof
+import ./harness/tasks/PROOF.bend as TasksProof
+import ./features/board/PROOF.bend as BoardProof
+import ./harness/features/laws.bend as FeatureLaws
+import ./harness/protocol/PROOF.bend as ProtocolProof
+import ./harness/execution/PROOF.bend as ExecutionProof
+import ./harness/protocol/commit-proof.bend as CommitProof
+import ./harness/PROOF.bend as LocalityProof
+import ./harness/history/PROOF.bend as TracesProof
+import ./harness/transport/CONTRACT.bend as JsonRenderRules
+import ./harness/transport/PROOF.bend as FrontendProof
+import ./bendlib/algebra-proof.bend as AlgebraProof
+import ./browser/layout/geometry-proof.bend as SplitBrowserLayoutGeometryProof
+import ./browser/appearance/PROOF.bend as RegisteredBrowserAppearanceProof
+import ./browser/document/PROOF.bend as SplitBrowserDocumentProof
+import ./browser/document/content-proof.bend as SplitBrowserDocumentContentProof
+import ./browser/model-proof.bend as RegisteredBrowserModelProof
+import ./browser/document/presentation-proof.bend as RegisteredBrowserDocumentPresentationProof
+import ./browser/document/render-proof.bend as SplitBrowserDocumentRenderProof
+import ./browser/document/source-proof.bend as SplitBrowserDocumentSourceProof
+import ./browser/layout/allocation-proof.bend as SplitBrowserLayoutAllocationProof
+import ./browser/layout/sizing-proof.bend as SplitBrowserLayoutSizingProof
+import ./browser/layout/PROOF.bend as SplitBrowserLayoutProof
+import ./browser/layout/render-proof.bend as SplitBrowserLayoutRenderProof
+import ./harness/approval/PROOF.bend as PluginsProof
+import ./harness/workspace/PROOF.bend as WorkspacesProof
+import ./interaction/conversation/PROOF.bend as CoreConversationPresentationProof
+import ./interaction/presentation/PROOF.bend as CoreSurfaceProof
+import ./interaction/presentation/interaction-proof.bend as SplitInteractionPresentationInteractionProof
+import ./interaction/submission/PROOF.bend as CoreSubmissionFeedbackProof
+import ./interaction/presentation/scene-proof.bend as SplitInteractionPresentationSceneProof
+import ./interaction/services/PROOF.bend as CoreExecutionContextProof
+import ./interaction/session/PROOF.bend as CoreSessionProof
+import ./interaction/PROOF.bend as UIProof
+
+import ./MODEL.bend as Model
+import ./harness/MODEL.bend as M
+import ./harness/PROGRAM.bend as Program
+import ./harness/INVARIANTS.bend as Invariants
+import ./browser/editor/PROOF.bend as EditorProof
+import ./browser/focus/PROOF.bend as FocusProof
+import ./browser/reading/PROOF.bend as ReadingProof
+import ./browser/runtime/platform-proof.bend as PlatformProof
+import ./browser/PROOF.bend as BrowserProof
+import ./browser/runtime/SEMANTICS.bend as Semantics
+import ./browser/runtime/PROOF.bend as RuntimeProof
+
+# Bind the execution interface to its production operations and proofs.
+def execution_model() -> Model.Execution<M.World(), M.Decision()>:
+  Model.Execution{
+    M.initial(), world => Invariants.world(world), input => world => Program.transition(input, world),
+    input => world => Concepts.interaction_specification(input, world), decision => Program.decision_world(decision),
+    decision => Program.decision_reply(decision), decision => Program.decision_effects(decision), input => M.durable(input),
+    Laws.initial_world_valid(),
+    state => input => valid => Laws.transition_preserves_world(state, input, valid),
+    input => state => Laws.interaction_transition(input, state),
+    query => state => Laws.observation_preserves_world(query, state),
+    query => state => Laws.observation_has_no_effects(query, state),
+    query => Laws.observation_not_durable(query),
+    events => state => Program.replay(events, state),
+    events => state => valid => Laws.replay_preserves_world(events, state, valid),
+    query => first => second => state => Laws.observation_replay(query, first, second, state)}
 
 # Assemble the conceptual program only after every local obligation is closed.
-
 def Entry.harness():
   Entry.Harness{
     Entry.Meaning{Concepts.commands(), Concepts.interactions(), Concepts.actions(), Concepts.scheduling(), Concepts.native_interface()},
@@ -59,13 +82,22 @@ def Entry.harness():
     Reasoning.reasoning_boundary(), FeatureLaws.features(), LocalityProof.locality()}
 
 # The native product bridge carries all trusted interface decisions unchanged.
+
 def product_interface_evidence() -> InterfaceProgramRules.InterfaceRequirements:
   InterfaceProgramRules.interface_evidence()
 
 # The shared JSON renderer carries its production completeness evidence.
-def json_render_evidence() -> JsonRenderRules.Requirements:
-  JsonRenderRules.evidence()
+
+def json_render_evidence() -> JsonRenderRules.JsonRenderRequirements:
+  JsonRenderRules.json_render_evidence()
 
 # Profile catalogue selections carry the production policy evidence.
-def profile_evidence() -> ProfileRules.Requirements:
-  ProfileRules.evidence()
+
+def profile_evidence() -> JsonRenderRules.ProfileRequirements:
+  JsonRenderRules.profile_evidence()
+
+def Model.system():
+  (M.World(), (M.Decision(), Model.System{
+    execution_model(),
+    (Semantics.State, (Semantics.Input, (Semantics.Decision, (Semantics.Pending, (Semantics.Effect,
+      Model.Interface{RuntimeProof.application_model(), RuntimeProof.display_model()})))))}))

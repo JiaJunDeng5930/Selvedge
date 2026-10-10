@@ -1,0 +1,335 @@
+import Base
+import ../../interaction/IDENTITY.bend as UIIdentity
+import ../../interaction/presentation/PROGRAM.bend as InterfaceView
+import ../../interaction/presentation/MODEL.bend as View
+import ../../interaction/submission/FIELDS.bend as Forms
+import ../controls/GEOMETRY.bend as Geometry
+import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+
+type Element is Data:
+  Element{key: String, visible: Bool, enabled: Bool, tab_stop: Bool,
+    keyboard_reachable: Bool, scroll_reachable: Bool, bounds: Geometry.Rect,
+    center_hit_owner: String, paint_bounds: Geometry.Rect}
+
+type NativeFocus is Data:
+  NativeFocus{identity: String, owner: String}
+
+type Frame is Data:
+  Frame{viewport: Geometry.Rect, elements: +List<Element>, focused: Maybe<&2, String>, tab_order: +List<String>, native_focus: +List<NativeFocus>}
+
+type Violation is Data:
+  MissingElement{key: String}
+  DisabledAppearance{key: String}
+  UnreachableControl{key: String}
+  OccludedControl{key: String}
+  OverlappingControls{first: String, second: String}
+  InvalidPaintGeometry{key: String}
+  EscapedDialog{key: String}
+  InvisibleFocus{}
+  FocusOutsideScope{}
+  MissingModalFocus{}
+  WrongTabOrder{}
+
+type State is Data:
+  AwaitingFrame{generation: Nat}
+  Realized{generation: Nat, frame: Frame}
+  Unmet{generation: Nat, frame: Frame, violations: +List<Violation>}
+
+def enabled(availability: View.Availability) -> Bool:
+  match availability:
+    case View.Unavailable{reason}: False{}
+    case _: True{}
+
+def field_control(entry: Forms.Entry) -> Bool:
+  match entry:
+    case Forms.DisplayOnly{}: False{}
+    case Forms.FileCollection{}: False{}
+    case Forms.DirectoryCollection{}: False{}
+    case _: True{}
+
+def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
+  match meaning:
+    case SurfaceTypes.MovableCard{destinations, face}: True{}
+    case SurfaceTypes.ComposerAction{subject, input, availability}: True{}
+    case SurfaceTypes.Activate{input, availability}: True{}
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: True{}
+    case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: True{}
+    case SurfaceTypes.Edit{editor, field, entry, value, choices}: field_control(entry)
+    case SurfaceTypes.SearchChoices{query}: True{}
+    case SurfaceTypes.EnterCredential{entered}: True{}
+    case SurfaceTypes.BoardSearch{filter}: True{}
+    case SurfaceTypes.ReceiveFile{editor, enabled}: True{}
+    case SurfaceTypes.EnterDirectory{editor, text}: True{}
+    case SurfaceTypes.DirectoryBrowserLocation{value}: True{}
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: True{}
+    case _: False{}
+
+def required_enabled(meaning: SurfaceTypes.Meaning) -> Bool:
+  match meaning:
+    case SurfaceTypes.MovableCard{destinations, face}: InterfaceView.has_available_destination(destinations)
+    case SurfaceTypes.ComposerAction{subject, input, availability}: enabled(availability)
+    case SurfaceTypes.Activate{input, availability}: enabled(availability)
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: enabled(availability)
+    case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: enabled(availability)
+    case SurfaceTypes.ReceiveFile{editor, enabled}: enabled
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: enabled
+    case other: interactive(other)
+
+def choose_element(same: Bool, element: Element, fallback: Maybe<&2, Element>) -> Maybe<&2, Element>:
+  match same:
+    case True{}: Some{element}
+    case False{}: fallback
+
+def find_element(elements: +List<Element>, +key: String) -> Maybe<&2, Element>:
+  match elements:
+    case Nil{}: None{}
+    case Con{Element{+current, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}, rest}:
+      choose_element(String.eq(current, key), Element{current, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, find_element(rest, key))
+
+def persistent(role: SurfaceTypes.Role) -> Bool:
+  match role:
+    case SurfaceTypes.Composer{}: True{}
+    case SurfaceTypes.DialogActions{}: True{}
+    case SurfaceTypes.Approval{}: False{}
+    case SurfaceTypes.Toolbar{}: False{}
+    case _: False{}
+
+def issue(violated: Bool, violation: Violation) -> +List<Violation>:
+  match violated:
+    case True{}: [violation]
+    case False{}: Nil{}
+
+def enabled_geometry(required: Bool, +key: String, +visible: Bool, keyboard: Bool, scroll: Bool, bounds: Geometry.Rect, hit: String, must_be_visible: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+  match required:
+    case False{}: Nil{}
+    case True{}:
+      List.append(&2, Violation,
+        issue(Bool.not(keyboard && (visible || scroll)) || (must_be_visible && Bool.not(visible && Geometry.contains(viewport, bounds))), UnreachableControl{key}),
+        issue(visible && Bool.not(String.eq(key, hit)), OccludedControl{key}))
+
+def control_geometry(+required: Bool, +key: String, found: Maybe<&2, Element>, must_be_visible: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+  match found:
+    case None{}: [MissingElement{key}]
+    case Some{Element{observed, visible, +enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
+      List.append(&2, Violation, issue(Bool.not(((required && enabled) || (Bool.not(required) && Bool.not(enabled)))), DisabledAppearance{key}),
+        enabled_geometry(required, key, visible, keyboard, scroll, bounds, hit, must_be_visible, viewport))
+
+def bounded_dialog(key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
+  match found:
+    case None{}: [MissingElement{key}]
+    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
+      issue(Bool.not(visible && Geometry.contains(viewport, bounds)), EscapedDialog{key})
+
+def dialog_geometry(role: SurfaceTypes.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
+  match role:
+    case SurfaceTypes.Dialog{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.Menu{}: bounded_dialog(key, found, viewport)
+    case _: Nil{}
+
+def node_controls(is_control: Bool, meaning: SurfaceTypes.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+  match is_control:
+    case False{}: Nil{}
+    case True{}: control_geometry(required_enabled(meaning), key, found, persistent, viewport)
+
+def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation>:
+  match found:
+    case None{}: [MissingElement{key}]
+    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}:
+      issue(Bool.not(visible || scroll), EscapedDialog{key})
+
+def region_geometry(role: SurfaceTypes.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
+  match role:
+    case SurfaceTypes.Navigation{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.NavigationHeader{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.Main{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.Composer{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.DialogActions{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.Toolbar{}: reachable_toolbar(key, found)
+    case SurfaceTypes.ApprovalQueue{}: bounded_dialog(key, found, viewport)
+    case other: dialog_geometry(other, key, found, viewport)
+
+def overlaps(first: Geometry.Rect, second: Geometry.Rect) -> Bool:
+  Geometry.Rect{left, top, right, bottom} = first
+  Geometry.Rect{other_left, other_top, other_right, other_bottom} = second
+  F32.is_lt(left, other_right) && F32.is_lt(other_left, right) && F32.is_lt(top, other_bottom) && F32.is_lt(other_top, bottom)
+
+def code_in_view(role: SurfaceTypes.Role, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
+  match role found:
+    case SurfaceTypes.CodeBlock{} Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}}: visible && overlaps(paint_bounds, viewport)
+    case _ _: False{}
+
+def node_geometry(found: Maybe<&2, Element>, +meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, +key: String, persistent: Bool, +viewport: Geometry.Rect) -> +List<Violation>:
+  match found:
+    case None{}: [MissingElement{key}]
+    case Some{+element}:
+      List.append(&2, Violation, node_controls(interactive(meaning), meaning, key, Some{element}, persistent, viewport), region_geometry(role, key, Some{element}, viewport))
+
+def nodes(entries: +List<SurfaceTypes.Node>, +inherited: Bool, +elements: +List<Element>, +viewport: Geometry.Rect) -> +List<Violation>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{SurfaceTypes.Node{+key, semantic, label, +role, meaning, children}, rest}:
+      List.append(&2, Violation, node_geometry(find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), inherited || persistent(role), viewport),
+        List.append(&2, Violation, nodes(children, inherited || persistent(role) || code_in_view(role, find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport), nodes(rest, inherited, elements, viewport)))
+
+def tab_stop(found: Maybe<&2, Element>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && tab && (visible || scroll)
+
+def tab_entry(included: Bool, key: String, rest: +List<String>) -> +List<String>:
+  match included:
+    case True{}: key <> rest
+    case False{}: rest
+
+def native_member(entries: +List<NativeFocus>, +identity: String) -> Bool:
+  match entries:
+    case Nil{}: False{}
+    case Con{NativeFocus{key, owner}, rest}: String.eq(key, identity) || native_member(rest, identity)
+
+def read_only(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReadOnly{text}, children}}: True{}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.RichText{source, value}, children}}: True{}
+    case _: False{}
+
+def native_element(found: Maybe<&2, Element>) -> Bool:
+  match found:
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && tab && keyboard && (visible || scroll)
+    case None{}: False{}
+
+def exists(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{node}: True{}
+
+def native_valid(entries: +List<NativeFocus>, +active: +List<SurfaceTypes.Node>, +elements: +List<Element>) -> Bool:
+  match entries:
+    case Nil{}: True{}
+    case Con{NativeFocus{+identity, owner}, +rest}:
+      read_only(InterfaceView.find_node(active, owner)) && Bool.not(exists(InterfaceView.find_node(active, identity))) &&
+      native_element(find_element(elements, identity)) && Bool.not(native_member(rest, identity)) && native_valid(rest, active, elements)
+
+def native_owned(+entries: +List<NativeFocus>, +active: +List<SurfaceTypes.Node>, +elements: +List<Element>, +key: String) -> Bool:
+  native_valid(entries, active, elements) && native_member(entries, key)
+
+def owner_tabs(entries: +List<NativeFocus>, +owner: String) -> +List<String>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{NativeFocus{identity, parent}, rest}: tab_entry(String.eq(parent, owner), identity, owner_tabs(rest, owner))
+
+def content_tabs(meaning: SurfaceTypes.Meaning, entries: +List<NativeFocus>, key: String) -> +List<String>:
+  match meaning:
+    case SurfaceTypes.ReadOnly{text}: owner_tabs(entries, key)
+    case SurfaceTypes.RichText{source, value}: owner_tabs(entries, key)
+    case _: Nil{}
+
+def expected_tabs(nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>) -> +List<String>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, +meaning, children} = node
+      +identity = InterfaceView.node_key(node)
+      tab_entry(interactive(meaning) && required_enabled(meaning) && tab_stop(find_element(elements, identity)), identity,
+        List.append(&2, String, content_tabs(meaning, native_focus, identity),
+          List.append(&2, String, expected_tabs(children, elements, native_focus), expected_tabs(rest, elements, native_focus))))
+
+def same_order(expected: +List<String>, actual: +List<String>) -> Bool:
+  match expected actual:
+    case Nil{} Nil{}: True{}
+    case Con{left, ls} Con{right, rs}: String.eq(left, right) && same_order(ls, rs)
+    case _ _: False{}
+
+def tabs_valid(+active: +List<SurfaceTypes.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, order: +List<String>) -> Bool:
+  native_valid(native_focus, active, elements) && same_order(expected_tabs(active, elements, native_focus), order)
+
+def focus_visible(found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: visible && Geometry.contains(viewport, bounds)
+
+def focus_owned(+nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, +key: String) -> Bool:
+  exists(InterfaceView.find_node(nodes, key)) || native_owned(native_focus, nodes, elements, key)
+
+def focus_checks(focus: Maybe<&2, String>, nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>, viewport: Geometry.Rect, +native_focus: +List<NativeFocus>) -> +List<Violation>:
+  match focus:
+    case None{}: Nil{}
+    case Some{+key}: List.append(&2, Violation, issue(Bool.not(focus_visible(find_element(elements, key), viewport)), InvisibleFocus{}),
+      issue(Bool.not(focus_owned(nodes, elements, native_focus, key)), FocusOutsideScope{}))
+
+def required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) -> +List<Violation>:
+  match scope:
+    case None{}: Nil{}
+    case Some{scope}:
+      match focused:
+        case None{}: [MissingModalFocus{}]
+        case Some{key}: Nil{}
+
+def include_element(included: Bool, found: Maybe<&2, Element>, rest: +List<Element>) -> +List<Element>:
+  match included found:
+    case True{} Some{Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds} <> rest
+    case _ _: rest
+
+def actionable_elements(nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>) -> +List<Element>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{SurfaceTypes.Node{key, semantic, label, role, +meaning, children}, rest}:
+      include_element(interactive(meaning) && required_enabled(meaning), find_element(elements, UIIdentity.encode(key)),
+        List.append(&2, Element, actionable_elements(children, elements), actionable_elements(rest, elements)))
+
+def against(first: Element, rest: +List<Element>) -> +List<Violation>:
+  Element{+key, visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds} = first
+  match rest:
+    case Nil{}: Nil{}
+    case Con{Element{other, v, e, t, k, s, other_bounds, h, +other_paint_bounds}, tail}:
+      List.append(&2, Violation, issue(overlaps(paint_bounds, other_paint_bounds), OverlappingControls{key, other}),
+        against(Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, tail))
+
+def independent_targets(elements: +List<Element>) -> +List<Violation>:
+  match elements:
+    case Nil{}: Nil{}
+    case Con{first, +rest}: List.append(&2, Violation, against(first, rest), independent_targets(rest))
+
+def layout_check(+active: +List<SurfaceTypes.Node>, frame: Frame) -> +List<Violation>:
+  Frame{+viewport, +elements, focused, tab_order, +native_focus} = frame
+  List.append(&2, Violation, nodes(active, False{}, elements, viewport),
+    List.append(&2, Violation, focus_checks(focused, active, elements, viewport, native_focus),
+      List.append(&2, Violation, issue(Bool.not(tabs_valid(active, elements, native_focus, tab_order)), WrongTabOrder{}),
+        independent_targets(actionable_elements(active, elements)))))
+
+# Visible paint must be a positive region inside both the layout and viewport.
+# The DOM adapter owns correspondence with actual ancestor clipping.
+
+def paint_geometry_valid(visible: Bool, +bounds: Geometry.Rect, +paint_bounds: Geometry.Rect, +viewport: Geometry.Rect) -> Bool:
+  match visible:
+    case False{}: True{}
+    case True{}: Geometry.contains(bounds, paint_bounds) && Geometry.contains(viewport, paint_bounds)
+
+def paint_geometry(elements: +List<Element>, +viewport: Geometry.Rect) -> +List<Violation>:
+  match elements:
+    case Nil{}: Nil{}
+    case Con{Element{+key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, rest}:
+      List.append(&2, Violation,
+        issue(Bool.not(paint_geometry_valid(visible, bounds, paint_bounds, viewport)), InvalidPaintGeometry{key}),
+        paint_geometry(rest, viewport))
+
+def check(+active: +List<SurfaceTypes.Node>, +frame: Frame) -> +List<Violation>:
+  Frame{+viewport, +elements, focused, tab_order, native_focus} = frame
+  List.append(&2, Violation, paint_geometry(elements, viewport), layout_check(active, frame))
+
+def violations(+surface: SurfaceTypes.Surface, +frame: Frame) -> +List<Violation>:
+  SurfaceTypes.Surface{content, base, overlays, +scope} = surface
+  Frame{viewport, elements, +focused, tab_order, +native_focus} = frame
+  List.append(&2, Violation, check(InterfaceView.active_nodes(surface), frame), required_focus(scope, focused))
+
+def accepted(violations: +List<Violation>, generation: Nat, frame: Frame) -> State:
+  match violations:
+    case Nil{}: Realized{generation, frame}
+    case other: Unmet{generation, frame, other}
+
+def receive(owned: Bool, generation: Nat, surface: SurfaceTypes.Surface, +frame: Frame, previous: State) -> State:
+  match owned:
+    case False{}: previous
+    case True{}: accepted(violations(surface, frame), generation, frame)
+
+def observe(+current: Nat, received: Nat, surface: SurfaceTypes.Surface, frame: Frame, previous: State) -> State:
+  receive(Nat.is_eq(current, received), current, surface, frame, previous)

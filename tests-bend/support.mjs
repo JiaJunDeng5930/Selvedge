@@ -19,39 +19,39 @@ export async function browserUI(t) {
     const entry = path.join(directory, 'fixture.bend');
     const output = path.join(directory, 'fixture.mjs');
     const modules = {
-      ProductUI: 'UI.bend', Core: 'core/SYSTEM.bend', Services: 'core/client-services.bend', E: 'core/user-experience.bend',
-      U: 'core/user-input.bend', View: 'core/ui-world.bend', InterfaceView: 'core/interface.bend',
-      Identity: 'core/ui-identity.bend', Cmd: 'bendlib/command-codec.bend', J: 'bendlib/json.bend', M: 'MODEL.bend',
+      ProductUI: 'interaction/MODEL.bend', Core: 'interaction/STATE.bend', CoreTypes: 'interaction/TYPES.bend', Services: 'interaction/services/MODEL.bend', E: 'interaction/session/MODEL.bend',
+      U: 'interaction/INPUT.bend', View: 'interaction/presentation/MODEL.bend', InterfaceView: 'interaction/presentation/SURFACE.bend',
+      Identity: 'interaction/IDENTITY.bend', Cmd: 'harness/transport/command-codec.bend', J: 'bendlib/json.bend', M: 'harness/MODEL.bend',
     };
     const imports = Object.entries(modules).map(([name, file]) =>
       `import ${path.relative(directory, path.join(repository, file))} as ${name}`).join('\n');
     await writeFile(entry, `import Base
 ${imports}
 
-def state_of(decision: Core.Decision) -> Core.State:
+def state_of(decision: CoreTypes.Decision) -> CoreTypes.State:
   match decision:
-    case Core.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: state
+    case CoreTypes.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: state
 
-def selected(program: M.World(), task: Nat) -> Core.State:
-  state_of(ProductUI.step(ProductUI.InterfaceInput{Core.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, ProductUI.initial(program)))
+def selected(program: M.World(), task: Nat) -> CoreTypes.State:
+  state_of(ProductUI.step(ProductUI.InterfaceInput{CoreTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, ProductUI.initial(program)))
 
 def surface(program: M.World(), task: Nat) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, selected(program, task))
 
-def authenticated_connection(decision: Core.Decision, task: Nat) -> Result<&2, &2, String, Core.State>:
+def authenticated_connection(decision: CoreTypes.Decision, task: Nat) -> Result<&2, &2, String, CoreTypes.State>:
   match decision:
-    case Core.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}:
+    case CoreTypes.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}:
       match service_effects:
         case Con{Services.Authenticate{ticket, credential}, Nil{}}:
           connected = state_of(ProductUI.step(ProductUI.Authenticated{ticket, Done{Unit{}}}, state))
-          Done{state_of(ProductUI.step(ProductUI.InterfaceInput{Core.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, connected))}
+          Done{state_of(ProductUI.step(ProductUI.InterfaceInput{CoreTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, connected))}
         case _: Fail{"Expected exactly one authentication request"}
 
-def authenticated(program: M.World(), task: Nat, credential: String) -> Result<&2, &2, String, Core.State>:
-  entered = state_of(Core.step(Core.ServiceInput{Services.EnterCredential{credential}}, ProductUI.initial(program)))
-  authenticated_connection(Core.step(Core.ServiceInput{Services.Connect{}}, entered), task)
+def authenticated(program: M.World(), task: Nat, credential: String) -> Result<&2, &2, String, CoreTypes.State>:
+  entered = state_of(Core.step(CoreTypes.ServiceInput{Services.EnterCredential{credential}}, ProductUI.initial(program)))
+  authenticated_connection(Core.step(CoreTypes.ServiceInput{Services.Connect{}}, entered), task)
 
-def surface_state(state: Core.State) -> InterfaceView.Surface:
+def surface_state(state: CoreTypes.State) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, state)
 
 def key(node: InterfaceView.Node) -> String:
@@ -64,11 +64,11 @@ def requests(effects: +List<E.Effect>) -> List<&2, J.Json>:
     case Con{E.RequestCommand{command, completion}, rest}: Cmd.command_json(command) <> requests(rest)
     case Con{other, rest}: requests(rest)
 
-def commands_of(decision: Core.Decision) -> Result<&2, &2, String, String>:
+def commands_of(decision: CoreTypes.Decision) -> Result<&2, &2, String, String>:
   match decision:
-    case Core.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: J.show(J.Array{requests(interaction_effects)})
+    case CoreTypes.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: J.show(J.Array{requests(interaction_effects)})
 
-def press_state(state: Core.State, key: String) -> Result<&2, &2, String, String>:
+def press_state(state: CoreTypes.State, key: String) -> Result<&2, &2, String, String>:
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, state))
 
 def press(program: M.World(), task: Nat, key: String) -> Result<&2, &2, String, String>:

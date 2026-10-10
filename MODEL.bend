@@ -1,184 +1,122 @@
 import Base
-import ./bendlib/effects.bend as Effects
-import ./FEATURES.bend as F
-import ./bendlib/component.bend as C
-import ./bendlib/domain.bend as D
-import ./REASONING.bend as Reasoning
-import ./bendlib/json.bend as J
+import ./harness/MODEL.bend as Commands
+import ./bendlib/json.bend as Json
+import ./interaction/INPUT.bend as User
+import ./interaction/presentation/MODEL.bend as View
+import ./interaction/presentation/SURFACE.bend as Surface
 
-# This module assembles application state and the component vocabularies.
-def World() -> Data:
-  C.Frame<D.State, F.State()>
+# Opaque carriers keep clients independent of aggregate representations.
+type Execution<-World: Data, -Decision: Data> is Type:
+  Execution{
+    initial: World,
+    valid: World -> Bool,
+    run: Commands.Input -> World -> Decision,
+    meaning: Commands.Input -> World -> Decision,
+    world: Decision -> World,
+    reply: Decision -> Json.Json,
+    effects: Decision -> +List<Commands.Effect()>,
+    durable: Commands.Input -> Bool,
+    initial_valid: {valid(initial) == True{} : Bool},
+    preserves_valid: @state:World -> @input:Commands.Input ->
+      @valid_state:{valid(state) == True{} : Bool} ->
+      {valid(world(run(input, state))) == True{} : Bool},
+    refinement: @+input:Commands.Input -> @+state:World ->
+      {run(input, state) == meaning(input, state) : Decision},
+    query_world: @+query:Commands.Query -> @+state:World ->
+      {world(run(Commands.UserCommand{Commands.Observe{query}}, state)) == state : World},
+    query_effects: @+query:Commands.Query -> @+state:World ->
+      {effects(run(Commands.UserCommand{Commands.Observe{query}}, state)) == Nil{} : +List<Commands.Effect()>},
+    query_not_durable: @query:Commands.Query ->
+      {durable(Commands.UserCommand{Commands.Observe{query}}) == False{} : Bool},
+    replay: +List<Commands.Input> -> World -> World,
+    replay_valid: @+events:+List<Commands.Input> -> @+state:World ->
+      @valid_state:{valid(state) == True{} : Bool} ->
+      {valid(replay(events, state)) == True{} : Bool},
+    query_replay: @+query:Commands.Query -> @+first:+List<Commands.Input> ->
+      @+second:+List<Commands.Input> -> @+state:World ->
+      {replay(List.append(&2, Commands.Input, first, Commands.UserCommand{Commands.Observe{query}} <> second), state) ==
+        replay(List.append(&2, Commands.Input, first, second), state) : World}}
 
-def initial() -> World():
-  C.Frame{D.initial_state(), F.initial()}
+# Complete decision equality includes both the resulting state and effects.
+type Application<-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data> is Type:
+  Application{
+    initial: World -> Nat -> State,
+    user: User.Input -> Input,
+    snapshot_event: Nat -> World -> Input,
+    completed_event: Nat -> Nat -> World -> Json.Json -> Input,
+    run: Input -> State -> Decision,
+    state: Decision -> State,
+    effects: Decision -> +List<Effect>,
+    finish: State -> +List<Effect> -> Decision,
+    program: State -> World,
+    sequence: State -> Nat,
+    lookup: Nat -> State -> Maybe<&2, Pending>,
+    snapshot: Nat -> World -> State -> Decision,
+    settle: Maybe<&2, Pending> -> Nat -> World -> Json.Json -> State -> Decision,
+    observe: View.Capacity -> State -> Surface.Surface,
+    initial_program: @+world:World -> @+serial:Nat ->
+      {program(initial(world, serial)) == world : World},
+    snapshot_dispatch: @+serial:Nat -> @+world:World -> @+s:State ->
+      {run(snapshot_event(serial, world), s) == snapshot(serial, world, s) : Decision},
+    completion_dispatch: @+ticket:Nat -> @+serial:Nat -> @+world:World -> @+reply:Json.Json -> @+s:State ->
+      {run(completed_event(ticket, serial, world, reply), s) == settle(lookup(ticket, s), serial, world, reply, s) : Decision},
+    stale_snapshot: @+serial:Nat -> @+world:World -> @+s:State ->
+      @stale:{Nat.is_lt(sequence(s), serial) == False{} : Bool} ->
+      {snapshot(serial, world, s) == finish(s, Nil{}) : Decision},
+    unknown_completion: @+serial:Nat -> @+world:World -> @+reply:Json.Json -> @+s:State ->
+      {settle(None{}, serial, world, reply, s) == finish(s, Nil{}) : Decision}}
 
-def Effect() -> Data:
-  Effects.Effect<F.Effect>
+type Display<-World: Data, -ApplicationState: Data, -Input: Data, -Effect: Data, -State: Data, -Decision: Data, -Publication: Data, -Fields: Data, -Document: Data, -Initialize: World -> Nat -> ApplicationState, -Program: ApplicationState -> World> is Type:
+  Display{
+    initial: World -> Nat -> State,
+    application: State -> ApplicationState,
+    program: State -> World,
+    run: Input -> State -> Decision,
+    state: Decision -> State,
+    effects: Decision -> +List<Effect>,
+    observe: Nat -> State -> Document,
+    publication: Nat -> Nat -> State -> Publication,
+    pending: State -> Bool,
+    updates: State -> Fields,
+    retain: Fields -> Publication,
+    initial_application: @+world:World -> @+serial:Nat ->
+      {application(initial(world, serial)) == Initialize(world, serial) : ApplicationState},
+    program_projection: @+s:State ->
+      {program(s) == Program(application(s)) : World},
+    pending_retention: @+capacity:Nat -> @+last:Nat -> @+s:State ->
+      @published:{Bool.not(Nat.is_eq(last, 0n)) == True{} : Bool} ->
+      @pending_state:{pending(s) == True{} : Bool} ->
+      {publication(capacity, last, s) == retain(updates(s)) : Publication}}
 
-# A public query observes a world without acquiring permission to advance it.
-# A tool may use the same query, then durably append its own tool result.
-type Query is Data:
-  Read{task_id: Nat, after: Nat, limit: Nat}
-  ListTasks{}
-  Describe{}
-  ListProjects{}
-  ReadProject{project_id: Nat}
-  FeatureQuery{query: F.Query}
+def DisplayModel(-World: Data, -ApplicationState: Data, -Input: Data, -Effect: Data, -initialize: World -> Nat -> ApplicationState, -program: ApplicationState -> World) -> Type:
+  &State:Data -> &Decision:Data -> &Publication:Data -> &Fields:Data -> &Document:Data ->
+    Display<World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, initialize, program>
 
-type Command is Data:
-  Create{profile: String, reasoning: String, message: String, settings: J.Json}
-  Send{task_id: Nat, message: String}
-  Steer{task_id: Nat, message: String}
-  Cancel{task_id: Nat, operation_id: Nat}
-  ChangeStatus{task_id: Nat, control: D.Control}
-  Fork{task_id: Nat, count: Nat, messages: +List<String>, settings: J.Json}
-  Compact{task_id: Nat, summary: Maybe<&2, String>}
-  Observe{query: Query}
-  CreateProject{name: String, workspace: J.Json, guidance: J.Json}
-  UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json}
-  DeleteProject{project_id: Nat}
-  ReviewApproval{task_id: Nat, operation_id: Nat, outcome: D.ApprovalOutcome}
-  FeatureCommand{command: F.Command}
+def application_initial(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data, api: Application<World, State, Input, Decision, Pending, Effect>) -> World -> Nat -> State:
+  Application{initial, user, snapshot_event, completed_event, run, state, effects, finish, program, sequence, lookup, snapshot, settle, observe, initial_program, snapshot_dispatch, completion_dispatch, stale_snapshot, unknown_completion} = api
+  initial
 
-type CommandKind is Data:
-  CreateCommand{}
-  SendCommand{}
-  SteerCommand{}
-  CancelCommand{}
-  ControlCommand{control: D.Control}
-  ForkCommand{}
-  CompactCommand{}
-  ReadCommand{}
-  ListCommand{}
-  DescribeCommand{}
-  CreateProjectCommand{}
-  UpdateProjectCommand{}
-  DeleteProjectCommand{}
-  ListProjectsCommand{}
-  ReadProjectCommand{}
-  ReviewApprovalCommand{}
-  FeatureKind{kind: F.CommandKind}
+def application_program(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data, api: Application<World, State, Input, Decision, Pending, Effect>) -> State -> World:
+  Application{initial, user, snapshot_event, completed_event, run, state, effects, finish, program, sequence, lookup, snapshot, settle, observe, initial_program, snapshot_dispatch, completion_dispatch, stale_snapshot, unknown_completion} = api
+  program
 
-type CommandSpec is Data:
-  CommandSpec{name: String, description: String, kind: CommandKind, schema: J.Json}
+type Interface<-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data> is Type:
+  Interface{
+    application: Application<World, State, Input, Decision, Pending, Effect>,
+    display: DisplayModel(World, State, Input, Effect,
+      application_initial(World, State, Input, Decision, Pending, Effect, application),
+      application_program(World, State, Input, Decision, Pending, Effect, application))}
 
-def control_spec(+control: D.Control, description: String) -> CommandSpec:
-  CommandSpec{D.control_name(control), description, ControlCommand{control},
-    D.command_schema([J.Field{"task_id", D.task_id_schema()}], [J.Text{"task_id"}])}
+def InterfaceModel(-World: Data) -> Type:
+  &State:Data -> &Input:Data -> &Decision:Data -> &Pending:Data -> &Effect:Data ->
+    Interface<World, State, Input, Decision, Pending, Effect>
 
-# Clients obtain their command descriptions and validation schema from here.
-def feature_specs(specs: +List<F.CommandSpec>) -> +List<CommandSpec>:
-  match specs:
-    case Nil{}: Nil{}
-    case Con{F.CommandSpec{name, description, kind, schema}, rest}:
-      CommandSpec{name, description, FeatureKind{kind}, schema} <> feature_specs(rest)
+type System<-World: Data, -Decision: Data> is Type:
+  System{execution: Execution<World, Decision>, interface: InterfaceModel(World)}
 
-def commands() -> +List<CommandSpec>:
-  List.append(&2, CommandSpec, feature_specs(F.specs(D.task_settings_schema())),
-  [CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
-     D.command_schema([J.Field{"profile", D.string_schema("Configured model profile")},
-       J.Field{"reasoning", D.string_schema("Reasoning effort; defaults to medium")},
-       J.Field{"message", D.string_schema("Initial user request")}, J.Field{"settings", D.task_settings_schema()}], [J.Text{"profile"}, J.Text{"message"}])},
-   CommandSpec{"send", "Commit or queue a user message; reactivate a stopped task.", SendCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.string_schema("User message")}],
-       [J.Text{"task_id"}, J.Text{"message"}])},
-   CommandSpec{"steer", "Replace current model work with immediate user input without cancelling independent operations or discarding queued follow-ups. Frozen tasks remain frozen.", SteerCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.string_schema("Immediate user instruction")}],
-       [J.Text{"task_id"}, J.Text{"message"}])},
-   CommandSpec{"cancel_operation", "Cancel one live operation. Other work continues; previous side effects cannot be undone.", CancelCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"operation_id", D.task_id_schema()}],
-       [J.Text{"task_id"}, J.Text{"operation_id"}])},
-   control_spec(D.Freeze{}, "Suspend dispatch without discarding accepted results."),
-   control_spec(D.Unfreeze{}, "Resume a frozen task."),
-   control_spec(D.Stop{}, "Settle accepted tools without requesting another model reply."),
-   control_spec(D.Interrupt{}, "Cancel current work without archiving. Retain queued messages; record unknown outcomes for already-dispatched tools. A new message resumes the task."),
-   control_spec(D.Archive{}, "Permanently archive a task and cancel external work."),
-   CommandSpec{"compact", "Checkpoint an idle task without deleting original history. Without summary, request a model summary (active tasks only). A supplied bounded summary also works on stopped or frozen tasks, without calling a model.", CompactCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"summary", D.string_schema("Optional continuation note; useful when the provider cannot accept the old context. Read describe for the byte limit.")}], [J.Text{"task_id"}])},
-   CommandSpec{"fork", "Fork an idle task, subject to every ancestor's descendant limit.", ForkCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()},
-       J.Field{"child_count", D.integer_schema("Number of children", 1n, U32.to_nat(4294967295))},
-       J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", D.string_schema("Child request")}]}},
-       J.Field{"settings", D.task_settings_schema()}],
-       [J.Text{"task_id"}, J.Text{"child_count"}])},
-   CommandSpec{"read", "Read a bounded history page without advancing the task.", ReadCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"after", D.integer_schema("History offset", 0n, U32.to_nat(4294967295))},
-       J.Field{"limit", D.integer_schema("Page size; defaults to 100", 1n, 100n)}], [J.Text{"task_id"}])},
-   CommandSpec{"list", "Read task summaries and the currently available model profiles and tools.", ListCommand{},
-     D.command_schema(Nil{}, Nil{})},
-   CommandSpec{"describe", "Read this executable command vocabulary and the effect-boundary limits.", DescribeCommand{},
-     D.command_schema(Nil{}, Nil{})},
-   CommandSpec{"create_project", "Create an organizational project with default workspace roots; existing tasks never follow later default changes.", CreateProjectCommand{},
-     D.command_schema([J.Field{"name", D.string_schema("Project name")}, J.Field{"workspace", D.workspace_schema()},
-       J.Field{"guidance", D.guidance_schema()}], [J.Text{"name"}, J.Text{"workspace"}])},
-   CommandSpec{"update_project", "Change the project's name or workspace defaults without rewriting task contracts.", UpdateProjectCommand{},
-     D.command_schema([J.Field{"project_id", D.task_id_schema()}, J.Field{"name", D.string_schema("Project name")},
-       J.Field{"workspace", D.workspace_schema()}, J.Field{"guidance", D.guidance_schema()}], [J.Text{"project_id"}])},
-   CommandSpec{"delete_project", "Delete an empty project. A project referenced by any task cannot be deleted.", DeleteProjectCommand{},
-     D.command_schema([J.Field{"project_id", D.task_id_schema()}], [J.Text{"project_id"}])},
-   CommandSpec{"list_projects", "Read project summaries without advancing tasks.", ListProjectsCommand{}, D.command_schema(Nil{}, Nil{})},
-   CommandSpec{"read_project", "Read a project's workspace defaults and frozen root guidance.", ReadProjectCommand{},
-     D.command_schema([J.Field{"project_id", D.task_id_schema()}], [J.Text{"project_id"}])},
-   CommandSpec{"review_approval", "Approve exactly one pending human-reviewed command, or deny it. A grant cannot change the command, task settings, or any later operation.", ReviewApprovalCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"operation_id", D.task_id_schema()},
-       J.Field{"decision", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"allow"}, J.Text{"deny"}]}}]}},
-       J.Field{"reason", D.string_schema("Optional bounded explanation, at most 2048 UTF-8 bytes")}],
-       [J.Text{"task_id"}, J.Text{"operation_id"}, J.Text{"decision"}])}])
+def SystemModel() -> Type:
+  &World:Data -> &Decision:Data -> System<World, Decision>
 
-def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
-  match specs:
-    case Nil{}: Nil{}
-    case Con{CommandSpec{name, description, kind, schema}, rest}:
-      J.Object{[J.Field{"name", J.Text{name}}, J.Field{"description", J.Text{description}}, J.Field{"schema", schema}]} <>
-        command_specs_json(rest)
 
-def description() -> J.Json:
-  J.Object{[J.Field{"commands", J.Array{command_specs_json(commands())}}, J.Field{"limits", D.boundary_limits()},
-    J.Field{"plugins", J.Object{[J.Field{"protocolVersion", J.Text{"selvedge-plugin-2"}}, J.Field{"max_plugins", J.nat(D.plugin_limit())},
-      J.Field{"events", J.Array{J.text_items(D.plugin_events())}}]}}]}
-
-type Input is Data:
-  UserCommand{command: Command}
-  ModelCompleted{task_id: Nat, ticket: Nat, outcome: D.Outcome}
-  ReasoningCompleted{task_id: Nat, ticket: Nat, outcome: Reasoning.Outcome}
-  FeatureCompleted{completion: F.Completion}
-  ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
-  HookCompleted{task_id: Nat, ticket: Nat, outcome: D.HookOutcome}
-  AfterCompleted{task_id: Nat, operation_id: Nat, ticket: Nat, outcome: D.AfterOutcome}
-  ApprovalCompleted{task_id: Nat, ticket: Nat, outcome: D.ApprovalOutcome}
-  Configure{environment: D.Environment}
-  Recover{}
-  Continue{}
-
-def Decision() -> Data:
-  C.Decision<World(), Effect()>
-
-type InputMode is Data:
-  Observation{}
-  UpdateOnly{}
-  UpdateAndSchedule{}
-
-# Persistence and scheduling derive from the same classification. Configuration
-# commits a catalog without starting work before startup recovery has run.
-def input_mode(input: Input) -> InputMode:
-  match input:
-    case UserCommand{Observe{query}}: Observation{}
-    case Configure{environment}: UpdateOnly{}
-    case _: UpdateAndSchedule{}
-
-def mode_durable(mode: InputMode) -> Bool:
-  match mode:
-    case Observation{}: False{}
-    case _: True{}
-
-def mode_schedules(mode: InputMode) -> Bool:
-  match mode:
-    case UpdateAndSchedule{}: True{}
-    case _: False{}
-
-def durable(input: Input) -> Bool:
-  mode_durable(input_mode(input))
-
-def schedules(input: Input) -> Bool:
-  mode_schedules(input_mode(input))
+law system:
+  SystemModel()

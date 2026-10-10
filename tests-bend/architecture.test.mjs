@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bendSources, isProofSource } from '../scripts/check-components.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -18,23 +19,23 @@ async function imports(filename, seen = new Set()) {
 
 test('the complete command, interaction and finite execution specifications do not depend on their implementation', async () => {
   const seen = new Set();
-  for (const filename of ['COMMANDS.bend', 'bendlib/protocol.bend', 'bendlib/commit.bend', 'bendlib/execution.bend', 'bendlib/interface.bend', 'bendlib/transcript.bend',
-    'bendlib/board-spec.bend', 'bendlib/board-scheduling-spec.bend', 'bendlib/conversation-spec.bend']) {
+  for (const filename of ['harness/COMMANDS.bend', 'harness/protocol/PROGRAM.bend', 'harness/protocol/COMMIT.bend', 'harness/execution/PROGRAM.bend', 'harness/transport/MODEL.bend', 'harness/conversation/MODEL.bend',
+    'features/board/SPEC.bend', 'features/board/scheduling-spec.bend', 'harness/conversation/CONTRACT.bend']) {
     await imports(path.join(root, filename), seen);
   }
-  for (const filename of ['PROGRAM.bend', 'PROOF.bend', 'CONCEPTS.bend', 'MAIN.bend', 'bendlib/frontend.bend', 'bendlib/architecture.bend', 'bendlib/traces.bend',
-    'bendlib/board.bend', 'bendlib/board-scheduling.bend']) {
+  for (const filename of ['harness/PROGRAM.bend', 'PROOF.bend', 'CONCEPTS.bend', 'MAIN.bend', 'harness/transport/PROGRAM.bend', 'harness/CONTRACT.bend', 'harness/history/PROGRAM.bend',
+    'features/board/PROGRAM.bend', 'features/board/scheduling.bend']) {
     assert.equal(seen.has(path.join(root, filename)), false, `Specification depends on ${filename}`);
   }
-  const concepts = await readFile(path.join(root, 'bendlib/architecture.bend'), 'utf8');
+  const concepts = await readFile(path.join(root, 'harness/CONTRACT.bend'), 'utf8');
   assert.match(concepts, /Commit\.command\(~Execution\.scheduled,/);
   assert.match(concepts, /Commit\.input\(~Execution\.scheduled,/);
   assert.doesNotMatch(concepts, /Commit\.(command|input)\(~P\./);
   // Commit specifies UI decoration by its existing public projection. The
   // conversation content specification, unlike that commit interface, must be
   // independently defined without importing the renderer it constrains.
-  const conversation = await imports(path.join(root, 'bendlib/conversation-spec.bend'));
-  assert.equal(conversation.has(path.join(root, 'UI.bend')), false);
+  const conversation = await imports(path.join(root, 'harness/conversation/CONTRACT.bend'));
+  assert.equal(conversation.has(path.join(root, 'interaction/MODEL.bend')), false);
 });
 
 test('the native entry contains only IO and all pure runtime imports belong to the proof closure', async () => {
@@ -62,14 +63,13 @@ test('the conceptual entry declares proof-carrying concepts rather than implemen
 });
 
 test('proof modules form an explicit acyclic dependency graph', async () => {
-  const directory = path.join(root, 'bendlib/proofs');
   const graph = new Map();
-  for (const filename of await readdir(directory)) {
-    if (!filename.endsWith('.bend')) continue;
-    const source = await readFile(path.join(directory, filename), 'utf8');
+  for (const filename of (await bendSources(root)).filter(isProofSource)) {
+    const source = await readFile(path.join(root, filename), 'utf8');
     const dependencies = [];
-    for (const [, relative] of source.matchAll(/^import (\.\/[^\s]+\.bend) as (\w+)$/gm)) {
-      dependencies.push(path.basename(relative));
+    for (const [, relative] of source.matchAll(/^import (\.[^\s]+\.bend) as (\w+)$/gm)) {
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(filename), relative));
+      if (isProofSource(target)) dependencies.push(target);
     }
     graph.set(filename, dependencies);
   }

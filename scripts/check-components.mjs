@@ -4,7 +4,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const defaultRoot = fileURLToPath(new URL('../', import.meta.url));
 const configKeys = ['version', 'core_modules', 'application_dependencies',
-  'feature_alphabet', 'feature_alphabet_types', 'feature_match_owners', 'proof_root', 'runtime_root', 'foreign_sources'];
+  'feature_alphabet', 'feature_alphabet_types', 'feature_match_owners', 'model_representations', 'proof_root', 'runtime_root', 'foreign_sources'];
+
+export function isProofSource(filename) {
+  const name = path.posix.basename(filename);
+  return name === 'PROOF.bend' || name.endsWith('-proof.bend');
+}
 
 function mask(source) {
   return source.replace(/"(?:\\.|[^"\\])*"|#[^\n]*/g, text => text.replace(/[^\n]/g, ' '));
@@ -62,6 +67,59 @@ function casePatterns(source) {
   return result;
 }
 
+// Constructor syntax is shared by expressions and binding/case patterns. Scan
+// every qualified use rather than trying to infer its syntactic role.
+// Bend requires the opening brace immediately after the constructor name;
+// whitespace can instead separate a type annotation from a proposition body.
+function qualifiedConstructors(source) {
+  const text = mask(source);
+  const result = [];
+  let line = 1;
+  let previous = 0;
+  for (const match of text.matchAll(/\b(\w+)\.(\w+)\{/g)) {
+    for (let index = previous; index < match.index; index++) {
+      if (text[index] === '\n') line++;
+    }
+    previous = match.index;
+    result.push({ alias: match[1], constructor: match[2], line });
+  }
+  return result;
+}
+
+function modelPolicies(config, sources) {
+  if (!Array.isArray(config.model_representations) || !config.model_representations.length) {
+    throw new Error('Invalid model representation boundaries');
+  }
+  const policies = new Map();
+  for (const entry of config.model_representations) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+        JSON.stringify(Object.keys(entry).sort()) !== JSON.stringify(['constructors', 'module', 'owners'])) {
+      throw new Error('Invalid model representation policy shape');
+    }
+    const { module, constructors: names, owners } = entry;
+    if (typeof module !== 'string' || !sources.has(module)) {
+      throw new Error(`Missing model representation module: ${module}`);
+    }
+    if (policies.has(module)) throw new Error(`Duplicate model representation ownership: ${module}`);
+    if (!Array.isArray(names) || !names.length || names.some(name => typeof name !== 'string' || !/^\w+$/.test(name)) ||
+        new Set(names).size !== names.length) {
+      throw new Error(`Invalid model representation constructors: ${module}`);
+    }
+    if (!Array.isArray(owners) || !owners.length || owners.some(owner => typeof owner !== 'string' ||
+        owner.includes('*') || !sources.has(owner)) || new Set(owners).size !== owners.length || !owners.includes(module)) {
+      throw new Error(`Invalid model representation owners: ${module}`);
+    }
+    const source = sources.get(module);
+    const types = [...mask(source).matchAll(/^type (\w+)\b/gm)].map(match => match[1]);
+    const declared = constructors(source, types);
+    for (const name of names) {
+      if (!declared.has(name)) throw new Error(`Missing model representation constructor: ${module}:${name}`);
+    }
+    policies.set(module, { constructors: new Set(names), owners: new Set(owners) });
+  }
+  return policies;
+}
+
 /** Read actual source files, including newly added files not yet staged in Git. */
 export async function bendSources(root = defaultRoot) {
   const result = [];
@@ -70,7 +128,10 @@ export async function bendSources(root = defaultRoot) {
       if (item.name.startsWith('.') || ['node_modules', 'target', 'crates'].includes(item.name)) continue;
       const name = path.posix.join(relative, item.name);
       if (item.isDirectory()) await visit(name);
-      else if (item.isFile() && name.endsWith('.bend')) result.push(name);
+      else if (item.isFile() && name.endsWith('.bend')) {
+        if (name.split('/').length > 3) throw new Error(`Bend source exceeds two directory levels: ${name}`);
+        result.push(name);
+      }
       else if (item.isSymbolicLink()) throw new Error(`Component audit does not accept source symlinks: ${name}`);
     }
   }
@@ -163,6 +224,18 @@ export async function auditComponents(root = defaultRoot) {
   }
   const { filenames, sources, graph, imports } = await sourceGraph(root, config);
   const errors = [];
+  const representations = modelPolicies(config, sources);
+
+  for (const [filename, source] of sources) {
+    const bindings = new Map(imports.get(filename).map(({ alias, target }) => [alias, target]));
+    for (const use of qualifiedConstructors(source)) {
+      const module = bindings.get(use.alias);
+      const policy = representations.get(module);
+      if (policy?.constructors.has(use.constructor) && !policy.owners.has(filename)) {
+        errors.push(`Model representation outside its owner boundary: ${filename}:${use.line}: ${use.alias}.${use.constructor} (${module}:${use.constructor})`);
+      }
+    }
+  }
 
   const core = new Set(config.core_modules);
   for (const filename of core) {
@@ -202,7 +275,7 @@ export async function auditComponents(root = defaultRoot) {
   for (const filename of Object.keys(config.foreign_sources)) {
     if (proof.has(filename)) errors.push(`Foreign boundary in pure proof closure: ${filename}`);
   }
-  return { ok: errors.length === 0, scope: 'Actual-source import and constructor-pattern boundaries; no higher-order or semantic dependency analysis.',
+  return { ok: errors.length === 0, scope: 'Actual-source import, constructor-pattern and private model constructor boundaries; no higher-order or semantic dependency analysis.',
     core_modules: [...core].sort(), checked_sources: filenames.length, errors };
 }
 

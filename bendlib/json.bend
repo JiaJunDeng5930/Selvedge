@@ -13,6 +13,7 @@ type Field is Data:
   Field{name: String, value: Json}
 
 # Identity compares the canonical encoded structure without a rendering budget.
+
 def same_bool(left: Bool, right: Bool) -> Bool:
   match left right:
     case True{} True{}: True{}
@@ -224,6 +225,7 @@ def escaped_char(code: U32) -> String:
       escaped_other(U32.is_lt(other, 32), other)
 
 # Each escaped character contributes at most six characters, bounding append depth.
+
 def escape_collect(text: String, parts: +List<String>) -> +List<String>:
   match text:
     case SNil{}: parts
@@ -257,6 +259,7 @@ type Render is Data:
   Fields{values: +List<Field>, first: Bool}
 
 # A recursive edge consumes one unit; sibling jobs receive the same remainder.
+
 def payload_required(+value: Json) -> Nat:
   match value:
     case Null{}: 0n
@@ -287,6 +290,7 @@ def surround(left: String, middle: Result<&2, &2, String, String>, right: String
 
 # Fuel bounds container depth and list traversal, not string length. Exhaustion
 # is an error: the transport must never emit a partial value as a valid reply.
+
 def render(fuel: Nat, job: Render) -> Result<&2, &2, String, String>:
   match fuel job:
     case 0n _:

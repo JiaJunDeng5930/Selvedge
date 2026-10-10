@@ -1,7 +1,7 @@
 import Base
-import ./MODEL.bend as M
-import ./bendlib/frontend.bend as Frontend
-import ./bendlib/interface.bend as Interface
+import ./harness/MODEL.bend as M
+import ./harness/transport/PROGRAM.bend as Frontend
+import ./harness/transport/MODEL.bend as Interface
 import ./bendlib/json.bend as J
 
 def initial() -> M.World():

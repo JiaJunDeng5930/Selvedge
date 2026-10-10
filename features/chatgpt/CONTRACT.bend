@@ -1,0 +1,49 @@
+import Base
+import ./MODEL.bend as G
+import ../../harness/features/MODEL.bend as F
+import ../../harness/MODEL.bend as M
+import ../../bendlib/component.bend as C
+import ../../harness/DOMAIN.bend as D
+import ../../bendlib/json.bend as J
+import ./PROGRAM.bend as Actual
+import ./SPEC.bend as Spec
+import ./STATE.bend as State
+import ./view.bend as View
+import ../../bendlib/association-map.bend as Finite
+import ../board/MODEL.bend as Board
+
+# This boundary is constructed at the root against the actual interpreter and
+# assembly. Capabilities have no conversation coordinate. Pure proofs do not
+# claim that an OS process can undo a mutation or that a tunnel authenticates.
+type Boundary is Type:
+  Boundary{
+    refinement: @+change:G.Change -> @+state:G.State ->
+      {Actual.realize(change, state) == Spec.meaning(change, state) : C.Decision<G.State, G.Effect>},
+    assembled: @+change:G.Change -> @+world:M.World() ->
+      {State.embed(Actual.realize(change, State.registry(world)), world) ==
+       State.embed(Spec.meaning(change, State.registry(world)), world) : M.Decision()},
+    written: @+value:G.State -> @+world:M.World() -> {State.registry(State.store(value, world)) == value : G.State},
+    core_frame: @+value:G.State -> @+world:M.World() ->
+      {C.local(D.State, F.State(), State.store(value, world)) == C.local(D.State, F.State(), world) : D.State},
+    board_frame: @+value:G.State -> @+world:M.World() ->
+      {F.board(C.rest(D.State, F.State(), State.store(value, world))) == F.board(C.rest(D.State, F.State(), world)) : Board.State},
+    rest_frame: @+value:G.State -> @+world:M.World() ->
+      {F.rest(C.rest(D.State, F.State(), State.store(value, world))) == F.rest(C.rest(D.State, F.State(), world)) : F.Rest()},
+    board_preserves: @+value:Board.State -> @+features:F.State() ->
+      {F.chatgpt(F.with_board(value, features)) == F.chatgpt(features) : G.State},
+    ownership: @+connection:Nat -> @+project:Nat -> @+job:G.Job ->
+      {G.owned(connection, project, job) ==
+       (Nat.is_eq(connection, G.job_connection(job)) && Nat.is_eq(project, G.job_project(job))) : Bool},
+    denied: @+connection:Nat -> @+project:Nat -> @+request:String -> @+arguments:J.Json -> @+projects:D.Projects -> @+state:G.State ->
+      {G.run_authorized(None{}, connection, project, request, arguments, projects, state) ==
+       G.Refuse{"project_forbidden", "This connection has no grant for that project"} : G.Resolution},
+    hidden: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State ->
+      {View.read_job(None{}, connection, project, id, state) == View.forbidden() : J.Json},
+    removed: @+id:Nat -> @+state:G.State ->
+      {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
+    restarted: @+job:G.Job -> {G.outcome(job) == G.Running{} : G.Outcome} ->
+      {G.outcome(G.recover_job(job)) ==
+       G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome}}
+
+law boundary:
+  Boundary

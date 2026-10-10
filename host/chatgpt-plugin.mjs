@@ -6,7 +6,7 @@ function object(value, keys, label) {
   }
 }
 
-/** Transport configuration only. Project membership and operation policy live in CHATGPT.bend. */
+/** Transport configuration only. Project membership and operation policy live in features/chatgpt/MODEL.bend. */
 export function connectionConfig(value = { connections: {} }) {
   object(value, ['connections'], 'ChatGPT plugin configuration');
   const entries = value.connections;

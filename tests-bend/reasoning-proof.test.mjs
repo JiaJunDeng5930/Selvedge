@@ -12,43 +12,41 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-reasoning-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
-  await cp(path.join(root, 'core'), path.join(directory, 'core'), { recursive: true });
-  await cp(path.join(root, 'webui'), path.join(directory, 'webui'), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   assert.match(baseline.stdout, /ALL PROOFS CHECK/);
   const mutations = [
-    ['ordinary profiles request an evaluator', 'bendlib/reasoning.bend',
+    ['ordinary profiles request an evaluator', 'harness/reasoning/PROGRAM.bend',
       'case R.Fixed{}: R.FixedPlan{}', 'case R.Fixed{}: R.Evaluate{}', /route_meaning|reasoning_boundary/],
-    ['extend a consumed lease', 'bendlib/reasoning.bend',
+    ['extend a consumed lease', 'harness/reasoning/PROGRAM.bend',
       'request(StateRest, EffectRest, Context.generation(effort, remaining, task), world)', 'request(StateRest, EffectRest, Context.generation(effort, 1n+remaining, task), world)', /execution_meaning/],
-    ['omit the evaluator effect but record it as pending', 'bendlib/reasoning.bend',
+    ['omit the evaluator effect but record it as pending', 'harness/reasoning/PROGRAM.bend',
       '[Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]', 'Nil{}', /evaluator_meaning/],
-    ['apply a stale recommendation', 'bendlib/reasoning.bend',
+    ['apply a stale recommendation', 'harness/reasoning/PROGRAM.bend',
       'case False{}: T.promote(D.with_phase(D.Ready{Nil{}}, task))', 'case False{}: observed(outcome, task)', /fresh_meaning|reasoning_boundary/],
-    ['permit an unconfigured duration', 'REASONING.bend',
+    ['permit an unconfigured duration', 'harness/reasoning/MODEL.bend',
       'Nat.is_eq(steps, 10n)', 'Nat.is_eq(steps, 3n)', /reasoning_boundary/],
-    ['change the supposedly pinned request prefix', 'REASONING.bend',
+    ['change the supposedly pinned request prefix', 'harness/reasoning/MODEL.bend',
       'case Adaptive{evaluator, efforts, baseline, ConfigurationUpdates{}, maximum}: baseline',
       'case Adaptive{evaluator, efforts, baseline, ConfigurationUpdates{}, maximum}: effective', /reasoning_boundary/],
-    ['inherit a different task lease', 'bendlib/reasoning-context.bend',
+    ['inherit a different task lease', 'harness/reasoning/context.bend',
       'recorded(Nat.is_eq(owner, other), effort, remaining)', 'recorded(True{}, effort, remaining)', /reasoning_boundary/],
-    ['reuse a lease after a new user message', 'bendlib/reasoning-context.bend',
+    ['reuse a lease after a new user message', 'harness/reasoning/context.bend',
       'case D.HistoryNode{previous, D.UserMessage{text}}: R.NoLease{}',
       'case D.HistoryNode{previous, D.UserMessage{text}}: lease(previous, owner)', /reasoning_boundary/],
-    ['retain the old effective update across a checkpoint', 'bendlib/reasoning-context.bend',
+    ['retain the old effective update across a checkpoint', 'harness/reasoning/context.bend',
       'case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: None{}',
       'case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: last_update(previous)', /reasoning_boundary/],
-    ['forget one generation when recording a sample', 'bendlib/reasoning-context.bend',
+    ['forget one generation when recording a sample', 'harness/reasoning/context.bend',
       'D.ReasoningRecord{owner, effort, remaining, True{}}', 'D.ReasoningRecord{owner, effort, 1n+remaining, True{}}', /reasoning_boundary/],
-    ['expose encrypted continuation in nested tool JSON', 'bendlib/reasoning-context.bend',
+    ['expose encrypted continuation in nested tool JSON', 'harness/reasoning/context.bend',
       'J.Field{"encrypted_content", J.Text{"[Private provider continuation omitted]"}}', 'J.Field{"encrypted_content", value}', /reasoning_boundary/],
-    ['bypass the public tool-output projection', 'bendlib/reasoning-context.bend',
+    ['bypass the public tool-output projection', 'harness/reasoning/context.bend',
       'case D.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> rest',
       'case D.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]} <> rest', /reasoning_boundary/],
-    ['accept a completion with another ticket', 'bendlib/protocol.bend',
+    ['accept a completion with another ticket', 'harness/protocol/PROGRAM.bend',
       'matching(Nat.is_eq(ticket, expected), ReasoningResult{task, revision, outcome})',
       'matching(True{}, ReasoningResult{task, revision, outcome})', /reasoning_boundary/],
   ];
@@ -59,7 +57,7 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
       assert.equal(original.split(before).length, 2, `${label}: mutation must target exactly one production expression`);
       try {
         await writeFile(filename, original.replace(before, after));
-        const operational = check('PROGRAM.bend');
+        const operational = check('harness/PROGRAM.bend');
         assert.equal(operational.error, undefined, `${label}: compiler must not time out`);
         assert.equal(operational.status, 0, operational.stdout + operational.stderr);
         assert.match(operational.stdout, /ALL PROOFS CHECK/, `${label}: the runtime mutant must still type-check`);
