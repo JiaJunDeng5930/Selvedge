@@ -1,6 +1,5 @@
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
-import ../../interaction/TYPES.bend as InteractionTypes
 import ../document/SOURCE.bend as Source
 import ./authored-primitives.bend as Factory
 import ../appearance/ICONS.bend as Iconography
@@ -190,58 +189,6 @@ def action_alignment(value: Controls.Face) -> Spatial.Alignment:
 
 def invalid(+key: UIIdentity.Key, +visual: Design.Style, +diagnostic: String) -> Source.Node:
   Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"invalid-source", diagnostic}], [caption(UIIdentity.part(key, "diagnostic"), diagnostic, visual, T.NormalAnywhere{})]}
-
-def action_node(+key: UIIdentity.Key, +visual: Design.Style, representation: Controls.Representation) -> Source.Node:
-  match representation:
-    case Controls.Action{input, +availability, name, +value, state, +geometry, placement, assistance, response}:
-      Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, availability_attributes(availability), List.append(&2, Source.Attribute, behavior(state), List.append(&2, Source.Attribute, help(assistance), feedback(response))))), name, enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, face(key, value, visual, geometry)}
-    case _: invalid(key, visual, "invalid-action-representation")
-
-type IconButton is Data:
-  IconButton{key: UIIdentity.Key, visual: Design.Style, icon: Controls.Icon,
-    input: InteractionTypes.Input, availability: View.Availability, name: String,
-    behavior: Controls.Behavior, geometry: Controls.Geometry, placement: Controls.Placement,
-    help: Controls.Help, feedback: Controls.Feedback}
-
-def icon_button_source(+button: IconButton) -> Source.Node:
-  IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response} = button
-  action_node(key, visual, Controls.Action{input, availability, name, Controls.IconFace{icon}, state, geometry, placement, assistance, response})
-
-def icon_button_replace_icon(+button: IconButton, icon: Controls.Icon) -> IconButton:
-  IconButton{key, visual, old_icon, input, availability, name, state, geometry, placement, assistance, response} = button
-  IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response}
-
-def icon_button_resize(+button: IconButton, geometry: Controls.Geometry) -> IconButton:
-  IconButton{key, visual, icon, input, availability, name, state, old_geometry, placement, assistance, response} = button
-  IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response}
-
-def centered_style(style: Source.Style) -> Bool:
-  Source.Style{layout, font, chrome, states} = style
-  Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
-  match main cross:
-    case Spatial.Centered{} Spatial.Centered{}: True{}
-    case _ _: False{}
-
-def centered_glyph(children: +List<Source.Node>) -> Bool:
-  match children:
-    case Con{Source.Glyph{key, drawing, style}, Nil{}}: centered_style(style)
-    case _: False{}
-
-def icon_button_centered(node: Source.Node) -> Bool:
-  match node:
-    case Source.Control{key, Source.Button{}, style, attributes, label, enabled, event, events, children}:
-      centered_style(style) && centered_glyph(children)
-    case _: False{}
-
-def action(+key: UIIdentity.Key, +visual: Design.Style, representation: Controls.Representation) -> Source.Node:
-  match representation:
-    case Controls.Action{input, availability, name, value, state, geometry, placement, assistance, response}:
-      match value:
-        case Controls.IconFace{icon}:
-          icon_button_source(IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response})
-        case other:
-          action_node(key, visual, Controls.Action{input, availability, name, other, state, geometry, placement, assistance, response})
-    case other: action_node(key, visual, other)
 
 def field_checked(value: SurfaceTypes.Meaning) -> Bool:
   match value:

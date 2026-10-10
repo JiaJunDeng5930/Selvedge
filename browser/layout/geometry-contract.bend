@@ -163,7 +163,7 @@ law space_evidence:
 
 def actual_geometry(value: C.Representation) -> C.Geometry:
   match value:
-    case C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: geometry
+    case C.Action{C.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: geometry
     case _: C.Geometry{Space.fixed_demand(0n, 0n), 0n, 0n, 0n}
 
 def mark_extent(layout: C.ChoiceContentLayout) -> Nat:

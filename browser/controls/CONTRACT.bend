@@ -53,7 +53,7 @@ def selection_role(kind: SurfaceTypes.ChoiceKind, area: Controls.Area) -> String
 
 def actual_face(value: Controls.Representation) -> Maybe<&2, Controls.Face>:
   match value:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: Some{face}
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: Some{face}
     case _: None{}
 
 def first_drawing(values: +List<S.Node>) -> Maybe<&2, S.Drawing>:
@@ -993,7 +993,7 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
 def binding(representation: Controls.Representation) -> SurfaceTypes.Meaning:
   match representation:
     case Controls.NoControl{}: SurfaceTypes.Region{}
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       SurfaceTypes.Activate{input, availability}
     case Controls.Input{meaning, name, widget, label, availability}: meaning
     case Controls.Movable{destinations, face, name, handle, geometry, help}: SurfaceTypes.MovableCard{destinations, face}
@@ -1063,10 +1063,7 @@ def expected_icon_help(availability: View.Availability, label: String) -> Contro
 # name, availability, and disabled explanation remain those of that observation.
 
 def expected_message(+editor: User.Editor, +availability: View.Availability, +label: String) -> Controls.Representation:
-  Controls.Action{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{editor}}}},
-    availability, label, Controls.IconFace{Controls.ArrowUp{}}, Controls.Push{},
-    Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}, Controls.ComposerEnd{},
-    expected_icon_help(availability, label), Controls.Quiet{}}
+  Controls.Action{Controls.Button{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{editor}}}}, availability, label, Controls.IconFace{Controls.ArrowUp{}}, Controls.Push{}, Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}, Controls.ComposerEnd{}, Controls.Quiet{}}}
 
 def message_uses_arrow_law(-key: UIIdentity.Key, -task: Nat, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
@@ -1101,18 +1098,18 @@ type Choice is Data:
 
 def choice(representation: Controls.Representation) -> Maybe<&2, Choice>:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       Some{Choice{face, behavior}}
     case _: None{}
 
 def action_text(representation: Controls.Representation) -> Maybe<&2, String>:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: menu_text(face)
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: menu_text(face)
     case _: None{}
 
 def action_face(representation: Controls.Representation) -> Maybe<&2, Controls.Face>:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: Some{face}
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: Some{face}
     case _: None{}
 
 def declared_action_face(node: SurfaceTypes.Node, context: Controls.Context) -> Maybe<&2, Controls.Face>:
@@ -1344,28 +1341,3 @@ type FormInputRequirements is Type:
 
 law form_input_evidence:
   FormInputRequirements
-
-# Every value of the icon button grammar is interpreted by the production control path.
-
-def icon_button_centered_law(+button: A.IconButton) -> Type:
-  {A.icon_button_centered(A.icon_button_source(button)) == True{} : Bool}
-
-def icon_button_adoption_law(+button: A.IconButton) -> Type:
-  A.IconButton{key, visual, icon, input, availability, name, state, geometry, placement, assistance, response} = button
-  {A.action(key, visual, Controls.Action{input, availability, name, Controls.IconFace{icon}, state, geometry, placement, assistance, response}) == A.icon_button_source(button) : S.Node}
-
-def icon_button_replace_icon_law(+button: A.IconButton, icon: Controls.Icon) -> Type:
-  icon_button_centered_law(A.icon_button_replace_icon(button, icon))
-
-def icon_button_resize_law(+button: A.IconButton, geometry: Controls.Geometry) -> Type:
-  icon_button_centered_law(A.icon_button_resize(button, geometry))
-
-type IconButtonRequirements is Type:
-  IconButtonRequirements{
-    centered: @+button:A.IconButton -> icon_button_centered_law(button),
-    adoption: @+button:A.IconButton -> icon_button_adoption_law(button),
-    replace_icon: @+button:A.IconButton -> @icon:Controls.Icon -> icon_button_replace_icon_law(button, icon),
-    resize: @+button:A.IconButton -> @geometry:Controls.Geometry -> icon_button_resize_law(button, geometry)}
-
-law icon_button_evidence:
-  IconButtonRequirements

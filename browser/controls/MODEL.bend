@@ -5,6 +5,7 @@ import ../document/SOURCE.bend as Source
 import ../appearance/MODEL.bend as Appearance
 import ./authored-primitives.bend as Factory
 import ./CONTROLS.bend as AuthoredControls
+import ./BUTTONS.bend as Buttons
 import ../appearance/DESIGN.bend as Design
 import ../layout/physical-space.bend as Model
 import ../layout/GEOMETRY.bend as Spatial
@@ -200,7 +201,7 @@ def toolbar_reserve(+values: +List<Source.Node>) -> Nat:
 def toolbar_preferred(+values: +List<Child>) -> Nat:
   match values:
     case Nil{}: 0n
-    case Con{Child{key, role, meaning, Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, nodes}, rest}: Nat.max(Controls.geometry_preferred_height(geometry), toolbar_preferred(rest))
+    case Con{Child{key, role, meaning, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}, nodes}, rest}: Nat.max(Controls.geometry_preferred_height(geometry), toolbar_preferred(rest))
     case Con{other, rest}: toolbar_preferred(rest)
 
 def code_surface(+visual: Design.Style) -> Source.CodeSurface:
@@ -319,7 +320,7 @@ def audit_nodes(+values: +List<Conversation.AuditFace>, +key: UIIdentity.Key, +v
 
 def disclosure(+control: Controls.Representation) -> Bool:
   match control:
-    case Controls.Action{InteractionTypes.ApplicationInput{Experience.UserInput{User.SetDisclosure{task, group, occurrence, expanded}}}, availability, name, face, behavior, geometry, placement, help, feedback}: True{}
+    case Controls.Action{Controls.Button{InteractionTypes.ApplicationInput{Experience.UserInput{User.SetDisclosure{task, group, occurrence, expanded}}}, availability, name, face, behavior, geometry, placement, feedback}}: True{}
     case _: False{}
 
 def activity_header_selected(+selected: Bool, +nodes: +List<Source.Node>, +rest: +List<Source.Node>) -> +List<Source.Node>:
@@ -496,7 +497,7 @@ def task_children(+values: +List<Child>, +status: View.TaskStatus, +visual: Desi
     case Nil{}: Nil{}
     case Con{Child{+key, role, meaning, control, nodes}, rest}:
       match control:
-        case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: append(ordinary(nodes), task_children(rest, status, visual))
+        case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: append(ordinary(nodes), task_children(rest, status, visual))
         case _: task_status_indicator(key, status, visual) <> task_children(rest, status, visual)
 
 def compound(+key: UIIdentity.Key, +label: String, +field: Forms.Field, +visual: Design.Style, +children: +List<Source.Node>) -> Source.Node:
@@ -507,14 +508,19 @@ def chooser_selection(+value: Maybe<&2, Nat>) -> +List<Source.Attribute>:
     case None{}: Nil{}
     case Some{selected}: [Source.DataAttribute{"selected-project", Nat.show(selected)}]
 
+def button_source(+key: UIIdentity.Key, +visual: Design.Style, representation: Controls.Representation) -> Source.Node:
+  match representation:
+    case Controls.Action{button}: Buttons.source(key, visual, button)
+    case _: AuthoredControls.invalid(key, visual, "invalid-action-representation")
+
 def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
     case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound(key, label, field, visual, content)
     case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound(key, label, field, visual, content)
-    case SurfaceTypes.ComposerAction{subject, input, availability}: AuthoredControls.action(key, visual, representation)
-    case SurfaceTypes.PanelToggle{expanded, input, availability}: AuthoredControls.action(key, visual, representation)
-    case SurfaceTypes.Activate{input, availability}: AuthoredControls.action(key, visual, representation)
-    case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: AuthoredControls.action(key, visual, representation)
+    case SurfaceTypes.ComposerAction{subject, input, availability}: button_source(key, visual, representation)
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: button_source(key, visual, representation)
+    case SurfaceTypes.Activate{input, availability}: button_source(key, visual, representation)
+    case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: button_source(key, visual, representation)
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
     case SurfaceTypes.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", View2.task_status_label(status)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
     case SurfaceTypes.ProjectChooser{selected}: box(key, Source.Div{}, role_style(visual, role), chooser_selection(selected), content)

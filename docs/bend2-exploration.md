@@ -1380,32 +1380,57 @@ them through the shared opaque carrier. This division keeps concrete evidence
 construction separate from generic model use without claiming that all existing
 modules are compiler-private.
 
-## 2026-10-10: controlled icon-button construction
 
-This small experiment chooses a dedicated `AuthoredControls.IconButton` Data
-syntax and a single source interpreter, rather than allowing arbitrary layout
-or offsets in its inputs. Universal production-bound obligations are the chosen
-way to cover instances, icon replacement and resizing without caller proofs.
-The reason to group these parts is their common action purpose and preserving
-operations, not classification alone. [ADR 0033](adr/0033-controlled-icon-button-construction.md)
-records the choice; executable contracts remain the source of requirements.
+## 2026-10-10: authored button predicate categories
 
-The geometric target is the existing rounded half of remaining space, including
-content insets for drawing positions and the existing fit premise. An oversized
-drawing retains its diagnostic. This scope adds no claim about optical ink
-centering or actual browser DOM bounds, and does not migrate all controls or
-make all general Source buttons private. This entry records the fixed experiment
-scope.
+The ordinary authored action path covers all four existing meanings: `Activate`,
+`ComposerAction`, `PanelToggle` and `Choice`. Its migration uses typed
+`PROGRAM.Button` syntax inside `Representation.Action` and the public
+`controls/BUTTONS.bend` constructor. Help is derived from the final face and current
+action policy. The runtime recovery retry button is a separate source producer
+with its own activation/remount protocol and is outside this family.
 
-The root proof reported `ALL PROOFS CHECK`, and `scripts/check.mjs` passed.
-Both icon-button boundary tests passed: the real client returned `True`, an
-arbitrary `Source.Node` was rejected by type checking, and otherwise type-correct
-button, glyph and SVG-offset mutations were rejected by their named production
-obligations. The architecture and UI-verification checks also passed all eight
-tests. These results do not establish locality or full-suite completion.
+Compiler probes on Bend 2.0.34 accepted unary predicate parameters and an inclusion
+record containing universally quantified implication evidence. They also accepted
+a proof package of `Type` with a dependent value field. An ordinary proof field
+inside a `Data` package failed; erasing that field allowed construction but the
+probed live extractors could not recover it as live evidence. A parameter-based
+extractor for the `Type` package compiled to JavaScript, and the minimal probe's
+production and inclusion paths both returned `7`. Those probes establish compiler
+mechanisms, not production button category correctness.
 
-The first button mutation was accepted because the root proof did not import
-the controls proof provider. Explicitly assembling that provider in the root
-made the repeated mutation fail its obligation. A valid local proof does not
-protect production when the production evidence entry never includes it;
-mutation checks exposed this assembly gap.
+Categories inspect a construction observation including the actual authored node.
+Their intersection and inclusion operations let icon, choice and picker buttons
+retain common authored guarantees and support additional client predicates.
+Icon membership observes the sole emitted glyph and its inner main/cross centered
+alignment as well as the outer style; `icon_glyph_centered` supplies its inclusion
+into `glyph_centered`. The production `MODEL` calls `BUTTONS.source` with typed
+button syntax and does not import the proof provider. Universal
+`construction_evidence` binds guarantees to that actual source function;
+proof-side `construct` and `Membership` are available to clients loading the
+provider or root proof, rather than being a required production packet.
+The independent compiler clients and type-correct production mutations are assigned
+to `tests-bend/button-categories.test.mjs`; current verification results must come
+from its execution and the production proof gate. These obligations retain the
+declared name and geometry policy without asserting arbitrary nonempty names,
+universal content fitting or final browser pixel centering.
+
+The pinned root proof check, including glyph centering, reported `ALL PROOFS CHECK`
+(`.workpad/button-glyph-proof-pinned.log`). The locality checks passed all 12 tests
+with zero failures in 101.43 s; architecture and UI model/proof separation fixtures
+passed all 8 tests with zero failures. The final `scripts/check.mjs` run exited
+zero: source boundaries covered 21 core modules and 214 sources, all production
+proofs passed, browser JavaScript built as `e6457500f88a`, and native-entry and
+host-syntax checks passed (`.workpad/button-category-check-complete.log`).
+
+Both focused compiler-client tests passed
+(`.workpad/button-category-tests-final.log`). A separate mutation-only run passed
+with zero failures in 146.67 s and two filtered-out tests
+(`.workpad/button-category-mutations-finished.log`): all nine mutations were
+accepted by type checking and rejected by the root production proof. The glyph-kind
+mutation was also rejected at `icon_production` by an independent button-proof
+entry. These runs establish all three focused test categories separately; they do
+not establish a full suite result or physical browser behavior.
+
+[ADR 0033](adr/0033-button-category-inclusion.md) records the reasons for the family
+boundary and predicate inclusion.

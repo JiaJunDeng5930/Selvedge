@@ -684,6 +684,3 @@ def measured_authored_floor(~A: Data, ~E: Data, +tree: Allocation.MeasuredTree<A
 
 def RulePhysicalSourceRules.measured_authored_floor(A, E, tree):
   measured_authored_floor(~A, ~E, tree)
-
-
-def RulePhysicalSourceRules.centered_allocation_offset(unused): {==}
