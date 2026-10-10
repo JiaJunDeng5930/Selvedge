@@ -59,7 +59,8 @@ test('the conceptual entry declares proof-carrying concepts rather than implemen
   for (const name of ['Meaning', 'Composition', 'Recovery', 'Observation', 'Concurrency', 'Harness']) {
     assert.match(source, new RegExp(`type ${name} is Type:`));
   }
-  assert.match(source, /law harness:\s+Harness/);
+  const production = await readFile(path.join(root, 'PROOF.bend'), 'utf8');
+  assert.match(production, /def harness\(\) -> Entry\.Harness:/);
 });
 
 test('proof modules form an explicit acyclic dependency graph', async () => {

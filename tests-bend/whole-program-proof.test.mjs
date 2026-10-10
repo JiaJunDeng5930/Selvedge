@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,10 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
   for (const filename of await readdir(root)) {
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
-  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser', 'host/adapters']) {
+    await mkdir(path.dirname(path.join(directory, name)), { recursive: true });
+    await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  }
   const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);

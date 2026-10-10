@@ -222,6 +222,9 @@ test('a matching native build cache cannot bypass the actual-source boundary gat
   for (const filename of ['scripts', 'theory', 'bend-version']) {
     await cp(path.join(root, filename), path.join(copy.directory, filename), { recursive: true });
   }
+  const pluginBuilder = 'plugins/selvedge-chatgpt/scripts/build-model.mjs';
+  await mkdir(path.dirname(path.join(copy.directory, pluginBuilder)), { recursive: true });
+  await cp(path.join(root, pluginBuilder), path.join(copy.directory, pluginBuilder));
   await modify(copy.directory, 'harness/reasoning/PROGRAM.bend', source => source.replace('import Base\n',
     'import Base\nimport ../MODEL.bend as Application\n'));
   const compiler = (await readFile(path.join(root, 'bend-version'), 'utf8')).trim();

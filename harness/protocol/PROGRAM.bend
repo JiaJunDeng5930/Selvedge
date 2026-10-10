@@ -179,7 +179,8 @@ def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
     case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
     case M.AfterCompleted{id, operation, ticket, outcome}: after(T.find(Commands.entries(world), id), operation, ticket, outcome)
     case M.ApprovalCompleted{id, ticket, outcome}:
-      Review{Approvals.resolve(T.find(Commands.entries(world), id), Approvals.ModelDecision{}, ticket, outcome)}
+      Review{Approvals.resolution(F.State(), Approvals.construct_review(F.State(),
+        Approvals.ReviewRequest{Approvals.ModelDecision{}, id, ticket, outcome, world}))}
     case M.Configure{environment}: Settings{environment}
     case M.Recover{}: Restart{}
     case M.Continue{}: Tick{}

@@ -22,7 +22,7 @@ import ../../bendlib/json.bend as Json
 import ../../bendlib/categories.bend as Categories
 `;
 const unpackSystem = `  (World, (Decision, system)) = packed
-  Model.System{execution, packed_interface} = system`;
+  Model.System{execution, packed_interface, host_adapters} = system`;
 const unpackInterface = `  (State, (Input, (Result, (Pending, (Effect, interface))))) = packed_interface
   Model.Interface{application, packed_display} = interface`;
 
@@ -168,7 +168,7 @@ def extended_client(packed: Categories.Membership<Model.ExecutionOperations<Bool
   run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, True{})
 
 def main() -> Bool:
-  Bool.and(Bool.and(client(Model.system(), True{}), client(Model.system(), False{})),
+  Bool.and(Bool.and(client(Proof.system(), True{}), client(Proof.system(), False{})),
     Bool.and(safe_client(toy_model()), Bool.and(refined_client(toy_model()), extended_client(extended_model()))))
 `;
 
@@ -200,7 +200,7 @@ ${world ? `  expose_plain(World, Decision, Model.execution_operations(World, Dec
     Model.execution_field_initial(World, Decision, Model.execution_actual(World, Decision, Categories.value(Categories.Implementation<Model.ExecutionOperations<World, Decision>>, Model.execution_implementation(World, Decision), execution))))`}
 
 def main() -> Bool:
-  expose(Model.system())
+  expose(Proof.system())
 `;
 }
 

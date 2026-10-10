@@ -56,7 +56,7 @@ def chatgpt(resolution: ChatGPT.Resolution) -> Resolution:
     case ChatGPT.Refuse{code, reason}: Refuse{code, reason}
     case ChatGPT.Accept{change}: Accept{O.ChatGPTChange{change}}
 
-def resolve(start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
+def resolve_calculation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   match command:
     case F.ChatGPTCommand{command}: chatgpt(ChatGPT.resolve(command, ChatGPTState.registry(world), Projects.registry(F.State(), world)))
     case F.BoardCommand{command}: board(start, Board.change_resolution(Board.construct_command(command, world)), world)
@@ -66,7 +66,7 @@ type CommandRequest is Data:
 
 def command_resolution(start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, request: CommandRequest) -> Resolution:
   CommandRequest{command, world} = request
-  resolve(start, command, world)
+  resolve_calculation(start, command, world)
 
 def ConstructedCommand(-start: String -> String -> String -> J.Json -> @+world:M.World() -> Start) -> Type:
   Categories.Membership<Categories.Construction<CommandRequest, Resolution>,
@@ -74,3 +74,11 @@ def ConstructedCommand(-start: String -> String -> String -> J.Json -> @+world:M
 
 def construct_command(start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, world: M.World()) -> ConstructedCommand(start):
   Categories.construct(CommandRequest, Resolution, command_resolution(start), CommandRequest{command, world})
+
+
+def command_value(-start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, member: ConstructedCommand(start)) -> Resolution:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
+def resolve(start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
+  command_value(start, construct_command(start, command, world))

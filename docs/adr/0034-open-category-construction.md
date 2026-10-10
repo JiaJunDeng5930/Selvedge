@@ -35,7 +35,7 @@ checks its predicate on the candidate; its successful continuation requires the
 corresponding membership and consumes that admitted value. Checked helpers require
 the equation relating a Boolean observation to that candidate. They cannot accept
 an unrelated permission bit. The shared admission definitions contain their
-evidence intrinsically, so production models do not import proof providers.
+evidence intrinsically and need no proof-provider import on their own.
 
 Retain pure calculation helpers where unconditional, input-wide computation
 equations need a subject. Their equations do not make them alternative semantic
@@ -66,10 +66,36 @@ avoids expanding the fixed compiler's 48-bit capacity computation during depende
 `Type` conversion. This changes the proof presentation, while retaining the
 capacity limit, content fields and complete native policy requirements.
 
-Recovery construction applies the same actual-source discipline to its existing
-native retry producer. Its production evidence belongs to the runtime proof
-entry, so ordinary model code can emit the retry source without importing that
-provider. The native `@browser/retry` protocol remains the operational behavior.
+Production button, input, movable and recovery consumers now call the membership
+factories and extract their constructed nodes. Complete constructor equations
+bind each result to the raw owner calculation at the caller's exact inputs,
+preventing unrelated valid membership from satisfying the consumer's source
+correspondence. The raw calculations retain their specification role.
+
+The fixed compiler checks live references at definition events: an ordinary
+library constructor calling still-unfilled evidence is rejected. Independent
+construction providers therefore fill the owning constructor laws before the
+production model's live consumers. Their leaf dependency closures avoid cycles
+through the assembled models. This is an ordering constraint, not a namespace
+resolution failure or a reason to weaken the contracts.
+
+Certified construction libraries have a different dependency role from the
+assembled system proof. `components.json` explicitly declares the three owning
+providers in `construction_providers`, binding each to its contract, constructors
+and complete caller-source correspondence laws. This allows production models to
+consume their established constructions without importing the global proof
+assembly. The boundary checks require the declared laws' unique owning provider
+and continue traversing its dependencies, rejecting unregistered proof sources
+and assembled proof entries. Registration declares this limited dependency role;
+it does not establish proof acceptance or replace the mandatory evidence,
+foreign-boundary and zero-hole gates. The completed formal check accepted this
+boundary adoption; its scope and focused fixture results are recorded in the
+exploration notes.
+
+Recovery uses the independent runtime utility provider. Its source replaces only
+recovery children through the proved factory and shares `source_with_recovery`
+with the raw owner calculation, preserving the existing diagnostic and layout
+computation. The native `@browser/retry` protocol remains the operational behavior.
 
 Incoming application worlds are checked with `I.world` before loading. Invalid
 worlds retain the application through the exact refusal path. This replaces a
@@ -84,9 +110,11 @@ does not duplicate their law definitions. Isolated compiler checks establish onl
 the closures they actually check. The whole-project check and test results belong
 to [the exploration notes](../bend2-exploration.md). The pinned production proof
 check includes input-content and exact-viewport construction obligations; the
-final project check, locality tests and complete integration suite passed. These
-results cover their respective boundaries rather than inferring integration
-success from proof acceptance alone.
+earlier project check, locality tests and complete integration suite passed as
+recorded there. The production provider adoption now has its own formal and
+focused fixture evidence, recorded separately from those historical runs. Each
+result covers its own boundary rather than inferring integration success from
+proof acceptance alone.
 
 Proofs describe produced values and committed effects. They do not establish
 physical browser layout, focus or interaction, nor execution of external effects

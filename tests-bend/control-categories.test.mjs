@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -128,7 +128,8 @@ async function fixture(t) {
   for (const name of await readdir(root)) {
     if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
   }
-  for (const name of ['bendlib', 'browser', 'interaction', 'harness', 'features']) {
+  for (const name of ['bendlib', 'browser', 'interaction', 'harness', 'features', 'host/adapters']) {
+    await mkdir(path.dirname(path.join(directory, name)), { recursive: true });
     await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   }
   await writeFile(path.join(directory, 'CLIENT.bend'), concrete);

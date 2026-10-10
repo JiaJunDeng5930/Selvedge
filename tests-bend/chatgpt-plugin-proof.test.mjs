@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +32,10 @@ test('ChatGPT production evidence rejects type-correct lost effects, cross-conne
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-chatgpt-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
-  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser', 'host/adapters']) {
+    await mkdir(path.dirname(path.join(directory, name)), { recursive: true });
+    await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  }
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], { cwd: directory, encoding: 'utf8',
     timeout: compilerCallBudget, env: { ...process.env, BEND_NO_TELEMETRY: '1' } });

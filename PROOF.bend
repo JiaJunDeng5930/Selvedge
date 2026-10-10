@@ -1,4 +1,5 @@
 import Base
+import ./host/adapters/PROOF.bend as HostAdaptersProof
 import ./harness/LAWS.bend as Laws
 import ./interaction/presentation/CONTRACT.bend as InterfaceProgramRules
 import ./harness/CONTRACT.bend as Concepts
@@ -44,6 +45,7 @@ import ./interaction/PROOF.bend as UIProof
 
 import ./bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
+import ./host/adapters/PROGRAM.bend as HostProgram
 import ./harness/MODEL.bend as M
 import ./harness/PROGRAM.bend as Program
 import ./harness/INVARIANTS.bend as Invariants
@@ -83,7 +85,7 @@ def execution_model() -> Model.Execution(M.World(), M.Decision()):
             query => first => second => state => Laws.observation_replay(query, first, second, state)}}}}}}
 
 # Assemble the conceptual program only after every local obligation is closed.
-def Entry.harness():
+def harness() -> Entry.Harness:
   Entry.Harness{
     Entry.Meaning{Concepts.commands(), Concepts.interactions(), Concepts.actions(), Concepts.scheduling(), Concepts.native_interface()},
     Entry.Composition{Concepts.protocol_reachability(), Concepts.traces(), Concepts.task_machine(), Concepts.persistence(), Concepts.history(), Concepts.decisions()},
@@ -108,8 +110,15 @@ def json_render_evidence() -> JsonRenderRules.JsonRenderRequirements:
 def profile_evidence() -> JsonRenderRules.ProfileRequirements:
   JsonRenderRules.profile_evidence()
 
-def Model.system():
+
+def host_model() -> Model.HostModel():
+  Categories.Membership{
+    Model.HostOperations{operation => source => HostProgram.run(operation, source), operation => source => HostProgram.meaning(operation, source)},
+    HostProgram.complete_correspondence()}
+
+def system() -> Model.SystemModel():
   (M.World(), (M.Decision(), Model.System{
     execution_model(),
     (Semantics.State, (Semantics.Input, (Semantics.Decision, (Semantics.Pending, (Semantics.Effect,
-      Model.Interface{RuntimeProof.application_model(), RuntimeProof.display_model()})))))}))
+      Model.Interface{RuntimeProof.application_model(), RuntimeProof.display_model()}))))),
+    host_model()}))

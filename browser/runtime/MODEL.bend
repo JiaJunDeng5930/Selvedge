@@ -7,6 +7,7 @@ import ../layout/physical-space.bend as Space
 import ../document/RENDERED.bend as Rendered
 import ../document/MODEL.bend as CodeObservation
 import ./frontend-utility.bend as Utility
+import ./utility-proof.bend as UtilityProof
 import ../document/FRAME.bend as SourceFrame
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./SEMANTICS.bend as Legacy
@@ -677,7 +678,7 @@ def utility_start(+purpose: Utility.Purpose, +glyph_only: Bool, +state: State) -
   +environment = Web.environment(observed_web_1)
   +font = Web.typography(observed_web_1)
   +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
-  +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), Utility.source(purpose, presentation, glyph_only), presentation}, viewport_box(environment))
+  +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), UtilityProof.source(purpose, presentation, glyph_only), presentation}, viewport_box(environment))
   utility_selected(World.plan(engine), purpose, engine, 0n, glyph_only, State{stored, (serial + 1n : Nat), anchors, lifecycle, displayed})
 
 def utility_if_needed(decision: Decision) -> Decision:

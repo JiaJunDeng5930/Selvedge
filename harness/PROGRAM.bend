@@ -339,8 +339,12 @@ def model_request(task: D.Task, +world: M.World()) -> M.Decision():
 def run_tool(phase: D.Phase, task: D.Task, +world: M.World()) -> M.Decision():
   realize_action_calculation(Execution.tool(phase, task, world), world)
 
+def realize_work(member: Execution.ConstructedWork()) -> M.Decision():
+  Categories.Membership{Categories.Construction{Execution.WorkRequest{work, task, world}, action}, evidence} = member
+  realize_action_calculation(action, world)
+
 def work_calculation(work: D.Work, task: D.Task, +world: M.World()) -> M.Decision():
-  realize_action_calculation(Execution.resolve(work, task, world), world)
+  realize_work(Execution.construct_work(work, task, world))
 
 def combine(before: M.Decision(), after: M.Decision()) -> M.Decision():
   match before after:
@@ -392,7 +396,7 @@ def admission(rendered: Result<&2, &2, String, String>, decision: M.Decision(), 
       output_admitted(Nat.is_le(J.utf8_length(text), U32.to_nat(frame_limit(previous))), decision, previous)
 
 def deliver(durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  admission(J.render(rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous)
+  Commit.deliver(durable, decision, previous)
 
 def live_decision(decision: M.Decision()) -> M.Decision():
   C.Decision{+world, reply, effects} = decision
@@ -412,7 +416,7 @@ def check_live(+decision: M.Decision(), +previous: M.World()) -> M.Decision():
 # retains the old state and emits no effects; output admission has the same rule.
 
 def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
-  check_live(live_decision(decision), previous)
+  Commit.checked(decision, previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
   deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
@@ -420,10 +424,31 @@ def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)
 
-def transition(input: M.Input, +world: M.World()) -> M.Decision():
+def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():
   match input:
     case M.UserCommand{M.Observe{request}}: deliver(False{}, observe(request, world), world)
     case other: update(other, world)
+
+type TransitionRequest is Data:
+  TransitionRequest{input: M.Input, world: M.World()}
+
+def transition_result(request: TransitionRequest) -> M.Decision():
+  TransitionRequest{input, world} = request
+  transition_calculation(input, world)
+
+def ConstructedTransition() -> Type:
+  Categories.Membership<Categories.Construction<TransitionRequest, M.Decision()>,
+    Categories.constructed_by(TransitionRequest, M.Decision(), transition_result)>
+
+def construct_transition(input: M.Input, world: M.World()) -> ConstructedTransition():
+  Categories.construct(TransitionRequest, M.Decision(), transition_result, TransitionRequest{input, world})
+
+def consume_transition(member: ConstructedTransition()) -> M.Decision():
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
+def transition(input: M.Input, +world: M.World()) -> M.Decision():
+  consume_transition(construct_transition(input, world))
 
 def next(world: M.World(), input: M.Input) -> M.World():
   decision_world(transition(input, world))

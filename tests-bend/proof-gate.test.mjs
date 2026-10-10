@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, readdir, cp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, readdir, cp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -32,7 +32,10 @@ test('bypassing production admission invalidates the transition theorem', { time
   for (const filename of await readdir(root)) {
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
-  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser', 'host/adapters']) {
+    await mkdir(path.dirname(path.join(directory, name)), { recursive: true });
+    await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  }
   const check = () => spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check();
   assert.equal(baseline.error, undefined);
@@ -80,7 +83,10 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
   for (const filename of await readdir(root)) {
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
-  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser', 'host/adapters']) {
+    await mkdir(path.dirname(path.join(directory, name)), { recursive: true });
+    await cp(path.join(root, name), path.join(directory, name), { recursive: true });
+  }
   const filename = path.join(directory, 'harness/PROGRAM.bend');
   const original = await readFile(filename, 'utf8');
   const tasksFilename = path.join(directory, 'harness/tasks/PROGRAM.bend');

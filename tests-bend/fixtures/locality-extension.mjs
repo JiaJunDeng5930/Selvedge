@@ -17,9 +17,13 @@ function importing(source, relative, alias) {
 }
 
 function clause(source, definition, branch) {
-  const start = source.indexOf(`def ${definition}(`);
-  if (start < 0) throw new Error(`Missing extension definition: ${definition}`);
-  const match = /^  match [^\n]+:\n/m.exec(source.slice(start));
+  const declaration = new RegExp(`^def ${definition}\\(`, 'm').exec(source);
+  if (!declaration) throw new Error(`Missing extension definition: ${definition}`);
+  const start = declaration.index;
+  const remainder = source.slice(start + declaration[0].length);
+  const nextDeclaration = /^(?:def|law|type) /m.exec(remainder);
+  const end = nextDeclaration ? start + declaration[0].length + nextDeclaration.index : source.length;
+  const match = /^  match [^\n]+:\n/m.exec(source.slice(start, end));
   if (!match) throw new Error(`Missing dispatch in ${definition}`);
   const insert = start + match.index + match[0].length;
   return source.slice(0, insert) + branch.trimEnd() + '\n' + source.slice(insert);
@@ -136,17 +140,17 @@ def full_meaning(+value: Nat, +world: M.World()) ->
   await modify(directory, 'harness/features/operations.bend', source => source
     .replace('type Operation is Data:\n', 'type Operation is Data:\n  CounterSet{value: Nat}\n')
     .replace('type ResolvedEvent is Data:\n', 'type ResolvedEvent is Data:\n  CounterObserved{}\n'));
-  await modify(directory, 'harness/features/resolution.bend', source => clause(source, 'resolve',
+  await modify(directory, 'harness/features/resolution.bend', source => clause(source, 'resolve_calculation',
     '    case F.CounterSet{value}: Accept{O.CounterSet{value}}'));
 
   for (const [filename, definition, step, implementation] of [
     ['harness/features/SPEC.bend', 'meaning', 'Counter.required', false],
-    ['harness/features/execution.bend', 'realize_calculation', 'CounterActual.set', true],
+    ['harness/features/execution.bend', 'operation_calculation', 'CounterActual.set', true],
   ]) await modify(directory, filename, source => {
     let result = importing(importing(source, '../../COUNTER.bend', 'Counter'), '../../bendlib/counter-assembly.bend', 'CounterAssembly');
     if (implementation) result = importing(result, '../../bendlib/counter-execution.bend', 'CounterActual');
     result = clause(result, definition, `    case O.CounterSet{value}: CounterAssembly.embed(${step}(value, CounterAssembly.state(world)), world)`);
-    return clause(result, implementation ? 'event_calculation' : 'event', '    case O.CounterObserved{}: CounterAssembly.observation(world)');
+    return clause(result, implementation ? 'resolved_event_calculation' : 'event', '    case O.CounterObserved{}: CounterAssembly.observation(world)');
   });
 
   await modify(directory, 'harness/features/laws.bend', source => {
@@ -154,7 +158,7 @@ def full_meaning(+value: Nat, +world: M.World()) ->
     result = clause(result, 'meaning', '    case O.CounterSet{value}: CounterProof.full_meaning(value, world)');
     return clause(result, 'event', '    case O.CounterObserved{}: {==}');
   });
-  await modify(directory, 'harness/features/protocol.bend', source => clause(source, 'resolve',
+  await modify(directory, 'harness/features/protocol.bend', source => clause(source, 'resolve_calculation',
     '    case F.CounterObserved{}: Some{O.CounterObserved{}}'));
 
   await modify(directory, 'harness/features/STATE.bend', source => {

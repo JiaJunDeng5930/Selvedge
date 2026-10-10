@@ -7,7 +7,6 @@ import ./operations.bend as O
 import ../../features/board/STATE.bend as State
 import ../../features/chatgpt/MODEL.bend as ChatGPT
 import ../../features/chatgpt/STATE.bend as ChatGPTState
-import ../../bendlib/association-map.bend as Finite
 
 def chatgpt(change: Maybe<&2, ChatGPT.Change>) -> Maybe<&2, O.ResolvedEvent>:
   match change:
@@ -40,9 +39,9 @@ def board_text(found: Maybe<&2, B.Card>, id: Nat, ticket: Nat, outcome: B.Outcom
     case None{}: None{}
     case Some{+card}: board_callback(board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome)
 
-def resolve(completion: F.Completion, world: M.World()) -> Maybe<&2, O.ResolvedEvent>:
+def resolve_calculation(completion: F.Completion, world: M.World()) -> Maybe<&2, O.ResolvedEvent>:
   match completion:
-    case F.ChatGPTCompleted{+id, value, error}: chatgpt(ChatGPT.settle(Finite.find(~ChatGPT.Job, ChatGPT.jobs(ChatGPTState.registry(world)), id), id, value, error))
+    case F.ChatGPTCompleted{+id, value, error}: chatgpt(ChatGPT.completion_value(ChatGPT.construct_completion(id, value, error, ChatGPTState.registry(world))))
     case F.BoardTextCompleted{+id, ticket, outcome}: board_text(B.find(State.registry(world), id), id, ticket, outcome)
 
 type EventRequest is Data:
@@ -50,7 +49,7 @@ type EventRequest is Data:
 
 def event_resolution(request: EventRequest) -> Maybe<&2, O.ResolvedEvent>:
   EventRequest{completion, world} = request
-  resolve(completion, world)
+  resolve_calculation(completion, world)
 
 def ConstructedEvent() -> Type:
   Categories.Membership<Categories.Construction<EventRequest, Maybe<&2, O.ResolvedEvent>>,
@@ -58,3 +57,11 @@ def ConstructedEvent() -> Type:
 
 def construct_event(completion: F.Completion, world: M.World()) -> ConstructedEvent():
   Categories.construct(EventRequest, Maybe<&2, O.ResolvedEvent>, event_resolution, EventRequest{completion, world})
+
+
+def event_value(member: ConstructedEvent()) -> Maybe<&2, O.ResolvedEvent>:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
+def resolve(completion: F.Completion, world: M.World()) -> Maybe<&2, O.ResolvedEvent>:
+  event_value(construct_event(completion, world))

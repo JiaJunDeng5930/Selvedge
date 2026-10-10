@@ -331,22 +331,23 @@ def A.coordination():
 
 
 law work_construction_meaning:
-  for +task_id: Nat
+  for +work: D.Work
+  for +task: D.Task
   for +world: M.World()
-  {Execution.meaning(Execution.construct_work(task_id, world)) ==
-    Execution.meaning_calculation(Execution.work_resolution(Execution.WorkRequest{task_id, world}), world) : M.Decision()}
+  {Execution.meaning(Execution.construct_work(work, task, world)) ==
+    Execution.meaning_calculation(Execution.work_resolution(Execution.WorkRequest{work, task, world}), world) : M.Decision()}
 
-def work_construction_meaning(task_id, world):
+def work_construction_meaning(work, task, world):
   {==}
 
 
 def work_consumer_correspondence_world(request: Execution.WorkRequest) -> M.World():
-  Execution.WorkRequest{task_id, world} = request
+  Execution.WorkRequest{work, task, world} = request
   world
 
 def work_consumer_correspondence_calculation(+request: Execution.WorkRequest, +result: Execution.Action, evidence: {result == Execution.work_resolution(request) : Execution.Action}) ->
   {Execution.meaning_calculation(result, work_consumer_correspondence_world(request)) == Execution.meaning_calculation(Execution.work_resolution(request), work_consumer_correspondence_world(request)) : M.Decision()}:
-  Execution.WorkRequest{task_id, +world} = request
+  Execution.WorkRequest{work, task, +world} = request
   Equal.cong(Execution.Action, M.Decision(), (value => Execution.meaning_calculation(value, world)), result, Execution.work_resolution(request), evidence)
 
 law work_consumer_correspondence:
@@ -355,5 +356,5 @@ law work_consumer_correspondence:
 
 def work_consumer_correspondence(member):
   Categories.Membership{Categories.Construction{request, result}, evidence} = member
-  Execution.WorkRequest{task_id, world} = request
-  work_consumer_correspondence_calculation(Execution.WorkRequest{task_id, world}, result, evidence)
+  Execution.WorkRequest{work, task, world} = request
+  work_consumer_correspondence_calculation(Execution.WorkRequest{work, task, world}, result, evidence)

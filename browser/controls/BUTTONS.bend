@@ -288,3 +288,6 @@ law construct:
 def constructed_node(constructed: Categories.Membership<Observation, authored>) -> Source.Node:
   Categories.Membership{Observation{key, visual, button, node}, evidence} = constructed
   node
+
+law constructor_correspondence:
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> {constructed_node(construct(key, visual, button)) == source(key, visual, button) : Source.Node}

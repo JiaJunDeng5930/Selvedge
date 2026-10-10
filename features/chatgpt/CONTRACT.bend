@@ -12,6 +12,25 @@ import ./view.bend as View
 import ../../bendlib/association-map.bend as Finite
 import ../board/MODEL.bend as Board
 
+def cancel_first(+connection: Nat, +project: Nat, +id: Nat, +state: G.State, +projects: D.Projects) -> C.Decision<G.State, G.Effect>:
+  Actual.realize(G.construct_command(G.Cancel{connection, project, id}, state, projects))
+
+def cancel_second(+connection: Nat, +project: Nat, +id: Nat, +state: G.State, +projects: D.Projects) -> C.Decision<G.State, G.Effect>:
+  Actual.realize(G.construct_command(G.Cancel{connection, project, id},
+    Actual.result_state(cancel_first(connection, project, id, state, projects)), projects))
+
+def cancel_effects(decision: C.Decision<G.State, G.Effect>) -> +List<G.Effect>:
+  C.Decision{state, reply, effects} = decision
+  effects
+
+type CancellationCapability is Type:
+  CancellationCapability{
+    retained_state: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State -> @+projects:D.Projects ->
+      {Actual.result_state(cancel_second(connection, project, id, state, projects)) ==
+       Actual.result_state(cancel_first(connection, project, id, state, projects)) : G.State},
+    no_repeated_effects: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State -> @+projects:D.Projects ->
+      {cancel_effects(cancel_second(connection, project, id, state, projects)) == Nil{} : +List<G.Effect>}}
+
 # This boundary is constructed at the root against the actual interpreter and
 # assembly. Capabilities have no conversation coordinate. Pure proofs do not
 # claim that an OS process can undo a mutation or that a tunnel authenticates.
@@ -43,7 +62,8 @@ type Boundary is Type:
       {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize_calculation(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
     restarted: @+job:G.Job -> {G.outcome(job) == G.Running{} : G.Outcome} ->
       {G.outcome(G.recover_job(job)) ==
-       G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome}}
+       G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome},
+    cancellation: CancellationCapability}
 
 law boundary:
   Boundary

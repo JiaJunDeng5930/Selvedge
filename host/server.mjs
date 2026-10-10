@@ -1,13 +1,15 @@
 import http from 'node:http';
+import { boundary, observeJson } from './public/model-boundary.mjs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { encodeBendValue } from './public/bend-value.mjs';
+import { emitJsonTokens } from './public/json-tokens.mjs';
 import { Service, CommandNotSubmitted } from './service.mjs';
 import { stringifyJson, parseJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
-import { saveBoardAttachment, readBoardAttachment, BOARD_FILE_LIMIT } from './board-files.mjs';
+import { saveBoardAttachment, readBoardAttachment } from './board-files.mjs';
 import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
 
 async function publicAssets(directory, prefix = '') {
@@ -75,104 +77,160 @@ export async function startServer(options) {
   }
 
   async function route(request, response) {
-    if (closing) { json(response, 503, { ok: false, error: { code: 'stopping', message: 'Server is stopping' } }); return; }
-    const host = request.headers.host;
-    if (!address || host !== new URL(address).host) { json(response, 400, { ok: false, error: { code: 'host', message: 'Invalid local host' } }); return; }
-    const url = new URL(request.url, address);
-    if (request.method === 'GET' && assets.has(url.pathname)) {
-      const [file, contentType] = assets.get(url.pathname);
-      const data = await readFile(new URL(`./public/${file}`, import.meta.url));
-      response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-cache',
-        'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-        'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
-      response.end(data);
-      return;
+    // Secrets stay opaque. Each observation is made only when the native plan
+    // requests it, preserving rejection before later parsing or secret access.
+    const headers = {};
+    for (const name of Object.keys(request.headers)) {
+      if (name === 'authorization') continue;
+      const value = request.headers[name];
+      headers[name] = ['host', 'origin', 'content-type', 'content-length', 'last-event-id'].includes(name)
+        ? value : { present: true, type: Array.isArray(value) ? 'array' : typeof value };
     }
-    if (url.pathname.startsWith('/api/chatgpt/')) {
-      const id = url.pathname.slice('/api/chatgpt/'.length);
-      if (!connectionAuthorized(connections, id, request.headers.authorization)) {
-        json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A connection credential is required' } }); return;
-      }
-      if (request.method !== 'POST') { json(response, 405, { ok: false, error: { code: 'method', message: 'Use POST' } }); return; }
-      if (request.headers.origin || url.search) { json(response, 403, { ok: false, error: { code: 'origin', message: 'Browser origins and query parameters are not accepted' } }); return; }
-      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
-        json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return;
-      }
-      const body = parseJson(await readText(request, service.limits.frame_bytes));
-      const result = await service.command(connectionCommand(Number(id), body));
-      json(response, result.reply.ok ? 200 : 400, { sequence: result.sequence, ...result.reply });
-      return;
-    }
-    if (!authorized(request)) { json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A local access token is required' } }); return; }
-    if (request.headers.origin && request.headers.origin !== address) { json(response, 403, { ok: false, error: { code: 'origin', message: 'Origin does not match this server' } }); return; }
-    if (request.method === 'POST' && url.pathname === '/api/board/attachments') {
-      if (url.searchParams.getAll('name').length !== 1 || [...url.searchParams.keys()].some(key => key !== 'name')) {
-        throw new TypeError('An attachment upload needs exactly one filename');
-      }
-      const length = request.headers['content-length'];
-      if (length !== undefined && (!/^\d+$/.test(length) || Number(length) > BOARD_FILE_LIMIT)) {
-        throw new RangeError('Each board attachment is limited to 10 MiB');
-      }
-      const attachment = await saveBoardAttachment(service.home, url.searchParams.get('name'), request);
-      json(response, 201, { ok: true, result: attachment });
-    } else if (request.method === 'GET' && url.pathname.startsWith('/api/board/attachments/')) {
-      const { attachment, data } = await readBoardAttachment(service.home, url.pathname.slice('/api/board/attachments/'.length));
-      response.writeHead(200, {
-        'content-type': attachment.mime, 'content-length': data.length, 'cache-control': 'no-store',
-        'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
-        'content-disposition': `${attachment.mime.startsWith('image/') ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
-      });
-      response.end(data);
-    } else if (request.method === 'POST' && url.pathname === '/api/accounts/refresh') {
-      // Local authenticated account transport, not a new domain/UI command.
-      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
-        json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return;
-      }
-      const body = parseJson(await readText(request, 1024));
-      if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).length) throw new TypeError('Account refresh takes an empty object');
-      json(response, 200, { ok: true, result: await service.refreshAccounts() });
-    } else if (request.method === 'GET' && url.pathname === '/api/browser/state') {
-      const snapshot = service.browserSnapshot();
-      json(response, 200, { ...snapshot, program: encodeBendValue(snapshot.program) });
-    } else if (request.method === 'POST' && ['/api/browser/command', '/api/browser/observation'].includes(url.pathname)) {
-      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
-      const body = parseJson(await readText(request, service.limits.frame_bytes));
-      if (url.pathname === '/api/browser/observation') {
-        json(response, 200, await service.browserObservation(body));
-      } else {
-        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'command')) {
-          throw new TypeError('A browser command contains only command');
+    const source = {
+      method: request.method, url: request.url, headers,
+      closing: Boolean(closing), address_present: Boolean(address), address: address ?? null,
+    };
+    const decide = operation => boundary(operation, source);
+    let plan = decide('http.closing');
+    let url;
+    let bodyObserved = false;
+    let connectionId;
+    for (;;) {
+      switch (plan.action) {
+        case 'respond': json(response, plan.status, plan.value); return;
+        case 'throw':
+          if (plan.kind === 'RangeError') throw new RangeError(plan.message);
+          throw new TypeError(plan.message);
+        case 'observe_host':
+          source.expected_host = address ? new URL(address).host : null;
+          plan = decide('http.preflight');
+          break;
+        case 'parse_url':
+          url = new URL(request.url, address);
+          Object.assign(source, { pathname: url.pathname, search: url.search,
+            query: [...url.searchParams.entries()], asset: assets.has(url.pathname) });
+          plan = decide('http.route');
+          break;
+        case 'observe_connection_authorization':
+          connectionId = url.pathname.slice('/api/chatgpt/'.length);
+          source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
+          source.authorized = connectionAuthorized(connections, connectionId, request.headers.authorization);
+          plan = decide('http.connection_authorization');
+          break;
+        case 'connection_method_origin':
+          plan = decide('http.connection_method_origin');
+          break;
+        case 'observe_local_authorization':
+          source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
+          source.authorized = authorized(request);
+          plan = decide('http.local_authorization');
+          break;
+        case 'local_origin':
+          plan = decide('http.local_origin');
+          break;
+        case 'observe_content_type':
+          source.target = plan.target;
+          source.content_type = request.headers['content-type']?.toLowerCase() ?? null;
+          plan = decide('http.content_type');
+          break;
+        case 'asset': {
+          const [file, contentType] = assets.get(url.pathname);
+          const data = await readFile(new URL(`./public/${file}`, import.meta.url));
+          response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-cache',
+            'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
+          response.end(data);
+          return;
         }
-        const result = await service.browserCommand(body.command);
-        json(response, result.reply.ok ? 200 : 400, { ...result, program: encodeBendValue(result.program) });
+        case 'attachment_upload': {
+          const attachment = await saveBoardAttachment(service.home, url.searchParams.get('name'), request);
+          json(response, 201, { ok: true, result: attachment });
+          return;
+        }
+        case 'attachment_download': {
+          const { attachment, data } = await readBoardAttachment(service.home, url.pathname.slice('/api/board/attachments/'.length));
+          response.writeHead(200, {
+            'content-type': attachment.mime, 'content-length': data.length, 'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+            'content-disposition': `${attachment.mime.startsWith('image/') ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
+          });
+          response.end(data);
+          return;
+        }
+        case 'account_refresh':
+        case 'browser_command':
+        case 'browser_observation':
+        case 'command':
+        case 'connection_command': {
+          if (!bodyObserved) {
+            const text = await readText(request, plan.action === 'account_refresh' ? 1024 : service.limits.frame_bytes);
+            const parsed = parseJson(text);
+            const tokens = [];
+            emitJsonTokens(parsed, token => tokens.push(token));
+            Object.assign(source, { text, observation: observeJson(text),
+              parsed_observation: { text, tokens }, target: plan.action });
+            bodyObserved = true;
+            plan = decide('http.body');
+            break;
+          }
+          const body = plan.body;
+          switch (plan.action) {
+            case 'account_refresh':
+              json(response, 200, { ok: true, result: await service.refreshAccounts() });
+              return;
+            case 'browser_observation':
+              json(response, 200, await service.browserObservation(body));
+              return;
+            case 'browser_command': {
+              const result = await service.browserCommand(body.command);
+              json(response, boundary('http.reply_status', result), { ...result, program: encodeBendValue(result.program) });
+              return;
+            }
+            case 'command': {
+              // Public commands are resolved by the service's native command boundary.
+              const result = await service.command(body);
+              json(response, boundary('http.reply_status', result), { sequence: result.sequence, ...result.reply });
+              return;
+            }
+            case 'connection_command': {
+              const result = await service.command(connectionCommand(Number(connectionId), body));
+              json(response, boundary('http.reply_status', result), { sequence: result.sequence, ...result.reply });
+              return;
+            }
+          }
+          break;
+        }
+        case 'browser_state': {
+          const snapshot = service.browserSnapshot();
+          json(response, 200, { ...snapshot, program: encodeBendValue(snapshot.program) });
+          return;
+        }
+        case 'describe':
+          json(response, 200, { ok: true, result: service.description });
+          return;
+        case 'events': {
+          const supplied = request.headers['last-event-id'] ?? url.searchParams.get('after');
+          const after = supplied === null || supplied === undefined ? service.journal.sequence : Number(supplied);
+          service.journal.events(after, 1); // Validate before sending response headers.
+          response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+          response.flushHeaders();
+          clients.add(response);
+          response.once('close', () => clients.delete(response));
+          // Capture active streams before this synchronous subscription yields to notices.
+          sendEvent(response, { type: 'stream-state', streams: service.browserStreams() });
+          // Reconnection needs the current durable revision, not historical invalidations.
+          sendEvent(response, { type: 'commit', sequence: service.journal.sequence });
+          return;
+        }
+        case 'event_page':
+          json(response, 200, { ok: true, result: service.journal.events(Number(url.searchParams.get('after') ?? 0), Number(url.searchParams.get('limit') ?? 100)) });
+          return;
+        case 'health':
+          json(response, 200, { ok: true, result: { sequence: service.journal.sequence } });
+          return;
+        default: throw new TypeError('Invalid native HTTP action');
       }
-    } else if (request.method === 'POST' && url.pathname === '/api/commands') {
-      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
-      const command = parseJson(await readText(request, service.limits.frame_bytes));
-      // The public boundary accepts commands only. It never passes an incoming
-      // `kind: model/tool/configure` through to the private kernel channel.
-      const result = await service.command(command);
-      json(response, result.reply.ok ? 200 : 400, { sequence: result.sequence, ...result.reply });
-    } else if (request.method === 'GET' && url.pathname === '/api/describe') {
-      json(response, 200, { ok: true, result: service.description });
-    } else if (request.method === 'GET' && url.pathname === '/api/events') {
-      const supplied = request.headers['last-event-id'] ?? url.searchParams.get('after');
-      const after = supplied === null || supplied === undefined ? service.journal.sequence : Number(supplied);
-      service.journal.events(after, 1); // Validate before sending response headers.
-      response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      response.flushHeaders();
-      clients.add(response);
-      response.once('close', () => clients.delete(response));
-      // Capture active streams before this synchronous subscription yields to notices.
-      sendEvent(response, { type: 'stream-state', streams: service.browserStreams() });
-      // Reconnection needs the current durable revision, not every historical
-      // UI invalidation. The authenticated event page retains exact cursors.
-      sendEvent(response, { type: 'commit', sequence: service.journal.sequence });
-    } else if (request.method === 'GET' && url.pathname === '/api/event-page') {
-      json(response, 200, { ok: true, result: service.journal.events(Number(url.searchParams.get('after') ?? 0), Number(url.searchParams.get('limit') ?? 100)) });
-    } else if (request.method === 'GET' && url.pathname === '/api/health') {
-      json(response, 200, { ok: true, result: { sequence: service.journal.sequence } });
-    } else json(response, 404, { ok: false, error: { code: 'not_found', message: 'Unknown local endpoint' } });
+    }
   }
 
   service.on('notice', event => {

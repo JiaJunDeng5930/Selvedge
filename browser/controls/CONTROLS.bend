@@ -551,3 +551,17 @@ law construct_input:
 
 law construct_movable:
   @+key:UIIdentity.Key -> @+syntax:Controls.MovableControl -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> Categories.Membership<MovableObservation, authored_movable>
+
+def constructed_input_node(constructed: Categories.Membership<InputObservation, authored_input>) -> Source.Node:
+  Categories.Membership{InputObservation{key, input, visual, parameters, request, node}, evidence} = constructed
+  node
+
+def constructed_movable_node(constructed: Categories.Membership<MovableObservation, authored_movable>) -> Source.Node:
+  Categories.Membership{MovableObservation{key, control, visual, parameters, node}, evidence} = constructed
+  node
+
+law input_constructor_correspondence:
+  @+key:UIIdentity.Key -> @+syntax:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> {constructed_input_node(construct_input(key, syntax, visual, parameters)) == input(key, syntax, visual, parameters) : Source.Node}
+
+law movable_constructor_correspondence:
+  @+key:UIIdentity.Key -> @+syntax:Controls.MovableControl -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> {constructed_movable_node(construct_movable(key, syntax, visual, parameters)) == movable_choices(key, syntax, visual, parameters) : Source.Node}

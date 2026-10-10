@@ -76,7 +76,7 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.gitattributes,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,scripts/,tests-bend/,theory/}
+|.:{.codex/,.editorconfig,.gitattributes,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
@@ -84,15 +84,15 @@ This file is for coding agents working in this repository.
 |bendlib:{README.md,algebra-proof.bend,association-map.bend,categories.bend,component.bend,effects.bend,equality-proof.bend,equality.bend,json-proof.bend,json.bend,logic-proof.bend,relations.bend,stdlib.bend,theory.bend}
 |browser:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,appearance/,controls/,document/,editor/,focus/,layout/,model-proof.bend,model-rules.bend,reading/,runtime/}
 |browser/appearance:{CONTRACT.bend,DESIGN.bend,FONT.bend,ICONS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TYPOGRAPHY.bend}
-|browser/controls:{BUTTONS.bend,CONTRACT.bend,CONTROLS.bend,GEOMETRY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SHELL.bend,SURFACES.bend,authored-primitives.bend,button-proof.bend}
+|browser/controls:{BUTTONS.bend,CONTRACT.bend,CONTROLS.bend,GEOMETRY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SHELL.bend,SURFACES.bend,authored-primitives.bend,authored-proof.bend,button-proof.bend}
 |browser/document:{CONTRACT.bend,FRAME.bend,MODEL.bend,PROOF.bend,README.md,RENDERED.bend,SOURCE.bend,SPEC.bend,content-proof.bend,presentation-order.bend,presentation-proof.bend,render-contract.bend,render-proof.bend,source-contract.bend,source-proof.bend}
 |browser/editor:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/focus:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/layout:{CONTENT.bend,CONTRACT.bend,GEOMETRY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,RENDERER.bend,SOURCE.bend,SPACE.bend,allocation-contract.bend,allocation-proof.bend,enclosure.bend,geometry-contract.bend,geometry-proof.bend,measurement-contract.bend,natural-size.bend,physical-content-measurement.bend,physical-native.bend,physical-plan.bend,physical-probe.bend,physical-space.bend,render-contract.bend,render-proof.bend,sizing-proof.bend}
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
-|browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend}
+|browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend,utility-proof.bend}
 |docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,task-board.md}
-|docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md}
+|docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md}
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
 |features:{README.md,board/,chatgpt/}
@@ -109,8 +109,9 @@ This file is for coding agents working in this repository.
 |harness/tasks:{CONTRACT.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/transport:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,command-codec.bend,presentation.bend,schema.bend,wire-shape.bend,wire.bend}
 |harness/workspace:{CONTRACT.bend,PROJECTS.bend,PROOF.bend,README.md,WORKSPACE.bend}
-|host:{README.md,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,config.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
-|host/public:{README.md,app.mjs,bend-value.mjs,bootstrap.mjs,events.mjs,index.html,json-tokens.mjs,markdown-worker.mjs,markdown.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
+|host:{README.md,adapters/,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,config.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
+|host/adapters:{ACCOUNTS.bend,BACKENDS.bend,BROWSER.bend,CONFIGURATION.bend,EFFECTS.bend,EVALUATOR.bend,HTTP.bend,MODEL.bend,PLUGINS.bend,PROGRAM.bend,PROOF.bend,README.md,RPC.bend,WEB.bend,accounts-proof.bend,backends-proof.bend,browser-proof.bend,configuration-proof.bend,effects-proof.bend,evaluator-proof.bend,http-proof.bend,plugins-proof.bend,rpc-proof.bend,web-proof.bend}
+|host/public:{README.md,app.mjs,bend-value.mjs,bootstrap.mjs,events.mjs,index.html,json-tokens.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
 |host/public/vendor:{README.md,desktop-source.json,desktop-tokens.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
 |interaction:{CONTRACT.bend,IDENTITY.bend,INPUT.bend,MODEL.bend,PROOF.bend,README.md,STATE.bend,TYPES.bend,conversation/,identity-laws.bend,presentation/,services/,session/,submission/}
 |interaction/conversation:{CODE.bend,CONTRACT.bend,MODEL.bend,OUTPUT.bend,PROOF.bend,README.md}
@@ -119,8 +120,9 @@ This file is for coding agents working in this repository.
 |interaction/session:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |interaction/submission:{CONTRACT.bend,FIELDS.bend,MODEL.bend,PROOF.bend,README.md,field-options.bend}
 |plugins:{selvedge-chatgpt/}
-|plugins/selvedge-chatgpt:{README.md,bin/,mcp.json,package-lock.json,package.json,plugin.json,skills/,src/}
+|plugins/selvedge-chatgpt:{MODEL.bend,README.md,bin/,mcp.json,package-lock.json,package.json,plugin.json,scripts/,skills/,src/}
 |plugins/selvedge-chatgpt/bin:{server.mjs,setup.mjs,tunnel.mjs}
+|plugins/selvedge-chatgpt/scripts:{build-model.mjs}
 |plugins/selvedge-chatgpt/skills:{local-projects/}
 |plugins/selvedge-chatgpt/skills/local-projects:{SKILL.md}
 |plugins/selvedge-chatgpt/src:{client.mjs,server.mjs}

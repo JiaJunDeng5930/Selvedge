@@ -6,6 +6,7 @@ import ./interaction/presentation/MODEL.bend as View
 import ./interaction/presentation/SURFACE.bend as Surface
 
 import ./bendlib/categories.bend as Categories
+import ./host/adapters/MODEL.bend as HostAdapters
 
 # Operations remain affine; categories index their actual function fields.
 type ExecutionOperations<-World: Data, -Decision: Data> is Type:
@@ -318,15 +319,23 @@ def InterfaceModel(-World: Data) -> Type:
   &State:Data -> &Input:Data -> &Decision:Data -> &Pending:Data -> &Effect:Data ->
     Interface<World, State, Input, Decision, Pending, Effect>
 
+type HostOperations is Type:
+  HostOperations{run: String -> Json.Json -> Json.Json, meaning: String -> Json.Json -> Json.Json}
+
+def host_refined(operations: HostOperations) -> Type:
+  HostOperations{run, meaning} = operations
+  @operation:String -> @source:Json.Json -> {run(operation, source) == meaning(operation, source) : Json.Json}
+
+def HostModel() -> Type:
+  Categories.Membership<HostOperations, host_refined>
+
 type System<-World: Data, -Decision: Data> is Type:
-  System{execution: Execution(World, Decision), interface: InterfaceModel(World)}
+  System{execution: Execution(World, Decision), interface: InterfaceModel(World), host_adapters: HostModel()}
 
 def SystemModel() -> Type:
   &World:Data -> &Decision:Data -> System<World, Decision>
 
 
-law system:
-  SystemModel()
 
 def execution_field_initial(-World: Data, -Decision: Data, ops: ExecutionOperations<World, Decision>) -> World:
   ExecutionOperations{initial, valid, run, meaning, world, reply, effects, durable, replay} = ops

@@ -15,6 +15,7 @@ import ../bendlib/json.bend as J
 import ./transport/presentation.bend as View
 import ./INVARIANTS.bend as I
 import ./protocol/COMMIT.bend as Commit
+import ../bendlib/categories.bend as Categories
 import ./execution/notifications.bend as Notifications
 
 def board_frame(value: Board.State, world: M.World()) ->
@@ -59,10 +60,25 @@ def admission_world(rendered: Result<&2, &2, String, String>, +decision: M.Decis
     case Done{text}:
       output_admitted_world(Nat.is_le(J.utf8_length(text), U32.to_nat(P.frame_limit(previous))), decision, previous, evidence)
 
+def sized_world(+previous: M.World(), admitted: Maybe<&1, Categories.Membership<String, Commit.bounded_envelope(previous)>>,
+  +decision: M.Decision(), evidence: {P.decision_world(decision) == previous : M.World()}) ->
+  {P.decision_world(Commit.sized_admitted(previous, admitted, decision)) == previous : M.World()}:
+  match admitted:
+    case Some{Categories.Membership{member_text, bounded_evidence}}: evidence
+    case None{}: {==}
+
+def rendered_world(+rendered: Result<&2, &2, String, String>, +decision: M.Decision(), +previous: M.World(),
+  evidence: {P.decision_world(decision) == previous : M.World()}) ->
+  {P.decision_world(Commit.rendered(rendered, decision, previous)) == previous : M.World()}:
+  match rendered:
+    case Fail{error}: {==}
+    case Done{text}:
+      sized_world(previous, Categories.admit(String, value => Commit.envelope_fits(previous, value), text), decision, evidence)
+
 def deliver_world(+durable: Bool, +decision: M.Decision(), +previous: M.World(),
   evidence: {P.decision_world(decision) == previous : M.World()}) ->
   {P.decision_world(P.deliver(durable, decision, previous)) == previous : M.World()}:
-  admission_world(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, evidence)
+  rendered_world(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, evidence)
 
 def Laws.observation_preserves_world(query, world):
   deliver_world(False{}, P.observe(query, world), world, {==})
@@ -82,8 +98,23 @@ def admission_no_effects(rendered: Result<&2, &2, String, String>, +decision: M.
     case Done{text}:
       output_admitted_no_effects(Nat.is_le(J.utf8_length(text), U32.to_nat(P.frame_limit(previous))), decision, previous, evidence)
 
+def sized_no_effects(+previous: M.World(), admitted: Maybe<&1, Categories.Membership<String, Commit.bounded_envelope(previous)>>,
+  +decision: M.Decision(), evidence: {P.decision_effects(decision) == Nil{} : +List<M.Effect()>}) ->
+  {P.decision_effects(Commit.sized_admitted(previous, admitted, decision)) == Nil{} : +List<M.Effect()>}:
+  match admitted:
+    case Some{Categories.Membership{member_text, bounded_evidence}}: evidence
+    case None{}: {==}
+
+def rendered_no_effects(+rendered: Result<&2, &2, String, String>, +decision: M.Decision(), +previous: M.World(),
+  evidence: {P.decision_effects(decision) == Nil{} : +List<M.Effect()>}) ->
+  {P.decision_effects(Commit.rendered(rendered, decision, previous)) == Nil{} : +List<M.Effect()>}:
+  match rendered:
+    case Fail{error}: {==}
+    case Done{text}:
+      sized_no_effects(previous, Categories.admit(String, value => Commit.envelope_fits(previous, value), text), decision, evidence)
+
 def Laws.observation_has_no_effects(query, world):
-  admission_no_effects(J.render(P.rendering_budget(world), J.One{View.envelope(False{}, P.observe(query, world))}),
+  rendered_no_effects(J.render(P.rendering_budget(world), J.One{View.envelope(False{}, P.observe(query, world))}),
     P.observe(query, world), world, {==})
 
 def Laws.observation_not_durable(query):
@@ -93,7 +124,7 @@ def Laws.delivery_observation_world(durable, decision, previous, unchanged):
   deliver_world(durable, decision, previous, unchanged)
 
 def Laws.delivery_observation_effects(durable, decision, previous, silent):
-  admission_no_effects(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, silent)
+  rendered_no_effects(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, silent)
 
 # Local proof obligations for the safety boundary. No runtime policy lives here.
 
@@ -113,9 +144,17 @@ def live_certificate(+decision: M.Decision(), +previous: M.World()) ->
   Laws.Admitted(previous, P.check_live(decision, previous)):
   admitted_certificate(P.valid_world(decision), I.decision(previous, decision), decision, previous, {==}, {==})
 
-def checked_certificate(decision: M.Decision(), +previous: M.World()) ->
+def validated_certificate(+previous: M.World(), admitted: Maybe<&1, Categories.Membership<M.Decision(), Commit.committable(previous)>>) ->
+  Laws.Admitted(previous, Commit.validate_admitted(previous, admitted)):
+  match admitted:
+    case Some{Categories.Membership{C.Decision{world, reply, effects}, Categories.Intersection{state_evidence, authority_evidence}}}:
+      Done{(state_evidence, authority_evidence)}
+    case None{}: Fail{({==}, {==})}
+
+def checked_certificate(+decision: M.Decision(), +previous: M.World()) ->
   Laws.Admitted(previous, P.checked(decision, previous)):
-  live_certificate(P.live_decision(decision), previous)
+  validated_certificate(previous, Categories.admit_intersection(M.Decision(), Commit.state_safe,
+    candidate => Commit.effect_authorized(previous, candidate), Commit.live(decision)))
 
 def output_certificate(fits: Bool, +decision: M.Decision(), +previous: M.World(),
   certificate: Laws.Admitted(previous, decision)) ->
@@ -132,10 +171,25 @@ def admission_certificate(rendered: Result<&2, &2, String, String>, +decision: M
     case Done{text}:
       output_certificate(Nat.is_le(J.utf8_length(text), U32.to_nat(P.frame_limit(previous))), decision, previous, certificate)
 
+def sized_certificate(+previous: M.World(), admitted: Maybe<&1, Categories.Membership<String, Commit.bounded_envelope(previous)>>,
+  +decision: M.Decision(), certificate: Laws.Admitted(previous, decision)) ->
+  Laws.Admitted(previous, Commit.sized_admitted(previous, admitted, decision)):
+  match admitted:
+    case Some{Categories.Membership{member_text, bounded_evidence}}: certificate
+    case None{}: Fail{({==}, {==})}
+
+def rendered_certificate(+rendered: Result<&2, &2, String, String>, +decision: M.Decision(), +previous: M.World(),
+  certificate: Laws.Admitted(previous, decision)) ->
+  Laws.Admitted(previous, Commit.rendered(rendered, decision, previous)):
+  match rendered:
+    case Fail{error}: Fail{({==}, {==})}
+    case Done{text}:
+      sized_certificate(previous, Categories.admit(String, value => Commit.envelope_fits(previous, value), text), decision, certificate)
+
 def deliver_certificate(+durable: Bool, +decision: M.Decision(), +previous: M.World(),
   certificate: Laws.Admitted(previous, decision)) ->
   Laws.Admitted(previous, P.deliver(durable, decision, previous)):
-  admission_certificate(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}),
+  rendered_certificate(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}),
     decision, previous, certificate)
 
 def update_certificate(+input: M.Input, +world: M.World()) -> Laws.Admitted(world, P.update(input, world)):

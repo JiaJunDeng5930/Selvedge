@@ -20,6 +20,50 @@ export function parseJson(text) {
   });
 }
 
+/** Observe raw JSON tokens before object decoding can collapse duplicate keys. */
+export function observeJson(text) {
+  try {
+    if (typeof text !== 'string') throw new TypeError('Expected JSON text');
+    JSON.parse(text);
+    const tokens = [];
+    const number = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+    let index = 0;
+    while (index < text.length) {
+      const character = text[index];
+      if (' \t\r\n:,'.includes(character)) {
+        index++;
+      } else if ('[]{}'.includes(character)) {
+        tokens.push(character);
+        index++;
+      } else if (character === '"') {
+        const start = index++;
+        while (text[index] !== '"') {
+          index += text[index] === '\\' ? 2 : 1;
+        }
+        tokens.push(`s${JSON.parse(text.slice(start, ++index))}`);
+      } else if (character === 't') {
+        tokens.push('t');
+        index += 4;
+      } else if (character === 'f') {
+        tokens.push('f');
+        index += 5;
+      } else if (character === 'n') {
+        tokens.push('z');
+        index += 4;
+      } else {
+        number.lastIndex = index;
+        const match = number.exec(text);
+        if (!match) throw new SyntaxError('Invalid JSON token');
+        tokens.push(`n${match[0]}`);
+        index = number.lastIndex;
+      }
+    }
+    return { text, tokens };
+  } catch (error) {
+    return { text, error: error.message, error_name: error.name };
+  }
+}
+
 export function stringifyJson(value) {
   return JSON.stringify(value, (_key, item) => {
     if (typeof item === 'bigint') return JSON.rawJSON(item.toString());

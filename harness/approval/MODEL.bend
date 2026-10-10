@@ -226,6 +226,10 @@ def ConstructedReview(-StateRest: Data) -> Type:
 def construct_review(-StateRest: Data, request: ReviewRequest<StateRest>) -> ConstructedReview(StateRest):
   Categories.construct(ReviewRequest<StateRest>, Resolution, review_resolution(StateRest), request)
 
+def resolution(-StateRest: Data, member: ConstructedReview(StateRest)) -> Resolution:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
 def meaning(-StateRest: Data, -EffectRest: Data, member: ConstructedReview(StateRest)) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   Categories.Membership{Categories.Construction{ReviewRequest{origin, task_id, operation_id, outcome, world}, resolution}, evidence} = member
   meaning_calculation(StateRest, EffectRest, resolution, world)

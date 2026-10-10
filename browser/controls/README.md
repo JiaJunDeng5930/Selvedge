@@ -32,12 +32,13 @@ icon, choice and picker categories add their face-specific observations and reta
 those common memberships through inclusion. These predicates are open to client
 extensions rather than a closed enumeration or a class inheritance hierarchy.
 The construction evidence refers to the actual `BUTTONS.source` function, so a
-category label alone does not establish membership. Ordinary construction takes
-typed button syntax through `BUTTONS.source`; `MODEL` does not import the proof
-provider. The universally quantified `construction_evidence` binds category
-membership to that actual function. Proof clients use `construct` and `Membership`
-after loading the provider or root proof, without making that package part of the
-production model path. Icon membership also observes the sole emitted glyph and
+category label alone does not establish membership. `MODEL` loads the independent
+[button provider](button-proof.bend) before its live `Buttons.construct` and
+`constructed_node` consumer. The raw `BUTTONS.source` remains the owning
+calculation. Constructor correspondence equates the complete returned node with
+that calculation at the caller's exact inputs; membership alone would not exclude
+an unrelated valid node. The fixed compiler checks live references in definition
+order, so the provider must precede this production call. Icon membership also observes the sole emitted glyph and
 its inner main/cross alignment, with `icon_glyph_centered` exposing the inclusion
 into `glyph_centered`.
 
@@ -47,7 +48,8 @@ arbitrary declared name is nonempty, that arbitrary content fits every allocatio
 or that a final browser control is physically centered. The native recovery retry
 button has its own actual-source category entry in
 [browser/runtime/frontend-utility.bend](../runtime/frontend-utility.bend), with
-production evidence in [runtime/PROOF.bend](../runtime/PROOF.bend). Its native
+production construction evidence in the independent
+[runtime utility provider](../runtime/utility-proof.bend). Its native
 `@browser/retry` protocol remains distinct from ordinary action-button syntax.
 
 ## Source construction boundaries
@@ -64,9 +66,14 @@ evidence relates that request to `native_input_request`; the actual public input
 producer and membership constructor share `input_source_request`. This preserves
 the complete content and native policy obligations while keeping the request
 available to generic proof clients. `construct_input` retains its four arguments.
+The independent [authored provider](authored-proof.bend) supplies the input and
+movable factories and their evidence before `MODEL` consumes their constructed
+nodes. Its helpers do not depend on the assembled controls model, keeping the
+import closure acyclic. Complete constructor equations retain every caller
+coordinate and the same raw calculation.
 
-These construction boundaries do not hide every raw source constructor. The root
-production proof check passes with the pinned compiler, including input-content
-and exact-viewport obligations for all 14 widgets; the current check and test
-status is recorded in [the exploration notes](../../docs/bend2-exploration.md).
+These construction boundaries do not hide every raw source constructor. Earlier
+check results and the current validation status are recorded in
+[the exploration notes](../../docs/bend2-exploration.md). The production provider
+adoption passed the formal check and the focused original construction fixtures.
 Physical browser layout, focus and interaction still require external evidence.

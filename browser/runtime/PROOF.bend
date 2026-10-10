@@ -16,6 +16,7 @@ import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ./frontend-utility.bend as Utility
+import ./utility-proof.bend as UtilityProof
 import ../appearance/TYPOGRAPHY.bend as T
 import ./native-fields.bend as Native
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
@@ -1250,16 +1251,3 @@ def display_model() -> Model.DisplayModel(M.World(), Browser.State, Browser.Inpu
             state => {==}},
           Model.DisplayRetention{capacity => last => state => published => pending =>
             publication_preserves_pending_at(capacity, last, state, published, pending)}}}})))))
-
-
-def recovery_evidence(+request: Utility.RecoveryButton) -> Utility.authored_recovery(Utility.RecoveryObservation{request, Utility.recovery_source(request)}):
-  match request:
-    case Utility.RecoveryButton{font, reason}:
-      Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}
-
-def Utility.recovery_evidence(): recovery_evidence
-
-def construct_recovery(+request: Utility.RecoveryButton) -> Categories.Membership<Utility.RecoveryObservation, Utility.authored_recovery>:
-  Categories.Membership{Utility.RecoveryObservation{request, Utility.recovery_source(request)}, recovery_evidence(request)}
-
-def Utility.construct_recovery(): construct_recovery

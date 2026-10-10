@@ -1,0 +1,47 @@
+# Host semantic adapters
+
+[MODEL.bend](MODEL.bend) packages host semantic calculations as operations with
+pointwise correspondence to their executable meaning. `adapter` creates the
+package, `construct` captures the complete input and actual result, `consume`
+extracts a constructed result, and `execute` composes those last two operations.
+The construction reuses [Categories](../../bendlib/categories.bend) so clients
+receive evidence indexed by their actual input and output without another
+construction representation.
+
+Domain modules own their meanings, admission requirements, and diagnostic text.
+They use `success`, `failure`, and `failure_code` for the outer result envelope.
+`failure_code` can carry the existing exception constructor metadata
+`TypeError`, `RangeError`, `SyntaxError`, or `Error`. The shared
+[boundary](../public/model-boundary.mjs) reconstructs that constructor; other
+business error codes remain on the resulting error's `code` property. Domain
+admission stays in the native operation rather than another host guard.
+External observations remain explicit inputs to these calculations. Existing
+[JSON operations](../../bendlib/json.bend) supply wire values and accessors.
+
+`PLUGINS.bend` classifies complete declared tool definitions through the published
+ChatGPT CODEC entry kinds. Annotation membership binds the native route and
+matching hints; query preservation follows the harness observation laws, and
+cancellation stabilization follows the owning ChatGPT component evidence.
+
+Credential strings, lengths, hashes, and Bearer bytes remain outside Bend.
+`plugin.credential_plan` emits requirements interpreted by
+[opaque-credentials.mjs](../opaque-credentials.mjs), which is also copied verbatim
+into the standalone plugin's generated assets. This opaque-string interpreter
+and `timingSafeEqual` are external secret boundaries; native correspondence
+proves production plan construction, not the contents of secret bytes. URL
+parsing, nofollow file IO, and file metadata observation likewise remain external;
+nonsecret configuration, endpoint observations, and file admission use the native
+plugin operations.
+
+`CONFIGURATION.bend` owns the `config.` operations used by `loadConfig` for the
+current JSON configuration. Environment values remain opaque references retained
+by the host interpreter. No obsolete configuration format is accepted or converted.
+
+`EVALUATOR.bend` owns the `evaluator.` reasoning operations that produce committed
+native effects. Tokenizer, clock and URL parsing results are explicit observations;
+the host reconstructs opaque objects from the native result coordinates.
+
+`HTTP.bend` owns the `http.` stage plans consumed by the server. Opaque comparisons
+and network/file IO remain host observations and interpretation effects. The
+shared dispatcher exposes each domain's actual factory consumer and complete
+result correspondence to its executable meaning on the entire original source.

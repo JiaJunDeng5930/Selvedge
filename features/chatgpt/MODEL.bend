@@ -440,7 +440,7 @@ def run_admission(projects: D.Projects, state: State,
     case Some{admitted}: run_valid(admitted, projects, state)
     case None{}: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
 
-def resolve(command: Command, +state: State, +projects: D.Projects) -> Resolution:
+def resolve_calculation(command: Command, +state: State, +projects: D.Projects) -> Resolution:
   match command:
     case Configure{entries}:
       configure_admission(projects, Categories.admit(Command, command => configuration_valid(projects, command), Configure{entries}))
@@ -505,7 +505,7 @@ type CommandRequest is Data:
 
 def request_resolution(request: CommandRequest) -> Resolution:
   CommandRequest{command, state, projects} = request
-  resolve(command, state, projects)
+  resolve_calculation(command, state, projects)
 
 def ConstructedCommand() -> Type:
   Categories.Membership<Categories.Construction<CommandRequest, Resolution>,
@@ -527,3 +527,15 @@ def ConstructedCompletion() -> Type:
 
 def construct_completion(id: Nat, value: J.Json, error: Bool, state: State) -> ConstructedCompletion():
   Categories.construct(CompletionRequest, Maybe<&2, Change>, completion_resolution, CompletionRequest{id, value, error, state})
+
+
+def command_value(member: ConstructedCommand()) -> Resolution:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
+def resolve(command: Command, +state: State, +projects: D.Projects) -> Resolution:
+  command_value(construct_command(command, state, projects))
+
+def completion_value(member: ConstructedCompletion()) -> Maybe<&2, Change>:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result

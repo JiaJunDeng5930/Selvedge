@@ -6,6 +6,8 @@ import ../appearance/MODEL.bend as Appearance
 import ./authored-primitives.bend as Factory
 import ./CONTROLS.bend as AuthoredControls
 import ./BUTTONS.bend as Buttons
+import ./button-proof.bend as ButtonProof
+import ./authored-proof.bend as AuthoredProof
 import ../appearance/DESIGN.bend as Design
 import ../layout/physical-space.bend as Model
 import ../layout/GEOMETRY.bend as Spatial
@@ -510,17 +512,17 @@ def chooser_selection(+value: Maybe<&2, Nat>) -> +List<Source.Attribute>:
 
 def button_source(+key: UIIdentity.Key, +visual: Design.Style, representation: Controls.Representation) -> Source.Node:
   match representation:
-    case Controls.Action{button}: Buttons.source(key, visual, button)
+    case Controls.Action{button}: Buttons.constructed_node(Buttons.construct(key, visual, button))
     case _: AuthoredControls.invalid(key, visual, "invalid-action-representation")
 
 def movable_source(key: UIIdentity.Key, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
-    case Controls.Movable{control}: AuthoredControls.movable_choices(key, control, visual, parameters)
+    case Controls.Movable{control}: AuthoredControls.constructed_movable_node(AuthoredControls.construct_movable(key, control, visual, parameters))
     case _: AuthoredControls.invalid(key, visual, "invalid-movable-representation")
 
 def input_source(key: UIIdentity.Key, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
-    case Controls.Input{input}: AuthoredControls.input(key, input, visual, parameters)
+    case Controls.Input{input}: AuthoredControls.constructed_input_node(AuthoredControls.construct_input(key, input, visual, parameters))
     case _: AuthoredControls.invalid(key, visual, "invalid-input-representation")
 
 def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:

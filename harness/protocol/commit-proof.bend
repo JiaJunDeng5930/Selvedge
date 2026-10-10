@@ -38,11 +38,7 @@ def live_semantics(+decision: M.Decision()) -> {P.live_decision(decision) == Com
     case C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects}: {==}
 
 def Laws.commit_semantics(decision, previous):
-  +live = P.live_decision(decision)
-  Equal.trans(M.Decision(), P.checked(decision, previous), Commit.validate(live, previous), Commit.checked(decision, previous),
-    validate_semantics(live, previous),
-    Equal.cong(M.Decision(), M.Decision(), (value => Commit.validate(value, previous)),
-      live, Commit.live(decision), live_semantics(decision)))
+  {==}
 
 def sized_semantics(+fits: Bool, +text: String, +decision: M.Decision(), +previous: M.World(), observed: {Commit.envelope_fits(previous, text) == fits : Bool}) ->
   {P.output_admitted(fits, decision, previous) == Commit.sized_admitted(previous, Categories.admit_checked(String, value => Commit.envelope_fits(previous, value), text, fits, observed), decision) : M.Decision()}:
@@ -58,7 +54,7 @@ def rendered_semantics(+rendered: Result<&2, &2, String, String>, +decision: M.D
       sized_semantics(Commit.envelope_fits(previous, text), text, decision, previous, {==})
 
 def Laws.output_semantics(durable, decision, previous):
-  rendered_semantics(J.render(D.state_render_budget(C.local(D.State, Features.State(), previous)), J.One{View.envelope(durable, decision)}), decision, previous)
+  {==}
 
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:

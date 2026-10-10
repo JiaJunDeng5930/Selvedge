@@ -1,4 +1,5 @@
-import { parseJson, stringifyJson } from './codec.mjs';
+import { stringifyJson } from './codec.mjs';
+import { boundary, observeJson } from './public/model-boundary.mjs';
 
 export async function readText(body, maximum) {
   if (!body) return '';
@@ -21,10 +22,20 @@ export async function requestJson(url, { method = 'POST', body, encoding = 'json
     redirect: 'error',
   });
   const text = await readText(response.body, maximum);
-  let value;
-  try { value = parseJson(text); }
-  catch (error) { if (response.ok) throw new Error('The service returned invalid JSON', { cause: error }); }
-  return { status: response.status, ok: response.ok, value, headers: response.headers };
+  const observation = observeJson(text);
+  const source = { response: { status: response.status, ok: response.ok, status_text: response.statusText,
+    url: response.url, type: response.type, redirected: response.redirected,
+    headers: [...response.headers] }, text, observation };
+  let decoded;
+  try { decoded = boundary('web.http_json', source); }
+  catch (error) {
+    if (error.code === 'http_json_parse') {
+      throw new Error(error.message, { cause: new SyntaxError(observation.error ?? error.message) });
+    }
+    throw error;
+  }
+  const value = decoded.present ? decoded.value : undefined;
+  return { status: response.status, ok: response.ok, value, text, headers: response.headers };
 }
 
 /** SSE framing is independent of HTTP chunks, including UTF-8 and CRLF splits. */
@@ -36,40 +47,14 @@ export async function* events(body, maximum) {
 export async function* sseEvents(body, maximum) {
   if (!body) throw new Error('The provider returned no response stream');
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  let pending = '';
-  let data = [];
-  let size = 0;
-  let name = 'message';
-  function line(value) {
-    if (value.endsWith('\r')) value = value.slice(0, -1);
-    if (value.startsWith('event:')) {
-      name = value.slice(6).replace(/^ /, '') || 'message';
-      size += Buffer.byteLength(value) + 1;
-      if (size > maximum) throw new RangeError('SSE event exceeds the configured limit');
-    }
-    if (value.startsWith('data:')) {
-      const part = value.slice(5).replace(/^ /, '');
-      size += Buffer.byteLength(part) + 1;
-      if (size > maximum) throw new RangeError('SSE event exceeds the configured limit');
-      data.push(part);
-    }
-    if (value !== '') return undefined;
-    const message = data.length ? { event: name, data: data.join('\n') } : undefined;
-    data = [];
-    size = 0;
-    name = 'message';
-    return message;
-  }
+  let state = { pending: '', data: [], size: 0, name: 'message' };
   for await (const chunk of body) {
-    pending += decoder.decode(chunk, { stream: true });
-    let end;
-    while ((end = pending.indexOf('\n')) >= 0) {
-      const message = line(pending.slice(0, end));
-      pending = pending.slice(end + 1);
-      if (message !== undefined) yield message;
-    }
-    if (Buffer.byteLength(pending) > maximum) throw new RangeError('SSE line exceeds the configured limit');
+    const transition = boundary('web.sse_step', { state, chunk: decoder.decode(chunk, { stream: true }), maximum, eof: false });
+    state = transition.state;
+    for (const frame of transition.frames) yield frame;
+    if (transition.error) throw new RangeError(transition.error);
   }
-  pending += decoder.decode();
-  if (pending || data.length) throw new Error('The SSE stream ended inside an event');
+  const transition = boundary('web.sse_step', { state, chunk: decoder.decode(), maximum, eof: true });
+  for (const frame of transition.frames) yield frame;
+  if (transition.error) throw new Error(transition.error);
 }

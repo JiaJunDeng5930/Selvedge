@@ -1,44 +1,48 @@
 import http from 'node:http';
+import { boundary } from '../generated/model-boundary.mjs';
+import { interpretCredential } from '../generated/opaque-credentials.mjs';
+import { parseJson, observeJson } from '../generated/json-tokens.mjs';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
+import { requirePackagedModel } from '../scripts/build-model.mjs';
+
+await requirePackagedModel();
 
 /** Installed clients supply PLUGIN_DATA instead of inheriting arbitrary credentials. */
 export async function loadSettings(env = process.env) {
   if (!env.SELVEDGE_CONNECTION_FILE) return settings(env);
-  if (!path.isAbsolute(env.SELVEDGE_CONNECTION_FILE)) throw new Error('SELVEDGE_CONNECTION_FILE must be absolute');
+  const absolute = path.isAbsolute(env.SELVEDGE_CONNECTION_FILE);
+  boundary('plugin.settings_file', { phase: 'path', absolute });
   const file = await open(env.SELVEDGE_CONNECTION_FILE, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > 4096 || (stat.mode & 0o077) || stat.uid !== process.getuid()) {
-      throw new Error('The connection file must be a private, owned regular file of at most 4096 bytes');
-    }
+    boundary('plugin.settings_file', { phase: 'metadata', absolute, nofollow: true,
+      regular: stat.isFile(), bytes: stat.size, mode: stat.mode,
+      owner_uid: stat.uid, current_uid: process.getuid() });
     let value;
-    try { value = JSON.parse(await file.readFile('utf8')); }
+    try { value = parseJson(await file.readFile('utf8')); }
     catch { throw new Error('Invalid connection file JSON'); }
-    const keys = ['SELVEDGE_URL', 'SELVEDGE_CONNECTION_ID', 'SELVEDGE_CONNECTION_TOKEN'];
-    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !keys.includes(key))) {
-      throw new Error('Invalid connection file');
-    }
+    boundary('plugin.settings_file', { phase: 'keys', absolute,
+      object: value !== null && typeof value === 'object' && !Array.isArray(value),
+      keys: value !== null && typeof value === 'object' ? Object.keys(value) : [] });
     return settings(value);
   } finally { await file.close(); }
 }
 
 export function settings(env = process.env) {
   const endpoint = new URL(env.SELVEDGE_URL ?? 'http://127.0.0.1:7421');
-  if (endpoint.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(endpoint.hostname) ||
-      endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/') {
-    throw new Error('SELVEDGE_URL must be an HTTP loopback origin using 127.0.0.1 or [::1]');
-  }
-  const connection = env.SELVEDGE_CONNECTION_ID;
-  if (typeof connection !== 'string' || !/^(0|[1-9][0-9]{0,9})$/.test(connection) || Number(connection) > 0xffffffff) {
-    throw new Error('SELVEDGE_CONNECTION_ID must name a configured connection');
-  }
+  const normalized = boundary('plugin.client_settings', {
+    protocol: endpoint.protocol, hostname: endpoint.hostname, pathname: endpoint.pathname,
+    search: endpoint.search, hash: endpoint.hash, origin: endpoint.origin,
+    username_present: !!endpoint.username, password_present: !!endpoint.password,
+    connection: env.SELVEDGE_CONNECTION_ID ?? null, keys: Object.keys(env),
+  });
   const token = env.SELVEDGE_CONNECTION_TOKEN;
-  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(token)) {
+  if (interpretCredential(token, normalized.credential_plan, null) === null) {
     throw new Error('SELVEDGE_CONNECTION_TOKEN must contain the dedicated connection credential');
   }
-  return { endpoint: endpoint.origin, connection, token };
+  return { endpoint: normalized.endpoint, connection: normalized.connection, token };
 }
 
 /** A narrow, bounded loopback client. It does not load Selvedge's admin token or execute files. */
@@ -52,7 +56,7 @@ export function callTool(config, tool, arguments_, { signal } = {}) {
     // follows a redirect or an inherited HTTP_PROXY to a different server.
     const request = http.request(new URL(`/api/chatgpt/${config.connection}`, config.endpoint), {
       method: 'POST', signal: cancellation,
-      headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json',
+      headers: { authorization: interpretCredential(config.token, boundary('plugin.credential_plan', null), null)?.toString(), 'content-type': 'application/json',
         accept: 'application/json', 'content-length': Buffer.byteLength(body) },
     }, response => {
       const chunks = [];
@@ -65,10 +69,10 @@ export function callTool(config, tool, arguments_, { signal } = {}) {
       response.on('error', reject);
       response.on('end', () => {
         try {
-          if (!response.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new Error('Selvedge returned a non-JSON response');
-          const reply = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (!reply || typeof reply !== 'object' || typeof reply.ok !== 'boolean') throw new Error('Malformed Selvedge response');
-          if (response.statusCode >= 300 && reply.ok) throw new Error(`Selvedge returned HTTP ${response.statusCode}`);
+          boundary('plugin.reply_type', { content_type: response.headers['content-type'] ?? '' });
+          const text = Buffer.concat(chunks).toString('utf8');
+          const reply = boundary('plugin.reply', { tool, text, observation: observeJson(text), status: response.statusCode,
+            status_text: String(response.statusCode), content_type: response.headers['content-type'] ?? '' });
           resolve(reply);
         } catch (error) { reject(error); }
       });

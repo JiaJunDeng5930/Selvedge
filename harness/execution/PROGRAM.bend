@@ -427,32 +427,27 @@ def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
 
 
 type WorkRequest is Data:
-  WorkRequest{task_id: Nat, world: M.World()}
-
-def work_resolution_found(found: Maybe<&2, D.Task>, +world: M.World()) -> Action:
-  match found:
-    case None{}: Rest{}
-    case Some{+task}: resolve(D.task_work(task), task, world)
+  WorkRequest{work: D.Work, task: D.Task, world: M.World()}
 
 def work_resolution(request: WorkRequest) -> Action:
-  WorkRequest{task_id, +world} = request
-  work_resolution_found(T.find(Commands.entries(world), task_id), world)
+  WorkRequest{work, task, world} = request
+  resolve(work, task, world)
 
 def ConstructedWork() -> Type:
   Categories.Membership<Categories.Construction<WorkRequest, Action>,
     Categories.constructed_by(WorkRequest, Action, work_resolution)>
 
-def construct_work(task_id: Nat, world: M.World()) -> ConstructedWork():
-  Categories.construct(WorkRequest, Action, work_resolution, WorkRequest{task_id, world})
+def construct_work(work: D.Work, task: D.Task, world: M.World()) -> ConstructedWork():
+  Categories.construct(WorkRequest, Action, work_resolution, WorkRequest{work, task, world})
 
 def meaning(member: ConstructedWork()) -> M.Decision():
-  Categories.Membership{Categories.Construction{WorkRequest{task_id, world}, action}, evidence} = member
+  Categories.Membership{Categories.Construction{WorkRequest{work, task, world}, action}, evidence} = member
   meaning_calculation(action, world)
 
-def work(task_id: Nat, world: M.World()) -> M.Decision():
-  meaning(construct_work(task_id, world))
+def work(work: D.Work, task: D.Task, world: M.World()) -> M.Decision():
+  meaning(construct_work(work, task, world))
 
 def work_consumer_correspondence_required(member: ConstructedWork()) -> M.Decision():
   Categories.Membership{Categories.Construction{+request, result}, evidence} = member
-  WorkRequest{task_id, world} = request
+  WorkRequest{work, task, world} = request
   meaning_calculation(work_resolution(request), world)

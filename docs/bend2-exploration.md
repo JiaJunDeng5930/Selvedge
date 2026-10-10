@@ -1478,3 +1478,89 @@ kernel sources or 215 browser sources. Complete execution logs and that comparis
 were retained in the task's temporary `.workpad` records; they are run evidence,
 rather than a public interface. These checks do not establish physical browser
 pixel layout or focus behavior, which was not observed for this change.
+
+## Host semantic admission and browser compilation closure
+
+Moving pure host admission behind the native JSON entry exposed a distinction
+between semantic correspondence and generated execution cost. The emitted
+`String.cmp.fin` reconstruction exhausted the JavaScript stack on long equal
+strings. The shared JSON equality operation now uses the existing
+`String.starts_with` in both directions. Mutual prefix membership is exact string
+equality, and the existing prefix traversal provides the tail execution path.
+
+Domain character predicates also exhausted the generated stack within inputs
+already permitted by the original admission and byte bounds. Boolean conjunction
+and disjunction around recursive character calls retained frames, including
+nonblank checks whose generated evaluation traversed the suffix after finding a
+nonspace character. The affected predicates now fold the exact original character
+condition into a Boolean accumulator with a direct tail call. Scalar ranges,
+whitespace rules and accepted input bounds remain intact. These changes use
+existing language operations and domain computations; they do not patch the
+compiler or reduce the supported bounds.
+
+Concrete `SystemModel` and `Harness` instances are ordinary typed production
+constructors in root `PROOF.bend`, preserving their complete evidence. The browser
+build still checks the mandatory full UI verification entry with that root proof
+assembly. Its runtime entry preserves the ordered browser imports and private
+providers, excludes the root production assembly, and explicitly imports the
+approval owner needed by the contracts that remain. Separating the compiled
+ownership closure avoids repeating the unrelated production assembly in browser
+emission while retaining the full proof acceptance gate and strict emitter.
+
+The controlled v9 check accepted all four current production artifacts; the
+browser ownership entry covered 211 sources. Full production proof acceptance,
+the native entry type check with declared IO assumptions, host/script syntax and
+actual-source component boundaries completed successfully. That single run
+reported a peak physical footprint of 4.58 GiB. These are observations of the
+current compiler boundary and one controlled run, not a general memory bound or
+a report that the subsequent regression suite has completed.
+
+## Production authored construction providers
+
+A final consumer scan found that four authored-control paths still called raw
+calculations while membership factories were used only by proof clients. Actual
+button, input, movable and native recovery production now consumes those
+factories and extracts their constructed nodes. Complete source correspondence
+binds each returned node to all caller coordinates, beyond membership in a
+category of valid nodes.
+
+The attempted ordinary library constructors exposed the pinned compiler's
+live-reference check at definition events: they called evidence that was still
+unfilled when the live definition was checked. This was not a namespace failure.
+The constructor contracts remain laws; independent button/authored and runtime
+utility providers fill their evidence and factories before model consumers call
+them. Their leaf closures avoid the assembled-model import cycles. Recovery
+source composition shares `source_with_recovery` and changes only its proved
+children, without duplicating diagnostic or layout calculations.
+
+The existing model-to-proof import denial also rejected these independent
+construction libraries. Their dependency role is now declared explicitly in
+`components.construction_providers`, separately from assembled system proof.
+Contract and constructor correspondence bindings identify the unique owner;
+transitive inspection still rejects unregistered proof sources and global
+assembly. This records permitted construction reuse rather than treating
+registration as semantic evidence. Full proof acceptance, foreign-boundary and
+zero-hole gates remain mandatory.
+
+The final authored formal check exited zero with all proof obligations accepted
+across 467 sources. Its source snapshot remained unchanged, all 46 browser exports
+were retained, and the source/output identities of all four production artifacts
+matched. Independent final production, adoption, boundary and fixture scans found
+no new in-scope issue.
+
+The six existing architecture, controls, locality, model-abstraction, UI-verification
+and button fixture files initially reported 28 passes and one failure. The sole
+button failure concerned proof-obligation ordering in the old fixture. Its repair
+retained the independent status and full-root presentation evidence checks, then
+the original shared-glyph and local icon-production checks, with the original nine
+cases, counts, compiler flags and timeouts. Rerunning only that original button
+file passed all three tests. The six-file run's physical peak was 5.30 GiB; the
+final button rerun peaked at 4.94 GiB. These are measured runs, not general resource
+bounds.
+
+The earlier complete 45-file suite reported 193 passes and 18 failures; the later
+21-file affected run reported 133 passes and one failure. The minimal catalog
+status repair subsequently passed its original seven tests. These scoped repairs
+and reruns do not constitute a new zero-failure run of the complete 45-file suite.
+Formal acceptance and these fixtures do not establish physical browser layout,
+focus behavior or host execution of external effects.

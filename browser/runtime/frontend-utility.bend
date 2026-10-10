@@ -105,6 +105,13 @@ law recovery_evidence:
 law construct_recovery:
   @+request: RecoveryButton -> Categories.Membership<RecoveryObservation, authored_recovery>
 
+def constructed_recovery_node(constructed: Categories.Membership<RecoveryObservation, authored_recovery>) -> Source.Node:
+  Categories.Membership{RecoveryObservation{request, node}, evidence} = constructed
+  node
+
+law recovery_constructor_correspondence:
+  @+request: RecoveryButton -> {constructed_recovery_node(construct_recovery(request)) == recovery_source(request) : Source.Node}
+
 def recovery_children(purpose: Purpose, +font: T.Presentation) -> +List<Source.Node>:
   match purpose:
     case Preparing{}: Nil{}
@@ -115,11 +122,14 @@ def diagnostic(purpose: Purpose, +font: T.Presentation, glyph_only: Bool) -> Sou
     case False{}: Factory.text(Identity.part(root_key(), "message"), message(purpose), Source.ExplicitFont{font}, T.WrapWords{})
     case True{}: AuthoredControls.glyph(Identity.part(root_key(), "message"), Controls.Warning{}, Appearance.base_style(font), 16n)
 
-def source(+purpose: Purpose, +font: T.Presentation, glyph_only: Bool) -> Source.Node:
+def source_with_recovery(+purpose: Purpose, +font: T.Presentation, glyph_only: Bool, children: +List<Source.Node>) -> Source.Node:
   Source.Box{root_key(), Source.Section{},
     Shell.neutral(font, Space.Vertical{}, Space.StretchSize{}, Space.NaturalSize{}, Spatial.Leading{}),
     [Source.RoleAttribute{"status"}, Source.AriaAttribute{"label", message(purpose)}, Source.TitleAttribute{message(purpose)}],
-    diagnostic(purpose, font, glyph_only) <> recovery_children(purpose, font)}
+    diagnostic(purpose, font, glyph_only) <> children}
+
+def source(+purpose: Purpose, +font: T.Presentation, glyph_only: Bool) -> Source.Node:
+  source_with_recovery(purpose, font, glyph_only, recovery_children(purpose, font))
 
 def supported_forest(nodes: +List<Source.Node>) -> Bool:
   match nodes:

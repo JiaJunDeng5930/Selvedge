@@ -306,7 +306,8 @@ def resolve(command: M.Command, +world: M.World()) -> Operation:
       update_project(Projects.find(Projects.registry(F.State(), world), id), id, name, workspace, guidance, Projects.next_word(Projects.registry(F.State(), world)))
     case M.DeleteProject{id}: delete_project(id, world)
     case M.ReviewApproval{id, operation, outcome}:
-      Review{Approvals.resolve(T.find(entries(world), id), Approvals.HumanDecision{}, operation, outcome)}
+      Review{Approvals.resolution(F.State(), Approvals.construct_review(F.State(),
+        Approvals.ReviewRequest{Approvals.HumanDecision{}, id, operation, outcome, world}))}
     case M.FeatureCommand{command}: feature_result(FeatureResolution.resolve(feature_start, command, world))
 
 def id_result(id: Nat) -> J.Json:

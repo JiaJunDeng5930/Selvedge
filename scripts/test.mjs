@@ -7,6 +7,12 @@ if (process.argv.slice(2).some(arg => arg !== '--ci') || process.argv.length > 3
   process.exit(1);
 }
 const ci = process.argv[2] === '--ci';
+// NOTE: Direct invocation must prepare the same assets as the root test command.
+const build = Bun.spawn([process.execPath, 'scripts/build.mjs'], {
+  cwd: root, env: process.env, stdout: 'inherit', stderr: 'inherit',
+});
+const buildExitCode = await build.exited;
+if (buildExitCode !== 0) process.exit(buildExitCode);
 // NOTE: Repeated whole-program compiler mutations and extension builds belong to full validation.
 const fullValidationOnly = new Set([
   'board-proof.test.mjs',

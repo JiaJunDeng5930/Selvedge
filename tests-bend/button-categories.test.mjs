@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, cp, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -50,7 +50,8 @@ async function checkout(t) {
   for (const filename of await readdir(root)) {
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
-  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser']) {
+  for (const name of ['bendlib', 'harness', 'features', 'interaction', 'browser', 'host/adapters']) {
+    await mkdir(path.dirname(path.join(directory, name)), { recursive: true });
     await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   }
   const compile = (filename, checkOnly = true) => spawnSync(compiler(), [filename, ...(checkOnly ? ['--check-only'] : [])], {
@@ -65,15 +66,15 @@ function accepted(result) {
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
-// The source entry leaves five button and four imported control-provider laws pending.
+// The source entry leaves six button and six imported control-provider laws pending.
 // Any other diagnostic would invalidate the type-correct mutation premise.
 function sourceTyped(result, source) {
   assert.equal(result.error, undefined);
   assert.equal(result.status, 1);
   assert.deepEqual([...source.matchAll(/^law (\w+):/gm)].map(match => match[1]),
-    ['construction_evidence', 'icon_evidence', 'choice_evidence', 'picker_evidence', 'construct']);
+    ['construction_evidence', 'icon_evidence', 'choice_evidence', 'picker_evidence', 'construct', 'constructor_correspondence']);
   const diagnostic = (result.stdout + result.stderr).replace(/bend [\d.]+ is available: run bend update\n?$/, '');
-  assert.equal(diagnostic, 'SOME PROOFS FAIL\nError: 9 TODOs found.\nThe code is incomplete, and not a valid proof yet.\n');
+  assert.equal(diagnostic, 'SOME PROOFS FAIL\nError: 12 TODOs found.\nThe code is incomplete, and not a valid proof yet.\n');
 }
 
 const positive = `${syntax}
@@ -155,7 +156,7 @@ test('production proofs reject type-correct button requirement mutations', { tim
     ['browser/controls/PROGRAM.bend', 'Tooltip{text, 300n, True{}, True{}, False{}}', 'Tooltip{text, 300n, True{}, False{}, False{}}', /icon_production/],
     ['browser/controls/authored-primitives.bend', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}', 'Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}', /icon_production|Location: recovery_evidence\n/, 'glyph_style'],
     ['browser/controls/authored-primitives.bend', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Leading{}', /icon_production|Location: recovery_evidence\n/, 'glyph_style'],
-    ['browser/controls/CONTROLS.bend', 'Source.Glyph{key, Iconography.drawing(icon, size), Factory.glyph_style(parent, size, size)}', 'Source.Text{key, "not-an-icon", Source.InheritFont{}, T.SingleLine{}}', /Rule\.project_presentation_evidence/, 'glyph'],
+    ['browser/controls/MODEL.bend', 'AuthoredControls.glyph(UIIdentity.part(key, "indicator"), Controls.task_status_glyph(status), visual, task_status_size())', 'Source.Text{UIIdentity.part(key, "indicator"), "not-an-icon", Source.InheritFont{}, T.SingleLine{}}', /Rule\.project_presentation_evidence/, 'task_status_indicator'],
   ];
   for (const [filename, before, after, obligation, scope] of mutations) {
     const target = path.join(directory, filename);
@@ -176,14 +177,31 @@ test('production proofs reject type-correct button requirement mutations', { tim
       assert.notEqual(result.status, 0, `Production accepted ${filename}: ${after}`);
       assert.match(diagnostic, obligation);
       assert.doesNotMatch(diagnostic, /TYPE ERROR|TYPE MISMATCH|undefined (?:reference|name)|syntax error/i);
-      if (scope === 'glyph') {
-        await writeFile(path.join(directory, 'BUTTONPROOF.bend'), 'import ./browser/controls/button-proof.bend as ButtonProof\n');
-        const buttonResult = compile('BUTTONPROOF.bend');
-        const buttonDiagnostic = buttonResult.stdout + buttonResult.stderr;
-        assert.equal(buttonResult.error, undefined, 'A timeout is not icon proof rejection');
-        assert.notEqual(buttonResult.status, 0, 'Icon production accepted a non-glyph node');
-        assert.match(buttonDiagnostic, /icon_production/);
-        assert.doesNotMatch(buttonDiagnostic, /TYPE ERROR|TYPE MISMATCH|undefined (?:reference|name)|unresolved import|syntax error/i);
+      if (scope === 'task_status_indicator') {
+        // Task-status presentation and button-icon production use independent proof paths.
+        await writeFile(target, original);
+        const controlsTarget = path.join(directory, 'browser/controls/CONTROLS.bend');
+        const controlsOriginal = await readFile(controlsTarget, 'utf8');
+        const glyphStart = controlsOriginal.indexOf('def glyph(');
+        assert.ok(glyphStart >= 0, 'browser/controls/CONTROLS.bend: missing mutation function');
+        const glyphNext = controlsOriginal.indexOf('\ndef ', glyphStart + 1);
+        const glyphEnd = glyphNext < 0 ? controlsOriginal.length : glyphNext;
+        const glyphSubject = controlsOriginal.slice(glyphStart, glyphEnd);
+        const glyphBefore = 'Source.Glyph{key, Iconography.drawing(icon, size), Factory.glyph_style(parent, size, size)}';
+        const glyphAfter = 'Source.Text{key, "not-an-icon", Source.InheritFont{}, T.SingleLine{}}';
+        assert.equal(glyphSubject.split(glyphBefore).length, 2, 'browser/controls/CONTROLS.bend: ambiguous mutation anchor');
+        try {
+          await writeFile(controlsTarget, controlsOriginal.slice(0, glyphStart) + glyphSubject.replace(glyphBefore, glyphAfter) + controlsOriginal.slice(glyphEnd));
+          await writeFile(path.join(directory, 'BUTTONPROOF.bend'), 'import ./browser/controls/button-proof.bend as ButtonProof\n');
+          const buttonResult = compile('BUTTONPROOF.bend');
+          const buttonDiagnostic = buttonResult.stdout + buttonResult.stderr;
+          assert.equal(buttonResult.error, undefined, 'A timeout is not icon proof rejection');
+          assert.notEqual(buttonResult.status, 0, 'Icon production accepted a non-glyph node');
+          assert.match(buttonDiagnostic, /icon_production/);
+          assert.doesNotMatch(buttonDiagnostic, /TYPE ERROR|TYPE MISMATCH|undefined (?:reference|name)|unresolved import|syntax error/i);
+        } finally {
+          await writeFile(controlsTarget, controlsOriginal);
+        }
       }
     } finally {
       await writeFile(target, original);
