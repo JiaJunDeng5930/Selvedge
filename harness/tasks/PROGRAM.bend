@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../transport/schema.bend as Schema
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
@@ -289,11 +290,27 @@ def after_model(calls: +List<D.Call>, +task: D.Task) -> D.Task:
     case Con{+call, +rest}:
       D.with_phase(D.Ready{D.initial_attempts(call <> rest)}, task)
 
-def model_reply(valid: Bool, items: +List<D.ModelItem>, calls: +List<D.Call>, +task: D.Task) -> D.Task:
-  match valid:
-    case True{}:
-      after_model(calls, D.with_history(D.history_append(item_messages(items), D.task_history(task)), task))
-    case False{}:
+type ModelReplyCandidate is Data:
+  ModelReplyCandidate{items: +List<D.ModelItem>}
+
+def model_reply_permitted(+allowed: +List<String>, +task: D.Task, candidate: ModelReplyCandidate) -> Bool:
+  ModelReplyCandidate{items} = candidate
+  valid_calls(item_calls(items), allowed, D.task_history(task))
+
+def model_reply_calculation(items: +List<D.ModelItem>, calls: +List<D.Call>, +task: D.Task) -> D.Task:
+  after_model(calls, D.with_history(D.history_append(item_messages(items), D.task_history(task)), task))
+
+def model_reply(+allowed: +List<String>, +task: D.Task,
+  member: Categories.Membership<ModelReplyCandidate, Categories.holds(ModelReplyCandidate, candidate => model_reply_permitted(allowed, task, candidate))>) -> D.Task:
+  Categories.Membership{candidate, evidence} = member
+  ModelReplyCandidate{+items} = candidate
+  model_reply_calculation(items, item_calls(items), task)
+
+def model_reply_admission(+allowed: +List<String>, +task: D.Task,
+  result: Maybe<&1, Categories.Membership<ModelReplyCandidate, Categories.holds(ModelReplyCandidate, candidate => model_reply_permitted(allowed, task, candidate))>>) -> D.Task:
+  match result:
+    case Some{member}: model_reply(allowed, task, member)
+    case None{}:
       settled_model(D.task_notified(task), D.append_message(D.FailureMessage{"invalid model reply: duplicate call identity, unavailable tool, or invalid arguments"}, task))
 
 def context_limit(reducible: Bool, task: D.Task) -> D.Task:
@@ -303,15 +320,14 @@ def context_limit(reducible: Bool, task: D.Task) -> D.Task:
     case False{}:
       promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}, task)))
 
-def model_outcome(outcome: D.Outcome, allowed: +List<String>, +task: D.Task) -> D.Task:
+def model_outcome(outcome: D.Outcome, +allowed: +List<String>, +task: D.Task) -> D.Task:
   match outcome:
     case D.ModelFailure{message}:
       settled_model(D.task_notified(task), D.append_message(D.FailureMessage{message}, task))
     case D.ContextLimit{}:
       context_limit(D.compactable(D.context_history(D.task_history(task))), task)
     case D.ModelReply{+items}:
-      +calls = item_calls(items)
-      model_reply(valid_calls(calls, allowed, D.task_history(task)), items, calls, task)
+      model_reply_admission(allowed, task, Categories.admit(ModelReplyCandidate, candidate => model_reply_permitted(allowed, task, candidate), ModelReplyCandidate{items}))
 
 def complete_tool(call: D.Call, remaining: +List<D.Attempt>, value: J.Json, error: Bool, task: D.Task) -> D.Task:
   promote(D.with_notified(True{}, D.with_phase(D.Ready{remaining}, D.append_message(D.FunctionOutput{call_id(call), value, error}, task))))
@@ -361,35 +377,55 @@ def after_summary(resume: Bool) -> D.Phase:
 def summary_failure(message: String, task: D.Task) -> D.Task:
   promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task)))
 
-def summary_checked(valid: Bool, summary: String, resume: Bool, task: D.Task) -> D.Task:
-  match valid:
-    case True{}:
-      promote(D.with_phase(after_summary(resume), D.append_message(D.ContextCheckpoint{summary}, task)))
-    case False{}:
+type SummaryCandidate is Data:
+  SummaryCandidate{items: +List<D.ModelItem>, summary: String}
+
+def summary_permitted(candidate: SummaryCandidate) -> Bool:
+  SummaryCandidate{+items, summary} = candidate
+  Bool.not(has_invocation(items)) && Bool.not(has_provider_checkpoint(items)) && D.valid_summary(summary)
+
+def summary_calculation(summary: String, resume: Bool, task: D.Task) -> D.Task:
+  promote(D.with_phase(after_summary(resume), D.append_message(D.ContextCheckpoint{summary}, task)))
+
+def summary_checked(member: Categories.Membership<SummaryCandidate, Categories.holds(SummaryCandidate, summary_permitted)>, resume: Bool, task: D.Task) -> D.Task:
+  Categories.Membership{candidate, evidence} = member
+  SummaryCandidate{items, summary} = candidate
+  summary_calculation(summary, resume, task)
+
+def summary_admission(result: Maybe<&1, Categories.Membership<SummaryCandidate, Categories.holds(SummaryCandidate, summary_permitted)>>, resume: Bool, task: D.Task) -> D.Task:
+  match result:
+    case Some{member}: summary_checked(member, resume, task)
+    case None{}:
       summary_failure("Compaction failed: expected a nonempty bounded summary without tool calls; original history retained", task)
 
-def provider_summary_checked(valid: Bool, value: J.Json, resume: Bool, task: D.Task) -> D.Task:
-  match valid:
-    case True{}:
-      promote(D.with_phase(after_summary(resume), D.append_message(D.ModelContext{value}, task)))
-    case False{}:
+def provider_checkpoint_permitted(value: J.Json) -> Bool:
+  D.valid_provider_checkpoint(value)
+
+def provider_summary_calculation(value: J.Json, resume: Bool, task: D.Task) -> D.Task:
+  promote(D.with_phase(after_summary(resume), D.append_message(D.ModelContext{value}, task)))
+
+def provider_summary_checked(member: Categories.Membership<J.Json, Categories.holds(J.Json, provider_checkpoint_permitted)>, resume: Bool, task: D.Task) -> D.Task:
+  Categories.Membership{value, evidence} = member
+  provider_summary_calculation(value, resume, task)
+
+def provider_summary_admission(result: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, provider_checkpoint_permitted)>>, resume: Bool, task: D.Task) -> D.Task:
+  match result:
+    case Some{member}: provider_summary_checked(member, resume, task)
+    case None{}:
       summary_failure("Compaction failed: expected one nonempty bounded provider checkpoint; original history retained", task)
 
 def summary_context_result(checkpoint: Bool, +value: J.Json, resume: Bool, task: D.Task) -> D.Task:
   match checkpoint:
-    case True{}: provider_summary_checked(D.valid_provider_checkpoint(value), value, resume, task)
+    case True{}: provider_summary_admission(Categories.admit(J.Json, provider_checkpoint_permitted, value), resume, task)
     case False{}:
-      +summary = summary_context(value)
-      summary_checked(D.valid_summary(summary), summary, resume, task)
+      summary_admission(Categories.admit(SummaryCandidate, summary_permitted, SummaryCandidate{Nil{}, summary_context(value)}), resume, task)
 
 def summary_reply(items: +List<D.ModelItem>, resume: Bool, task: D.Task) -> D.Task:
   match items:
     case Con{D.Context{+value}, Nil{}}:
       summary_context_result(D.is_provider_checkpoint(value), value, resume, task)
     case +other:
-      +summary = summary_text(other)
-      summary_checked(Bool.not(has_invocation(other)) && Bool.not(has_provider_checkpoint(other)) &&
-        D.valid_summary(summary), summary, resume, task)
+      summary_admission(Categories.admit(SummaryCandidate, summary_permitted, SummaryCandidate{other, summary_text(other)}), resume, task)
 
 def summary_outcome(outcome: D.Outcome, resume: Bool, task: D.Task) -> D.Task:
   match outcome:

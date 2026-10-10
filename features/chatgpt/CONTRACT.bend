@@ -35,10 +35,10 @@ type Boundary is Type:
       {G.owned(connection, project, job) ==
        (Nat.is_eq(connection, G.job_connection(job)) && Nat.is_eq(project, G.job_project(job))) : Bool},
     denied: @+connection:Nat -> @+project:Nat -> @+request:String -> @+arguments:J.Json -> @+projects:D.Projects -> @+state:G.State ->
-      {G.run_authorized(None{}, connection, project, request, arguments, projects, state) ==
+      {G.run_authorized(connection, project, None{}, request, arguments, projects, state) ==
        G.Refuse{"project_forbidden", "This connection has no grant for that project"} : G.Resolution},
     hidden: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State ->
-      {View.read_job(None{}, connection, project, id, state) == View.forbidden() : J.Json},
+      {View.read_job(connection, project, None{}, id, state) == View.forbidden() : J.Json},
     removed: @+id:Nat -> @+state:G.State ->
       {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
     restarted: @+job:G.Job -> {G.outcome(job) == G.Running{} : G.Outcome} ->

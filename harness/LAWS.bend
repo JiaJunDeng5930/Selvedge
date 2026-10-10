@@ -32,7 +32,7 @@ law hook_gateway:
   for +task: D.Task
   for +world: M.World()
   {Execution.found(Some{tool}, attempt, remaining, task, world) ==
-    Execution.authorization(D.may_execute(D.recovery(D.tool_source(tool)), attempt), tool, attempt, remaining, task, world) : Execution.Action}
+    Execution.authorization(tool, attempt, remaining, task, world) : Execution.Action}
 
 law hook_before_route:
   for +plugin: D.PluginRef
@@ -43,7 +43,7 @@ law hook_before_route:
   for +task: D.Task
   for +world: M.World()
   {Execution.chain(plugin <> pending, tool, call, remaining, task, world) ==
-    Execution.hook_available(Hooks.available(Hooks.live(F.State(), world), plugin), plugin, pending, tool, call, remaining, task) : Execution.Action}
+    Execution.hook_available(plugin, pending, tool, call, remaining, task, world) : Execution.Action}
 
 law hook_rewrite_identity:
   for +call: D.Call
@@ -86,7 +86,7 @@ law hook_record_order:
   for +pending: +List<D.PluginRef>
   for +outcome: D.HookOutcome
   {Hooks.record(Hooks.Awaiting{call, expected <> pending}, actual, outcome) ==
-    Hooks.checked(D.plugin_same(actual, expected), outcome, call, pending) : Hooks.Progress}
+    Hooks.checked_calculation(D.plugin_same(actual, expected), outcome, call, pending) : Hooks.Progress}
 
 law event_kind_roundtrip:
   for +kind: D.EventKind

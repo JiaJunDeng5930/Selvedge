@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/MODEL.bend as View
@@ -171,135 +172,103 @@ type Picker<-observation: Observation> is Type:
 def picker(observation: Observation) -> Type:
   Picker<observation>
 
-# Predicates remain open function values; inclusion supplies the implication.
-type Inclusion<-Value: Data, -A: Value -> Type, -B: Value -> Type> is Type:
-  Inclusion{evidence: @value:Value -> A(value) -> B(value)}
-
-type Intersection<-Value: Data, -A: Value -> Type, -B: Value -> Type, -value: Value> is Type:
-  Intersection{first: A(value), second: B(value)}
-
-def intersection(-Value: Data, -A: Value -> Type, -B: Value -> Type, -value: Value) -> Type:
-  Intersection<Value, A, B, value>
-
-def inclusion_identity(-Value: Data, -A: Value -> Type) -> Inclusion<Value, A, A>:
-  Inclusion{value => evidence => evidence}
-
-def inclusion_compose(-Value: Data, -A: Value -> Type, -B: Value -> Type, -C: Value -> Type, first: Inclusion<Value, A, B>, second: Inclusion<Value, B, C>) -> Inclusion<Value, A, C>:
-  Inclusion{first} = first
-  Inclusion{second} = second
-  Inclusion{+value => evidence => second(value, first(value, evidence))}
-
-def project_intersection_first(-Value: Data, -A: Value -> Type, -B: Value -> Type, -value: Value, evidence: intersection(Value, A, B, value)) -> A(value):
-  Intersection{first, second} = evidence
-  first
-
-def intersection_first(-Value: Data, -A: Value -> Type, -B: Value -> Type) -> Inclusion<Value, (value => intersection(Value, A, B, value)), A>:
-  Inclusion{value => evidence => project_intersection_first(Value, A, B, value, evidence)}
-
-def project_intersection_second(-Value: Data, -A: Value -> Type, -B: Value -> Type, -value: Value, evidence: intersection(Value, A, B, value)) -> B(value):
-  Intersection{first, second} = evidence
-  second
-
-def intersection_second(-Value: Data, -A: Value -> Type, -B: Value -> Type) -> Inclusion<Value, (value => intersection(Value, A, B, value)), B>:
-  Inclusion{value => evidence => project_intersection_second(Value, A, B, value, evidence)}
-
 def project_authored_native(-observation: Observation, evidence: authored(observation)) -> native(observation):
   Authored{native, activation, named, available, attributes, content} = evidence
   native
 
-def authored_native() -> Inclusion<Observation, authored, native>:
-  Inclusion{observation => evidence => project_authored_native(observation, evidence)}
+def authored_native() -> Categories.Inclusion<Observation, authored, native>:
+  Categories.Inclusion{observation => evidence => project_authored_native(observation, evidence)}
 
 def project_authored_activation(-observation: Observation, evidence: authored(observation)) -> activation(observation):
   Authored{native, activation, named, available, attributes, content} = evidence
   activation
 
-def authored_activation() -> Inclusion<Observation, authored, activation>:
-  Inclusion{observation => evidence => project_authored_activation(observation, evidence)}
+def authored_activation() -> Categories.Inclusion<Observation, authored, activation>:
+  Categories.Inclusion{observation => evidence => project_authored_activation(observation, evidence)}
 
 def project_authored_named(-observation: Observation, evidence: authored(observation)) -> named(observation):
   Authored{native, activation, named, available, attributes, content} = evidence
   named
 
-def authored_named() -> Inclusion<Observation, authored, named>:
-  Inclusion{observation => evidence => project_authored_named(observation, evidence)}
+def authored_named() -> Categories.Inclusion<Observation, authored, named>:
+  Categories.Inclusion{observation => evidence => project_authored_named(observation, evidence)}
 
 def project_authored_available(-observation: Observation, evidence: authored(observation)) -> available(observation):
   Authored{native, activation, named, available, attributes, content} = evidence
   available
 
-def authored_available() -> Inclusion<Observation, authored, available>:
-  Inclusion{observation => evidence => project_authored_available(observation, evidence)}
+def authored_available() -> Categories.Inclusion<Observation, authored, available>:
+  Categories.Inclusion{observation => evidence => project_authored_available(observation, evidence)}
 
 def project_authored_attributes(-observation: Observation, evidence: authored(observation)) -> attributes(observation):
   Authored{native, activation, named, available, attributes, content} = evidence
   attributes
 
-def authored_attributes() -> Inclusion<Observation, authored, attributes>:
-  Inclusion{observation => evidence => project_authored_attributes(observation, evidence)}
+def authored_attributes() -> Categories.Inclusion<Observation, authored, attributes>:
+  Categories.Inclusion{observation => evidence => project_authored_attributes(observation, evidence)}
 
 def project_authored_content(-observation: Observation, evidence: authored(observation)) -> content(observation):
   Authored{native, activation, named, available, attributes, content} = evidence
   content
 
-def authored_content() -> Inclusion<Observation, authored, content>:
-  Inclusion{observation => evidence => project_authored_content(observation, evidence)}
+def authored_content() -> Categories.Inclusion<Observation, authored, content>:
+  Categories.Inclusion{observation => evidence => project_authored_content(observation, evidence)}
 
 def project_icon_authored(-observation: Observation, evidence: icon(observation)) -> authored(observation):
   Icon{glyph, face, authored, centered, help, content} = evidence
   authored
 
-def icon_authored() -> Inclusion<Observation, icon, authored>:
-  Inclusion{observation => evidence => project_icon_authored(observation, evidence)}
+def icon_authored() -> Categories.Inclusion<Observation, icon, authored>:
+  Categories.Inclusion{observation => evidence => project_icon_authored(observation, evidence)}
 
 def project_icon_centered(-observation: Observation, evidence: icon(observation)) -> centered(observation):
   Icon{glyph, face, authored, centered, help, content} = evidence
   centered
 
-def icon_centered() -> Inclusion<Observation, icon, centered>:
-  Inclusion{observation => evidence => project_icon_centered(observation, evidence)}
+def icon_centered() -> Categories.Inclusion<Observation, icon, centered>:
+  Categories.Inclusion{observation => evidence => project_icon_centered(observation, evidence)}
 
 def project_icon_glyph_centered(-observation: Observation, evidence: icon(observation)) -> glyph_centered(observation):
   Icon{glyph, face, authored, centered, help, content} = evidence
   content
 
-def icon_glyph_centered() -> Inclusion<Observation, icon, glyph_centered>:
-  Inclusion{observation => evidence => project_icon_glyph_centered(observation, evidence)}
+def icon_glyph_centered() -> Categories.Inclusion<Observation, icon, glyph_centered>:
+  Categories.Inclusion{observation => evidence => project_icon_glyph_centered(observation, evidence)}
 
 def project_icon_help_inclusion(-observation: Observation, evidence: icon(observation)) -> icon_help(observation):
   Icon{glyph, face, authored, centered, help, content} = evidence
   help
 
-def icon_help_inclusion() -> Inclusion<Observation, icon, icon_help>:
-  Inclusion{observation => evidence => project_icon_help_inclusion(observation, evidence)}
+def icon_help_inclusion() -> Categories.Inclusion<Observation, icon, icon_help>:
+  Categories.Inclusion{observation => evidence => project_icon_help_inclusion(observation, evidence)}
 
 def project_choice_authored(-observation: Observation, evidence: choice(observation)) -> authored(observation):
   Choice{text, description, glyph, selected, face, authored, leading} = evidence
   authored
 
-def choice_authored() -> Inclusion<Observation, choice, authored>:
-  Inclusion{observation => evidence => project_choice_authored(observation, evidence)}
+def choice_authored() -> Categories.Inclusion<Observation, choice, authored>:
+  Categories.Inclusion{observation => evidence => project_choice_authored(observation, evidence)}
 
 def project_choice_leading(-observation: Observation, evidence: choice(observation)) -> leading(observation):
   Choice{text, description, glyph, selected, face, authored, leading} = evidence
   leading
 
-def choice_leading() -> Inclusion<Observation, choice, leading>:
-  Inclusion{observation => evidence => project_choice_leading(observation, evidence)}
+def choice_leading() -> Categories.Inclusion<Observation, choice, leading>:
+  Categories.Inclusion{observation => evidence => project_choice_leading(observation, evidence)}
 
 def project_picker_authored(-observation: Observation, evidence: picker(observation)) -> authored(observation):
   Picker{glyph, text, face, authored, leading} = evidence
   authored
 
-def picker_authored() -> Inclusion<Observation, picker, authored>:
-  Inclusion{observation => evidence => project_picker_authored(observation, evidence)}
+def picker_authored() -> Categories.Inclusion<Observation, picker, authored>:
+  Categories.Inclusion{observation => evidence => project_picker_authored(observation, evidence)}
 
 def project_picker_leading(-observation: Observation, evidence: picker(observation)) -> leading(observation):
   Picker{glyph, text, face, authored, leading} = evidence
   leading
 
-def picker_leading() -> Inclusion<Observation, picker, leading>:
-  Inclusion{observation => evidence => project_picker_leading(observation, evidence)}
+def picker_leading() -> Categories.Inclusion<Observation, picker, leading>:
+  Categories.Inclusion{observation => evidence => project_picker_leading(observation, evidence)}
 
 law construction_evidence:
   @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> authored(Observation{key, visual, button, source(key, visual, button)})
@@ -313,12 +282,9 @@ law choice_evidence:
 law picker_evidence:
   @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> @+glyph:Maybe<&2, Controls.Icon> -> @+text:String -> requested_face(Observation{key, visual, button, source(key, visual, button)}, Controls.PickerFace{glyph, text}) -> picker(Observation{key, visual, button, source(key, visual, button)})
 
-type Membership<-Value: Data, -category: Value -> Type> is Type:
-  Membership{value: Value, evidence: category(value)}
-
 law construct:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> Membership<Observation, authored>
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> Categories.Membership<Observation, authored>
 
-def constructed_node(constructed: Membership<Observation, authored>) -> Source.Node:
-  Membership{Observation{key, visual, button, node}, evidence} = constructed
+def constructed_node(constructed: Categories.Membership<Observation, authored>) -> Source.Node:
+  Categories.Membership{Observation{key, visual, button, node}, evidence} = constructed
   node

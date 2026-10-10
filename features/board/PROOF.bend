@@ -64,8 +64,8 @@ def A.birth_meaning(id, task, card, now, decision):
   C.Decision{C.Frame{core, +board}, reply, effects} = decision
   {==}
 
-def accepted_meaning(+valid:Bool, +title:String, +description:String, +card:B.Card) ->
-  {Actual.suggested(valid, Spec.requested_draft(title, description, card), card) == Spec.accepted_draft(valid, title, description, card) : B.Card}:
+def accepted_meaning(+valid:Bool, +title:String, +description:String, +card:B.Card, observed: {B.valid_draft(Spec.requested_draft(title, description, card)) == valid : Bool}) ->
+  {Actual.suggested_checked(valid, Spec.requested_draft(title, description, card), card, observed) == Spec.accepted_draft(valid, title, description, card) : B.Card}:
   match valid card:
     case False{} B.Card{revision, draft, task, archived, created, updated, enrichment, error, pinned}: {==}
     case True{} B.Card{revision, B.Draft{old_title, old_description, stage, priority, owner, project, labels, attachments}, task, archived, created, updated, enrichment, error, pinned}: {==}
@@ -86,10 +86,10 @@ def A.text_meaning(outcome, retitle, card):
       +draft = Actual.suggestion_draft(retitle, String.trim(title), description, B.draft(card))
       +required = Spec.requested_draft(String.trim(title), selected, card)
       Equal.trans(B.Card, Actual.complete(B.Suggested{title, description}, retitle, card),
-        Actual.suggested(B.valid_draft(required), required, card), Spec.complete(B.Suggested{title, description}, retitle, card),
-        Equal.cong(B.Draft, B.Card, (value => Actual.suggested(B.valid_draft(value), value, card)),
+        Actual.suggested(required, card), Spec.complete(B.Suggested{title, description}, retitle, card),
+        Equal.cong(B.Draft, B.Card, (value => Actual.suggested(value, card)),
           draft, required, draft_meaning(retitle, String.trim(title), description, card)),
-        accepted_meaning(B.valid_draft(required), String.trim(title), selected, card))
+        accepted_meaning(B.valid_draft(required), String.trim(title), selected, card, {==}))
 
 def A.completion_meaning(id, card, outcome, retitle, world):
   C.Frame{core, +board} = world

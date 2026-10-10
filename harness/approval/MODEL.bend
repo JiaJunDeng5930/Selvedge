@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -70,26 +71,67 @@ def allowed(outcome: D.ApprovalOutcome) -> Bool:
     case D.ApprovalAllowed{reason}: True{}
     case _: False{}
 
-def normalized(valid: Bool, outcome: D.ApprovalOutcome) -> D.ApprovalOutcome:
-  match valid:
-    case True{}: outcome
-    case False{}: D.ApprovalFailed{"The review response exceeded its bounded decision contract"}
+type NormalizedRequest is Data:
+  NormalizedRequest{outcome: D.ApprovalOutcome}
+
+def normalized_accepts(request: NormalizedRequest) -> Bool:
+  NormalizedRequest{+outcome} = request
+  bounded(D.approval_reason(outcome))
+
+def normalized_category() -> NormalizedRequest -> Type:
+  Categories.holds(NormalizedRequest, normalized_accepts)
+
+def normalized_accepted(member: Categories.Membership<NormalizedRequest, normalized_category()>) -> D.ApprovalOutcome:
+  Categories.Membership{request, evidence} = member
+  NormalizedRequest{+outcome} = request
+  outcome
+
+def normalized_admitted(admission: Maybe<&1, Categories.Membership<NormalizedRequest, normalized_category()>>, request: NormalizedRequest) -> D.ApprovalOutcome:
+  match admission:
+    case Some{member}: normalized_accepted(member)
+    case None{}:
+      NormalizedRequest{+outcome} = request
+      D.ApprovalFailed{"The review response exceeded its bounded decision contract"}
+
+def normalized(+outcome: D.ApprovalOutcome) -> D.ApprovalOutcome:
+  +request = {NormalizedRequest{outcome} : NormalizedRequest}
+  normalized_admitted(Categories.admit(NormalizedRequest, normalized_accepts, request), request)
 
 def decided(outcome: D.ApprovalOutcome, operation: D.Operation(), task: D.Task, reviewer: D.ApprovalReviewer) -> Resolution:
   match outcome:
     case D.ApprovalAllowed{reason}: Grant{operation, task, reviewer, reason}
     case other: Deny{operation, task, reviewer, other}
 
-def matched(matches: Bool, origin: Origin, operation: D.Operation(), task: D.Task,
-  reviewer: D.ApprovalReviewer, +outcome: D.ApprovalOutcome) -> Resolution:
-  match matches:
-    case False{}: stale(origin)
-    case True{}: decided(normalized(bounded(D.approval_reason(outcome)), outcome), operation, task, reviewer)
+type MatchedRequest is Data:
+  MatchedRequest{origin: Origin, operation: D.Operation(), task: D.Task, reviewer: D.ApprovalReviewer, outcome: D.ApprovalOutcome}
+
+def matched_accepts(request: MatchedRequest) -> Bool:
+  MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
+  origin_matches(origin, reviewer)
+
+def matched_category() -> MatchedRequest -> Type:
+  Categories.holds(MatchedRequest, matched_accepts)
+
+def matched_accepted(member: Categories.Membership<MatchedRequest, matched_category()>) -> Resolution:
+  Categories.Membership{request, evidence} = member
+  MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
+  decided(normalized(outcome), operation, task, reviewer)
+
+def matched_admitted(admission: Maybe<&1, Categories.Membership<MatchedRequest, matched_category()>>, request: MatchedRequest) -> Resolution:
+  match admission:
+    case Some{member}: matched_accepted(member)
+    case None{}:
+      MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
+      stale(origin)
+
+def matched(+origin: Origin, +operation: D.Operation(), +task: D.Task, +reviewer: D.ApprovalReviewer, +outcome: D.ApprovalOutcome) -> Resolution:
+  +request = {MatchedRequest{origin, operation, task, reviewer, outcome} : MatchedRequest}
+  matched_admitted(Categories.admit(MatchedRequest, matched_accepts, request), request)
 
 def pending(stage: D.OperationStage, +origin: Origin, operation: D.Operation(), task: D.Task,
   outcome: D.ApprovalOutcome) -> Resolution:
   match stage:
-    case D.ApprovalPending{+reviewer}: matched(origin_matches(origin, reviewer), origin, operation, task, reviewer, outcome)
+    case D.ApprovalPending{+reviewer}: matched(origin, operation, task, reviewer, outcome)
     case _: stale(origin)
 
 def operation(found: Maybe<&2, D.Operation()>, origin: Origin, task: D.Task, outcome: D.ApprovalOutcome) -> Resolution:

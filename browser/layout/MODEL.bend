@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/json.bend as J
 import ./CONTENT.bend as Content
 import ./physical-content-measurement.bend as Measurements
@@ -234,12 +235,12 @@ def measurement_valid_result(result: Bool, observation: Content.Observation, obs
     case True{}: Done{Batch{observation <> observations, viewports}}
     case False{}: Fail{"invalid or duplicate physical measurement"}
 
-def measurement_valid_member(member: Bool, valid: Bool, +request: Content.Request, +observation: Content.Observation, +batch: Batch) -> Result<&2, &2, String, Batch>:
+def measurement_member_calculation(member: Bool, valid: Bool, +request: Content.Request, +observation: Content.Observation, +batch: Batch) -> Result<&2, &2, String, Batch>:
   Batch{observations, viewports} = batch
   measurement_valid_result(measurement_guard(member, valid, request, batch), observation, observations, viewports)
 
-def measurement_valid(valid: Bool, +request: Content.Request, +observation: Content.Observation, batch: Batch) -> Result<&2, &2, String, Batch>:
-  measurement_valid_member(Measurements.observation_matches(request, observation), valid, request, observation, batch)
+def measurement_calculation(valid: Bool, +request: Content.Request, +observation: Content.Observation, batch: Batch) -> Result<&2, &2, String, Batch>:
+  measurement_member_calculation(Measurements.observation_matches(request, observation), valid, request, observation, batch)
 
 def is_natural_result(result: Maybe<&2, Nat>) -> Bool:
   match result:
@@ -252,16 +253,40 @@ def is_natural(value: J.Json) -> Bool:
 def number(value: J.Json) -> Nat:
   J.natural_or(J.natural(value), 0n)
 
+type MeasurementCandidate is Data:
+  MeasurementCandidate{value: J.Json, request: Content.Request, observation: Content.Observation, batch: Batch}
+
+def measurement_data_valid(+value: J.Json) -> Bool:
+  object_fields(value, ["key", "width", "minimum_width", "preferred_width", "content_height", "reference_advance"])
+    && is_natural(J.get(value, "minimum_width")) && is_natural(J.get(value, "preferred_width"))
+    && is_natural(J.get(value, "content_height")) && is_natural(J.get(value, "reference_advance"))
+
+def measurement_candidate_valid(candidate: MeasurementCandidate) -> Bool:
+  MeasurementCandidate{value, +request, observation, Batch{observations, viewports}} = candidate
+  Measurements.observation_matches(request, observation) && measurement_data_valid(value)
+    && Bool.not(observation_present(request, observations))
+
+def valid_measurement() -> MeasurementCandidate -> Type:
+  Categories.holds(MeasurementCandidate, measurement_candidate_valid)
+
+def measurement_valid(member: Categories.Membership<MeasurementCandidate, valid_measurement()>) -> Result<&2, &2, String, Batch>:
+  Categories.Membership{MeasurementCandidate{value, request, observation, batch}, evidence} = member
+  measurement_calculation(measurement_data_valid(value), request, observation, batch)
+
+def measurement_admission(result: Maybe<&1, Categories.Membership<MeasurementCandidate, valid_measurement()>>) -> Result<&2, &2, String, Batch>:
+  match result:
+    case Some{member}: measurement_valid(member)
+    case None{}: Fail{"invalid or duplicate physical measurement"}
+
 def measurement_request(found: Maybe<&2, Content.Request>, +value: J.Json, batch: Batch) -> Result<&2, &2, String, Batch>:
   match found:
     case None{}: Fail{"unexpected physical measurement"}
     case Some{+request}:
       Content.Request{generation, key, content, purpose, roots, policies} = request
-      measurement_valid(object_fields(value, ["key", "width", "minimum_width", "preferred_width", "content_height", "reference_advance"]) && is_natural(J.get(value, "minimum_width"))
-        && is_natural(J.get(value, "preferred_width")) && is_natural(J.get(value, "content_height"))
-        && is_natural(J.get(value, "reference_advance")), request,
-        Content.Observation{generation, key, purpose, number(J.get(value, "minimum_width")),
-          number(J.get(value, "preferred_width")), number(J.get(value, "content_height")), number(J.get(value, "reference_advance"))}, batch)
+      measurement_admission(Categories.admit(MeasurementCandidate, measurement_candidate_valid,
+        MeasurementCandidate{value, request,
+          Content.Observation{generation, key, purpose, number(J.get(value, "minimum_width")),
+            number(J.get(value, "preferred_width")), number(J.get(value, "content_height")), number(J.get(value, "reference_advance"))}, batch}))
 
 def measurement_purpose(parsed: Maybe<&2, Content.Purpose>, +value: J.Json, jobs: +List<PhysicalPlan.Job>, batch: Batch) -> Result<&2, &2, String, Batch>:
   match parsed:

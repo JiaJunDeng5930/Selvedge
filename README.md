@@ -16,19 +16,40 @@ Workspace.
 ## Read the program
 
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
-system. `Execution`, `Application`, and `Display` expose operations and universally
-quantified properties bound to those same operation fields. `SystemModel` packages
-the layers around a shared, hidden `World`; its nested packages hide their state
-and result carriers. A generic client can initialize, advance, observe, and reason
-about the system through these fields without matching its internal state
-constructors. Public command and observation vocabulary remains transparent.
+system. `Execution`, `Application`, and `Display` pair actual operation values
+with evidence of their open semantic categories. Categories are predicates over
+values; inclusion supplies a universally quantified implication, and intersection
+requires both memberships of the same value. Syntax sum types describe the values
+clients can construct, rather than an inheritance tree of semantic categories.
 
-[PROOF.bend](PROOF.bend) instantiates this interface with the actual production
-functions and their existing proofs. For representation-independent reasoning,
-read `MODEL.bend` before opening the implementation modules. This package boundary
-does not make every existing module private: concrete adapters and
-representation-specific proofs still inspect concrete state in their own modules.
-[ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the choice.
+`SystemModel` packages the layers around a shared, hidden `World`; its nested
+packages hide their state and result carriers. A generic client can initialize,
+advance, observe, and reason through the exposed operations without matching
+internal state constructors. Operation records and their dependent evidence are
+affine `Type` values: clients consume them without copying them into `Data`.
+Public command and observation vocabulary remains transparent.
+
+[PROOF.bend](PROOF.bend) instantiates this interface with actual production
+functions and their proofs. [bendlib/categories.bend](bendlib/categories.bend)
+provides shared membership, inclusion, intersection and checked admission; its
+filled definitions can be used by production models without importing proof
+providers. Owner-local model entries define what their categories require.
+A successful admission continuation consumes evidence indexed by the actual
+candidate and uses that admitted value. Wire values remain transparent candidates
+until the responsible operation checks them.
+
+Clients, including AI-generated programs, can reuse verified constructions or
+classifiers instead of reproving each instance. Pure calculations with complete
+input-wide equations and ordinary Boolean branches retain their roles; a Boolean
+classification is not automatically a semantic admission boundary. Controlled
+button, input, movable-source and native recovery producers bind their
+requirements to actual emitted nodes. Follow their owning entries for the precise predicates and proofs.
+
+For representation-independent reasoning, read `MODEL.bend` before implementation
+modules. This boundary does not hide every raw constructor or make all modules
+private. [ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the
+abstract carriers; [ADR 0034](docs/adr/0034-open-category-construction.md) records
+the category construction and admission decision.
 
 For detailed execution requirements,
 [harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means.

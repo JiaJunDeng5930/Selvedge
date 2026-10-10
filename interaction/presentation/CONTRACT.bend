@@ -801,7 +801,7 @@ type DirectoryPickerRequirements is Type:
     closed: @+state:Services.State -> {Services.step(Services.CloseDirectoryPicker{}, state) == Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), Nil{}} : Services.Decision},
     closed_completion: @+ticket:Nat -> @+result:Result<&2, &2, String, Services.DirectoryCatalog> -> @+state:Services.State -> {Services.directory_listed(Services.NoDirectoryPicker{}, ticket, result, state) == Services.Decision{state, Nil{}} : Services.Decision},
     stale: @+current:Nat -> @editor:U.Editor -> @path:String -> @trigger:String -> @+ticket:Nat -> @+result:Result<&2, &2, String, Services.DirectoryCatalog> -> @+state:Services.State -> @stale:{Nat.is_eq(current, ticket) == False{} : Bool} -> {Services.directory_listed(Services.LoadingDirectory{current, editor, path, trigger}, ticket, result, state) == Services.Decision{state, Nil{}} : Services.Decision},
-    owned: @ticket:Nat -> @+editor:U.Editor -> @entered:String -> @+trigger:String -> @+path:String -> @+parent:Maybe<&2, String> -> @+entries:+List<Services.DirectoryEntry> -> @+truncated:Bool -> @+state:Services.State -> {Services.finish_directory(True{}, ticket, editor, entered, trigger, Done{Services.DirectoryCatalog{path, parent, entries, truncated}}, state) ==
+    owned: @ticket:Nat -> @+editor:U.Editor -> @entered:String -> @+trigger:String -> @+path:String -> @+parent:Maybe<&2, String> -> @+entries:+List<Services.DirectoryEntry> -> @+truncated:Bool -> @+state:Services.State -> {Services.directory_calculation(ticket, editor, entered, trigger, Done{Services.DirectoryCatalog{path, parent, entries, truncated}}, state) ==
         Services.Decision{Services.replace_directory(state, Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, path, trigger}), Nil{}} : Services.Decision},
     selected_catalog: @ticket:Nat -> @+editor:U.Editor -> @+path:String -> @parent:Maybe<&2, String> -> @entries:+List<Services.DirectoryEntry> -> @truncated:Bool -> @location:String -> @trigger:String -> @+state:Services.State -> {Services.choose_directory(Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}, state) ==
         Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), [Services.DirectoryChosen{editor, path}]} : Services.Decision},
@@ -1188,12 +1188,12 @@ law reset_profile_effort:
 law rejected_reasoning_edit:
   for +profile: String
   for +reasoning: String
-  {Forms.permitted_model_edit(False{}, profile, reasoning) == None{} : Maybe<&2, U.Edit>}
+  {Forms.model_edit_admitted(None{}) == None{} : Maybe<&2, U.Edit>}
 
 law accepted_reasoning_edit:
   for +profile: String
   for +reasoning: String
-  {Forms.permitted_model_edit(True{}, profile, reasoning) == Some{U.ChooseModel{profile, reasoning}} : Maybe<&2, U.Edit>}
+  {Forms.model_edit_value(profile, reasoning) == Some{U.ChooseModel{profile, reasoning}} : Maybe<&2, U.Edit>}
 
 law selected_model_permission:
   for +profile: D.Profile
@@ -1345,18 +1345,18 @@ type BoundaryRequirements is Type:
       {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
         Services.Decision{Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state))), [Services.SessionReady{}]} : Services.Decision},
     failed_auth: @+state:Services.State -> @reason:String ->
-      {Services.authentication(True{}, state, Fail{reason}) ==
+      {Services.authentication_calculation(state, Fail{reason}) ==
         Services.Decision{Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}} : Services.Decision},
     unowned_auth: @+state:Services.State -> @result:Result<&2, &2, String, Unit> ->
-      {Services.authentication(False{}, state, result) == Services.Decision{state, Nil{}} : Services.Decision},
+      {Services.authentication_admitted(None{}, state) == Services.Decision{state, Nil{}} : Services.Decision},
     readiness_attention: @+state:Services.State -> @+application:E.Application ->
-      {Core.service_result(Services.authentication(True{}, state, Done{Unit{}}), application) ==
+      {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
         InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state)))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision},
     failed_auth_no_attention: @+state:Services.State -> @reason:String -> @application:E.Application ->
-      {Core.service_result(Services.authentication(True{}, state, Fail{reason}), application) ==
+      {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
         Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}) : InteractionTypes.Decision},
     unowned_auth_no_attention: @state:Services.State -> @result:Result<&2, &2, String, Unit> -> @application:E.Application ->
-      {Core.service_result(Services.authentication(False{}, state, result), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : InteractionTypes.Decision},
+      {Core.service_result(Services.authentication_admitted(None{}, state), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : InteractionTypes.Decision},
     readiness_is_internal: {Core.external_effect(Services.SessionReady{}) == False{} : Bool},
     stale_auth: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->
       @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->

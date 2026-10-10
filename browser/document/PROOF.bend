@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/categories.bend as Categories
+import ../../bendlib/stdlib.bend as Std
 import ./RENDERED.bend as Rendered
 import ./CONTRACT.bend as Rule
 import ../controls/GEOMETRY.bend as Geometry
@@ -495,17 +497,18 @@ def realized_faults_imply_valid(+faults: +List<Rendered.Violation>, +surface: Su
 
 def Rule.evidence():
   Rule.Requirements{reflected, +current => +received => +surface => +frame => +previous => owned => realized =>
-      observed_owner = Equal.cong(Bool, Rendered.State,
-        (ownership => Rendered.receive(ownership, current, surface, frame, previous)),
-        Nat.is_eq(current, received), True{}, owned)
+      observed_owner = Std.transport(Bool, True{},
+        (ownership => @observed:{Nat.is_eq(current, received) == ownership : Bool} ->
+          {Rendered.received(Categories.admit_checked(Rendered.FrameReceipt, Rendered.frame_correlated,
+            Rendered.FrameReceipt{current, received, surface, frame}, ownership, observed), previous) ==
+            Rendered.received_calculation(current, surface, frame) : Rendered.State}),
+        observed => {==}, Nat.is_eq(current, received), owned)({==})
       accepted_realized = Equal.trans(Rendered.State,
-        Rendered.receive(True{}, current, surface, frame, previous),
-        Rendered.receive(Nat.is_eq(current, received), current, surface, frame, previous),
+        Rendered.received_calculation(current, surface, frame),
+        Rendered.observe(current, received, surface, frame, previous),
         Rendered.Realized{current, frame},
-        Equal.sym(Rendered.State,
-          Rendered.receive(Nat.is_eq(current, received), current, surface, frame, previous),
-          Rendered.receive(True{}, current, surface, frame, previous), observed_owner),
-        realized)
+        Equal.sym(Rendered.State, Rendered.observe(current, received, surface, frame, previous),
+          Rendered.received_calculation(current, surface, frame), observed_owner), realized)
       realized_faults_imply_valid(Rendered.violations(surface, frame), surface, frame, current, {==}, accepted_realized)
     }
 

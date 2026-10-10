@@ -12,7 +12,7 @@ def stale_claim(+generation: Nat, +receipts: +List<String>, +engine: World.Engin
   {World.receive(generation, receipts, engine) == engine : World.Engine}
 
 def rejected_measurement_claim(+valid: Bool, +request: Content.Request, +observation: Content.Observation, +batch: World.Batch) -> Type:
-  {World.measurement_valid(valid, request, observation, batch)
+  {World.measurement_calculation(valid, request, observation, batch)
     == Fail{"invalid or duplicate physical measurement"} : Result<&2, &2, String, World.Batch>}
 
 def production_claim(+engine: World.Engine) -> Type:

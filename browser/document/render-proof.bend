@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/stdlib.bend as Std
+import ../../bendlib/categories.bend as Categories
 import ./render-contract.bend as RuleCodeObservationRules
 import ../runtime/MODEL.bend as Browser
 import ../layout/CONTENT.bend as Content
@@ -8,6 +10,7 @@ import ../MODEL.bend as Web
 import ../../interaction/conversation/CODE.bend as Code
 import ../appearance/DESIGN.bend as Design
 import ./RENDERED.bend as Rendered
+import ../runtime/SEMANTICS.bend as Legacy
 
 def RuleCodeObservationRules.published_qualification(generation, observations, state):
   match state:
@@ -18,15 +21,35 @@ def RuleCodeObservationRules.published_qualification(generation, observations, s
           match world:
             case Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}: {==}
 
+def code_sources_spec(+qualified: Bool, +generation: Nat, +observations: +List<Observation.Observation>, +state: Browser.State) -> Browser.Decision:
+  match qualified:
+    case False{}: Browser.Decision{state, Nil{}}
+    case True{}: Browser.accept(True{}, Browser.code_sources_fold(observations, Legacy.Decision{Browser.legacy(state), Nil{}}), state)
+
+def code_sources_checked(+generation: Nat, +observations: +List<Observation.Observation>, +state: Browser.State, +qualified: Bool,
+  observed: {Browser.code_batch_qualified(generation, observations, state) == qualified : Bool}) ->
+  {Browser.code_sources_admitted(Categories.admit_checked(Browser.CodeSourcesCandidate, Browser.code_sources_predicate, Browser.CodeSourcesCandidate{generation, observations, state}, qualified, observed), state) == code_sources_spec(qualified, generation, observations, state) : Browser.Decision}:
+  match qualified:
+    case False{}: {==}
+    case True{}: {==}
+
+def code_sources_equation(+generation: Nat, +observations: +List<Observation.Observation>, +state: Browser.State) ->
+  {Browser.code_sources(generation, observations, state) == code_sources_spec(Browser.code_batch_qualified(generation, observations, state), generation, observations, state) : Browser.Decision}:
+  code_sources_checked(generation, observations, state, Browser.code_batch_qualified(generation, observations, state), {==})
+
 def RuleCodeObservationRules.rejected_batch(generation, observations, state, rejected):
-  Equal.cong(Bool, Browser.Decision,
-    (qualified => Browser.code_sources_if_qualified(qualified, observations, state)),
-    Browser.code_batch_qualified(generation, observations, state), False{}, rejected)
+  Equal.trans(Browser.Decision, Browser.code_sources(generation, observations, state), code_sources_spec(Browser.code_batch_qualified(generation, observations, state), generation, observations, state),
+    Browser.Decision{state, Nil{}}, code_sources_equation(generation, observations, state),
+    Equal.cong(Bool, Browser.Decision,
+      (qualified => code_sources_spec(qualified, generation, observations, state)),
+      Browser.code_batch_qualified(generation, observations, state), False{}, rejected))
 
 def RuleCodeObservationRules.qualified_batch(generation, observations, state, qualified):
-  Equal.cong(Bool, Browser.Decision,
-    (admitted => Browser.code_sources_if_qualified(admitted, observations, state)),
-    Browser.code_batch_qualified(generation, observations, state), True{}, qualified)
+  Equal.trans(Browser.Decision, Browser.code_sources(generation, observations, state), code_sources_spec(Browser.code_batch_qualified(generation, observations, state), generation, observations, state),
+    Browser.accept(True{}, Browser.code_sources_fold(observations, Legacy.Decision{Browser.legacy(state), Nil{}}), state), code_sources_equation(generation, observations, state),
+    Equal.cong(Bool, Browser.Decision,
+      (admitted => code_sources_spec(admitted, generation, observations, state)),
+      Browser.code_batch_qualified(generation, observations, state), True{}, qualified))
 
 def RuleCodeObservationRules.empty_batch(generation, state):
   match state:
@@ -45,9 +68,8 @@ def RuleCodeObservationRules.invalid_published_batch(generation, observations, s
         case Some{Browser.Published{world, semantic, scope, basis, frame}}:
           match world:
             case Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}:
-              Equal.cong(Bool, Browser.Decision,
-                (owned => Browser.code_sources_if_qualified(owned, observations, state)),
-                Browser.code_batch_owned(observations, source), False{}, invalid)
+              RuleCodeObservationRules.rejected_batch(generation, observations,
+                Browser.State{legacy, serial, anchors, lifecycle, Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}}, invalid)
 
 def RuleCodeObservationRules.stale_batch(generation, observations, state, stale):
   RuleCodeObservationRules.invalid_published_batch(generation, observations, state, stale)
@@ -127,7 +149,11 @@ def RuleCodeObservationRules.code_surface_evidence():
   RuleCodeObservationRules.CodeSurfaceRequirements{canonical_frame, canonical_chrome, policy_projection}
 
 def RuleCodeObservationRules.stale_frame_retains_state(current, received, surface, frame, previous, different):
-  Equal.cong(Bool, Rendered.State, (owned => Rendered.receive(owned, current, surface, frame, previous)), Nat.is_eq(current, received), False{}, different)
+  Std.transport(Bool, False{},
+    (owned => @observed:{Nat.is_eq(current, received) == owned : Bool} ->
+      {Rendered.received(Categories.admit_checked(Rendered.FrameReceipt, Rendered.frame_correlated,
+        Rendered.FrameReceipt{current, received, surface, frame}, owned, observed), previous) == previous : Rendered.State}),
+    observed => {==}, Nat.is_eq(current, received), different)({==})
 
 def RuleCodeObservationRules.native_ownership_is_complete(identity, owner, rest, active, elements): {==}
 

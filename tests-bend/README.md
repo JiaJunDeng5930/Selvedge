@@ -10,9 +10,10 @@ boundary faults rather than repeat proved finite state-transition examples.
 | --- | --- |
 | Missing, false, circular, unsafe or corrupted proof evidence | `pure-proof.test.mjs`, `proof-gate.test.mjs`, `whole-program-proof.test.mjs` |
 | Specification import independence, IO-only native entry, proof-carrying conceptual entry and acyclic proof dependencies | `architecture.test.mjs` |
-| Generic clients execute the production model and use its laws without concrete state; the compiler rejects matching hidden execution and application carriers as implementation constructors | `model-abstraction.test.mjs` |
+| Generic clients execute affine operational memberships and use their production laws without concrete state; the compiler rejects matching hidden execution and application carriers as implementation constructors | `model-abstraction.test.mjs` |
 | Certificate translation rejection and compiler rejection of mutated algebra, map and closure evidence | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
-| Public button clients use production category evidence, compose inclusions and extend predicates/intersections; invalid source-node syntax and independently authored help are rejected; activation, availability, name, icon centering and keyboard-help mutations must type-check before proof rejection | `button-categories.test.mjs` |
+| Public button clients use actual-source category evidence from the shared open-category vocabulary, compose inclusions and extend predicates/intersections; invalid source-node syntax and independently authored help are rejected; activation, availability, name, icon centering and keyboard-help mutations must type-check before proof rejection | `button-categories.test.mjs` |
+| Generic input, movable-source and recovery clients consume production memberships, project category inclusions and execute native fields; actual-source mutations must type-check before production proof rejection | `control-categories.test.mjs` |
 | Production board/reasoning mutations remain type-correct and fail their obligations | `board-proof.test.mjs`, `reasoning-proof.test.mjs` |
 | Component extension and contract-preserving replacement with unrelated source files frozen; native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
 | Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; source-boundary mutants are checked as legal Bend independently of semantic proof mutants |
@@ -50,6 +51,12 @@ establish semantic fault detection. Certificate fault injection independently
 checks translation and proof acceptance; normal check/build owns reproducibility.
 The locality fixture emits an effect intention and does not provide a new physical
 host interpreter for that effect.
+
+Open categories and admission predicates are specified in their owning model
+entries and [bendlib/categories.bend](../bendlib/categories.bend). Production proof
+checks cover their bindings to actual operations and values; focused compiler
+fixtures cover the client and affine representation boundaries listed above.
+This evidence map does not claim a fixture for every new admission predicate.
 
 These files describe evidence responsibilities, not results for the current
 checkout. Loopback fixtures do not establish commercial model quality or

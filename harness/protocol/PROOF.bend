@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../features/laws.bend as FeatureLaws
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -19,6 +20,34 @@ import ../CONTRACT.bend as A
 import ../execution/OPERATIONS.bend as Ops
 
 # Local proof obligations for the protocol boundary. No runtime policy lives here.
+def delegated_calculation_checked(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext,
+  accepted: Bool, observed: {Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}) == accepted : Bool}) ->
+  {Protocol.delegated_admitted(Categories.admit_checked(Protocol.DelegatedRequest, Protocol.delegated_accepts,
+    Protocol.DelegatedRequest{count, messages, selection, parent}, accepted, observed), Protocol.DelegatedRequest{count, messages, selection, parent}) ==
+    Protocol.delegated_calculation(accepted, count, messages, selection) : Protocol.Invocation}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+def delegated_calculation_semantics(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext) ->
+  {Protocol.delegated(count, messages, selection, parent) ==
+    Protocol.delegated_calculation(Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}), count, messages, selection) : Protocol.Invocation}:
+  delegated_calculation_checked(count, messages, selection, parent,
+    Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}), {==})
+
+def matching_calculation_checked(+ticket: Nat, +expected: Nat, +event: Protocol.ResolvedEvent, accepted: Bool,
+  observed: {Protocol.matching_accepts(Protocol.MatchingRequest{ticket, expected, event}) == accepted : Bool}) ->
+  {Protocol.matching_admitted(Categories.admit_checked(Protocol.MatchingRequest, Protocol.matching_accepts, Protocol.MatchingRequest{ticket, expected, event}, accepted, observed), Protocol.MatchingRequest{ticket, expected, event}) ==
+    Protocol.matching_calculation(accepted, event) : Protocol.ResolvedEvent}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+def matching_calculation_semantics(+ticket: Nat, +expected: Nat, +event: Protocol.ResolvedEvent) ->
+  {Protocol.matching(ticket, expected, event) == Protocol.matching_calculation(Protocol.matching_accepts(Protocol.MatchingRequest{ticket, expected, event}), event) : Protocol.ResolvedEvent}:
+  matching_calculation_checked(ticket, expected, event, Protocol.matching_accepts(Protocol.MatchingRequest{ticket, expected, event}), {==})
+
+
 def query_semantics(+query: M.Query, +world: M.World()) ->
   {P.query(query, world) == Commands.query(query, world) : J.Json}:
   {==}
@@ -174,8 +203,12 @@ def A.result_boundary():
     (reason => call => value => error => pending => ({==}, {==})),
     (plugin => outcome => {==}),
     (expected => ticket => plugin => pending => value => error => task => operation => outcome => different =>
-      Equal.cong(Bool, Protocol.ResolvedEvent, (same => Protocol.matching(same, Protocol.AfterResult{task, operation, outcome})),
-        Nat.is_eq(ticket, expected), False{}, different)),
+      Equal.trans(Protocol.ResolvedEvent,
+        Protocol.matching(ticket, expected, Protocol.AfterResult{task, operation, outcome}),
+        Protocol.matching_calculation(Nat.is_eq(ticket, expected), Protocol.AfterResult{task, operation, outcome}), Protocol.Ignore{},
+        matching_calculation_semantics(ticket, expected, Protocol.AfterResult{task, operation, outcome}),
+        Equal.cong(Bool, Protocol.ResolvedEvent, (same => Protocol.matching_calculation(same, Protocol.AfterResult{task, operation, outcome})),
+          Nat.is_eq(ticket, expected), False{}, different))),
     (id => call => announced => ticket => plugin => pending => value => error => task => duplicate => duplicate_error => {==}),
     (history => owner => operation => call => value => error => plugin => outcome => ({==}, {==})),
     (task => operation => control_frame(task, operation)),

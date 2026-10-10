@@ -127,7 +127,7 @@ def user_message_width(+visual: Design.Style) -> RuleSourceRules.user_message_wi
 def RuleSourceRules.evidence():
   RuleSourceRules.Requirements{user_width_policy, user_message_width, fact_display_value, fact_content, fact_source_dispatch, native_field_footprint, card_regions, board_group_content_minimum, board_group, confined_content_minimum, page_region, parameter_calculations, board_controls, board_stages, heading_caption, lane_style, parameter_source, position_of_actual_rule, border_of_actual_rule, font_resolution, event_ownership, bounded_policy_factory}
 
-def RuleSourceRules.movement_field_has_own_identity(key, destinations, face, name, handle, geometry, help, visual, parameters): {==}
+def RuleSourceRules.movement_field_has_own_identity(key, destinations, face, name, handle, geometry, visual, parameters): {==}
 
 def RuleSourceRules.movement_child_is_authored(key, role, destinations, face, control, nodes, rest): {==}
 

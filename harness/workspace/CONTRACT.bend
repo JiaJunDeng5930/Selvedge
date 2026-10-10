@@ -33,7 +33,7 @@ type ContextBoundary is Type:
     refused_delegation: @+context:D.TaskContext -> @+guidance:D.ProjectContext -> @+parent:D.TaskContext -> @+count:Nat -> @+messages:+List<String> ->
       @rejected:{W.may_delegate(context, parent) == False{} : Bool} ->
       {Protocol.branch_selection(Done{W.Selection{context, guidance}}, count, messages, parent) ==
-        Protocol.delegated(False{}, count, messages, W.Selection{context, guidance}) : Protocol.Invocation}
+        Protocol.delegated_calculation(False{}, count, messages, W.Selection{context, guidance}) : Protocol.Invocation}
   }
 
 law context_boundary:

@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../document/SOURCE.bend as Source
 import ./authored-primitives.bend as Factory
@@ -310,17 +311,64 @@ def label_field(+value: Controls.LabelPlacement, +key: UIIdentity.Key, name: Str
       Source.Box{UIIdentity.part(key, "field-wrapper"), label_tag(other), Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
         [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, label_width(other), Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
 
-def input_widget(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+type FieldBinding is Data:
+  FieldBinding{key: UIIdentity.Key, attributes: +List<Source.Attribute>}
+
+type FieldContent is Data:
+  FieldContent{kind: Source.NativeFieldKind, style: Source.Style, value: String,
+    placeholder: String, options: +List<Source.Choice>, policy: Source.FieldPolicy, name: String}
+
+type FieldProtocol is Data:
+  FieldProtocol{enabled: Bool, first: Doc.DOMEvent, remaining: +List<Doc.DOMEvent>}
+
+type InputFieldRequest is Data:
+  InputFieldRequest{binding: FieldBinding, content: FieldContent, protocol: FieldProtocol}
+
+def request_binding(request: InputFieldRequest) -> FieldBinding:
+  InputFieldRequest{binding, content, protocol} = request
+  binding
+
+def request_content(request: InputFieldRequest) -> FieldContent:
+  InputFieldRequest{binding, content, protocol} = request
+  content
+
+def request_protocol(request: InputFieldRequest) -> FieldProtocol:
+  InputFieldRequest{binding, content, protocol} = request
+  protocol
+
+def expected_input_attributes(+key: UIIdentity.Key, input: Controls.FormInput) -> +List<Source.Attribute>:
+  Controls.FormInput{+meaning, name, widget, label, availability} = input
+  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(label, key), availability_attributes(availability)))))
+
+def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, parameters: Design.LayoutParameters) -> InputFieldRequest:
+  Controls.FormInput{+meaning, +name, +widget, label, availability} = input
+  InputFieldRequest{FieldBinding{key, expected_input_attributes(key, input)},
+    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(widget, visual, parameters), 1n)), name},
+    FieldProtocol{enabled(availability), field_first_event(widget, key), field_remaining_events(widget, key)}}
+
+def interpret_input_field(label: Controls.LabelPlacement, key: UIIdentity.Key, name: String, visual: Design.Style, request: InputFieldRequest) -> Source.Node:
+  InputFieldRequest{binding, content, protocol} = request
+  FieldBinding{field_key, attributes} = binding
+  FieldContent{kind, style, value, placeholder, options, policy, field_name} = content
+  FieldProtocol{enabled, first, remaining} = protocol
+  label_field(label, key, name, visual, Source.Field{field_key, kind, style, attributes, value, placeholder, options, policy, field_name, enabled, first, remaining})
+
+def input_widget_request(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, request: InputFieldRequest) -> Source.Node:
   match widget:
     case Controls.PlainValue{}:
       Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Factory.binding_attributes(key), [caption(UIIdentity.part(key, "value"), node_value(meaning), visual, T.NormalAnywhere{})]}
     case +other:
-      label_field(placement, key, name, visual, Source.Field{key, field_kind(other), Factory.style(visual, input_width(other), input_height(other), Model.Confined{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(placement, key), availability_attributes(availability))))), node_value(meaning), placeholder(other, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(other, visual, parameters), 1n)), name, enabled(availability), field_first_event(other, key), field_remaining_events(other, key)})
+      interpret_input_field(placement, key, name, visual, request)
 
-def input(key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
-  match representation:
-    case Controls.Input{binding, name, widget, label, availability}: input_widget(widget, key, meaning, name, label, availability, visual, parameters)
-    case _: invalid(key, visual, "invalid-input-representation")
+def input_widget(+widget: Controls.Widget, +key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +name: String, +placement: Controls.LabelPlacement, +availability: View.Availability, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+  input_widget_request(widget, key, meaning, name, placement, availability, visual, native_input_request(key, Controls.FormInput{meaning, name, widget, placement, availability}, visual, parameters))
+
+def input_source_request(key: UIIdentity.Key, input: Controls.FormInput, visual: Design.Style, request: InputFieldRequest) -> Source.Node:
+  Controls.FormInput{meaning, name, widget, label, availability} = input
+  input_widget_request(widget, key, meaning, name, label, availability, visual, request)
+
+def input(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+  input_source_request(key, input, visual, native_input_request(key, input, visual, parameters))
 
 def available_placement_choice(enabled: Bool, target: String, label: String, rest: +List<Source.Choice>) -> +List<Source.Choice>:
   match enabled:
@@ -336,12 +384,170 @@ def placement_choices(values: +List<SurfaceTypes.Placement>) -> +List<Source.Cho
 def has_available_destination(values: +List<SurfaceTypes.Placement>) -> Bool:
   InterfaceView.has_available_destination(values)
 
-def movable_choices(+key: UIIdentity.Key, +representation: Controls.Representation, +visual: Design.Style, +parameters: Design.LayoutParameters) -> Source.Node:
-  match representation:
-    case Controls.Movable{+destinations, face, +name, handle, geometry, help}:
-      Source.Field{key, Source.SelectField{},
-        Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
-        Factory.binding_attributes(key), "", "Move to…",
-        Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations),
-        Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{UIIdentity.encode(key)}, Nil{}}
-    case _: invalid(key, visual, "invalid-movable-representation")
+def movable_choices(+key: UIIdentity.Key, control: Controls.MovableControl, +visual: Design.Style, +parameters: Design.LayoutParameters) -> Source.Node:
+  Controls.MovableControl{+destinations, face, +name, handle, geometry} = control
+  Source.Field{key, Source.SelectField{},
+    Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+    Factory.binding_attributes(key), "", "Move to…",
+    Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations),
+    Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{UIIdentity.encode(key)}, Nil{}}
+
+
+type InputObservation is Data:
+  InputObservation{key: UIIdentity.Key, input: Controls.FormInput, visual: Design.Style,
+    parameters: Design.LayoutParameters, request: InputFieldRequest, node: Source.Node}
+
+type MovableObservation is Data:
+  MovableObservation{key: UIIdentity.Key, control: Controls.MovableControl, visual: Design.Style,
+    parameters: Design.LayoutParameters, node: Source.Node}
+
+# Observe only the field position declared by the label construction syntax.
+def selected_field(label: Controls.LabelPlacement, node: Source.Node) -> Maybe<&2, Source.Node>:
+  match label:
+    case Controls.AccessibleOnly{}:
+      match node:
+        case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}: Some{Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}}
+        case _: None{}
+    case _:
+      match node:
+        case Source.Box{key, tag, style, attributes, Con{caption, Con{Source.Field{field_key, kind, field_style, field_attributes, value, placeholder, options, policy, name, enabled, first, remaining}, Nil{}}}}:
+          Some{Source.Field{field_key, kind, field_style, field_attributes, value, placeholder, options, policy, name, enabled, first, remaining}}
+        case _: None{}
+
+def observed_binding(field: Maybe<&2, Source.Node>) -> Maybe<&2, FieldBinding>:
+  match field:
+    case Some{Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}}: Some{FieldBinding{key, attributes}}
+    case _: None{}
+
+def observed_content(field: Maybe<&2, Source.Node>) -> Maybe<&2, FieldContent>:
+  match field:
+    case Some{Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}}: Some{FieldContent{kind, style, value, placeholder, options, policy, name}}
+    case _: None{}
+
+def observed_protocol(field: Maybe<&2, Source.Node>) -> Maybe<&2, FieldProtocol>:
+  match field:
+    case Some{Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}}: Some{FieldProtocol{enabled, first, remaining}}
+    case _: None{}
+
+def output_binding(node: Source.Node) -> Maybe<&2, FieldBinding>:
+  match node:
+    case Source.Box{key, Source.Output{}, style, attributes, children}: Some{FieldBinding{key, attributes}}
+    case _: None{}
+
+type OutputContent is Data:
+  OutputContent{style: Source.Style, key: UIIdentity.Key, value: String, font: Source.FontChoice, wrapping: T.Wrapping}
+
+def output_content(node: Source.Node) -> Maybe<&2, OutputContent>:
+  match node:
+    case Source.Box{key, Source.Output{}, style, attributes, Con{Source.Text{caption_key, value, font, wrapping}, Nil{}}}: Some{OutputContent{style, caption_key, value, font, wrapping}}
+    case _: None{}
+
+def expected_input_content(key: UIIdentity.Key, input: Controls.FormInput, visual: Design.Style, parameters: Design.LayoutParameters) -> FieldContent:
+  request_content(native_input_request(key, input, visual, parameters))
+
+def input_binding(observation: InputObservation) -> Type:
+  InputObservation{+key, +input, +visual, parameters, request, node} = observation
+  Controls.FormInput{meaning, name, widget, label, availability} = input
+  match widget:
+    case Controls.PlainValue{}: {output_binding(node) == Some{FieldBinding{key, Factory.binding_attributes(key)}} : Maybe<&2, FieldBinding>}
+    case _: {observed_binding(selected_field(label, node)) == Some{request_binding(request)} : Maybe<&2, FieldBinding>}
+
+def input_content(observation: InputObservation) -> Type:
+  InputObservation{+key, +input, +visual, parameters, request, node} = observation
+  Controls.FormInput{meaning, name, widget, label, availability} = input
+  match widget:
+    case Controls.PlainValue{}: {output_content(node) == Some{OutputContent{Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), UIIdentity.part(key, "value"), node_value(meaning), Source.ExplicitFont{parent_font(visual)}, T.NormalAnywhere{}}} : Maybe<&2, OutputContent>}
+    case _: {observed_content(selected_field(label, node)) == Some{request_content(request)} : Maybe<&2, FieldContent>}
+
+def input_protocol(observation: InputObservation) -> Type:
+  InputObservation{+key, +input, +visual, parameters, request, node} = observation
+  Controls.FormInput{meaning, name, widget, label, availability} = input
+  match widget:
+    case Controls.PlainValue{}: {Source.events_of(node) == Nil{} : +List<Doc.DOMEvent>}
+    case _: {observed_protocol(selected_field(label, node)) == Some{request_protocol(request)} : Maybe<&2, FieldProtocol>}
+
+def input_content_protocol(observation: InputObservation) -> Type:
+  Categories.intersection(InputObservation, input_content, input_protocol, observation)
+
+def input_requested(observation: InputObservation) -> Type:
+  InputObservation{key, input, visual, parameters, request, node} = observation
+  {request == native_input_request(key, input, visual, parameters) : InputFieldRequest}
+
+def input_bound_content_protocol(observation: InputObservation) -> Type:
+  Categories.intersection(InputObservation, input_binding, input_content_protocol, observation)
+
+def authored_input(observation: InputObservation) -> Type:
+  Categories.intersection(InputObservation, input_requested, input_bound_content_protocol, observation)
+
+def input_is_requested() -> Categories.Inclusion<InputObservation, authored_input, input_requested>:
+  Categories.intersection_first(InputObservation, input_requested, input_bound_content_protocol)
+
+def input_is_bound() -> Categories.Inclusion<InputObservation, authored_input, input_binding>:
+  Categories.inclusion_compose(InputObservation, authored_input, input_bound_content_protocol, input_binding,
+    Categories.intersection_second(InputObservation, input_requested, input_bound_content_protocol),
+    Categories.intersection_first(InputObservation, input_binding, input_content_protocol))
+
+def input_is_content() -> Categories.Inclusion<InputObservation, authored_input, input_content>:
+  Categories.inclusion_compose(InputObservation, authored_input, input_bound_content_protocol, input_content,
+    Categories.intersection_second(InputObservation, input_requested, input_bound_content_protocol),
+    Categories.inclusion_compose(InputObservation, input_bound_content_protocol, input_content_protocol, input_content,
+      Categories.intersection_second(InputObservation, input_binding, input_content_protocol),
+      Categories.intersection_first(InputObservation, input_content, input_protocol)))
+
+def input_is_protocol() -> Categories.Inclusion<InputObservation, authored_input, input_protocol>:
+  Categories.inclusion_compose(InputObservation, authored_input, input_bound_content_protocol, input_protocol,
+    Categories.intersection_second(InputObservation, input_requested, input_bound_content_protocol),
+    Categories.inclusion_compose(InputObservation, input_bound_content_protocol, input_content_protocol, input_protocol,
+      Categories.intersection_second(InputObservation, input_binding, input_content_protocol),
+      Categories.intersection_second(InputObservation, input_content, input_protocol)))
+
+type MovableDestinations is Data:
+  MovableDestinations{options: +List<Source.Choice>, enabled: Bool}
+
+def observed_destinations(node: Source.Node) -> Maybe<&2, MovableDestinations>:
+  match node:
+    case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}: Some{MovableDestinations{options, enabled}}
+    case _: None{}
+
+def movable_destinations(observation: MovableObservation) -> Type:
+  MovableObservation{key, Controls.MovableControl{+destinations, face, name, handle, geometry}, visual, parameters, node} = observation
+  {observed_destinations(node) == Some{MovableDestinations{Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations), has_available_destination(destinations)}} : Maybe<&2, MovableDestinations>}
+
+def movable_protocol_binding(observation: MovableObservation) -> Type:
+  MovableObservation{+key, control, visual, parameters, node} = observation
+  {observed_binding(Some{node}) == Some{FieldBinding{key, Factory.binding_attributes(key)}} : Maybe<&2, FieldBinding>}
+
+def movable_protocol_content(observation: MovableObservation) -> Type:
+  MovableObservation{key, Controls.MovableControl{+destinations, face, name, handle, geometry}, visual, parameters, node} = observation
+  {observed_content(Some{node}) == Some{FieldContent{Source.SelectField{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), "", "Move to…", Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations), Source.FieldPolicy{1n, 1n, 1n}, name}} : Maybe<&2, FieldContent>}
+
+def movable_protocol_events(observation: MovableObservation) -> Type:
+  MovableObservation{key, Controls.MovableControl{destinations, face, name, handle, geometry}, visual, parameters, node} = observation
+  {Source.events_of(node) == [Doc.SelectDestination{UIIdentity.encode(key)}] : +List<Doc.DOMEvent>}
+
+type MovableProtocol<-observation: MovableObservation> is Type:
+  MovableProtocol{binding: movable_protocol_binding(observation), content: movable_protocol_content(observation), events: movable_protocol_events(observation)}
+
+def movable_protocol(observation: MovableObservation) -> Type:
+  MovableProtocol<observation>
+
+def authored_movable(observation: MovableObservation) -> Type:
+  Categories.intersection(MovableObservation, movable_destinations, movable_protocol, observation)
+
+def movable_is_destinations() -> Categories.Inclusion<MovableObservation, authored_movable, movable_destinations>:
+  Categories.intersection_first(MovableObservation, movable_destinations, movable_protocol)
+
+def movable_is_protocol() -> Categories.Inclusion<MovableObservation, authored_movable, movable_protocol>:
+  Categories.intersection_second(MovableObservation, movable_destinations, movable_protocol)
+
+law input_evidence:
+  @+key:UIIdentity.Key -> @+syntax:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+request:InputFieldRequest -> input_requested(InputObservation{key, syntax, visual, parameters, request, input_source_request(key, syntax, visual, request)}) -> authored_input(InputObservation{key, syntax, visual, parameters, request, input_source_request(key, syntax, visual, request)})
+
+law movable_evidence:
+  @+key:UIIdentity.Key -> @+syntax:Controls.MovableControl -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> authored_movable(MovableObservation{key, syntax, visual, parameters, movable_choices(key, syntax, visual, parameters)})
+
+law construct_input:
+  @+key:UIIdentity.Key -> @+syntax:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> Categories.Membership<InputObservation, authored_input>
+
+law construct_movable:
+  @+key:UIIdentity.Key -> @+syntax:Controls.MovableControl -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> Categories.Membership<MovableObservation, authored_movable>

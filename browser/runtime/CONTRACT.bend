@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
 import ../focus/MODEL.bend as Focus
@@ -50,12 +51,12 @@ def unchanged_claim(+value: String, +record: Native.Record) -> Type:
   {Native.step(Native.Synchronize{value}, record) == Native.Decision{record, False{}, False{}} : Native.Decision}
 
 def unmatched_claim(+binding: Native.Binding, +found: Maybe<&2, SurfaceTypes.Node>) -> Type:
-  {Native.update_owned(Native.owned_node(binding, found), binding, found) == Nil{} : +List<Native.Update>}
+  {Native.update_admitted(Categories.admit(Native.UpdateCandidate, Native.update_predicate, Native.UpdateCandidate{binding, found})) == Nil{} : +List<Native.Update>}
 
 def matching_claim(+binding: Native.Binding, +node: SurfaceTypes.Node) -> Type:
   Native.Binding{key, kind, identity, original} = binding
   SurfaceTypes.Node{current, semantic, label, role, meaning, children} = node
-  {Native.update_owned(Native.owned_node(binding, Some{node}), binding, Some{node}) == Native.projected(key, kind, semantic, meaning) : +List<Native.Update>}
+  {Native.update_admitted(Categories.admit(Native.UpdateCandidate, Native.update_predicate, Native.UpdateCandidate{binding, Some{node}})) == Native.projected(key, kind, semantic, meaning) : +List<Native.Update>}
 
 def changed_composing_claim(+identity: Maybe<&2, Native.Identity>, +old: Maybe<&2, String>, +value: String) -> Type:
   {Native.step(Native.Synchronize{value}, Native.Record{identity, old, Native.Composing{}}) ==
@@ -155,7 +156,7 @@ law update_owner:
   for +meaning: SurfaceTypes.Meaning
   for +nodes: +List<SurfaceTypes.Node>
   {Native.update(Native.Binding{key, kind, semantic, meaning}, nodes) ==
-    Native.update_owned(Native.owned_node(Native.Binding{key, kind, semantic, meaning}, InterfaceView.find_node(nodes, key)), Native.Binding{key, kind, semantic, meaning}, InterfaceView.find_node(nodes, key)) : +List<Native.Update>}
+    Native.update_admitted(Categories.admit(Native.UpdateCandidate, Native.update_predicate, Native.UpdateCandidate{Native.Binding{key, kind, semantic, meaning}, InterfaceView.find_node(nodes, key)})) : +List<Native.Update>}
 
 def field_projection(kind: Source.NativeFieldKind, key: String, semantic: String, meaning: SurfaceTypes.Meaning, actual: +List<Native.Update>) -> Type:
   match kind:
@@ -286,7 +287,7 @@ law forwarded_frame_uses_published_surface:
   for +basis: Native.Basis
   for +old: Maybe<&2, Rendered.Frame>
   for +frame: Rendered.Frame
-  {Browser.frame_forward_ready(True{}, Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state), frame) ==
+  {Browser.frame_forward_calculation(Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state), frame) ==
     Browser.accept(False{}, Legacy.observe_frame(Browser.semantic_generation(Browser.legacy(model_state)), semantic, frame, Browser.legacy(model_state)),
       Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state)) : Browser.Decision}
 
@@ -752,8 +753,7 @@ def publication_pending(+state: Browser.State) -> Bool:
 
 def blocked_publication_claim_at(+model_state: Browser.State, +capacity: Nat, +last_published: Nat, +problem: String) -> Type:
   {Browser.publication(capacity, last_published, Browser.with_lifecycle(Browser.Blocked{problem}, model_state)) ==
-    Browser.publication_policy_at(capacity, Bool.not(Nat.is_eq(last_published, 0n)), False{},
-      Nat.is_eq(Browser.displayed_generation(Browser.with_lifecycle(Browser.Blocked{problem}, model_state)), last_published),
+    Browser.publication_policy_at(capacity, last_published,
       Browser.with_lifecycle(Browser.Blocked{problem}, model_state)) : Browser.Publication}
 
 def publication_preserves_pending_claim_at(+capacity: Nat, +last_published: Nat, +state: Browser.State) -> Type:
@@ -909,22 +909,22 @@ type RecoveryRequirements is Type:
         Browser.Decision{Browser.with_displayed(Some{Browser.Published{world, Browser.current_legacy_surface(Browser.legacy(model_state)), Focus.Document{}, Native.Basis{Nil{}, Nil{}}, None{}}}, Browser.with_lifecycle(Browser.UtilityDisplaying{purpose, engine}, model_state)), Nil{}} : Browser.Decision},
     correlated_frame: @+model_state:Browser.State ->  @+frame:Rendered.Frame -> @+world:Content.AllocatedWorld -> @+semantic:SurfaceTypes.Surface -> @+scope:Focus.Scope -> @+basis:Native.Basis -> @+old:Maybe<&2, Rendered.Frame> ->
       {Browser.correlated_frame_owned(True{}, frame, Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state)) ==
-        Browser.utility_frame_result(SourceFrame.check(world, frame), frame, Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state)) : Browser.Decision},
+        Browser.utility_frame_result(world, frame, Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state)) : Browser.Decision},
     ready_admission: @+world:Content.AllocatedWorld -> @+purpose:Utility.Purpose -> @+engine:World.Engine -> @+round:Nat -> @+glyph_only:Bool -> @+state:Browser.State ->
       {Browser.utility_selected(Plan.Ready{world}, purpose, engine, round, glyph_only, state) == Browser.utility_publish(world, purpose, engine, state) : Browser.Decision},
     correlated_measurement_failure: @+model_state:Browser.State ->  @+purpose:Utility.Purpose -> @+engine:World.Engine -> @+round:Nat -> @+reason:String ->
       {Browser.utility_measurement_failure(reason, Browser.with_lifecycle(Browser.UtilityMeasuring{purpose, engine, round, False{}}, model_state)) ==
         Browser.utility_fallback(reason, Browser.with_lifecycle(Browser.UtilityMeasuring{purpose, engine, round, False{}}, model_state)) : Browser.Decision},
     valid_frame: @+frame:Rendered.Frame -> @+state:Browser.State ->
-      {Browser.utility_frame_result(Nil{}, frame, state) == Browser.Decision{Browser.frame_capture(frame, state), Nil{}} : Browser.Decision},
-    rejected_frame: @+model_state:Browser.State ->  @+first:Rendered.Violation -> @+rest:+List<Rendered.Violation> -> @+frame:Rendered.Frame -> {Browser.utility_frame_result(first <> rest, frame, model_state) ==
+      {Browser.utility_frame_calculation(frame, state) == Browser.Decision{Browser.frame_capture(frame, state), Nil{}} : Browser.Decision},
+    rejected_frame: @+model_state:Browser.State ->  @+first:Rendered.Violation -> @+rest:+List<Rendered.Violation> -> @+frame:Rendered.Frame -> {Browser.utility_frame_rejection(model_state) ==
         Browser.Decision{Browser.with_displayed(None{}, Browser.with_lifecycle(Browser.UtilityRejected{"Frontend utility frame does not match its admitted source"}, model_state)), Nil{}} : Browser.Decision},
     retry_dispatch: @+state:Browser.State ->
       {Browser.activate("@browser/retry", state) == Browser.accept(True{}, Legacy.activate("@browser/retry", Browser.legacy(state)), state) : Browser.Decision},
     retry_mount: @+state:Legacy.State ->
       {Legacy.activate("@browser/retry", state) == Legacy.native(Web.Mount{}, state) : Legacy.Decision},
     document_focus: @+input:Web.Input -> @+state:Browser.State ->
-      {Browser.auxiliary_focus_owned(True{}, input, state) == Browser.Decision{state, Nil{}} : Browser.Decision}}
+      {Browser.auxiliary_focus_admitted(None{}, state) == Browser.Decision{state, Nil{}} : Browser.Decision}}
 
 law recovery_evidence:
   RecoveryRequirements

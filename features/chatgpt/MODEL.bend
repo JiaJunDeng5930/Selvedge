@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../../harness/transport/schema.bend as Schema
@@ -122,18 +123,19 @@ def member(+id: Nat, values: +List<Nat>) -> Bool:
     case Nil{}: False{}
     case Con{value, rest}: Nat.is_eq(id, value) || member(id, rest)
 
-def selected(allowed: Bool, grant: Grant) -> Maybe<&2, Grant>:
-  match allowed:
-    case True{}: Some{grant}
-    case False{}: None{}
+def project_grant_allowed(project: Nat, grant: Grant) -> Bool:
+  Grant{projects, sandbox} = grant
+  member(project, projects)
 
-def authorize(found: Maybe<&2, Grant>, project: Nat) -> Maybe<&2, Grant>:
+def ProjectGrant(project: Nat) -> Grant -> Type:
+  Categories.holds(Grant, grant => project_grant_allowed(project, grant))
+
+def authorize(found: Maybe<&2, Grant>, +project: Nat) -> Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>:
   match found:
     case None{}: None{}
-    case Some{Grant{+projects, +sandbox}}:
-      selected(member(project, projects), Grant{projects, sandbox})
+    case Some{grant}: Categories.admit(Grant, grant => project_grant_allowed(project, grant), grant)
 
-def authority(connection: Nat, project: Nat, state: State) -> Maybe<&2, Grant>:
+def authority(connection: Nat, +project: Nat, state: State) -> Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>:
   authorize(Finite.find(~Grant, grants(state), connection), project)
 
 def pending(outcome: Outcome) -> Bool:
@@ -244,36 +246,77 @@ def job_uses(entries: +List<Finite.Entry(Job)>, +project: Nat) -> Bool:
 def project_used(+state: State, +project: Nat) -> Bool:
   grant_uses(grants(state), project) || job_uses(jobs(state), project)
 
-def retry_choose(hit: Bool, id: Nat, job: Job, rest: Maybe<&2, Finite.Entry(Job)>) -> Maybe<&2, Finite.Entry(Job)>:
-  match hit:
-    case True{}: Some{(id, job)}
-    case False{}: rest
+def retry_matches(connection: Nat, request: String, entry: Finite.Entry(Job)) -> Bool:
+  (id, Job{owner, project, key, arguments, workspace, sandbox, outcome}) = entry
+  Nat.is_eq(connection, owner) && String.eq(request, key)
+
+def MatchingRetry(connection: Nat, request: String) -> Finite.Entry(Job) -> Type:
+  Categories.holds(Finite.Entry(Job), entry => retry_matches(connection, request, entry))
+
+def retained_retry(connection: Nat, request: String,
+  admitted: Categories.Membership<Finite.Entry(Job), MatchingRetry(connection, request)>) -> Maybe<&2, Finite.Entry(Job)>:
+  Categories.Membership{entry, evidence} = admitted
+  Some{entry}
+
+def retry_admission(+connection: Nat, +request: String, rest: Maybe<&2, Finite.Entry(Job)>,
+  found: Maybe<&1, Categories.Membership<Finite.Entry(Job), MatchingRetry(connection, request)>>) -> Maybe<&2, Finite.Entry(Job)>:
+  match found:
+    case Some{admitted}: retained_retry(connection, request, admitted)
+    case None{}: rest
 
 def retry(entries: +List<Finite.Entry(Job)>, +connection: Nat, +request: String) -> Maybe<&2, Finite.Entry(Job)>:
   match entries:
     case Nil{}: None{}
-    case Con{(id, +job), rest}:
-      Job{owner, project, key, arguments, workspace, sandbox, outcome} = job
-      retry_choose(Nat.is_eq(connection, owner) && String.eq(request, key), id, job, retry(rest, connection, request))
+    case Con{entry, rest}:
+      retry_admission(connection, request, retry(rest, connection, request),
+        Categories.admit(Finite.Entry(Job), entry => retry_matches(connection, request, entry), entry))
 
-def gate(allowed: Bool, change: Change, code: String, reason: String) -> Resolution:
-  match allowed:
-    case True{}: Accept{change}
-    case False{}: Refuse{code, reason}
+type JobCapacity is Data:
+  JobCapacity{job: Job, state: State}
 
-def new_job(capacity: Bool, id: Nat, job: Job) -> Resolution:
-  gate(capacity, Start{id, job}, "operation_capacity", "Forget a completed operation before starting more work")
+def capacity_available(candidate: JobCapacity) -> Bool:
+  JobCapacity{job, +state} = candidate
+  Nat.is_lt(List.length(&2, Finite.Entry(Job), jobs(state)), 128n) && Nat.is_lt(next(state), 4294967295n)
+
+def AvailableCapacity() -> JobCapacity -> Type:
+  Categories.holds(JobCapacity, capacity_available)
+
+def start_admitted(admitted: Categories.Membership<JobCapacity, AvailableCapacity()>) -> Resolution:
+  Categories.Membership{JobCapacity{job, state}, evidence} = admitted
+  Accept{Start{next(state), job}}
+
+def capacity_admission(found: Maybe<&1, Categories.Membership<JobCapacity, AvailableCapacity()>>) -> Resolution:
+  match found:
+    case Some{admitted}: start_admitted(admitted)
+    case None{}: Refuse{"operation_capacity", "Forget a completed operation before starting more work"}
+
+def new_job(job: Job, state: State) -> Resolution:
+  capacity_admission(Categories.admit(JobCapacity, capacity_available, JobCapacity{job, state}))
+
+def retry_compatible(connection: Nat, project: Nat, arguments: J.Json, +job: Job) -> Bool:
+  owned(connection, project, job) && Same.json(128n, arguments, job_arguments(job))
+
+def CompatibleRetry(connection: Nat, project: Nat, arguments: J.Json) -> Job -> Type:
+  Categories.holds(Job, job => retry_compatible(connection, project, arguments, job))
+
+def reuse_admitted(connection: Nat, project: Nat, arguments: J.Json, id: Nat,
+  admitted: Categories.Membership<Job, CompatibleRetry(connection, project, arguments)>) -> Resolution:
+  Categories.Membership{job, evidence} = admitted
+  Accept{Reuse{id, job}}
+
+def compatible_admission(connection: Nat, project: Nat, arguments: J.Json, id: Nat,
+  found: Maybe<&1, Categories.Membership<Job, CompatibleRetry(connection, project, arguments)>>) -> Resolution:
+  match found:
+    case Some{admitted}: reuse_admitted(connection, project, arguments, id, admitted)
+    case None{}: Refuse{"request_conflict", "This request_id already names a different command; do not retry with new arguments"}
 
 def run_existing(found: Maybe<&2, Finite.Entry(Job)>, +connection: Nat, +project: Nat, request: String,
-  +arguments: J.Json, workspace: D.Workspace, sandbox: D.Sandbox, +state: State) -> Resolution:
+  +arguments: J.Json, workspace: D.Workspace, sandbox: D.Sandbox, state: State) -> Resolution:
   match found:
-    case Some{(id, +job)}:
-      Job{owner, target, key, previous, old_workspace, old_sandbox, outcome} = job
-      gate(owned(connection, project, job) && Same.json(128n, arguments, previous), Reuse{id, job},
-        "request_conflict", "This request_id already names a different command; do not retry with new arguments")
-    case None{}:
-      new_job(Nat.is_lt(List.length(&2, Finite.Entry(Job), jobs(state)), 128n) && Nat.is_lt(next(state), 4294967295n),
-        next(state), Job{connection, project, request, arguments, workspace, sandbox, Running{}})
+    case Some{(id, job)}:
+      compatible_admission(connection, project, arguments, id,
+        Categories.admit(Job, job => retry_compatible(connection, project, arguments, job), job))
+    case None{}: new_job(Job{connection, project, request, arguments, workspace, sandbox, Running{}}, state)
 
 def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, project: Nat,
   +request: String, arguments: J.Json, +state: State) -> Resolution:
@@ -285,61 +328,145 @@ def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, pro
       run_existing(retry(jobs(state), connection, request), connection, project, request,
         arguments, D.Workspace{roots, Some{root}}, sandbox, state)
 
-def run_authorized(found: Maybe<&2, Grant>, +connection: Nat, +project: Nat, request: String,
+def run_granted(+connection: Nat, +project: Nat, request: String, arguments: J.Json,
+  projects: D.Projects, state: State, admitted: Categories.Membership<Grant, ProjectGrant(project)>) -> Resolution:
+  Categories.Membership{grant, evidence} = admitted
+  run_project(Projects.find(projects, project), grant, connection, project, request, arguments, state)
+
+def run_authorized(+connection: Nat, +project: Nat, found: Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>, request: String,
   arguments: J.Json, projects: D.Projects, state: State) -> Resolution:
   match found:
     case None{}: Refuse{"project_forbidden", "This connection has no grant for that project"}
-    case Some{grant}: run_project(Projects.find(projects, project), grant, connection, project, request, arguments, state)
+    case Some{admitted}: run_granted(connection, project, request, arguments, projects, state, admitted)
 
 def cancel_pending(running: Bool, id: Nat, job: Job) -> Resolution:
   match running:
     case True{}: Accept{Interrupt{id, job}}
     case False{}: Accept{Reuse{id, job}}
 
-def change_job(remove: Bool, +id: Nat, +job: Job) -> Resolution:
+type JobRemoval is Data:
+  JobRemoval{operation: Nat, job: Job}
+
+def finished_job(candidate: JobRemoval) -> Bool:
+  JobRemoval{operation, job} = candidate
+  Bool.not(pending(outcome(job)))
+
+def ForgettableJob() -> JobRemoval -> Type:
+  Categories.holds(JobRemoval, finished_job)
+
+def forget_admitted(admitted: Categories.Membership<JobRemoval, ForgettableJob()>) -> Resolution:
+  Categories.Membership{JobRemoval{id, job}, evidence} = admitted
+  Accept{Remove{id}}
+
+def forget_admission(found: Maybe<&1, Categories.Membership<JobRemoval, ForgettableJob()>>) -> Resolution:
+  match found:
+    case Some{admitted}: forget_admitted(admitted)
+    case None{}: Refuse{"operation_running", "Cancel or finish the operation before forgetting it"}
+
+def change_job(remove: Bool, id: Nat, +job: Job) -> Resolution:
   match remove:
-    case True{}: gate(Bool.not(pending(outcome(job))), Remove{id}, "operation_running", "Cancel or finish the operation before forgetting it")
+    case True{}:
+      forget_admission(Categories.admit(JobRemoval, finished_job, JobRemoval{id, job}))
     case False{}: cancel_pending(pending(outcome(job)), id, job)
 
-def owner_job(allowed: Bool, id: Nat, job: Job, remove: Bool) -> Resolution:
-  match allowed:
-    case False{}: Refuse{"operation_not_found", "No retained operation belongs to that project and connection"}
-    case True{}: change_job(remove, id, job)
+def OwnedJob(connection: Nat, project: Nat) -> Job -> Type:
+  Categories.holds(Job, job => owned(connection, project, job))
 
-def found_job(found: Maybe<&2, Job>, connection: Nat, project: Nat, id: Nat, remove: Bool) -> Resolution:
+def owner_job(connection: Nat, project: Nat, id: Nat, remove: Bool,
+  admitted: Categories.Membership<Job, OwnedJob(connection, project)>) -> Resolution:
+  Categories.Membership{job, evidence} = admitted
+  change_job(remove, id, job)
+
+def owner_admission(connection: Nat, project: Nat, id: Nat, remove: Bool,
+  found: Maybe<&1, Categories.Membership<Job, OwnedJob(connection, project)>>) -> Resolution:
+  match found:
+    case Some{admitted}: owner_job(connection, project, id, remove, admitted)
+    case None{}: Refuse{"operation_not_found", "No retained operation belongs to that project and connection"}
+
+def found_job(found: Maybe<&2, Job>, +connection: Nat, +project: Nat, id: Nat, remove: Bool) -> Resolution:
   match found:
     case None{}: Refuse{"operation_not_found", "No retained operation belongs to that project and connection"}
-    case Some{+job}: owner_job(owned(connection, project, job), id, job, remove)
+    case Some{job}:
+      owner_admission(connection, project, id, remove, Categories.admit(Job, job => owned(connection, project, job), job))
 
-def edit_authorized(found: Maybe<&2, Grant>, +connection: Nat, +project: Nat, +id: Nat, remove: Bool, state: State) -> Resolution:
+def edit_granted(+connection: Nat, project: Nat, +id: Nat, remove: Bool, state: State,
+  admitted: Categories.Membership<Grant, ProjectGrant(project)>) -> Resolution:
+  Categories.Membership{grant, evidence} = admitted
+  found_job(Finite.find(~Job, jobs(state), id), connection, project, id, remove)
+
+def edit_authorized(+connection: Nat, +project: Nat, found: Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>, +id: Nat, remove: Bool, state: State) -> Resolution:
   match found:
     case None{}: Refuse{"project_forbidden", "This connection has no grant for that project"}
-    case Some{grant}: found_job(Finite.find(~Job, jobs(state), id), connection, project, id, remove)
+    case Some{admitted}: edit_granted(connection, project, id, remove, state, admitted)
 
-def run_valid(valid: Bool, +connection: Nat, +project: Nat, request: String, arguments: J.Json,
-  projects: D.Projects, +state: State) -> Resolution:
-  match valid:
-    case False{}: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
-    case True{}: run_authorized(authority(connection, project, state), connection, project, request, arguments, projects, state)
-
-def resolve(command: Command, +state: State, projects: D.Projects) -> Resolution:
+def run_command_valid(command: Command) -> Bool:
   match command:
-    case Configure{+entries}: gate(Nat.is_le(List.length(&2, Finite.Entry(Grant), entries), 32n) && valid_grants(entries, projects),
-      SetGrants{entries}, "invalid_connections", "Connections need distinct identities and existing project grants")
-    case Run{+connection, +project, +request, +arguments}:
-      run_valid(limited(request, 128n) && valid_args(arguments), connection, project, request, arguments, projects, state)
-    case Cancel{+connection, +project, id}: edit_authorized(authority(connection, project, state), connection, project, id, False{}, state)
-    case Forget{+connection, +project, id}: edit_authorized(authority(connection, project, state), connection, project, id, True{}, state)
+    case Run{connection, project, request, arguments}: limited(request, 128n) && valid_args(arguments)
+    case _: False{}
 
-def settle_pending(running: Bool, id: Nat, job: Job, value: J.Json, error: Bool) -> Maybe<&2, Change>:
-  match running:
-    case False{}: None{}
-    case True{}: Some{Complete{id, job, value, error}}
+def ValidRun() -> Command -> Type:
+  Categories.holds(Command, run_command_valid)
+
+def run_valid(admitted: Categories.Membership<Command, ValidRun()>, projects: D.Projects, +state: State) -> Resolution:
+  Categories.Membership{command, evidence} = admitted
+  match command:
+    case Run{+connection, +project, request, arguments}:
+      run_authorized(connection, project, authority(connection, project, state), request, arguments, projects, state)
+    case _: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
+
+def configuration_valid(projects: D.Projects, command: Command) -> Bool:
+  match command:
+    case Configure{+entries}: Nat.is_le(List.length(&2, Finite.Entry(Grant), entries), 32n) && valid_grants(entries, projects)
+    case _: False{}
+
+def ValidConfiguration(projects: D.Projects) -> Command -> Type:
+  Categories.holds(Command, command => configuration_valid(projects, command))
+
+def configure_admitted(projects: D.Projects, admitted: Categories.Membership<Command, ValidConfiguration(projects)>) -> Resolution:
+  Categories.Membership{command, evidence} = admitted
+  match command:
+    case Configure{entries}: Accept{SetGrants{entries}}
+    case _: Refuse{"invalid_connections", "Connections need distinct identities and existing project grants"}
+
+def configure_admission(+projects: D.Projects,
+  found: Maybe<&1, Categories.Membership<Command, ValidConfiguration(projects)>>) -> Resolution:
+  match found:
+    case Some{admitted}: configure_admitted(projects, admitted)
+    case None{}: Refuse{"invalid_connections", "Connections need distinct identities and existing project grants"}
+
+def run_admission(projects: D.Projects, state: State,
+  found: Maybe<&1, Categories.Membership<Command, ValidRun()>>) -> Resolution:
+  match found:
+    case Some{admitted}: run_valid(admitted, projects, state)
+    case None{}: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
+
+def resolve(command: Command, +state: State, +projects: D.Projects) -> Resolution:
+  match command:
+    case Configure{entries}:
+      configure_admission(projects, Categories.admit(Command, command => configuration_valid(projects, command), Configure{entries}))
+    case Run{connection, project, request, arguments}:
+      run_admission(projects, state, Categories.admit(Command, run_command_valid, Run{connection, project, request, arguments}))
+    case Cancel{+connection, +project, id}: edit_authorized(connection, project, authority(connection, project, state), id, False{}, state)
+    case Forget{+connection, +project, id}: edit_authorized(connection, project, authority(connection, project, state), id, True{}, state)
+
+def RunningJob() -> Job -> Type:
+  Categories.holds(Job, job => pending(outcome(job)))
+
+def settle_pending(id: Nat, admitted: Categories.Membership<Job, RunningJob()>, value: J.Json, error: Bool) -> Maybe<&2, Change>:
+  Categories.Membership{job, evidence} = admitted
+  Some{Complete{id, job, value, error}}
+
+def settlement_admission(id: Nat, value: J.Json, error: Bool,
+  found: Maybe<&1, Categories.Membership<Job, RunningJob()>>) -> Maybe<&2, Change>:
+  match found:
+    case Some{admitted}: settle_pending(id, admitted, value, error)
+    case None{}: None{}
 
 def settle(found: Maybe<&2, Job>, id: Nat, value: J.Json, error: Bool) -> Maybe<&2, Change>:
   match found:
     case None{}: None{}
-    case Some{+job}: settle_pending(pending(outcome(job)), id, job, value, error)
+    case Some{job}:
+      settlement_admission(id, value, error, Categories.admit(Job, job => pending(outcome(job)), job))
 
 def recovered(running: Bool, job: Job) -> Job:
   match running:

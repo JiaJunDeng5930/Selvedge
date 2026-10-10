@@ -1434,3 +1434,47 @@ not establish a full suite result or physical browser behavior.
 
 [ADR 0033](adr/0033-button-category-inclusion.md) records the reasons for the family
 boundary and predicate inclusion.
+
+## Open categories across operational and admission interfaces
+
+[ADR 0034](adr/0034-open-category-construction.md) extends the operational package
+and authored-button decisions with shared open predicates, value-indexed
+membership, inclusion and intersection. The executable entries own their
+requirements. Operational functions and evidence remain affine `Type` values;
+production models use filled shared admission definitions without importing proof
+providers. Successful domain continuations consume membership of their actual
+candidate. Pure calculation equations and ordinary classification keep their
+existing roles.
+
+Incoming application worlds now undergo `I.world` admission before loading;
+invalid worlds follow the exact refusal path and preserve the application. This
+records a strengthened input boundary, not a reproduced historical bug. Controlled
+source producers bind requirements to actual emitted nodes without claiming that
+all raw constructors are hidden.
+
+Input observations now retain an explicit `InputFieldRequest`, with canonical
+request evidence connecting it to the actual construction inputs. The public input
+and membership factory share `input_source_request`; `construct_input` keeps its
+four-argument signature. The generic theorem takes an arbitrary request with its
+canonicality evidence to avoid expanding the 48-bit capacity computation during
+dependent `Type` conversion in the fixed compiler. The capacity bound and complete
+content, policy and protocol requirements remain intact.
+
+The native recovery producer is also covered: `RecoveryButton` supplies the font
+and reason to `recovery_source`, and the runtime proof entry supplies evidence for
+its actual emitted retry node. Its `@browser/retry` behavior remains intact.
+
+The fixed Bend 2.0.34 root `PROOF.bend` check reported `ALL PROOFS CHECK`,
+including complete input-content and exact-viewport obligations for all 14 widgets.
+The final `bun run check` exited zero, with all production proofs accepted and
+component boundaries covering 22 core modules and 215 sources. `bun run test:locality`
+passed all 12 tests with zero failures. The standard `bun run test` exited zero:
+211 tests passed across all 45 files, with zero failures and no omitted or
+unfinished files. This includes the generic/native control clients and actual-source
+mutation fixtures in `control-categories.test.mjs`.
+
+A final artifact/source digest comparison found no changed inputs among the 58
+kernel sources or 215 browser sources. Complete execution logs and that comparison
+were retained in the task's temporary `.workpad` records; they are run evidence,
+rather than a public interface. These checks do not establish physical browser
+pixel layout or focus behavior, which was not observed for this change.

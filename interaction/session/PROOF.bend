@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/categories.bend as Categories
+import ../../harness/INVARIANTS.bend as I
 import ../../features/board/MODEL.bend as B
 import ../../harness/MODEL.bend as M
 import ../../harness/PROGRAM.bend as Program
@@ -90,12 +92,27 @@ def visit_preserves_location(reader: E.Reader) ->
   E.Reader{generation, position, disclosures} = reader
   {==}
 
+def reading_spec(owned: Bool, task: Nat, intent: U.ReadingIntent, application: E.Application) -> E.Decision:
+  match owned:
+    case False{}: E.unchanged(application)
+    case True{}: E.read(task, intent, application)
+
+def reading_checked_refinement(owned: Bool, +task: Nat, generation: Nat, +intent: U.ReadingIntent, +application: E.Application, observed: {E.reading_owned(E.ReadingRequest{task, generation, intent, application}) == owned : Bool}) ->
+  {E.reading_admitted(Categories.admit_checked(E.ReadingRequest, E.reading_owned, E.ReadingRequest{task, generation, intent, application}, owned, observed), application) == reading_spec(owned, task, intent, application) : E.Decision}:
+  match owned:
+    case False{}: {==}
+    case True{}: {==}
+
 def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +application: E.Application,
   not_owner: {Rule.reading_owner(application, task, generation) == False{} : Bool}) ->
   {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  Equal.cong(Bool, E.Decision, (owned => E.read_owned(owned, task, intent, application)),
-    Rule.reading_owner(application, task, generation), False{}, not_owner)
+  Equal.trans(E.Decision,
+    E.read_current(task, generation, intent, application),
+    reading_spec(Rule.reading_owner(application, task, generation), task, intent, application), E.unchanged(application),
+    reading_checked_refinement(Rule.reading_owner(application, task, generation), task, generation, intent, application, {==}),
+    Equal.cong(Bool, E.Decision, (owned => reading_spec(owned, task, intent, application)),
+      Rule.reading_owner(application, task, generation), False{}, not_owner))
 
 def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
   +trigger: String, initial: String, query: String, layer_occurrence: Nat, rest: +List<E.Layer>, old_attention: String,
@@ -206,11 +223,6 @@ def accepted_confirmation_refinement(ok: Bool, +result: J.Json, destination: U.R
     case True{}: {==}
     case False{}: {==}
 
-def confirmation_result_refinement(owned: Bool, +result: J.Json, destination: U.Route, application: E.Application) ->
-  {E.complete_confirmation(owned, result, destination, application) == Rule.confirmation_result_spec(owned, result, destination, application) : E.Decision}:
-  match owned:
-    case False{}: {==}
-    case True{}: accepted_confirmation_refinement(J.boolean(J.get(result, "ok")), result, destination, application)
 
 def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Command, +trigger: String, +occurrence: Nat) ->
   {E.confirmation_owned(layers, command, trigger, occurrence) == Rule.confirmation_spec(layers, command, trigger, occurrence) : Bool}:
@@ -233,32 +245,59 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.ModelPicker{editor}: {==}
         case U.DeliveryPicker{task}: {==}
 
+
+def confirmation_checked_refinement(owned: Bool, +command: M.Command, +trigger: String, +occurrence: Nat, +result: J.Json, +destination: U.Route, +application: E.Application, observed: {E.receipt_owned(E.ConfirmationReceipt{command, trigger, occurrence, result, destination, application}) == owned : Bool}) ->
+  {E.confirmation_admitted(Categories.admit_checked(E.ConfirmationReceipt, E.receipt_owned, E.ConfirmationReceipt{command, trigger, occurrence, result, destination, application}, owned, observed), result, application) == Rule.confirmation_result_spec(owned, result, destination, application) : E.Decision}:
+  match owned:
+    case False{}: {==}
+    case True{}:
+      accepted_confirmation_refinement(J.boolean(J.get(result, "ok")), result, destination, application)
+
+def completed_checked_refinement(valid: Bool, +completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session, previous: M.World(), observed: {I.world(program) == valid : Bool}) ->
+  {E.complete_command_admitted(Categories.admit_checked(M.World(), (world => I.world(world)), program, valid, observed), result, completion, E.Application{previous, session}) == Rule.completion_checked_spec(valid, completion, program, result, session, previous) : E.Decision}:
+  match valid:
+    case False{}: {==}
+    case True{}:
+      match completion:
+        case E.DirectCompletion{}: {==}
+        case E.DraftCompletion{draft}: SubmissionProof.native_session_refinement(Some{draft}, program, result, Nil{}, E.retain_previews(session, program), False{})
+        case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
+          E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+          +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, program)}
+          Equal.trans(E.Decision,
+            E.complete_confirmation_current(command, trigger, occurrence, result, destination, updated),
+            Rule.confirmation_result_spec(E.confirmation_owned(layers, command, trigger, occurrence), result, destination, updated),
+            Rule.confirmation_result_spec(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
+            confirmation_checked_refinement(E.confirmation_owned(layers, command, trigger, occurrence), command, trigger, occurrence, result, destination, updated, {==}),
+            Equal.cong(Bool, E.Decision, (owned => Rule.confirmation_result_spec(owned, result, destination, updated)),
+              E.confirmation_owned(layers, command, trigger, occurrence), Rule.confirmation_spec(layers, command, trigger, occurrence),
+              confirmation_identity_refinement(layers, command, trigger, occurrence)))
+
 def completed_refinement(+completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session, previous: M.World()) ->
-  {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == Rule.completion_spec(completion, program, result, session) : E.Decision}:
-  match completion:
-    case E.DirectCompletion{}: {==}
-    case E.DraftCompletion{draft}: {==}
-    case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
-      +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, program)}
-      Equal.trans(E.Decision,
-        E.complete_confirmation(E.confirmation_owned(layers, command, trigger, occurrence), result, destination, updated),
-        E.complete_confirmation(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
-        Rule.confirmation_result_spec(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated),
-        Equal.cong(Bool, E.Decision, (owned => E.complete_confirmation(owned, result, destination, updated)),
-          E.confirmation_owned(layers, command, trigger, occurrence), Rule.confirmation_spec(layers, command, trigger, occurrence),
-          confirmation_identity_refinement(layers, command, trigger, occurrence)),
-        confirmation_result_refinement(Rule.confirmation_spec(layers, command, trigger, occurrence), result, destination, updated))
+  {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.Application{previous, session}) == Rule.completion_spec(completion, program, result, session, previous) : E.Decision}:
+  completed_checked_refinement(I.world(program), completion, program, result, session, previous, {==})
+
+def observed_checked_refinement(valid: Bool, +program: M.World(), +session: E.Session, previous: M.World(), observed: {I.world(program) == valid : Bool}) ->
+  {E.observe_program_admitted(Categories.admit_checked(M.World(), (world => I.world(world)), program, valid, observed), E.Application{previous, session}) == Rule.observed_checked_spec(valid, program, session, previous) : E.Decision}:
+  match valid:
+    case False{}: {==}
+    case True{}: {==}
+
+def stale_checked_refinement(valid: Bool, +program: M.World(), +result: J.Json, +draft: U.Draft, +session: E.Session, previous: M.World(), observed: {I.world(program) == valid : Bool}, absent: {E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool}) ->
+  {E.complete_command_admitted(Categories.admit_checked(M.World(), (world => I.world(world)), program, valid, observed), result, E.DraftCompletion{draft}, E.Application{previous, session}) == Rule.stale_completion_spec(valid, previous, program, result, session) : E.Decision}:
+  match valid:
+    case False{}: {==}
+    case True{}: SubmissionProof.stale_native(draft, program, result, Nil{}, E.retain_previews(session, program), False{}, absent)
 
 def Rule.command_evidence():
   Rule.CommandRequirements{
     completion => program => result => session => previous => completed_refinement(completion, program, result, session, previous),
     +command => +application => +submitted => {==},
-    +program => +session => previous => {==},
+    +program => +session => previous => observed_checked_refinement(I.world(program), program, session, previous, {==}),
 
       # The submitted snapshot is settled only if its editor still has that revision;
       # the existing submission laws establish acceptance, refusal and stale ownership.
-    +program => +result => +draft => +session => previous => absent => SubmissionProof.stale_native(draft, program, result, Nil{}, E.retain_previews(session, program), False{}, absent),
+    +program => +result => +draft => +session => previous => absent => stale_checked_refinement(I.world(program), program, result, draft, session, previous, {==}, absent),
     +result => destination => application => accepted =>
       Equal.cong(Bool, E.Decision,
         (ok => E.with_native(E.confirmation_outcome(ok, destination, application), result, Nil{}, False{})),
@@ -280,3 +319,36 @@ def Rule.command_evidence():
       # The receipt contract independently selects the local completion behavior.
 
   }
+
+def Rule.invalid_observed_decision():
+  +program => +session => +previous => observed =>
+  Equal.trans(E.Decision, ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)), Rule.observed_spec(program, session, previous), E.refuse(E.from_program(previous, session), "The observed program violates a world invariant"),
+    observed_checked_refinement(I.world(program), program, session, previous, {==}),
+    Equal.cong(Bool, E.Decision, (value => Rule.observed_checked_spec(value, program, session, previous)), I.world(program), False{}, observed))
+
+def Rule.valid_observed_decision():
+  +program => +session => +previous => observed =>
+  Equal.trans(E.Decision, ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)), Rule.observed_spec(program, session, previous), E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}},
+    observed_checked_refinement(I.world(program), program, session, previous, {==}),
+    Equal.cong(Bool, E.Decision, (value => Rule.observed_checked_spec(value, program, session, previous)), I.world(program), True{}, observed))
+
+def Rule.invalid_completion_decision():
+  +completion => +program => +result => +session => +previous => observed =>
+  Equal.trans(E.Decision, ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.from_program(previous, session)), Rule.completion_spec(completion, program, result, session, previous), E.refuse(E.from_program(previous, session), "The observed program violates a world invariant"),
+    completed_refinement(completion, program, result, session, previous),
+    Equal.cong(Bool, E.Decision, (value => Rule.completion_checked_spec(value, completion, program, result, session, previous)), I.world(program), False{}, observed))
+
+def Rule.valid_completion_decision():
+  +completion => +program => +result => +session => +previous => observed =>
+  Equal.trans(E.Decision, ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.from_program(previous, session)), Rule.completion_spec(completion, program, result, session, previous), Rule.valid_completion_spec(completion, program, result, session),
+    completed_refinement(completion, program, result, session, previous),
+    Equal.cong(Bool, E.Decision, (value => Rule.completion_checked_spec(value, completion, program, result, session, previous)), I.world(program), True{}, observed))
+
+def Rule.valid_stale_completion_decision():
+  +program => +result => +draft => +session => +previous => observed => absent =>
+  Equal.trans(E.Decision,
+    ExperienceProgram.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.from_program(previous, session)),
+    Rule.stale_completion_spec(I.world(program), previous, program, result, session),
+    E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}},
+    stale_checked_refinement(I.world(program), program, result, draft, session, previous, {==}, absent),
+    Equal.cong(Bool, E.Decision, (value => Rule.stale_completion_spec(value, previous, program, result, session)), I.world(program), True{}, observed))

@@ -61,7 +61,7 @@ def stale(+generation: Nat, +receipts: +List<String>, +engine: World.Engine,
     proof)
 
 def rejected_member(+valid: Bool, +request: Content.Request, +observation: Content.Observation, +batch: World.Batch) ->
-  {World.measurement_valid_member(False{}, valid, request, observation, batch)
+  {World.measurement_member_calculation(False{}, valid, request, observation, batch)
     == Fail{"invalid or duplicate physical measurement"} : Result<&2, &2, String, World.Batch>}:
   match batch:
     case World.Batch{observations, viewports}: {==}
@@ -70,7 +70,7 @@ def rejection(+valid: Bool, +request: Content.Request, +observation: Content.Obs
   proof: {RulePhysicalContentRules2.observation_matches(request, observation) == False{} : Bool}) ->
   RuleContract.rejected_measurement_claim(valid, request, observation, batch):
   Std.transport(Bool, False{},
-    (member => {World.measurement_valid_member(member, valid, request, observation, batch)
+    (member => {World.measurement_member_calculation(member, valid, request, observation, batch)
       == Fail{"invalid or duplicate physical measurement"} : Result<&2, &2, String, World.Batch>}),
     rejected_member(valid, request, observation, batch), RulePhysicalContentRules2.observation_matches(request, observation),
     proof)

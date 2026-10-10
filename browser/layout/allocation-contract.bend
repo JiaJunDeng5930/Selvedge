@@ -88,7 +88,7 @@ law height_source_evidence:
 
 def field_native_footprint(+kind: Authored.NativeFieldKind, +node: Authored.Node, +key: String,
   +style: Authored.ResolvedStyle, +generation: Nat, +observations: +List<Content.Observation>) -> Type:
-  {Source.field(True{}, kind, node, key, style, generation, observations) ==
+  {Source.field_measurement(kind, node, key, style, generation, observations) ==
     Source.measured(Content.Request{generation, key, Content.local_value(node, Source.resolved_font(style)), Content.Natural{}, Nil{}, Nil{}},
       Authored.native_field_rule(kind, style), Nil{}, Nil{}, observations) : Source.Forest}
 

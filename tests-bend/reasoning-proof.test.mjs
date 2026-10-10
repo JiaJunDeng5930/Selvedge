@@ -25,7 +25,7 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
     ['omit the evaluator effect but record it as pending', 'harness/reasoning/PROGRAM.bend',
       '[Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]', 'Nil{}', /evaluator_meaning/],
     ['apply a stale recommendation', 'harness/reasoning/PROGRAM.bend',
-      'case False{}: T.promote(D.with_phase(D.Ready{Nil{}}, task))', 'case False{}: observed(outcome, task)', /fresh_meaning|reasoning_boundary/],
+      'case None{}: stale_result(outcome, task)', 'case None{}: observed(outcome, task)', /fresh_meaning|reasoning_boundary/],
     ['permit an unconfigured duration', 'harness/reasoning/MODEL.bend',
       'Nat.is_eq(steps, 10n)', 'Nat.is_eq(steps, 3n)', /reasoning_boundary/],
     ['change the supposedly pinned request prefix', 'harness/reasoning/MODEL.bend',
@@ -47,8 +47,8 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
       'case D.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> rest',
       'case D.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]} <> rest', /reasoning_boundary/],
     ['accept a completion with another ticket', 'harness/protocol/PROGRAM.bend',
-      'matching(Nat.is_eq(ticket, expected), ReasoningResult{task, revision, outcome})',
-      'matching(True{}, ReasoningResult{task, revision, outcome})', /reasoning_boundary/],
+      'matching(ticket, expected, ReasoningResult{task, revision, outcome})',
+      'ReasoningResult{task, revision, outcome}', /reasoning_boundary/],
   ];
   for (const [label, file, before, after, expected] of mutations) {
     await t.test(label, async () => {

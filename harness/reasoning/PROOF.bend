@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../../bendlib/effects.bend as Effects
@@ -82,8 +83,10 @@ def A.route_meaning(policy, lease):
 def A.start_meaning(task, world):
   start_meaning(F.State(), F.Effect, task, world)
 
-def selection_meaning(+accepted: Bool, +effort: String, +generations: Nat, +task: D.Task) ->
-  {Actual.chosen(accepted, effort, generations, task) == Spec.selection(accepted, effort, generations, task) : D.Task}:
+def selection_meaning(+accepted: Bool, +effort: String, +generations: Nat, +task: D.Task,
+  checked: {Actual.chosen_permitted(task, R.Chosen{effort, generations}) == accepted : Bool}) ->
+  {Actual.chosen_admission(task, Categories.admit_checked(R.Outcome, outcome => Actual.chosen_permitted(task, outcome),
+    R.Chosen{effort, generations}, accepted, checked)) == Spec.selection(accepted, effort, generations, task) : D.Task}:
   match accepted:
     case True{}: {==}
     case False{}: {==}
@@ -92,17 +95,19 @@ def outcome_meaning(+outcome: R.Outcome, +task: D.Task) ->
   {Actual.observed(outcome, task) == Spec.outcome(outcome, task) : D.Task}:
   match outcome:
     case R.Chosen{+effort, +generations}:
-      selection_meaning(R.accepts(Context.task_policy(task), effort, generations), effort, generations, task)
+      selection_meaning(R.accepts(Context.task_policy(task), effort, generations), effort, generations, task, {==})
     case R.EvaluationFailed{reason}: {==}
 
-def fresh_meaning(+current: Bool, +outcome: R.Outcome, +task: D.Task) ->
-  {Actual.revision_matches(current, outcome, task) == Spec.fresh(current, outcome, task) : D.Task}:
+def fresh_meaning(+revision: Nat, +current: Bool, +outcome: R.Outcome, +task: D.Task,
+  checked: {Actual.revision_current(revision, task) == current : Bool}) ->
+  {Actual.revision_admission(revision, outcome, task,
+    Categories.admit_checked(D.Task, task => Actual.revision_current(revision, task), task, current, checked)) == Spec.fresh(current, outcome, task) : D.Task}:
   match current:
     case True{}: outcome_meaning(outcome, task)
     case False{}: {==}
 
 def A.completion_meaning(revision, outcome, task):
-  fresh_meaning(Nat.is_eq(revision, D.history_length(D.task_history(task))), outcome, task)
+  fresh_meaning(revision, Nat.is_eq(revision, D.history_length(D.task_history(task))), outcome, task, {==})
 
 def contract_frame(effort: String, remaining: Nat, +task: D.Task) ->
   {D.task_contract(Context.generation(effort, remaining, task)) == D.task_contract(task) : D.Contract}:

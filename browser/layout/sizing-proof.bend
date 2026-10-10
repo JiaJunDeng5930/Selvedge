@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../document/SOURCE.bend as Source
 import ./CONTENT.bend as Content
 import ./allocation-contract.bend as RulePhysicalSourceRules
@@ -25,21 +26,26 @@ def field_native_footprint(+kind: Source.NativeFieldKind, +node: Source.Node, +k
   +style: Source.ResolvedStyle, +generation: Nat, +observations: +List<Content.Observation>) ->
   RulePhysicalSourceRules.field_native_footprint(kind, node, key, style, generation, observations): {==}
 
-def admitted(+duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content.Prepared,
-  proof: {Content.duplicate_native_slot(Content.native_slots(prepared)) == duplicate : Maybe<&2, Content.NativeSlot>}) ->
-  {RulePhysicalContentRules2.ready_native_targets_valid(SourceSource.admit_duplicate(duplicate, prepared)) == True{} : Bool}:
+def rejected_duplicate(duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content.Prepared) ->
+  {RulePhysicalContentRules2.ready_native_targets_valid(SourceSource.reject_duplicate(duplicate, prepared)) == True{} : Bool}:
   match duplicate:
     case None{}:
-      Std.transport(Maybe<&2, Content.NativeSlot>, None{},
-        (result => {RulePhysicalContentRules2.no_duplicate(result) == True{} : Bool}), {==},
-        Content.duplicate_native_slot(Content.native_slots(prepared)), proof)
+      Content.Prepared{snapshot, tree, roots, policies} = prepared
+      {==}
     case Some{Content.NativeSlot{owner_key, target_key}}:
-      match prepared:
-        case Content.Prepared{snapshot, tree, roots, policies}: {==}
+      Content.Prepared{snapshot, tree, roots, policies} = prepared
+      {==}
+
+def admitted(member: Maybe<&1, Categories.Membership<Content.Prepared, SourceSource.native_targets_category()>>,
+  +prepared: Content.Prepared) ->
+  {RulePhysicalContentRules2.ready_native_targets_valid(SourceSource.native_targets_admitted(member, prepared)) == True{} : Bool}:
+  match member:
+    case Some{Categories.Membership{value, evidence}}: evidence
+    case None{}: rejected_duplicate(Content.duplicate_native_slot(Content.native_slots(prepared)), prepared)
 
 def admission(+prepared: Content.Prepared) ->
   {RulePhysicalContentRules2.ready_native_targets_valid(SourceSource.admit_native_targets(prepared)) == True{} : Bool}:
-  admitted(Content.duplicate_native_slot(Content.native_slots(prepared)), prepared, {==})
+  admitted(Categories.admit(Content.Prepared, RulePhysicalContentRules2.native_targets_valid, prepared), prepared)
 
 def single_root(trees: +List<Model.Tree<Content.Value, Doc.DOMEvent>>, +snapshot: Content.Snapshot,
   +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>) ->

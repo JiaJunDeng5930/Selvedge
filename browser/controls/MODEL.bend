@@ -455,7 +455,7 @@ def card_title(+key: UIIdentity.Key, +title: String, +visual: Design.Style, +act
 
 def card_grip(+value: Controls.Representation, +key: UIIdentity.Key, +visual: Design.Style) -> +List<Source.Node>:
   match value:
-    case Controls.Movable{destinations, face, name, handle, geometry, help}: [AuthoredControls.glyph(UIIdentity.part(key, "@grip"), handle, visual, AuthoredControls.face_icon_size(geometry))]
+    case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: [AuthoredControls.glyph(UIIdentity.part(key, "@grip"), handle, visual, AuthoredControls.face_icon_size(geometry))]
     case _: Nil{}
 
 def card_movement_nodes(values: +List<Child>) -> +List<Source.Node>:
@@ -513,6 +513,16 @@ def button_source(+key: UIIdentity.Key, +visual: Design.Style, representation: C
     case Controls.Action{button}: Buttons.source(key, visual, button)
     case _: AuthoredControls.invalid(key, visual, "invalid-action-representation")
 
+def movable_source(key: UIIdentity.Key, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+  match representation:
+    case Controls.Movable{control}: AuthoredControls.movable_choices(key, control, visual, parameters)
+    case _: AuthoredControls.invalid(key, visual, "invalid-movable-representation")
+
+def input_source(key: UIIdentity.Key, representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+  match representation:
+    case Controls.Input{input}: AuthoredControls.input(key, input, visual, parameters)
+    case _: AuthoredControls.invalid(key, visual, "invalid-input-representation")
+
 def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
     case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound(key, label, field, visual, content)
@@ -532,7 +542,7 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
     case SurfaceTypes.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}
     case SurfaceTypes.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
-    case SurfaceTypes.MovableCard{destinations, face}: AuthoredControls.movable_choices(key, representation, visual, parameters)
+    case SurfaceTypes.MovableCard{destinations, face}: movable_source(key, representation, visual, parameters)
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))
     case SurfaceTypes.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
     case SurfaceTypes.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
@@ -540,7 +550,7 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
     case SurfaceTypes.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case SurfaceTypes.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
-    case other: AuthoredControls.input(key, other, representation, visual, parameters)
+    case other: input_source(key, representation, visual, parameters)
 
 def dialog_operation(+role: SurfaceTypes.Role) -> Bool:
   match role:

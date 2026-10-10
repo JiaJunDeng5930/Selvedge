@@ -29,8 +29,8 @@ def panel_header_matches_specification(representation: Controls.Representation) 
         case Controls.CodeToolbar{}: {==}
         case Controls.BesideValue{}: {==}
         case Controls.GroupHeadingEnd{}: {==}
-    case Controls.Input{binding, name, widget, label, availability}: {==}
-    case Controls.Movable{destinations, face, name, handle, geometry, help}: {==}
+    case Controls.Input{Controls.FormInput{binding, name, widget, label, availability}}: {==}
+    case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: {==}
 
 def header_classifier_matches_specification(value: SurfaceTypes.Node, +context: Controls.Context) ->
   {Order.header_child(value, context) == Rule.specified_header_child(value, context) : Bool}:

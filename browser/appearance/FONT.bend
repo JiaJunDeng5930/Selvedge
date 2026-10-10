@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ./TYPOGRAPHY.bend as T
 import ../layout/natural-size.bend as NaturalSize
 
@@ -47,17 +48,29 @@ def pending(state: State) -> Bool:
     case Pending{generation, scale}: True{}
     case _: False{}
 
-def cached_checked(checked: Bool, measured: T.Measured, rest: Maybe<&2, T.Measured>) -> Maybe<&2, T.Measured>:
-  match checked:
-    case True{}: Some{measured}
-    case False{}: rest
+def cached_valid(+expected: T.MeasurementSpec, measured: T.Measured) -> Bool:
+  T.Measured{+stored, metric} = measured
+  T.same_spec(expected, stored) && T.valid_metric(stored, metric)
+
+def cached_metric(expected: T.MeasurementSpec) -> T.Measured -> Type:
+  Categories.holds(T.Measured, cached_valid(expected))
+
+def cached_checked(+specification: T.MeasurementSpec,
+  member: Categories.Membership<T.Measured, cached_metric(specification)>) -> Maybe<&2, T.Measured>:
+  Categories.Membership{measured, evidence} = member
+  Some{measured}
+
+def cached_admitted(+specification: T.MeasurementSpec, rest: Maybe<&2, T.Measured>,
+  admitted: Maybe<&1, Categories.Membership<T.Measured, cached_metric(specification)>>) -> Maybe<&2, T.Measured>:
+  match admitted:
+    case Some{member}: cached_checked(specification, member)
+    case None{}: rest
 
 def cached(+specification: T.MeasurementSpec, content: +List<T.Measured>) -> Maybe<&2, T.Measured>:
   match content:
     case Nil{}: None{}
-    case Con{T.Measured{+stored, +metric}, rest}:
-      cached_checked(T.same_spec(specification, stored) && T.valid_metric(stored, metric),
-        T.Measured{stored, metric}, cached(specification, rest))
+    case Con{measured, rest}:
+      cached_admitted(specification, cached(specification, rest), Categories.admit(T.Measured, cached_valid(specification), measured))
 
 def missing_item(found: Maybe<&2, T.Measured>, specification: T.MeasurementSpec, rest: +List<T.MeasurementSpec>) -> +List<T.MeasurementSpec>:
   match found:
@@ -78,14 +91,23 @@ def request_at(capacity: Nat, state: State, specifications: +List<T.MeasurementS
 def request(state: State, specifications: +List<T.MeasurementSpec>) -> Plan:
   request_at(NaturalSize.limit(), state, specifications)
 
-def admit_checked(checked: Bool, generation: Nat, scale: T.Scale, metric: T.Metric) -> State:
-  match checked:
-    case True{}: Ready{generation, scale, metric, Nil{}}
-    case False{}: Failed{generation, scale}
+def body_metric(metric: T.Metric) -> Type:
+  Categories.holds(T.Metric, T.valid_body)(metric)
+
+def admit_checked(generation: Nat, scale: T.Scale,
+  member: Categories.Membership<T.Metric, body_metric>) -> State:
+  Categories.Membership{metric, evidence} = member
+  Ready{generation, scale, metric, Nil{}}
+
+def body_admitted(generation: Nat, scale: T.Scale,
+  admitted: Maybe<&1, Categories.Membership<T.Metric, body_metric>>) -> State:
+  match admitted:
+    case Some{member}: admit_checked(generation, scale, member)
+    case None{}: Failed{generation, scale}
 
 def admit_tail(generation: Nat, scale: T.Scale, +metric: T.Metric, rest: +List<T.Metric>) -> State:
   match rest:
-    case Nil{}: admit_checked(T.valid_body(metric), generation, scale, metric)
+    case Nil{}: body_admitted(generation, scale, Categories.admit(T.Metric, T.valid_body, metric))
     case Con{other, tail}: Failed{generation, scale}
 
 def admit(generation: Nat, scale: T.Scale, metrics: +List<T.Metric>) -> State:
@@ -98,17 +120,26 @@ def prepend_paired(measured: T.Measured, rest: Maybe<&2, +List<T.Measured>>) -> 
     case Some{rest}: Some{Con{measured, rest}}
     case None{}: None{}
 
-def pair_checked(checked: Bool, specification: T.MeasurementSpec, metric: T.Metric,
+def measured_metric(specification: T.MeasurementSpec) -> T.Metric -> Type:
+  Categories.holds(T.Metric, T.valid_metric(specification))
+
+def pair_checked(+specification: T.MeasurementSpec,
+  member: Categories.Membership<T.Metric, measured_metric(specification)>,
   rest: Maybe<&2, +List<T.Measured>>) -> Maybe<&2, +List<T.Measured>>:
-  match checked:
-    case True{}: prepend_paired(T.Measured{specification, metric}, rest)
-    case False{}: None{}
+  Categories.Membership{metric, evidence} = member
+  prepend_paired(T.Measured{specification, metric}, rest)
+
+def pair_admitted(+specification: T.MeasurementSpec, rest: Maybe<&2, +List<T.Measured>>,
+  admitted: Maybe<&1, Categories.Membership<T.Metric, measured_metric(specification)>>) -> Maybe<&2, +List<T.Measured>>:
+  match admitted:
+    case Some{member}: pair_checked(specification, member, rest)
+    case None{}: None{}
 
 def pair(specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> Maybe<&2, +List<T.Measured>>:
   match specifications metrics:
     case Nil{} Nil{}: Some{Nil{}}
-    case Con{+specification, rest} Con{+metric, tail}:
-      pair_checked(T.valid_metric(specification, metric), specification, metric, pair(rest, tail))
+    case Con{+specification, rest} Con{metric, tail}:
+      pair_admitted(specification, pair(rest, tail), Categories.admit(T.Metric, T.valid_metric(specification), metric))
     case _ _: None{}
 
 def retain_found(found: Maybe<&2, T.Measured>, rest: Maybe<&2, +List<T.Measured>>) -> Maybe<&2, +List<T.Measured>>:
@@ -132,16 +163,23 @@ def paired(generation: Nat, scale: T.Scale, body: T.Metric, specifications: +Lis
     case Some{observed}: finish(generation, scale, body, retain(specifications, List.append(&2, T.Measured, content, observed)))
     case None{}: Failed{generation, scale}
 
-def pending_checked(checked: Bool, generation: Nat, scale: T.Scale, body: T.Metric,
+def pending_checked(generation: Nat, scale: T.Scale,
+  member: Categories.Membership<T.Metric, body_metric>,
   +specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> State:
-  match checked:
-    case True{}: paired(generation, scale, body, specifications, Nil{}, pair(specifications, metrics))
-    case False{}: Failed{generation, scale}
+  Categories.Membership{body, evidence} = member
+  paired(generation, scale, body, specifications, Nil{}, pair(specifications, metrics))
+
+def pending_admitted(generation: Nat, scale: T.Scale, specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>,
+  admitted: Maybe<&1, Categories.Membership<T.Metric, body_metric>>) -> State:
+  match admitted:
+    case Some{member}: pending_checked(generation, scale, member, specifications, metrics)
+    case None{}: Failed{generation, scale}
 
 def pending_batch(generation: Nat, scale: T.Scale, +specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> State:
   match metrics:
     case Nil{}: Failed{generation, scale}
-    case Con{+body, rest}: pending_checked(T.valid_body(body), generation, scale, body, specifications, rest)
+    case Con{body, rest}:
+      pending_admitted(generation, scale, specifications, rest, Categories.admit(T.Metric, T.valid_body, body))
 
 def admit_pending(generation: Nat, scale: T.Scale, specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> State:
   match specifications:
@@ -154,13 +192,34 @@ def ready_batch(generation: Nat, scale: T.Scale, body: T.Metric, +content: +List
     case Nil{}: Ready{generation, scale, body, content}
     case Con{first, rest}: paired(generation, scale, body, specifications, content, pair(Con{first, rest}, metrics))
 
-def receive(owned: Bool, state: State, +specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> State:
-  match owned state:
-    case True{} Pending{generation, scale}: admit_pending(generation, scale, specifications, metrics)
-    case True{} Ready{generation, scale, body, +content}:
-      ready_batch(generation, scale, body, content, specifications, missing(specifications, content), metrics)
-    case _ other: other
+def current_valid(expected: Nat, observation: Observation) -> Bool:
+  Observation{received, metrics} = observation
+  Nat.is_eq(expected, received)
+
+def current_observation(expected: Nat) -> Observation -> Type:
+  Categories.holds(Observation, current_valid(expected))
+
+def observation_metrics(observation: Observation) -> +List<T.Metric>:
+  Observation{received, metrics} = observation
+  metrics
+
+def received_metrics(expected: Nat, member: Categories.Membership<Observation, current_observation(expected)>) -> +List<T.Metric>:
+  Categories.Membership{observation, evidence} = member
+  observation_metrics(observation)
+
+def receive(+state: State, +specifications: +List<T.MeasurementSpec>,
+  member: Categories.Membership<Observation, current_observation(generation(state))>) -> State:
+  match state:
+    case Pending{generation, scale}: admit_pending(generation, scale, specifications, received_metrics(generation, member))
+    case Ready{generation, scale, body, +content}:
+      ready_batch(generation, scale, body, content, specifications, missing(specifications, content), received_metrics(generation, member))
+    case other: other
+
+def observation_admitted(+state: State, specifications: +List<T.MeasurementSpec>,
+  admitted: Maybe<&1, Categories.Membership<Observation, current_observation(generation(state))>>) -> State:
+  match admitted:
+    case Some{member}: receive(state, specifications, member)
+    case None{}: state
 
 def accept(+state: State, specifications: +List<T.MeasurementSpec>, observation: Observation) -> State:
-  Observation{received, metrics} = observation
-  receive(Nat.is_eq(generation(state), received), state, specifications, metrics)
+  observation_admitted(state, specifications, Categories.admit(Observation, current_valid(generation(state)), observation))

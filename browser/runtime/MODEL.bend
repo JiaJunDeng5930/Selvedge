@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
 import ./native-fields.bend as NativeFields
@@ -339,40 +340,76 @@ def observe(+capacity: Nat, +state: State) -> CodeObservation.Document:
   +font = Web.typography(observed_web_1)
   observed_lifecycle_at(capacity, lifecycle, displayed, T.Presentation{T.Body{}, T.Regular{}, F.scale(font)})
 
-def published_document_at(+capacity: Nat, ready: Bool, +state: State) -> Publication:
-  match ready:
-    case True{}: Publish{displayed_generation(state), observe(capacity, state), native_updates(state)}
-    case False{}: Publish{0n, observe(capacity, state), native_updates(state)}
+def display_category() -> State -> Type: Categories.holds(State, state => display_ready(state))
 
-def publication_policy_at(+capacity: Nat, existing: Bool, +ready: Bool, current: Bool, state: State) -> Publication:
-  match existing ready current:
-    case True{} False{} _: KeepPublished{native_updates(state)}
-    case True{} True{} True{}: KeepPublished{native_updates(state)}
-    case _ _ _: published_document_at(capacity, ready, state)
+def published_document_at(+capacity: Nat, member: Categories.Membership<State, display_category()>) -> Publication:
+  Categories.Membership{+state, evidence} = member
+  Publish{displayed_generation(state), observe(capacity, state), native_updates(state)}
 
-def publication_lifecycle_at(+capacity: Nat, lifecycle: Lifecycle, existing: Bool, ready: Bool, current: Bool, state: State) -> Publication:
+def published_document_admitted(+capacity: Nat, admission: Maybe<&1, Categories.Membership<State, display_category()>>, +state: State) -> Publication:
+  match admission:
+    case Some{member}: published_document_at(capacity, member)
+    case None{}: Publish{0n, observe(capacity, state), native_updates(state)}
+
+def published_document(+capacity: Nat, +state: State) -> Publication:
+  published_document_admitted(capacity, Categories.admit(State, candidate => display_ready(candidate), state), state)
+
+type PublicationCandidate is Data:
+  PublicationCandidate{capacity: Nat, last_published: Nat, state: State}
+
+def publication_policy_predicate(candidate: PublicationCandidate) -> Bool:
+  PublicationCandidate{capacity, +last_published, +state} = candidate
+  Bool.not(Nat.is_eq(last_published, 0n)) &&
+    (Bool.not(display_ready(state)) || Nat.is_eq(displayed_generation(state), last_published))
+
+def publication_policy_category() -> PublicationCandidate -> Type:
+  Categories.holds(PublicationCandidate, publication_policy_predicate)
+
+def publication_policy_owned(member: Categories.Membership<PublicationCandidate, publication_policy_category()>) -> Publication:
+  Categories.Membership{PublicationCandidate{capacity, last_published, state}, evidence} = member
+  KeepPublished{native_updates(state)}
+
+def publication_policy_admitted(+capacity: Nat, admission: Maybe<&1, Categories.Membership<PublicationCandidate, publication_policy_category()>>, +state: State) -> Publication:
+  match admission:
+    case Some{member}: publication_policy_owned(member)
+    case None{}: published_document(capacity, state)
+
+def publication_policy_at(+capacity: Nat, +last_published: Nat, +state: State) -> Publication:
+  publication_policy_admitted(capacity, Categories.admit(PublicationCandidate, publication_policy_predicate, PublicationCandidate{capacity, last_published, state}), state)
+
+def publication_lifecycle_at(+capacity: Nat, lifecycle: Lifecycle, +last_published: Nat, +state: State) -> Publication:
   match lifecycle:
-    case UtilityRejected{problem}: published_document_at(capacity, False{}, state)
-    case Blocked{problem}: publication_policy_at(capacity, existing, ready, current, state)
-    case other: publication_policy_at(capacity, existing, ready, current, state)
-
-def publication_for_at(+capacity: Nat, existing: Bool, ready: Bool, current: Bool, +state: State) -> Publication:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
-  publication_lifecycle_at(capacity, lifecycle, existing, ready, current, state)
+    case UtilityRejected{problem}: Publish{0n, observe(capacity, state), native_updates(state)}
+    case other: publication_policy_at(capacity, last_published, state)
 
 def publication(+capacity: Nat, +last_published: Nat, +state: State) -> Publication:
-  publication_for_at(capacity, Bool.not(Nat.is_eq(last_published, 0n)), display_ready(state),
-    Nat.is_eq(displayed_generation(state), last_published), state)
+  publication_lifecycle_at(capacity, lifecycle(state), last_published, state)
 
-def publication_focus_loss(confirmed: Bool, ticket: Nat, before: Focus.Target) -> Maybe<&2, Platform.Input>:
-  match confirmed:
-    case True{}: Some{Platform.PublicationFocusObserved{ticket, Some{before}, None{}}}
-    case False{}: None{}
+type PublicationFocusCandidate is Data:
+  PublicationFocusCandidate{generation: Nat, ticket: Nat, before: Focus.Target}
+
+def publication_focus_predicate(candidate: PublicationFocusCandidate) -> Bool:
+  PublicationFocusCandidate{generation, ticket, before} = candidate
+  Bool.not(Nat.is_eq(generation, 0n))
+
+def publication_focus_category() -> PublicationFocusCandidate -> Type: Categories.holds(PublicationFocusCandidate, publication_focus_predicate)
+
+def publication_focus_loss(member: Categories.Membership<PublicationFocusCandidate, publication_focus_category()>) -> Maybe<&2, Platform.Input>:
+  Categories.Membership{PublicationFocusCandidate{generation, ticket, before}, evidence} = member
+  Some{Platform.PublicationFocusObserved{ticket, Some{before}, None{}}}
+
+def publication_focus_admitted(admission: Maybe<&1, Categories.Membership<PublicationFocusCandidate, publication_focus_category()>>) -> Maybe<&2, Platform.Input>:
+  match admission:
+    case Some{member}: publication_focus_loss(member)
+    case None{}: None{}
+
+def publication_focus_current(generation: Nat, ticket: Nat, before: Focus.Target) -> Maybe<&2, Platform.Input>:
+  publication_focus_admitted(Categories.admit(PublicationFocusCandidate, publication_focus_predicate, PublicationFocusCandidate{generation, ticket, before}))
 
 def publication_focus_feedback(+publication: Publication, ticket: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>) -> Maybe<&2, Platform.Input>:
   match publication before after:
     case Publish{generation, document, fields} Some{target} None{}:
-      publication_focus_loss(Bool.not(Nat.is_eq(generation, 0n)), ticket, target)
+      publication_focus_current(generation, ticket, target)
     case _ _ _: None{}
 
 def probe_document(+job: Plan.Job) -> CodeObservation.Document: Probe.document(job)
@@ -670,33 +707,93 @@ def command_rejected(+ticket: Nat, +reason: String, +state: State) -> Decision: 
 
 def activate(+key: String, +state: State) -> Decision: accept(True{}, Legacy.activate(key, legacy(state)), state)
 
-def edit_text_owned(+owned: Bool, +key: String, +text: String, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: accept(True{}, Legacy.edit_text(key, text, legacy(state)), state)
+type TextEditCandidate is Data:
+  TextEditCandidate{key: String, text: String, state: State}
 
-def edit_text(+key: String, +text: String, +state: State) -> Decision: edit_text_owned(field_owned(key, state), key, text, state)
+def edit_text_predicate(candidate: TextEditCandidate) -> Bool:
+  TextEditCandidate{+key, +text, +state} = candidate
+  field_owned(key, state)
 
-def confirm_text_owned(+owned: Bool, +key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: accept(True{}, Legacy.confirm_text(key, keyboard, composing, control, alt, shift, meta, legacy(state)), state)
+def edit_text_category() -> TextEditCandidate -> Type: Categories.holds(TextEditCandidate, edit_text_predicate)
 
-def confirm_text(+key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: State) -> Decision: confirm_text_owned(field_owned(key, state), key, keyboard, composing, control, alt, shift, meta, state)
+def edit_text_owned(member: Categories.Membership<TextEditCandidate, edit_text_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  TextEditCandidate{+key, +text, +state} = candidate
+  accept(True{}, Legacy.edit_text(key, text, legacy(state)), state)
 
-def edit_toggle_owned(+owned: Bool, +key: String, +enabled: Bool, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: accept(True{}, Legacy.edit_toggle(key, enabled, legacy(state)), state)
+def edit_text_admitted(admission: Maybe<&1, Categories.Membership<TextEditCandidate, edit_text_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: edit_text_owned(member)
 
-def edit_toggle(+key: String, +enabled: Bool, +state: State) -> Decision: edit_toggle_owned(field_owned(key, state), key, enabled, state)
+def edit_text(+key: String, +text: String, +state: State) -> Decision:
+  edit_text_admitted(Categories.admit(TextEditCandidate, edit_text_predicate, TextEditCandidate{key, text, state}), state)
 
-def attach_owned(+owned: Bool, +key: String, +file: Services.SelectedFile, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: accept(True{}, Legacy.attach(key, file, legacy(state)), state)
+type TextConfirmationCandidate is Data:
+  TextConfirmationCandidate{key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, state: State}
 
-def attach(+key: String, +file: Services.SelectedFile, +state: State) -> Decision: attach_owned(field_owned(key, state), key, file, state)
+def confirm_text_predicate(candidate: TextConfirmationCandidate) -> Bool:
+  TextConfirmationCandidate{+key, +keyboard, +composing, +control, +alt, +shift, +meta, +state} = candidate
+  field_owned(key, state)
+
+def confirm_text_category() -> TextConfirmationCandidate -> Type: Categories.holds(TextConfirmationCandidate, confirm_text_predicate)
+
+def confirm_text_owned(member: Categories.Membership<TextConfirmationCandidate, confirm_text_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  TextConfirmationCandidate{+key, +keyboard, +composing, +control, +alt, +shift, +meta, +state} = candidate
+  accept(True{}, Legacy.confirm_text(key, keyboard, composing, control, alt, shift, meta, legacy(state)), state)
+
+def confirm_text_admitted(admission: Maybe<&1, Categories.Membership<TextConfirmationCandidate, confirm_text_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: confirm_text_owned(member)
+
+def confirm_text(+key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: State) -> Decision:
+  confirm_text_admitted(Categories.admit(TextConfirmationCandidate, confirm_text_predicate, TextConfirmationCandidate{key, keyboard, composing, control, alt, shift, meta, state}), state)
+
+type ToggleEditCandidate is Data:
+  ToggleEditCandidate{key: String, enabled: Bool, state: State}
+
+def edit_toggle_predicate(candidate: ToggleEditCandidate) -> Bool:
+  ToggleEditCandidate{+key, +enabled, +state} = candidate
+  field_owned(key, state)
+
+def edit_toggle_category() -> ToggleEditCandidate -> Type: Categories.holds(ToggleEditCandidate, edit_toggle_predicate)
+
+def edit_toggle_owned(member: Categories.Membership<ToggleEditCandidate, edit_toggle_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  ToggleEditCandidate{+key, +enabled, +state} = candidate
+  accept(True{}, Legacy.edit_toggle(key, enabled, legacy(state)), state)
+
+def edit_toggle_admitted(admission: Maybe<&1, Categories.Membership<ToggleEditCandidate, edit_toggle_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: edit_toggle_owned(member)
+
+def edit_toggle(+key: String, +enabled: Bool, +state: State) -> Decision:
+  edit_toggle_admitted(Categories.admit(ToggleEditCandidate, edit_toggle_predicate, ToggleEditCandidate{key, enabled, state}), state)
+
+type AttachmentCandidate is Data:
+  AttachmentCandidate{key: String, file: Services.SelectedFile, state: State}
+
+def attach_predicate(candidate: AttachmentCandidate) -> Bool:
+  AttachmentCandidate{+key, +file, +state} = candidate
+  field_owned(key, state)
+
+def attach_category() -> AttachmentCandidate -> Type: Categories.holds(AttachmentCandidate, attach_predicate)
+
+def attach_owned(member: Categories.Membership<AttachmentCandidate, attach_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  AttachmentCandidate{+key, +file, +state} = candidate
+  accept(True{}, Legacy.attach(key, file, legacy(state)), state)
+
+def attach_admitted(admission: Maybe<&1, Categories.Membership<AttachmentCandidate, attach_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: attach_owned(member)
+
+def attach(+key: String, +file: Services.SelectedFile, +state: State) -> Decision:
+  attach_admitted(Categories.admit(AttachmentCandidate, attach_predicate, AttachmentCandidate{key, file, state}), state)
 
 def place(+key: String, +target: String, +state: State) -> Decision: accept(True{}, Legacy.place(key, target, legacy(state)), state)
 
@@ -780,13 +877,27 @@ def code_sources_fold(observations: +List<CodeObservation.Observation>, decision
       Legacy.Decision{state, effects} = decision
       code_sources_fold(rest, Legacy.append_decision(effects, Legacy.code_source(source, ordinal, text, state)))
 
-def code_sources_if_qualified(qualified: Bool, observations: +List<CodeObservation.Observation>, +state: State) -> Decision:
-  match qualified:
-    case False{}: Decision{state, Nil{}}
-    case True{}: accept(True{}, code_sources_fold(observations, Legacy.Decision{legacy(state), Nil{}}), state)
+type CodeSourcesCandidate is Data:
+  CodeSourcesCandidate{generation: Nat, observations: +List<CodeObservation.Observation>, state: State}
+
+def code_sources_predicate(candidate: CodeSourcesCandidate) -> Bool:
+  CodeSourcesCandidate{+generation, +observations, +state} = candidate
+  code_batch_qualified(generation, observations, state)
+
+def code_sources_category() -> CodeSourcesCandidate -> Type: Categories.holds(CodeSourcesCandidate, code_sources_predicate)
+
+def code_sources_if_qualified(member: Categories.Membership<CodeSourcesCandidate, code_sources_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  CodeSourcesCandidate{+generation, +observations, +state} = candidate
+  accept(True{}, code_sources_fold(observations, Legacy.Decision{legacy(state), Nil{}}), state)
+
+def code_sources_admitted(admission: Maybe<&1, Categories.Membership<CodeSourcesCandidate, code_sources_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: code_sources_if_qualified(member)
 
 def code_sources(+generation: Nat, +observations: +List<CodeObservation.Observation>, +state: State) -> Decision:
-  code_sources_if_qualified(code_batch_qualified(generation, observations, state), observations, state)
+  code_sources_admitted(Categories.admit(CodeSourcesCandidate, code_sources_predicate, CodeSourcesCandidate{generation, observations, state}), state)
 
 def editor_event(+key: String, +event: Editor.EditorEvent, +state: State) -> Decision: accept(True{}, Legacy.editor_event(key, event, legacy(state)), state)
 
@@ -799,20 +910,35 @@ def directory_listed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> D
 def measurements(+observation: F.Observation, +state: State) -> Decision:
   accept(True{}, Legacy.measurements(observation, legacy(state)), state)
 
-def frame_forward_ready(+ready: Bool, +state: State, +frame: Rendered.Frame) -> Decision:
-  match ready:
-    case False{}: Decision{state, Nil{}}
-    case True{}:
-      State{+stored, serial, anchors, lifecycle, displayed} = state
-      match displayed:
-        case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}}, Nil{}}
-        case Some{+value}:
-          Published{world, semantic, scope, basis, old} = value
-          accept(False{}, Legacy.observe_frame(semantic_generation(stored), semantic, frame, stored),
-            State{stored, serial, anchors, lifecycle, Some{value}})
+type ForwardFrameCandidate is Data:
+  ForwardFrameCandidate{state: State, frame: Rendered.Frame}
+
+def forward_frame_predicate(candidate: ForwardFrameCandidate) -> Bool:
+  ForwardFrameCandidate{state, frame} = candidate
+  display_ready(state)
+
+def forward_frame_category() -> ForwardFrameCandidate -> Type: Categories.holds(ForwardFrameCandidate, forward_frame_predicate)
+
+def frame_forward_calculation(+state: State, +frame: Rendered.Frame) -> Decision:
+  State{+stored, serial, anchors, lifecycle, displayed} = state
+  match displayed:
+    case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}}, Nil{}}
+    case Some{+value}:
+      Published{world, semantic, scope, basis, old} = value
+      accept(False{}, Legacy.observe_frame(semantic_generation(stored), semantic, frame, stored),
+        State{stored, serial, anchors, lifecycle, Some{value}})
+
+def frame_forward_ready(member: Categories.Membership<ForwardFrameCandidate, forward_frame_category()>) -> Decision:
+  Categories.Membership{ForwardFrameCandidate{state, frame}, evidence} = member
+  frame_forward_calculation(state, frame)
+
+def frame_forward_admitted(admission: Maybe<&1, Categories.Membership<ForwardFrameCandidate, forward_frame_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: frame_forward_ready(member)
 
 def frame_forward(+state: State, +frame: Rendered.Frame) -> Decision:
-  frame_forward_ready(display_ready(state), state, frame)
+  frame_forward_admitted(Categories.admit(ForwardFrameCandidate, forward_frame_predicate, ForwardFrameCandidate{state, frame}), state)
 
 def frame_capture(+frame: Rendered.Frame, state: State) -> State:
   State{legacy, serial, anchors, lifecycle, displayed} = state
@@ -827,12 +953,38 @@ def frame_owned(+received: Nat, +state: State) -> Bool:
     case None{}: False{}
     case Some{published}: Nat.is_eq(received, displayed_generation(state))
 
-def utility_frame_result(violations: +List<Rendered.Violation>, +frame: Rendered.Frame, state: State) -> Decision:
+def utility_frame_calculation(frame: Rendered.Frame, state: State) -> Decision:
+  Decision{frame_capture(frame, state), Nil{}}
+
+def utility_frame_rejection(state: State) -> Decision:
+  State{legacy, serial, anchors, lifecycle, displayed} = state
+  Decision{State{legacy, serial, anchors, UtilityRejected{"Frontend utility frame does not match its admitted source"}, None{}}, Nil{}}
+
+def frame_violations_empty(violations: +List<Rendered.Violation>) -> Bool:
   match violations:
-    case Nil{}: Decision{frame_capture(frame, state), Nil{}}
-    case other:
-      State{legacy, serial, anchors, lifecycle, displayed} = state
-      Decision{State{legacy, serial, anchors, UtilityRejected{"Frontend utility frame does not match its admitted source"}, None{}}, Nil{}}
+    case Nil{}: True{}
+    case Con{first, rest}: False{}
+
+type UtilityFrameCandidate is Data:
+  UtilityFrameCandidate{world: Content.AllocatedWorld, frame: Rendered.Frame, state: State}
+
+def utility_frame_predicate(candidate: UtilityFrameCandidate) -> Bool:
+  UtilityFrameCandidate{world, frame, state} = candidate
+  frame_violations_empty(SourceFrame.check(world, frame))
+
+def utility_frame_category() -> UtilityFrameCandidate -> Type: Categories.holds(UtilityFrameCandidate, utility_frame_predicate)
+
+def utility_frame_owned(member: Categories.Membership<UtilityFrameCandidate, utility_frame_category()>) -> Decision:
+  Categories.Membership{UtilityFrameCandidate{world, frame, state}, evidence} = member
+  utility_frame_calculation(frame, state)
+
+def utility_frame_admitted(admission: Maybe<&1, Categories.Membership<UtilityFrameCandidate, utility_frame_category()>>, state: State) -> Decision:
+  match admission:
+    case Some{member}: utility_frame_owned(member)
+    case None{}: utility_frame_rejection(state)
+
+def utility_frame_result(+world: Content.AllocatedWorld, +frame: Rendered.Frame, +state: State) -> Decision:
+  utility_frame_admitted(Categories.admit(UtilityFrameCandidate, utility_frame_predicate, UtilityFrameCandidate{world, frame, state}), state)
 
 def correlated_frame_owned(utility: Bool, +frame: Rendered.Frame, +state: State) -> Decision:
   match utility:
@@ -842,15 +994,32 @@ def correlated_frame_owned(utility: Bool, +frame: Rendered.Frame, +state: State)
       match displayed:
         case None{}: Decision{state, Nil{}}
         case Some{Published{world, semantic, scope, basis, old}}:
-          utility_frame_result(SourceFrame.check(world, frame), frame, state)
+          utility_frame_result(world, frame, state)
 
 def correlated_frame(+frame: Rendered.Frame, +state: State) -> Decision:
   correlated_frame_owned(utility_owned(state), frame, state)
 
-def received_frame(+owned: Bool, +frame: Rendered.Frame, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: correlated_frame(frame, state)
+type FrameCandidate is Data:
+  FrameCandidate{received: Nat, frame: Rendered.Frame, state: State}
+
+def receive_frame_predicate(candidate: FrameCandidate) -> Bool:
+  FrameCandidate{+received, +frame, +state} = candidate
+  frame_owned(received, state)
+
+def receive_frame_category() -> FrameCandidate -> Type: Categories.holds(FrameCandidate, receive_frame_predicate)
+
+def received_frame(member: Categories.Membership<FrameCandidate, receive_frame_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  FrameCandidate{+received, +frame, +state} = candidate
+  correlated_frame(frame, state)
+
+def receive_frame_admitted(admission: Maybe<&1, Categories.Membership<FrameCandidate, receive_frame_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: received_frame(member)
+
+def receive_frame(+received: Nat, +frame: Rendered.Frame, +state: State) -> Decision:
+  receive_frame_admitted(Categories.admit(FrameCandidate, receive_frame_predicate, FrameCandidate{received, frame, state}), state)
 
 def rich_delegates(node: Source.Node, +owner: String) -> Bool:
   match node:
@@ -899,21 +1068,48 @@ def native_observation_owned(+generation: Nat, +owner: String, +identity: String
       Nat.is_eq(generation, published) && source_delegates(source, owner) &&
       Rendered.read_only(InterfaceView.find_node(InterfaceView.active_nodes(semantic), owner)) && native_frame_owned(frame, semantic, owner, identity)
 
-def native_focus_if_owned(owned: Bool, owner: String, identity: String, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: accept(False{}, Legacy.native(Web.PlatformInput{Platform.ContentFocusObserved{owner, identity}}, legacy(state)), state)
+type NativeObservationCandidate is Data:
+  NativeObservationCandidate{generation: Nat, owner: String, identity: String, state: State}
+
+def native_focus_observed_predicate(candidate: NativeObservationCandidate) -> Bool:
+  NativeObservationCandidate{+generation, +owner, +identity, +state} = candidate
+  native_observation_owned(generation, owner, identity, state)
+
+def native_focus_observed_category() -> NativeObservationCandidate -> Type: Categories.holds(NativeObservationCandidate, native_focus_observed_predicate)
+
+def native_focus_if_owned(member: Categories.Membership<NativeObservationCandidate, native_focus_observed_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  NativeObservationCandidate{+generation, +owner, +identity, +state} = candidate
+  accept(False{}, Legacy.native(Web.PlatformInput{Platform.ContentFocusObserved{owner, identity}}, legacy(state)), state)
+
+def native_focus_observed_admitted(admission: Maybe<&1, Categories.Membership<NativeObservationCandidate, native_focus_observed_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: native_focus_if_owned(member)
 
 def native_focus_observed(+generation: Nat, +owner: String, +identity: String, +state: State) -> Decision:
-  native_focus_if_owned(native_observation_owned(generation, owner, identity, state), owner, identity, state)
+  native_focus_observed_admitted(Categories.admit(NativeObservationCandidate, native_focus_observed_predicate, NativeObservationCandidate{generation, owner, identity, state}), state)
 
-def auxiliary_focus_owned(utility: Bool, input: Web.Input, +state: State) -> Decision:
-  match utility:
-    case True{}: Decision{state, Nil{}}
-    case False{}: accept(False{}, Legacy.native(input, legacy(state)), state)
+type AuxiliaryFocusCandidate is Data:
+  AuxiliaryFocusCandidate{input: Web.Input, state: State}
+
+def auxiliary_focus_predicate(candidate: AuxiliaryFocusCandidate) -> Bool:
+  AuxiliaryFocusCandidate{input, state} = candidate
+  Bool.not(auxiliary_owned(state))
+
+def auxiliary_focus_category() -> AuxiliaryFocusCandidate -> Type: Categories.holds(AuxiliaryFocusCandidate, auxiliary_focus_predicate)
+
+def auxiliary_focus_owned(member: Categories.Membership<AuxiliaryFocusCandidate, auxiliary_focus_category()>) -> Decision:
+  Categories.Membership{AuxiliaryFocusCandidate{input, +state}, evidence} = member
+  accept(False{}, Legacy.native(input, legacy(state)), state)
+
+def auxiliary_focus_admitted(admission: Maybe<&1, Categories.Membership<AuxiliaryFocusCandidate, auxiliary_focus_category()>>, state: State) -> Decision:
+  match admission:
+    case Some{member}: auxiliary_focus_owned(member)
+    case None{}: Decision{state, Nil{}}
 
 def auxiliary_focus(+input: Web.Input, +state: State) -> Decision:
-  auxiliary_focus_owned(auxiliary_owned(state), input, state)
+  auxiliary_focus_admitted(Categories.admit(AuxiliaryFocusCandidate, auxiliary_focus_predicate, AuxiliaryFocusCandidate{input, state}), state)
 
 def step(+input: Legacy.Input, +state: State) -> Decision:
   match input:
@@ -923,7 +1119,7 @@ def step(+input: Legacy.Input, +state: State) -> Decision:
     case Legacy.Native{Web.NativeFocusObserved{generation, owner, identity}}: native_focus_observed(generation, owner, identity, state)
     case Legacy.Native{Web.PlatformInput{Platform.ContentFocusObserved{owner, identity}}}: Decision{state, Nil{}}
     case Legacy.Native{Web.FrameObserved{generation, frame}}:
-      received_frame(frame_owned(generation, state), frame, state)
+      receive_frame(generation, frame, state)
     case Legacy.Native{Web.PlatformInput{Platform.FocusObserved{identity}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusObserved{identity}}, state)
     case Legacy.Native{Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}, state)
     case Legacy.Native{Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}}: auxiliary_focus(Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}, state)
@@ -934,29 +1130,52 @@ def outside_result(+result: Legacy.OutsideDecision, +state: State) -> OutsideDec
   Legacy.OutsideDecision{handled, decision} = result
   OutsideDecision{handled, accept(handled, decision, state)}
 
-def outside_owned(utility: Bool, +identity: String, +state: State) -> OutsideDecision:
-  match utility:
-    case True{}: OutsideDecision{False{}, Decision{state, Nil{}}}
-    case False{}: outside_result(legacy_outside(identity, legacy(state)), state)
+type OutsideCandidate is Data:
+  OutsideCandidate{identity: String, state: State}
+
+def outside_predicate(candidate: OutsideCandidate) -> Bool:
+  OutsideCandidate{identity, state} = candidate
+  Bool.not(auxiliary_owned(state))
+
+def outside_category() -> OutsideCandidate -> Type: Categories.holds(OutsideCandidate, outside_predicate)
+
+def outside_owned(member: Categories.Membership<OutsideCandidate, outside_category()>) -> OutsideDecision:
+  Categories.Membership{OutsideCandidate{identity, +state}, evidence} = member
+  outside_result(legacy_outside(identity, legacy(state)), state)
+
+def outside_admitted(admission: Maybe<&1, Categories.Membership<OutsideCandidate, outside_category()>>, state: State) -> OutsideDecision:
+  match admission:
+    case Some{member}: outside_owned(member)
+    case None{}: OutsideDecision{False{}, Decision{state, Nil{}}}
 
 def outside_event(+identity: String, +state: State) -> OutsideDecision:
-  outside_owned(auxiliary_owned(state), identity, state)
+  outside_admitted(Categories.admit(OutsideCandidate, outside_predicate, OutsideCandidate{identity, state}), state)
 
 def observed_eligible(found: Maybe<&2, Rendered.Element>) -> Bool:
   match found:
     case None{}: False{}
     case Some{Rendered.Element{key, visible, enabled, tab_stop, keyboard, scroll, bounds, hit, +paint_bounds}}: enabled && (visible || scroll)
 
-def published_order_eligible(eligible: Bool, key: String, tail: +List<String>) -> +List<String>:
-  match eligible:
-    case False{}: tail
-    case True{}: key <> tail
+def published_order_predicate(+basis: NativeFields.Basis, +elements: +List<Rendered.Element>, +semantic: SurfaceTypes.Surface, +native_focus: +List<Rendered.NativeFocus>, +key: String) -> Bool:
+  (NativeFields.control_owned(basis, key) || Rendered.native_owned(native_focus, InterfaceView.active_nodes(semantic), elements, key)) && observed_eligible(Rendered.find_element(elements, key))
+
+def published_order_category(+basis: NativeFields.Basis, +elements: +List<Rendered.Element>, +semantic: SurfaceTypes.Surface, +native_focus: +List<Rendered.NativeFocus>) -> String -> Type:
+  Categories.holds(String, key => published_order_predicate(basis, elements, semantic, native_focus, key))
+
+def published_order_eligible(-basis: NativeFields.Basis, -elements: +List<Rendered.Element>, -semantic: SurfaceTypes.Surface, -native_focus: +List<Rendered.NativeFocus>, member: Categories.Membership<String, published_order_category(basis, elements, semantic, native_focus)>, tail: +List<String>) -> +List<String>:
+  Categories.Membership{key, evidence} = member
+  key <> tail
+
+def published_order_admitted(-basis: NativeFields.Basis, -elements: +List<Rendered.Element>, -semantic: SurfaceTypes.Surface, -native_focus: +List<Rendered.NativeFocus>, admission: Maybe<&1, Categories.Membership<String, published_order_category(basis, elements, semantic, native_focus)>>, tail: +List<String>) -> +List<String>:
+  match admission:
+    case None{}: tail
+    case Some{member}: published_order_eligible(basis, elements, semantic, native_focus, member, tail)
 
 def published_order(order: +List<String>, +basis: NativeFields.Basis, +elements: +List<Rendered.Element>, +semantic: SurfaceTypes.Surface, +native_focus: +List<Rendered.NativeFocus>) -> +List<String>:
   match order:
     case Nil{}: Nil{}
     case Con{+key, rest}:
-      published_order_eligible((NativeFields.control_owned(basis, key) || Rendered.native_owned(native_focus, InterfaceView.active_nodes(semantic), elements, key)) && observed_eligible(Rendered.find_element(elements, key)), key, published_order(rest, basis, elements, semantic, native_focus))
+      published_order_admitted(basis, elements, semantic, native_focus, Categories.admit(String, candidate => published_order_predicate(basis, elements, semantic, native_focus, candidate), key), published_order(rest, basis, elements, semantic, native_focus))
 
 def native_target_match(hit: Bool, owner: String, identity: String, fallback: Focus.Target) -> Focus.Target:
   match hit:
@@ -969,10 +1188,20 @@ def native_target(entries: +List<Rendered.NativeFocus>, +key: String) -> Focus.T
     case Con{Rendered.NativeFocus{+identity, owner}, rest}:
       native_target_match(String.eq(identity, key), owner, identity, native_target(rest, key))
 
-def admitted_native_focus(valid: Bool, entries: +List<Rendered.NativeFocus>) -> +List<Rendered.NativeFocus>:
-  match valid:
-    case True{}: entries
-    case False{}: Nil{}
+def native_focus_predicate(semantic: SurfaceTypes.Surface, elements: +List<Rendered.Element>, entries: +List<Rendered.NativeFocus>) -> Bool:
+  Rendered.native_valid(entries, InterfaceView.active_nodes(semantic), elements)
+
+def native_focus_category(semantic: SurfaceTypes.Surface, elements: +List<Rendered.Element>) -> +List<Rendered.NativeFocus> -> Type:
+  Categories.holds(+List<Rendered.NativeFocus>, entries => native_focus_predicate(semantic, elements, entries))
+
+def admitted_native_focus(-semantic: SurfaceTypes.Surface, -elements: +List<Rendered.Element>, member: Categories.Membership<+List<Rendered.NativeFocus>, native_focus_category(semantic, elements)>) -> +List<Rendered.NativeFocus>:
+  Categories.Membership{entries, evidence} = member
+  entries
+
+def native_focus_admitted(-semantic: SurfaceTypes.Surface, -elements: +List<Rendered.Element>, admission: Maybe<&1, Categories.Membership<+List<Rendered.NativeFocus>, native_focus_category(semantic, elements)>>) -> +List<Rendered.NativeFocus>:
+  match admission:
+    case None{}: Nil{}
+    case Some{member}: admitted_native_focus(semantic, elements, member)
 
 def published_target(found: Maybe<&2, String>, native_focus: +List<Rendered.NativeFocus>) -> Maybe<&2, Focus.Target>:
   match found:
@@ -984,7 +1213,7 @@ def published_cycle(scope: Focus.Scope, basis: NativeFields.Basis, +semantic: Su
     case None{}: None{}
     case Some{Rendered.Frame{viewport, +elements, focused, +order, +native_focus}}:
       published_target(Focus.cycle(scope, published_order(order, basis, elements, semantic, native_focus), focused, reverse),
-        admitted_native_focus(Rendered.native_valid(native_focus, InterfaceView.active_nodes(semantic), elements), native_focus))
+        native_focus_admitted(semantic, elements, Categories.admit(+List<Rendered.NativeFocus>, entries => native_focus_predicate(semantic, elements, entries), native_focus)))
 
 def published_escape(found: Maybe<&2, Legacy.DismissTarget>, +state: State) -> KeyResult:
   match found:
@@ -1011,7 +1240,7 @@ def key_captured(+key: String, +shift: Bool, +state: State) -> KeyResult:
     case Some{Published{world, semantic, scope, basis, frame}}: published_key(key, shift, scope, basis, semantic, frame, state)
 
 def key_event(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame, +state: State) -> KeyResult:
-  key_captured(key, shift, decision_state(received_frame(frame_owned(received, state), frame, state)))
+  key_captured(key, shift, decision_state(receive_frame(received, frame, state)))
 
 def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface, round: Nat) -> Decision:
   match status:
@@ -1043,11 +1272,6 @@ def measured_pending(+receipts: +List<String>, +state: State) -> Decision:
       utility_receipt(World.receipt_status(next), purpose, next, (round + 1n : Nat), glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed})
     case other: Decision{other, Nil{}}
 
-def measured_current(+owned: Bool, +receipts: +List<String>, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: measured_pending(receipts, state)
-
 def measurement_owned(ticket: MeasurementTicket, state: State) -> Bool:
   MeasurementTicket{generation, received_round} = ticket
   State{legacy, serial, anchors, lifecycle, displayed} = state
@@ -1056,16 +1280,50 @@ def measurement_owned(ticket: MeasurementTicket, state: State) -> Bool:
     case UtilityMeasuring{purpose, engine, round, glyph_only}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) && Nat.is_eq(received_round, round)
     case _: False{}
 
-def measurement_failed(+owned: Bool, +reason: String, +state: State) -> Decision:
-  match owned:
-    case False{}: Decision{state, Nil{}}
-    case True{}: utility_measurement_failure(reason, state)
+type MeasurementCandidate is Data:
+  MeasurementCandidate{ticket: MeasurementTicket, receipts: +List<String>, state: State}
 
-def physical_measurement_failed(+ticket: MeasurementTicket, +reason: String, +state: State) -> Decision:
-  measurement_failed(measurement_owned(ticket, state), reason, state)
+def physical_measured_predicate(candidate: MeasurementCandidate) -> Bool:
+  MeasurementCandidate{+ticket, +receipts, +state} = candidate
+  measurement_owned(ticket, state)
+
+def physical_measured_category() -> MeasurementCandidate -> Type: Categories.holds(MeasurementCandidate, physical_measured_predicate)
+
+def measured_current(member: Categories.Membership<MeasurementCandidate, physical_measured_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  MeasurementCandidate{+ticket, +receipts, +state} = candidate
+  measured_pending(receipts, state)
+
+def physical_measured_admitted(admission: Maybe<&1, Categories.Membership<MeasurementCandidate, physical_measured_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: measured_current(member)
 
 def physical_measured(+ticket: MeasurementTicket, +receipts: +List<String>, +state: State) -> Decision:
-  measured_current(measurement_owned(ticket, state), receipts, state)
+  physical_measured_admitted(Categories.admit(MeasurementCandidate, physical_measured_predicate, MeasurementCandidate{ticket, receipts, state}), state)
+
+
+type MeasurementFailureCandidate is Data:
+  MeasurementFailureCandidate{ticket: MeasurementTicket, reason: String, state: State}
+
+def physical_measurement_failed_predicate(candidate: MeasurementFailureCandidate) -> Bool:
+  MeasurementFailureCandidate{+ticket, +reason, +state} = candidate
+  measurement_owned(ticket, state)
+
+def physical_measurement_failed_category() -> MeasurementFailureCandidate -> Type: Categories.holds(MeasurementFailureCandidate, physical_measurement_failed_predicate)
+
+def measurement_failed(member: Categories.Membership<MeasurementFailureCandidate, physical_measurement_failed_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  MeasurementFailureCandidate{+ticket, +reason, +state} = candidate
+  utility_measurement_failure(reason, state)
+
+def physical_measurement_failed_admitted(admission: Maybe<&1, Categories.Membership<MeasurementFailureCandidate, physical_measurement_failed_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: measurement_failed(member)
+
+def physical_measurement_failed(+ticket: MeasurementTicket, +reason: String, +state: State) -> Decision:
+  physical_measurement_failed_admitted(Categories.admit(MeasurementFailureCandidate, physical_measurement_failed_predicate, MeasurementFailureCandidate{ticket, reason, state}), state)
 
 def capacity_index(capacity: View.Capacity) -> Nat:
   match capacity:

@@ -212,15 +212,21 @@ type Button is Data:
     face: Face, behavior: Behavior, geometry: Geometry, placement: Placement,
     feedback: Feedback}
 
+type FormInput is Data:
+  FormInput{meaning: SurfaceTypes.Meaning, name: String, widget: Widget,
+    label: LabelPlacement, availability: View.Availability}
+
+type MovableControl is Data:
+  MovableControl{destinations: +List<SurfaceTypes.Placement>, face: View.CardFace, name: String, handle: Icon,
+    geometry: Geometry}
+
 type Representation is Data:
   NoControl{}
   Action{button: Button}
-  Input{binding: SurfaceTypes.Meaning, name: String, widget: Widget,
-    label: LabelPlacement, availability: View.Availability}
+  Input{input: FormInput}
   # The grip opens the same destination list for keyboard users that supplies
   # pointer dragging. Each destination retains its own product command/status.
-  Movable{destinations: +List<SurfaceTypes.Placement>, face: View.CardFace, name: String, handle: Icon,
-    geometry: Geometry, help: Help}
+  Movable{control: MovableControl}
 
 def panel_header(representation: Representation) -> Bool:
   match representation:
@@ -931,7 +937,7 @@ def label_placement(widget: Widget) -> LabelPlacement:
     case _: AboveInput{}
 
 def make_input(meaning: SurfaceTypes.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
-  Input{meaning, name, widget, label_placement(widget), availability}
+  Input{FormInput{meaning, name, widget, label_placement(widget), availability}}
 
 def field_availability(entry: Forms.Entry) -> View.Availability:
   match entry:
@@ -1137,8 +1143,7 @@ def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: Strin
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, InterfaceView.availability(enabled))
     case SurfaceTypes.CardArchive{count}: NoControl{}
     case SurfaceTypes.MovableCard{destinations, face}:
-      Movable{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
-        Tooltip{"Move card", 300n, True{}, True{}, False{}}}
+      Movable{MovableControl{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}}}
     case _: NoControl{}
 
 def layout_content_area(value: ContentLayout) -> Enclosure.ContentArea:

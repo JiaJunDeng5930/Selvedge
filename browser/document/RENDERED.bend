@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/presentation/MODEL.bend as View
@@ -326,10 +327,27 @@ def accepted(violations: +List<Violation>, generation: Nat, frame: Frame) -> Sta
     case Nil{}: Realized{generation, frame}
     case other: Unmet{generation, frame, other}
 
-def receive(owned: Bool, generation: Nat, surface: SurfaceTypes.Surface, +frame: Frame, previous: State) -> State:
-  match owned:
-    case False{}: previous
-    case True{}: accepted(violations(surface, frame), generation, frame)
+type FrameReceipt is Data:
+  FrameReceipt{current: Nat, received: Nat, surface: SurfaceTypes.Surface, frame: Frame}
 
-def observe(+current: Nat, received: Nat, surface: SurfaceTypes.Surface, frame: Frame, previous: State) -> State:
-  receive(Nat.is_eq(current, received), current, surface, frame, previous)
+def frame_correlated(receipt: FrameReceipt) -> Bool:
+  FrameReceipt{current, received, surface, frame} = receipt
+  Nat.is_eq(current, received)
+
+def correlated_receipt() -> FrameReceipt -> Type:
+  Categories.holds(FrameReceipt, frame_correlated)
+
+def received_calculation(generation: Nat, +surface: SurfaceTypes.Surface, +frame: Frame) -> State:
+  accepted(violations(surface, frame), generation, frame)
+
+def receive(member: Categories.Membership<FrameReceipt, correlated_receipt()>) -> State:
+  Categories.Membership{FrameReceipt{current, received, surface, frame}, evidence} = member
+  received_calculation(current, surface, frame)
+
+def received(result: Maybe<&1, Categories.Membership<FrameReceipt, correlated_receipt()>>, previous: State) -> State:
+  match result:
+    case None{}: previous
+    case Some{member}: receive(member)
+
+def observe(+current: Nat, received_generation: Nat, surface: SurfaceTypes.Surface, frame: Frame, previous: State) -> State:
+  received(Categories.admit(FrameReceipt, frame_correlated, FrameReceipt{current, received_generation, surface, frame}), previous)

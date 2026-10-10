@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
@@ -15,6 +16,31 @@ import ../execution/notifications.bend as N
 import ../transport/presentation.bend as View
 import ../../bendlib/json.bend as J
 import ../CONTRACT.bend as AContract
+
+def checked_calculation_checked(+reference: D.PluginRef, +expected: D.PluginRef, +outcome: D.HookOutcome, +call: D.Call, +pending: +List<D.PluginRef>, accepted: Bool,
+  observed: {Hooks.checked_accepts(Hooks.CheckedRequest{reference, expected, outcome, call, pending}) == accepted : Bool}) ->
+  {Hooks.checked_admitted(Categories.admit_checked(Hooks.CheckedRequest, Hooks.checked_accepts, Hooks.CheckedRequest{reference, expected, outcome, call, pending}, accepted, observed), Hooks.CheckedRequest{reference, expected, outcome, call, pending}) ==
+    Hooks.checked_calculation(accepted, outcome, call, pending) : Hooks.Progress}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+def checked_calculation_semantics(+reference: D.PluginRef, +expected: D.PluginRef, +outcome: D.HookOutcome, +call: D.Call, +pending: +List<D.PluginRef>) ->
+  {Hooks.checked(reference, expected, outcome, call, pending) == Hooks.checked_calculation(Hooks.checked_accepts(Hooks.CheckedRequest{reference, expected, outcome, call, pending}), outcome, call, pending) : Hooks.Progress}:
+  checked_calculation_checked(reference, expected, outcome, call, pending, Hooks.checked_accepts(Hooks.CheckedRequest{reference, expected, outcome, call, pending}), {==})
+
+def record_matching_calculation_checked(+task_id: Nat, +owner: Nat, +call_id: String, +id: String, +state: Hooks.Progress, +reference: D.PluginRef, +outcome: D.HookOutcome, accepted: Bool,
+  observed: {Hooks.record_matching_accepts(Hooks.RecordMatchingRequest{task_id, owner, call_id, id, state, reference, outcome}) == accepted : Bool}) ->
+  {Hooks.record_matching_admitted(Categories.admit_checked(Hooks.RecordMatchingRequest, Hooks.record_matching_accepts, Hooks.RecordMatchingRequest{task_id, owner, call_id, id, state, reference, outcome}, accepted, observed), Hooks.RecordMatchingRequest{task_id, owner, call_id, id, state, reference, outcome}) ==
+    Hooks.record_matching_calculation(accepted, state, reference, outcome) : Hooks.Progress}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+def record_matching_calculation_semantics(+task_id: Nat, +owner: Nat, +call_id: String, +id: String, +state: Hooks.Progress, +reference: D.PluginRef, +outcome: D.HookOutcome) ->
+  {Hooks.record_matching(task_id, owner, call_id, id, state, reference, outcome) == Hooks.record_matching_calculation(Hooks.record_matching_accepts(Hooks.RecordMatchingRequest{task_id, owner, call_id, id, state, reference, outcome}), state, reference, outcome) : Hooks.Progress}:
+  record_matching_calculation_checked(task_id, owner, call_id, id, state, reference, outcome, Hooks.record_matching_accepts(Hooks.RecordMatchingRequest{task_id, owner, call_id, id, state, reference, outcome}), {==})
+
 
 def human_waits(call:D.Call, remaining:+List<D.Attempt>, task:D.Task, world:M.World()) ->
   {P.decision_effects(P.approval_request(D.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect()>}:
@@ -57,12 +83,16 @@ def Laws.hook_failure(reason, call, pending):
   {==}
 
 def Laws.hook_foreign_owner(owner, other, id, plugin, outcome, pending, state, different):
-  Equal.cong(Bool, Hooks.Progress,
-    (same => Hooks.record_matching(same && String.eq(id, id), state, plugin, outcome)),
-    Nat.is_eq(other, owner), False{}, different)
+  Equal.trans(Hooks.Progress,
+    Hooks.record_matching(other, owner, id, id, state, plugin, outcome),
+    Hooks.record_matching_calculation(Nat.is_eq(other, owner) && String.eq(id, id), state, plugin, outcome), state,
+    record_matching_calculation_semantics(other, owner, id, id, state, plugin, outcome),
+    Equal.cong(Bool, Hooks.Progress,
+      (same => Hooks.record_matching_calculation(same && String.eq(id, id), state, plugin, outcome)),
+      Nat.is_eq(other, owner), False{}, different))
 
 def Laws.hook_record_order(expected, actual, call, pending, outcome):
-  {==}
+  checked_calculation_semantics(actual, expected, outcome, call, pending)
 
 def Laws.event_kind_roundtrip(kind):
   match kind:

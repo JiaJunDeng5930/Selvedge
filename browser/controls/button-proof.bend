@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
 import ./BUTTONS.bend as Buttons
 import ./PROGRAM.bend as Controls
@@ -16,7 +17,7 @@ def construction_evidence(+key: UIIdentity.Key, +visual: Design.Style, +button: 
 def Buttons.construction_evidence(): construction_evidence
 
 def Buttons.construct():
-  +key => +visual => +button => Buttons.Membership{Buttons.Observation{key, visual, button, Buttons.source(key, visual, button)}, Buttons.construction_evidence(key, visual, button)}
+  +key => +visual => +button => Categories.Membership{Buttons.Observation{key, visual, button, Buttons.source(key, visual, button)}, Buttons.construction_evidence(key, visual, button)}
 
 def icon_production(+key: UIIdentity.Key, +visual: Design.Style, +input: InteractionTypes.Input, +availability: View.Availability, +name: String, +behavior: Controls.Behavior, +geometry: Controls.Geometry, +placement: Controls.Placement, +feedback: Controls.Feedback, +glyph: Controls.Icon) -> Buttons.icon(Buttons.Observation{key, visual, Controls.Button{input, availability, name, Controls.IconFace{glyph}, behavior, geometry, placement, feedback}, Buttons.source(key, visual, Controls.Button{input, availability, name, Controls.IconFace{glyph}, behavior, geometry, placement, feedback})}):
   Design.Style{font, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual

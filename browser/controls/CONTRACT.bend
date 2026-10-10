@@ -995,8 +995,8 @@ def binding(representation: Controls.Representation) -> SurfaceTypes.Meaning:
     case Controls.NoControl{}: SurfaceTypes.Region{}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       SurfaceTypes.Activate{input, availability}
-    case Controls.Input{meaning, name, widget, label, availability}: meaning
-    case Controls.Movable{destinations, face, name, handle, geometry, help}: SurfaceTypes.MovableCard{destinations, face}
+    case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: meaning
+    case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: SurfaceTypes.MovableCard{destinations, face}
 
 type ContextControlRequirements is Type:
   ContextControlRequirements{
@@ -1305,18 +1305,18 @@ type FormInputRequirements is Type:
     Some{User.WriteCard{Board.Patch{None{}, None{}, None{}, None{}, None{}, None{}, Some{values}, None{}}}} : Maybe<&2, User.Edit>},
     labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:SurfaceTypes.Role -> @context:Controls.Context ->
       {Controls.represent(key, SurfaceTypes.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label, role, context) ==
-          Controls.Input{SurfaceTypes.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
-            Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})} : Controls.Representation},
+          Controls.Input{Controls.FormInput{SurfaceTypes.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
+            Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})}} : Controls.Representation},
     labels_observation: @values:+List<String> ->
       {Fields.observed(Forms.TextsValue{values}) == Fields.joined(values) : String},
     assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:SurfaceTypes.Role -> @context:Controls.Context ->
       {Controls.represent(key, SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
-          Controls.Input{SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
-            Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
+          Controls.Input{Controls.FormInput{SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
+            Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})}} : Controls.Representation},
     assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:SurfaceTypes.Role -> @context:Controls.Context ->
       {Controls.represent(key, SurfaceTypes.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
-          Controls.Input{SurfaceTypes.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
-            Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
+          Controls.Input{Controls.FormInput{SurfaceTypes.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
+            Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})}} : Controls.Representation},
     assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<SurfaceTypes.Node> -> @enabled:Bool ->
       {Browser.toggle_gesture(Some{SurfaceTypes.Node{key, semantic, label, role,
           SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==

@@ -10,6 +10,7 @@ import { compiler } from '../scripts/toolchain.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const imports = `import Base
 import ./PROOF.bend as ProductionProof
+import ./bendlib/categories.bend as Categories
 import ./browser/controls/BUTTONS.bend as Buttons
 import ./browser/controls/PROGRAM.bend as Controls
 import ./browser/document/SOURCE.bend as Source
@@ -64,7 +65,7 @@ function accepted(result) {
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
-// The source entry deliberately leaves five production-provider laws pending.
+// The source entry leaves five button and four imported control-provider laws pending.
 // Any other diagnostic would invalidate the type-correct mutation premise.
 function sourceTyped(result, source) {
   assert.equal(result.error, undefined);
@@ -72,20 +73,20 @@ function sourceTyped(result, source) {
   assert.deepEqual([...source.matchAll(/^law (\w+):/gm)].map(match => match[1]),
     ['construction_evidence', 'icon_evidence', 'choice_evidence', 'picker_evidence', 'construct']);
   const diagnostic = (result.stdout + result.stderr).replace(/bend [\d.]+ is available: run bend update\n?$/, '');
-  assert.equal(diagnostic, 'SOME PROOFS FAIL\nError: 5 TODOs found.\nThe code is incomplete, and not a valid proof yet.\n');
+  assert.equal(diagnostic, 'SOME PROOFS FAIL\nError: 9 TODOs found.\nThe code is incomplete, and not a valid proof yet.\n');
 }
 
 const positive = `${syntax}
 
-def apply(-A: Buttons.Observation -> Type, -B: Buttons.Observation -> Type, inclusion: Buttons.Inclusion<Buttons.Observation, A, B>, observation: Buttons.Observation, evidence: A(observation)) -> B(observation):
-  Buttons.Inclusion{derive} = inclusion
+def apply(-A: Buttons.Observation -> Type, -B: Buttons.Observation -> Type, inclusion: Categories.Inclusion<Buttons.Observation, A, B>, observation: Buttons.Observation, evidence: A(observation)) -> B(observation):
+  Categories.Inclusion{derive} = inclusion
   derive(observation, evidence)
 
 def consume(-category: Buttons.Observation -> Type, observation: Buttons.Observation, evidence: category(observation)) -> Bool:
   True{}
 
-def consume_constructed(-category: Buttons.Observation -> Type, inclusion: Buttons.Inclusion<Buttons.Observation, Buttons.authored, category>, package: Buttons.Membership<Buttons.Observation, Buttons.authored>) -> Bool:
-  Buttons.Membership{+observation, evidence} = package
+def consume_constructed(-category: Buttons.Observation -> Type, inclusion: Categories.Inclusion<Buttons.Observation, Buttons.authored, category>, package: Categories.Membership<Buttons.Observation, Buttons.authored>) -> Bool:
+  Categories.Membership{+observation, evidence} = package
   consume(category, observation, apply(Buttons.authored, category, inclusion, observation, evidence))
 
 def client_key(observation: Buttons.Observation) -> Type:
@@ -98,16 +99,16 @@ def observation(+face: Controls.Face) -> Buttons.Observation:
 def main() -> Bool:
   checked_0 = consume_constructed(Buttons.native, Buttons.authored_native(), Buttons.construct(key(), visual(), button(Controls.SingleLineFace{"Run"})))
   checked_1 = consume_constructed(Buttons.available, Buttons.authored_available(), Buttons.construct(key(), visual(), button(Controls.SingleLineFace{"Run"})))
-  checked_2 = consume_constructed(Buttons.named, Buttons.inclusion_compose(Buttons.Observation, Buttons.authored, Buttons.authored, Buttons.named, Buttons.inclusion_identity(Buttons.Observation, Buttons.authored), Buttons.authored_named()), Buttons.construct(key(), visual(), button(Controls.SingleLineFace{"Run"})))
+  checked_2 = consume_constructed(Buttons.named, Categories.inclusion_compose(Buttons.Observation, Buttons.authored, Buttons.authored, Buttons.named, Categories.inclusion_identity(Buttons.Observation, Buttons.authored), Buttons.authored_named()), Buttons.construct(key(), visual(), button(Controls.SingleLineFace{"Run"})))
   checked_3 = consume(Buttons.centered, observation(Controls.IconFace{Controls.ArrowUp{}}), apply(Buttons.icon, Buttons.centered, Buttons.icon_centered(), observation(Controls.IconFace{Controls.ArrowUp{}}), Buttons.icon_evidence(key(), visual(), button(Controls.IconFace{Controls.ArrowUp{}}), Controls.ArrowUp{}, {==})))
   checked_4 = consume(Buttons.icon_help, observation(Controls.IconFace{Controls.ArrowUp{}}), apply(Buttons.icon, Buttons.icon_help, Buttons.icon_help_inclusion(), observation(Controls.IconFace{Controls.ArrowUp{}}), Buttons.icon_evidence(key(), visual(), button(Controls.IconFace{Controls.ArrowUp{}}), Controls.ArrowUp{}, {==})))
-  checked_5 = consume(Buttons.native, observation(Controls.IconFace{Controls.ArrowUp{}}), apply(Buttons.icon, Buttons.native, Buttons.inclusion_compose(Buttons.Observation, Buttons.icon, Buttons.authored, Buttons.native, Buttons.icon_authored(), Buttons.authored_native()), observation(Controls.IconFace{Controls.ArrowUp{}}), Buttons.icon_evidence(key(), visual(), button(Controls.IconFace{Controls.ArrowUp{}}), Controls.ArrowUp{}, {==})))
+  checked_5 = consume(Buttons.native, observation(Controls.IconFace{Controls.ArrowUp{}}), apply(Buttons.icon, Buttons.native, Categories.inclusion_compose(Buttons.Observation, Buttons.icon, Buttons.authored, Buttons.native, Buttons.icon_authored(), Buttons.authored_native()), observation(Controls.IconFace{Controls.ArrowUp{}}), Buttons.icon_evidence(key(), visual(), button(Controls.IconFace{Controls.ArrowUp{}}), Controls.ArrowUp{}, {==})))
   checked_6 = consume(Buttons.leading, observation(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), apply(Buttons.choice, Buttons.leading, Buttons.choice_leading(), observation(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), Buttons.choice_evidence(key(), visual(), button(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), "Run", None{}, None{}, False{}, {==})))
-  checked_7 = consume(Buttons.native, observation(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), apply(Buttons.choice, Buttons.native, Buttons.inclusion_compose(Buttons.Observation, Buttons.choice, Buttons.authored, Buttons.native, Buttons.choice_authored(), Buttons.authored_native()), observation(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), Buttons.choice_evidence(key(), visual(), button(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), "Run", None{}, None{}, False{}, {==})))
+  checked_7 = consume(Buttons.native, observation(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), apply(Buttons.choice, Buttons.native, Categories.inclusion_compose(Buttons.Observation, Buttons.choice, Buttons.authored, Buttons.native, Buttons.choice_authored(), Buttons.authored_native()), observation(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), Buttons.choice_evidence(key(), visual(), button(Controls.ChoiceFace{"Run", None{}, None{}, False{}}), "Run", None{}, None{}, False{}, {==})))
   checked_8 = consume(Buttons.leading, observation(Controls.PickerFace{None{}, "Run"}), apply(Buttons.picker, Buttons.leading, Buttons.picker_leading(), observation(Controls.PickerFace{None{}, "Run"}), Buttons.picker_evidence(key(), visual(), button(Controls.PickerFace{None{}, "Run"}), None{}, "Run", {==})))
-  checked_9 = consume(Buttons.native, observation(Controls.PickerFace{None{}, "Run"}), apply(Buttons.picker, Buttons.native, Buttons.inclusion_compose(Buttons.Observation, Buttons.picker, Buttons.authored, Buttons.native, Buttons.picker_authored(), Buttons.authored_native()), observation(Controls.PickerFace{None{}, "Run"}), Buttons.picker_evidence(key(), visual(), button(Controls.PickerFace{None{}, "Run"}), None{}, "Run", {==})))
-  checked_10 = consume(client_key, observation(Controls.SingleLineFace{"Run"}), apply((value => Buttons.intersection(Buttons.Observation, Buttons.authored, client_key, value)), client_key, Buttons.intersection_second(Buttons.Observation, Buttons.authored, client_key), observation(Controls.SingleLineFace{"Run"}), Buttons.Intersection{Buttons.construction_evidence(key(), visual(), button(Controls.SingleLineFace{"Run"})), {==}}))
-  checked_11 = consume(Buttons.native, observation(Controls.SingleLineFace{"Run"}), apply((value => Buttons.intersection(Buttons.Observation, Buttons.authored, client_key, value)), Buttons.native, Buttons.inclusion_compose(Buttons.Observation, (value => Buttons.intersection(Buttons.Observation, Buttons.authored, client_key, value)), Buttons.authored, Buttons.native, Buttons.intersection_first(Buttons.Observation, Buttons.authored, client_key), Buttons.authored_native()), observation(Controls.SingleLineFace{"Run"}), Buttons.Intersection{Buttons.construction_evidence(key(), visual(), button(Controls.SingleLineFace{"Run"})), {==}}))
+  checked_9 = consume(Buttons.native, observation(Controls.PickerFace{None{}, "Run"}), apply(Buttons.picker, Buttons.native, Categories.inclusion_compose(Buttons.Observation, Buttons.picker, Buttons.authored, Buttons.native, Buttons.picker_authored(), Buttons.authored_native()), observation(Controls.PickerFace{None{}, "Run"}), Buttons.picker_evidence(key(), visual(), button(Controls.PickerFace{None{}, "Run"}), None{}, "Run", {==})))
+  checked_10 = consume(client_key, observation(Controls.SingleLineFace{"Run"}), apply((value => Categories.intersection(Buttons.Observation, Buttons.authored, client_key, value)), client_key, Categories.intersection_second(Buttons.Observation, Buttons.authored, client_key), observation(Controls.SingleLineFace{"Run"}), Categories.Intersection{Buttons.construction_evidence(key(), visual(), button(Controls.SingleLineFace{"Run"})), {==}}))
+  checked_11 = consume(Buttons.native, observation(Controls.SingleLineFace{"Run"}), apply((value => Categories.intersection(Buttons.Observation, Buttons.authored, client_key, value)), Buttons.native, Categories.inclusion_compose(Buttons.Observation, (value => Categories.intersection(Buttons.Observation, Buttons.authored, client_key, value)), Buttons.authored, Buttons.native, Categories.intersection_first(Buttons.Observation, Buttons.authored, client_key), Buttons.authored_native()), observation(Controls.SingleLineFace{"Run"}), Categories.Intersection{Buttons.construction_evidence(key(), visual(), button(Controls.SingleLineFace{"Run"})), {==}}))
   checked_12 = consume(Buttons.glyph_centered, observation(Controls.IconFace{Controls.ArrowUp{}}), apply(Buttons.icon, Buttons.glyph_centered, Buttons.icon_glyph_centered(), observation(Controls.IconFace{Controls.ArrowUp{}}), Buttons.icon_evidence(key(), visual(), button(Controls.IconFace{Controls.ArrowUp{}}), Controls.ArrowUp{}, {==})))
   Bool.and(checked_0, Bool.and(checked_1, Bool.and(checked_2, Bool.and(checked_3, Bool.and(checked_4, Bool.and(checked_5, Bool.and(checked_6, Bool.and(checked_7, Bool.and(checked_8, Bool.and(checked_9, Bool.and(checked_10, Bool.and(checked_11, Bool.and(checked_12, True{})))))))))))))
 
@@ -152,8 +153,8 @@ test('production proofs reject type-correct button requirement mutations', { tim
     ['browser/controls/BUTTONS.bend', 'A.action_alignment(value), Spatial.Centered{}), List.append', 'Spatial.Leading{}, Spatial.Centered{}), List.append', /construction_evidence|icon_production/],
     ['browser/controls/BUTTONS.bend', 'A.action_alignment(value), Spatial.Centered{}), List.append', 'A.action_alignment(value), Spatial.Leading{}), List.append', /construction_evidence|icon_production/],
     ['browser/controls/PROGRAM.bend', 'Tooltip{text, 300n, True{}, True{}, False{}}', 'Tooltip{text, 300n, True{}, False{}, False{}}', /icon_production/],
-    ['browser/controls/authored-primitives.bend', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}', 'Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}', /icon_production/, 'glyph_style'],
-    ['browser/controls/authored-primitives.bend', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Leading{}', /icon_production/, 'glyph_style'],
+    ['browser/controls/authored-primitives.bend', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}', 'Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}', /icon_production|Location: recovery_evidence\n/, 'glyph_style'],
+    ['browser/controls/authored-primitives.bend', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}', 'Model.Horizontal{}, Spatial.Centered{}, Spatial.Leading{}', /icon_production|Location: recovery_evidence\n/, 'glyph_style'],
     ['browser/controls/CONTROLS.bend', 'Source.Glyph{key, Iconography.drawing(icon, size), Factory.glyph_style(parent, size, size)}', 'Source.Text{key, "not-an-icon", Source.InheritFont{}, T.SingleLine{}}', /Rule\.project_presentation_evidence/, 'glyph'],
   ];
   for (const [filename, before, after, obligation, scope] of mutations) {

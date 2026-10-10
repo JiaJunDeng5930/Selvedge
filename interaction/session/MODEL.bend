@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/categories.bend as Categories
+import ../../harness/INVARIANTS.bend as I
 import ../../bendlib/stdlib.bend as Std
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
@@ -215,16 +217,32 @@ def with_native(local: Decision, result: J.Json, effects: +List<M.Effect()>, dur
   Decision{application, ignored_reply, ignored_runtime, interaction, ignored_durable} = local
   Decision{application, result, effects, interaction, durable}
 
-def close_choice_owned(owned: Bool, result: Decision) -> Decision:
-  match owned:
-    case False{}: result
-    case True{}:
-      Decision{application, reply, runtime, interaction, durable} = result
-      with_native(close_panel(application), reply, runtime, durable)
+type ChoiceCompletion is Data:
+  ChoiceCompletion{editor: U.Editor, result: Decision}
+
+def choice_owned(completion: ChoiceCompletion) -> Bool:
+  ChoiceCompletion{editor, result} = completion
+  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, reply, runtime, interaction, durable} = result
+  J.boolean(J.get(reply, "ok")) && chooser_owns(layers, editor)
+
+def owned_choice() -> ChoiceCompletion -> Type:
+  Categories.holds(ChoiceCompletion, choice_owned)
+
+def close_choice_value(result: Decision) -> Decision:
+  Decision{application, reply, runtime, interaction, durable} = result
+  with_native(close_panel(application), reply, runtime, durable)
+
+def close_choice_owned(member: Categories.Membership<ChoiceCompletion, owned_choice()>) -> Decision:
+  Categories.Membership{ChoiceCompletion{editor, result}, evidence} = member
+  close_choice_value(result)
+
+def choice_admitted(admitted: Maybe<&1, Categories.Membership<ChoiceCompletion, owned_choice()>>, result: Decision) -> Decision:
+  match admitted:
+    case None{}: result
+    case Some{member}: close_choice_owned(member)
 
 def close_choice(editor: U.Editor, +result: Decision) -> Decision:
-  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, reply, runtime, interaction, durable} = result
-  close_choice_owned(J.boolean(J.get(reply, "ok")) && chooser_owns(layers, editor), result)
+  choice_admitted(Categories.admit(ChoiceCompletion, choice_owned, ChoiceCompletion{editor, result}), result)
 
 def close_selected_choice(change: U.Edit, editor: U.Editor, result: Decision) -> Decision:
   match change:
@@ -390,14 +408,27 @@ def reader_generation(reader: Reader) -> Nat:
   Reader{generation, position, disclosures} = reader
   generation
 
-def read_owned(owned: Bool, task: Nat, intent: U.ReadingIntent, application: Application) -> Decision:
-  match owned:
-    case True{}: read(task, intent, application)
-    case False{}: unchanged(application)
+type ReadingRequest is Data:
+  ReadingRequest{task: Nat, generation: Nat, intent: U.ReadingIntent, application: Application}
 
-def read_current(+task: Nat, generation: Nat, intent: U.ReadingIntent, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-  read_owned(U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task))), task, intent, application)
+def reading_owned(request: ReadingRequest) -> Bool:
+  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}} = request
+  U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task)))
+
+def owned_reading() -> ReadingRequest -> Type:
+  Categories.holds(ReadingRequest, reading_owned)
+
+def read_owned(member: Categories.Membership<ReadingRequest, owned_reading()>) -> Decision:
+  Categories.Membership{ReadingRequest{task, generation, intent, application}, evidence} = member
+  read(task, intent, application)
+
+def reading_admitted(admitted: Maybe<&1, Categories.Membership<ReadingRequest, owned_reading()>>, application: Application) -> Decision:
+  match admitted:
+    case None{}: unchanged(application)
+    case Some{member}: read_owned(member)
+
+def read_current(task: Nat, generation: Nat, intent: U.ReadingIntent, +application: Application) -> Decision:
+  reading_admitted(Categories.admit(ReadingRequest, reading_owned, ReadingRequest{task, generation, intent, application}), application)
 
 def ensure(found: Maybe<&2, U.Draft>, fallback: U.Body, session: Session) -> Session:
   match found:
@@ -602,16 +633,32 @@ def settled_current(current: U.Draft, same: Bool, accepted: Bool, submitted: Nat
     case False{} _: U.Draft{revision, body, feedback, directory_entry}
     case True{} False{}: U.Draft{revision, body, U.Rejected{submitted, J.text(J.get(J.get(result, "error"), "message"))}, directory_entry}
 
-def settle_owned(owned: Bool, current: U.Draft, revision: Nat, +result: J.Json, session: Session) -> Session:
-  match owned:
-    case False{}: session
-    case True{}: with_draft(session, settled_current(current, True{}, J.boolean(J.get(result, "ok")), revision, result))
+type Settlement is Data:
+  Settlement{current: U.Draft, revision: Nat, result: J.Json, session: Session}
 
-def settle_found(found: Maybe<&2, U.Draft>, +revision: Nat, +result: J.Json, session: Session) -> Session:
+def settlement_owned(settlement: Settlement) -> Bool:
+  Settlement{U.Draft{current, body, feedback, directory_entry}, revision, result, session} = settlement
+  Nat.is_eq(current, revision)
+
+def owned_settlement() -> Settlement -> Type:
+  Categories.holds(Settlement, settlement_owned)
+
+def settle_value(current: U.Draft, revision: Nat, +result: J.Json, session: Session) -> Session:
+  with_draft(session, settled_current(current, True{}, J.boolean(J.get(result, "ok")), revision, result))
+
+def settle_owned(member: Categories.Membership<Settlement, owned_settlement()>) -> Session:
+  Categories.Membership{Settlement{current, revision, result, session}, evidence} = member
+  settle_value(current, revision, result, session)
+
+def settlement_admitted(admitted: Maybe<&1, Categories.Membership<Settlement, owned_settlement()>>, session: Session) -> Session:
+  match admitted:
+    case None{}: session
+    case Some{member}: settle_owned(member)
+
+def settle_found(found: Maybe<&2, U.Draft>, revision: Nat, result: J.Json, +session: Session) -> Session:
   match found:
     case None{}: session
-    case Some{U.Draft{+current, body, feedback, directory_entry}}:
-      settle_owned(Nat.is_eq(current, revision), U.Draft{current, body, feedback, directory_entry}, revision, result, session)
+    case Some{current}: settlement_admitted(Categories.admit(Settlement, settlement_owned, Settlement{current, revision, result, session}), session)
 
 def settle(submitted: U.Draft, +result: J.Json, +session: Session) -> Session:
   U.Draft{revision, body, feedback, directory_entry} = submitted
@@ -668,20 +715,39 @@ def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Js
       continue_capture(application)
     case other: finish_at_location(U.owner(other), route, layers, result, application)
 
-def finish_submission(accepted_current: Bool, draft: U.Draft, result: J.Json, +application: Application) -> Decision:
-  match accepted_current:
-    case False{}: unchanged(application)
-    case True{}:
-      U.Draft{revision, body, feedback, directory_entry} = draft
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-      finish_body(body, route, layers, result, application)
+type SubmissionCompletion is Data:
+  SubmissionCompletion{draft: U.Draft, result: J.Json, previous_session: Session, application: Application}
+
+def submission_accepted(completion: SubmissionCompletion) -> Bool:
+  SubmissionCompletion{draft, +result, previous_session, application} = completion
+  J.boolean(J.get(result, "ok")) && owns_submission(draft, previous_session)
+
+def accepted_submission() -> SubmissionCompletion -> Type:
+  Categories.holds(SubmissionCompletion, submission_accepted)
+
+def finish_submission_value(draft: U.Draft, result: J.Json, +application: Application) -> Decision:
+  U.Draft{revision, body, feedback, directory_entry} = draft
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  finish_body(body, route, layers, result, application)
+
+def finish_submission(member: Categories.Membership<SubmissionCompletion, accepted_submission()>) -> Decision:
+  Categories.Membership{SubmissionCompletion{draft, result, previous_session, application}, evidence} = member
+  finish_submission_value(draft, result, application)
+
+def submission_admitted(admitted: Maybe<&1, Categories.Membership<SubmissionCompletion, accepted_submission()>>, application: Application) -> Decision:
+  match admitted:
+    case None{}: unchanged(application)
+    case Some{member}: finish_submission(member)
+
+def finish_submission_current(+draft: U.Draft, +result: J.Json, previous_session: Session, +application: Application) -> Decision:
+  submission_admitted(Categories.admit(SubmissionCompletion, submission_accepted, SubmissionCompletion{draft, result, previous_session, application}), application)
 
 def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J.Json,
   effects: +List<M.Effect()>, +session: Session, durable: Bool) -> Decision:
   match submitted:
     case None{}: with_native(unchanged(Application{program, session}), result, effects, durable)
     case Some{+draft}:
-      with_native(finish_submission(J.boolean(J.get(result, "ok")) && owns_submission(draft, session), draft, result,
+      with_native(finish_submission_current(draft, result, session,
         Application{program, settle(draft, result, session)}), result, effects, durable)
 
 def retain_previews(session: Session, world: M.World()) -> Session:
@@ -718,20 +784,29 @@ def prepare(application: Application, workspace: Maybe<&2, D.Workspace>, +draft:
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat),
         Pending{next, draft, now} <> pending, previews, code_blocks, next_layer}, [ObserveDirectories{next, workspace}])
 
-def submit_ready(ready: Bool, +draft: U.Draft, application: Application) -> Decision:
-  match ready:
-    case False{}: refuse(application, "Submission is pending, composition is active, or the context origin or model selection is invalid")
-    case True{}:
-      U.Draft{revision, body, feedback, directory_entry} = draft
-      prepare(application, U.required_workspace(body), draft)
+def submission_ready(+pending: +List<Pending>, +program: M.World(), draft: U.Draft) -> Bool:
+  U.Draft{revision, +body, feedback, directory_entry} = draft
+  Bool.not(busy(pending, U.owner(body))) && U.valid_origin(body) && U.model_permitted(body, program)
+
+def ready_submission(+pending: +List<Pending>, +program: M.World()) -> U.Draft -> Type:
+  Categories.holds(U.Draft, (draft => submission_ready(pending, program, draft)))
+
+def submit_ready(+pending: +List<Pending>, +program: M.World(), member: Categories.Membership<U.Draft, ready_submission(pending, program)>, application: Application) -> Decision:
+  Categories.Membership{+draft, evidence} = member
+  U.Draft{revision, body, feedback, directory_entry} = draft
+  prepare(application, U.required_workspace(body), draft)
+
+def submit_admitted(+pending: +List<Pending>, +program: M.World(), admitted: Maybe<&1, Categories.Membership<U.Draft, ready_submission(pending, program)>>, application: Application) -> Decision:
+  match admitted:
+    case None{}: refuse(application, "Submission is pending, composition is active, or the context origin or model selection is invalid")
+    case Some{member}: submit_ready(pending, program, member, application)
 
 def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decision:
   match found:
     case None{}: refuse(application, "The editor is not open")
-    case Some{U.Draft{revision, +body, feedback, directory_entry}}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
-      submit_ready(Bool.not(busy(pending, U.owner(body))) && U.valid_origin(body) && U.model_permitted(body, program),
-        U.Draft{revision, body, feedback, directory_entry}, application)
+    case Some{+draft}:
+      Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer}} = application
+      submit_admitted(pending, program, Categories.admit(U.Draft, (draft => submission_ready(pending, program, draft)), draft), application)
 
 def submit(editor: U.Editor, +application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
@@ -766,12 +841,18 @@ def preparation_failure(draft: U.Draft, reason: String, application: Application
   +result = D.failure("workspace_observation_failed", reason)
   Decision{Application{program, settle(draft, result, session)}, result, Nil{}, Nil{}, False{}}
 
-def observed_valid(valid: Bool, observation: Context.DirectoryObservation, +draft: U.Draft, now: U32, application: Application) -> Decision:
-  match valid:
-    case False{}: preparation_failure(draft, "The directory observation does not satisfy the workspace contract", application)
-    case True{}:
-      U.Draft{revision, body, feedback, directory_entry} = draft
-      execute(U.prepared_command(body, observation, now), application, Some{draft})
+def directory_observation() -> Context.DirectoryObservation -> Type:
+  Categories.holds(Context.DirectoryObservation, Context.observation_valid)
+
+def observed_valid(member: Categories.Membership<Context.DirectoryObservation, directory_observation()>, +draft: U.Draft, now: U32, application: Application) -> Decision:
+  Categories.Membership{observation, evidence} = member
+  U.Draft{revision, body, feedback, directory_entry} = draft
+  execute(U.prepared_command(body, observation, now), application, Some{draft})
+
+def observation_admitted(admitted: Maybe<&1, Categories.Membership<Context.DirectoryObservation, directory_observation()>>, draft: U.Draft, now: U32, application: Application) -> Decision:
+  match admitted:
+    case None{}: preparation_failure(draft, "The directory observation does not satisfy the workspace contract", application)
+    case Some{member}: observed_valid(member, draft, now, application)
 
 def observation_result(result: Result<&2, &2, String, Context.DirectoryObservation>, pending: Pending, application: Application) -> Decision:
   match result:
@@ -780,7 +861,7 @@ def observation_result(result: Result<&2, &2, String, Context.DirectoryObservati
       preparation_failure(draft, reason, finish_preparation(ticket, application))
     case Done{+observation}:
       Pending{ticket, draft, now} = pending
-      observed_valid(Context.observation_valid(observation), observation, draft, now, finish_preparation(ticket, application))
+      observation_admitted(Categories.admit(Context.DirectoryObservation, Context.observation_valid, observation), draft, now, finish_preparation(ticket, application))
 
 def observed_pending(found: Maybe<&2, Pending>, result: Result<&2, &2, String, Context.DirectoryObservation>, application: Application) -> Decision:
   match found:
@@ -802,16 +883,49 @@ def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: Stri
       Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
-def complete_confirmation(owned: Bool, +result: J.Json, destination: U.Route, application: Application) -> Decision:
-  match owned:
-    case False{}: reply(application, result)
-    case True{}: with_native(confirmation_outcome(J.boolean(J.get(result, "ok")), destination, application), result, Nil{}, False{})
+type ConfirmationReceipt is Data:
+  ConfirmationReceipt{command: M.Command, trigger: String, occurrence: Nat, result: J.Json, destination: U.Route, application: Application}
 
-def observe_program(+program: M.World(), application: Application) -> Decision:
+def receipt_owned(receipt: ConfirmationReceipt) -> Bool:
+  ConfirmationReceipt{command, trigger, occurrence, result, destination, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}} = receipt
+  confirmation_owned(layers, command, trigger, occurrence)
+
+def owned_confirmation() -> ConfirmationReceipt -> Type:
+  Categories.holds(ConfirmationReceipt, receipt_owned)
+
+def complete_confirmation_value(+result: J.Json, destination: U.Route, application: Application) -> Decision:
+  with_native(confirmation_outcome(J.boolean(J.get(result, "ok")), destination, application), result, Nil{}, False{})
+
+def complete_confirmation(member: Categories.Membership<ConfirmationReceipt, owned_confirmation()>) -> Decision:
+  Categories.Membership{ConfirmationReceipt{command, trigger, occurrence, result, destination, application}, evidence} = member
+  complete_confirmation_value(result, destination, application)
+
+def confirmation_admitted(admitted: Maybe<&1, Categories.Membership<ConfirmationReceipt, owned_confirmation()>>, result: J.Json, application: Application) -> Decision:
+  match admitted:
+    case None{}: reply(application, result)
+    case Some{member}: complete_confirmation(member)
+
+def complete_confirmation_current(command: M.Command, trigger: String, occurrence: Nat, +result: J.Json, destination: U.Route, +application: Application) -> Decision:
+  confirmation_admitted(Categories.admit(ConfirmationReceipt, receipt_owned, ConfirmationReceipt{command, trigger, occurrence, result, destination, application}), result, application)
+
+def program_world() -> M.World() -> Type:
+  Categories.holds(M.World(), (world => I.world(world)))
+
+def observe_program_member(member: Categories.Membership<M.World(), program_world()>, application: Application) -> Decision:
+  Categories.Membership{+program, evidence} = member
   Application{previous, session} = application
   unchanged(Application{program, retain_previews(session, program)})
 
-def complete_command(+program: M.World(), result: J.Json, completion: Completion, application: Application) -> Decision:
+def observe_program_admitted(admitted: Maybe<&1, Categories.Membership<M.World(), program_world()>>, application: Application) -> Decision:
+  match admitted:
+    case None{}: refuse(application, "The observed program violates a world invariant")
+    case Some{member}: observe_program_member(member, application)
+
+def observe_program(program: M.World(), application: Application) -> Decision:
+  observe_program_admitted(Categories.admit(M.World(), (world => I.world(world)), program), application)
+
+def complete_command_member(member: Categories.Membership<M.World(), program_world()>, result: J.Json, completion: Completion, application: Application) -> Decision:
+  Categories.Membership{+program, evidence} = member
   match completion:
     case DirectCompletion{}:
       Application{previous, session} = application
@@ -822,8 +936,16 @@ def complete_command(+program: M.World(), result: J.Json, completion: Completion
     case ConfirmationCompletion{command, trigger, destination, occurrence}:
       Application{previous, session} = application
       Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
-      complete_confirmation(confirmation_owned(layers, command, trigger, occurrence), result, destination,
+      complete_confirmation_current(command, trigger, occurrence, result, destination,
         Application{program, retain_previews(session, program)})
+
+def complete_command_admitted(admitted: Maybe<&1, Categories.Membership<M.World(), program_world()>>, result: J.Json, completion: Completion, application: Application) -> Decision:
+  match admitted:
+    case None{}: refuse(application, "The observed program violates a world invariant")
+    case Some{member}: complete_command_member(member, result, completion, application)
+
+def complete_command(program: M.World(), result: J.Json, completion: Completion, application: Application) -> Decision:
+  complete_command_admitted(Categories.admit(M.World(), (world => I.world(world)), program), result, completion, application)
 
 def confirm(layers: +List<Layer>, application: Application) -> Decision:
   match layers:

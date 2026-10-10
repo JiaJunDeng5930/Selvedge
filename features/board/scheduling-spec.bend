@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/effects.bend as Effects
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
@@ -15,24 +16,48 @@ def decision_world(decision: M.Decision()) -> M.World():
   C.Decision{world, reply, effects} = decision
   world
 
-def pick(ready: Bool, entry: Finite.Entry(B.Card), remaining: Maybe<&2, Finite.Entry(B.Card)>) -> Maybe<&2, Finite.Entry(B.Card)>:
-  match ready:
-    case True{}: Some{entry}
-    case False{}: remaining
+def queued_eligible(world: M.World(), entry: Finite.Entry(B.Card)) -> Bool:
+  (id, +card) = entry
+  B.ready(card) && S.runnable(card, world)
+
+def queued_category(-world: M.World()) -> Finite.Entry(B.Card) -> Type:
+  Categories.holds(Finite.Entry(B.Card), queued_eligible(world))
+
+def pick(-world: M.World(), member: Categories.Membership<Finite.Entry(B.Card), queued_category(world)>) -> Maybe<&2, Finite.Entry(B.Card)>:
+  Categories.Membership{entry, evidence} = member
+  Some{entry}
+
+def candidate_admitted(-world: M.World(), found: Maybe<&1, Categories.Membership<Finite.Entry(B.Card), queued_category(world)>>, remaining: Maybe<&2, Finite.Entry(B.Card)>) -> Maybe<&2, Finite.Entry(B.Card)>:
+  match found:
+    case Some{member}: pick(world, member)
+    case None{}: remaining
 
 def candidate(entries: +List<Finite.Entry(B.Card)>, +world: M.World()) -> Maybe<&2, Finite.Entry(B.Card)>:
   match entries:
     case Nil{}: None{}
-    case Con{(+id, +card), rest}:
-      pick(B.ready(card) && S.runnable(card, world), (id, card), candidate(rest, world))
+    case Con{entry, rest}:
+      candidate_admitted(world, Categories.admit(Finite.Entry(B.Card), queued_eligible(world), entry), candidate(rest, world))
 
-def automatic_candidate(enabled: Bool, +world: M.World()) -> Maybe<&2, Finite.Entry(B.Card)>:
-  match enabled:
-    case False{}: None{}
-    case True{}: candidate(S.queued_cards(S.registry(world)), world)
+def automatic_eligible(world: M.World()) -> Bool:
+  B.automatic(S.registry(world))
 
-def next(+world: M.World()) -> Maybe<&2, Finite.Entry(B.Card)>:
-  automatic_candidate(B.automatic(S.registry(world)), world)
+def automatic_category() -> M.World() -> Type:
+  Categories.holds(M.World(), automatic_eligible)
+
+def automatic_accepted(member: Categories.Membership<M.World(), automatic_category()>) -> Maybe<&2, Finite.Entry(B.Card)>:
+  Categories.Membership{+world, evidence} = member
+  candidate(S.queued_cards(S.registry(world)), world)
+
+def automatic_admitted(found: Maybe<&1, Categories.Membership<M.World(), automatic_category()>>) -> Maybe<&2, Finite.Entry(B.Card)>:
+  match found:
+    case None{}: None{}
+    case Some{member}: automatic_accepted(member)
+
+def automatic_candidate(world: M.World()) -> Maybe<&2, Finite.Entry(B.Card)>:
+  automatic_admitted(Categories.admit(M.World(), automatic_eligible, world))
+
+def next(world: M.World()) -> Maybe<&2, Finite.Entry(B.Card)>:
+  automatic_candidate(world)
 
 def synchronize(decision: M.Decision()) -> M.Decision():
   C.Decision{world, reply, effects} = decision

@@ -45,7 +45,7 @@ test('bypassing production admission invalidates the transition theorem', { time
   const rejected = check();
   assert.equal(rejected.error, undefined);
   assert.notEqual(rejected.status, 0, 'The same proof must reject an implementation that bypasses admission');
-  assert.match(rejected.stdout + rejected.stderr, /admitted_certificate|guard_semantics/);
+  assert.match(rejected.stdout + rejected.stderr, /admitted_certificate|guard_semantics|validate_observed/);
 });
 
 function replaceOnce(source, before, after) {
@@ -146,7 +146,10 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       const rejected = compile('PROOF.bend');
       assert.equal(rejected.error, undefined, `${name} must fail a proof, not time out`);
       assert.notEqual(rejected.status, 0, `${name} was not rejected by the functional specification`);
-      assert.match(rejected.stdout + rejected.stderr, /semantics|scheduling_|request_meaning|start_meaning|tool_dispatch|settlement|summary_failure_promotes_fifo|summary_rejects_invocations|context_recovery_work|admitted_certificate|output_admitted_world/);
+      const diagnostic = name === 'reject even admitted decisions'
+        ? /admitted_certificate|validate_observed/
+        : /semantics|scheduling_|request_meaning|start_meaning|tool_dispatch|settlement|summary_failure_promotes_fifo|summary_rejects_invocations|context_recovery_work|admitted_certificate|output_admitted_world/;
+      assert.match(rejected.stdout + rejected.stderr, diagnostic);
     });
   }
 });

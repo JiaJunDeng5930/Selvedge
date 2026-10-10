@@ -1,4 +1,5 @@
 import Base
+import ../protocol/PROOF.bend as ProtocolProof
 import ../features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -50,5 +51,10 @@ def A.context_boundary():
     (registry => id => removal(registry, id)),
     ({==}, (profile => {==})),
     (context => guidance => parent => count => messages => rejected =>
-      Equal.cong(Bool, Protocol.Invocation, (allowed => Protocol.delegated(allowed, count, messages, W.Selection{context, guidance})),
-        W.may_delegate(context, parent), False{}, rejected))}
+      Equal.trans(Protocol.Invocation,
+        Protocol.delegated(count, messages, W.Selection{context, guidance}, parent),
+        Protocol.delegated_calculation(W.may_delegate(context, parent), count, messages, W.Selection{context, guidance}),
+        Protocol.delegated_calculation(False{}, count, messages, W.Selection{context, guidance}),
+        ProtocolProof.delegated_calculation_semantics(count, messages, W.Selection{context, guidance}, parent),
+        Equal.cong(Bool, Protocol.Invocation, (allowed => Protocol.delegated_calculation(allowed, count, messages, W.Selection{context, guidance})),
+          W.may_delegate(context, parent), False{}, rejected)))}

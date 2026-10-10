@@ -42,6 +42,7 @@ import ./interaction/services/PROOF.bend as CoreExecutionContextProof
 import ./interaction/session/PROOF.bend as CoreSessionProof
 import ./interaction/PROOF.bend as UIProof
 
+import ./bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
 import ./harness/MODEL.bend as M
 import ./harness/PROGRAM.bend as Program
@@ -56,20 +57,26 @@ import ./browser/runtime/PROOF.bend as RuntimeProof
 import ./browser/controls/PROOF.bend as ControlsProof
 
 # Bind the execution interface to its production operations and proofs.
-def execution_model() -> Model.Execution<M.World(), M.Decision()>:
-  Model.Execution{
-    M.initial(), world => Invariants.world(world), input => world => Program.transition(input, world),
-    input => world => Concepts.interaction_specification(input, world), decision => Program.decision_world(decision),
-    decision => Program.decision_reply(decision), decision => Program.decision_effects(decision), input => M.durable(input),
-    Laws.initial_world_valid(),
-    state => input => valid => Laws.transition_preserves_world(state, input, valid),
-    input => state => Laws.interaction_transition(input, state),
-    query => state => Laws.observation_preserves_world(query, state),
-    query => state => Laws.observation_has_no_effects(query, state),
-    query => Laws.observation_not_durable(query),
-    events => state => Program.replay(events, state),
-    events => state => valid => Laws.replay_preserves_world(events, state, valid),
-    query => first => second => state => Laws.observation_replay(query, first, second, state)}
+def execution_model() -> Model.Execution(M.World(), M.Decision()):
+  Categories.Membership{
+    Model.ExecutionOperations{
+      M.initial(), world => Invariants.world(world), input => world => Program.transition(input, world),
+      input => world => Concepts.interaction_specification(input, world), decision => Program.decision_world(decision),
+      decision => Program.decision_reply(decision), decision => Program.decision_effects(decision), input => M.durable(input),
+      events => state => Program.replay(events, state)},
+    Categories.Intersection{
+      Model.ExecutionSafety{Laws.initial_world_valid(),
+        state => input => valid => Laws.transition_preserves_world(state, input, valid)},
+      Categories.Intersection{
+        Model.ExecutionRefinement{input => state => Laws.interaction_transition(input, state)},
+        Categories.Intersection{
+          Model.ExecutionObservation{
+            query => state => Laws.observation_preserves_world(query, state),
+            query => state => Laws.observation_has_no_effects(query, state),
+            query => Laws.observation_not_durable(query)},
+          Model.ExecutionHistory{
+            events => state => valid => Laws.replay_preserves_world(events, state, valid),
+            query => first => second => state => Laws.observation_replay(query, first, second, state)}}}}}
 
 # Assemble the conceptual program only after every local obligation is closed.
 def Entry.harness():

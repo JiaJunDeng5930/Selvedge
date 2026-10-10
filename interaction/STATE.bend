@@ -1,4 +1,5 @@
 import Base
+import ../bendlib/categories.bend as Categories
 import ./conversation/CODE.bend as Content
 import ./conversation/OUTPUT.bend as Live
 import ../harness/MODEL.bend as M
@@ -92,15 +93,28 @@ def accepts_directory(+editor: U.Editor, application: E.Application) -> Bool:
   pending = E.pending(observed_session)
   workspace_draft(E.find_draft(drafts, editor)) && Bool.not(E.busy(pending, editor))
 
-def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, +application: E.Application) -> E.Application:
-  match accepted:
-    case False{}: application
-    case True{}:
-      written = attached(ExperienceProgram.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application))
-      attached(ExperienceProgram.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, written))
+type DirectoryChoice is Data:
+  DirectoryChoice{editor: U.Editor, path: String, application: E.Application}
+
+def directory_choice_available(choice: DirectoryChoice) -> Bool:
+  DirectoryChoice{editor, path, application} = choice
+  accepts_directory(editor, application)
+
+def directory_chosen_calculation(+editor: U.Editor, path: String, +application: E.Application) -> E.Application:
+  written = attached(ExperienceProgram.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application))
+  attached(ExperienceProgram.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, written))
+
+def directory_chosen_accepted(member: Categories.Membership<DirectoryChoice, Categories.holds(DirectoryChoice, directory_choice_available)>) -> E.Application:
+  Categories.Membership{DirectoryChoice{editor, path, application}, evidence} = member
+  directory_chosen_calculation(editor, path, application)
+
+def directory_choice_admitted(found: Maybe<&1, Categories.Membership<DirectoryChoice, Categories.holds(DirectoryChoice, directory_choice_available)>>, application: E.Application) -> E.Application:
+  match found:
+    case None{}: application
+    case Some{member}: directory_chosen_accepted(member)
 
 def directory_chosen(+editor: U.Editor, path: String, +application: E.Application) -> E.Application:
-  directory_chosen_accepted(accepts_directory(editor, application), editor, path, application)
+  directory_choice_admitted(Categories.admit(DirectoryChoice, directory_choice_available, DirectoryChoice{editor, path, application}), application)
 
 def service_effects(effects: +List<Services.Effect>, +application: E.Application) -> E.Application:
   match effects:
@@ -157,10 +171,21 @@ def submission_blocked_access(access: Services.Access, transfers: +List<Finite.E
 def submission_blocked(+services: Services.State, input: E.Input) -> Bool:
   submission_blocked_access(Services.access(services), Services.transfers(services), input)
 
-def apply_application(blocked: Bool, input: E.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
-  match blocked:
-    case True{}: application_result(E.refuse(application, "Connect and finish pending file uploads before submitting"), services)
-    case False{}: application_result(ExperienceProgram.step(input, application), services)
+type ApplicationRequest is Data:
+  ApplicationRequest{input: E.Input, application: E.Application, services: Services.State}
+
+def application_available(request: ApplicationRequest) -> Bool:
+  ApplicationRequest{input, application, services} = request
+  Bool.not(submission_blocked(services, input))
+
+def apply_application(member: Categories.Membership<ApplicationRequest, Categories.holds(ApplicationRequest, application_available)>) -> InteractionTypes.Decision:
+  Categories.Membership{ApplicationRequest{input, application, services}, evidence} = member
+  application_result(ExperienceProgram.step(input, application), services)
+
+def application_admitted(found: Maybe<&1, Categories.Membership<ApplicationRequest, Categories.holds(ApplicationRequest, application_available)>>, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match found:
+    case None{}: application_result(E.refuse(application, "Connect and finish pending file uploads before submitting"), services)
+    case Some{member}: apply_application(member)
 
 def is_card_draft(found: Maybe<&2, U.Draft>) -> Bool:
   match found:
@@ -172,22 +197,45 @@ def accepts_files(editor: U.Editor, application: E.Application) -> Bool:
   drafts = E.drafts(observed_session)
   is_card_draft(E.find_draft(drafts, editor))
 
-def add_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
-  match allowed:
-    case True{}: service_result(Services.step(input, services), application)
-    case False{}: application_result(E.refuse(application, "Attachments belong to a card draft"), services)
+type ServiceRequest is Data:
+  ServiceRequest{input: Services.Input, application: E.Application, services: Services.State}
 
-def directory_allowed(allowed: Bool, input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
-  match allowed:
-    case True{}: service_result(Services.step(input, services), application)
-    case False{}: application_result(E.refuse(application, "The workspace editor is not available"), services)
+def file_request_available(request: ServiceRequest) -> Bool:
+  ServiceRequest{input, application, services} = request
+  match input:
+    case Services.AddFile{editor, file}: accepts_files(editor, application)
+    case _: False{}
+
+def directory_request_available(request: ServiceRequest) -> Bool:
+  ServiceRequest{input, application, services} = request
+  match input:
+    case Services.OpenDirectoryPicker{editor, path, trigger}: accepts_directory(editor, application)
+    case _: False{}
+
+def add_allowed(member: Categories.Membership<ServiceRequest, Categories.holds(ServiceRequest, file_request_available)>) -> InteractionTypes.Decision:
+  Categories.Membership{ServiceRequest{input, application, services}, evidence} = member
+  service_result(Services.step(input, services), application)
+
+def directory_allowed(member: Categories.Membership<ServiceRequest, Categories.holds(ServiceRequest, directory_request_available)>) -> InteractionTypes.Decision:
+  Categories.Membership{ServiceRequest{input, application, services}, evidence} = member
+  service_result(Services.step(input, services), application)
+
+def file_request_admitted(found: Maybe<&1, Categories.Membership<ServiceRequest, Categories.holds(ServiceRequest, file_request_available)>>, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match found:
+    case Some{member}: add_allowed(member)
+    case None{}: application_result(E.refuse(application, "Attachments belong to a card draft"), services)
+
+def directory_request_admitted(found: Maybe<&1, Categories.Membership<ServiceRequest, Categories.holds(ServiceRequest, directory_request_available)>>, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match found:
+    case Some{member}: directory_allowed(member)
+    case None{}: application_result(E.refuse(application, "The workspace editor is not available"), services)
 
 def service_input(input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match input:
     case Services.OpenDirectoryPicker{+editor, path, trigger}:
-      directory_allowed(accepts_directory(editor, application), Services.OpenDirectoryPicker{editor, path, trigger}, application, services)
+      directory_request_admitted(Categories.admit(ServiceRequest, directory_request_available, ServiceRequest{Services.OpenDirectoryPicker{editor, path, trigger}, application, services}), application, services)
     case Services.AddFile{+editor, file}:
-      add_allowed(accepts_files(editor, application), Services.AddFile{editor, file}, application, services)
+      file_request_admitted(Categories.admit(ServiceRequest, file_request_available, ServiceRequest{Services.AddFile{editor, file}, application, services}), application, services)
     case Services.Connect{}: service_result(Services.step(Services.Connect{}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case Services.Disconnected{reason}: service_result(Services.step(Services.Disconnected{reason}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case other: service_result(Services.step(other, services), application)
@@ -197,15 +245,26 @@ def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.V
   session = E.session(application)
   apply_edit(Forms.edit_for(body, field, value, program), editor, E.from_program(program, session))
 
-def edit_exposed(exposed: Bool, body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
-  match exposed:
-    case False{}: E.refuse(application, "This field is not part of this editor")
-    case True{}: edit_body(body, editor, field, value, application)
+type FieldRequest is Data:
+  FieldRequest{body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application}
+
+def field_request_exposed(request: FieldRequest) -> Bool:
+  FieldRequest{body, editor, field, value, application} = request
+  Forms.exposed(body, field)
+
+def edit_exposed(member: Categories.Membership<FieldRequest, Categories.holds(FieldRequest, field_request_exposed)>) -> E.Decision:
+  Categories.Membership{FieldRequest{body, editor, field, value, application}, evidence} = member
+  edit_body(body, editor, field, value, application)
+
+def field_request_admitted(found: Maybe<&1, Categories.Membership<FieldRequest, Categories.holds(FieldRequest, field_request_exposed)>>, application: E.Application) -> E.Decision:
+  match found:
+    case None{}: E.refuse(application, "This field is not part of this editor")
+    case Some{member}: edit_exposed(member)
 
 def edit_found(found: Maybe<&2, U.Draft>, editor: U.Editor, +field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
   match found:
     case None{}: E.refuse(application, "The editor is not open")
-    case Some{U.Draft{revision, +body, feedback, directory_entry}}: edit_exposed(Forms.exposed(body, field), body, editor, field, value, application)
+    case Some{U.Draft{revision, +body, feedback, directory_entry}}: field_request_admitted(Categories.admit(FieldRequest, field_request_exposed, FieldRequest{body, editor, field, value, application}), application)
 
 def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:
   program = E.program(application)
@@ -215,9 +274,9 @@ def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, +appli
     E.from_program(program, observed_session))
 
 def dispatch(state: InteractionTypes.State, +input: InteractionTypes.Input) -> InteractionTypes.Decision:
-  InteractionTypes.State{application, +services} = state
+  InteractionTypes.State{+application, +services} = state
   match input:
-    case InteractionTypes.ApplicationInput{+input}: apply_application(submission_blocked(services, input), input, application, services)
+    case InteractionTypes.ApplicationInput{+input}: application_admitted(Categories.admit(ApplicationRequest, application_available, ApplicationRequest{input, application, services}), application, services)
     case InteractionTypes.ServiceInput{+input}: service_input(input, application, services)
     case InteractionTypes.EditField{editor, field, value}: application_result(edit_field(editor, field, value, application), services)
     case InteractionTypes.RemoveAttachment{editor, id}: application_result(edit_attachment(editor, None{}, id, application), services)
