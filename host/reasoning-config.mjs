@@ -1,62 +1,87 @@
-// Independent evaluator connections, endpoint policies and login convenience.
-// Task state and leases belong exclusively to the native transition.
-const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const name = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(value);
-const variable = value => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+// Pure admission belongs to the native configuration adapter. References retain
+// original UTF-16 strings and opaque environment values at the host boundary.
+import { boundary } from './public/model-boundary.mjs';
 
-function fields(value, allowed, label) {
-  if (!object(value) || Object.keys(value).some(key => !allowed.includes(key))) throw new TypeError(`Invalid ${label} configuration fields`);
+export function configurationObserver() {
+  const originals = [];
+  const units = value => Array.from({ length: value.length }, (_, index) => value.charCodeAt(index));
+  function observe(value, { shallow = false, env = false } = {}) {
+    const ref = originals.push(value) - 1;
+    const kind = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+    const result = { ref, kind };
+    if (shallow) return result;
+    if (kind === 'string') result.units = units(value);
+    if (kind === 'number' && Number.isFinite(value)) result.number = value;
+    if (kind === 'boolean') result.boolean = value;
+    if (kind === 'array') result.items = value.map(item => observe(item, { shallow: env }));
+    if (kind === 'object') result.fields = Object.entries(value).map(([key, item]) => ({
+      key: observe(key), value: observe(item, { shallow: env, env: key === 'env' }),
+    }));
+    return result;
+  }
+  function materialize(plan) {
+    if (Object.hasOwn(plan, 'undefined')) return undefined;
+    if (Object.hasOwn(plan, 'ref')) return originals[plan.ref];
+    if (Object.hasOwn(plan, 'literal')) return plan.literal;
+    if (Object.hasOwn(plan, 'array')) return plan.array.map(materialize);
+    const base = Object.hasOwn(plan, 'base') ? originals[plan.base] : {};
+    return { ...base, ...Object.fromEntries(plan.fields.map(field => [field.key, materialize(field.value)])) };
+  }
+  function execute(operation, source) {
+    const plan = boundary(operation, source);
+    if (Object.hasOwn(plan, 'error')) {
+      const message = plan.error.map(part => Object.hasOwn(part, 'ref') ? originals[part.ref] : part.literal).join('');
+      throw plan.code === 'Error' ? new Error(message) : new TypeError(message);
+    }
+    return plan;
+  }
+  return { observe, materialize, execute };
 }
 
-const connections = Object.freeze({
-  vercel: { model: 'typesafe-ai/jev', endpoint: 'https://ai-gateway.vercel.sh/v1/evaluate' },
-  typesafe: { model: 'jev-latest', endpoint: 'https://api.typesafe.ai/v1/systemone' },
-  openrouter: { model: 'typesafe/jev-1.13', endpoint: 'https://openrouter.ai/api/alpha/decisions' },
-});
-
 export function evaluatorConnections(value = {}) {
-  if (!object(value) || Object.keys(value).length > 32) throw new TypeError('reasoning_evaluators must be a bounded object');
-  return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, source]) => {
-    if (!name(key)) throw new TypeError('Invalid reasoning evaluator name');
-    fields(source, ['provider', 'model', 'endpoint', 'api_key_env', 'timeout_ms', 'max_attempts'], 'reasoning evaluator');
-    const provider = source.provider ?? 'vercel';
-    if (!Object.hasOwn(connections, provider)) throw new TypeError('Unknown Jev API provider');
-    const config = { provider, ...connections[provider], api_key_env: 'JEV_API_KEY', timeout_ms: 30_000, max_attempts: 3, ...source };
-    if (!name(config.model) || !variable(config.api_key_env)) throw new TypeError('Invalid evaluator model or API-key environment variable');
+  const observer = configurationObserver();
+  const kind = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  // Enumeration is an external observation. Later keys and values are withheld
+  // until all policy and URL operations of the current entry have completed.
+  const entries = kind === 'object' ? Object.entries(value) : [];
+  const positions = observer.execute('config.evaluators', {
+    kind, count: entries.length, positions: entries.map((_, index) => index),
+  });
+  const result = [];
+  for (const position of positions) {
+    const [key, source] = entries[position];
+    const original = { name: observer.observe(key), entry: observer.observe(source) };
+    const plan = observer.execute('config.evaluator_plan', original);
+    const config = observer.materialize(plan);
     const url = new URL(config.endpoint);
-    if (url.username || url.password || url.hash || url.search || !['http:', 'https:'].includes(url.protocol) ||
-        (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
-      throw new TypeError('The evaluator endpoint requires HTTPS except on loopback, without embedded credentials');
-    }
-    if (!Number.isSafeInteger(config.timeout_ms) || config.timeout_ms < 100 || config.timeout_ms > 120_000 ||
-        !Number.isSafeInteger(config.max_attempts) || config.max_attempts < 1 || config.max_attempts > 3) {
-      throw new TypeError('Invalid evaluator deadline or same-provider retry bound');
-    }
-    return [key, Object.freeze(config)];
-  })));
+    observer.execute('config.evaluator_entry', { ...original, plan, url: {
+      protocol: url.protocol, hostname: url.hostname, username: url.username,
+      password: url.password, hash: url.hash, search: url.search,
+    } });
+    result.push([key, Object.freeze(config)]);
+  }
+  return Object.freeze(Object.fromEntries(result));
 }
 
 export function adaptivePolicy(value) {
-  if (value === undefined || value === null || value === false) return null;
-  fields(value, ['evaluator', 'efforts', 'baseline', 'transport', 'max_lease'], 'adaptive reasoning');
-  const policy = { max_lease: 10, ...value };
-  if (!name(policy.evaluator) || !Array.isArray(policy.efforts) || !policy.efforts.length || policy.efforts.length > 16 ||
-      policy.efforts.some(effort => !name(effort) || effort === 'auto' || Buffer.byteLength(effort) > 64) ||
-      new Set(policy.efforts).size !== policy.efforts.length || !policy.efforts.includes(policy.baseline) ||
-      !['configuration_update', 'request_effort'].includes(policy.transport) ||
-      !Number.isSafeInteger(policy.max_lease) || policy.max_lease < 1 || policy.max_lease > 10) {
-    throw new TypeError('Adaptive reasoning requires an evaluator, distinct actual efforts, a supported baseline, transport, and a lease bound of 1..10');
-  }
-  return Object.freeze({ ...policy, efforts: Object.freeze([...policy.efforts]) });
+  const observer = configurationObserver();
+  const source = observer.observe(value);
+  const efforts = source.kind === 'object' ? value.efforts : undefined;
+  const bytes = Array.isArray(efforts) ? efforts.map(effort =>
+    typeof effort === 'string' ? Buffer.byteLength(effort) : null) : [];
+  const plan = observer.execute('config.adaptive_policy', { value: source, bytes });
+  const policy = observer.materialize(plan);
+  if (policy === null) return null;
+  return Object.freeze({ ...policy, efforts: Object.freeze(policy.efforts) });
 }
 
 /** Ordinary profile configuration: no task policy is implemented in discovery. */
 export function accountAutoPreset(profile, descriptor) {
-  if (descriptor.slug !== 'gpt-6-astra') return undefined;
-  const efforts = [...new Set(descriptor.supported_reasoning_levels.map(level => level.effort))];
-  if (!efforts.length || efforts.includes('auto')) return undefined;
-  const baseline = efforts.includes(descriptor.default_reasoning_level) ? descriptor.default_reasoning_level : efforts[0];
-  return Object.freeze({ ...profile, adaptive_reasoning: adaptivePolicy({
-    evaluator: 'jev', efforts, baseline, transport: 'configuration_update', max_lease: 10,
-  }) });
+  const observer = configurationObserver();
+  const plan = observer.execute('config.auto_preset', {
+    profile: observer.observe(profile), descriptor: observer.observe(descriptor),
+  });
+  const selection = observer.materialize(plan);
+  if (selection === undefined) return undefined;
+  return Object.freeze({ ...profile, adaptive_reasoning: adaptivePolicy(selection) });
 }

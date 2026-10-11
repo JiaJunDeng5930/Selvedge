@@ -21,7 +21,7 @@ def panel_header_matches_specification(representation: Controls.Representation) 
   {Controls.panel_header(representation) == Rule.specified_header_representation(representation) : Bool}:
   match representation:
     case Controls.NoControl{}: {==}
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       match placement:
         case Controls.InFlow{}: {==}
         case Controls.ComposerEnd{}: {==}
@@ -29,8 +29,8 @@ def panel_header_matches_specification(representation: Controls.Representation) 
         case Controls.CodeToolbar{}: {==}
         case Controls.BesideValue{}: {==}
         case Controls.GroupHeadingEnd{}: {==}
-    case Controls.Input{binding, name, widget, label, availability}: {==}
-    case Controls.Movable{destinations, face, name, handle, geometry, help}: {==}
+    case Controls.Input{Controls.FormInput{binding, name, widget, label, availability}}: {==}
+    case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: {==}
 
 def header_classifier_matches_specification(value: SurfaceTypes.Node, +context: Controls.Context) ->
   {Order.header_child(value, context) == Rule.specified_header_child(value, context) : Bool}:
@@ -667,8 +667,8 @@ def Rule.remaining_role_classification(key, role, belongs):
     case SurfaceTypes.Content{}: {==}
     case SurfaceTypes.Alert{}: {==}
 
-def projection_construction(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
-  {Controls.presented_action(input, availability, name, projection, placement, help, feedback) == Rule.projected_action(input, availability, name, projection, placement, help, feedback) : Controls.Representation}:
+def projection_construction(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, feedback: Controls.Feedback) ->
+  {Controls.presented_action(input, availability, name, projection, placement, feedback) == Rule.projected_action(input, availability, name, projection, placement, feedback) : Controls.Representation}:
   match projection:
     case Controls.ActionPresentation{face, behavior, geometry}: {==}
 
@@ -742,7 +742,7 @@ def Rule.project_presentation_evidence():
     +name => +expanded => +fallback => {==},
     project_family_projection,
     unscoped_projection,
-    +area => +family => +input => +availability => +name => +face => +behavior => +geometry => +placement => +help => +feedback => projection_construction(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback),
+    +area => +family => +input => +availability => +name => +face => +behavior => +geometry => +placement => +feedback => projection_construction(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, feedback),
     +width => +height => +preferred => +icon => +radius => +leading => {==},
     +width => +height => +preferred => +icon => +radius => +leading => {==},
     +width => +height => +preferred => +icon => +radius => +leading => {==},

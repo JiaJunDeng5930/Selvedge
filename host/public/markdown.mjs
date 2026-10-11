@@ -1,3 +1,4 @@
+import { boundary } from './model-boundary.mjs';
 import * as smd from './vendor/streaming-markdown.mjs';
 
 const displayJobs = new Map();
@@ -83,12 +84,13 @@ export class PacedText {
 }
 
 export function safeHref(value) {
-  if (typeof value !== 'string' || /[\u0000-\u0020\u007f\\]/.test(value)) return null;
-  if (value.startsWith('#')) return value;
+  let observation = { parsed: false };
   try {
     const url = new URL(value);
-    return ['https:', 'http:', 'mailto:'].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
+    observation = { parsed: true, href: url.href, scheme: url.protocol,
+      username: url.username, password: url.password, hash: url.hash };
+  } catch {}
+  return boundary('browser.link', { raw: value, observation });
 }
 
 const HTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';

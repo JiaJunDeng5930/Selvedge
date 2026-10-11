@@ -53,7 +53,7 @@ def selection_role(kind: SurfaceTypes.ChoiceKind, area: Controls.Area) -> String
 
 def actual_face(value: Controls.Representation) -> Maybe<&2, Controls.Face>:
   match value:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: Some{face}
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: Some{face}
     case _: None{}
 
 def first_drawing(values: +List<S.Node>) -> Maybe<&2, S.Drawing>:
@@ -993,10 +993,10 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
 def binding(representation: Controls.Representation) -> SurfaceTypes.Meaning:
   match representation:
     case Controls.NoControl{}: SurfaceTypes.Region{}
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       SurfaceTypes.Activate{input, availability}
-    case Controls.Input{meaning, name, widget, label, availability}: meaning
-    case Controls.Movable{destinations, face, name, handle, geometry, help}: SurfaceTypes.MovableCard{destinations, face}
+    case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: meaning
+    case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: SurfaceTypes.MovableCard{destinations, face}
 
 type ContextControlRequirements is Type:
   ContextControlRequirements{
@@ -1063,10 +1063,7 @@ def expected_icon_help(availability: View.Availability, label: String) -> Contro
 # name, availability, and disabled explanation remain those of that observation.
 
 def expected_message(+editor: User.Editor, +availability: View.Availability, +label: String) -> Controls.Representation:
-  Controls.Action{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{editor}}}},
-    availability, label, Controls.IconFace{Controls.ArrowUp{}}, Controls.Push{},
-    Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}, Controls.ComposerEnd{},
-    expected_icon_help(availability, label), Controls.Quiet{}}
+  Controls.Action{Controls.Button{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{editor}}}}, availability, label, Controls.IconFace{Controls.ArrowUp{}}, Controls.Push{}, Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}, Controls.ComposerEnd{}, Controls.Quiet{}}}
 
 def message_uses_arrow_law(-key: UIIdentity.Key, -task: Nat, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
@@ -1101,18 +1098,18 @@ type Choice is Data:
 
 def choice(representation: Controls.Representation) -> Maybe<&2, Choice>:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       Some{Choice{face, behavior}}
     case _: None{}
 
 def action_text(representation: Controls.Representation) -> Maybe<&2, String>:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: menu_text(face)
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: menu_text(face)
     case _: None{}
 
 def action_face(representation: Controls.Representation) -> Maybe<&2, Controls.Face>:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: Some{face}
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: Some{face}
     case _: None{}
 
 def declared_action_face(node: SurfaceTypes.Node, context: Controls.Context) -> Maybe<&2, Controls.Face>:
@@ -1308,18 +1305,18 @@ type FormInputRequirements is Type:
     Some{User.WriteCard{Board.Patch{None{}, None{}, None{}, None{}, None{}, None{}, Some{values}, None{}}}} : Maybe<&2, User.Edit>},
     labels_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @values:+List<String> -> @label:String -> @role:SurfaceTypes.Role -> @context:Controls.Context ->
       {Controls.represent(key, SurfaceTypes.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label, role, context) ==
-          Controls.Input{SurfaceTypes.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
-            Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})} : Controls.Representation},
+          Controls.Input{Controls.FormInput{SurfaceTypes.Edit{editor, Forms.CardLabels{}, Forms.Multiline{}, Forms.TextsValue{values}, choices}, label,
+            Controls.TextArea{}, Controls.AboveInput{}, Controls.field_availability(Forms.Multiline{})}} : Controls.Representation},
     labels_observation: @values:+List<String> ->
       {Fields.observed(Forms.TextsValue{values}) == Fields.joined(values) : String},
     assistance_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:SurfaceTypes.Role -> @context:Controls.Context ->
       {Controls.represent(key, SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
-          Controls.Input{SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
-            Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
+          Controls.Input{Controls.FormInput{SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
+            Controls.ToggleInput{}, Controls.BesideInput{}, Controls.field_availability(Forms.Choice{})}} : Controls.Representation},
     assistance_profile_representation: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @editor:User.Editor -> @enabled:Bool -> @profile:String -> @label:String -> @role:SurfaceTypes.Role -> @context:Controls.Context ->
       {Controls.represent(key, SurfaceTypes.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label, role, context) ==
-          Controls.Input{SurfaceTypes.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
-            Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})} : Controls.Representation},
+          Controls.Input{Controls.FormInput{SurfaceTypes.Edit{editor, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.AssistanceValue{enabled, profile}, choices}, label,
+            Controls.SelectInput{}, Controls.AboveInput{}, Controls.field_availability(Forms.Choice{})}} : Controls.Representation},
     assistance_gesture: @choices:+List<Forms.ChoiceValue> -> @key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @editor:User.Editor -> @previous:Bool -> @profile:String -> @children:+List<SurfaceTypes.Node> -> @enabled:Bool ->
       {Browser.toggle_gesture(Some{SurfaceTypes.Node{key, semantic, label, role,
           SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, Forms.Choice{}, Forms.AssistanceValue{previous, profile}, choices}, children}}, enabled) ==

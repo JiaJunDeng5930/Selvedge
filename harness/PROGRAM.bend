@@ -1,4 +1,6 @@
 import Base
+import ./tools/SYNTAX.bend as Native
+import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
 import ./features/execution.bend as FeatureExec
 import ../bendlib/effects.bend as Effects
@@ -145,12 +147,12 @@ def review_result(resolution: Approvals.Resolution, world: M.World()) -> M.Decis
       audited = D.append_message(D.ApprovalRecord{D.task_id(task), Ops.ticket(operation), Ops.call(operation), reviewer, outcome}, task)
       Results.begin(F.State(), F.Effect, operation, Approvals.denial_value(outcome), True{}, audited, world)
 
-def realize(operation: Commands.Operation, +world: M.World()) -> M.Decision():
+def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Review{resolution}: review_result(resolution, world)
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
-    case Commands.FeatureOperation{operation}: FeatureExec.realize(execute_start, operation, world)
+    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(execute_start, operation, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)
     case Commands.Steer{+task, message}:
       C.Decision{store(T.steer(message, task), world), D.success(id_result(D.task_id(task))),
@@ -169,8 +171,12 @@ def realize(operation: Commands.Operation, +world: M.World()) -> M.Decision():
     case Commands.RemoveProject{+id}:
       respond(Projects.store(F.State(), Projects.remove(id, Projects.registry(F.State(), world)), world), J.Object{[J.Field{"project_id", J.nat(id)}]})
 
+def realize(member: Commands.ConstructedCommand()) -> M.Decision():
+  Categories.Membership{Categories.Construction{Commands.CommandRequest{command, world}, operation}, evidence} = member
+  realize_calculation(operation, world)
+
 def apply_command(command: M.Command, +world: M.World()) -> M.Decision():
-  realize(Commands.resolve(command, world), world)
+  realize(Commands.construct_command(command, world))
 
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
@@ -193,14 +199,14 @@ def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Boo
 def recover_tasks(tasks: +List<D.Task>) -> +List<D.Task>:
   Protocol.recovery(tasks)
 
-def realize_event(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision():
+def realize_event_calculation(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision():
   match event:
-    case Protocol.User{operation}: realize(operation, world)
+    case Protocol.User{operation}: realize_calculation(operation, world)
     case Protocol.Ignore{}: respond(world, accepted(False{}))
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
     case Protocol.ReasoningResult{task, revision, outcome}:
       respond(store(Reasoning.complete(revision, outcome, task), world), accepted(True{}))
-    case Protocol.FeatureEvent{event}: FeatureExec.event(event, world)
+    case Protocol.FeatureEvent{event}: FeatureExec.event_calculation(event, world)
     case Protocol.SummaryResult{task, outcome, resume}: summary_matched(True{}, outcome, resume, task, world)
     case Protocol.ToolResult{task, operation, value, error}: tool_matched(True{}, operation, value, error, task, world)
     case Protocol.HookResult{task, outcome}: respond(store(T.complete_hook(outcome, task), world), accepted(True{}))
@@ -225,8 +231,12 @@ def realize_event(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision
     case Protocol.Tick{}: respond(world, J.Null{})
     case Protocol.Review{resolution}: review_result(resolution, world)
 
+def realize_event(member: Protocol.ConstructedInput()) -> M.Decision():
+  Categories.Membership{Categories.Construction{Protocol.InputRequest{input, world}, event}, evidence} = member
+  realize_event_calculation(event, world)
+
 def apply(input: M.Input, +world: M.World()) -> M.Decision():
-  realize_event(Protocol.resolve(input, world), world)
+  realize_event(Protocol.construct_input(input, world))
 
 def decision_world(decision: M.Decision()) -> M.World():
   Execution.world(decision)
@@ -303,14 +313,14 @@ def commit_invoked_fork(built: Commands.Children, call: D.Call, remaining: +List
 def realize_invocation(operation: Protocol.Invocation, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
   match operation:
     case Protocol.Internal{operation}:
-      finish_internal(D.task_id(task), call, remaining, realize(operation, world))
+      finish_internal(D.task_id(task), call, remaining, realize_calculation(operation, world))
     case Protocol.Branch{count, messages, selection}:
       commit_invoked_fork(children(count, next_task(world), 1n, Commands.selected_parent(selection, task), T.call_id(call), remaining, messages), call, remaining, task, world)
 
-def builtin(tool: D.Builtin, arguments: J.Json, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
+def builtin(tool: Native.Body, arguments: J.Json, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
   realize_invocation(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)
 
-def realize_action(action: Execution.Action, world: M.World()) -> M.Decision():
+def realize_action_calculation(action: Execution.Action, world: M.World()) -> M.Decision():
   match action:
     case Execution.Rest{}: respond(world, J.Null{})
     case Execution.Idle{task}: respond(store(D.with_phase(D.Idle{}, task), world), J.Null{})
@@ -325,13 +335,17 @@ def realize_action(action: Execution.Action, world: M.World()) -> M.Decision():
     case Execution.Failure{code, reason, call, remaining, task}: tool_error(code, reason, call, remaining, task, world)
 
 def model_request(task: D.Task, +world: M.World()) -> M.Decision():
-  realize_action(Execution.model(task, world), world)
+  realize_action_calculation(Execution.model(task, world), world)
 
 def run_tool(phase: D.Phase, task: D.Task, +world: M.World()) -> M.Decision():
-  realize_action(Execution.tool(phase, task, world), world)
+  realize_action_calculation(Execution.tool(phase, task, world), world)
 
-def work(work: D.Work, task: D.Task, +world: M.World()) -> M.Decision():
-  realize_action(Execution.resolve(work, task, world), world)
+def realize_work(member: Execution.ConstructedWork()) -> M.Decision():
+  Categories.Membership{Categories.Construction{Execution.WorkRequest{work, task, world}, action}, evidence} = member
+  realize_action_calculation(action, world)
+
+def work_calculation(work: D.Work, task: D.Task, +world: M.World()) -> M.Decision():
+  realize_work(Execution.construct_work(work, task, world))
 
 def combine(before: M.Decision(), after: M.Decision()) -> M.Decision():
   match before after:
@@ -351,7 +365,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work(D.task_work(task), task, decision_world(decision)))
+      +next = combine(decision, work_calculation(D.task_work(task), task, decision_world(decision)))
       schedule(p, T.runnable(tasks(decision_world(next))), next)
 
 def scheduling_budget(world: M.World()) -> Nat:
@@ -383,7 +397,7 @@ def admission(rendered: Result<&2, &2, String, String>, decision: M.Decision(), 
       output_admitted(Nat.is_le(J.utf8_length(text), U32.to_nat(frame_limit(previous))), decision, previous)
 
 def deliver(durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  admission(J.render(rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous)
+  Commit.deliver(durable, decision, previous)
 
 def live_decision(decision: M.Decision()) -> M.Decision():
   C.Decision{+world, reply, effects} = decision
@@ -403,7 +417,7 @@ def check_live(+decision: M.Decision(), +previous: M.World()) -> M.Decision():
 # retains the old state and emits no effects; output admission has the same rule.
 
 def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
-  check_live(live_decision(decision), previous)
+  Commit.checked(decision, previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
   deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
@@ -411,13 +425,28 @@ def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)
 
-def transition(input: M.Input, +world: M.World()) -> M.Decision():
+def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():
   match input:
     case M.UserCommand{M.Observe{request}}: deliver(False{}, observe(request, world), world)
     case other: update(other, world)
+
+def transition(input: M.Input, +world: M.World()) -> M.Decision():
+  transition_calculation(input, world)
 
 def next(world: M.World(), input: M.Input) -> M.World():
   decision_world(transition(input, world))
 
 def replay(events: +List<M.Input>, world: M.World()) -> M.World():
   Theory.replay(~M.World(), ~M.Input, ~next, events, world)
+
+
+def command_consumer_correspondence_required(member: Commands.ConstructedCommand()) -> M.Decision():
+  Categories.Membership{Categories.Construction{+request, result}, evidence} = member
+  Commands.CommandRequest{command, world} = request
+  realize_calculation(Commands.command_resolution(request), world)
+
+
+def input_consumer_correspondence_required(member: Protocol.ConstructedInput()) -> M.Decision():
+  Categories.Membership{Categories.Construction{+request, result}, evidence} = member
+  Protocol.InputRequest{input, world} = request
+  realize_event_calculation(Protocol.input_resolution(request), world)

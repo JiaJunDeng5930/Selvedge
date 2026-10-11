@@ -1,4 +1,6 @@
 import Base
+import ../tools/SYNTAX.bend as Native
+import ../../bendlib/categories.bend as Categories
 import ../features/STATE.bend as FeatureState
 import ../features/protocol.bend as FeatureProtocol
 import ../features/operations.bend as FeatureOps
@@ -36,7 +38,33 @@ type ResolvedEvent is Data:
   Restart{}
   Tick{}
 
-def matching(same: Bool, event: ResolvedEvent) -> ResolvedEvent:
+type MatchingRequest is Data:
+  MatchingRequest{ticket: Nat, expected: Nat, event: ResolvedEvent}
+
+def matching_accepts(request: MatchingRequest) -> Bool:
+  MatchingRequest{+ticket, +expected, +event} = request
+  Nat.is_eq(ticket, expected)
+
+def matching_category() -> MatchingRequest -> Type:
+  Categories.holds(MatchingRequest, matching_accepts)
+
+def matching_accepted(member: Categories.Membership<MatchingRequest, matching_category()>) -> ResolvedEvent:
+  Categories.Membership{request, evidence} = member
+  MatchingRequest{+ticket, +expected, +event} = request
+  event
+
+def matching_admitted(admission: Maybe<&1, Categories.Membership<MatchingRequest, matching_category()>>, request: MatchingRequest) -> ResolvedEvent:
+  match admission:
+    case Some{member}: matching_accepted(member)
+    case None{}:
+      MatchingRequest{+ticket, +expected, +event} = request
+      Ignore{}
+
+def matching(+ticket: Nat, +expected: Nat, +event: ResolvedEvent) -> ResolvedEvent:
+  +request = {MatchingRequest{ticket, expected, event} : MatchingRequest}
+  matching_admitted(Categories.admit(MatchingRequest, matching_accepts, request), request)
+
+def matching_calculation(same: Bool, event: ResolvedEvent) -> ResolvedEvent:
   match same:
     case True{}: event
     case False{}: Ignore{}
@@ -45,9 +73,9 @@ def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +
   match status phase:
     case D.Archived{} _: Ignore{}
     case _ D.ModelPending{expected, allowed}:
-      matching(Nat.is_eq(ticket, expected), ModelResult{task, outcome, allowed})
+      matching(ticket, expected, ModelResult{task, outcome, allowed})
     case _ D.SummaryPending{expected, resume}:
-      matching(Nat.is_eq(ticket, expected), SummaryResult{task, outcome, resume})
+      matching(ticket, expected, SummaryResult{task, outcome, resume})
     case _ _: Ignore{}
 
 def model(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.Outcome) -> ResolvedEvent:
@@ -61,7 +89,7 @@ def reasoning_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat,
     case _:
       match phase:
         case D.ReasoningPending{expected, revision}:
-          matching(Nat.is_eq(ticket, expected), ReasoningResult{task, revision, outcome})
+          matching(ticket, expected, ReasoningResult{task, revision, outcome})
         case _: Ignore{}
 
 def reasoning(found: Maybe<&2, D.Task>, ticket: Nat, outcome: R.Outcome) -> ResolvedEvent:
@@ -69,15 +97,40 @@ def reasoning(found: Maybe<&2, D.Task>, ticket: Nat, outcome: R.Outcome) -> Reso
     case None{}: Ignore{}
     case Some{+task}: reasoning_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
+type ExecutingResultRequest is Data:
+  ExecutingResultRequest{operation: D.Operation(), task: D.Task, value: J.Json, error: Bool}
+
+def executing_result_accepts(request: ExecutingResultRequest) -> Bool:
+  ExecutingResultRequest{+operation, +task, +value, +error} = request
+  Ops.executing(Ops.stage(operation))
+
+def executing_result_category() -> ExecutingResultRequest -> Type:
+  Categories.holds(ExecutingResultRequest, executing_result_accepts)
+
+def executing_result_accepted(member: Categories.Membership<ExecutingResultRequest, executing_result_category()>) -> ResolvedEvent:
+  Categories.Membership{request, evidence} = member
+  ExecutingResultRequest{+operation, +task, +value, +error} = request
+  ToolResult{task, operation, value, error}
+
+def executing_result_admitted(admission: Maybe<&1, Categories.Membership<ExecutingResultRequest, executing_result_category()>>, request: ExecutingResultRequest) -> ResolvedEvent:
+  match admission:
+    case Some{member}: executing_result_accepted(member)
+    case None{}:
+      ExecutingResultRequest{+operation, +task, +value, +error} = request
+      Ignore{}
+
+def executing_result(+operation: D.Operation(), +task: D.Task, +value: J.Json, +error: Bool) -> ResolvedEvent:
+  +request = {ExecutingResultRequest{operation, task, value, error} : ExecutingResultRequest}
+  executing_result_admitted(Categories.admit(ExecutingResultRequest, executing_result_accepts, request), request)
 def tool_operation(found: Maybe<&2, D.Operation()>, task: D.Task, value: J.Json, error: Bool) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
-    case Some{+operation}: matching(Ops.executing(Ops.stage(operation)), ToolResult{task, operation, value, error})
+    case Some{+operation}: executing_result(operation, task, value, error)
 
 def after_stage(stage: D.OperationStage, task: D.Task, operation: D.Operation(), ticket: Nat, outcome: D.AfterOutcome) -> ResolvedEvent:
   match stage:
     case D.ResultPending{expected, plugin, pending, value, error}:
-      matching(Nat.is_eq(ticket, expected), AfterResult{task, operation, outcome})
+      matching(ticket, expected, AfterResult{task, operation, outcome})
     case _: Ignore{}
 
 def after_operation(found: Maybe<&2, D.Operation()>, task: D.Task, ticket: Nat, outcome: D.AfterOutcome) -> ResolvedEvent:
@@ -104,7 +157,7 @@ def hook_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outc
   match status phase:
     case D.Archived{} _: Ignore{}
     case _ D.HookPending{expected, reference, call, pending, remaining}:
-      matching(Nat.is_eq(ticket, expected), HookResult{task, outcome})
+      matching(ticket, expected, HookResult{task, outcome})
     case _ _: Ignore{}
 
 def hook(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.HookOutcome) -> ResolvedEvent:
@@ -127,7 +180,8 @@ def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
     case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
     case M.AfterCompleted{id, operation, ticket, outcome}: after(T.find(Commands.entries(world), id), operation, ticket, outcome)
     case M.ApprovalCompleted{id, ticket, outcome}:
-      Review{Approvals.resolve(T.find(Commands.entries(world), id), Approvals.ModelDecision{}, ticket, outcome)}
+      Review{Approvals.resolution(F.State(), Approvals.construct_review(F.State(),
+        Approvals.ReviewRequest{Approvals.ModelDecision{}, id, ticket, outcome, world}))}
     case M.Configure{environment}: Settings{environment}
     case M.Recover{}: Restart{}
     case M.Continue{}: Tick{}
@@ -177,7 +231,7 @@ def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
       projects = D.state_projects(task_state_2)
       C.Decision{C.Frame{D.with_state_tasks(recovery(tasks), task_state_2), FeatureState.recover(board)}, D.success(J.Null{}), Nil{}}
     case Tick{}: C.Decision{world, D.success(J.Null{}), Nil{}}
-    case Review{resolution}: Approvals.meaning(F.State(), F.Effect, resolution, world)
+    case Review{resolution}: Approvals.meaning_calculation(F.State(), F.Effect, resolution, world)
 
 def input(+event: M.Input, +world: M.World()) -> M.Decision():
   meaning(resolve(event, world), world)
@@ -193,7 +247,34 @@ type Invocation is Data:
 def number(+arguments: J.Json, name: String, fallback: Nat) -> Nat:
   J.natural_or(J.natural(J.get(arguments, name)), fallback)
 
-def delegated(allowed: Bool, count: Nat, messages: +List<String>, selection: Workspace.Selection) -> Invocation:
+type DelegatedRequest is Data:
+  DelegatedRequest{count: Nat, messages: +List<String>, selection: Workspace.Selection, parent: D.TaskContext}
+
+def delegated_accepts(request: DelegatedRequest) -> Bool:
+  DelegatedRequest{+count, +messages, +selection, +parent} = request
+  Workspace.Selection{context, guidance} = selection
+  Workspace.may_delegate(context, parent)
+
+def delegated_category() -> DelegatedRequest -> Type:
+  Categories.holds(DelegatedRequest, delegated_accepts)
+
+def delegated_accepted(member: Categories.Membership<DelegatedRequest, delegated_category()>) -> Invocation:
+  Categories.Membership{request, evidence} = member
+  DelegatedRequest{+count, +messages, +selection, +parent} = request
+  Branch{count, messages, selection}
+
+def delegated_admitted(admission: Maybe<&1, Categories.Membership<DelegatedRequest, delegated_category()>>, request: DelegatedRequest) -> Invocation:
+  match admission:
+    case Some{member}: delegated_accepted(member)
+    case None{}:
+      DelegatedRequest{+count, +messages, +selection, +parent} = request
+      Internal{Commands.Refuse{"approval_required", "A model-created child cannot broaden workspace or permissions. Ask the user to create a fork with those settings."}}
+
+def delegated(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext) -> Invocation:
+  +request = {DelegatedRequest{count, messages, selection, parent} : DelegatedRequest}
+  delegated_admitted(Categories.admit(DelegatedRequest, delegated_accepts, request), request)
+
+def delegated_calculation(allowed: Bool, count: Nat, messages: +List<String>, selection: Workspace.Selection) -> Invocation:
   match allowed:
     case True{}: Branch{count, messages, selection}
     case False{}: Internal{Commands.Refuse{"approval_required", "A model-created child cannot broaden workspace or permissions. Ask the user to create a fork with those settings."}}
@@ -203,29 +284,63 @@ def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, cou
   match selection:
     case Fail{reason}: Internal{Commands.Refuse{"invalid_settings", reason}}
     case Done{Workspace.Selection{+context, guidance}}:
-      delegated(Workspace.may_delegate(context, parent), count, messages, Workspace.Selection{context, guidance})
+      delegated(count, messages, Workspace.Selection{context, guidance}, parent)
 
-def branch(valid: Bool, count: Nat, texts: +List<String>, selection: Result<&2, &2, String, Workspace.Selection>, parent: D.TaskContext) -> Invocation:
-  match valid:
-    case True{}: branch_selection(selection, count, texts, parent)
-    case False{}: Internal{Commands.Refuse{"resource_limit", "Fork count, aligned messages, or an ancestor descendant limit is invalid"}}
+type BranchRequest is Data:
+  BranchRequest{count: Nat, texts: +List<String>, selection: Result<&2, &2, String, Workspace.Selection>, task: D.Task, world: M.World()}
 
-def invocation(tool: D.Builtin, +arguments: J.Json, +task: D.Task, +world: M.World()) -> Invocation:
+def branch_accepts(request: BranchRequest) -> Bool:
+  BranchRequest{+count, +texts, +selection, +task, +world} = request
+  Commands.branch_fits(count, texts, task, world)
+
+def branch_category() -> BranchRequest -> Type:
+  Categories.holds(BranchRequest, branch_accepts)
+
+def branch_accepted(member: Categories.Membership<BranchRequest, branch_category()>) -> Invocation:
+  Categories.Membership{request, evidence} = member
+  BranchRequest{+count, +texts, +selection, +task, +world} = request
+  branch_selection(selection, count, texts, D.task_context(task))
+
+def branch_admitted(admission: Maybe<&1, Categories.Membership<BranchRequest, branch_category()>>, request: BranchRequest) -> Invocation:
+  match admission:
+    case Some{member}: branch_accepted(member)
+    case None{}:
+      BranchRequest{+count, +texts, +selection, +task, +world} = request
+      Internal{Commands.Refuse{"resource_limit", "Fork count, aligned messages, or an ancestor descendant limit is invalid"}}
+
+def branch(+count: Nat, +texts: +List<String>, +selection: Result<&2, &2, String, Workspace.Selection>, +task: D.Task, +world: M.World()) -> Invocation:
+  +request = {BranchRequest{count, texts, selection, task, world} : BranchRequest}
+  branch_admitted(Categories.admit(BranchRequest, branch_accepts, request), request)
+
+def native_query(query: Native.Query, +arguments: J.Json, +caller: Nat) -> M.Query:
+  match query:
+    case Native.Read{target, after, limit}:
+      M.Read{Native.number(target, arguments, caller), Native.number(after, arguments, caller), Native.number(limit, arguments, caller)}
+    case Native.Tasks{}: M.ListTasks{}
+    case Native.Describe{}: M.Describe{}
+    case Native.Projects{}: M.ListProjects{}
+    case Native.Project{project}: M.ReadProject{Native.number(project, arguments, caller)}
+
+def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, +task: D.Task, +world: M.World()) -> Invocation:
   match tool:
-    case D.ForkTask{}:
-      +count = number(arguments, "child_count", 0n)
-      +texts = J.text_values(J.items(J.get(arguments, "messages")))
-      branch(Commands.branch_fits(count, texts, task, world), count, texts,
-        Commands.selected_settings(J.get(arguments, "settings"), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), D.task_context(task))
-    case D.ReadTask{}:
-      Internal{Commands.resolve(M.Observe{M.Read{number(arguments, "task_id", 0n), number(arguments, "after", 0n), number(arguments, "limit", 100n)}}, world)}
-    case D.SendMessage{}:
-      Internal{Commands.resolve(M.Send{number(arguments, "task_id", 0n), J.text(J.get(arguments, "message"))}, world)}
-    case D.ArchiveTask{}:
-      Internal{Commands.resolve(M.ChangeStatus{number(arguments, "task_id", 0n), D.Archive{}}, world)}
-    case D.CancelOperation{}:
-      Internal{Commands.resolve(M.Cancel{number(arguments, "task_id", D.task_id(task)), number(arguments, "operation_id", 0n)}, world)}
-    case _: Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+    case Native.Observe{query}:
+      Internal{Commands.resolve(M.Observe{native_query(query, arguments, caller)}, world)}
+    case Native.Send{target, message}:
+      Internal{Commands.resolve(M.Send{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
+    case Native.Steer{target, message}:
+      Internal{Commands.resolve(M.Steer{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
+    case Native.Archive{target}:
+      Internal{Commands.resolve(M.ChangeStatus{Native.number(target, arguments, caller), D.Archive{}}, world)}
+    case Native.Cancel{target, operation}:
+      Internal{Commands.resolve(M.Cancel{Native.number(target, arguments, caller), Native.number(operation, arguments, caller)}, world)}
+    case Native.Fork{count, messages, settings}:
+      branch(Native.number(count, arguments, caller), Native.texts(messages, arguments),
+        Commands.selected_settings(Native.settings(settings, arguments), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), task, world)
+    case Native.Process{}:
+      Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+
+def invocation(tool: Native.Body, +arguments: J.Json, +task: D.Task, +world: M.World()) -> Invocation:
+  invocation_with_caller(tool, arguments, D.task_id(task), task, world)
 
 def result(found: Maybe<&2, D.Task>, call: D.Call, remaining: +List<D.Attempt>, decision: M.Decision()) -> M.Decision():
   match found:
@@ -261,3 +376,18 @@ def invoked(operation: Invocation, +call: D.Call, +remaining: +List<D.Attempt>, 
       C.Frame{+task_state, +board} = world
       next_task = D.state_next_task(task_state)
       branched_invocation(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, task), T.call_id(call), remaining, texts), call, remaining, task, world)
+
+
+type InputRequest is Data:
+  InputRequest{input: M.Input, world: M.World()}
+
+def input_resolution(request: InputRequest) -> ResolvedEvent:
+  InputRequest{input, world} = request
+  resolve(input, world)
+
+def ConstructedInput() -> Type:
+  Categories.Membership<Categories.Construction<InputRequest, ResolvedEvent>,
+    Categories.constructed_by(InputRequest, ResolvedEvent, input_resolution)>
+
+def construct_input(input: M.Input, world: M.World()) -> ConstructedInput():
+  Categories.construct(InputRequest, ResolvedEvent, input_resolution, InputRequest{input, world})

@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../document/SOURCE.bend as Source
 import ./CONTENT.bend as Content
 import ./physical-content-measurement.bend as Measurements
@@ -260,21 +261,59 @@ def text(empty: Bool, +node: Source.Node, +key: String, +font: T.Presentation,
       measured(Content.Request{generation, key, Content.local_value(node, font), Content.Natural{}, Nil{}, Nil{}},
         text_rule(), Nil{}, Nil{}, observations)
 
-def glyph_result(valid: Bool, +node: Source.Node, +key: String, +style: Source.ResolvedStyle,
-  +width: Nat, +height: Nat) -> Forest:
-  match valid:
-    case True{}:
-      ReadyForest{[Model.Leaf{key, Content.local_value(node, resolved_font(style)), Model.DisplayOnly{},
-        Source.physical_rule(style), Space.fixed_demand(width, height), Model.FixedHeight{height}}], Nil{}, Nil{}}
-    case False{}: InvalidForest{Content.InvalidDrawing{key}}
+def glyph_valid(node: Source.Node) -> Bool:
+  match node:
+    case Source.Glyph{key, Source.Drawing{view_box, paths, width, height, paint}, style}:
+      Nat.is_le(1n, width) && Nat.is_le(1n, height) && Source.drawing_paint_valid(paint)
+    case _: False{}
 
-def field(valid: Bool, kind: Source.NativeFieldKind, node: Source.Node, +key: String, +style: Source.ResolvedStyle,
+def glyph_category() -> Source.Node -> Type:
+  Categories.holds(Source.Node, glyph_valid)
+
+def glyph_success(member: Categories.Membership<Source.Node, glyph_category()>, +key: String,
+  +style: Source.ResolvedStyle, +width: Nat, +height: Nat) -> Forest:
+  Categories.Membership{node, evidence} = member
+  ReadyForest{[Model.Leaf{key, Content.local_value(node, resolved_font(style)), Model.DisplayOnly{},
+    Source.physical_rule(style), Space.fixed_demand(width, height), Model.FixedHeight{height}}], Nil{}, Nil{}}
+
+def glyph_admitted(member: Maybe<&1, Categories.Membership<Source.Node, glyph_category()>>, +key: String,
+  +style: Source.ResolvedStyle, +width: Nat, +height: Nat) -> Forest:
+  match member:
+    case Some{value}: glyph_success(value, key, style, width, height)
+    case None{}: InvalidForest{Content.InvalidDrawing{key}}
+
+def glyph_result(node: Source.Node, +key: String, +style: Source.ResolvedStyle,
+  +width: Nat, +height: Nat) -> Forest:
+  glyph_admitted(Categories.admit(Source.Node, glyph_valid, node), key, style, width, height)
+
+def field_valid(node: Source.Node) -> Bool:
+  match node:
+    case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}:
+      Source.field_policy_valid(policy)
+    case _: False{}
+
+def field_category() -> Source.Node -> Type:
+  Categories.holds(Source.Node, field_valid)
+
+def field_measurement(kind: Source.NativeFieldKind, node: Source.Node, +key: String, +style: Source.ResolvedStyle,
   generation: Nat, observations: +List<Content.Observation>) -> Forest:
-  match valid:
-    case True{}:
-      measured(Content.Request{generation, key, Content.local_value(node, resolved_font(style)), Content.Natural{}, Nil{}, Nil{}},
-        Source.native_field_rule(kind, style), Nil{}, Nil{}, observations)
-    case False{}: InvalidForest{Content.InvalidFieldPolicy{key}}
+  measured(Content.Request{generation, key, Content.local_value(node, resolved_font(style)), Content.Natural{}, Nil{}, Nil{}},
+    Source.native_field_rule(kind, style), Nil{}, Nil{}, observations)
+
+def field_success(member: Categories.Membership<Source.Node, field_category()>, kind: Source.NativeFieldKind,
+  +key: String, +style: Source.ResolvedStyle, generation: Nat, observations: +List<Content.Observation>) -> Forest:
+  Categories.Membership{node, evidence} = member
+  field_measurement(kind, node, key, style, generation, observations)
+
+def field_admitted(member: Maybe<&1, Categories.Membership<Source.Node, field_category()>>, kind: Source.NativeFieldKind,
+  +key: String, +style: Source.ResolvedStyle, generation: Nat, observations: +List<Content.Observation>) -> Forest:
+  match member:
+    case Some{value}: field_success(value, kind, key, style, generation, observations)
+    case None{}: InvalidForest{Content.InvalidFieldPolicy{key}}
+
+def field(kind: Source.NativeFieldKind, node: Source.Node, +key: String, +style: Source.ResolvedStyle,
+  generation: Nat, observations: +List<Content.Observation>) -> Forest:
+  field_admitted(Categories.admit(Source.Node, field_valid, node), kind, key, style, generation, observations)
 
 def rich(attachments: Forest, +node: Source.Node, +key: String, +style: Source.ResolvedStyle,
   generation: Nat, observations: +List<Content.Observation>) -> Forest:
@@ -294,10 +333,8 @@ def owner_matches(source: Maybe<&2, Code.Source>, identity: Code.Identity) -> Bo
     case None{}: False{}
     case Some{expected}: identity_matches(identity, expected)
 
-def attachment_valid(valid: Bool, result: Forest, key: String) -> Forest:
-  match valid:
-    case True{}: result
-    case False{}: InvalidForest{Content.InvalidNativeOwner{key}}
+def owner_category(+source: Maybe<&2, Code.Source>) -> Code.Identity -> Type:
+  Categories.holds(Code.Identity, identity => owner_matches(source, identity))
 
 def toolbar(children: Forest, +owner: String, +key: String, +node: Source.Node,
   target: Source.NativeTarget, attributes: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Forest:
@@ -308,39 +345,71 @@ def toolbar(children: Forest, +owner: String, +key: String, +node: Source.Node,
     case MissingForest{first, remaining}: MissingForest{first, remaining}
     case InvalidForest{error}: InvalidForest{error}
 
+def attachment_success(-source: Maybe<&2, Code.Source>, member: Categories.Membership<Code.Identity, owner_category(source)>,
+  children: Forest, +owner: String, +key: String, +node: Source.Node,
+  attributes: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Forest:
+  Categories.Membership{identity, evidence} = member
+  toolbar(children, owner, key, node, Source.ToolbarTarget{identity}, attributes, style)
+
+def attachment_valid(-source: Maybe<&2, Code.Source>, member: Maybe<&1, Categories.Membership<Code.Identity, owner_category(source)>>,
+  children: Forest, +owner: String, +key: String, +node: Source.Node,
+  attributes: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Forest:
+  match member:
+    case Some{value}: attachment_success(source, value, children, owner, key, node, attributes, style)
+    case None{}: InvalidForest{Content.InvalidNativeOwner{key}}
+
 def native_toolbar(context: Context, children: Forest, +key: String, node: Source.Node,
   +identity: Code.Identity, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
   match context:
     case Ordinary{}: InvalidForest{Content.InvalidNativeOwner{key}}
     case RichSlots{+owner_key, source}:
-      attachment_valid(owner_matches(source, identity),
-        toolbar(children, owner_key, key, node, Source.ToolbarTarget{identity}, attributes, style), key)
+      attachment_valid(source, Categories.admit(Code.Identity, identity => owner_matches(source, identity), identity),
+        children, owner_key, key, node, attributes, style)
 
-def native_code_policy(valid: Bool, owner: String, +key: String,
+def native_code_category() -> Source.ResolvedStyle -> Type:
+  Categories.holds(Source.ResolvedStyle, Source.native_code_policy_valid)
+
+def native_code_success(member: Categories.Membership<Source.ResolvedStyle, native_code_category()>, owner: String,
+  target: Source.NativeTarget, attributes: +List<Source.Attribute>) -> Forest:
+  Categories.Membership{style, evidence} = member
+  ReadyForest{Nil{}, Nil{}, [Content.NativePolicy{owner, target, attributes, style}]}
+
+def native_code_admitted(member: Maybe<&1, Categories.Membership<Source.ResolvedStyle, native_code_category()>>, owner: String,
+  +key: String, target: Source.NativeTarget, attributes: +List<Source.Attribute>) -> Forest:
+  match member:
+    case Some{value}: native_code_success(value, owner, target, attributes)
+    case None{}: InvalidForest{Content.InvalidNativeChild{key}}
+
+def native_code_policy(owner: String, +key: String,
   target: Source.NativeTarget, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
-  match valid:
-    case True{}: ReadyForest{Nil{}, Nil{}, [Content.NativePolicy{owner, target, attributes, style}]}
-    case False{}: InvalidForest{Content.InvalidNativeChild{key}}
+  native_code_admitted(Categories.admit(Source.ResolvedStyle, Source.native_code_policy_valid, style), owner, key, target, attributes)
 
 def code_body_children(children: +List<Source.Node>, owner: String, +key: String,
   target: Source.NativeTarget, attributes: +List<Source.Attribute>, +style: Source.ResolvedStyle) -> Forest:
   match children:
-    case Nil{}: native_code_policy(Source.native_code_policy_valid(style), owner, key, target, attributes, style)
+    case Nil{}: native_code_policy(owner, key, target, attributes, style)
     case Con{first, rest}: InvalidForest{Content.InvalidNativeContentChildren{key}}
 
-def owned_code_body(valid: Bool, children: +List<Source.Node>, owner: String, +key: String,
-  target: Source.NativeTarget, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
-  match valid:
-    case True{}: code_body_children(children, owner, key, target, attributes, style)
-    case False{}: InvalidForest{Content.InvalidNativeOwner{key}}
+def owned_code_success(-source: Maybe<&2, Code.Source>, member: Categories.Membership<Code.Identity, owner_category(source)>,
+  children: +List<Source.Node>, owner: String, +key: String, wrap: Bool,
+  attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
+  Categories.Membership{identity, evidence} = member
+  code_body_children(children, owner, key, Source.CodeBodyTarget{identity, wrap}, attributes, style)
+
+def owned_code_body(-source: Maybe<&2, Code.Source>, member: Maybe<&1, Categories.Membership<Code.Identity, owner_category(source)>>,
+  children: +List<Source.Node>, owner: String, +key: String, wrap: Bool,
+  attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
+  match member:
+    case Some{value}: owned_code_success(source, value, children, owner, key, wrap, attributes, style)
+    case None{}: InvalidForest{Content.InvalidNativeOwner{key}}
 
 def native_code_body(context: Context, children: +List<Source.Node>, +key: String,
   +identity: Code.Identity, wrap: Bool, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
   match context:
     case Ordinary{}: InvalidForest{Content.InvalidNativeOwner{key}}
     case RichSlots{owner_key, source}:
-      owned_code_body(owner_matches(source, identity), children, owner_key, key,
-        Source.CodeBodyTarget{identity, wrap}, attributes, style)
+      owned_code_body(source, Categories.admit(Code.Identity, identity => owner_matches(source, identity), identity),
+        children, owner_key, key, wrap, attributes, style)
 
 # This list-first recursion visits the authored tree and every owned native region.
 # Helpers consume completed recursive results and never traverse source indirectly.
@@ -370,13 +439,13 @@ def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +gen
       +path = prefix ++ "/" ++ Nat.show(index)
       +node: Source.Node = Source.Glyph{key, Source.Drawing{view_box, paths, width, height, paint}, style}
       +resolved = Source.resolve_style(style, parent_font)
-      merge(ordinary(context, glyph_result(Nat.is_le(1n, width) && Nat.is_le(1n, height) && Source.drawing_paint_valid(paint), node, path, resolved, width, height), path),
+      merge(ordinary(context, glyph_result(node, path, resolved, width, height), path),
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
     case Con{Source.Field{+key, +kind, +style, +attributes, +value, +placeholder, +options, +policy, +accessible_name, +enabled, +first_event, +remaining_events}, +rest}:
       +path = prefix ++ "/" ++ Nat.show(index)
       +node: Source.Node = Source.Field{key, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}
       +resolved = Source.resolve_style(style, parent_font)
-      merge(ordinary(context, field(Source.field_policy_valid(policy), kind, node, path, resolved, generation, observations), path),
+      merge(ordinary(context, field(kind, node, path, resolved, generation, observations), path),
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
     case Con{Source.RichText{+key, +style, Source.RichContent{+source, +value, +policy}, +attachments, +native_owner}, +rest}:
       +path = prefix ++ "/" ++ Nat.show(index)
@@ -400,15 +469,30 @@ def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +gen
 
 # Native targets are admitted together before any prepared forest leaves this boundary.
 
-def admit_duplicate(duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content.Prepared) -> Content.Preparation:
+def native_targets_category() -> Content.Prepared -> Type:
+  Categories.holds(Content.Prepared, Measurements.native_targets_valid)
+
+def native_targets_success(member: Categories.Membership<Content.Prepared, native_targets_category()>) -> Content.Preparation:
+  Categories.Membership{prepared, evidence} = member
+  Content.Ready{prepared}
+
+def reject_duplicate(duplicate: Maybe<&2, Content.NativeSlot>, +prepared: Content.Prepared) -> Content.Preparation:
   match duplicate:
-    case None{}: Content.Ready{prepared}
+    case None{}:
+      Content.Prepared{snapshot, tree, roots, policies} = prepared
+      Content.Invalid{snapshot, Content.InvalidNativeChild{"/0"}}
     case Some{Content.NativeSlot{owner_key, target_key}}:
       Content.Prepared{snapshot, tree, roots, policies} = prepared
       Content.Invalid{snapshot, Content.DuplicateNativeTarget{owner_key, target_key}}
 
+def native_targets_admitted(member: Maybe<&1, Categories.Membership<Content.Prepared, native_targets_category()>>,
+  +prepared: Content.Prepared) -> Content.Preparation:
+  match member:
+    case Some{value}: native_targets_success(value)
+    case None{}: reject_duplicate(Content.duplicate_native_slot(Content.native_slots(prepared)), prepared)
+
 def admit_native_targets(+prepared: Content.Prepared) -> Content.Preparation:
-  admit_duplicate(Content.duplicate_native_slot(Content.native_slots(prepared)), prepared)
+  native_targets_admitted(Categories.admit(Content.Prepared, Measurements.native_targets_valid, prepared), prepared)
 
 def single_root(trees: +List<Model.Tree<Content.Value, Doc.DOMEvent>>, snapshot: Content.Snapshot,
   roots: +List<Content.NativeRoot>, policies: +List<Content.NativePolicy>) -> Content.Preparation:

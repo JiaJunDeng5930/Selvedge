@@ -33,10 +33,10 @@ type PluginBoundary is Type:
   PluginBoundary{
     entry: @tool:D.Tool -> @attempt:D.Attempt -> @remaining:+List<D.Attempt> -> @task:D.Task -> @world:M.World() ->
       {Execution.found(Some{tool}, attempt, remaining, task, world) ==
-        Execution.authorization(D.may_execute(D.recovery(D.tool_source(tool)), attempt), tool, attempt, remaining, task, world) : Execution.Action},
+        Execution.authorization(tool, attempt, remaining, task, world) : Execution.Action},
     before_route: @plugin:D.PluginRef -> @pending:+List<D.PluginRef> -> @tool:D.Tool -> @call:D.Call -> @remaining:+List<D.Attempt> -> @task:D.Task -> @world:M.World() ->
       {Execution.chain(plugin <> pending, tool, call, remaining, task, world) ==
-        Execution.hook_available(Hooks.available(Hooks.live(F.State(), world), plugin), plugin, pending, tool, call, remaining, task) : Execution.Action},
+        Execution.hook_available(plugin, pending, tool, call, remaining, task, world) : Execution.Action},
     identity: @call:D.Call -> @arguments:J.Json ->
       {D.call_id(D.rewritten(call, arguments)) == D.call_id(call) : String} & {T.call_name(D.rewritten(call, arguments)) == T.call_name(call) : String},
     deny: @reason:String -> @call:D.Call -> @pending:+List<D.PluginRef> ->
@@ -257,7 +257,7 @@ law branch_results:
   BranchResults()
 
 def ActionMeaning() -> Type:
-  @+action:Execution.Action -> @+world:M.World() -> {P.realize_action(action, world) == Execution.meaning(action, world) : M.Decision()}
+  @+action:Execution.Action -> @+world:M.World() -> {P.realize_action_calculation(action, world) == Execution.meaning_calculation(action, world) : M.Decision()}
 
 law actions:
   ActionMeaning()

@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../document/SOURCE.bend as Source
 import ../controls/CONTROLS.bend as Controls
@@ -206,15 +207,29 @@ def update_found(found: Maybe<&2, SurfaceTypes.Node>, binding: Binding) -> +List
       Binding{key, kind, identity, original} = binding
       projected(key, kind, semantic, meaning)
 
-def update_owned(owned: Bool, binding: Binding, found: Maybe<&2, SurfaceTypes.Node>) -> +List<Update>:
-  match owned:
-    case False{}: Nil{}
-    case True{}: update_found(found, binding)
+type UpdateCandidate is Data:
+  UpdateCandidate{binding: Binding, found: Maybe<&2, SurfaceTypes.Node>}
+
+def update_predicate(candidate: UpdateCandidate) -> Bool:
+  UpdateCandidate{binding, found} = candidate
+  owned_node(binding, found)
+
+def update_category() -> UpdateCandidate -> Type: Categories.holds(UpdateCandidate, update_predicate)
+
+def update_owned(member: Categories.Membership<UpdateCandidate, update_category()>) -> +List<Update>:
+  Categories.Membership{candidate, evidence} = member
+  UpdateCandidate{binding, found} = candidate
+  update_found(found, binding)
+
+def update_admitted(admission: Maybe<&1, Categories.Membership<UpdateCandidate, update_category()>>) -> +List<Update>:
+  match admission:
+    case None{}: Nil{}
+    case Some{member}: update_owned(member)
 
 def update(+binding: Binding, +nodes: +List<SurfaceTypes.Node>) -> +List<Update>:
   Binding{+key, kind, semantic, meaning} = binding
   +found = InterfaceView.find_node(nodes, key)
-  update_owned(owned_node(binding, found), binding, found)
+  update_admitted(Categories.admit(UpdateCandidate, update_predicate, UpdateCandidate{binding, found}))
 
 def updates_fields(fields: +List<Binding>, +nodes: +List<SurfaceTypes.Node>) -> +List<Update>:
   match fields:

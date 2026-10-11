@@ -158,10 +158,9 @@ law movement_field_has_own_identity:
   for +name: String
   for handle: Controls.Icon
   for geometry: Controls.Geometry
-  for help: Controls.Help
   for +visual: Design.Style
   for parameters: Design.LayoutParameters
-  {AuthoredControls.movable_choices(key, Controls.Movable{destinations, face, name, handle, geometry, help}, visual, parameters) ==
+  {AuthoredControls.movable_choices(key, Controls.MovableControl{destinations, face, name, handle, geometry}, visual, parameters) ==
       Source.Field{key, Source.SelectField{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Factory.binding_attributes(key), "", "Move to…",
         Source.Choice{"", "Move to…", True{}} <> AuthoredControls.placement_choices(destinations), Source.FieldPolicy{1n, 1n, 1n}, name, InterfaceView.has_available_destination(destinations), Doc.SelectDestination{Identity.encode(key)}, Nil{}} : Source.Node}
 
@@ -199,7 +198,7 @@ law movement_source_dispatch:
   for +children: +List<Authored.Child>
   for +parameters: Design.LayoutParameters
   for content: +List<Source.Node>
-  {Authored.regular_content(key, label, role, SurfaceTypes.MovableCard{destinations, face}, visual, representation, children, parameters, content) == AuthoredControls.movable_choices(key, representation, visual, parameters) : Source.Node}
+  {Authored.regular_content(key, label, role, SurfaceTypes.MovableCard{destinations, face}, visual, representation, children, parameters, content) == Authored.movable_source(key, representation, visual, parameters) : Source.Node}
 
 def expected_fact_value(empty: Bool, value: String) -> String:
   match empty:

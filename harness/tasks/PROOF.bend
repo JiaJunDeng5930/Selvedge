@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ./PROGRAM.bend as Tasks
@@ -304,14 +305,30 @@ def Laws.provider_checkpoint_consumes_compaction(history, value, checked):
       D.is_provider_checkpoint(value), True{}, checked),
     Equal.cong(Bool, Bool, Bool.not, D.is_provider_checkpoint(value), True{}, checked))
 
+def provider_summary_result(accepted: Bool, value: J.Json, resume: Bool, task: D.Task) -> D.Task:
+  match accepted:
+    case True{}: Tasks.provider_summary_calculation(value, resume, task)
+    case False{}: Tasks.summary_failure("Compaction failed: expected one nonempty bounded provider checkpoint; original history retained", task)
+
+def provider_summary_checked_meaning(+accepted: Bool, +value: J.Json, +resume: Bool, +task: D.Task,
+  checked: {Tasks.provider_checkpoint_permitted(value) == accepted : Bool}) ->
+  {Tasks.provider_summary_admission(Categories.admit_checked(J.Json, Tasks.provider_checkpoint_permitted, value, accepted, checked), resume, task) ==
+    provider_summary_result(accepted, value, resume, task) : D.Task}:
+  match accepted:
+    case True{}: {==}
+    case False{}: {==}
+
 def Laws.provider_summary_preserves_record(value, resume, task, kind, valid):
   %Equal.sym(Bool, D.is_provider_checkpoint(value), True{}, kind) :
     {Tasks.summary_context_result(_, value, resume, task) ==
       Tasks.promote(D.with_phase(Tasks.after_summary(resume), D.append_message(D.ModelContext{value}, task))) : D.Task}
-  %Equal.sym(Bool, D.valid_provider_checkpoint(value), True{}, valid) :
-    {Tasks.provider_summary_checked(_, value, resume, task) ==
-      Tasks.promote(D.with_phase(Tasks.after_summary(resume), D.append_message(D.ModelContext{value}, task))) : D.Task}
-  {==}
+  Equal.trans(D.Task,
+    Tasks.provider_summary_admission(Categories.admit(J.Json, Tasks.provider_checkpoint_permitted, value), resume, task),
+    provider_summary_result(D.valid_provider_checkpoint(value), value, resume, task),
+    Tasks.provider_summary_calculation(value, resume, task),
+    provider_summary_checked_meaning(D.valid_provider_checkpoint(value), value, resume, task, {==}),
+    Equal.cong(Bool, D.Task, accepted => provider_summary_result(accepted, value, resume, task),
+      D.valid_provider_checkpoint(value), True{}, valid))
 
 def Laws.summary_rejects_invocations(call, rest, resume, task):
   {==}

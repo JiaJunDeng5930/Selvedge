@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
@@ -43,7 +44,7 @@ def reposition_meaning(+id: Nat, +card: B.Card, +position: Nat, +board: B.State)
     case B.State{cards, next_card, agents, next_agent, automatic, draft_profile}: {==}
 
 def relocate_meaning(+id: Nat, +card: B.Card, +position: Nat, +world: M.World()) ->
-  {Actual.change(R.Relocate{id, card, position}, world) == Spec.change(R.Relocate{id, card, position}, world) : M.Decision()}:
+  {Actual.change_calculation(R.Relocate{id, card, position}, world) == Spec.change(R.Relocate{id, card, position}, world) : M.Decision()}:
   Equal.cong(B.State, M.Decision(),
     value => C.Decision{S.store(value, world), D.success(Actual.card_result(id, B.revision(card))), Nil{}},
     B.reposition(id, card, position, S.registry(world)), Spec.reposition(id, card, position, S.registry(world)),
@@ -64,8 +65,8 @@ def A.birth_meaning(id, task, card, now, decision):
   C.Decision{C.Frame{core, +board}, reply, effects} = decision
   {==}
 
-def accepted_meaning(+valid:Bool, +title:String, +description:String, +card:B.Card) ->
-  {Actual.suggested(valid, Spec.requested_draft(title, description, card), card) == Spec.accepted_draft(valid, title, description, card) : B.Card}:
+def accepted_meaning(+valid:Bool, +title:String, +description:String, +card:B.Card, observed: {B.valid_draft(Spec.requested_draft(title, description, card)) == valid : Bool}) ->
+  {Actual.suggested_checked(valid, Spec.requested_draft(title, description, card), card, observed) == Spec.accepted_draft(valid, title, description, card) : B.Card}:
   match valid card:
     case False{} B.Card{revision, draft, task, archived, created, updated, enrichment, error, pinned}: {==}
     case True{} B.Card{revision, B.Draft{old_title, old_description, stage, priority, owner, project, labels, attachments}, task, archived, created, updated, enrichment, error, pinned}: {==}
@@ -86,10 +87,10 @@ def A.text_meaning(outcome, retitle, card):
       +draft = Actual.suggestion_draft(retitle, String.trim(title), description, B.draft(card))
       +required = Spec.requested_draft(String.trim(title), selected, card)
       Equal.trans(B.Card, Actual.complete(B.Suggested{title, description}, retitle, card),
-        Actual.suggested(B.valid_draft(required), required, card), Spec.complete(B.Suggested{title, description}, retitle, card),
-        Equal.cong(B.Draft, B.Card, (value => Actual.suggested(B.valid_draft(value), value, card)),
+        Actual.suggested(required, card), Spec.complete(B.Suggested{title, description}, retitle, card),
+        Equal.cong(B.Draft, B.Card, (value => Actual.suggested(value, card)),
           draft, required, draft_meaning(retitle, String.trim(title), description, card)),
-        accepted_meaning(B.valid_draft(required), String.trim(title), selected, card))
+        accepted_meaning(B.valid_draft(required), String.trim(title), selected, card, {==}))
 
 def A.completion_meaning(id, card, outcome, retitle, world):
   C.Frame{core, +board} = world
@@ -113,3 +114,18 @@ def A.board_boundary():
     (expected => revision => retitle => current => ticket => {==}),
     (id => card => ticket => outcome => {==}),
     (title => description => draft => title_only(title, description, draft))}
+
+def command_calculation(construction: Categories.Construction<R.CommandRequest, R.Resolution>) -> R.Resolution:
+  Categories.Construction{R.CommandRequest{command, world}, result} = construction
+  R.resolve(command, world)
+
+def command_equation(member: R.ConstructedCommand()) ->
+  {R.change_resolution(member) == command_calculation(Categories.value(
+    Categories.Construction<R.CommandRequest, R.Resolution>,
+    Categories.constructed_by(R.CommandRequest, R.Resolution, R.request_resolution), member)) : R.Resolution}:
+  Categories.Membership{Categories.Construction{R.CommandRequest{command, world}, result}, evidence} = member
+  evidence
+
+def constructed_command_equation(+command: B.Command, +world: M.World()) ->
+  {R.change_resolution(R.construct_command(command, world)) == R.resolve(command, world) : R.Resolution}:
+  command_equation(R.construct_command(command, world))

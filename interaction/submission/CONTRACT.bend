@@ -143,3 +143,13 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+def settlement_spec(owned: Bool, current: U.Draft, revision: Nat, result: J.Json, session: E.Session) -> E.Session:
+  match owned:
+    case False{}: session
+    case True{}: E.settle_value(current, revision, result, session)
+
+def finish_submission_spec(accepted: Bool, draft: U.Draft, result: J.Json, application: E.Application) -> E.Decision:
+  match accepted:
+    case False{}: E.unchanged(application)
+    case True{}: E.finish_submission_value(draft, result, application)

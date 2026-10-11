@@ -12,15 +12,34 @@ import ./view.bend as View
 import ../../bendlib/association-map.bend as Finite
 import ../board/MODEL.bend as Board
 
+def cancel_first(+connection: Nat, +project: Nat, +id: Nat, +state: G.State, +projects: D.Projects) -> C.Decision<G.State, G.Effect>:
+  Actual.realize(G.construct_command(G.Cancel{connection, project, id}, state, projects))
+
+def cancel_second(+connection: Nat, +project: Nat, +id: Nat, +state: G.State, +projects: D.Projects) -> C.Decision<G.State, G.Effect>:
+  Actual.realize(G.construct_command(G.Cancel{connection, project, id},
+    Actual.result_state(cancel_first(connection, project, id, state, projects)), projects))
+
+def cancel_effects(decision: C.Decision<G.State, G.Effect>) -> +List<G.Effect>:
+  C.Decision{state, reply, effects} = decision
+  effects
+
+type CancellationCapability is Type:
+  CancellationCapability{
+    retained_state: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State -> @+projects:D.Projects ->
+      {Actual.result_state(cancel_second(connection, project, id, state, projects)) ==
+       Actual.result_state(cancel_first(connection, project, id, state, projects)) : G.State},
+    no_repeated_effects: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State -> @+projects:D.Projects ->
+      {cancel_effects(cancel_second(connection, project, id, state, projects)) == Nil{} : +List<G.Effect>}}
+
 # This boundary is constructed at the root against the actual interpreter and
 # assembly. Capabilities have no conversation coordinate. Pure proofs do not
 # claim that an OS process can undo a mutation or that a tunnel authenticates.
 type Boundary is Type:
   Boundary{
     refinement: @+change:G.Change -> @+state:G.State ->
-      {Actual.realize(change, state) == Spec.meaning(change, state) : C.Decision<G.State, G.Effect>},
+      {Actual.realize_calculation(change, state) == Spec.meaning(change, state) : C.Decision<G.State, G.Effect>},
     assembled: @+change:G.Change -> @+world:M.World() ->
-      {State.embed(Actual.realize(change, State.registry(world)), world) ==
+      {State.embed(Actual.realize_calculation(change, State.registry(world)), world) ==
        State.embed(Spec.meaning(change, State.registry(world)), world) : M.Decision()},
     written: @+value:G.State -> @+world:M.World() -> {State.registry(State.store(value, world)) == value : G.State},
     core_frame: @+value:G.State -> @+world:M.World() ->
@@ -35,15 +54,16 @@ type Boundary is Type:
       {G.owned(connection, project, job) ==
        (Nat.is_eq(connection, G.job_connection(job)) && Nat.is_eq(project, G.job_project(job))) : Bool},
     denied: @+connection:Nat -> @+project:Nat -> @+request:String -> @+arguments:J.Json -> @+projects:D.Projects -> @+state:G.State ->
-      {G.run_authorized(None{}, connection, project, request, arguments, projects, state) ==
+      {G.run_authorized(connection, project, None{}, request, arguments, projects, state) ==
        G.Refuse{"project_forbidden", "This connection has no grant for that project"} : G.Resolution},
     hidden: @+connection:Nat -> @+project:Nat -> @+id:Nat -> @+state:G.State ->
-      {View.read_job(None{}, connection, project, id, state) == View.forbidden() : J.Json},
+      {View.read_job(connection, project, None{}, id, state) == View.forbidden() : J.Json},
     removed: @+id:Nat -> @+state:G.State ->
-      {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
+      {Finite.find(~G.Job, G.jobs(Actual.result_state(Actual.realize_calculation(G.Remove{id}, state))), id) == None{} : Maybe<&2, G.Job>},
     restarted: @+job:G.Job -> {G.outcome(job) == G.Running{} : G.Outcome} ->
       {G.outcome(G.recover_job(job)) ==
-       G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome}}
+       G.Interrupted{"Service restarted; execution may have happened and will not be replayed"} : G.Outcome},
+    cancellation: CancellationCapability}
 
 law boundary:
   Boundary

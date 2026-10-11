@@ -12,7 +12,7 @@ import ./resolution.bend as R
 law change_meaning:
   for +change: R.Change
   for +world: M.World()
-  {Actual.change(change, world) == Spec.change(change, world) : M.Decision()}
+  {Actual.change_calculation(change, world) == Spec.change(change, world) : M.Decision()}
 
 law birth_meaning:
   for +id: Nat
@@ -39,7 +39,7 @@ law completion_meaning:
 type BoardBoundary is Type:
   BoardBoundary{
     changes: @+change:R.Change -> @+world:M.World() ->
-      {Actual.change(change, world) == Spec.change(change, world) : M.Decision()},
+      {Actual.change_calculation(change, world) == Spec.change(change, world) : M.Decision()},
     birth: @+id:Nat -> @+task:Nat -> @+card:B.Card -> @+now:U32 -> @+decision:M.Decision() ->
       {Actual.started(id, task, card, now, decision) == Spec.started(id, task, card, now, decision) : M.Decision()},
     settlement: @+id:Nat -> @+card:B.Card -> @+outcome:B.Outcome -> @+retitle:Bool -> @+world:M.World() ->

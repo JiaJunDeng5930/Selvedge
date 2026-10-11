@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../features/board/MODEL.bend as B
 import ../INPUT.bend as U
 import ../../harness/MODEL.bend as M
@@ -22,6 +23,30 @@ import ../../harness/transport/schema.bend as Schema
 import ../../bendlib/stdlib.bend as Std
 import ../services/CONTEXT.bend as Context
 import ../submission/PROOF.bend as SubmissionProof
+
+def directory_choice_outcome(accepted: Bool, +editor: U.Editor, +path: String, +application: E.Application) -> E.Application:
+  match accepted:
+    case False{}: application
+    case True{}: Core.directory_chosen_calculation(editor, path, application)
+
+def directory_choice_checked(+editor: U.Editor, +path: String, +application: E.Application, accepted: Bool, observed: {Core.directory_choice_available(Core.DirectoryChoice{editor, path, application}) == accepted : Bool}) ->
+  {Core.directory_choice_admitted(Categories.admit_checked(Core.DirectoryChoice, Core.directory_choice_available, Core.DirectoryChoice{editor, path, application}, accepted, observed), application) == directory_choice_outcome(accepted, editor, path, application) : E.Application}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+
+def directory_outcome(accepted: Bool, +current: Nat, +ticket: Nat, +editor: U.Editor, +path: String, +trigger: String, +result: Result<&2, &2, String, Services.DirectoryCatalog>, +state: Services.State) -> Services.Decision:
+  match accepted:
+    case False{}: Services.Decision{state, Nil{}}
+    case True{}: Services.directory_calculation(current, editor, path, trigger, result, state)
+
+def directory_checked(+current: Nat, +ticket: Nat, +editor: U.Editor, +path: String, +trigger: String, +result: Result<&2, &2, String, Services.DirectoryCatalog>, +state: Services.State, accepted: Bool, observed: {Services.directory_result_owned(Services.DirectoryResult{current, ticket, editor, path, trigger, result, state}) == accepted : Bool}) ->
+  {Services.directory_admitted(Categories.admit_checked(Services.DirectoryResult, Services.directory_result_owned, Services.DirectoryResult{current, ticket, editor, path, trigger, result, state}, accepted, observed), state) == directory_outcome(accepted, current, ticket, editor, path, trigger, result, state) : Services.Decision}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
 
 def card_opens_details(+id: Nat, card: B.Card, route: U.Route, now: U32, world: M.World()) ->
   {Rule.opening(View.card_scene(id, card, route, now, world)) ==
@@ -584,17 +609,22 @@ def picker_closed(+state: Services.State) ->
   {==}
 
 def Rule.directory_picker_requirements():
-  Rule.DirectoryPickerRequirements{picker_closed, +ticket => +result => +state => {==}, +current => editor => path => trigger => +ticket => +result => +state => stale =>
-      Equal.cong(Bool, Services.Decision, (owned => Services.finish_directory(owned, current, editor, path, trigger, result, state)),
-        Nat.is_eq(current, ticket), False{}, stale)
-    , ticket => +editor => entered => +trigger => +path => +parent => +entries => +truncated => +state => {==}, ticket => +editor => +path => parent => entries => truncated => location => trigger => +state => {==}, editor => path => {==}, +editor => +path => +application => rest => {==}, +editor => path => +application => unavailable =>
-      Equal.cong(Bool, E.Application,
-        (accepted => Core.directory_chosen_accepted(accepted, editor, path, application)),
-        Core.accepts_directory(editor, application), False{}, unavailable)
+  Rule.DirectoryPickerRequirements{picker_closed, +ticket => +result => +state => {==}, +current => +editor => +path => +trigger => +ticket => +result => +state => stale =>
+      Equal.trans(Services.Decision,
+        Services.directory_listed(Services.LoadingDirectory{current, editor, path, trigger}, ticket, result, state),
+        directory_outcome(Nat.is_eq(current, ticket), current, ticket, editor, path, trigger, result, state), Services.Decision{state, Nil{}},
+        directory_checked(current, ticket, editor, path, trigger, result, state, Nat.is_eq(current, ticket), {==}),
+        Equal.cong(Bool, Services.Decision, owned => directory_outcome(owned, current, ticket, editor, path, trigger, result, state), Nat.is_eq(current, ticket), False{}, stale))
+    , ticket => +editor => entered => +trigger => +path => +parent => +entries => +truncated => +state => {==}, ticket => +editor => +path => parent => entries => truncated => location => trigger => +state => {==}, editor => path => {==}, +editor => +path => +application => rest => {==}, +editor => +path => +application => unavailable =>
+      Equal.trans(E.Application,
+        Core.directory_chosen(editor, path, application), directory_choice_outcome(Core.accepts_directory(editor, application), editor, path, application), application,
+        directory_choice_checked(editor, path, application, Core.accepts_directory(editor, application), {==}),
+        Equal.cong(Bool, E.Application, allowed => directory_choice_outcome(allowed, editor, path, application), Core.accepts_directory(editor, application), False{}, unavailable))
     , +editor => +path => +application => accepted =>
-      Equal.cong(Bool, E.Application,
-        (allowed => Core.directory_chosen_accepted(allowed, editor, path, application)),
-        Core.accepts_directory(editor, application), True{}, accepted)
+      Equal.trans(E.Application,
+        Core.directory_chosen(editor, path, application), directory_choice_outcome(Core.accepts_directory(editor, application), editor, path, application), Core.directory_chosen_calculation(editor, path, application),
+        directory_choice_checked(editor, path, application, Core.accepts_directory(editor, application), {==}),
+        Equal.cong(Bool, E.Application, allowed => directory_choice_outcome(allowed, editor, path, application), Core.accepts_directory(editor, application), True{}, accepted))
     }
 
 def Rule.directory_identity_requirements():

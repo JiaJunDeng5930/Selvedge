@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -33,10 +34,45 @@ def frame_bytes(+world: M.World()) -> U32:
 def reject(previous: M.World(), code: String, reason: String) -> M.Decision():
   C.Decision{previous, D.failure(code, reason), Nil{}}
 
-def guard(state_valid: Bool, change_valid: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
-  match state_valid change_valid:
-    case True{} True{}: decision
-    case _ _: reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")
+def state(decision: M.Decision()) -> M.World():
+  C.Decision{world, reply, effects} = decision
+  world
+
+def state_safe(decision: M.Decision()) -> Bool:
+  I.world(state(decision))
+
+def effect_authorized(previous: M.World(), decision: M.Decision()) -> Bool:
+  I.decision(previous, decision)
+
+def valid_candidate(+previous: M.World(), +decision: M.Decision()) -> Bool:
+  Bool.and(state_safe(decision), effect_authorized(previous, decision))
+
+def state_safety() -> M.Decision() -> Type:
+  Categories.holds(M.Decision(), state_safe)
+
+def effect_authority(+previous: M.World()) -> M.Decision() -> Type:
+  Categories.holds(M.Decision(), decision => effect_authorized(previous, decision))
+
+def committable(+previous: M.World()) -> M.Decision() -> Type:
+  decision => Categories.intersection(M.Decision(), state_safety(), effect_authority(previous), decision)
+
+def state_and_authority(+previous: M.World()) -> M.Decision() -> Type:
+  committable(previous)
+
+def committable_state(+previous: M.World()) -> Categories.Inclusion<M.Decision(), committable(previous), state_safety()>:
+  Categories.intersection_first(M.Decision(), state_safety(), effect_authority(previous))
+
+def committable_authority(+previous: M.World()) -> Categories.Inclusion<M.Decision(), committable(previous), effect_authority(previous)>:
+  Categories.intersection_second(M.Decision(), state_safety(), effect_authority(previous))
+
+def commit_candidate(-previous: M.World(), member: Categories.Membership<M.Decision(), committable(previous)>) -> M.Decision():
+  Categories.Membership{decision, evidence} = member
+  decision
+
+def validate_admitted(previous: M.World(), admitted: Maybe<&1, Categories.Membership<M.Decision(), committable(previous)>>) -> M.Decision():
+  match admitted:
+    case Some{member}: commit_candidate(previous, member)
+    case None{}: reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")
 
 def live(decision: M.Decision()) -> M.Decision():
   C.Decision{+world, reply, effects} = decision
@@ -44,25 +80,31 @@ def live(decision: M.Decision()) -> M.Decision():
   tasks = D.state_tasks(task_state)
   C.Decision{world, reply, I.live_effects(effects, tasks)}
 
-def state(decision: M.Decision()) -> M.World():
-  C.Decision{world, reply, effects} = decision
-  world
-
 def validate(+decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  guard(I.world(state(decision)), I.decision(previous, decision), decision, previous)
+  validate_admitted(previous, Categories.admit_intersection(M.Decision(), state_safe, candidate => effect_authorized(previous, candidate), decision))
 
 def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   validate(live(decision), previous)
 
-def sized(fits: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
-  match fits:
-    case True{}: decision
-    case False{}: reject(previous, "output_limit", "The complete decision exceeds the native output bound; no state change or effect was committed")
+def envelope_fits(+previous: M.World(), text: String) -> Bool:
+  Nat.is_le(J.utf8_length(text), U32.to_nat(frame_bytes(previous)))
+
+def bounded_envelope(+previous: M.World()) -> String -> Type:
+  Categories.holds(String, text => envelope_fits(previous, text))
+
+def sized_success(-previous: M.World(), member: Categories.Membership<String, bounded_envelope(previous)>, decision: M.Decision()) -> M.Decision():
+  Categories.Membership{text, evidence} = member
+  decision
+
+def sized_admitted(previous: M.World(), admitted: Maybe<&1, Categories.Membership<String, bounded_envelope(previous)>>, decision: M.Decision()) -> M.Decision():
+  match admitted:
+    case Some{member}: sized_success(previous, member, decision)
+    case None{}: reject(previous, "output_limit", "The complete decision exceeds the native output bound; no state change or effect was committed")
 
 def rendered(result: Result<&2, &2, String, String>, decision: M.Decision(), +previous: M.World()) -> M.Decision():
   match result:
     case Fail{error}: reject(previous, "output_limit", error)
-    case Done{text}: sized(Nat.is_le(J.utf8_length(text), U32.to_nat(frame_bytes(previous))), decision, previous)
+    case Done{text}: sized_admitted(previous, Categories.admit(String, value => envelope_fits(previous, value), text), decision)
 
 def deliver(+durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
   rendered(J.render(D.state_render_budget(C.local(D.State, F.State(), previous)), J.One{View.envelope(durable, decision)}), decision, previous)

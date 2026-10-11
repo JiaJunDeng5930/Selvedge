@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../harness/COMMANDS.bend as Commands
 import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
@@ -277,10 +278,28 @@ def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
 
-def permitted_model_edit(permitted: Bool, profile: String, reasoning: String) -> Maybe<&2, U.Edit>:
-  match permitted:
-    case True{}: Some{U.ChooseModel{profile, reasoning}}
-    case False{}: None{}
+type ModelSelection is Data:
+  ModelSelection{profile: D.Profile, reasoning: String}
+
+def permitted_selection(selection: ModelSelection) -> Bool:
+  ModelSelection{profile, reasoning} = selection
+  D.profile_permitted(profile, reasoning)
+
+def model_selection() -> ModelSelection -> Type:
+  Categories.holds(ModelSelection, permitted_selection)
+
+def model_edit_value(profile: String, reasoning: String) -> Maybe<&2, U.Edit>:
+  Some{U.ChooseModel{profile, reasoning}}
+
+def permitted_model_edit(member: Categories.Membership<ModelSelection, model_selection()>) -> Maybe<&2, U.Edit>:
+  Categories.Membership{ModelSelection{profile, reasoning}, evidence} = member
+  D.Profile{key, provider, name, policy, options} = profile
+  model_edit_value(key, reasoning)
+
+def model_edit_admitted(admitted: Maybe<&1, Categories.Membership<ModelSelection, model_selection()>>) -> Maybe<&2, U.Edit>:
+  match admitted:
+    case None{}: None{}
+    case Some{member}: permitted_model_edit(member)
 
 def selected_profile_effort(permitted: Bool, previous: String, profile: D.Profile) -> String:
   match permitted:
@@ -293,7 +312,7 @@ def profile_change(found: Maybe<&2, D.Profile>, +previous: String) -> Maybe<&2, 
     case Some{D.Profile{+key, provider, name, policy, options}}:
       +profile: D.Profile = D.Profile{key, provider, name, policy, options}
       +selected: String = selected_profile_effort(D.profile_permitted(profile, previous), previous, profile)
-      permitted_model_edit(D.profile_permitted(profile, selected), key, selected)
+      model_edit_admitted(Categories.admit(ModelSelection, permitted_selection, ModelSelection{profile, selected}))
 
 def reasoning_change(found: Maybe<&2, D.Profile>, requested: String) -> Maybe<&2, U.Edit>:
   match found:
@@ -301,7 +320,7 @@ def reasoning_change(found: Maybe<&2, D.Profile>, requested: String) -> Maybe<&2
     case Some{D.Profile{+key, provider, name, policy, options}}:
       +profile: D.Profile = D.Profile{key, provider, name, policy, options}
       +selected = D.profile_selection(requested, profile)
-      permitted_model_edit(D.profile_permitted(profile, selected), key, selected)
+      model_edit_admitted(Categories.admit(ModelSelection, permitted_selection, ModelSelection{profile, selected}))
 
 def sandbox_field(field: Field, new_mode: D.SandboxMode, new_network: Bool, mode: D.SandboxMode, network: Bool) -> Maybe<&2, U.Edit>:
   match field:

@@ -207,21 +207,30 @@ type LabelPlacement is Data:
   AccessibleOnly{}
   BesideInput{}
 
+type Button is Data:
+  Button{input: InteractionTypes.Input, availability: View.Availability, name: String,
+    face: Face, behavior: Behavior, geometry: Geometry, placement: Placement,
+    feedback: Feedback}
+
+type FormInput is Data:
+  FormInput{meaning: SurfaceTypes.Meaning, name: String, widget: Widget,
+    label: LabelPlacement, availability: View.Availability}
+
+type MovableControl is Data:
+  MovableControl{destinations: +List<SurfaceTypes.Placement>, face: View.CardFace, name: String, handle: Icon,
+    geometry: Geometry}
+
 type Representation is Data:
   NoControl{}
-  Action{input: InteractionTypes.Input, availability: View.Availability, name: String,
-    face: Face, behavior: Behavior, geometry: Geometry, placement: Placement,
-    help: Help, feedback: Feedback}
-  Input{binding: SurfaceTypes.Meaning, name: String, widget: Widget,
-    label: LabelPlacement, availability: View.Availability}
+  Action{button: Button}
+  Input{input: FormInput}
   # The grip opens the same destination list for keyboard users that supplies
   # pointer dragging. Each destination retains its own product command/status.
-  Movable{destinations: +List<SurfaceTypes.Placement>, face: View.CardFace, name: String, handle: Icon,
-    geometry: Geometry, help: Help}
+  Movable{control: MovableControl}
 
 def panel_header(representation: Representation) -> Bool:
   match representation:
-    case Action{input, availability, name, face, behavior, geometry, PanelHeaderEnd{}, help, feedback}: True{}
+    case Action{Button{input, availability, name, face, behavior, geometry, PanelHeaderEnd{}, feedback}}: True{}
     case _: False{}
 
 type Purpose is Data:
@@ -713,6 +722,10 @@ def help_for(face: Face, availability: View.Availability, feedback: Feedback, na
     case PermissionFace{filesystem, network, approval}: tooltip(help_text(availability, feedback, name))
     case _: labelled_help(feedback, availability)
 
+def button_help(+button: Button) -> Help:
+  Button{input, availability, name, face, behavior, geometry, placement, feedback} = button
+  help_for(face, availability, feedback, name)
+
 def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match purpose face area:
     case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}
@@ -791,11 +804,10 @@ def composer_name(subject: View.ComposerSubject, label: String) -> String:
 def composer_action_fields(+subject: View.ComposerSubject, +label: String,
   execution: Maybe<&2, Workspace.Observation>, area: Area, value: Representation) -> Representation:
   match value:
-    case Action{input, +availability, old_name, current, behavior, geometry, placement, help, +feedback}:
+    case Action{Button{input, +availability, old_name, current, behavior, geometry, placement, +feedback}}:
       +name = composer_name(subject, label)
       +face = composer_face(subject, label, current, execution)
-      Action{input, availability, name, face, behavior, geometry_for(ChooseValue{False{}}, face, area), placement,
-        help_for(face, availability, feedback, name), feedback}
+      Action{Button{input, availability, name, face, behavior, geometry_for(ChooseValue{False{}}, face, area), placement, feedback}}
     case _: value
 
 def action_for_purpose(+intent: Purpose, +area: Area, +input: InteractionTypes.Input,
@@ -803,9 +815,7 @@ def action_for_purpose(+intent: Purpose, +area: Area, +input: InteractionTypes.I
   +control_name = name_for(intent, label)
   +control_face = input_face(input, intent, control_name, area)
   +response = feedback_for(intent)
-  Action{input, availability, control_name, control_face,
-    contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
-    placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
+  Action{Button{input, availability, control_name, control_face, contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area), placement_for(intent, area), response}}
 
 def make_action(+key: UIIdentity.Key, +input: InteractionTypes.Input, +availability: View.Availability, label: String,
   role: SurfaceTypes.Role, +context: Context) -> Representation:
@@ -821,9 +831,8 @@ def panel_toggle_face(input: InteractionTypes.Input, expanded: Bool, fallback: F
 
 def panel_toggle_fields(+expanded: Bool, value: Representation) -> Representation:
   match value:
-    case Action{+input, availability, name, current, behavior, geometry, placement, help, feedback}:
-      Action{input, availability, name, panel_toggle_face(input, expanded, current), Disclosure{expanded},
-        geometry, placement, help, feedback}
+    case Action{Button{+input, availability, name, current, behavior, geometry, placement, feedback}}:
+      Action{Button{input, availability, name, panel_toggle_face(input, expanded, current), Disclosure{expanded}, geometry, placement, feedback}}
     case _: value
 
 def make_panel_toggle(key: UIIdentity.Key, expanded: Bool, input: InteractionTypes.Input, availability: View.Availability,
@@ -867,9 +876,9 @@ def choice_behavior(kind: SurfaceTypes.ChoiceKind, area: Area, selected: Bool) -
 
 def choice_action(kind: SurfaceTypes.ChoiceKind, icon: Maybe<&2, Icon>, +selected: Bool, description: Maybe<&2, String>, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
   match value:
-    case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
+    case Action{Button{input, availability, +name, face, behavior, geometry, placement, feedback}}:
       +actual_face: Face = ChoiceFace{name, description, icon, selected}
-      Action{input, availability, name, actual_face, choice_behavior(kind, area, selected), geometry_for(purpose, actual_face, area), placement, help, feedback}
+      Action{Button{input, availability, name, actual_face, choice_behavior(kind, area, selected), geometry_for(purpose, actual_face, area), placement, feedback}}
     case other: other
 
 def make_choice(+key: UIIdentity.Key, kind: SurfaceTypes.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: InteractionTypes.Input, availability: View.Availability,
@@ -887,7 +896,7 @@ def choice_content_layout(geometry: Geometry) -> ChoiceContentLayout:
 
 def choice_layout(value: Representation) -> ChoiceContentLayout:
   match value:
-    case Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: choice_content_layout(geometry)
+    case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}: choice_content_layout(geometry)
     case _: choice_content_layout(Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n})
 
 def entry_widget(entry: Forms.Entry) -> Widget:
@@ -928,7 +937,7 @@ def label_placement(widget: Widget) -> LabelPlacement:
     case _: AboveInput{}
 
 def make_input(meaning: SurfaceTypes.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
-  Input{meaning, name, widget, label_placement(widget), availability}
+  Input{FormInput{meaning, name, widget, label_placement(widget), availability}}
 
 def field_availability(entry: Forms.Entry) -> View.Availability:
   match entry:
@@ -1095,21 +1104,21 @@ def source_presentation(+area: Area, +source_family: SourceFamily, +input: Inter
 
 def source_representation_content(value: Representation, area: Area, family: SourceFamily) -> SourceContent:
   match value:
-    case Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: source_content(area, family, input, face)
+    case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}: source_content(area, family, input, face)
     case _: OrdinaryContent{}
 
 def representation_content(context: Context, value: Representation) -> SourceContent:
   Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   source_representation_content(value, area, family)
 
-def presented_action(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: ActionPresentation, placement: Placement, help: Help, feedback: Feedback) -> Representation:
+def presented_action(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: ActionPresentation, placement: Placement, feedback: Feedback) -> Representation:
   ActionPresentation{face, behavior, geometry} = projection
-  Action{input, availability, name, face, behavior, geometry, placement, help, feedback}
+  Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}
 
 def source_action(area: Area, source_family: SourceFamily, value: Representation) -> Representation:
   match value:
-    case Action{+input, availability, +name, face, behavior, geometry, placement, help, feedback}:
-      presented_action(input, availability, name, source_presentation(area, source_family, input, name, face, behavior, geometry), placement, help, feedback)
+    case Action{Button{+input, availability, +name, face, behavior, geometry, placement, feedback}}:
+      presented_action(input, availability, name, source_presentation(area, source_family, input, name, face, behavior, geometry), placement, feedback)
     case _: value
 
 def represent_action(key: UIIdentity.Key, +input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
@@ -1134,8 +1143,7 @@ def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: Strin
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, InterfaceView.availability(enabled))
     case SurfaceTypes.CardArchive{count}: NoControl{}
     case SurfaceTypes.MovableCard{destinations, face}:
-      Movable{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n},
-        Tooltip{"Move card", 300n, True{}, True{}, False{}}}
+      Movable{MovableControl{destinations, face, label, Grip{}, Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}}}
     case _: NoControl{}
 
 def layout_content_area(value: ContentLayout) -> Enclosure.ContentArea:

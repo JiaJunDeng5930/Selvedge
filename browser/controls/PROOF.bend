@@ -1,3 +1,8 @@
+import ./authored-proof.bend as AuthoredProof
+import ../document/MODEL.bend as Doc
+import ./authored-primitives.bend as Factory
+import ../../bendlib/categories.bend as Categories
+import ./button-proof.bend as ButtonEvidence
 import ../layout/geometry-proof.bend as ProofGeometryProof
 import Base
 import ../../features/board/filter.bend as Filter
@@ -66,19 +71,19 @@ def composer_action_retains_binding(+key: UIIdentity.Key, subject: View.Composer
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
-def presented_action_retains_binding(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) ->
-  {Rule.binding(Controls.presented_action(input, availability, name, projection, placement, help, feedback)) == SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
+def presented_action_retains_binding(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, feedback: Controls.Feedback) ->
+  {Rule.binding(Controls.presented_action(input, availability, name, projection, placement, feedback)) == SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
   match projection:
     case Controls.ActionPresentation{face, behavior, geometry}: {==}
 
 def source_action_retains_binding(area: Controls.Area, family: Controls.SourceFamily, +value: Controls.Representation) ->
   {Rule.binding(Controls.source_action(area, family, value)) == Rule.binding(value) : SurfaceTypes.Meaning}:
   match value:
-    case Controls.Action{+input, availability, +name, face, behavior, geometry, placement, help, feedback}:
-      presented_action_retains_binding(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback)
+    case Controls.Action{Controls.Button{+input, availability, +name, face, behavior, geometry, placement, feedback}}:
+      presented_action_retains_binding(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, feedback)
     case Controls.NoControl{}: {==}
-    case Controls.Input{meaning, name, widget, label, availability}: {==}
-    case Controls.Movable{destinations, face, name, handle, geometry, help}: {==}
+    case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: {==}
+    case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: {==}
 
 def represented_action_retains_binding(+key: UIIdentity.Key, +input: InteractionTypes.Input, +availability: View.Availability,
   +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) ->

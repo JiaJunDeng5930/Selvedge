@@ -1,4 +1,5 @@
 import Base
+import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
 import ./features/resolution.bend as FeatureResolution
 import ./features/operations.bend as FeatureOps
@@ -57,10 +58,45 @@ def configured(environment: D.Environment) -> +List<D.Profile>:
   D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   profiles
 
-def require(valid: Bool, yes: Operation, code: String, reason: String) -> Operation:
-  match valid:
-    case True{}: yes
-    case False{}: Refuse{code, reason}
+def permitted_operation(-predicate: Operation -> Bool, member: Categories.Membership<Operation, Categories.holds(Operation, predicate)>) -> Operation:
+  Categories.Membership{operation, evidence} = member
+  operation
+
+def operation_admission(-predicate: Operation -> Bool, result: Maybe<&1, Categories.Membership<Operation, Categories.holds(Operation, predicate)>>, code: String, reason: String) -> Operation:
+  match result:
+    case Some{member}: permitted_operation(predicate, member)
+    case None{}: Refuse{code, reason}
+
+def require(predicate: Operation -> Bool, operation: Operation, code: String, reason: String) -> Operation:
+  operation_admission(predicate, Categories.admit(Operation, predicate, operation), code, reason)
+
+def start_permitted(operation: Operation) -> Bool:
+  match operation:
+    case Start{profile, reasoning, message, selection}: D.profile_permitted(profile, reasoning) && D.nonempty(message)
+    case _: False{}
+
+def input_permitted(operation: Operation) -> Bool:
+  match operation:
+    case Deliver{task, message}: D.nonempty(message) && D.accepts_input(D.task_status(task))
+    case Steer{task, message}: D.nonempty(message) && D.accepts_input(D.task_status(task))
+    case _: False{}
+
+def cancel_permitted(operation: Operation) -> Bool:
+  match operation:
+    case Cancel{task, action}: D.accepts_input(D.task_status(task))
+    case _: False{}
+
+def summary_permitted(operation: Operation) -> Bool:
+  match operation:
+    case Summarize{task}: Bool.not(D.operations_pending(D.task_operations(task)))
+    case _: False{}
+
+def checkpoint_permitted(operation: Operation) -> Bool:
+  match operation:
+    case Checkpoint{+task, text}:
+      +context = D.context_history(D.task_history(task))
+      Bool.not(D.operations_pending(D.task_operations(task))) && D.valid_summary(text) && I.settled_calls(context, context)
+    case _: False{}
 
 def task_selection(+task: D.Task) -> Workspace.Selection:
   Workspace.Selection{D.task_context(task), D.model_guidance(T.task_model(D.task_contract(task)))}
@@ -85,7 +121,7 @@ def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +pro
   match selection:
     case Fail{reason}: Refuse{"invalid_settings", reason}
     case Done{selection}:
-      require(D.profile_permitted(profile, reasoning) && D.nonempty(message), Start{profile, reasoning, message, selection},
+      require(start_permitted, Start{profile, reasoning, message, selection},
         "invalid_arguments", "Create requires a nonempty message and a permitted reasoning effort. Adaptive endpoints accept only auto.")
 
 def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: String, options: J.Json, +world: M.World()) -> Operation:
@@ -119,21 +155,21 @@ def recipient(found: Maybe<&2, D.Task>, +message: String) -> Operation:
   match found:
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+task}:
-      require(D.nonempty(message) && D.accepts_input(D.task_status(task)), Deliver{task, message},
+      require(input_permitted, Deliver{task, message},
         "invalid_arguments", "The message must be nonempty and the target must not be archived")
 
 def steering(found: Maybe<&2, D.Task>, +message: String) -> Operation:
   match found:
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+task}:
-      require(D.nonempty(message) && D.accepts_input(D.task_status(task)), Steer{task, message},
+      require(input_permitted, Steer{task, message},
         "invalid_arguments", "Steering requires a nonempty instruction and a nonarchived task")
 
 def cancellable(found: Maybe<&2, D.Operation()>, +task: D.Task) -> Operation:
   match found:
     case None{}: Refuse{"operation_not_found", "The operation is not in flight for this task"}
     case Some{operation}:
-      require(D.accepts_input(D.task_status(task)), Cancel{task, operation}, "task_archived", "An archived task cannot be changed")
+      require(cancel_permitted, Cancel{task, operation}, "task_archived", "An archived task cannot be changed")
 
 def cancellation(found: Maybe<&2, D.Task>, ticket: Nat) -> Operation:
   match found:
@@ -160,11 +196,16 @@ def branch_fits(+count: Nat, messages: +List<String>, +parent: D.Task, world: M.
     (Nat.is_eq(size, 0n) || Nat.is_eq(size, count)) &&
     T.ancestors_fit(D.task_id(parent) <> D.task_lineage(parent), entries(world), count)
 
+def branch_permitted(+world: M.World(), operation: Operation) -> Bool:
+  match operation:
+    case Branch{parent, count, messages, selection}: branch_fits(count, messages, parent, world)
+    case _: False{}
+
 def branch_ready(status: D.Status, phase: D.Phase, +parent: D.Task,
   +count: Nat, +messages: +List<String>, world: M.World()) -> Operation:
   match status phase:
     case D.Active{} D.Idle{}:
-      require(branch_fits(count, messages, parent, world), Branch{parent, count, messages, task_selection(parent)},
+      require(operation => branch_permitted(world, operation), Branch{parent, count, messages, task_selection(parent)},
         "resource_limit", "Fork count, aligned messages, or an ancestor descendant limit is invalid")
     case _ _: Refuse{"task_busy", "A manual fork requires an active, idle task"}
 
@@ -177,11 +218,10 @@ def checkpoint_ready(status: D.Status, phase: D.Phase, +task: D.Task, summary: M
   match status phase summary:
     case D.Archived{} _ _: Refuse{"task_archived", "An archived task cannot be changed"}
     case D.Active{} D.Idle{} None{}:
-      require(Bool.not(D.operations_pending(D.task_operations(task))), Summarize{task},
+      require(summary_permitted, Summarize{task},
         "task_busy", "Wait for in-flight operation results before summarizing the task")
     case _ D.Idle{} Some{+text}:
-      +context = D.context_history(D.task_history(task))
-      require(Bool.not(D.operations_pending(D.task_operations(task))) && D.valid_summary(text) && I.settled_calls(context, context), Checkpoint{task, text},
+      require(checkpoint_permitted, Checkpoint{task, text},
         "invalid_summary", "A checkpoint requires a nonempty bounded summary, settled tool calls, and no in-flight operations")
     case _ _ _: Refuse{"task_busy", "Model compaction requires an active idle task; a supplied summary requires a nonarchived idle task"}
 
@@ -194,12 +234,30 @@ def project_fields(+workspace: J.Json, +guidance: J.Json) -> Bool:
   (Workspace.absent(workspace) || Schema.valid(D.workspace_schema(), workspace)) &&
     (Workspace.absent(guidance) || Schema.valid(D.guidance_schema(), guidance))
 
+def project_creation_permitted(+workspace: J.Json, +guidance: J.Json, +registry: D.Projects, operation: Operation) -> Bool:
+  match operation:
+    case StoreProject{id, project, next_id}:
+      Schema.valid(D.workspace_schema(), workspace) && project_fields(workspace, guidance) && Projects.valid_project(project) &&
+        Nat.is_lt(Projects.count(registry), 256n) && (Projects.next_word(registry) < 4294967295 : U32)
+    case _: False{}
+
+def project_update_permitted(+workspace: J.Json, +guidance: J.Json, operation: Operation) -> Bool:
+  match operation:
+    case StoreProject{id, project, next_id}: project_fields(workspace, guidance) && Projects.valid_project(project)
+    case _: False{}
+
+def project_removal_permitted(+world: M.World(), operation: Operation) -> Bool:
+  match operation:
+    case RemoveProject{+id}:
+      Bool.not(Projects.missing(Projects.find(Projects.registry(F.State(), world), id))) && Nat.is_eq(Projects.task_count(entries(world), id), 0n) &&
+        Bool.not(FeatureState.project_used(id, world))
+    case _: False{}
+
 def create_project(name: String, +workspace: J.Json, +guidance: J.Json, +world: M.World()) -> Operation:
   +project = Projects.proposal(Some{name}, workspace, guidance, D.Project{"", D.Workspace{Nil{}, None{}}, D.NoProject{}})
   +registry = Projects.registry(F.State(), world)
   +id = Projects.next_id(registry)
-  require(Schema.valid(D.workspace_schema(), workspace) && project_fields(workspace, guidance) && Projects.valid_project(project) &&
-    Nat.is_lt(Projects.count(registry), 256n) && (Projects.next_word(registry) < 4294967295 : U32),
+  require(operation => project_creation_permitted(workspace, guidance, registry, operation),
     StoreProject{id, project, (Projects.next_word(registry) + 1 : U32)}, "invalid_project", "A project requires a nonempty bounded name, valid workspace defaults, and available project capacity")
 
 def update_project(found: Maybe<&2, D.Project>, id: Nat, name: Maybe<&2, String>, +workspace: J.Json,
@@ -208,12 +266,11 @@ def update_project(found: Maybe<&2, D.Project>, id: Nat, name: Maybe<&2, String>
     case None{}: Refuse{"project_not_found", "The project does not exist"}
     case Some{previous}:
       +project = Projects.proposal(name, workspace, guidance, previous)
-      require(project_fields(workspace, guidance) && Projects.valid_project(project), StoreProject{id, project, next_id},
+      require(operation => project_update_permitted(workspace, guidance, operation), StoreProject{id, project, next_id},
         "invalid_project", "Project defaults require a valid name, workspace and matching guidance")
 
 def delete_project(+id: Nat, +world: M.World()) -> Operation:
-  require(Bool.not(Projects.missing(Projects.find(Projects.registry(F.State(), world), id))) && Nat.is_eq(Projects.task_count(entries(world), id), 0n) &&
-    Bool.not(FeatureState.project_used(id, world)),
+  require(operation => project_removal_permitted(world, operation),
     RemoveProject{id}, "project_not_empty", "The project must exist and have no tasks or board cards before it can be deleted")
 
 def feature_start_result(operation: Operation) -> FeatureResolution.Start:
@@ -249,7 +306,8 @@ def resolve(command: M.Command, +world: M.World()) -> Operation:
       update_project(Projects.find(Projects.registry(F.State(), world), id), id, name, workspace, guidance, Projects.next_word(Projects.registry(F.State(), world)))
     case M.DeleteProject{id}: delete_project(id, world)
     case M.ReviewApproval{id, operation, outcome}:
-      Review{Approvals.resolve(T.find(entries(world), id), Approvals.HumanDecision{}, operation, outcome)}
+      Review{Approvals.resolution(F.State(), Approvals.construct_review(F.State(),
+        Approvals.ReviewRequest{Approvals.HumanDecision{}, id, operation, outcome, world}))}
     case M.FeatureCommand{command}: feature_result(FeatureResolution.resolve(feature_start, command, world))
 
 def id_result(id: Nat) -> J.Json:
@@ -380,7 +438,7 @@ def query(query: M.Query, +world: M.World()) -> J.Json:
 def meaning(operation: Operation, +world: M.World()) -> M.Decision():
   match operation:
     case Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
-    case Review{resolution}: Approvals.meaning(F.State(), F.Effect, resolution, world)
+    case Review{resolution}: Approvals.meaning_calculation(F.State(), F.Effect, resolution, world)
     case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
     case FeatureOperation{operation}: FeatureSpec.meaning(start, operation, world)
     case Deliver{+task, message}:
@@ -407,3 +465,18 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
 
 def command(+request: M.Command, +world: M.World()) -> M.Decision():
   meaning(resolve(request, world), world)
+
+
+type CommandRequest is Data:
+  CommandRequest{command: M.Command, world: M.World()}
+
+def command_resolution(request: CommandRequest) -> Operation:
+  CommandRequest{command, world} = request
+  resolve(command, world)
+
+def ConstructedCommand() -> Type:
+  Categories.Membership<Categories.Construction<CommandRequest, Operation>,
+    Categories.constructed_by(CommandRequest, Operation, command_resolution)>
+
+def construct_command(command: M.Command, world: M.World()) -> ConstructedCommand():
+  Categories.construct(CommandRequest, Operation, command_resolution, CommandRequest{command, world})

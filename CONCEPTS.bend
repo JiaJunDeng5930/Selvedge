@@ -80,6 +80,3 @@ type Harness is Type:
 # Construction is mandatory in PROOF. No field is an unproved assertion.
 # The OS/network/SQLite effect interpreter is an explicit external boundary;
 # its ordering and cancellation contracts are exercised by integration tests.
-
-law harness:
-  Harness

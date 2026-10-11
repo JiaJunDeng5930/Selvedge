@@ -16,19 +16,59 @@ Workspace.
 ## Read the program
 
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
-system. `Execution`, `Application`, and `Display` expose operations and universally
-quantified properties bound to those same operation fields. `SystemModel` packages
-the layers around a shared, hidden `World`; its nested packages hide their state
-and result carriers. A generic client can initialize, advance, observe, and reason
-about the system through these fields without matching its internal state
-constructors. Public command and observation vocabulary remains transparent.
+system. This is the callable operations and laws surface. `Execution`,
+`Application`, and `Display` pair explicit specification and
+operation bundles with evidence of their open semantic categories and pointwise
+agreement of every operation field. Categories are predicates over
+values; inclusion supplies a universally quantified implication, and intersection
+requires both memberships of the same value. Syntax sum types describe the values
+clients can construct, rather than an inheritance tree of semantic categories.
 
-[PROOF.bend](PROOF.bend) instantiates this interface with the actual production
-functions and their existing proofs. For representation-independent reasoning,
-read `MODEL.bend` before opening the implementation modules. This package boundary
-does not make every existing module private: concrete adapters and
-representation-specific proofs still inspect concrete state in their own modules.
-[ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the choice.
+`SystemModel` packages the layers around a shared, hidden `World`; its nested
+packages hide their state and result carriers. A generic client can initialize,
+advance, observe, and reason through the exposed operations without matching
+internal state constructors. Operation records and their dependent evidence are
+affine `Type` values: clients consume them without copying them into `Data`.
+Public command and observation vocabulary remains transparent. The third
+`System` field, `host_adapters`, exposes stateless host operations and their
+complete correspondence to the executable meaning on arbitrary JSON inputs.
+[HOST.bend](HOST.bend) is their native wire entry: it decodes the shared token ABI,
+executes the owning adapter, and renders its result. See
+[the adapter entry](host/adapters/README.md) for domain owners and
+[ADR 0036](docs/adr/0036-host-semantic-constructions.md) for this boundary.
+
+[PROOF.bend](PROOF.bend) provides the ordinary typed production constructors
+`system() -> Model.SystemModel()` and `harness() -> Entry.Harness`. The abstract
+models retain all operation and evidence requirements without binding a concrete
+production value. [ADR 0037](docs/adr/0037-production-instance-construction.md)
+explains this separation and the browser verification and compilation entries.
+[bendlib/categories.bend](bendlib/categories.bend)
+provides shared membership, inclusion, intersection, checked admission and
+context-bound construction; its
+filled definitions can be used by production models without importing proof
+providers. Owner-local model entries define what their categories require.
+A successful admission continuation consumes evidence indexed by the actual
+candidate and uses that admitted value. Wire values remain transparent candidates
+until the responsible operation checks them.
+
+Clients, including AI-generated programs, can reuse verified constructions or
+classifiers instead of reproving each instance. Pure calculations with complete
+input-wide equations and ordinary Boolean branches retain their roles; a Boolean
+classification is not automatically a semantic admission boundary. Controlled
+button, input, movable-source and native recovery producers bind their
+requirements to actual emitted nodes. Follow their owning entries for the precise predicates and proofs.
+
+For representation-independent reasoning, read `MODEL.bend` before implementation
+modules. This boundary does not hide every raw constructor or make all modules
+private. [ADR 0032](docs/adr/0032-operational-model-abstraction.md) explains the
+abstract carriers; [ADR 0034](docs/adr/0034-open-category-construction.md) records
+the category construction and admission decision.
+[ADR 0035](docs/adr/0035-context-bound-construction.md) explains why complete
+operation consumers receive a construction containing the original request and
+state, together with evidence of canonical resolution. Follow the harness and
+feature READMEs for their constructor and consumer entry points.
+`*_calculation` functions remain implementation and proof primitives; transparent
+vocabulary and accessible Bend imports do not provide module encapsulation.
 
 For detailed execution requirements,
 [harness/COMMANDS.bend](harness/COMMANDS.bend) states what every command means.
@@ -60,7 +100,9 @@ interaction in [interaction](interaction/README.md), and browser implementation 
 [browser](browser/README.md). Concept directories stay at most two levels deep;
 contracts and proofs sit beside their owning concepts and group complete
 responsibilities. Concept `PROOF.bend` entries assemble the evidence they need,
-and the root proof entry imports the production providers.
+and the root proof entry imports the production providers. Read the README and
+model or contract of the concept you will use before its helpers; human and AI
+clients can follow those owners without reading every implementation file.
 [ADR 0029](docs/adr/0029-shallow-concept-directories.md) records the directory organization;
 [ADR 0031](docs/adr/0031-public-vocabulary-and-proof-boundaries.md) explains the public
 vocabulary and proof boundaries.
@@ -171,10 +213,17 @@ bash scripts/bootstrap.sh
 bun run start
 ```
 
-The default build checks proofs and compiles two libraries with Bend 2.0.27's
-official `js_lib` backend: `KERNEL.bend` to `.build/kernel-model.mjs`, executed
-in a Bun Worker, and `BROWSER.bend` to
-`host/public/generated/browser-model.mjs`, executed by the browser.
+The default build checks production proofs and compiles JavaScript libraries
+with Bend 2.0.27's official `js_lib` backend: `KERNEL.bend` to
+`.build/kernel-model.mjs`, executed in a Bun Worker, the browser entry to
+`host/public/generated/browser-model.mjs`, and `HOST.bend` to
+`host/public/generated/host-model.mjs`. Before compilation or cache reuse, the
+full `.build/ui-verification.bend` entry includes root `PROOF.bend` and must pass
+the proof gate. Browser compilation uses `.build/ui-runtime.bend`, preserving
+the existing ordered imports and private providers with root `PROOF.bend`
+excluded, and explicitly adds `harness/approval/PROOF.bend` to discharge the
+approval contracts still present in the runtime closure. Its public source
+remains `BROWSER.bend`; the strict emitter checks remain unchanged.
 `bun run build:native` optionally builds `MAIN.bend` and requires a C compiler.
 
 Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
@@ -373,10 +422,10 @@ bun run bench
 ```
 
 `check` verifies the pinned compiler, proof obligations and host/script syntax.
-The default build also produces the kernel and browser JavaScript libraries.
-The remaining tests cover compiler and external component boundaries, integration
-flows and negative proof mutations; their evidence responsibilities are recorded
-in [tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
+The default build also produces the kernel, browser and host JavaScript libraries.
+The remaining tests cover actual compiler execution, external component boundaries
+and integration flows; their evidence responsibilities are recorded in
+[tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
 claim that a particular checkout has passed them. Tests that exercise workspace
 isolation require a working platform sandbox. The benchmark measures committed
 transitions and replay without a machine-dependent CI threshold. `just` provides
@@ -385,7 +434,7 @@ aliases for the development commands.
 CI runs production proofs, syntax, a JavaScript library build, regular
 integration tests and the tracked-file index on Linux for each PR and main
 update. `bun run test:ci` retains real sandbox, SQLite, process and protocol
-tests; repeated whole-program proof mutations and native extension builds stay
+tests; native extension builds stay
 in `bun run test` and the pre-push hook. Select `full` when manually running CI
 to run the complete suite on Linux and macOS. GitHub enables that manual entry
 after this workflow reaches the default branch. Ubuntu CI loads a user-namespace

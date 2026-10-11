@@ -399,7 +399,7 @@ def feedback_style(value: Design.Style, feedback: Controls.Feedback, +typography
 
 def control_style(value: Design.Style, representation: Controls.Representation, +typography: T.Presentation) -> Design.Style:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       action_style(feedback_style(selection_style(value, behavior, typography), feedback, typography), face, geometry)
     case _: value
 
@@ -449,8 +449,8 @@ def chooser_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style
 
 def source_control_style(family: Controls.SourceFamily, representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match family representation:
-    case _ Controls.Action{input, availability, name, Controls.SingleLineFace{text}, behavior, geometry, placement, help, feedback}: project_label_style(value)
-    case Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectChooser{selected}, children}} Controls.Action{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, help, feedback}: chooser_style(selected, value)
+    case _ Controls.Action{Controls.Button{input, availability, name, Controls.SingleLineFace{text}, behavior, geometry, placement, feedback}}: project_label_style(value)
+    case Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectChooser{selected}, children}} Controls.Action{Controls.Button{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, feedback}}: chooser_style(selected, value)
     case _ _: value
 
 def source_style(header: Bool, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
@@ -500,7 +500,7 @@ def source_content_style(content: Controls.SourceContent, geometry: Controls.Geo
 
 def resolved_source_style(content: Controls.SourceContent, representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: source_content_style(content, geometry, value)
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: source_content_style(content, geometry, value)
     case _: value
 
 def source_action_style(meaning: SurfaceTypes.Meaning, context: Controls.Context, +representation: Controls.Representation, value: Design.Style) -> Design.Style:

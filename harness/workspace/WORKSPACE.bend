@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../DOMAIN.bend as D
 import ../reasoning/MODEL.bend as Reasoning
 import ../../bendlib/json.bend as J
@@ -163,10 +164,18 @@ def read_guidance(value: J.Json, workspace: D.Workspace, +fallback: D.ProjectCon
 type Selection is Data:
   Selection{context: D.TaskContext, guidance: D.ProjectContext}
 
-def accepted(valid: Bool, selection: Selection) -> Result<&2, &2, String, Selection>:
-  match valid:
-    case True{}: Done{selection}
-    case False{}: Fail{"Workspace roots must be canonical absolute directories with a member primary root and matching bounded guidance"}
+def selection_valid(selection: Selection) -> Bool:
+  Selection{D.TaskContext{+workspace, sandbox, approval, project_id}, +guidance} = selection
+  valid(workspace) && valid_approval(approval) && valid_guidance(guidance) && guidance_member(primary(workspace), guidance)
+
+def accepted(member: Categories.Membership<Selection, Categories.holds(Selection, (value => selection_valid(value)))>) -> Result<&2, &2, String, Selection>:
+  Categories.Membership{selection, evidence} = member
+  Done{selection}
+
+def selection_admission(admission: Maybe<&1, Categories.Membership<Selection, Categories.holds(Selection, (value => selection_valid(value)))>>) -> Result<&2, &2, String, Selection>:
+  match admission:
+    case Some{member}: accepted(member)
+    case None{}: Fail{"Workspace roots must be canonical absolute directories with a member primary root and matching bounded guidance"}
 
 def selected(sandbox: Result<&2, &2, String, D.Sandbox>, approval: Result<&2, &2, String, D.ApprovalPolicy>,
   +workspace: D.Workspace, project_id: Maybe<&2, Nat>, +guidance: D.ProjectContext) -> Result<&2, &2, String, Selection>:
@@ -174,23 +183,30 @@ def selected(sandbox: Result<&2, &2, String, D.Sandbox>, approval: Result<&2, &2
     case Fail{reason} _: Fail{reason}
     case _ Fail{reason}: Fail{reason}
     case Done{sandbox} Done{+approval}:
-      accepted(valid(workspace) && valid_approval(approval) && valid_guidance(guidance) && guidance_member(primary(workspace), guidance),
-        Selection{D.TaskContext{workspace, sandbox, approval, project_id}, guidance})
+      selection_admission(Categories.admit(Selection, (value => selection_valid(value)),
+        Selection{D.TaskContext{workspace, sandbox, approval, project_id}, guidance}))
 
-def resolve_checked(valid: Bool, +options: J.Json, base: D.TaskContext, guidance: D.ProjectContext,
+def settings_valid(+options: J.Json) -> Bool:
+  absent(options) || Schema.valid(D.task_settings_schema(), options)
+
+def resolve_checked(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => settings_valid(value)))>, base: D.TaskContext, guidance: D.ProjectContext,
   profile: D.Profile, profiles: +List<D.Profile>) -> Result<&2, &2, String, Selection>:
-  match valid:
-    case False{}: Fail{"Task settings do not satisfy the declared schema"}
-    case True{}:
-      D.TaskContext{workspace, sandbox, approval, project_id} = base
-      +workspace = read_workspace(J.get(options, "workspace"), workspace)
-      selected(read_sandbox(J.get(options, "sandbox"), sandbox),
-        read_approval(J.get(options, "approval"), approval, profile, profiles), workspace, project_id,
-        read_guidance(J.get(options, "guidance"), workspace, guidance))
+  Categories.Membership{+options, evidence} = member
+  D.TaskContext{workspace, sandbox, approval, project_id} = base
+  +workspace = read_workspace(J.get(options, "workspace"), workspace)
+  selected(read_sandbox(J.get(options, "sandbox"), sandbox),
+    read_approval(J.get(options, "approval"), approval, profile, profiles), workspace, project_id,
+    read_guidance(J.get(options, "guidance"), workspace, guidance))
+
+def settings_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => settings_valid(value)))>>, base: D.TaskContext, guidance: D.ProjectContext,
+  profile: D.Profile, profiles: +List<D.Profile>) -> Result<&2, &2, String, Selection>:
+  match admission:
+    case None{}: Fail{"Task settings do not satisfy the declared schema"}
+    case Some{member}: resolve_checked(member, base, guidance, profile, profiles)
 
 def resolve(+options: J.Json, base: D.TaskContext, guidance: D.ProjectContext,
   profile: D.Profile, profiles: +List<D.Profile>) -> Result<&2, &2, String, Selection>:
-  resolve_checked(absent(options) || Schema.valid(D.task_settings_schema(), options), options, base, guidance, profile, profiles)
+  settings_admission(Categories.admit(J.Json, (value => settings_valid(value)), options), base, guidance, profile, profiles)
 
 # Directory inclusion is used only on admitted canonical observations. A model
 # may delegate equal or narrower authority, never gain permissions through fork.

@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -57,23 +58,46 @@ def start(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.St
 def rejected(reason: String, task: D.Task) -> D.Task:
   T.promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Automatic reasoning: " ++ reason}, task)))
 
-def chosen(accepted: Bool, effort: String, generations: Nat, +task: D.Task) -> D.Task:
-  match accepted:
-    case False{}: rejected("the evaluator selected an unsupported effort or lease; no model request was sent", task)
-    case True{}:
-      T.promote(D.with_phase(D.Ready{Nil{}},
-        D.append_message(D.ReasoningRecord{D.task_id(task), effort, generations, False{}}, task)))
+def chosen_permitted(+task: D.Task, outcome: R.Outcome) -> Bool:
+  match outcome:
+    case R.Chosen{effort, generations}: R.accepts(Context.task_policy(task), effort, generations)
+    case _: False{}
+
+def chosen_calculation(effort: String, generations: Nat, +task: D.Task) -> D.Task:
+  T.promote(D.with_phase(D.Ready{Nil{}},
+    D.append_message(D.ReasoningRecord{D.task_id(task), effort, generations, False{}}, task)))
+
+def chosen(+task: D.Task, member: Categories.Membership<R.Outcome, Categories.holds(R.Outcome, outcome => chosen_permitted(task, outcome))>) -> D.Task:
+  Categories.Membership{outcome, evidence} = member
+  match outcome:
+    case R.Chosen{effort, generations}: chosen_calculation(effort, generations, task)
+    case _: rejected("the evaluator selected an unsupported effort or lease; no model request was sent", task)
+
+def chosen_admission(+task: D.Task, result: Maybe<&1, Categories.Membership<R.Outcome, Categories.holds(R.Outcome, outcome => chosen_permitted(task, outcome))>>) -> D.Task:
+  match result:
+    case Some{member}: chosen(task, member)
+    case None{}: rejected("the evaluator selected an unsupported effort or lease; no model request was sent", task)
 
 def observed(outcome: R.Outcome, +task: D.Task) -> D.Task:
   match outcome:
     case R.EvaluationFailed{reason}: rejected(reason, task)
-    case R.Chosen{+effort, +generations}:
-      chosen(R.accepts(Context.task_policy(task), effort, generations), effort, generations, task)
+    case R.Chosen{effort, generations}:
+      chosen_admission(task, Categories.admit(R.Outcome, outcome => chosen_permitted(task, outcome), R.Chosen{effort, generations}))
 
-def revision_matches(current: Bool, outcome: R.Outcome, task: D.Task) -> D.Task:
-  match current:
-    case False{}: T.promote(D.with_phase(D.Ready{Nil{}}, task))
-    case True{}: observed(outcome, task)
+def revision_current(+revision: Nat, task: D.Task) -> Bool:
+  Nat.is_eq(revision, D.history_length(D.task_history(task)))
 
-def complete(revision: Nat, outcome: R.Outcome, +task: D.Task) -> D.Task:
-  revision_matches(Nat.is_eq(revision, D.history_length(D.task_history(task))), outcome, task)
+def stale_result(outcome: R.Outcome, task: D.Task) -> D.Task:
+  T.promote(D.with_phase(D.Ready{Nil{}}, task))
+
+def revision_matches(+revision: Nat, outcome: R.Outcome, member: Categories.Membership<D.Task, Categories.holds(D.Task, task => revision_current(revision, task))>) -> D.Task:
+  Categories.Membership{task, evidence} = member
+  observed(outcome, task)
+
+def revision_admission(+revision: Nat, outcome: R.Outcome, task: D.Task, result: Maybe<&1, Categories.Membership<D.Task, Categories.holds(D.Task, task => revision_current(revision, task))>>) -> D.Task:
+  match result:
+    case Some{member}: revision_matches(revision, outcome, member)
+    case None{}: stale_result(outcome, task)
+
+def complete(+revision: Nat, outcome: R.Outcome, +task: D.Task) -> D.Task:
+  revision_admission(revision, outcome, task, Categories.admit(D.Task, task => revision_current(revision, task), task))

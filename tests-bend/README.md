@@ -3,18 +3,19 @@
 The formal entry is [PROOF.bend](../PROOF.bend), with production obligations in
 [LAWS.bend](../harness/LAWS.bend), [INVARIANTS.bend](../harness/INVARIANTS.bend),
 [interaction/presentation/PROGRAM.bend](../interaction/presentation/PROGRAM.bend). Follow those entries for the executable
-requirements and their evidence. Tests target compiler, certificate and external
-boundary faults rather than repeat proved finite state-transition examples.
+requirements and their evidence. Universal properties belong to production
+constructions and proofs. Tests exercise actual generated execution, translator
+source-data boundaries and external behavior; they do not re-test Bend acceptance
+or rejection of source code, proofs or certificates.
 
 | Boundary or fault model | Evidence owner |
 | --- | --- |
-| Missing, false, circular, unsafe or corrupted proof evidence | `pure-proof.test.mjs`, `proof-gate.test.mjs`, `whole-program-proof.test.mjs` |
-| Specification import independence, IO-only native entry, proof-carrying conceptual entry and acyclic proof dependencies | `architecture.test.mjs` |
-| Generic clients execute the production model and use its laws without concrete state; the compiler rejects matching hidden execution and application carriers as implementation constructors | `model-abstraction.test.mjs` |
-| Certificate translation rejection and compiler rejection of mutated algebra, map and closure evidence | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
-| Production board/reasoning mutations remain type-correct and fail their obligations | `board-proof.test.mjs`, `reasoning-proof.test.mjs` |
-| Component extension and contract-preserving replacement with unrelated source files frozen; native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
-| Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; source-boundary mutants are checked as legal Bend independently of semantic proof mutants |
+| Generic clients execute affine operational memberships and observe complete execution and application results without concrete state | `model-abstraction.test.mjs` |
+| JavaScript translators reject unsupported source AST, constants, inductives, proof syntax, changed statements and reflection premises | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
+| Category admission and intersection execute and extract actual admitted values, with Some/None outcomes | `categories.test.mjs` |
+| Generic input, movable-source and recovery clients execute native fields and check emitted nodes, bindings and filtering | `control-categories.test.mjs` |
+| Component extensions with unrelated source and clients frozen; actual native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
+| Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; JavaScript source and configuration boundary checks |
 | Bend-generated JavaScript, Worker and codec transport: Unicode, embedded controls, exact numeric lexemes and malformed completion envelopes | `kernel-boundaries.test.mjs` |
 | Pending approval decoder rejects extra authority fields, absent reasons, invalid decisions and oversized reasons | `approval-decoding.test.mjs` |
 | HTTP approval, SQLite grants and actual subprocess authorization, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs`, `fixtures/approved-tool.mjs`; the child checks its committed grant before writing outside the workspace |
@@ -32,43 +33,43 @@ boundary faults rather than repeat proved finite state-transition examples.
 | Authentication, HTTP/SSE delivery and committed service dispatch | `auth.test.mjs`, `service.test.mjs` |
 | Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
 | Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
-| Type-correct loss of dispatch/cancellation, replay, cross-connection ownership, restart replay and unrelated feature damage | `chatgpt-plugin-proof.test.mjs`; mutated operational root must type-check before production proof rejection |
 
 Use Bun 1.4.2 or later and the pinned Bend compiler installed by
 `bash scripts/bootstrap.sh`; see [the repository workflow](../README.md).
 `bun run check` checks source boundaries, certificates, the production proof root
 and script syntax. `bun run test` builds the kernel/browser JavaScript libraries
-before running this directory with two concurrent test files.
-`bun run test:locality` selects the extension/replacement checks.
+before running this directory with one isolated worker.
+`bun run test:locality` selects source-boundary checks and actual native extension
+round trips.
 `bun run build:native` is the optional native entry build and requires a C compiler.
-Compiler mutation tests and locality native probes also require that toolchain.
+Locality native probes also require that toolchain.
 
-Semantic mutations must type-check under the relevant production root before the
-required proof rejects them. A timeout, syntax error or missing import does not
-establish semantic fault detection. Certificate fault injection independently
-checks translation and proof acceptance; normal check/build owns reproducibility.
-The locality fixture emits an effect intention and does not provide a new physical
+Production proof and certificate gates remain mandatory in ordinary checks and
+builds. Translator tests use their existing source-data and reflection-premise
+assertions; actual compilation tests inspect generated execution results. The
+locality fixture emits an effect intention and does not provide a new physical
 host interpreter for that effect.
+
+Open categories and admission predicates are specified in their owning model
+entries and [bendlib/categories.bend](../bendlib/categories.bend). Their universal
+properties are supplied by the production constructions and proofs. Runtime
+fixtures check the concrete values and external boundaries listed above.
 
 These files describe evidence responsibilities, not results for the current
 checkout. Loopback fixtures do not establish commercial model quality or
 availability. Browser geometry, focus and physical interaction need actual
 browser evidence; no current executable browser fixture supplies it.
 
-Before removing another test, identify the proven property, its premises, its
-production binding and any additional boundary it exercises. Unproved pure logic
-still needs evidence. Keep type-correct semantic mutations: they test whether
-the proof obligations can reject an incorrect implementation, not whether a
-particular input produces the expected domain result. A timeout, syntax error or
-missing import is not an acceptable semantic-mutation success.
+Do not add tests whose only criterion is Bend accepting or rejecting source code,
+proofs or certificates. Keep actual compiler execution, JavaScript translator
+boundaries and external integration assertions distinct from production proof
+requirements.
 
 ## CI scope
 
-`bun run test:ci` builds the production JavaScript libraries and runs regular integration tests
-on Linux. The six files listed in `scripts/test.mjs` remain in `bun run test` and
-the pre-push hook: their repeated whole-program proof checks and native extension
-builds dominated hosted test time. Production proofs and certificate checks still
-run in every PR. Pure-proof trust-boundary rejection tests and certificate mutation
-tests remain in the regular CI suite. The workflow's manual `full` input runs the
-complete suite on Linux and macOS; this entry is available once the
-workflow is present on the default branch.
+`bun run test:ci` builds the production JavaScript libraries and runs regular
+integration tests on Linux. Only `locality.test.mjs` is deferred to `bun run test`
+and the pre-push hook because it includes native extension builds. Production
+proofs and certificate checks still run in every PR. The workflow's manual `full`
+input runs the complete suite on Linux and macOS once the workflow is present on
+the default branch.

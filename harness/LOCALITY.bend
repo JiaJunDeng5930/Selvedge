@@ -39,7 +39,7 @@ type BoardStorage is Type:
     board_written: @+value:Board.State -> @state:F.State() ->
       {F.board(F.with_board(value, state)) == value : Board.State},
     board_frame: @value:Board.State -> @world:M.World() ->
-      {F.rest(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.rest(C.rest(D.State, F.State(), world)) : F.Rest()},
+      {F.modules(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.modules(C.rest(D.State, F.State(), world)) : F.Modules()},
     board_core_frame: @value:Board.State -> @world:M.World() ->
       {C.local(D.State, F.State(), BoardState.store(value, world)) == C.local(D.State, F.State(), world) : D.State}
   }

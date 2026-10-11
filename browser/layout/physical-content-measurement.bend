@@ -1,12 +1,7 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ./CONTENT.bend as Content
 import ../document/SOURCE.bend as Source
-
-def choose_receipt(matches: Bool, +observation: Content.Observation,
-  +tail_result: Maybe<&2, Content.Observation>) -> Maybe<&2, Content.Observation>:
-  match matches:
-    case True{}: Some{observation}
-    case False{}: tail_result
 
 type PurposePair is Data:
   PurposePair{first: Content.Purpose, second: Content.Purpose}
@@ -62,11 +57,26 @@ def paired_receipt(pair: ReceiptPair) -> Bool:
 def observation_matches(request: Content.Request, observation: Content.Observation) -> Bool:
   paired_receipt(ReceiptPair{request, observation})
 
+def matching_receipt(-request: Content.Request) -> Content.Observation -> Type:
+  Categories.holds(Content.Observation, observation => observation_matches(request, observation))
+
+def choose_receipt(-request: Content.Request,
+  member: Categories.Membership<Content.Observation, matching_receipt(request)>) -> Maybe<&2, Content.Observation>:
+  Categories.Membership{observation, evidence} = member
+  Some{observation}
+
+def receipt_admission(-request: Content.Request,
+  result: Maybe<&1, Categories.Membership<Content.Observation, matching_receipt(request)>>,
+  tail_result: Maybe<&2, Content.Observation>) -> Maybe<&2, Content.Observation>:
+  match result:
+    case Some{member}: choose_receipt(request, member)
+    case None{}: tail_result
+
 def scan(observations: +List<Content.Observation>, +request: Content.Request) -> Maybe<&2, Content.Observation>:
   match observations:
     case Nil{}: None{}
     case Con{+observation, rest}:
-      choose_receipt(observation_matches(request, observation), observation, scan(rest, request))
+      receipt_admission(request, Categories.admit(Content.Observation, candidate => observation_matches(request, candidate), observation), scan(rest, request))
 
 def find(request: Content.Request, observations: +List<Content.Observation>) -> Maybe<&2, Content.Observation>:
   scan(observations, request)

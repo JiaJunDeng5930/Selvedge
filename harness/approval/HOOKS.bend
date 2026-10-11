@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../../bendlib/json.bend as J
@@ -115,30 +116,104 @@ def advance(outcome: D.HookOutcome, call: D.Call, pending: +List<D.PluginRef>) -
     case D.DenyTool{reason}: Refused{}
     case D.HookFailure{reason}: Refused{}
 
-def checked(same: Bool, outcome: D.HookOutcome, call: D.Call, pending: +List<D.PluginRef>) -> Progress:
+def checked_calculation(same: Bool, outcome: D.HookOutcome, call: D.Call, pending: +List<D.PluginRef>) -> Progress:
   match same:
     case True{}: advance(outcome, call, pending)
     case False{}: Refused{}
 
+type CheckedRequest is Data:
+  CheckedRequest{reference: D.PluginRef, expected: D.PluginRef, outcome: D.HookOutcome, call: D.Call, pending: +List<D.PluginRef>}
+
+def checked_accepts(request: CheckedRequest) -> Bool:
+  CheckedRequest{+reference, +expected, +outcome, +call, +pending} = request
+  D.plugin_same(reference, expected)
+
+def checked_category() -> CheckedRequest -> Type:
+  Categories.holds(CheckedRequest, checked_accepts)
+
+def checked_accepted(member: Categories.Membership<CheckedRequest, checked_category()>) -> Progress:
+  Categories.Membership{request, evidence} = member
+  CheckedRequest{+reference, +expected, +outcome, +call, +pending} = request
+  advance(outcome, call, pending)
+
+def checked_admitted(admission: Maybe<&1, Categories.Membership<CheckedRequest, checked_category()>>, request: CheckedRequest) -> Progress:
+  match admission:
+    case Some{member}: checked_accepted(member)
+    case None{}:
+      CheckedRequest{+reference, +expected, +outcome, +call, +pending} = request
+      Refused{}
+
+def checked(+reference: D.PluginRef, +expected: D.PluginRef, +outcome: D.HookOutcome, +call: D.Call, +pending: +List<D.PluginRef>) -> Progress:
+  +request = {CheckedRequest{reference, expected, outcome, call, pending} : CheckedRequest}
+  checked_admitted(Categories.admit(CheckedRequest, checked_accepts, request), request)
+
+
 def record(state: Progress, reference: D.PluginRef, outcome: D.HookOutcome) -> Progress:
   match state:
-    case Awaiting{call, Con{expected, pending}}: checked(D.plugin_same(reference, expected), outcome, call, pending)
+    case Awaiting{call, Con{expected, pending}}: checked(reference, expected, outcome, call, pending)
     case _: Refused{}
 
-def start_matching(same: Bool, state: Progress, call: D.Call, chain: +List<D.PluginRef>) -> Progress:
-  match same:
-    case True{}: begin(state, call, chain)
-    case False{}: state
+type StartMatchingRequest is Data:
+  StartMatchingRequest{id: String, state: Progress, call: D.Call, chain: +List<D.PluginRef>}
 
-def record_matching(same: Bool, state: Progress, reference: D.PluginRef, outcome: D.HookOutcome) -> Progress:
+def start_matching_accepts(request: StartMatchingRequest) -> Bool:
+  StartMatchingRequest{+id, +state, +call, +chain} = request
+  String.eq(D.call_id(call), id)
+
+def start_matching_category() -> StartMatchingRequest -> Type:
+  Categories.holds(StartMatchingRequest, start_matching_accepts)
+
+def start_matching_accepted(member: Categories.Membership<StartMatchingRequest, start_matching_category()>) -> Progress:
+  Categories.Membership{request, evidence} = member
+  StartMatchingRequest{+id, +state, +call, +chain} = request
+  begin(state, call, chain)
+
+def start_matching_admitted(admission: Maybe<&1, Categories.Membership<StartMatchingRequest, start_matching_category()>>, request: StartMatchingRequest) -> Progress:
+  match admission:
+    case Some{member}: start_matching_accepted(member)
+    case None{}:
+      StartMatchingRequest{+id, +state, +call, +chain} = request
+      state
+
+def start_matching(+id: String, +state: Progress, +call: D.Call, +chain: +List<D.PluginRef>) -> Progress:
+  +request = {StartMatchingRequest{id, state, call, chain} : StartMatchingRequest}
+  start_matching_admitted(Categories.admit(StartMatchingRequest, start_matching_accepts, request), request)
+
+type RecordMatchingRequest is Data:
+  RecordMatchingRequest{task_id: Nat, owner: Nat, call_id: String, id: String, state: Progress, reference: D.PluginRef, outcome: D.HookOutcome}
+
+def record_matching_accepts(request: RecordMatchingRequest) -> Bool:
+  RecordMatchingRequest{+task_id, +owner, +call_id, +id, +state, +reference, +outcome} = request
+  Nat.is_eq(task_id, owner) && String.eq(call_id, id)
+
+def record_matching_category() -> RecordMatchingRequest -> Type:
+  Categories.holds(RecordMatchingRequest, record_matching_accepts)
+
+def record_matching_accepted(member: Categories.Membership<RecordMatchingRequest, record_matching_category()>) -> Progress:
+  Categories.Membership{request, evidence} = member
+  RecordMatchingRequest{+task_id, +owner, +call_id, +id, +state, +reference, +outcome} = request
+  record(state, reference, outcome)
+
+def record_matching_admitted(admission: Maybe<&1, Categories.Membership<RecordMatchingRequest, record_matching_category()>>, request: RecordMatchingRequest) -> Progress:
+  match admission:
+    case Some{member}: record_matching_accepted(member)
+    case None{}:
+      RecordMatchingRequest{+task_id, +owner, +call_id, +id, +state, +reference, +outcome} = request
+      state
+
+def record_matching(+task_id: Nat, +owner: Nat, +call_id: String, +id: String, +state: Progress, +reference: D.PluginRef, +outcome: D.HookOutcome) -> Progress:
+  +request = {RecordMatchingRequest{task_id, owner, call_id, id, state, reference, outcome} : RecordMatchingRequest}
+  record_matching_admitted(Categories.admit(RecordMatchingRequest, record_matching_accepts, request), request)
+
+def record_matching_calculation(same: Bool, state: Progress, reference: D.PluginRef, outcome: D.HookOutcome) -> Progress:
   match same:
     case True{}: record(state, reference, outcome)
     case False{}: state
 
 def history_step(message: D.Message, owner: Nat, id: String, chain: +List<D.PluginRef>, state: Progress) -> Progress:
   match message:
-    case D.FunctionCall{+call}: start_matching(String.eq(D.call_id(call), id), state, call, chain)
-    case D.HookRecord{task_id, call_id, reference, outcome}: record_matching(Nat.is_eq(task_id, owner) && String.eq(call_id, id), state, reference, outcome)
+    case D.FunctionCall{+call}: start_matching(id, state, call, chain)
+    case D.HookRecord{task_id, call_id, reference, outcome}: record_matching(task_id, owner, call_id, id, state, reference, outcome)
     case _: state
 
 def progress(history: D.History, +owner: Nat, +id: String, +chain: +List<D.PluginRef>) -> Progress:

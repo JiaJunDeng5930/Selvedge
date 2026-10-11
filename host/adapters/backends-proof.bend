@@ -1,0 +1,50 @@
+import Base
+import ../../bendlib/json.bend as J
+import ./BACKENDS.bend as B
+
+def B.complete_correspondence():
+  operation => source => {==}
+def B.response_family_protocol():
+  identity => endpoint => credential => independent => auth => transport => stream_kind => {==}
+def B.response_family_identity():
+  identity => endpoint => credential => independent => auth => transport => stream_kind => {==}
+def B.tool_authority_projection():
+  effect => profile => input => {==}
+def B.callable_identity():
+  name => {==}
+def B.call_identity():
+  item => result => {==}
+def B.independent_board_history():
+  effect => {==}
+def B.independent_approval_tools():
+  effect => {==}
+def B.independent_board_callable():
+  effect => {==}
+def B.namespace_binding():
+  {==}
+def B.echoed_tool_isolation():
+  {==}
+def B.independent_board_wire_tools():
+  body => effect => {==}
+def B.independent_approval_wire_tools():
+  body => effect => {==}
+def B.summary_wire_tools():
+  body => effect => {==}
+
+def B.retry_notice_attempt():
+  source => milliseconds => {==}
+def B.retry_notice_status():
+  source => milliseconds => {==}
+def B.retry_budget_requires_cancel():
+  source => {==}
+def B.retry_connection_preserves_cause():
+  source => {==}
+
+def B.profile_catalog_key():
+  key => profile => {==}
+def B.profile_catalog_provider():
+  key => profile => {==}
+def B.profile_catalog_model():
+  key => profile => {==}
+def B.profile_catalog_default():
+  profile => first => rest => {==}

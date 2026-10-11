@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { settings } from '../src/client.mjs';
+import { requirePackagedModel } from '../scripts/build-model.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 
@@ -31,8 +32,10 @@ export async function packageConnection(id, directory) {
   directory = path.join(await realpath(path.dirname(directory)), path.basename(directory));
   const source = await realpath(root);
   if (directory === source || directory.startsWith(source + path.sep)) throw new Error('The output must stay outside the source plugin');
+  await requirePackagedModel();
   await mkdir(directory, { mode: 0o700 });
-  await cp(root, directory, { recursive: true, filter: source => !['node_modules', 'mcp.json'].includes(path.basename(source)) });
+  await cp(root, directory, { recursive: true, filter: source =>
+    source !== path.join(root, 'MODEL.bend') && !['node_modules', 'mcp.json'].includes(path.basename(source)) });
   const filename = path.join(directory, 'plugin.json');
   const manifest = JSON.parse(await readFile(filename, 'utf8'));
   manifest.extensions['com.openai'].apps = './.app.json';

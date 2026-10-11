@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as Features
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -45,12 +46,12 @@ def combination_semantics(+before: M.Decision(), +after: M.Decision()) ->
     case C.Decision{old, reply, effects} C.Decision{world, ignored, added}: {==}
 
 def combined_work_semantics(+task: D.Task, +decision: M.Decision()) ->
-  {P.combine(decision, P.work(D.task_work(task), task, P.decision_world(decision))) ==
-    Execution.combine(decision, Execution.work(D.task_work(task), task, Execution.world(decision))) : M.Decision()}:
+  {P.combine(decision, P.work_calculation(D.task_work(task), task, P.decision_world(decision))) ==
+    Execution.combine(decision, Execution.work_calculation(D.task_work(task), task, Execution.world(decision))) : M.Decision()}:
   +work = D.task_work(task)
   +world = P.decision_world(decision)
-  +actual = P.work(work, task, world)
-  +expected = Execution.work(work, task, world)
+  +actual = P.work_calculation(work, task, world)
+  +expected = Execution.work_calculation(work, task, world)
   Equal.trans(M.Decision(), P.combine(decision, actual), Execution.combine(decision, actual), Execution.combine(decision, expected),
     combination_semantics(decision, actual),
     Equal.cong(M.Decision(), M.Decision(), (value => Execution.combine(decision, value)), actual, expected, Laws.work_semantics(work, task, world)))
@@ -72,8 +73,8 @@ def scheduling_successor(+fuel: Nat, induction: Scheduling(fuel), +candidate: Ma
     case Some{+task}:
       +work = D.task_work(task)
       +world = P.decision_world(decision)
-      +actual = P.combine(decision, P.work(work, task, world))
-      +expected = Execution.combine(decision, Execution.work(work, task, world))
+      +actual = P.combine(decision, P.work_calculation(work, task, world))
+      +expected = Execution.combine(decision, Execution.work_calculation(work, task, world))
       +following = T.runnable(P.tasks(P.decision_world(actual)))
       Equal.trans(M.Decision(), P.schedule(fuel, following, actual), Execution.schedule(fuel, following, actual),
         Execution.schedule(fuel, T.runnable(P.tasks(P.decision_world(expected))), expected), induction(following, actual),
@@ -327,3 +328,33 @@ def A.coordination():
     (operation => value => error => later_output(operation, value, error)),
     (id => lineage => contract => status => history => queued => ticket => allowed => operations => notified => operation => value => error =>
       pending_model(id, lineage, contract, status, history, queued, ticket, allowed, operations, notified, operation, value, error))}
+
+
+law work_construction_meaning:
+  for +work: D.Work
+  for +task: D.Task
+  for +world: M.World()
+  {Execution.meaning(Execution.construct_work(work, task, world)) ==
+    Execution.meaning_calculation(Execution.work_resolution(Execution.WorkRequest{work, task, world}), world) : M.Decision()}
+
+def work_construction_meaning(work, task, world):
+  {==}
+
+
+def work_consumer_correspondence_world(request: Execution.WorkRequest) -> M.World():
+  Execution.WorkRequest{work, task, world} = request
+  world
+
+def work_consumer_correspondence_calculation(+request: Execution.WorkRequest, +result: Execution.Action, evidence: {result == Execution.work_resolution(request) : Execution.Action}) ->
+  {Execution.meaning_calculation(result, work_consumer_correspondence_world(request)) == Execution.meaning_calculation(Execution.work_resolution(request), work_consumer_correspondence_world(request)) : M.Decision()}:
+  Execution.WorkRequest{work, task, +world} = request
+  Equal.cong(Execution.Action, M.Decision(), (value => Execution.meaning_calculation(value, world)), result, Execution.work_resolution(request), evidence)
+
+law work_consumer_correspondence:
+  for member: Execution.ConstructedWork()
+  {Execution.meaning(member) == Execution.work_consumer_correspondence_required(member) : M.Decision()}
+
+def work_consumer_correspondence(member):
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  Execution.WorkRequest{work, task, world} = request
+  work_consumer_correspondence_calculation(Execution.WorkRequest{work, task, world}, result, evidence)

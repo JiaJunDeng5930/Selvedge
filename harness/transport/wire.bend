@@ -1,4 +1,6 @@
 import Base
+import ../tools/MODEL.bend as Tools
+import ../../bendlib/categories.bend as Categories
 import ../features/CODEC.bend as FeatureCodec
 import ./wire-shape.bend as Shape
 import ../features/MODEL.bend as Features
@@ -61,21 +63,32 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.ReviewApprovalCommand{}: M.ReviewApproval{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n),
       approval_outcome(J.text(J.get(body, "decision")), body)}
 
-def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Command does not satisfy its declared schema"}
-    case True{}: Done{M.UserCommand{construct_command(kind, body)}}
-
 def command_constraints(kind: M.CommandKind, body: J.Json) -> Bool:
   match kind:
     case M.FeatureKind{kind}: FeatureCodec.valid(kind, body)
     case _: True{}
 
+def command_payload(+schema: J.Json, +kind: M.CommandKind, +body: J.Json) -> Bool:
+  Schema.valid(schema, body) && command_constraints(kind, body)
+
+def command_accepted(+schema: J.Json, +kind: M.CommandKind,
+  member: Categories.Membership<J.Json, Categories.holds(J.Json, (body => command_payload(schema, kind, body)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{body, evidence} = member
+  Done{M.UserCommand{construct_command(kind, body)}}
+
+def command_admission(+schema: J.Json, +kind: M.CommandKind,
+  admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (body => command_payload(schema, kind, body)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Command does not satisfy its declared schema"}
+    case Some{member}: command_accepted(schema, kind, member)
+
+
+
 def command_spec(found: Maybe<&2, M.CommandSpec>, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match found:
     case None{}: Fail{"Unknown command; use describe for the executable vocabulary"}
-    case Some{M.CommandSpec{name, description, +kind, schema}}:
-      command_valid(Schema.valid(schema, body) && command_constraints(kind, body), kind, body)
+    case Some{M.CommandSpec{name, description, +kind, +schema}}:
+      command_admission(schema, kind, Categories.admit(J.Json, (body => command_payload(schema, kind, body)), body))
 
 def decode_command(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   command_spec(find_spec(M.commands(), J.text(J.get(body, "op"))), body)
@@ -130,16 +143,22 @@ def valid_model_payload(ok: Bool, +body: J.Json) -> Bool:
     case True{}: is_array(J.get(body, "items")) && valid_items(J.items(J.get(body, "items")))
     case False{}: J.is_text(J.get(body, "message")) && valid_failure_kind(J.get(body, "failure_kind"))
 
-def model_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed model completion"}
-    case True{}:
-      Done{M.ModelCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
-        model_outcome(J.boolean(J.get(body, "ok")), body)}}
+def model_payload(+body: J.Json) -> Bool:
+  Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) &&
+    Shape.is_bool(J.get(body, "ok")) && valid_model_payload(J.boolean(J.get(body, "ok")), body)
+
+def model_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => model_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.ModelCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+    model_outcome(J.boolean(J.get(body, "ok")), body)}}
+
+def model_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => model_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed model completion"}
+    case Some{member}: model_accepted(member)
 
 def decode_model(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  model_valid(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) &&
-    Shape.is_bool(J.get(body, "ok")) && valid_model_payload(J.boolean(J.get(body, "ok")), body), body)
+  model_admission(Categories.admit(J.Json, (value => model_payload(value)), body))
 
 def reasoning_outcome(ok: Bool, +body: J.Json) -> Reasoning.Outcome:
   match ok:
@@ -156,25 +175,38 @@ def reasoning_payload(ok: Bool, +body: J.Json) -> Bool:
       Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
         Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
 
-def reasoning_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed reasoning completion"}
-    case True{}: Done{M.ReasoningCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
-      reasoning_outcome(J.boolean(J.get(body, "ok")), body)}}
+def reasoning_completion_payload(+body: J.Json) -> Bool:
+  Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) &&
+    Shape.is_bool(J.get(body, "ok")) && reasoning_payload(J.boolean(J.get(body, "ok")), body)
+
+def reasoning_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => reasoning_completion_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.ReasoningCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+  reasoning_outcome(J.boolean(J.get(body, "ok")), body)}}
+
+def reasoning_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => reasoning_completion_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed reasoning completion"}
+    case Some{member}: reasoning_accepted(member)
 
 def decode_reasoning(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  reasoning_valid(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) &&
-    Shape.is_bool(J.get(body, "ok")) && reasoning_payload(J.boolean(J.get(body, "ok")), body), body)
+  reasoning_admission(Categories.admit(J.Json, (value => reasoning_completion_payload(value)), body))
 
-def tool_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed tool completion"}
-    case True{}:
-      Done{M.ToolCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
-        J.get(body, "value"), J.boolean(J.get(body, "error"))}}
+def tool_payload(+body: J.Json) -> Bool:
+  Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "error"))
+
+def tool_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => tool_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.ToolCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+    J.get(body, "value"), J.boolean(J.get(body, "error"))}}
+
+def tool_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => tool_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed tool completion"}
+    case Some{member}: tool_accepted(member)
 
 def decode_tool(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  tool_valid(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "error")), body)
+  tool_admission(Categories.admit(J.Json, (value => tool_payload(value)), body))
 
 def reasoning_transport(value: String) -> Reasoning.Transport:
   match value:
@@ -332,20 +364,27 @@ def valid_project(+value: J.Json) -> Bool:
         I.project_context(project(body))
     case _: False{}
 
-def config_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed environment: profiles/routes must be unique and limits must be positive integers"}
-    case True{}:
-      +max_fork = Protocol.number(body, "max_fork", 0n)
-      Done{M.Configure{D.Environment{List.append(&2, D.Tool, D.builtins(max_fork), remote_tools(J.items(J.get(body, "tools")))),
-        profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
-        plugin_values(J.items(J.get(body, "plugins")))}}}
-
-def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  config_valid(valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
+def config_payload(+body: J.Json) -> Bool:
+  valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
     Shape.is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
-    Shape.is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
+    Nat.is_le(Protocol.number(body, "max_fork", 0n), U32.to_nat(4294967295)) &&
+    Shape.is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n))
+
+def config_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => config_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  +max_fork = Protocol.number(body, "max_fork", 0n)
+  Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork), remote_tools(J.items(J.get(body, "tools")))),
+    profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
+    plugin_values(J.items(J.get(body, "plugins")))}}}
+
+def config_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => config_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed environment: profiles/routes must be unique and limits must be positive integers"}
+    case Some{member}: config_accepted(member)
+
+def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  config_admission(Categories.admit(J.Json, (value => config_payload(value)), body))
 
 def hook_outcome(kind: String, +value: J.Json) -> D.HookOutcome:
   match kind:
@@ -366,15 +405,22 @@ def valid_hook_outcome(kind: String, +value: J.Json) -> Bool:
     case "failed": hook_reason(value)
     case _: False{}
 
-def hook_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed hook completion"}
-    case True{}: Done{M.HookCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
-      hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+def hook_payload(+body: J.Json) -> Bool:
+  Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && Shape.is_natural(J.get(body, "task_id")) &&
+    Shape.is_natural(J.get(body, "ticket")) && valid_hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))
+
+def hook_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => hook_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.HookCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+  hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+
+def hook_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => hook_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed hook completion"}
+    case Some{member}: hook_accepted(member)
 
 def decode_hook(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  hook_valid(Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && Shape.is_natural(J.get(body, "task_id")) &&
-    Shape.is_natural(J.get(body, "ticket")) && valid_hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
+  hook_admission(Categories.admit(J.Json, (value => hook_payload(value)), body))
 
 def after_outcome(kind: String, +value: J.Json) -> D.AfterOutcome:
   match kind:
@@ -391,22 +437,23 @@ def valid_after_outcome(kind: String, +value: J.Json) -> Bool:
     case "failed": hook_reason(value)
     case _: False{}
 
-def after_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed after-hook completion"}
-    case True{}: Done{M.AfterCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n),
-      Protocol.number(body, "ticket", 0n), after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+def after_payload(+body: J.Json) -> Bool:
+  Shape.object_keys(body, ["kind", "task_id", "operation_id", "ticket", "outcome"]) &&
+    Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "operation_id")) && Shape.is_natural(J.get(body, "ticket")) &&
+    valid_after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))
+
+def after_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => after_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.AfterCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n),
+  Protocol.number(body, "ticket", 0n), after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+
+def after_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => after_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed after-hook completion"}
+    case Some{member}: after_accepted(member)
 
 def decode_after(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  after_valid(Shape.object_keys(body, ["kind", "task_id", "operation_id", "ticket", "outcome"]) &&
-    Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "operation_id")) && Shape.is_natural(J.get(body, "ticket")) &&
-    valid_after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
-
-def approval_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed approval completion envelope"}
-    case True{}: Done{M.ApprovalCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
-      approval_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+  after_admission(Categories.admit(J.Json, (value => after_payload(value)), body))
 
 def approval_reply(+outcome: J.Json) -> Bool:
   Shape.object_keys(outcome, ["decision", "reason"]) && D.nonempty(J.text(J.get(outcome, "reason"))) &&
@@ -414,9 +461,24 @@ def approval_reply(+outcome: J.Json) -> Bool:
     (String.eq(J.text(J.get(outcome, "decision")), "allow") || String.eq(J.text(J.get(outcome, "decision")), "deny") ||
       String.eq(J.text(J.get(outcome, "decision")), "failed"))
 
+def approval_payload(+body: J.Json) -> Bool:
+  Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) &&
+    Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && approval_reply(J.get(body, "outcome"))
+
+def approval_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => approval_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.ApprovalCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+  approval_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+
+def approval_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => approval_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case None{}: Fail{"Malformed approval completion envelope"}
+    case Some{member}: approval_accepted(member)
+
+
+
 def decode_approval(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  approval_valid(Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) &&
-    Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && approval_reply(J.get(body, "outcome")), body)
+  approval_admission(Categories.admit(J.Json, (value => approval_payload(value)), body))
 
 def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> Result<&2, &2, String, M.Input>:
   match decoded:

@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { isProofSource } from './check-components.mjs';
+import { constructionProviders, isProofSource } from './check-components.mjs';
 
 function mask(source) {
   return source.replace(/"(?:\\.|[^"\\])*"|#[^\n]*/g, text => text.replace(/[^\n]/g, ' '));
@@ -117,6 +117,45 @@ function inspect(root) {
   }
   const providers = lawProviders(proofs, modules, laws);
   const errors = [];
+  const constructions = constructionProviders(root);
+  const allowedConstructions = new Set();
+  const lawOwners = new Map();
+  for (const rule of rules) {
+    for (const declaration of modules.get(rule).declarations) {
+      if (declaration.kind === 'law') lawOwners.set(canonical(rule, declaration.name, new Map()), rule);
+    }
+  }
+  for (const [filename, { contract, constructors }] of constructions) {
+    const initialErrors = errors.length;
+    const module = modules.get(filename);
+    if (!module || !rules.includes(contract)) {
+      errors.push(`UI construction provider requires a discovered rule: ${filename} -> ${contract}`);
+      continue;
+    }
+    if (!module.targets.includes(contract)) {
+      errors.push(`UI construction provider must import its contract: ${filename} -> ${contract}`);
+    }
+    const declaredLaws = new Set(modules.get(contract).declarations
+      .filter(declaration => declaration.kind === 'law').map(declaration => declaration.name));
+    for (const name of new Set(Object.entries(constructors).flat())) {
+      if (!declaredLaws.has(name)) {
+        errors.push(`UI construction provider names a missing contract law: ${filename} -> ${contract}:${name}`);
+        continue;
+      }
+      const implementations = providers.get(canonical(contract, name, new Map()));
+      if (implementations.length !== 1 || implementations[0] !== filename) {
+        errors.push(`UI construction law requires its registered sole provider: ${contract}:${name} -> ${filename}`);
+      }
+    }
+    for (const declaration of module.declarations) {
+      if (declaration.kind !== 'def') continue;
+      const name = canonical(filename, declaration.name, module.aliases);
+      if (lawOwners.has(name) && lawOwners.get(name) !== contract) {
+        errors.push(`UI construction provider implements another rule: ${filename}:${declaration.name} -> ${lawOwners.get(name)}`);
+      }
+    }
+    if (errors.length === initialErrors) allowedConstructions.add(filename);
+  }
   for (const [filename, module] of modules) {
     if (!/^(interaction|browser)\//.test(filename) || isProofSource(filename)) continue;
     const seen = new Set();
@@ -125,7 +164,7 @@ function inspect(root) {
       const current = pending.pop();
       if (seen.has(current)) continue;
       seen.add(current);
-      if (isProofSource(current)) {
+      if (isProofSource(current) && !allowedConstructions.has(current)) {
         errors.push(`UI model/rule imports a proof provider: ${filename} -> ${current}`);
         continue;
       }
@@ -253,5 +292,12 @@ export function prepareUiVerification(root) {
   let previous;
   try { previous = readFileSync(path.join(root, entry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previous !== source) writeFileSync(path.join(root, entry), source);
-  return { entry, browserPrefix: 'BROWSER.', sources };
+  const runtimeEntry = '.build/ui-runtime.bend';
+  const runtimeSource = `${['import Base', ...ordered
+    .flatMap((filename, index) => filename === 'PROOF.bend' ? [] : [`import ../${filename} as Verification${index}`]),
+  'import ../harness/approval/PROOF.bend as RuntimeApprovalProof'].join('\n')}\n`;
+  let previousRuntime;
+  try { previousRuntime = readFileSync(path.join(root, runtimeEntry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (previousRuntime !== runtimeSource) writeFileSync(path.join(root, runtimeEntry), runtimeSource);
+  return { entry, runtimeEntry, browserPrefix: 'BROWSER.', sources };
 }

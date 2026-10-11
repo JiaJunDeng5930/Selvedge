@@ -1,3 +1,4 @@
+import { boundary } from './public/model-boundary.mjs';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
@@ -36,7 +37,7 @@ export class Service extends EventEmitter {
   #failure;
   #catalogTail = Promise.resolve();
   #closePromise;
-  #streams = new Map();
+  #streams = [];
 
   static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
@@ -103,17 +104,7 @@ export class Service extends EventEmitter {
   }
 
   notify(event) {
-    const key = `${event.task_id}:${event.ticket}`;
-    if (event.type === 'stream_start') this.#streams.set(key, { task_id: event.task_id, ticket: event.ticket, parts: [] });
-    if (event.type === 'delta' || event.type === 'snapshot') {
-      const stream = this.#streams.get(key);
-      if (stream) {
-        let part = stream.parts.find(item => item.output_index === event.output_index);
-        if (!part) { part = { output_index: event.output_index, text: '' }; stream.parts.push(part); }
-        part.text = event.type === 'snapshot' ? event.text : part.text + event.text;
-      }
-    }
-    if (event.type === 'stream_cancel' || event.type === 'stream_end') this.#streams.delete(key);
+    this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
     for (const observer of this.listeners('notice')) {
       try { observer(event); } catch { /* An observer cannot roll back a commit. */ }
     }
@@ -214,42 +205,42 @@ export class Service extends EventEmitter {
     try {
       if (effect.kind === 'chatgpt_exec') {
         const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, readOnlyPaths: [this.home] });
-        input = { kind: 'chatgpt_result', operation_id: effect.operation_id, ...result };
+        input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'board_text') {
-        input = { kind: 'board_text', card_id: effect.card_id, ticket: effect.ticket, ok: true,
-          ...await requestBoardText(effect, this.config, this.home, this.limits, { signal }) };
+        input = boundary('effect.completion', { effect, result: await requestBoardText(effect, this.config, this.home, this.limits, { signal }) });
       } else if (effect.kind === 'approval') {
-        input = { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
-          outcome: await requestApproval(effect, this.config, this.home, this.limits, { signal }) };
+        input = boundary('effect.completion', { effect, result: await requestApproval(effect, this.config, this.home, this.limits, { signal }) });
       } else if (effect.kind === 'reasoning') {
         // A live native lease bypasses this branch entirely. The tokenizer and
         // evaluator are loaded only for a committed external observation.
         const { requestReasoning } = await import('./jev.mjs');
         const selected = await requestReasoning(effect, this.config, this.limits, { signal });
-        input = { kind: 'reasoning', task_id: effect.task_id, ticket: effect.ticket, ok: true, ...selected };
+        input = boundary('effect.completion', { effect, result: selected });
       } else if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
           onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
           onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
         });
-        input = { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items };
+        input = boundary('effect.completion', { effect, result: items });
       } else if (effect.kind === 'hook') {
         const client = this.#plugins.get(effect.plugin.name);
         if (!client) throw new Error('Required plugin route is unavailable');
         const outcome = await client.before(effect, { signal });
-        input = { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome };
+        input = boundary('effect.completion', { effect, result: outcome });
       } else if (effect.kind === 'after_hook') {
         const client = this.#plugins.get(effect.plugin.name);
         if (!client) throw new Error('Required plugin route is unavailable');
         const outcome = await client.after(effect, { signal });
-        input = { kind: 'after_hook', task_id: effect.task_id, operation_id: effect.operation_id, ticket: effect.ticket, outcome };
+        input = boundary('effect.completion', { effect, result: outcome });
       } else {
         let result;
-        if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
+        if (effect.tool.source?.kind === 'native' && effect.tool.source.program?.kind === 'Process') {
           if (!effect.execution) throw new Error('A Bash effect requires a committed task execution plan');
           result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
             readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
+        } else if (effect.tool.source?.kind === 'native') {
+          throw new Error('The kernel requested an invalid external native capability');
         } else if (effect.tool.source?.plugin) {
           const client = this.#plugins.get(effect.tool.source.plugin.name);
           if (!client) throw new Error('Plugin tool route is unavailable');
@@ -259,13 +250,10 @@ export class Service extends EventEmitter {
           if (!client) throw new Error('MCP route is unavailable');
           result = await client.call(effect.tool.source.name, effect.call.arguments, { signal });
         } else throw new Error('The kernel requested an unknown external tool');
-        input = { kind: 'tool', task_id: effect.task_id, ticket: effect.ticket, ...result };
+        input = boundary('effect.completion', { effect, result });
       }
     } catch (error) {
-      input = this.#failureInput(effect, error.message);
-      if ((effect.kind === 'model' || effect.kind === 'summary') && error instanceof ContextLimitError) {
-        input.failure_kind = 'context_limit';
-      }
+      input = this.#failureInput(effect, error.message, error instanceof ContextLimitError);
     }
     signal.removeEventListener('abort', cancelPreview);
     if (this.#closing || this.#failure) return;
@@ -286,21 +274,8 @@ export class Service extends EventEmitter {
     }
   }
 
-  #failureInput(effect, message) {
-    message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
-    if (effect.kind === 'chatgpt_exec') return { kind: 'chatgpt_result', operation_id: effect.operation_id,
-      error: true, value: { error: { code: 'external_execution_failed', message } } };
-    if (effect.kind === 'board_text') return { kind: 'board_text', card_id: effect.card_id, ticket: effect.ticket, ok: false, message };
-    if (effect.kind === 'reasoning') return { kind: 'reasoning', task_id: effect.task_id, ticket: effect.ticket, ok: false, message };
-    if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
-    if (effect.kind === 'approval') return { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
-      outcome: { decision: 'failed', reason: [...message].slice(0, 400).join('') } };
-    if (effect.kind === 'after_hook') return { kind: 'after_hook', task_id: effect.task_id, operation_id: effect.operation_id,
-      ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
-    return effect.kind === 'model' || effect.kind === 'summary'
-      ? { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: false, message }
-      : { kind: 'tool', task_id: effect.task_id, ticket: effect.ticket, error: true,
-        value: { error: { code: 'external_execution_failed', message } } };
+  #failureInput(effect, message, context_limit = false) {
+    return boundary('effect.failure', { effect, message: String(message || 'External execution failed').toWellFormed(), context_limit });
   }
 
   async command(command) {
@@ -339,7 +314,7 @@ export class Service extends EventEmitter {
   }
 
   browserStreams() {
-    return structuredClone([...this.#streams.values()]);
+    return structuredClone(this.#streams);
   }
 
   async browserCommand(command) {

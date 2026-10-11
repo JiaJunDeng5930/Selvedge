@@ -1,4 +1,5 @@
 import * as Bend from './generated/browser-model.mjs';
+import { boundary } from './model-boundary.mjs';
 import { bendValue, bendTag, decodeBendValue, encodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
@@ -633,23 +634,15 @@ function streamFacts() {
   commit(Bend.streams(json({ kind: 'streams', streams: facts }), state));
 }
 function streamNotice(notice) {
-  if (notice.type === 'stream-state') {
-    const restored = new Map(notice.streams.map(entry => [`${entry.task_id}:${entry.ticket}`,
-      { task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) }]));
-    streams.clear();
-    for (const [key, entry] of restored) streams.set(key, entry);
-    streamFacts(); return;
-  }
-  if (!Number.isSafeInteger(notice.task_id) || !Number.isSafeInteger(notice.ticket)) return;
-  const key = `${notice.task_id}:${notice.ticket}`;
-  if (notice.type === 'stream_start') { streams.set(key, { task: notice.task_id, ticket: notice.ticket, parts: new Map() }); streamFacts(); return; }
-  if (notice.type === 'stream_end' || notice.type === 'stream_cancel') { streams.delete(key); streamFacts(); return; }
-  const parts = streams.get(key)?.parts;
-  if (!parts || !['delta', 'snapshot'].includes(notice.type) || typeof notice.text !== 'string' || !Number.isSafeInteger(notice.output_index)) return;
-  const text = notice.type === 'delta' ? (parts.get(notice.output_index) ?? '') + notice.text : notice.text;
-  if (text.length > 4 * 1024 * 1024 || parts.size >= 32 && !parts.has(notice.output_index)) return;
-  parts.set(notice.output_index, text); streamFacts();
+  const source = { state: [...streams.values()].map(entry => ({ task_id: entry.task, ticket: entry.ticket,
+    parts: [...entry.parts].map(([output_index, text]) => ({ output_index, text })) })), notice };
+  const next = boundary('browser.stream_step', source);
+  streams.clear();
+  for (const entry of next.state) streams.set(`${entry.task_id}:${entry.ticket}`,
+    { task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) });
+  if (next.publish) streamFacts();
 }
+
 async function watch(signal, credential) {
   while (!signal.aborted) {
     try {

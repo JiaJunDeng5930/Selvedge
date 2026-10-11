@@ -1,5 +1,7 @@
 import ../layout/geometry-proof.bend as ProofGeometryProof
 import Base
+import ../../bendlib/categories.bend as Categories
+import ../../bendlib/stdlib.bend as Std
 import ./CONTRACT.bend as Rule
 import ./FONT.bend as F
 import ./TYPOGRAPHY.bend as T
@@ -17,47 +19,61 @@ import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../../interaction/TYPES.bend as InteractionTypes
 
 def Rule.stale(state, received, metrics, different):
-  Equal.cong(Bool, F.State, (owned => F.receive(owned, state, Nil{}, metrics)),
-    Nat.is_eq(F.generation(state), received), False{}, different)
+  Std.transport(Bool, False{},
+    (current => @observed:{Nat.is_eq(F.generation(state), received) == current : Bool} ->
+      {F.observation_admitted(state, Nil{}, Categories.admit_checked(F.Observation, F.current_valid(F.generation(state)), F.Observation{received, metrics}, current, observed)) == state : F.State}),
+    observed => {==}, Nat.is_eq(F.generation(state), received), different)({==})
 
-def ready_receive(owned: Bool, generation: Nat, scale: T.Scale, body: T.Metric, metrics: +List<T.Metric>) ->
-  {F.receive(owned, F.Ready{generation, scale, body, Nil{}}, Nil{}, metrics) ==
+def ready_receive(+owned: Bool, +generation: Nat, +scale: T.Scale, +body: T.Metric, +received: Nat, +metrics: +List<T.Metric>,
+  correspondence: {Nat.is_eq(generation, received) == owned : Bool}) ->
+  {F.observation_admitted(F.Ready{generation, scale, body, Nil{}}, Nil{},
+    Categories.admit_checked(F.Observation, F.current_valid(generation), F.Observation{received, metrics}, owned, correspondence)) ==
     F.Ready{generation, scale, body, Nil{}} : F.State}:
   match owned:
     case True{}: {==}
     case False{}: {==}
 
 def Rule.ready_duplicate(generation, scale, body, received, metrics):
-  ready_receive(Nat.is_eq(generation, received), generation, scale, body, metrics)
+  +received = received
+  ready_receive(Nat.is_eq(generation, received), generation, scale, body, received, metrics, {==})
 
-def failed_receive(owned: Bool, generation: Nat, scale: T.Scale, metrics: +List<T.Metric>) ->
-  {F.receive(owned, F.Failed{generation, scale}, Nil{}, metrics) == F.Failed{generation, scale} : F.State}:
+def failed_receive(+owned: Bool, +generation: Nat, +scale: T.Scale, +received: Nat, +metrics: +List<T.Metric>,
+  correspondence: {Nat.is_eq(generation, received) == owned : Bool}) ->
+  {F.observation_admitted(F.Failed{generation, scale}, Nil{},
+    Categories.admit_checked(F.Observation, F.current_valid(generation), F.Observation{received, metrics}, owned, correspondence)) == F.Failed{generation, scale} : F.State}:
   match owned:
     case True{}: {==}
     case False{}: {==}
 
 def Rule.failed_duplicate(generation, scale, received, metrics):
-  failed_receive(Nat.is_eq(generation, received), generation, scale, metrics)
+  +received = received
+  failed_receive(Nat.is_eq(generation, received), generation, scale, received, metrics, {==})
 
 def success(+generation: Nat, +scale: T.Scale, +metric: T.Metric,
   valid: {T.valid_body(metric) == True{} : Bool}) ->
   {F.admit(generation, scale, [metric]) == F.Ready{generation, scale, metric, Nil{}} : F.State}:
-  Equal.cong(Bool, F.State, (checked => F.admit_checked(checked, generation, scale, metric)),
-    T.valid_body(metric), True{}, valid)
+  Std.transport(Bool, True{},
+    (checked => @observed:{T.valid_body(metric) == checked : Bool} ->
+      {F.body_admitted(generation, scale, Categories.admit_checked(T.Metric, T.valid_body, metric, checked, observed)) == F.Ready{generation, scale, metric, Nil{}} : F.State}),
+    observed => {==}, T.valid_body(metric), valid)({==})
 
 def invalid(+generation: Nat, +scale: T.Scale, +metric: T.Metric,
   bad: {T.valid_body(metric) == False{} : Bool}) ->
   {F.admit(generation, scale, [metric]) == F.Failed{generation, scale} : F.State}:
-  Equal.cong(Bool, F.State, (checked => F.admit_checked(checked, generation, scale, metric)),
-    T.valid_body(metric), False{}, bad)
+  Std.transport(Bool, False{},
+    (checked => @observed:{T.valid_body(metric) == checked : Bool} ->
+      {F.body_admitted(generation, scale, Categories.admit_checked(T.Metric, T.valid_body, metric, checked, observed)) == F.Failed{generation, scale} : F.State}),
+    observed => {==}, T.valid_body(metric), bad)({==})
 
 def Rule.current_pending(generation, scale, received, metrics, owned):
-  Equal.cong(Bool, F.State, (current => F.receive(current, F.Pending{generation, scale}, Nil{}, metrics)),
-    Nat.is_eq(generation, received), True{}, owned)
+  Std.transport(Bool, True{},
+    (current => @observed:{Nat.is_eq(generation, received) == current : Bool} ->
+      {F.observation_admitted(F.Pending{generation, scale}, Nil{}, Categories.admit_checked(F.Observation, F.current_valid(generation), F.Observation{received, metrics}, current, observed)) == F.admit(generation, scale, metrics) : F.State}),
+    observed => {==}, Nat.is_eq(generation, received), owned)({==})
 
-def checked_valid(generation: Nat, scale: T.Scale, +metric: T.Metric, +checked: Bool,
+def checked_valid(+generation: Nat, +scale: T.Scale, +metric: T.Metric, +checked: Bool,
   correspondence: {T.valid_body(metric) == checked : Bool}) ->
-  {Rule.ready_valid(F.admit_checked(checked, generation, scale, metric)) == True{} : Bool}:
+  {Rule.ready_valid(F.body_admitted(generation, scale, Categories.admit_checked(T.Metric, T.valid_body, metric, checked, correspondence))) == True{} : Bool}:
   match checked:
     case True{}: correspondence
     case False{}: {==}
@@ -144,14 +160,6 @@ def Rule.retag_failed_variant(old, generation, scale):
   {==}
 
 # Content stamps authenticate the requested specification; physical accuracy is external.
-
-def ready_no_outstanding(+generation: Nat, +scale: T.Scale, +body: T.Metric, +content: +List<T.Measured>,
-  +specifications: +List<T.MeasurementSpec>, +metrics: +List<T.Metric>,
-  complete: {F.missing(specifications, content) == Nil{} : +List<T.MeasurementSpec>}) ->
-  {F.receive(True{}, F.Ready{generation, scale, body, content}, specifications, metrics) == F.Ready{generation, scale, body, content} : F.State}:
-  Equal.cong(+List<T.MeasurementSpec>, F.State,
-    (outstanding => F.ready_batch(generation, scale, body, content, specifications, outstanding, metrics)),
-    F.missing(specifications, content), Nil{}, complete)
 
 def code_family(+capacity: Nat, +parent: T.Presentation) ->
   {Rule.property_value(Paint.rich_properties_at(capacity, parent), "--rich-code-font") == "var(--font-mono, monospace)" : String}:

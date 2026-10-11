@@ -7,3 +7,6 @@ node_modules/
 
 # Browser ESM libraries and their compiler/source fingerprint manifests.
 /host/public/generated/
+
+# Standalone plugin native adapter library and fingerprint manifest.
+/plugins/selvedge-chatgpt/generated/

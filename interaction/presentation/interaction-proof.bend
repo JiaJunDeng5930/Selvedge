@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../harness/DOMAIN.bend as D
 import ../services/CONTEXT.bend as Context
 import ./CONTRACT.bend as Rule
@@ -22,6 +23,30 @@ import ../MODEL.bend as ProductUI
 import ./VIEW.bend as View
 import ../../harness/MODEL.bend as M
 import ../../features/board/STATE.bend as Board
+
+def preview_outcome(accepted: Bool, +current: Nat, +ticket: Nat, +state: Services.State, +file: B.Attachment, +trigger: String, +result: Result<&2, &2, String, String>) -> Services.Decision:
+  match accepted:
+    case False{}: Services.Decision{state, Nil{}}
+    case True{}: Services.preview_calculation(state, file, trigger, result)
+
+def preview_checked(+current: Nat, +ticket: Nat, +state: Services.State, +file: B.Attachment, +trigger: String, +result: Result<&2, &2, String, String>, accepted: Bool, observed: {Services.preview_result_owned(Services.PreviewResult{current, ticket, state, file, trigger, result}) == accepted : Bool}) ->
+  {Services.preview_admitted(Categories.admit_checked(Services.PreviewResult, Services.preview_result_owned, Services.PreviewResult{current, ticket, state, file, trigger, result}, accepted, observed), state) == preview_outcome(accepted, current, ticket, state, file, trigger, result) : Services.Decision}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+
+def authentication_outcome(accepted: Bool, +ticket: Nat, +state: Services.State, +result: Result<&2, &2, String, Unit>) -> Services.Decision:
+  match accepted:
+    case False{}: Services.Decision{state, Nil{}}
+    case True{}: Services.authentication_calculation(state, result)
+
+def authentication_checked(+ticket: Nat, +state: Services.State, +result: Result<&2, &2, String, Unit>, accepted: Bool, observed: {Services.authentication_owned(Services.AuthenticationRequest{ticket, state, result}) == accepted : Bool}) ->
+  {Services.authentication_admitted(Categories.admit_checked(Services.AuthenticationRequest, Services.authentication_owned, Services.AuthenticationRequest{ticket, state, result}, accepted, observed), state) == authentication_outcome(accepted, ticket, state, result) : Services.Decision}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
 
 def settings_fields_without_project(+previous:Maybe<&2, D.Workspace>, +sandbox:Maybe<&2, D.Sandbox>,
   +approval:Maybe<&2, Context.ApprovalChoice>, +workspace:D.Workspace, +guidance:D.ProjectContext) ->
@@ -97,7 +122,7 @@ def restore_directory_picker(value: Services.DirectoryPicker, state: Services.St
   Services.State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
   Services.State{access, credential, settings_open, appearance, next, transfers, preview, value}
 
-def encapsulated_stale_preview(+state: Services.State, current: Nat, +file: B.Attachment, trigger: String, ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, different: {Nat.is_eq(current, ticket) == False{} : Bool}) ->
+def encapsulated_stale_preview_reusable(+state: Services.State, +current: Nat, +file: B.Attachment, +trigger: String, +ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, different: {Nat.is_eq(current, ticket) == False{} : Bool}) ->
   {Services.step(Services.Previewed{ticket, result}, state) ==
         Services.Decision{state, Nil{}} : Services.Decision}:
   Services.State{+access, +credential, +settings_open, +appearance, +next, +transfers, +stored_preview, +stored_directory_picker} = state
@@ -109,11 +134,17 @@ def encapsulated_stale_preview(+state: Services.State, current: Nat, +file: B.At
     Equal.cong(Services.DirectoryPicker, Services.State, value => restore_directory_picker(value, restore_preview(Services.LoadingPreview{current, file, trigger}, state)), Services.directory_picker(restore_preview(Services.LoadingPreview{current, file, trigger}, state)), Services.NoDirectoryPicker{}, observed_directory_picker))
   %backwards_directory_picker : {Services.step(Services.Previewed{ticket, result}, _) ==
         Services.Decision{_, Nil{}} : Services.Decision}
-  Equal.cong(Bool, Services.Decision,
-          owned => Services.finish_preview(owned,
-            Services.State{access, credential, settings_open, appearance, next, transfers,
-              Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result),
-          Nat.is_eq(current, ticket), False{}, different)
+  Equal.trans(Services.Decision,
+    Services.preview_result(Services.LoadingPreview{current, file, trigger}, ticket, result, Services.State{access, credential, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}),
+    preview_outcome(Nat.is_eq(current, ticket), current, ticket, Services.State{access, credential, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result), Services.Decision{Services.State{access, credential, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, Nil{}},
+    preview_checked(current, ticket, Services.State{access, credential, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result, Nat.is_eq(current, ticket), {==}),
+    Equal.cong(Bool, Services.Decision, owned => preview_outcome(owned, current, ticket, Services.State{access, credential, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result), Nat.is_eq(current, ticket), False{}, different))
+
+def encapsulated_stale_preview(+state: Services.State, current: Nat, +file: B.Attachment, trigger: String, ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, different: {Nat.is_eq(current, ticket) == False{} : Bool}) ->
+  {Services.step(Services.Previewed{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision}:
+  encapsulated_stale_preview_reusable(state, current, file, trigger, ticket, result, observed_preview, observed_directory_picker, different)
+
 
 def encapsulated_closed_preview(+state: Services.State, ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.NoPreview{} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}) ->
   {Services.step(Services.Previewed{ticket, result}, state) ==
@@ -170,7 +201,7 @@ def encapsulated_missing_upload(+state: Services.State, ticket: Nat, +result: Re
             Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, ticket, result),
           Finite.find(~Services.Transfer, transfers, ticket), None{}, missing)
 
-def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result<&2, &2, String, Unit>, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, stale: {Services.expected_access(Services.access(state), ticket) == False{} : Bool}) ->
+def encapsulated_stale_auth_reusable(+state: Services.State, +ticket: Nat, +result: Result<&2, &2, String, Unit>, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, stale: {Services.expected_access(Services.access(state), ticket) == False{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, result}, state) ==
         Services.Decision{state, Nil{}} : Services.Decision}:
   Services.State{+access, +credential, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker} = state
@@ -178,34 +209,52 @@ def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result
     Equal.cong(Services.DirectoryPicker, Services.State, value => restore_directory_picker(value, state), Services.directory_picker(state), Services.NoDirectoryPicker{}, observed_directory_picker))
   %backwards_directory_picker : {Services.step(Services.Authenticated{ticket, result}, _) ==
         Services.Decision{_, Nil{}} : Services.Decision}
-  Equal.cong(Bool, Services.Decision,
-          owned => Services.authentication(owned,
-            Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result),
-          Services.expected_access(access, ticket), False{}, stale)
+  Equal.trans(Services.Decision,
+    Services.step(Services.Authenticated{ticket, result}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}),
+    authentication_outcome(Services.expected_access(access, ticket), ticket, Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result), Services.Decision{Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}},
+    authentication_checked(ticket, Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result, Services.expected_access(access, ticket), {==}),
+    Equal.cong(Bool, Services.Decision, owned => authentication_outcome(owned, ticket, Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result), Services.expected_access(access, ticket), False{}, stale))
+
+def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result<&2, &2, String, Unit>, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, stale: {Services.expected_access(Services.access(state), ticket) == False{} : Bool}) ->
+  {Services.step(Services.Authenticated{ticket, result}, state) ==
+        Services.Decision{state, Nil{}} : Services.Decision}:
+  encapsulated_stale_auth_reusable(state, ticket, result, observed_directory_picker, stale)
+
 
 def encapsulated_failed_auth_no_attention(+state: Services.State, reason: String, application: E.Application) ->
-  {Core.service_result(Services.authentication(True{}, state, Fail{reason}), application) ==
+  {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
         Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}) : InteractionTypes.Decision}:
   Services.State{+access, +credential, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_readiness_attention(+state: Services.State, +application: E.Application) ->
-  {Core.service_result(Services.authentication(True{}, state, Done{Unit{}}), application) ==
+  {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
         InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state)))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision}:
   Services.State{+access, +credential, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_failed_auth(+state: Services.State, reason: String) ->
-  {Services.authentication(True{}, state, Fail{reason}) ==
+  {Services.authentication_calculation(state, Fail{reason}) ==
         Services.Decision{Services.with_settings_open(True{}, Services.with_credential("", Services.with_access(Services.CredentialRejected{reason}, state))), Nil{}} : Services.Decision}:
   Services.State{+access, +credential, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
-def encapsulated_accepted_auth(+state: Services.State, ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
+def encapsulated_accepted_auth_reusable(+state: Services.State, +ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
         Services.Decision{Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state))), [Services.SessionReady{}]} : Services.Decision}:
   Services.State{+access, +credential, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
-  Equal.cong(Bool, Services.Decision, owned => Services.authentication(owned, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}), Services.expected_access(access, ticket), True{}, owned)
+  Equal.trans(Services.Decision,
+    Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}),
+    authentication_outcome(Services.expected_access(access, ticket), ticket, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}),
+    Services.authentication_calculation(Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}),
+    authentication_checked(ticket, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}, Services.expected_access(access, ticket), {==}),
+    Equal.cong(Bool, Services.Decision, owned => authentication_outcome(owned, ticket, Services.State{access, credential, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}), Services.expected_access(access, ticket), True{}, owned))
+
+def encapsulated_accepted_auth(+state: Services.State, ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
+  {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
+        Services.Decision{Services.with_settings_open(False{}, Services.with_credential("", Services.with_access(Services.Connected{}, state))), [Services.SessionReady{}]} : Services.Decision}:
+  encapsulated_accepted_auth_reusable(state, ticket, owned)
+
 
 def Rule.boundary_evidence():
   Rule.BoundaryRequirements{

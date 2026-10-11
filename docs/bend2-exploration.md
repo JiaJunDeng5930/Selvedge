@@ -1379,3 +1379,204 @@ application and display factories remain in the runtime proof; the root connects
 them through the shared opaque carrier. This division keeps concrete evidence
 construction separate from generic model use without claiming that all existing
 modules are compiler-private.
+
+
+## 2026-10-10: authored button predicate categories
+
+The ordinary authored action path covers all four existing meanings: `Activate`,
+`ComposerAction`, `PanelToggle` and `Choice`. Its migration uses typed
+`PROGRAM.Button` syntax inside `Representation.Action` and the public
+`controls/BUTTONS.bend` constructor. Help is derived from the final face and current
+action policy. The runtime recovery retry button is a separate source producer
+with its own activation/remount protocol and is outside this family.
+
+Compiler probes on Bend 2.0.34 accepted unary predicate parameters and an inclusion
+record containing universally quantified implication evidence. They also accepted
+a proof package of `Type` with a dependent value field. An ordinary proof field
+inside a `Data` package failed; erasing that field allowed construction but the
+probed live extractors could not recover it as live evidence. A parameter-based
+extractor for the `Type` package compiled to JavaScript, and the minimal probe's
+production and inclusion paths both returned `7`. Those probes establish compiler
+mechanisms, not production button category correctness.
+
+Categories inspect a construction observation including the actual authored node.
+Their intersection and inclusion operations let icon, choice and picker buttons
+retain common authored guarantees and support additional client predicates.
+Icon membership observes the sole emitted glyph and its inner main/cross centered
+alignment as well as the outer style; `icon_glyph_centered` supplies its inclusion
+into `glyph_centered`. The production `MODEL` calls `BUTTONS.source` with typed
+button syntax and does not import the proof provider. Universal
+`construction_evidence` binds guarantees to that actual source function;
+proof-side `construct` and `Membership` are available to clients loading the
+provider or root proof, rather than being a required production packet.
+The independent compiler clients and type-correct production mutations are assigned
+to `tests-bend/button-categories.test.mjs`; current verification results must come
+from its execution and the production proof gate. These obligations retain the
+declared name and geometry policy without asserting arbitrary nonempty names,
+universal content fitting or final browser pixel centering.
+
+The pinned root proof check, including glyph centering, reported `ALL PROOFS CHECK`
+(`.workpad/button-glyph-proof-pinned.log`). The locality checks passed all 12 tests
+with zero failures in 101.43 s; architecture and UI model/proof separation fixtures
+passed all 8 tests with zero failures. The final `scripts/check.mjs` run exited
+zero: source boundaries covered 21 core modules and 214 sources, all production
+proofs passed, browser JavaScript built as `e6457500f88a`, and native-entry and
+host-syntax checks passed (`.workpad/button-category-check-complete.log`).
+
+Both focused compiler-client tests passed
+(`.workpad/button-category-tests-final.log`). A separate mutation-only run passed
+with zero failures in 146.67 s and two filtered-out tests
+(`.workpad/button-category-mutations-finished.log`): all nine mutations were
+accepted by type checking and rejected by the root production proof. The glyph-kind
+mutation was also rejected at `icon_production` by an independent button-proof
+entry. These runs establish all three focused test categories separately; they do
+not establish a full suite result or physical browser behavior.
+
+[ADR 0033](adr/0033-button-category-inclusion.md) records the reasons for the family
+boundary and predicate inclusion.
+
+## Open categories across operational and admission interfaces
+
+[ADR 0034](adr/0034-open-category-construction.md) extends the operational package
+and authored-button decisions with shared open predicates, value-indexed
+membership, inclusion and intersection. The executable entries own their
+requirements. Operational functions and evidence remain affine `Type` values;
+production models use filled shared admission definitions without importing proof
+providers. Successful domain continuations consume membership of their actual
+candidate. Pure calculation equations and ordinary classification keep their
+existing roles.
+
+Incoming application worlds now undergo `I.world` admission before loading;
+invalid worlds follow the exact refusal path and preserve the application. This
+records a strengthened input boundary, not a reproduced historical bug. Controlled
+source producers bind requirements to actual emitted nodes without claiming that
+all raw constructors are hidden.
+
+Input observations now retain an explicit `InputFieldRequest`, with canonical
+request evidence connecting it to the actual construction inputs. The public input
+and membership factory share `input_source_request`; `construct_input` keeps its
+four-argument signature. The generic theorem takes an arbitrary request with its
+canonicality evidence to avoid expanding the 48-bit capacity computation during
+dependent `Type` conversion in the fixed compiler. The capacity bound and complete
+content, policy and protocol requirements remain intact.
+
+The native recovery producer is also covered: `RecoveryButton` supplies the font
+and reason to `recovery_source`, and the runtime proof entry supplies evidence for
+its actual emitted retry node. Its `@browser/retry` behavior remains intact.
+
+The fixed Bend 2.0.34 root `PROOF.bend` check reported `ALL PROOFS CHECK`,
+including complete input-content and exact-viewport obligations for all 14 widgets.
+The final `bun run check` exited zero, with all production proofs accepted and
+component boundaries covering 22 core modules and 215 sources. `bun run test:locality`
+passed all 12 tests with zero failures. The standard `bun run test` exited zero:
+211 tests passed across all 45 files, with zero failures and no omitted or
+unfinished files. This includes the generic/native control clients and actual-source
+mutation fixtures in `control-categories.test.mjs`.
+
+A final artifact/source digest comparison found no changed inputs among the 58
+kernel sources or 215 browser sources. Complete execution logs and that comparison
+were retained in the task's temporary `.workpad` records; they are run evidence,
+rather than a public interface. These checks do not establish physical browser
+pixel layout or focus behavior, which was not observed for this change.
+
+## Host semantic admission and browser compilation closure
+
+Moving pure host admission behind the native JSON entry exposed a distinction
+between semantic correspondence and generated execution cost. The emitted
+`String.cmp.fin` reconstruction exhausted the JavaScript stack on long equal
+strings. The shared JSON equality operation now uses the existing
+`String.starts_with` in both directions. Mutual prefix membership is exact string
+equality, and the existing prefix traversal provides the tail execution path.
+
+Domain character predicates also exhausted the generated stack within inputs
+already permitted by the original admission and byte bounds. Boolean conjunction
+and disjunction around recursive character calls retained frames, including
+nonblank checks whose generated evaluation traversed the suffix after finding a
+nonspace character. The affected predicates now fold the exact original character
+condition into a Boolean accumulator with a direct tail call. Scalar ranges,
+whitespace rules and accepted input bounds remain intact. These changes use
+existing language operations and domain computations; they do not patch the
+compiler or reduce the supported bounds.
+
+Concrete `SystemModel` and `Harness` instances are ordinary typed production
+constructors in root `PROOF.bend`, preserving their complete evidence. The browser
+build still checks the mandatory full UI verification entry with that root proof
+assembly. Its runtime entry preserves the ordered browser imports and private
+providers, excludes the root production assembly, and explicitly imports the
+approval owner needed by the contracts that remain. Separating the compiled
+ownership closure avoids repeating the unrelated production assembly in browser
+emission while retaining the full proof acceptance gate and strict emitter.
+
+The controlled v9 check accepted all four current production artifacts; the
+browser ownership entry covered 211 sources. Full production proof acceptance,
+the native entry type check with declared IO assumptions, host/script syntax and
+actual-source component boundaries completed successfully. That single run
+reported a peak physical footprint of 4.58 GiB. These are observations of the
+current compiler boundary and one controlled run, not a general memory bound or
+a report that the subsequent regression suite has completed.
+
+## Production authored construction providers
+
+A final consumer scan found that four authored-control paths still called raw
+calculations while membership factories were used only by proof clients. Actual
+button, input, movable and native recovery production now consumes those
+factories and extracts their constructed nodes. Complete source correspondence
+binds each returned node to all caller coordinates, beyond membership in a
+category of valid nodes.
+
+The attempted ordinary library constructors exposed the pinned compiler's
+live-reference check at definition events: they called evidence that was still
+unfilled when the live definition was checked. This was not a namespace failure.
+The constructor contracts remain laws; independent button/authored and runtime
+utility providers fill their evidence and factories before model consumers call
+them. Their leaf closures avoid the assembled-model import cycles. Recovery
+source composition shares `source_with_recovery` and changes only its proved
+children, without duplicating diagnostic or layout calculations.
+
+The existing model-to-proof import denial also rejected these independent
+construction libraries. Their dependency role is now declared explicitly in
+`components.construction_providers`, separately from assembled system proof.
+Contract and constructor correspondence bindings identify the unique owner;
+transitive inspection still rejects unregistered proof sources and global
+assembly. This records permitted construction reuse rather than treating
+registration as semantic evidence. Full proof acceptance, foreign-boundary and
+zero-hole gates remain mandatory.
+
+The final authored formal check exited zero with all proof obligations accepted
+across 467 sources. Its source snapshot remained unchanged, all 46 browser exports
+were retained, and the source/output identities of all four production artifacts
+matched. Independent final production, adoption, boundary and fixture scans found
+no new in-scope issue.
+
+The six existing architecture, controls, locality, model-abstraction, UI-verification
+and button fixture files initially reported 28 passes and one failure. The sole
+button failure concerned proof-obligation ordering in the old fixture. Its repair
+retained the independent status and full-root presentation evidence checks, then
+the original shared-glyph and local icon-production checks, with the original nine
+cases, counts, compiler flags and timeouts. Rerunning only that original button
+file passed all three tests. The six-file run's physical peak was 5.30 GiB; the
+final button rerun peaked at 4.94 GiB. These are measured runs, not general resource
+bounds.
+
+The earlier complete 45-file suite reported 193 passes and 18 failures; the later
+21-file affected run reported 133 passes and one failure. The minimal catalog
+status repair subsequently passed its original seven tests. These scoped repairs
+and reruns do not constitute a new zero-failure run of the complete 45-file suite.
+Formal acceptance and these fixtures do not establish physical browser layout,
+focus behavior or host execution of external effects.
+
+## Removing checker-only tests
+
+The test scope now excludes callbacks whose only criterion is Bend accepting or
+rejecting source code, proofs or certificates. Repeating that verdict did not
+supply an independent domain-behavior observation; universal requirements remain
+with actual production constructions and their proofs. Eight checker-only files
+were removed, and mixed suites retain generated runtime values, JavaScript
+translator source-data assertions, source-boundary checks and native extension
+round trips with clients frozen. Only the native locality suite remains deferred
+from routine CI.
+
+The production proof and certificate gates remain in checks and builds. Earlier
+measurements and checker-mutation outcomes above are historical records. Tests and
+proofs were not run for this removal, and the stopped complete-suite run is not
+reported as passing.

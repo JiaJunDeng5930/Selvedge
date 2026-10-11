@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../reading/MODEL.bend as ReadingBinding
 import ../../interaction/IDENTITY.bend as Identity
 import ../layout/GEOMETRY.bend as Spatial
@@ -344,3 +345,339 @@ def native_code_chrome_valid(chrome: Design.Chrome) -> Bool:
 def native_code_policy_valid(style: ResolvedStyle) -> Bool:
   ResolvedStyle{layout, font, chrome, states} = style
   native_code_layout_valid(layout) && native_code_chrome_valid(chrome)
+
+# These construction axes preserve declarations; domain policy and physical
+# frame validity remain obligations of their owning computations.
+
+type BoxRequest is Data:
+  BoxRequest{key: Identity.Key, tag: BoxTag, style: Style, attributes: +List<Attribute>, children: +List<Node>}
+
+type BoxObservation is Data:
+  BoxObservation{request: BoxRequest, result: Node}
+
+def box_source(request: BoxRequest) -> Node:
+  BoxRequest{key, tag, style, attributes, children} = request
+  Box{key, tag, style, attributes, children}
+
+def box_identity_of(node: Node) -> Maybe<&2, Identity.Key>:
+  match node:
+    case Box{key, tag, style, attributes, children}: Some{key}
+    case _: None{}
+
+def box_identity(observation: BoxObservation) -> Type:
+  BoxObservation{request, result} = observation
+  BoxRequest{key, tag, style, attributes, children} = request
+  {box_identity_of(result) == Some{key} : Maybe<&2, Identity.Key>}
+
+def box_presentation_of(node: Node) -> Maybe<&2, Sigma<&2, &2, BoxTag, (_ => Style)>>:
+  match node:
+    case Box{key, tag, style, attributes, children}: Some{(tag, style)}
+    case _: None{}
+
+def box_presentation(observation: BoxObservation) -> Type:
+  BoxObservation{request, result} = observation
+  BoxRequest{key, tag, style, attributes, children} = request
+  {box_presentation_of(result) == Some{(tag, style)} : Maybe<&2, Sigma<&2, &2, BoxTag, (_ => Style)>>}
+
+def box_attributes_of(node: Node) -> Maybe<&2, +List<Attribute>>:
+  match node:
+    case Box{key, tag, style, attributes, children}: Some{attributes}
+    case _: None{}
+
+def box_attributes(observation: BoxObservation) -> Type:
+  BoxObservation{request, result} = observation
+  BoxRequest{key, tag, style, attributes, children} = request
+  {box_attributes_of(result) == Some{attributes} : Maybe<&2, +List<Attribute>>}
+
+def box_population_of(node: Node) -> Maybe<&2, +List<Node>>:
+  match node:
+    case Box{key, tag, style, attributes, children}: Some{children}
+    case _: None{}
+
+def box_population(observation: BoxObservation) -> Type:
+  BoxObservation{request, result} = observation
+  BoxRequest{key, tag, style, attributes, children} = request
+  {box_population_of(result) == Some{children} : Maybe<&2, +List<Node>>}
+
+def box_attributes_population(observation: BoxObservation) -> Type:
+  Categories.intersection(BoxObservation, box_attributes, box_population, observation)
+
+def box_presentation_attributes_population(observation: BoxObservation) -> Type:
+  Categories.intersection(BoxObservation, box_presentation, box_attributes_population, observation)
+
+def authored_box(observation: BoxObservation) -> Type:
+  Categories.intersection(BoxObservation, box_identity, box_presentation_attributes_population, observation)
+
+def project_box_identity(-observation: BoxObservation, evidence: authored_box(observation)) -> box_identity(observation):
+  Categories.Intersection{identity, presentation_attributes_population} = evidence
+  identity
+
+def box_is_identity() -> Categories.Inclusion<BoxObservation, authored_box, box_identity>:
+  Categories.Inclusion{observation => evidence => project_box_identity(observation, evidence)}
+
+def project_box_presentation(-observation: BoxObservation, evidence: authored_box(observation)) -> box_presentation(observation):
+  Categories.Intersection{identity, presentation_attributes_population} = evidence
+  Categories.Intersection{presentation, attributes_population} = presentation_attributes_population
+  presentation
+
+def box_is_presentation() -> Categories.Inclusion<BoxObservation, authored_box, box_presentation>:
+  Categories.Inclusion{observation => evidence => project_box_presentation(observation, evidence)}
+
+def project_box_attributes(-observation: BoxObservation, evidence: authored_box(observation)) -> box_attributes(observation):
+  Categories.Intersection{identity, presentation_attributes_population} = evidence
+  Categories.Intersection{presentation, attributes_population} = presentation_attributes_population
+  Categories.Intersection{attributes, population} = attributes_population
+  attributes
+
+def box_is_attributes() -> Categories.Inclusion<BoxObservation, authored_box, box_attributes>:
+  Categories.Inclusion{observation => evidence => project_box_attributes(observation, evidence)}
+
+def project_box_population(-observation: BoxObservation, evidence: authored_box(observation)) -> box_population(observation):
+  Categories.Intersection{identity, presentation_attributes_population} = evidence
+  Categories.Intersection{presentation, attributes_population} = presentation_attributes_population
+  Categories.Intersection{attributes, population} = attributes_population
+  population
+
+def box_is_population() -> Categories.Inclusion<BoxObservation, authored_box, box_population>:
+  Categories.Inclusion{observation => evidence => project_box_population(observation, evidence)}
+
+def box_construction_evidence(+request: BoxRequest) -> authored_box(BoxObservation{request, box_source(request)}):
+  BoxRequest{key, tag, style, attributes, children} = request
+  Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}
+
+def construct_box(+request: BoxRequest) -> Categories.Membership<BoxObservation, authored_box>:
+  Categories.Membership{BoxObservation{request, box_source(request)}, box_construction_evidence(request)}
+
+def constructed_box_node(constructed: Categories.Membership<BoxObservation, authored_box>) -> Node:
+  Categories.Membership{BoxObservation{request, result}, evidence} = constructed
+  result
+
+type TextRequest is Data:
+  TextRequest{key: Identity.Key, value: String, font: FontChoice, wrapping: T.Wrapping}
+
+type TextObservation is Data:
+  TextObservation{request: TextRequest, result: Node}
+
+def text_source(request: TextRequest) -> Node:
+  TextRequest{key, value, font, wrapping} = request
+  Text{key, value, font, wrapping}
+
+def text_identity_of(node: Node) -> Maybe<&2, Identity.Key>:
+  match node:
+    case Text{key, value, font, wrapping}: Some{key}
+    case _: None{}
+
+def text_identity(observation: TextObservation) -> Type:
+  TextObservation{request, result} = observation
+  TextRequest{key, value, font, wrapping} = request
+  {text_identity_of(result) == Some{key} : Maybe<&2, Identity.Key>}
+
+def text_content_of(node: Node) -> Maybe<&2, String>:
+  match node:
+    case Text{key, value, font, wrapping}: Some{value}
+    case _: None{}
+
+def text_content(observation: TextObservation) -> Type:
+  TextObservation{request, result} = observation
+  TextRequest{key, value, font, wrapping} = request
+  {text_content_of(result) == Some{value} : Maybe<&2, String>}
+
+def text_font_of(node: Node) -> Maybe<&2, FontChoice>:
+  match node:
+    case Text{key, value, font, wrapping}: Some{font}
+    case _: None{}
+
+def text_font(observation: TextObservation) -> Type:
+  TextObservation{request, result} = observation
+  TextRequest{key, value, font, wrapping} = request
+  {text_font_of(result) == Some{font} : Maybe<&2, FontChoice>}
+
+def text_wrapping_of(node: Node) -> Maybe<&2, T.Wrapping>:
+  match node:
+    case Text{key, value, font, wrapping}: Some{wrapping}
+    case _: None{}
+
+def text_wrapping(observation: TextObservation) -> Type:
+  TextObservation{request, result} = observation
+  TextRequest{key, value, font, wrapping} = request
+  {text_wrapping_of(result) == Some{wrapping} : Maybe<&2, T.Wrapping>}
+
+def text_font_wrapping(observation: TextObservation) -> Type:
+  Categories.intersection(TextObservation, text_font, text_wrapping, observation)
+
+def text_content_font_wrapping(observation: TextObservation) -> Type:
+  Categories.intersection(TextObservation, text_content, text_font_wrapping, observation)
+
+def authored_text(observation: TextObservation) -> Type:
+  Categories.intersection(TextObservation, text_identity, text_content_font_wrapping, observation)
+
+def project_text_identity(-observation: TextObservation, evidence: authored_text(observation)) -> text_identity(observation):
+  Categories.Intersection{identity, content_font_wrapping} = evidence
+  identity
+
+def text_is_identity() -> Categories.Inclusion<TextObservation, authored_text, text_identity>:
+  Categories.Inclusion{observation => evidence => project_text_identity(observation, evidence)}
+
+def project_text_content(-observation: TextObservation, evidence: authored_text(observation)) -> text_content(observation):
+  Categories.Intersection{identity, content_font_wrapping} = evidence
+  Categories.Intersection{content, font_wrapping} = content_font_wrapping
+  content
+
+def text_is_content() -> Categories.Inclusion<TextObservation, authored_text, text_content>:
+  Categories.Inclusion{observation => evidence => project_text_content(observation, evidence)}
+
+def project_text_font(-observation: TextObservation, evidence: authored_text(observation)) -> text_font(observation):
+  Categories.Intersection{identity, content_font_wrapping} = evidence
+  Categories.Intersection{content, font_wrapping} = content_font_wrapping
+  Categories.Intersection{font, wrapping} = font_wrapping
+  font
+
+def text_is_font() -> Categories.Inclusion<TextObservation, authored_text, text_font>:
+  Categories.Inclusion{observation => evidence => project_text_font(observation, evidence)}
+
+def project_text_wrapping(-observation: TextObservation, evidence: authored_text(observation)) -> text_wrapping(observation):
+  Categories.Intersection{identity, content_font_wrapping} = evidence
+  Categories.Intersection{content, font_wrapping} = content_font_wrapping
+  Categories.Intersection{font, wrapping} = font_wrapping
+  wrapping
+
+def text_is_wrapping() -> Categories.Inclusion<TextObservation, authored_text, text_wrapping>:
+  Categories.Inclusion{observation => evidence => project_text_wrapping(observation, evidence)}
+
+def text_construction_evidence(+request: TextRequest) -> authored_text(TextObservation{request, text_source(request)}):
+  TextRequest{key, value, font, wrapping} = request
+  Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}
+
+def construct_text(+request: TextRequest) -> Categories.Membership<TextObservation, authored_text>:
+  Categories.Membership{TextObservation{request, text_source(request)}, text_construction_evidence(request)}
+
+def constructed_text_node(constructed: Categories.Membership<TextObservation, authored_text>) -> Node:
+  Categories.Membership{TextObservation{request, result}, evidence} = constructed
+  result
+
+type ControlRequest is Data:
+  ControlRequest{key: Identity.Key, tag: ControlTag, style: Style, attributes: +List<Attribute>, accessible_name: String, enabled: Bool, first_event: Doc.DOMEvent, remaining_events: +List<Doc.DOMEvent>, children: +List<Node>}
+
+type ControlObservation is Data:
+  ControlObservation{request: ControlRequest, result: Node}
+
+def control_source(request: ControlRequest) -> Node:
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}
+
+def control_identity_of(node: Node) -> Maybe<&2, Identity.Key>:
+  match node:
+    case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Some{key}
+    case _: None{}
+
+def control_identity(observation: ControlObservation) -> Type:
+  ControlObservation{request, result} = observation
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  {control_identity_of(result) == Some{key} : Maybe<&2, Identity.Key>}
+
+def control_presentation_of(node: Node) -> Maybe<&2, Sigma<&2, &2, ControlTag, (_ => Style)>>:
+  match node:
+    case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Some{(tag, style)}
+    case _: None{}
+
+def control_presentation(observation: ControlObservation) -> Type:
+  ControlObservation{request, result} = observation
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  {control_presentation_of(result) == Some{(tag, style)} : Maybe<&2, Sigma<&2, &2, ControlTag, (_ => Style)>>}
+
+def control_metadata_of(node: Node) -> Maybe<&2, Sigma<&2, &2, +List<Attribute>, (_ => String)>>:
+  match node:
+    case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Some{(attributes, accessible_name)}
+    case _: None{}
+
+def control_metadata(observation: ControlObservation) -> Type:
+  ControlObservation{request, result} = observation
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  {control_metadata_of(result) == Some{(attributes, accessible_name)} : Maybe<&2, Sigma<&2, &2, +List<Attribute>, (_ => String)>>}
+
+def control_interaction_of(node: Node) -> Maybe<&2, Sigma<&2, &2, Bool, (_ => Sigma<&2, &2, Doc.DOMEvent, (_ => +List<Doc.DOMEvent>)>)>>:
+  match node:
+    case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Some{(enabled, (first_event, remaining_events))}
+    case _: None{}
+
+def control_interaction(observation: ControlObservation) -> Type:
+  ControlObservation{request, result} = observation
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  {control_interaction_of(result) == Some{(enabled, (first_event, remaining_events))} : Maybe<&2, Sigma<&2, &2, Bool, (_ => Sigma<&2, &2, Doc.DOMEvent, (_ => +List<Doc.DOMEvent>)>)>>}
+
+def control_population_of(node: Node) -> Maybe<&2, +List<Node>>:
+  match node:
+    case Control{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: Some{children}
+    case _: None{}
+
+def control_population(observation: ControlObservation) -> Type:
+  ControlObservation{request, result} = observation
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  {control_population_of(result) == Some{children} : Maybe<&2, +List<Node>>}
+
+def control_interaction_population(observation: ControlObservation) -> Type:
+  Categories.intersection(ControlObservation, control_interaction, control_population, observation)
+
+def control_metadata_interaction_population(observation: ControlObservation) -> Type:
+  Categories.intersection(ControlObservation, control_metadata, control_interaction_population, observation)
+
+def control_presentation_metadata_interaction_population(observation: ControlObservation) -> Type:
+  Categories.intersection(ControlObservation, control_presentation, control_metadata_interaction_population, observation)
+
+def authored_control(observation: ControlObservation) -> Type:
+  Categories.intersection(ControlObservation, control_identity, control_presentation_metadata_interaction_population, observation)
+
+def project_control_identity(-observation: ControlObservation, evidence: authored_control(observation)) -> control_identity(observation):
+  Categories.Intersection{identity, presentation_metadata_interaction_population} = evidence
+  identity
+
+def control_is_identity() -> Categories.Inclusion<ControlObservation, authored_control, control_identity>:
+  Categories.Inclusion{observation => evidence => project_control_identity(observation, evidence)}
+
+def project_control_presentation(-observation: ControlObservation, evidence: authored_control(observation)) -> control_presentation(observation):
+  Categories.Intersection{identity, presentation_metadata_interaction_population} = evidence
+  Categories.Intersection{presentation, metadata_interaction_population} = presentation_metadata_interaction_population
+  presentation
+
+def control_is_presentation() -> Categories.Inclusion<ControlObservation, authored_control, control_presentation>:
+  Categories.Inclusion{observation => evidence => project_control_presentation(observation, evidence)}
+
+def project_control_metadata(-observation: ControlObservation, evidence: authored_control(observation)) -> control_metadata(observation):
+  Categories.Intersection{identity, presentation_metadata_interaction_population} = evidence
+  Categories.Intersection{presentation, metadata_interaction_population} = presentation_metadata_interaction_population
+  Categories.Intersection{metadata, interaction_population} = metadata_interaction_population
+  metadata
+
+def control_is_metadata() -> Categories.Inclusion<ControlObservation, authored_control, control_metadata>:
+  Categories.Inclusion{observation => evidence => project_control_metadata(observation, evidence)}
+
+def project_control_interaction(-observation: ControlObservation, evidence: authored_control(observation)) -> control_interaction(observation):
+  Categories.Intersection{identity, presentation_metadata_interaction_population} = evidence
+  Categories.Intersection{presentation, metadata_interaction_population} = presentation_metadata_interaction_population
+  Categories.Intersection{metadata, interaction_population} = metadata_interaction_population
+  Categories.Intersection{interaction, population} = interaction_population
+  interaction
+
+def control_is_interaction() -> Categories.Inclusion<ControlObservation, authored_control, control_interaction>:
+  Categories.Inclusion{observation => evidence => project_control_interaction(observation, evidence)}
+
+def project_control_population(-observation: ControlObservation, evidence: authored_control(observation)) -> control_population(observation):
+  Categories.Intersection{identity, presentation_metadata_interaction_population} = evidence
+  Categories.Intersection{presentation, metadata_interaction_population} = presentation_metadata_interaction_population
+  Categories.Intersection{metadata, interaction_population} = metadata_interaction_population
+  Categories.Intersection{interaction, population} = interaction_population
+  population
+
+def control_is_population() -> Categories.Inclusion<ControlObservation, authored_control, control_population>:
+  Categories.Inclusion{observation => evidence => project_control_population(observation, evidence)}
+
+def control_construction_evidence(+request: ControlRequest) -> authored_control(ControlObservation{request, control_source(request)}):
+  ControlRequest{key, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children} = request
+  Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}}
+
+def construct_control(+request: ControlRequest) -> Categories.Membership<ControlObservation, authored_control>:
+  Categories.Membership{ControlObservation{request, control_source(request)}, control_construction_evidence(request)}
+
+def constructed_control_node(constructed: Categories.Membership<ControlObservation, authored_control>) -> Node:
+  Categories.Membership{ControlObservation{request, result}, evidence} = constructed
+  result

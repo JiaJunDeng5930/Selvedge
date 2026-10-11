@@ -1,98 +1,55 @@
 import { readFile, access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { validPluginName } from './plugins.mjs';
-import { accountConfig, accountConnection, chatgptAccountFields } from './chatgpt-account.mjs';
-import { adaptivePolicy, evaluatorConnections } from './reasoning-config.mjs';
+import { accountConfig, accountConnection } from './chatgpt-account.mjs';
+import { adaptivePolicy, evaluatorConnections, configurationObserver } from './reasoning-config.mjs';
 import { connectionConfig } from './chatgpt-plugin.mjs';
 
-export const format = 'selvedge-bend-config-1';
-export const defaultConfig = {
-  format, host: '127.0.0.1', port: 7421, max_fork: 4, max_descendants: 64,
-  profiles: { demo: { provider: 'echo', model: 'echo' } }, mcp: {}, plugins: {},
-};
+import { boundary } from './public/model-boundary.mjs';
 
-function object(value, label, keys) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
-  for (const key of Object.keys(value)) if (!keys.includes(key)) throw new TypeError(`Unknown ${label} field: ${key}`);
+export const defaultConfig = boundary('config.defaults', {});
+export const format = defaultConfig.format;
+
+function urlObservation(value) {
+  try {
+    const url = new URL(value);
+    return Object.fromEntries(['href', 'protocol', 'hostname', 'username', 'password', 'hash', 'pathname', 'search', 'origin'].map(key => [key, url[key]]));
+  } catch { return null; }
 }
-function text(value, label) {
-  if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${label} must be a nonempty string`);
-}
-function number(value, label, lower, upper) {
-  if (!Number.isSafeInteger(value) || value < lower || value > upper) throw new TypeError(`${label} must be in ${lower}..${upper}`);
-}
-function endpoint(value, label) {
-  text(value, label);
-  const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new TypeError(`Invalid ${label}`);
-  if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new TypeError(`${label} requires HTTPS except on loopback`);
+
+function profileBoundary(operation, source) {
+  try { return boundary(operation, source); }
+  catch (error) { throw new TypeError(error.message); }
 }
 
 export function validateConfig(value) {
-  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins', 'reasoning_evaluators', 'chatgpt_plugin']);
-  if (value.format !== format) throw new Error('The configuration is not in the current Bend format');
-  const config = { ...defaultConfig, ...value };
+  const observer = configurationObserver();
+  const root = observer.observe(value, { shallow: true });
+  if (root.kind === 'object') root.fields = Object.entries(value).map(([key, item]) => ({
+    key: observer.observe(key), value: observer.observe(item, { shallow: key !== 'format' }),
+  }));
+  const config = observer.materialize(observer.execute('config.configuration_head', { value: root }));
   config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
-  if (!['127.0.0.1', '::1'].includes(config.host)) throw new TypeError('The local server requires a loopback address');
-  number(config.port, 'port', 0, 65535);
-  number(config.max_fork, 'max_fork', 1, 0xffffffff);
-  number(config.max_descendants, 'max_descendants', 1, 0xffffffff);
-  if (!config.profiles || typeof config.profiles !== 'object' || Array.isArray(config.profiles)) throw new TypeError('profiles must be an object');
+  observer.execute('config.configuration_transport', {
+    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles'].map(key =>
+      [key, observer.observe(config[key], { shallow: key === 'profiles' })])),
+  });
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
-    text(key, 'profile key');
-    object(source, `profile ${key}`, [...chatgptAccountFields, 'model', 'api_key_env', 'adaptive_reasoning']);
-    if (!['echo', 'responses', 'chatgpt', 'chatgpt-web'].includes(source.provider)) throw new TypeError(`Unknown provider for ${key}`);
-    text(source.model, `model for ${key}`);
-    const profile = { timeout_ms: 300_000, ...source };
+    profileBoundary('backend.profile_head', { key, profile: source });
     const adaptive = adaptivePolicy(source.adaptive_reasoning);
-    if (adaptive && profile.provider === 'echo') throw new TypeError('The offline echo provider cannot select model reasoning effort');
-    if (profile.provider === 'chatgpt-web') {
-      if (!/^chatgpt-web\/(light|medium|high|xhigh|pro)$/.test(profile.model)) throw new TypeError(`Invalid ChatGPT Web model for ${key}`);
-      if (adaptive) throw new TypeError('ChatGPT Web fixes effort at the root; adaptive reasoning is not supported');
-    }
-    if (adaptive) profile.adaptive_reasoning = adaptive;
-    else delete profile.adaptive_reasoning;
-    number(profile.timeout_ms, `timeout for ${key}`, 100, 1_800_000);
-    if (profile.provider === 'responses' || profile.provider === 'chatgpt-web') {
-      profile.endpoint ??= profile.provider === 'chatgpt-web' ? 'http://127.0.0.1:8787/v1/responses' : 'https://api.openai.com/v1/responses';
-      endpoint(profile.endpoint, `endpoint for ${key}`);
-      if (profile.provider === 'chatgpt-web') {
-        const url = new URL(profile.endpoint);
-        if (!url.pathname.endsWith('/v1/responses') || url.search) throw new TypeError('ChatGPT Web endpoint must end in /v1/responses without a query');
-      }
-    }
-    if (profile.provider === 'responses' || profile.provider === 'chatgpt-web') {
-      profile.api_key_env ??= profile.provider === 'chatgpt-web' ? 'CHATGPT_WEB_TOKEN' : 'OPENAI_API_KEY';
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(profile.api_key_env)) throw new TypeError(`Invalid API key environment variable for ${key}`);
-    }
-    if (profile.provider === 'chatgpt') Object.assign(profile, accountConnection(profile));
+    const endpoint = boundary('backend.endpoint', { profile: source });
+    const profile = profileBoundary('backend.profile', {
+      key, profile: source, adaptive, endpoint_observation: urlObservation(endpoint),
+    });
+    const backend = boundary('backend.support', { profile, effect: { model: { provider: profile.provider } } });
+    if (backend.auth === 'account') Object.assign(profile, accountConnection(profile));
     return [key, Object.freeze(profile)];
   }));
-  if (!config.mcp || typeof config.mcp !== 'object' || Array.isArray(config.mcp)) throw new TypeError('mcp must be an object');
-  for (const [name, server] of Object.entries(config.mcp)) {
-    text(name, 'MCP server name');
-    object(server, `MCP ${name}`, ['command', 'args', 'cwd', 'env', 'timeout_ms']);
-    text(server.command, `MCP ${name} command`);
-    if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some(x => typeof x !== 'string'))) throw new TypeError(`Invalid MCP ${name} arguments`);
-    if (server.cwd !== undefined) text(server.cwd, `MCP ${name} cwd`);
-    if (server.timeout_ms !== undefined) number(server.timeout_ms, `MCP ${name} timeout`, 100, 1_800_000);
-    if (server.env !== undefined && (!server.env || typeof server.env !== 'object' || Array.isArray(server.env) || Object.values(server.env).some(x => typeof x !== 'string'))) throw new TypeError(`Invalid MCP ${name} environment`);
-  }
-  if (!config.plugins || typeof config.plugins !== 'object' || Array.isArray(config.plugins)) throw new TypeError('plugins must be an object');
-  for (const [name, plugin] of Object.entries(config.plugins)) {
-    if (!validPluginName(name)) throw new TypeError(`Invalid plugin name: ${name}`);
-    object(plugin, `plugin ${name}`, ['command', 'args', 'cwd', 'env', 'timeout_ms', 'event_timeout_ms', 'event_queue']);
-    text(plugin.command, `plugin ${name} command`);
-    if (plugin.args !== undefined && (!Array.isArray(plugin.args) || plugin.args.some(value => typeof value !== 'string'))) throw new TypeError(`Invalid plugin ${name} arguments`);
-    if (plugin.cwd !== undefined) text(plugin.cwd, `plugin ${name} cwd`);
-    if (plugin.timeout_ms !== undefined) number(plugin.timeout_ms, `plugin ${name} timeout`, 100, 1_800_000);
-    if (plugin.event_timeout_ms !== undefined) number(plugin.event_timeout_ms, `plugin ${name} event timeout`, 100, 60_000);
-    if (plugin.event_queue !== undefined) number(plugin.event_queue, `plugin ${name} event queue`, 1, 4096);
-    if (plugin.env !== undefined && (!plugin.env || typeof plugin.env !== 'object' || Array.isArray(plugin.env) || Object.values(plugin.env).some(value => typeof value !== 'string'))) throw new TypeError(`Invalid plugin ${name} environment`);
-  }
+  observer.execute('config.configuration_extensions', {
+    mcp: observer.observe(config.mcp), plugins: observer.observe(config.plugins),
+  });
   return config;
 }
 
@@ -116,10 +73,5 @@ export async function loadConfig({ home, filename } = {}) {
 }
 
 export function profileCatalog(config) {
-  return Object.entries(config.profiles).map(([key, profile]) => ({ key, provider: profile.provider, name: profile.model,
-    reasoning_options: profile.model_info?.supported_reasoning_levels?.length ? {
-      default: profile.model_info.default_reasoning_level ?? null,
-      values: profile.model_info.supported_reasoning_levels.map(level => level.effort),
-    } : null,
-    ...(profile.adaptive_reasoning ? { adaptive_reasoning: profile.adaptive_reasoning } : {}) }));
+  return boundary('backend.profile_catalog', { config });
 }

@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/effects.bend as Effects
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
@@ -40,7 +41,7 @@ def request_text(+id: Nat, +card: B.Card, profile: D.Profile, +retitle: Bool, ne
     D.success(card_result(id, B.revision(card))),
     [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
 
-def change(change: R.Change, +world: M.World()) -> M.Decision():
+def change_calculation(change: R.Change, +world: M.World()) -> M.Decision():
   match change:
     case R.StoreCard{id, card, next}: save(id, card, next, world)
     case R.Relocate{+id, +card, position}: respond(S.store(B.reposition(id, card, position, S.registry(world)), world), card_result(id, B.revision(card)))
@@ -71,19 +72,31 @@ def failed(reason: String, card: B.Card) -> B.Card:
   B.Card{revision, draft, task, archived, created, updated, previous, start_error, pinned} = card
   B.Card{1n+revision, draft, task, archived, created, updated, B.EnrichmentFailed{String.take(reason, 1000n)}, start_error, pinned}
 
-def suggested(valid: Bool, draft: B.Draft, card: B.Card) -> B.Card:
-  match valid:
-    case False{}: failed("The drafting endpoint returned an empty or oversized title/description. The original request is preserved.", card)
-    case True{}:
-      B.Card{revision, previous, task, archived, created, updated, enrichment, start_error, pinned} = card
-      B.Card{1n+revision, draft, task, archived, created, updated, B.NoEnrichment{}, start_error, pinned}
+def suggestion_category() -> B.Draft -> Type:
+  Categories.holds(B.Draft, B.valid_draft)
+
+def suggested_accepted(member: Categories.Membership<B.Draft, suggestion_category()>, card: B.Card) -> B.Card:
+  Categories.Membership{draft, evidence} = member
+  B.Card{revision, previous, task, archived, created, updated, enrichment, start_error, pinned} = card
+  B.Card{1n+revision, draft, task, archived, created, updated, B.NoEnrichment{}, start_error, pinned}
+
+def suggested_admitted(found: Maybe<&1, Categories.Membership<B.Draft, suggestion_category()>>, card: B.Card) -> B.Card:
+  match found:
+    case None{}: failed("The drafting endpoint returned an empty or oversized title/description. The original request is preserved.", card)
+    case Some{member}: suggested_accepted(member, card)
+
+def suggested_checked(valid: Bool, +draft: B.Draft, card: B.Card, observed: {B.valid_draft(draft) == valid : Bool}) -> B.Card:
+  suggested_admitted(Categories.admit_checked(B.Draft, B.valid_draft, draft, valid, observed), card)
+
+def suggested(+draft: B.Draft, card: B.Card) -> B.Card:
+  suggested_checked(B.valid_draft(draft), draft, card, {==})
 
 def complete(outcome: B.Outcome, retitle: Bool, +card: B.Card) -> B.Card:
   match outcome:
     case B.SuggestionFailed{reason}: failed(reason, card)
     case B.Suggested{title, description}:
       +draft = suggestion_draft(retitle, String.trim(title), description, B.draft(card))
-      suggested(B.valid_draft(draft), draft, card)
+      suggested(draft, card)
 
 def completed(id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool, +world: M.World()) -> M.Decision():
   C.Decision{S.store(B.put(id, complete(outcome, retitle, card), S.registry(world), B.next_card(S.registry(world))), world),

@@ -54,10 +54,10 @@ type ReasoningBoundary is Type:
         Context.recorded(Nat.is_eq(owner, record_owner), effort, remaining) : R.Lease},
     foreign_record: @effort:String -> @remaining:Nat -> {Context.recorded(False{}, effort, remaining) == R.NoLease{} : R.Lease},
     stale_result: @outcome:R.Outcome -> @+task:D.Task ->
-      {Actual.revision_matches(False{}, outcome, task) == T.promote(D.with_phase(D.Ready{Nil{}}, task)) : D.Task},
+      {Actual.stale_result(outcome, task) == T.promote(D.with_phase(D.Ready{Nil{}}, task)) : D.Task},
     completion_ticket: @+expected:Nat -> @+revision:Nat -> @+task:D.Task -> @+ticket:Nat -> @+outcome:R.Outcome ->
       {Protocol.reasoning_phase(D.Active{}, D.ReasoningPending{expected, revision}, task, ticket, outcome) ==
-        Protocol.matching(Nat.is_eq(ticket, expected), Protocol.ReasoningResult{task, revision, outcome}) : Protocol.ResolvedEvent},
+        Protocol.matching(ticket, expected, Protocol.ReasoningResult{task, revision, outcome}) : Protocol.ResolvedEvent},
     archived_completion: @phase:D.Phase -> @task:D.Task -> @ticket:Nat -> @outcome:R.Outcome ->
       {Protocol.reasoning_phase(D.Archived{}, phase, task, ticket, outcome) == Protocol.Ignore{} : Protocol.ResolvedEvent},
     new_input: @history:D.History -> @text:String -> @owner:Nat ->

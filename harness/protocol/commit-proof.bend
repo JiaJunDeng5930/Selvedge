@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as Features
 import ../DOMAIN.bend as D
 import ../../bendlib/component.bend as C
@@ -17,9 +18,9 @@ import ./PROOF.bend as ProtocolProof
 import ../execution/notifications.bend as Notifications
 
 # Local proof obligations for the commit boundary. No runtime policy lives here.
-def guard_semantics(+state_valid: Bool, +change_valid: Bool, +decision: M.Decision(), +previous: M.World()) ->
-  {P.admitted(state_valid, change_valid, decision, previous) == Commit.guard(state_valid, change_valid, decision, previous) : M.Decision()}:
-  match state_valid change_valid:
+def validate_observed(+first: Bool, +second: Bool, +decision: M.Decision(), +previous: M.World(), state_observed: {Commit.state_safe(decision) == first : Bool}, change_observed: {Commit.effect_authorized(previous, decision) == second : Bool}) ->
+  {P.admitted(first, second, decision, previous) == Commit.validate_admitted(previous, Categories.admit_intersection_checked(M.Decision(), Commit.state_safe, candidate => Commit.effect_authorized(previous, candidate), decision, first, second, state_observed, change_observed)) : M.Decision()}:
+  match first second:
     case True{} True{}: {==}
     case True{} False{}: {==}
     case False{} True{}: {==}
@@ -30,21 +31,17 @@ def validate_semantics(+decision: M.Decision(), +previous: M.World()) ->
   match decision:
     case C.Decision{+world, +reply, +effects}:
       +decision : M.Decision() = C.Decision{world, reply, effects}
-      guard_semantics(I.world(world), I.decision(previous, decision), decision, previous)
+      validate_observed(I.world(world), I.decision(previous, decision), decision, previous, {==}, {==})
 
 def live_semantics(+decision: M.Decision()) -> {P.live_decision(decision) == Commit.live(decision) : M.Decision()}:
   match decision:
     case C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects}: {==}
 
 def Laws.commit_semantics(decision, previous):
-  +live = P.live_decision(decision)
-  Equal.trans(M.Decision(), P.checked(decision, previous), Commit.validate(live, previous), Commit.checked(decision, previous),
-    validate_semantics(live, previous),
-    Equal.cong(M.Decision(), M.Decision(), (value => Commit.validate(value, previous)),
-      live, Commit.live(decision), live_semantics(decision)))
+  {==}
 
-def sized_semantics(+fits: Bool, +decision: M.Decision(), +previous: M.World()) ->
-  {P.output_admitted(fits, decision, previous) == Commit.sized(fits, decision, previous) : M.Decision()}:
+def sized_semantics(+fits: Bool, +text: String, +decision: M.Decision(), +previous: M.World(), observed: {Commit.envelope_fits(previous, text) == fits : Bool}) ->
+  {P.output_admitted(fits, decision, previous) == Commit.sized_admitted(previous, Categories.admit_checked(String, value => Commit.envelope_fits(previous, value), text, fits, observed), decision) : M.Decision()}:
   match fits:
     case True{}: {==}
     case False{}: {==}
@@ -53,11 +50,11 @@ def rendered_semantics(+rendered: Result<&2, &2, String, String>, +decision: M.D
   {P.admission(rendered, decision, previous) == Commit.rendered(rendered, decision, previous) : M.Decision()}:
   match rendered:
     case Fail{error}: {==}
-    case Done{text}:
-      sized_semantics(Nat.is_le(J.utf8_length(text), U32.to_nat(Commit.frame_bytes(previous))), decision, previous)
+    case Done{+text}:
+      sized_semantics(Commit.envelope_fits(previous, text), text, decision, previous, {==})
 
 def Laws.output_semantics(durable, decision, previous):
-  rendered_semantics(J.render(D.state_render_budget(C.local(D.State, Features.State(), previous)), J.One{View.envelope(durable, decision)}), decision, previous)
+  {==}
 
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:

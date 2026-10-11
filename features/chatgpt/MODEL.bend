@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../../harness/transport/schema.bend as Schema
@@ -108,9 +109,139 @@ def job_outcome(job: Job) -> Outcome:
 
 # Model intended updates.
 
+type JobRequest is Data:
+  JobRequest{connection: Nat, project: Nat, request: String, arguments: J.Json, workspace: D.Workspace, sandbox: D.Sandbox}
+
+type JobObservation is Data:
+  JobObservation{request: JobRequest, result: Job}
+
+def BirthOwnership(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {(job_connection(result), job_project(result)) == (connection, project) : Nat & Nat}
+
+def BirthInput(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {(job_request(result), job_arguments(result)) == (request, arguments) : String & J.Json}
+
+def BirthExecution(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {(job_workspace(result), job_sandbox(result)) == (workspace, sandbox) : D.Workspace & D.Sandbox}
+
+def BirthResult(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {job_outcome(result) == Running{} : Outcome}
+
+def BirthExecutionResult(observation: JobObservation) -> Type:
+  Categories.intersection(JobObservation, BirthExecution, BirthResult, observation)
+
+def BirthInputExecutionResult(observation: JobObservation) -> Type:
+  Categories.intersection(JobObservation, BirthInput, BirthExecutionResult, observation)
+
+def BornJob(observation: JobObservation) -> Type:
+  Categories.intersection(JobObservation, BirthOwnership, BirthInputExecutionResult, observation)
+
+def born_ownership_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthOwnership>:
+  Categories.intersection_first(JobObservation, BirthOwnership, BirthInputExecutionResult)
+
+def born_input_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthInput>:
+  Categories.inclusion_compose(JobObservation, BornJob, BirthInputExecutionResult, BirthInput,
+    Categories.intersection_second(JobObservation, BirthOwnership, BirthInputExecutionResult),
+    Categories.intersection_first(JobObservation, BirthInput, BirthExecutionResult))
+
+def born_execution_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthExecution>:
+  Categories.inclusion_compose(JobObservation, BornJob, BirthInputExecutionResult, BirthExecution,
+    Categories.intersection_second(JobObservation, BirthOwnership, BirthInputExecutionResult),
+    Categories.inclusion_compose(JobObservation, BirthInputExecutionResult, BirthExecutionResult, BirthExecution,
+      Categories.intersection_second(JobObservation, BirthInput, BirthExecutionResult),
+      Categories.intersection_first(JobObservation, BirthExecution, BirthResult)))
+
+def born_result_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthResult>:
+  Categories.inclusion_compose(JobObservation, BornJob, BirthInputExecutionResult, BirthResult,
+    Categories.intersection_second(JobObservation, BirthOwnership, BirthInputExecutionResult),
+    Categories.inclusion_compose(JobObservation, BirthInputExecutionResult, BirthExecutionResult, BirthResult,
+      Categories.intersection_second(JobObservation, BirthInput, BirthExecutionResult),
+      Categories.intersection_second(JobObservation, BirthExecution, BirthResult)))
+
+# Birth records the requested identity, input, execution context and initial outcome.
+# It does not authorize the request or establish validity of its workspace.
+def construct_job(request: JobRequest) -> Categories.Membership<JobObservation, BornJob>:
+  JobRequest{+connection, +project, +key, +arguments, +workspace, +sandbox} = request
+  +result = {Job{connection, project, key, arguments, workspace, sandbox, Running{}}: Job}
+  Categories.Membership{JobObservation{JobRequest{connection, project, key, arguments, workspace, sandbox}, result},
+    Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}}
+
+def constructed_job(member: Categories.Membership<JobObservation, BornJob>) -> Job:
+  Categories.Membership{JobObservation{request, result}, evidence} = member
+  result
+
+
+type OutcomeRequest is Data:
+  OutcomeRequest{source: Job, value: Outcome}
+
+type OutcomeObservation is Data:
+  OutcomeObservation{request: OutcomeRequest, result: Job}
+
+def OutcomeOwnership(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {(job_connection(result), job_project(result)) == (job_connection(source), job_project(source)) : Nat & Nat}
+
+def OutcomeInput(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {(job_request(result), job_arguments(result)) == (job_request(source), job_arguments(source)) : String & J.Json}
+
+def OutcomeExecution(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {(job_workspace(result), job_sandbox(result)) == (job_workspace(source), job_sandbox(source)) : D.Workspace & D.Sandbox}
+
+def OutcomeResult(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {job_outcome(result) == value : Outcome}
+
+def OutcomeExecutionResult(observation: OutcomeObservation) -> Type:
+  Categories.intersection(OutcomeObservation, OutcomeExecution, OutcomeResult, observation)
+
+def OutcomeInputExecutionResult(observation: OutcomeObservation) -> Type:
+  Categories.intersection(OutcomeObservation, OutcomeInput, OutcomeExecutionResult, observation)
+
+def UpdatedOutcome(observation: OutcomeObservation) -> Type:
+  Categories.intersection(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult, observation)
+
+def updated_ownership_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeOwnership>:
+  Categories.intersection_first(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult)
+
+def updated_input_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeInput>:
+  Categories.inclusion_compose(OutcomeObservation, UpdatedOutcome, OutcomeInputExecutionResult, OutcomeInput,
+    Categories.intersection_second(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult),
+    Categories.intersection_first(OutcomeObservation, OutcomeInput, OutcomeExecutionResult))
+
+def updated_execution_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeExecution>:
+  Categories.inclusion_compose(OutcomeObservation, UpdatedOutcome, OutcomeInputExecutionResult, OutcomeExecution,
+    Categories.intersection_second(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult),
+    Categories.inclusion_compose(OutcomeObservation, OutcomeInputExecutionResult, OutcomeExecutionResult, OutcomeExecution,
+      Categories.intersection_second(OutcomeObservation, OutcomeInput, OutcomeExecutionResult),
+      Categories.intersection_first(OutcomeObservation, OutcomeExecution, OutcomeResult)))
+
+def updated_result_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeResult>:
+  Categories.inclusion_compose(OutcomeObservation, UpdatedOutcome, OutcomeInputExecutionResult, OutcomeResult,
+    Categories.intersection_second(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult),
+    Categories.inclusion_compose(OutcomeObservation, OutcomeInputExecutionResult, OutcomeExecutionResult, OutcomeResult,
+      Categories.intersection_second(OutcomeObservation, OutcomeInput, OutcomeExecutionResult),
+      Categories.intersection_second(OutcomeObservation, OutcomeExecution, OutcomeResult)))
+
+# Outcome transitions preserve the complete retained command and execution context.
+def construct_outcome(request: OutcomeRequest) -> Categories.Membership<OutcomeObservation, UpdatedOutcome>:
+  OutcomeRequest{Job{+connection, +project, +key, +arguments, +workspace, +sandbox, +previous}, +value} = request
+  +source = {Job{connection, project, key, arguments, workspace, sandbox, previous}: Job}
+  +result = {Job{connection, project, key, arguments, workspace, sandbox, value}: Job}
+  Categories.Membership{OutcomeObservation{OutcomeRequest{source, value}, result},
+    Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}}
+
+def constructed_outcome(member: Categories.Membership<OutcomeObservation, UpdatedOutcome>) -> Job:
+  Categories.Membership{OutcomeObservation{request, result}, evidence} = member
+  result
+
 def with_outcome(value: Outcome, job: Job) -> Job:
-  Job{connection, project, request, arguments, workspace, sandbox, previous} = job
-  Job{connection, project, request, arguments, workspace, sandbox, value}
+  constructed_outcome(construct_outcome(OutcomeRequest{job, value}))
 
 # Model birth.
 
@@ -122,18 +253,19 @@ def member(+id: Nat, values: +List<Nat>) -> Bool:
     case Nil{}: False{}
     case Con{value, rest}: Nat.is_eq(id, value) || member(id, rest)
 
-def selected(allowed: Bool, grant: Grant) -> Maybe<&2, Grant>:
-  match allowed:
-    case True{}: Some{grant}
-    case False{}: None{}
+def project_grant_allowed(project: Nat, grant: Grant) -> Bool:
+  Grant{projects, sandbox} = grant
+  member(project, projects)
 
-def authorize(found: Maybe<&2, Grant>, project: Nat) -> Maybe<&2, Grant>:
+def ProjectGrant(project: Nat) -> Grant -> Type:
+  Categories.holds(Grant, grant => project_grant_allowed(project, grant))
+
+def authorize(found: Maybe<&2, Grant>, +project: Nat) -> Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>:
   match found:
     case None{}: None{}
-    case Some{Grant{+projects, +sandbox}}:
-      selected(member(project, projects), Grant{projects, sandbox})
+    case Some{grant}: Categories.admit(Grant, grant => project_grant_allowed(project, grant), grant)
 
-def authority(connection: Nat, project: Nat, state: State) -> Maybe<&2, Grant>:
+def authority(connection: Nat, +project: Nat, state: State) -> Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>:
   authorize(Finite.find(~Grant, grants(state), connection), project)
 
 def pending(outcome: Outcome) -> Bool:
@@ -244,36 +376,92 @@ def job_uses(entries: +List<Finite.Entry(Job)>, +project: Nat) -> Bool:
 def project_used(+state: State, +project: Nat) -> Bool:
   grant_uses(grants(state), project) || job_uses(jobs(state), project)
 
-def retry_choose(hit: Bool, id: Nat, job: Job, rest: Maybe<&2, Finite.Entry(Job)>) -> Maybe<&2, Finite.Entry(Job)>:
-  match hit:
-    case True{}: Some{(id, job)}
-    case False{}: rest
+def retry_matches(connection: Nat, request: String, entry: Finite.Entry(Job)) -> Bool:
+  (id, Job{owner, project, key, arguments, workspace, sandbox, outcome}) = entry
+  Nat.is_eq(connection, owner) && String.eq(request, key)
+
+def MatchingRetry(connection: Nat, request: String) -> Finite.Entry(Job) -> Type:
+  Categories.holds(Finite.Entry(Job), entry => retry_matches(connection, request, entry))
+
+def retained_retry(connection: Nat, request: String,
+  admitted: Categories.Membership<Finite.Entry(Job), MatchingRetry(connection, request)>) -> Maybe<&2, Finite.Entry(Job)>:
+  Categories.Membership{entry, evidence} = admitted
+  Some{entry}
+
+def retry_admission(+connection: Nat, +request: String, rest: Maybe<&2, Finite.Entry(Job)>,
+  found: Maybe<&1, Categories.Membership<Finite.Entry(Job), MatchingRetry(connection, request)>>) -> Maybe<&2, Finite.Entry(Job)>:
+  match found:
+    case Some{admitted}: retained_retry(connection, request, admitted)
+    case None{}: rest
 
 def retry(entries: +List<Finite.Entry(Job)>, +connection: Nat, +request: String) -> Maybe<&2, Finite.Entry(Job)>:
   match entries:
     case Nil{}: None{}
-    case Con{(id, +job), rest}:
-      Job{owner, project, key, arguments, workspace, sandbox, outcome} = job
-      retry_choose(Nat.is_eq(connection, owner) && String.eq(request, key), id, job, retry(rest, connection, request))
+    case Con{entry, rest}:
+      retry_admission(connection, request, retry(rest, connection, request),
+        Categories.admit(Finite.Entry(Job), entry => retry_matches(connection, request, entry), entry))
 
-def gate(allowed: Bool, change: Change, code: String, reason: String) -> Resolution:
-  match allowed:
-    case True{}: Accept{change}
-    case False{}: Refuse{code, reason}
+type JobCapacity is Data:
+  JobCapacity{job: Job, state: State}
 
-def new_job(capacity: Bool, id: Nat, job: Job) -> Resolution:
-  gate(capacity, Start{id, job}, "operation_capacity", "Forget a completed operation before starting more work")
+def capacity_available(candidate: JobCapacity) -> Bool:
+  JobCapacity{job, +state} = candidate
+  Nat.is_lt(List.length(&2, Finite.Entry(Job), jobs(state)), 128n) && Nat.is_lt(next(state), 4294967295n)
+
+def AvailableCapacity() -> JobCapacity -> Type:
+  Categories.holds(JobCapacity, capacity_available)
+
+def start_admitted(admitted: Categories.Membership<JobCapacity, AvailableCapacity()>) -> Resolution:
+  Categories.Membership{JobCapacity{job, state}, evidence} = admitted
+  Accept{Start{next(state), job}}
+
+def capacity_admission(found: Maybe<&1, Categories.Membership<JobCapacity, AvailableCapacity()>>) -> Resolution:
+  match found:
+    case Some{admitted}: start_admitted(admitted)
+    case None{}: Refuse{"operation_capacity", "Forget a completed operation before starting more work"}
+
+def new_job(job: Job, state: State) -> Resolution:
+  capacity_admission(Categories.admit(JobCapacity, capacity_available, JobCapacity{job, state}))
+
+def OwnedJob(connection: Nat, project: Nat) -> Job -> Type:
+  Categories.holds(Job, job => owned(connection, project, job))
+
+def arguments_match(arguments: J.Json, job: Job) -> Bool:
+  Same.json(128n, arguments, job_arguments(job))
+
+def ArgumentsMatch(arguments: J.Json) -> Job -> Type:
+  Categories.holds(Job, job => arguments_match(arguments, job))
+
+def retry_compatible(connection: Nat, project: Nat, arguments: J.Json, +job: Job) -> Bool:
+  owned(connection, project, job) && arguments_match(arguments, job)
+
+def CompatibleRetry(connection: Nat, project: Nat, arguments: J.Json) -> Job -> Type:
+  job => Categories.intersection(Job, OwnedJob(connection, project), ArgumentsMatch(arguments), job)
+
+def compatible_owned_inclusion(connection: Nat, project: Nat, arguments: J.Json) -> Categories.Inclusion<Job, CompatibleRetry(connection, project, arguments), OwnedJob(connection, project)>:
+  Categories.intersection_first(Job, OwnedJob(connection, project), ArgumentsMatch(arguments))
+
+def compatible_arguments_inclusion(connection: Nat, project: Nat, arguments: J.Json) -> Categories.Inclusion<Job, CompatibleRetry(connection, project, arguments), ArgumentsMatch(arguments)>:
+  Categories.intersection_second(Job, OwnedJob(connection, project), ArgumentsMatch(arguments))
+
+def reuse_admitted(connection: Nat, project: Nat, arguments: J.Json, id: Nat,
+  admitted: Categories.Membership<Job, CompatibleRetry(connection, project, arguments)>) -> Resolution:
+  Categories.Membership{job, evidence} = admitted
+  Accept{Reuse{id, job}}
+
+def compatible_admission(connection: Nat, project: Nat, arguments: J.Json, id: Nat,
+  found: Maybe<&1, Categories.Membership<Job, CompatibleRetry(connection, project, arguments)>>) -> Resolution:
+  match found:
+    case Some{admitted}: reuse_admitted(connection, project, arguments, id, admitted)
+    case None{}: Refuse{"request_conflict", "This request_id already names a different command; do not retry with new arguments"}
 
 def run_existing(found: Maybe<&2, Finite.Entry(Job)>, +connection: Nat, +project: Nat, request: String,
-  +arguments: J.Json, workspace: D.Workspace, sandbox: D.Sandbox, +state: State) -> Resolution:
+  +arguments: J.Json, workspace: D.Workspace, sandbox: D.Sandbox, state: State) -> Resolution:
   match found:
-    case Some{(id, +job)}:
-      Job{owner, target, key, previous, old_workspace, old_sandbox, outcome} = job
-      gate(owned(connection, project, job) && Same.json(128n, arguments, previous), Reuse{id, job},
-        "request_conflict", "This request_id already names a different command; do not retry with new arguments")
-    case None{}:
-      new_job(Nat.is_lt(List.length(&2, Finite.Entry(Job), jobs(state)), 128n) && Nat.is_lt(next(state), 4294967295n),
-        next(state), Job{connection, project, request, arguments, workspace, sandbox, Running{}})
+    case Some{(id, job)}:
+      compatible_admission(connection, project, arguments, id,
+        Categories.admit_intersection(Job, job => owned(connection, project, job), job => arguments_match(arguments, job), job))
+    case None{}: new_job(constructed_job(construct_job(JobRequest{connection, project, request, arguments, workspace, sandbox})), state)
 
 def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, project: Nat,
   +request: String, arguments: J.Json, +state: State) -> Resolution:
@@ -285,61 +473,142 @@ def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, pro
       run_existing(retry(jobs(state), connection, request), connection, project, request,
         arguments, D.Workspace{roots, Some{root}}, sandbox, state)
 
-def run_authorized(found: Maybe<&2, Grant>, +connection: Nat, +project: Nat, request: String,
+def run_project_grant_calculation(+connection: Nat, +project: Nat, request: String, arguments: J.Json,
+  projects: D.Projects, state: State, admitted: Categories.Membership<Grant, ProjectGrant(project)>) -> Resolution:
+  Categories.Membership{grant, evidence} = admitted
+  run_project(Projects.find(projects, project), grant, connection, project, request, arguments, state)
+
+def run_authorized(+connection: Nat, +project: Nat, found: Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>, request: String,
   arguments: J.Json, projects: D.Projects, state: State) -> Resolution:
   match found:
     case None{}: Refuse{"project_forbidden", "This connection has no grant for that project"}
-    case Some{grant}: run_project(Projects.find(projects, project), grant, connection, project, request, arguments, state)
+    case Some{admitted}: run_project_grant_calculation(connection, project, request, arguments, projects, state, admitted)
 
 def cancel_pending(running: Bool, id: Nat, job: Job) -> Resolution:
   match running:
     case True{}: Accept{Interrupt{id, job}}
     case False{}: Accept{Reuse{id, job}}
 
-def change_job(remove: Bool, +id: Nat, +job: Job) -> Resolution:
+type JobRemoval is Data:
+  JobRemoval{operation: Nat, job: Job}
+
+def finished_job(candidate: JobRemoval) -> Bool:
+  JobRemoval{operation, job} = candidate
+  Bool.not(pending(outcome(job)))
+
+def ForgettableJob() -> JobRemoval -> Type:
+  Categories.holds(JobRemoval, finished_job)
+
+def forget_admitted(admitted: Categories.Membership<JobRemoval, ForgettableJob()>) -> Resolution:
+  Categories.Membership{JobRemoval{id, job}, evidence} = admitted
+  Accept{Remove{id}}
+
+def forget_admission(found: Maybe<&1, Categories.Membership<JobRemoval, ForgettableJob()>>) -> Resolution:
+  match found:
+    case Some{admitted}: forget_admitted(admitted)
+    case None{}: Refuse{"operation_running", "Cancel or finish the operation before forgetting it"}
+
+def change_job(remove: Bool, id: Nat, +job: Job) -> Resolution:
   match remove:
-    case True{}: gate(Bool.not(pending(outcome(job))), Remove{id}, "operation_running", "Cancel or finish the operation before forgetting it")
+    case True{}:
+      forget_admission(Categories.admit(JobRemoval, finished_job, JobRemoval{id, job}))
     case False{}: cancel_pending(pending(outcome(job)), id, job)
 
-def owner_job(allowed: Bool, id: Nat, job: Job, remove: Bool) -> Resolution:
-  match allowed:
-    case False{}: Refuse{"operation_not_found", "No retained operation belongs to that project and connection"}
-    case True{}: change_job(remove, id, job)
+def owner_job(connection: Nat, project: Nat, id: Nat, remove: Bool,
+  admitted: Categories.Membership<Job, OwnedJob(connection, project)>) -> Resolution:
+  Categories.Membership{job, evidence} = admitted
+  change_job(remove, id, job)
 
-def found_job(found: Maybe<&2, Job>, connection: Nat, project: Nat, id: Nat, remove: Bool) -> Resolution:
+def owner_admission(connection: Nat, project: Nat, id: Nat, remove: Bool,
+  found: Maybe<&1, Categories.Membership<Job, OwnedJob(connection, project)>>) -> Resolution:
+  match found:
+    case Some{admitted}: owner_job(connection, project, id, remove, admitted)
+    case None{}: Refuse{"operation_not_found", "No retained operation belongs to that project and connection"}
+
+def found_job(found: Maybe<&2, Job>, +connection: Nat, +project: Nat, id: Nat, remove: Bool) -> Resolution:
   match found:
     case None{}: Refuse{"operation_not_found", "No retained operation belongs to that project and connection"}
-    case Some{+job}: owner_job(owned(connection, project, job), id, job, remove)
+    case Some{job}:
+      owner_admission(connection, project, id, remove, Categories.admit(Job, job => owned(connection, project, job), job))
 
-def edit_authorized(found: Maybe<&2, Grant>, +connection: Nat, +project: Nat, +id: Nat, remove: Bool, state: State) -> Resolution:
+def edit_project_grant_calculation(+connection: Nat, project: Nat, +id: Nat, remove: Bool, state: State,
+  admitted: Categories.Membership<Grant, ProjectGrant(project)>) -> Resolution:
+  Categories.Membership{grant, evidence} = admitted
+  found_job(Finite.find(~Job, jobs(state), id), connection, project, id, remove)
+
+def edit_authorized(+connection: Nat, +project: Nat, found: Maybe<&1, Categories.Membership<Grant, ProjectGrant(project)>>, +id: Nat, remove: Bool, state: State) -> Resolution:
   match found:
     case None{}: Refuse{"project_forbidden", "This connection has no grant for that project"}
-    case Some{grant}: found_job(Finite.find(~Job, jobs(state), id), connection, project, id, remove)
+    case Some{admitted}: edit_project_grant_calculation(connection, project, id, remove, state, admitted)
 
-def run_valid(valid: Bool, +connection: Nat, +project: Nat, request: String, arguments: J.Json,
-  projects: D.Projects, +state: State) -> Resolution:
-  match valid:
-    case False{}: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
-    case True{}: run_authorized(authority(connection, project, state), connection, project, request, arguments, projects, state)
-
-def resolve(command: Command, +state: State, projects: D.Projects) -> Resolution:
+def run_command_valid(command: Command) -> Bool:
   match command:
-    case Configure{+entries}: gate(Nat.is_le(List.length(&2, Finite.Entry(Grant), entries), 32n) && valid_grants(entries, projects),
-      SetGrants{entries}, "invalid_connections", "Connections need distinct identities and existing project grants")
-    case Run{+connection, +project, +request, +arguments}:
-      run_valid(limited(request, 128n) && valid_args(arguments), connection, project, request, arguments, projects, state)
-    case Cancel{+connection, +project, id}: edit_authorized(authority(connection, project, state), connection, project, id, False{}, state)
-    case Forget{+connection, +project, id}: edit_authorized(authority(connection, project, state), connection, project, id, True{}, state)
+    case Run{connection, project, request, arguments}: limited(request, 128n) && valid_args(arguments)
+    case _: False{}
 
-def settle_pending(running: Bool, id: Nat, job: Job, value: J.Json, error: Bool) -> Maybe<&2, Change>:
-  match running:
-    case False{}: None{}
-    case True{}: Some{Complete{id, job, value, error}}
+def ValidRun() -> Command -> Type:
+  Categories.holds(Command, run_command_valid)
+
+def run_valid(admitted: Categories.Membership<Command, ValidRun()>, projects: D.Projects, +state: State) -> Resolution:
+  Categories.Membership{command, evidence} = admitted
+  match command:
+    case Run{+connection, +project, request, arguments}:
+      run_authorized(connection, project, authority(connection, project, state), request, arguments, projects, state)
+    case _: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
+
+def configuration_valid(projects: D.Projects, command: Command) -> Bool:
+  match command:
+    case Configure{+entries}: Nat.is_le(List.length(&2, Finite.Entry(Grant), entries), 32n) && valid_grants(entries, projects)
+    case _: False{}
+
+def ValidConfiguration(projects: D.Projects) -> Command -> Type:
+  Categories.holds(Command, command => configuration_valid(projects, command))
+
+def configure_admitted(projects: D.Projects, admitted: Categories.Membership<Command, ValidConfiguration(projects)>) -> Resolution:
+  Categories.Membership{command, evidence} = admitted
+  match command:
+    case Configure{entries}: Accept{SetGrants{entries}}
+    case _: Refuse{"invalid_connections", "Connections need distinct identities and existing project grants"}
+
+def configure_admission(+projects: D.Projects,
+  found: Maybe<&1, Categories.Membership<Command, ValidConfiguration(projects)>>) -> Resolution:
+  match found:
+    case Some{admitted}: configure_admitted(projects, admitted)
+    case None{}: Refuse{"invalid_connections", "Connections need distinct identities and existing project grants"}
+
+def run_admission(projects: D.Projects, state: State,
+  found: Maybe<&1, Categories.Membership<Command, ValidRun()>>) -> Resolution:
+  match found:
+    case Some{admitted}: run_valid(admitted, projects, state)
+    case None{}: Refuse{"invalid_command", "A bounded request_id and valid Bash arguments are required"}
+
+def resolve_calculation(command: Command, +state: State, +projects: D.Projects) -> Resolution:
+  match command:
+    case Configure{entries}:
+      configure_admission(projects, Categories.admit(Command, command => configuration_valid(projects, command), Configure{entries}))
+    case Run{connection, project, request, arguments}:
+      run_admission(projects, state, Categories.admit(Command, run_command_valid, Run{connection, project, request, arguments}))
+    case Cancel{+connection, +project, id}: edit_authorized(connection, project, authority(connection, project, state), id, False{}, state)
+    case Forget{+connection, +project, id}: edit_authorized(connection, project, authority(connection, project, state), id, True{}, state)
+
+def RunningJob() -> Job -> Type:
+  Categories.holds(Job, job => pending(outcome(job)))
+
+def settle_pending(id: Nat, admitted: Categories.Membership<Job, RunningJob()>, value: J.Json, error: Bool) -> Maybe<&2, Change>:
+  Categories.Membership{job, evidence} = admitted
+  Some{Complete{id, job, value, error}}
+
+def settlement_admission(id: Nat, value: J.Json, error: Bool,
+  found: Maybe<&1, Categories.Membership<Job, RunningJob()>>) -> Maybe<&2, Change>:
+  match found:
+    case Some{admitted}: settle_pending(id, admitted, value, error)
+    case None{}: None{}
 
 def settle(found: Maybe<&2, Job>, id: Nat, value: J.Json, error: Bool) -> Maybe<&2, Change>:
   match found:
     case None{}: None{}
-    case Some{+job}: settle_pending(pending(outcome(job)), id, job, value, error)
+    case Some{job}:
+      settlement_admission(id, value, error, Categories.admit(Job, job => pending(outcome(job)), job))
 
 def recovered(running: Bool, job: Job) -> Job:
   match running:
@@ -372,3 +641,43 @@ def effect_valid(effect: Effect, state: State) -> Bool:
   match effect:
     case Execute{+id, job}: same_live(Finite.find(~Job, jobs(state), id), id, job)
     case Stop{id}: stopped(Finite.find(~Job, jobs(state), id))
+
+type CommandRequest is Data:
+  CommandRequest{command: Command, state: State, projects: D.Projects}
+
+def request_resolution(request: CommandRequest) -> Resolution:
+  CommandRequest{command, state, projects} = request
+  resolve_calculation(command, state, projects)
+
+def ConstructedCommand() -> Type:
+  Categories.Membership<Categories.Construction<CommandRequest, Resolution>,
+    Categories.constructed_by(CommandRequest, Resolution, request_resolution)>
+
+def construct_command(command: Command, state: State, projects: D.Projects) -> ConstructedCommand():
+  Categories.construct(CommandRequest, Resolution, request_resolution, CommandRequest{command, state, projects})
+
+type CompletionRequest is Data:
+  CompletionRequest{id: Nat, value: J.Json, error: Bool, state: State}
+
+def completion_resolution(request: CompletionRequest) -> Maybe<&2, Change>:
+  CompletionRequest{+id, value, error, +state} = request
+  settle(Finite.find(~Job, jobs(state), id), id, value, error)
+
+def ConstructedCompletion() -> Type:
+  Categories.Membership<Categories.Construction<CompletionRequest, Maybe<&2, Change>>,
+    Categories.constructed_by(CompletionRequest, Maybe<&2, Change>, completion_resolution)>
+
+def construct_completion(id: Nat, value: J.Json, error: Bool, state: State) -> ConstructedCompletion():
+  Categories.construct(CompletionRequest, Maybe<&2, Change>, completion_resolution, CompletionRequest{id, value, error, state})
+
+
+def command_value(member: ConstructedCommand()) -> Resolution:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
+def resolve(command: Command, +state: State, +projects: D.Projects) -> Resolution:
+  command_value(construct_command(command, state, projects))
+
+def completion_value(member: ConstructedCompletion()) -> Maybe<&2, Change>:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result

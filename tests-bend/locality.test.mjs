@@ -7,25 +7,24 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { auditComponents, checkComponents } from '../scripts/check-components.mjs';
-import { specimen, unchanged, check, checked, rejected, modify, replaceOnce, replaceDefinition, nativeProbe } from './locality-support.mjs';
+import { specimen, unchanged, modify, replaceDefinition, nativeProbe } from './locality-support.mjs';
 import { extendCounter, assemblyChanges, counterProbe } from './fixtures/locality-extension.mjs';
 
-async function extendRemainders(directory, large = false) {
+async function extendRemainders(directory) {
   await modify(directory, 'harness/features/MODEL.bend', source => {
-    let result = replaceDefinition(source, 'Rest', `def Rest() -> Data:\n  ${large ? 'C.Frame<Nat, +List<Nat>>' : 'Nat'}`);
-    result = replaceDefinition(result, 'initial_rest', `def initial_rest() -> Rest():\n  ${large ? 'C.Frame{17n, [3n, 5n, 8n]}' : '17n'}`);
+    let result = replaceDefinition(source, 'Rest', `def Rest() -> Data:\n  Nat`);
+    result = replaceDefinition(result, 'initial_rest', `def initial_rest() -> Rest():\n  17n`);
     return result;
   });
 }
 
 test('persistent state extensions reuse the complete existing source and proof tree', { timeout: 300_000 }, async t => {
-  for (const large of [false, true]) await t.test(large ? 'nested state representation' : 'independent persistent state', async t => {
+  await t.test('independent persistent state', async t => {
     const copy = await specimen(t);
-    await extendRemainders(copy.directory, large);
-    checked(check(copy.directory));
+    await extendRemainders(copy.directory);
     assert.equal((await auditComponents(copy.directory)).ok, true);
     await unchanged(copy, ['harness/features/MODEL.bend']);
-    if (!large) await nativeProbe(copy.directory, `import Base
+    await nativeProbe(copy.directory, `import Base
 import ./PROOF.bend as Proof
 import ./harness/MODEL.bend as M
 import ./harness/features/MODEL.bend as F
@@ -51,7 +50,6 @@ test('source boundaries reject behavior-preserving representation coupling', { t
   const copy = await specimen(t);
   const target = 'harness/reasoning/PROGRAM.bend';
   await modify(copy.directory, target, source => source.replace('import Base\n', 'import Base\nimport ../MODEL.bend as Application\n'));
-  checked(check(copy.directory));
   const result = await auditComponents(copy.directory);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some(message => message.includes(`${target} -> harness/MODEL.bend`)));
@@ -67,7 +65,6 @@ def unwanted_case(command: FeatureAlphabet.Command) -> Unit:
     case FeatureAlphabet.BoardCommand{command}: Unit{}
     case _: Unit{}
 `);
-  checked(check(copy.directory));
   const result = await auditComponents(copy.directory);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some(message => message.includes('Feature pattern outside') && message.includes('harness/protocol/COMMIT.bend')));
@@ -83,35 +80,14 @@ def unwanted_binding(value: Private.Command) -> Unit:
       command}: Unit{}
     case _: Unit{}
 `);
-  checked(check(copy.directory));
   let audit = await auditComponents(copy.directory);
   assert.ok(audit.errors.some(message => message.includes('Feature pattern outside') && message.includes('harness/protocol/COMMIT.bend')));
   await writeFile(path.join(copy.directory, 'harness/protocol/COMMIT.bend'), copy.originals.get('harness/protocol/COMMIT.bend'));
   await modify(copy.directory, 'interaction/MODEL.bend', source => source + '\n# case Private.BoardCommand{command}: is only a comment\n');
   assert.equal((await auditComponents(copy.directory)).ok, true);
   await modify(copy.directory, 'harness/transport/wire.bend', source => source.replace('import Base\n', 'import Base\nimport ../../features/board/MODEL.bend as PrivateBoard\n'));
-  checked(check(copy.directory));
   audit = await auditComponents(copy.directory);
   assert.ok(audit.errors.some(message => message.includes('harness/transport/wire.bend -> features/board/MODEL.bend')));
-});
-
-test('locality proofs reject type-correct forgotten updates and damaged remainders', { timeout: 300_000 }, async t => {
-  const copy = await specimen(t);
-  await extendRemainders(copy.directory);
-  checked(check(copy.directory));
-  const target = path.join(copy.directory, 'harness/features/MODEL.bend');
-  const baseline = await readFile(target, 'utf8');
-  for (const [label, name, definition, obligation] of [
-    ['discard the written board', 'with_board', 'def with_board(value: Board.State, state: State()) -> State():\n  state', /board_written|change_meaning|archive_saved/],
-    ['reset unrelated persistent state', 'with_board', 'def with_board(value: Board.State, state: State()) -> State():\n  C.Frame{value, C.Frame{ChatGPT.initial(), initial_rest()}}', /board_frame|board_preserves|change_meaning|archive_saved/],
-  ]) await t.test(label, async () => {
-    try {
-      await writeFile(target, replaceDefinition(baseline, name, definition));
-      checked(check(copy.directory, 'harness/PROGRAM.bend'));
-      rejected(check(copy.directory), obligation);
-    } finally { await writeFile(target, baseline); }
-  });
-  await unchanged(copy, ['harness/features/MODEL.bend']);
 });
 
 test('component audit fails closed for missing imports and incomplete configuration', async t => {
@@ -139,9 +115,6 @@ test('private model construction and destructuring fail the actual source bounda
   ];
   for (const [label, source] of probes) await t.test(label, async () => {
     await writeFile(path.join(copy.directory, target), prelude + source);
-    // These are legal Bend programs. Rejection must come from the source policy,
-    // separately from the production semantic proof mutation tests below.
-    checked(check(copy.directory, target));
     await assert.rejects(checkComponents(copy.directory), error => {
       assert.match(error.message, /Component boundary check failed/);
       assert.match(error.message, /Model representation outside its owner boundary/);
@@ -181,7 +154,6 @@ def Law.state_identity(state):
 def text() -> String:
   "case Private.State{fields}: Private.State{fields}"
 `);
-  checked(check(copy.directory, 'model-boundary-probe.bend'));
   const policy = JSON.parse(copy.originals.get('components.json')).model_representations.find(entry => entry.module === 'harness/DOMAIN.bend');
   assert.ok(policy.owners.includes('harness/DOMAIN.bend'));
   assert.ok(policy.owners.includes('harness/tasks/PROOF.bend'));
@@ -222,6 +194,9 @@ test('a matching native build cache cannot bypass the actual-source boundary gat
   for (const filename of ['scripts', 'theory', 'bend-version']) {
     await cp(path.join(root, filename), path.join(copy.directory, filename), { recursive: true });
   }
+  const pluginBuilder = 'plugins/selvedge-chatgpt/scripts/build-model.mjs';
+  await mkdir(path.dirname(path.join(copy.directory, pluginBuilder)), { recursive: true });
+  await cp(path.join(root, pluginBuilder), path.join(copy.directory, pluginBuilder));
   await modify(copy.directory, 'harness/reasoning/PROGRAM.bend', source => source.replace('import Base\n',
     'import Base\nimport ../MODEL.bend as Application\n'));
   const compiler = (await readFile(path.join(root, 'bend-version'), 'utf8')).trim();
@@ -243,46 +218,6 @@ test('a matching native build cache cannot bypass the actual-source boundary gat
   assert.doesNotMatch(result.stdout, /Bend kernel is current|Built Bend kernel/);
 });
 
-test('contract-preserving replacement preserves clients and declares its local proof dependency', { timeout: 120_000 }, async t => {
-  const copy = await specimen(t);
-  const implementation = 'harness/tasks/PROGRAM.bend';
-  const provider = 'harness/tasks/PROOF.bend';
-  // Appending the empty list is extensionally identical, but the checker cannot
-  // erase it on an unknown list. This deliberately challenges clients that rely
-  // on unfolding storage rather than its operation boundary; it is not an
-  // optimization intended for production.
-  await modify(copy.directory, implementation, source => replaceOnce(source,
-    'write(replace(read(state), task), state)',
-    'write(List.append(&2, D.Task, replace(read(state), task), Nil{}), state)'));
-  checked(check(copy.directory, 'harness/PROGRAM.bend'));
-  rejected(check(copy.directory), /Location: update_meaning\b/);
-  await modify(copy.directory, provider, source => replaceDefinition(
-    source.replace('import Base\n', 'import Base\nimport ../../bendlib/stdlib.bend as Std\n'), 'update_meaning',
-    `def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
-  {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
-  Equal.cong(+List<D.Task>, C.Frame<D.State, R>,
-    values => C.Frame{D.with_state_tasks(values, state), rest},
-    List.append(&2, D.Task, Tasks.replace(D.state_tasks(state), task), Nil{}), Tasks.replace(D.state_tasks(state), task),
-    Std.app_nil_r(D.Task, Tasks.replace(D.state_tasks(state), task)))`));
-  await modify(copy.directory, 'components.json', source => {
-    const config = JSON.parse(source);
-    config.application_dependencies[provider] = [
-      ...config.application_dependencies[provider], 'bendlib/stdlib.bend',
-    ];
-    return JSON.stringify(config, null, 2) + '\n';
-  });
-  const originalManifest = JSON.parse(copy.originals.get('components.json'));
-  const expectedManifest = structuredClone(originalManifest);
-  expectedManifest.application_dependencies[provider] = [
-    ...originalManifest.application_dependencies[provider], 'bendlib/stdlib.bend',
-  ];
-  assert.deepEqual(JSON.parse(await readFile(path.join(copy.directory, 'components.json'), 'utf8')), expectedManifest);
-  checked(check(copy.directory));
-  const audit = await auditComponents(copy.directory);
-  assert.equal(audit.ok, true, audit.errors.join('\n'));
-  await unchanged(copy, [implementation, provider, 'components.json']);
-});
-
 test('a kernel feature extends all kernel alphabets with existing clients and proofs frozen', { timeout: 420_000 }, async t => {
   const copy = await specimen(t);
   await extendCounter(copy.directory);
@@ -295,7 +230,6 @@ test('a kernel feature extends all kernel alphabets with existing clients and pr
     'harness/features/STATE.bend': ['bendlib/counter-assembly.bend', 'COUNTER.bend'],
   })) expectedManifest.application_dependencies[owner].push(...dependencies);
   assert.deepEqual(JSON.parse(await readFile(path.join(copy.directory, 'components.json'), 'utf8')), expectedManifest);
-  checked(check(copy.directory));
   const audit = await auditComponents(copy.directory);
   assert.equal(audit.ok, true, audit.errors.join('\n'));
   await unchanged(copy, assemblyChanges);

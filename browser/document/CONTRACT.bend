@@ -34,9 +34,9 @@ import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ./presentation-order.bend as Order
 import ../MODEL.bend as Model2
 
-def projected_action(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, help: Controls.Help, feedback: Controls.Feedback) -> Controls.Representation:
+def projected_action(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, feedback: Controls.Feedback) -> Controls.Representation:
   Controls.ActionPresentation{face, behavior, geometry} = projection
-  Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}
+  Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}
 
 def label_properties(value: Design.Style) -> (SpatialModel.Flow & (SpatialModel.Overflow & (Nat & Nat))):
   Design.Style{text, chrome, alignment, flow, overflow, +frame, minimum, maximum, states} = value
@@ -79,8 +79,8 @@ type ProjectPresentationRequirements is Type:
         Controls.project_presentation(Controls.project_control_matches(input, project), Controls.project_control_input(input), expanded, name, face, behavior, geometry) : Controls.ActionPresentation},
     unscoped_projection: @+area:Controls.Area -> @+input:InteractionTypes.Input -> @+name:String -> @+face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry ->
       {Controls.contextual_source_presentation(area, Controls.Unscoped{}, input, name, face, behavior, geometry) == Controls.ActionPresentation{face, behavior, geometry} : Controls.ActionPresentation},
-    complete_action_projection: @+area:Controls.Area -> @+family:Controls.SourceFamily -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+name:String -> @+face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+help:Controls.Help -> @+feedback:Controls.Feedback -> {Controls.source_action(area, family, Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}) ==
-        projected_action(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, help, feedback) : Controls.Representation},
+    complete_action_projection: @+area:Controls.Area -> @+family:Controls.SourceFamily -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+name:String -> @+face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+feedback:Controls.Feedback -> {Controls.source_action(area, family, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
+        projected_action(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, feedback) : Controls.Representation},
     disclosure_geometry: @+width:Nat -> @+height:Nat -> @+preferred:Enclosure.Extent -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> {Controls.project_geometry(Controls.ProjectDisclosure{}, Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading}) == Controls.Geometry{Space.fixed_demand(24n, 24n), icon, radius, leading} : Controls.Geometry},
     create_geometry: @+width:Nat -> @+height:Nat -> @+preferred:Enclosure.Extent -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> {Controls.project_geometry(Controls.ProjectCreate{}, Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading}) == Controls.Geometry{Space.fixed_demand(28n, 28n), icon, radius, leading} : Controls.Geometry},
     more_geometry: @+width:Nat -> @+height:Nat -> @+preferred:Enclosure.Extent -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> {Controls.project_geometry(Controls.ProjectMore{}, Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon, radius, leading}) == Controls.Geometry{Space.fixed_demand(28n, 28n), icon, radius, leading} : Controls.Geometry},
@@ -203,7 +203,7 @@ def surface_payload(surface: SurfaceTypes.Surface) -> SurfacePayload:
 
 def specified_header_representation(representation: Controls.Representation) -> Bool:
   match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, Controls.PanelHeaderEnd{}, help, feedback}: True{}
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, Controls.PanelHeaderEnd{}, feedback}}: True{}
     case _: False{}
 
 def specified_header_child(+value: SurfaceTypes.Node, +context: Controls.Context) -> Bool:

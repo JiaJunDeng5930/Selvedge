@@ -4,6 +4,13 @@ Owns board records, task planning and drafting; task execution remains the harne
 
 Start with [MODEL.bend](MODEL.bend), [SPEC.bend](SPEC.bend), [PROGRAM.bend](PROGRAM.bend), [CONTRACT.bend](CONTRACT.bend).
 
+For command resolution, follow `construct_command` and `change_resolution` in
+[resolution.bend](resolution.bend). The construction captures the board command
+and its world; `change_calculation` in [PROGRAM.bend](PROGRAM.bend) remains the
+underlying calculation. Launch interpretation proceeds through
+[harness/features](../../harness/features/README.md) and ordinary core task
+creation.
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;

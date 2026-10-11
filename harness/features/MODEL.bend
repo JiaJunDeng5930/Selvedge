@@ -27,17 +27,20 @@ def initial() -> State():
 def board(state: State()) -> Board.State:
   C.local(Board.State, Modules(), state)
 
+def modules(state: State()) -> Modules():
+  C.rest(Board.State, Modules(), state)
+
 def rest(state: State()) -> Rest():
   C.rest(ChatGPT.State, Rest(), C.rest(Board.State, Modules(), state))
 
 def with_board(value: Board.State, state: State()) -> State():
-  C.replace(Board.State, Modules(), value, state)
+  C.constructed_replacement(Board.State, Modules(), C.construct_replace(Board.State, Modules(), value, state))
 
 def chatgpt(state: State()) -> ChatGPT.State:
   C.local(ChatGPT.State, Rest(), C.rest(Board.State, Modules(), state))
 
 def with_chatgpt(value: ChatGPT.State, state: State()) -> State():
-  C.map_rest(Board.State, Modules(), rest => C.replace(ChatGPT.State, Rest(), value, rest), state)
+  C.map_rest(Board.State, Modules(), rest => C.constructed_replacement(ChatGPT.State, Rest(), C.construct_replace(ChatGPT.State, Rest(), value, rest)), state)
 
 def with_rest(value: Rest(), state: State()) -> State():
   C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, Rest(), previous => value, modules), state)

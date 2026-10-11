@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/categories.bend as Categories
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -33,9 +34,7 @@ def valid_request(+arguments: J.Json) -> Bool:
     (D.nonempty(String.trim(J.text(J.get(arguments, "justification")))) && bounded(J.text(J.get(arguments, "justification"))))
 
 def needed(source: D.Source, +arguments: J.Json, policy: D.ApprovalPolicy) -> Bool:
-  match source:
-    case D.Harness{D.Bash{}}: requested(arguments) && Bool.not(W.full_access(policy))
-    case _: False{}
+  D.native_process(source) && requested(arguments) && Bool.not(W.full_access(policy))
 
 def reviewer(policy: D.ApprovalPolicy) -> D.ApprovalReviewer:
   match policy:
@@ -70,26 +69,67 @@ def allowed(outcome: D.ApprovalOutcome) -> Bool:
     case D.ApprovalAllowed{reason}: True{}
     case _: False{}
 
-def normalized(valid: Bool, outcome: D.ApprovalOutcome) -> D.ApprovalOutcome:
-  match valid:
-    case True{}: outcome
-    case False{}: D.ApprovalFailed{"The review response exceeded its bounded decision contract"}
+type NormalizedRequest is Data:
+  NormalizedRequest{outcome: D.ApprovalOutcome}
+
+def normalized_accepts(request: NormalizedRequest) -> Bool:
+  NormalizedRequest{+outcome} = request
+  bounded(D.approval_reason(outcome))
+
+def normalized_category() -> NormalizedRequest -> Type:
+  Categories.holds(NormalizedRequest, normalized_accepts)
+
+def normalized_accepted(member: Categories.Membership<NormalizedRequest, normalized_category()>) -> D.ApprovalOutcome:
+  Categories.Membership{request, evidence} = member
+  NormalizedRequest{+outcome} = request
+  outcome
+
+def normalized_admitted(admission: Maybe<&1, Categories.Membership<NormalizedRequest, normalized_category()>>, request: NormalizedRequest) -> D.ApprovalOutcome:
+  match admission:
+    case Some{member}: normalized_accepted(member)
+    case None{}:
+      NormalizedRequest{+outcome} = request
+      D.ApprovalFailed{"The review response exceeded its bounded decision contract"}
+
+def normalized(+outcome: D.ApprovalOutcome) -> D.ApprovalOutcome:
+  +request = {NormalizedRequest{outcome} : NormalizedRequest}
+  normalized_admitted(Categories.admit(NormalizedRequest, normalized_accepts, request), request)
 
 def decided(outcome: D.ApprovalOutcome, operation: D.Operation(), task: D.Task, reviewer: D.ApprovalReviewer) -> Resolution:
   match outcome:
     case D.ApprovalAllowed{reason}: Grant{operation, task, reviewer, reason}
     case other: Deny{operation, task, reviewer, other}
 
-def matched(matches: Bool, origin: Origin, operation: D.Operation(), task: D.Task,
-  reviewer: D.ApprovalReviewer, +outcome: D.ApprovalOutcome) -> Resolution:
-  match matches:
-    case False{}: stale(origin)
-    case True{}: decided(normalized(bounded(D.approval_reason(outcome)), outcome), operation, task, reviewer)
+type MatchedRequest is Data:
+  MatchedRequest{origin: Origin, operation: D.Operation(), task: D.Task, reviewer: D.ApprovalReviewer, outcome: D.ApprovalOutcome}
+
+def matched_accepts(request: MatchedRequest) -> Bool:
+  MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
+  origin_matches(origin, reviewer)
+
+def matched_category() -> MatchedRequest -> Type:
+  Categories.holds(MatchedRequest, matched_accepts)
+
+def matched_origin_calculation(member: Categories.Membership<MatchedRequest, matched_category()>) -> Resolution:
+  Categories.Membership{request, evidence} = member
+  MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
+  decided(normalized(outcome), operation, task, reviewer)
+
+def matched_admitted(admission: Maybe<&1, Categories.Membership<MatchedRequest, matched_category()>>, request: MatchedRequest) -> Resolution:
+  match admission:
+    case Some{member}: matched_origin_calculation(member)
+    case None{}:
+      MatchedRequest{+origin, +operation, +task, +reviewer, +outcome} = request
+      stale(origin)
+
+def matched(+origin: Origin, +operation: D.Operation(), +task: D.Task, +reviewer: D.ApprovalReviewer, +outcome: D.ApprovalOutcome) -> Resolution:
+  +request = {MatchedRequest{origin, operation, task, reviewer, outcome} : MatchedRequest}
+  matched_admitted(Categories.admit(MatchedRequest, matched_accepts, request), request)
 
 def pending(stage: D.OperationStage, +origin: Origin, operation: D.Operation(), task: D.Task,
   outcome: D.ApprovalOutcome) -> Resolution:
   match stage:
-    case D.ApprovalPending{+reviewer}: matched(origin_matches(origin, reviewer), origin, operation, task, reviewer, outcome)
+    case D.ApprovalPending{+reviewer}: matched(origin, operation, task, reviewer, outcome)
     case _: stale(origin)
 
 def operation(found: Maybe<&2, D.Operation()>, origin: Origin, task: D.Task, outcome: D.ApprovalOutcome) -> Resolution:
@@ -114,7 +154,7 @@ def denial_value(+outcome: D.ApprovalOutcome) -> J.Json:
 def acknowledgement(accepted: Bool) -> J.Json:
   D.success(J.Object{[J.Field{"accepted", J.Boolean{accepted}}]})
 
-def meaning(-StateRest: Data, -EffectRest: Data, resolution: Resolution, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+def meaning_calculation(-StateRest: Data, -EffectRest: Data, resolution: Resolution, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match resolution:
     case Ignore{}: C.Decision{world, acknowledgement(False{}), Nil{}}
     case Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
@@ -167,3 +207,33 @@ def review_effects(-EffectRest: Data, reviewer: D.ApprovalReviewer, +task: D.Tas
     case D.HumanReviewer{}: Nil{}
     case D.ModelReviewer{profile}:
       [Effects.RequestApproval{D.task_id(task), ticket, profile, call, D.task_context(task), D.task_history(task)}]
+
+
+type ReviewRequest<-StateRest: Data> is Data:
+  ReviewRequest{origin: Origin, task_id: Nat, operation_id: Nat, outcome: D.ApprovalOutcome, world: C.Frame<D.State, StateRest>}
+
+def review_resolution(-StateRest: Data, request: ReviewRequest<StateRest>) -> Resolution:
+  ReviewRequest{origin, task_id, operation_id, outcome, +world} = request
+  state = C.local(D.State, StateRest, world)
+  resolve(T.find(D.state_tasks(state), task_id), origin, operation_id, outcome)
+
+def ConstructedReview(-StateRest: Data) -> Type:
+  Categories.Membership<Categories.Construction<ReviewRequest<StateRest>, Resolution>,
+    Categories.constructed_by(ReviewRequest<StateRest>, Resolution, review_resolution(StateRest))>
+
+def construct_review(-StateRest: Data, request: ReviewRequest<StateRest>) -> ConstructedReview(StateRest):
+  Categories.construct(ReviewRequest<StateRest>, Resolution, review_resolution(StateRest), request)
+
+def resolution(-StateRest: Data, member: ConstructedReview(StateRest)) -> Resolution:
+  Categories.Membership{Categories.Construction{request, result}, evidence} = member
+  result
+
+def meaning(-StateRest: Data, -EffectRest: Data, member: ConstructedReview(StateRest)) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  Categories.Membership{Categories.Construction{ReviewRequest{origin, task_id, operation_id, outcome, world}, resolution}, evidence} = member
+  meaning_calculation(StateRest, EffectRest, resolution, world)
+
+
+def review_consumer_required(-StateRest: Data, -EffectRest: Data, member: ConstructedReview(StateRest)) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  Categories.Membership{Categories.Construction{+request, resolution}, evidence} = member
+  ReviewRequest{origin, task_id, operation_id, outcome, world} = request
+  meaning_calculation(StateRest, EffectRest, review_resolution(StateRest, request), world)

@@ -1,4 +1,6 @@
 import Base
+import ../tools/SYNTAX.bend as Native
+import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as F
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
@@ -66,7 +68,7 @@ def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json) -> Boo
   match source:
     case D.Extension{plugin, remote}: Schema.valid(schema, arguments)
     case D.Mcp{server, remote}: J.is_object(arguments)
-    case D.Harness{D.Bash{}}:
+    case D.Harness{Native.Process{}}:
       Schema.valid(schema, arguments) && D.nonempty(J.text(J.get(arguments, "command"))) &&
         Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}})) && Approvals.valid_request(arguments)
     case D.Harness{other}: Schema.valid(schema, arguments)
@@ -76,68 +78,224 @@ def external_review(needed: Bool, tool: D.Tool, call: D.Call, remaining: +List<D
     case True{}: Review{Approvals.reviewer(Workspace.approval(D.task_context(task))), call, remaining, task}
     case False{}: External{tool, call, remaining, task}
 
-def external_capacity(available: Bool, +tool: D.Tool, +call: D.Call, remaining: +List<D.Attempt>, +task: D.Task) -> Action:
-  match available:
-    case True{}: external_review(Approvals.needed(D.tool_source(tool), T.call_arguments(call), Workspace.approval(D.task_context(task))),
-      tool, call, remaining, task)
-    case False{}: Failure{"operation_limit", "This task has reached its in-flight operation limit; wait for results or cancel an operation", call, remaining, task}
+type ExternalCapacityRequest is Data:
+  ExternalCapacityRequest{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task}
 
-def internal_capacity(available: Bool, builtin: D.Builtin, +call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> Action:
-  match available:
-    case True{}: Internal{Protocol.invocation(builtin, T.call_arguments(call), task, world), call, remaining, task}
-    case False{}: Failure{"operation_limit", "This task has reached its result-processing operation limit; wait for results or cancel an operation", call, remaining, task}
+def external_capacity_accepts(request: ExternalCapacityRequest) -> Bool:
+  ExternalCapacityRequest{+tool, +call, +remaining, +task} = request
+  Nat.is_lt(List.length(&2, D.Operation(), D.task_operations(task)), D.operation_limit())
+
+def external_capacity_category() -> ExternalCapacityRequest -> Type:
+  Categories.holds(ExternalCapacityRequest, external_capacity_accepts)
+
+def external_capacity_accepted(member: Categories.Membership<ExternalCapacityRequest, external_capacity_category()>) -> Action:
+  Categories.Membership{request, evidence} = member
+  ExternalCapacityRequest{+tool, +call, +remaining, +task} = request
+  external_review(Approvals.needed(D.tool_source(tool), T.call_arguments(call), Workspace.approval(D.task_context(task))), tool, call, remaining, task)
+
+def external_capacity_admitted(admission: Maybe<&1, Categories.Membership<ExternalCapacityRequest, external_capacity_category()>>, request: ExternalCapacityRequest) -> Action:
+  match admission:
+    case Some{member}: external_capacity_accepted(member)
+    case None{}:
+      ExternalCapacityRequest{+tool, +call, +remaining, +task} = request
+      Failure{"operation_limit", "This task has reached its in-flight operation limit; wait for results or cancel an operation", call, remaining, task}
+
+def external_capacity(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task) -> Action:
+  +request = {ExternalCapacityRequest{tool, call, remaining, task} : ExternalCapacityRequest}
+  external_capacity_admitted(Categories.admit(ExternalCapacityRequest, external_capacity_accepts, request), request)
+
+type InternalCapacityRequest is Data:
+  InternalCapacityRequest{builtin: Native.Body, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
+
+def internal_capacity_accepts(request: InternalCapacityRequest) -> Bool:
+  InternalCapacityRequest{+builtin, +call, +remaining, +task, +world} = request
+  Nat.is_eq(List.length(&2, D.PluginRef, Hooks.after(Hooks.plugins(D.task_contract(task)))), 0n) || Nat.is_lt(List.length(&2, D.Operation(), D.task_operations(task)), D.operation_limit())
+
+def internal_capacity_category() -> InternalCapacityRequest -> Type:
+  Categories.holds(InternalCapacityRequest, internal_capacity_accepts)
+
+def internal_capacity_accepted(member: Categories.Membership<InternalCapacityRequest, internal_capacity_category()>) -> Action:
+  Categories.Membership{request, evidence} = member
+  InternalCapacityRequest{+builtin, +call, +remaining, +task, +world} = request
+  Internal{Protocol.invocation(builtin, T.call_arguments(call), task, world), call, remaining, task}
+
+def internal_capacity_admitted(admission: Maybe<&1, Categories.Membership<InternalCapacityRequest, internal_capacity_category()>>, request: InternalCapacityRequest) -> Action:
+  match admission:
+    case Some{member}: internal_capacity_accepted(member)
+    case None{}:
+      InternalCapacityRequest{+builtin, +call, +remaining, +task, +world} = request
+      Failure{"operation_limit", "This task has reached its result-processing operation limit; wait for results or cancel an operation", call, remaining, task}
+
+def internal_capacity(+builtin: Native.Body, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
+  +request = {InternalCapacityRequest{builtin, call, remaining, task, world} : InternalCapacityRequest}
+  internal_capacity_admitted(Categories.admit(InternalCapacityRequest, internal_capacity_accepts, request), request)
 
 def classified(execution: D.Execution, source: D.Source, tool: D.Tool, +call: D.Call,
   remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> Action:
   match execution source:
     case D.ExternalMutation{} _:
-      external_capacity(Nat.is_lt(List.length(&2, D.Operation(), D.task_operations(task)), D.operation_limit()), tool, call, remaining, task)
+      external_capacity(tool, call, remaining, task)
     case D.InternalOperation{} D.Harness{builtin}:
-      internal_capacity(Nat.is_eq(List.length(&2, D.PluginRef, Hooks.after(Hooks.plugins(D.task_contract(task)))), 0n) ||
-        Nat.is_lt(List.length(&2, D.Operation(), D.task_operations(task)), D.operation_limit()), builtin, call, remaining, task, world)
+      internal_capacity(builtin, call, remaining, task, world)
     case _ _:
       Failure{"internal_error", "Invalid internal tool classification", call, remaining, task}
 
-def validated(valid: Bool, +tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()) -> Action:
-  match valid:
-    case False{}:
+type ValidatedRequest is Data:
+  ValidatedRequest{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
+
+def validated_accepts(request: ValidatedRequest) -> Bool:
+  ValidatedRequest{+tool, +call, +remaining, +task, +world} = request
+  D.Tool{name, description, schema, source} = tool
+  arguments_valid(source, schema, T.call_arguments(call))
+
+def validated_category() -> ValidatedRequest -> Type:
+  Categories.holds(ValidatedRequest, validated_accepts)
+
+def validated_accepted(member: Categories.Membership<ValidatedRequest, validated_category()>) -> Action:
+  Categories.Membership{request, evidence} = member
+  ValidatedRequest{+tool, +call, +remaining, +task, +world} = request
+  classified(D.execution(D.tool_source(tool)), D.tool_source(tool), tool, call, remaining, task, world)
+
+def validated_admitted(admission: Maybe<&1, Categories.Membership<ValidatedRequest, validated_category()>>, request: ValidatedRequest) -> Action:
+  match admission:
+    case Some{member}: validated_accepted(member)
+    case None{}:
+      ValidatedRequest{+tool, +call, +remaining, +task, +world} = request
       Failure{"invalid_arguments", "Tool arguments do not satisfy its frozen schema", call, remaining, task}
-    case True{}:
-      classified(D.execution(D.tool_source(tool)), D.tool_source(tool), tool, call, remaining, task, world)
 
-def available(present: Bool, +tool: D.Tool, +call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()) -> Action:
-  match present:
-    case False{}:
+def validated(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
+  +request = {ValidatedRequest{tool, call, remaining, task, world} : ValidatedRequest}
+  validated_admitted(Categories.admit(ValidatedRequest, validated_accepts, request), request)
+
+type AvailableRequest is Data:
+  AvailableRequest{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
+
+def available_accepts(request: AvailableRequest) -> Bool:
+  AvailableRequest{+tool, +call, +remaining, +task, +world} = request
+  T.available(catalog(world), tool)
+
+def available_category() -> AvailableRequest -> Type:
+  Categories.holds(AvailableRequest, available_accepts)
+
+def available_validation(request: AvailableRequest) -> ValidatedRequest:
+  AvailableRequest{tool, call, remaining, task, world} = request
+  ValidatedRequest{tool, call, remaining, task, world}
+
+def ready_arguments(request: AvailableRequest) -> Bool:
+  validated_accepts(available_validation(request))
+
+def ready_validation_category() -> AvailableRequest -> Type:
+  Categories.inverse_image(AvailableRequest, ValidatedRequest, available_validation, validated_category())
+
+def ReadyCategory() -> AvailableRequest -> Type:
+  request => Categories.intersection(AvailableRequest, available_category(), ready_validation_category(), request)
+
+def ready_availability() -> Categories.Inclusion<AvailableRequest, ReadyCategory(), available_category()>:
+  Categories.intersection_first(AvailableRequest, available_category(), ready_validation_category())
+
+def ready_validation() -> Categories.Inclusion<AvailableRequest, ReadyCategory(), ready_validation_category()>:
+  Categories.intersection_second(AvailableRequest, available_category(), ready_validation_category())
+
+def ready_validation_member(member: Categories.Membership<AvailableRequest, ReadyCategory()>) -> Categories.Membership<ValidatedRequest, validated_category()>:
+  Categories.map_membership(AvailableRequest, ValidatedRequest, available_validation, validated_category(),
+    Categories.reclassify(AvailableRequest, ReadyCategory(), ready_validation_category(), member, ready_validation()))
+
+def ready_accepted(member: Categories.Membership<AvailableRequest, ReadyCategory()>) -> Action:
+  validated_accepted(ready_validation_member(member))
+
+def ready_invalid(request: AvailableRequest) -> Action:
+  AvailableRequest{tool, call, remaining, task, world} = request
+  Failure{"invalid_arguments", "Tool arguments do not satisfy its frozen schema", call, remaining, task}
+
+def ready_checked(+request: AvailableRequest, evidence: available_category()(request), allowed: Bool,
+  checked: {ready_arguments(request) == allowed : Bool}) -> Action:
+  match allowed:
+    case True{}:
+      ready_accepted(Categories.Membership{request, Categories.Intersection{evidence, checked}})
+    case False{}: ready_invalid(request)
+
+def available_accepted(member: Categories.Membership<AvailableRequest, available_category()>) -> Action:
+  Categories.Membership{+request, evidence} = member
+  ready_checked(request, evidence, ready_arguments(request), {==})
+
+def available_admitted(admission: Maybe<&1, Categories.Membership<AvailableRequest, available_category()>>, request: AvailableRequest) -> Action:
+  match admission:
+    case Some{member}: available_accepted(member)
+    case None{}:
+      AvailableRequest{+tool, +call, +remaining, +task, +world} = request
       Failure{"tool_unavailable", "The task's frozen tool route is unavailable", call, remaining, task}
-    case True{}:
-      D.Tool{name, description, schema, source} = tool
-      validated(arguments_valid(source, schema, T.call_arguments(call)), tool, call, remaining, task, world)
 
-def hook_available(present: Bool, plugin: D.PluginRef, pending: +List<D.PluginRef>, tool: D.Tool,
-  call: D.Call, remaining: +List<D.Attempt>, task: D.Task) -> Action:
-  match present:
-    case True{}: Hook{plugin, pending, tool, call, remaining, task}
-    case False{}: Failure{"hook_unavailable", "A required frozen plugin revision is unavailable; the tool was not dispatched", call, remaining, task}
+def available(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
+  +request = {AvailableRequest{tool, call, remaining, task, world} : AvailableRequest}
+  available_admitted(Categories.admit(AvailableRequest, available_accepts, request), request)
+
+type HookAvailableRequest is Data:
+  HookAvailableRequest{plugin: D.PluginRef, pending: +List<D.PluginRef>, tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
+
+def hook_available_accepts(request: HookAvailableRequest) -> Bool:
+  HookAvailableRequest{+plugin, +pending, +tool, +call, +remaining, +task, +world} = request
+  Hooks.available(Hooks.live(F.State(), world), plugin)
+
+def hook_available_category() -> HookAvailableRequest -> Type:
+  Categories.holds(HookAvailableRequest, hook_available_accepts)
+
+def hook_available_accepted(member: Categories.Membership<HookAvailableRequest, hook_available_category()>) -> Action:
+  Categories.Membership{request, evidence} = member
+  HookAvailableRequest{+plugin, +pending, +tool, +call, +remaining, +task, +world} = request
+  Hook{plugin, pending, tool, call, remaining, task}
+
+def hook_available_admitted(admission: Maybe<&1, Categories.Membership<HookAvailableRequest, hook_available_category()>>, request: HookAvailableRequest) -> Action:
+  match admission:
+    case Some{member}: hook_available_accepted(member)
+    case None{}:
+      HookAvailableRequest{+plugin, +pending, +tool, +call, +remaining, +task, +world} = request
+      Failure{"hook_unavailable", "A required frozen plugin revision is unavailable; the tool was not dispatched", call, remaining, task}
+
+def hook_available(+plugin: D.PluginRef, +pending: +List<D.PluginRef>, +tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
+  +request = {HookAvailableRequest{plugin, pending, tool, call, remaining, task, world} : HookAvailableRequest}
+  hook_available_admitted(Categories.admit(HookAvailableRequest, hook_available_accepts, request), request)
 
 # Every route crosses this boundary before internal/external classification and
 # argument validation. Each accepted rewrite is revalidated at the final gate.
 
 def chain(pending: +List<D.PluginRef>, +tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, +world: M.World()) -> Action:
   match pending:
-    case Nil{}: available(T.available(catalog(world), tool), tool, call, remaining, task, world)
-    case Con{+plugin, pending}: hook_available(Hooks.available(Hooks.live(F.State(), world), plugin), plugin, pending, tool, call, remaining, task)
+    case Nil{}: available(tool, call, remaining, task, world)
+    case Con{+plugin, pending}: hook_available(plugin, pending, tool, call, remaining, task, world)
 
-def authorization(repeatable: Bool, tool: D.Tool, +attempt: D.Attempt, remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> Action:
-  match repeatable:
-    case False{}: Failure{"outcome_unknown", "The effect may already have happened; automatic repetition is forbidden", D.attempt_call(attempt), remaining, task}
-    case True{}: chain(Hooks.queued(attempt, D.task_contract(task)), tool, D.attempt_call(attempt), remaining, task, world)
+type AuthorizationRequest is Data:
+  AuthorizationRequest{tool: D.Tool, attempt: D.Attempt, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
+
+def authorization_accepts(request: AuthorizationRequest) -> Bool:
+  AuthorizationRequest{+tool, +attempt, +remaining, +task, +world} = request
+  D.may_execute(D.recovery(D.tool_source(tool)), attempt)
+
+def authorization_category() -> AuthorizationRequest -> Type:
+  Categories.holds(AuthorizationRequest, authorization_accepts)
+
+def authorization_accepted(member: Categories.Membership<AuthorizationRequest, authorization_category()>) -> Action:
+  Categories.Membership{request, evidence} = member
+  AuthorizationRequest{+tool, +attempt, +remaining, +task, +world} = request
+  chain(Hooks.queued(attempt, D.task_contract(task)), tool, D.attempt_call(attempt), remaining, task, world)
+
+def authorization_admitted(admission: Maybe<&1, Categories.Membership<AuthorizationRequest, authorization_category()>>, request: AuthorizationRequest) -> Action:
+  match admission:
+    case Some{member}: authorization_accepted(member)
+    case None{}:
+      AuthorizationRequest{+tool, +attempt, +remaining, +task, +world} = request
+      Failure{"outcome_unknown", "The effect may already have happened; automatic repetition is forbidden", D.attempt_call(attempt), remaining, task}
+
+def authorization(+tool: D.Tool, +attempt: D.Attempt, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
+  +request = {AuthorizationRequest{tool, attempt, remaining, task, world} : AuthorizationRequest}
+  authorization_admitted(Categories.admit(AuthorizationRequest, authorization_accepts, request), request)
+
 
 def found(found: Maybe<&2, D.Tool>, +attempt: D.Attempt, remaining: +List<D.Attempt>, task: D.Task, world: M.World()) -> Action:
   match found:
     case None{}:
       Failure{"unknown_tool", "The call does not name a tool in the task contract", D.attempt_call(attempt), remaining, task}
     case Some{+tool}:
-      authorization(D.may_execute(D.recovery(D.tool_source(tool)), attempt), tool, attempt, remaining, task, world)
+      authorization(tool, attempt, remaining, task, world)
 
 def tool(phase: D.Phase, +task: D.Task, world: M.World()) -> Action:
   match phase:
@@ -145,15 +303,36 @@ def tool(phase: D.Phase, +task: D.Task, world: M.World()) -> Action:
       found(T.find_tool(T.task_tools(D.task_contract(task)), T.call_name(D.attempt_call(attempt))), attempt, remaining, task, world)
     case _: Rest{}
 
-def grant_valid(available: Bool, reviewer: D.ApprovalReviewer, tool: D.Tool, operation: D.Operation(), task: D.Task) -> Action:
-  match available:
-    case True{}: Granted{reviewer, tool, operation, task}
-    case False{}: GrantFailure{operation, task}
+type GrantValidRequest is Data:
+  GrantValidRequest{reviewer: D.ApprovalReviewer, tool: D.Tool, operation: D.Operation(), task: D.Task, world: M.World()}
+
+def grant_valid_accepts(request: GrantValidRequest) -> Bool:
+  GrantValidRequest{+reviewer, +tool, +operation, +task, +world} = request
+  T.available(catalog(world), tool)
+
+def grant_valid_category() -> GrantValidRequest -> Type:
+  Categories.holds(GrantValidRequest, grant_valid_accepts)
+
+def grant_available_calculation(member: Categories.Membership<GrantValidRequest, grant_valid_category()>) -> Action:
+  Categories.Membership{request, evidence} = member
+  GrantValidRequest{+reviewer, +tool, +operation, +task, +world} = request
+  Granted{reviewer, tool, operation, task}
+
+def grant_valid_admitted(admission: Maybe<&1, Categories.Membership<GrantValidRequest, grant_valid_category()>>, request: GrantValidRequest) -> Action:
+  match admission:
+    case Some{member}: grant_available_calculation(member)
+    case None{}:
+      GrantValidRequest{+reviewer, +tool, +operation, +task, +world} = request
+      GrantFailure{operation, task}
+
+def grant_valid(+reviewer: D.ApprovalReviewer, +tool: D.Tool, +operation: D.Operation(), +task: D.Task, +world: M.World()) -> Action:
+  +request = {GrantValidRequest{reviewer, tool, operation, task, world} : GrantValidRequest}
+  grant_valid_admitted(Categories.admit(GrantValidRequest, grant_valid_accepts, request), request)
 
 def grant_tool(found: Maybe<&2, D.Tool>, reviewer: D.ApprovalReviewer, +operation: D.Operation(), task: D.Task, world: M.World()) -> Action:
   match found:
     case None{}: GrantFailure{operation, task}
-    case Some{+tool}: grant_valid(T.available(catalog(world), tool), reviewer, tool, operation, task)
+    case Some{+tool}: grant_valid(reviewer, tool, operation, task, world)
 
 def grant_stage(stage: D.OperationStage, +operation: D.Operation(), +task: D.Task, world: M.World()) -> Action:
   match stage:
@@ -178,7 +357,7 @@ def resolve(work: D.Work, +task: D.Task, world: M.World()) -> Action:
     case D.RunNextTool{}: tool(D.task_phase(task), task, world)
     case D.RunGrantedOperation{}: grant(Ops.find_granted(D.task_operations(task)), task, world)
 
-def meaning(action: Action, world: M.World()) -> M.Decision():
+def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
   match action world:
     case Rest{} _:
       C.Decision{world, D.success(J.Null{}), Nil{}}
@@ -239,8 +418,8 @@ def meaning(action: Action, world: M.World()) -> M.Decision():
     case Failure{code, reason, call, remaining, task} _:
       C.Decision{Commands.replace(T.complete_tool(call, remaining, D.failure(code, reason), True{}, task), world), D.success(J.Null{}), Nil{}}
 
-def work(work: D.Work, +task: D.Task, +world: M.World()) -> M.Decision():
-  meaning(resolve(work, task, world), world)
+def work_calculation(work: D.Work, +task: D.Task, +world: M.World()) -> M.Decision():
+  meaning_calculation(resolve(work, task, world), world)
 
 def world(decision: M.Decision()) -> M.World():
   C.Decision{world, reply, effects} = decision
@@ -264,7 +443,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work(D.task_work(task), task, world(decision)))
+      +next = combine(decision, work_calculation(D.task_work(task), task, world(decision)))
       schedule(p, T.runnable(Commands.entries(world(next))), next)
 
 def budget_limits(world: M.World(), limits_value: D.ExecutionLimits) -> Nat:
@@ -282,3 +461,30 @@ def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
     case True{}: scheduled_prepared(BoardScheduling.required_prepare(decision))
+
+
+type WorkRequest is Data:
+  WorkRequest{work: D.Work, task: D.Task, world: M.World()}
+
+def work_resolution(request: WorkRequest) -> Action:
+  WorkRequest{work, task, world} = request
+  resolve(work, task, world)
+
+def ConstructedWork() -> Type:
+  Categories.Membership<Categories.Construction<WorkRequest, Action>,
+    Categories.constructed_by(WorkRequest, Action, work_resolution)>
+
+def construct_work(work: D.Work, task: D.Task, world: M.World()) -> ConstructedWork():
+  Categories.construct(WorkRequest, Action, work_resolution, WorkRequest{work, task, world})
+
+def meaning(member: ConstructedWork()) -> M.Decision():
+  Categories.Membership{Categories.Construction{WorkRequest{work, task, world}, action}, evidence} = member
+  meaning_calculation(action, world)
+
+def work(work: D.Work, task: D.Task, world: M.World()) -> M.Decision():
+  meaning(construct_work(work, task, world))
+
+def work_consumer_correspondence_required(member: ConstructedWork()) -> M.Decision():
+  Categories.Membership{Categories.Construction{+request, result}, evidence} = member
+  WorkRequest{work, task, world} = request
+  meaning_calculation(work_resolution(request), world)

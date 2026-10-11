@@ -1,3 +1,4 @@
+import { boundary } from './public/model-boundary.mjs';
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -88,22 +89,20 @@ async function hashPrefix(file, length) {
 /** Execute an already validated Bend Bash effect, draining both pipes concurrently. */
 export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory, execution, readOnlyPaths } = {}) {
   signal?.throwIfAborted();
-  const timeout = arguments_.timeout_ms ?? limits.bash_timeout_ms;
-  const maximum = arguments_.max_output_length ?? limits.bash_default_output_length;
-  if (typeof arguments_.command !== 'string' || arguments_.command.length === 0 || !arguments_.command.isWellFormed() ||
-      arguments_.command.includes('\0') || !Number.isSafeInteger(timeout) || timeout < 100 || timeout > 1_800_000 ||
-      !Number.isSafeInteger(limits.bash_max_output_length) || limits.bash_max_output_length < 1 ||
-      !Number.isSafeInteger(maximum) || maximum < 1 || maximum > limits.bash_max_output_length ||
-      Object.keys(arguments_).some(key => !['command', 'timeout_ms', 'max_output_length', 'sandbox_permissions', 'justification'].includes(key))) {
-    throw new TypeError('Malformed Bash effect');
-  }
+  // Preserve malformed UTF-16 units so the native guard can reject the observed command.
+  const observedArguments = typeof arguments_?.command === 'string' && !arguments_.command.isWellFormed()
+    ? { ...arguments_, command: { utf16: Array.from({ length: arguments_.command.length },
+      (_, index) => arguments_.command.charCodeAt(index)) } }
+    : arguments_;
+  const { timeout, maximum } = boundary('effect.bash_arguments', { arguments: observedArguments, arguments_: observedArguments, limits,
+    options: { cwd, artifactDirectory, execution, readOnlyPaths } });
   const artifacts = [];
   let child;
   let launch;
   try {
     if (execution) launch = await prepareSandbox(execution, { signal, readOnlyPaths });
     if (artifactDirectory) {
-      if (!Number.isSafeInteger(limits.artifact_bytes) || limits.artifact_bytes < 1) throw new TypeError('Invalid artifact byte limit');
+      boundary('effect.artifact_limit', { arguments: arguments_, arguments_, limits, options: { cwd, artifactDirectory, execution, readOnlyPaths } });
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
       const directory = await mkdtemp(path.join(artifactDirectory, 'bash-'));
       for (const stream of ['stdout', 'stderr']) {
@@ -194,16 +193,8 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       catch (error) { reason ??= { code: 'sandbox_cleanup_failed', message: error.message }; }
       const out = stdout.result();
       const err = stderr.result();
-      const value = { exit_code: exitCode, signal: exitSignal, stdout: out.text, stderr: err.text,
-        stdout_truncated: out.truncated, stderr_truncated: err.truncated,
-        stdout_bytes: out.total_bytes, stderr_bytes: err.total_bytes,
-        stdout_omitted_characters: out.omitted_characters, stderr_omitted_characters: err.omitted_characters,
-        ...(out.truncated && outArtifact ? { stdout_artifact: outArtifact } : {}),
-        ...(err.truncated && errArtifact ? { stderr_artifact: errArtifact } : {}) };
-      if (!reason && (exitCode !== 0 || exitSignal !== null)) {
-        reason = { code: 'command_failed', message: exitSignal ? `Command ended with signal ${exitSignal}` : `Command exited with status ${exitCode}` };
-      }
-      resolve(reason ? { value: { ...value, error: reason }, error: true } : { value, error: false });
+      resolve(boundary('effect.process_result', { arguments: arguments_, arguments_, limits,
+        options: { cwd, artifactDirectory, execution, readOnlyPaths }, exitCode, exitSignal, out, err, outArtifact, errArtifact, reason }));
     });
   });
 }
