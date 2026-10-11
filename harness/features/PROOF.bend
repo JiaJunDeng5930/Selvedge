@@ -9,6 +9,5 @@ def board_written(+value: Board.State, state: F.State()) ->
     case C.Frame{previous, rest}: {==}
 
 def board_frame(value: Board.State, state: F.State()) ->
-  {F.rest(F.with_board(value, state)) == F.rest(state) : F.Rest()}:
-  match state:
-    case C.Frame{previous, rest}: {==}
+  {F.modules(F.with_board(value, state)) == F.modules(state) : F.Modules()}:
+  C.replace_frame(Board.State, F.Modules(), value, state)

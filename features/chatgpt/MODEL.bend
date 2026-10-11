@@ -109,9 +109,139 @@ def job_outcome(job: Job) -> Outcome:
 
 # Model intended updates.
 
+type JobRequest is Data:
+  JobRequest{connection: Nat, project: Nat, request: String, arguments: J.Json, workspace: D.Workspace, sandbox: D.Sandbox}
+
+type JobObservation is Data:
+  JobObservation{request: JobRequest, result: Job}
+
+def BirthOwnership(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {(job_connection(result), job_project(result)) == (connection, project) : Nat & Nat}
+
+def BirthInput(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {(job_request(result), job_arguments(result)) == (request, arguments) : String & J.Json}
+
+def BirthExecution(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {(job_workspace(result), job_sandbox(result)) == (workspace, sandbox) : D.Workspace & D.Sandbox}
+
+def BirthResult(observation: JobObservation) -> Type:
+  JobObservation{JobRequest{connection, project, request, arguments, workspace, sandbox}, +result} = observation
+  {job_outcome(result) == Running{} : Outcome}
+
+def BirthExecutionResult(observation: JobObservation) -> Type:
+  Categories.intersection(JobObservation, BirthExecution, BirthResult, observation)
+
+def BirthInputExecutionResult(observation: JobObservation) -> Type:
+  Categories.intersection(JobObservation, BirthInput, BirthExecutionResult, observation)
+
+def BornJob(observation: JobObservation) -> Type:
+  Categories.intersection(JobObservation, BirthOwnership, BirthInputExecutionResult, observation)
+
+def born_ownership_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthOwnership>:
+  Categories.intersection_first(JobObservation, BirthOwnership, BirthInputExecutionResult)
+
+def born_input_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthInput>:
+  Categories.inclusion_compose(JobObservation, BornJob, BirthInputExecutionResult, BirthInput,
+    Categories.intersection_second(JobObservation, BirthOwnership, BirthInputExecutionResult),
+    Categories.intersection_first(JobObservation, BirthInput, BirthExecutionResult))
+
+def born_execution_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthExecution>:
+  Categories.inclusion_compose(JobObservation, BornJob, BirthInputExecutionResult, BirthExecution,
+    Categories.intersection_second(JobObservation, BirthOwnership, BirthInputExecutionResult),
+    Categories.inclusion_compose(JobObservation, BirthInputExecutionResult, BirthExecutionResult, BirthExecution,
+      Categories.intersection_second(JobObservation, BirthInput, BirthExecutionResult),
+      Categories.intersection_first(JobObservation, BirthExecution, BirthResult)))
+
+def born_result_inclusion() -> Categories.Inclusion<JobObservation, BornJob, BirthResult>:
+  Categories.inclusion_compose(JobObservation, BornJob, BirthInputExecutionResult, BirthResult,
+    Categories.intersection_second(JobObservation, BirthOwnership, BirthInputExecutionResult),
+    Categories.inclusion_compose(JobObservation, BirthInputExecutionResult, BirthExecutionResult, BirthResult,
+      Categories.intersection_second(JobObservation, BirthInput, BirthExecutionResult),
+      Categories.intersection_second(JobObservation, BirthExecution, BirthResult)))
+
+# Birth records the requested identity, input, execution context and initial outcome.
+# It does not authorize the request or establish validity of its workspace.
+def construct_job(request: JobRequest) -> Categories.Membership<JobObservation, BornJob>:
+  JobRequest{+connection, +project, +key, +arguments, +workspace, +sandbox} = request
+  +result = {Job{connection, project, key, arguments, workspace, sandbox, Running{}}: Job}
+  Categories.Membership{JobObservation{JobRequest{connection, project, key, arguments, workspace, sandbox}, result},
+    Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}}
+
+def constructed_job(member: Categories.Membership<JobObservation, BornJob>) -> Job:
+  Categories.Membership{JobObservation{request, result}, evidence} = member
+  result
+
+
+type OutcomeRequest is Data:
+  OutcomeRequest{source: Job, value: Outcome}
+
+type OutcomeObservation is Data:
+  OutcomeObservation{request: OutcomeRequest, result: Job}
+
+def OutcomeOwnership(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {(job_connection(result), job_project(result)) == (job_connection(source), job_project(source)) : Nat & Nat}
+
+def OutcomeInput(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {(job_request(result), job_arguments(result)) == (job_request(source), job_arguments(source)) : String & J.Json}
+
+def OutcomeExecution(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {(job_workspace(result), job_sandbox(result)) == (job_workspace(source), job_sandbox(source)) : D.Workspace & D.Sandbox}
+
+def OutcomeResult(observation: OutcomeObservation) -> Type:
+  OutcomeObservation{OutcomeRequest{+source, value}, +result} = observation
+  {job_outcome(result) == value : Outcome}
+
+def OutcomeExecutionResult(observation: OutcomeObservation) -> Type:
+  Categories.intersection(OutcomeObservation, OutcomeExecution, OutcomeResult, observation)
+
+def OutcomeInputExecutionResult(observation: OutcomeObservation) -> Type:
+  Categories.intersection(OutcomeObservation, OutcomeInput, OutcomeExecutionResult, observation)
+
+def UpdatedOutcome(observation: OutcomeObservation) -> Type:
+  Categories.intersection(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult, observation)
+
+def updated_ownership_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeOwnership>:
+  Categories.intersection_first(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult)
+
+def updated_input_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeInput>:
+  Categories.inclusion_compose(OutcomeObservation, UpdatedOutcome, OutcomeInputExecutionResult, OutcomeInput,
+    Categories.intersection_second(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult),
+    Categories.intersection_first(OutcomeObservation, OutcomeInput, OutcomeExecutionResult))
+
+def updated_execution_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeExecution>:
+  Categories.inclusion_compose(OutcomeObservation, UpdatedOutcome, OutcomeInputExecutionResult, OutcomeExecution,
+    Categories.intersection_second(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult),
+    Categories.inclusion_compose(OutcomeObservation, OutcomeInputExecutionResult, OutcomeExecutionResult, OutcomeExecution,
+      Categories.intersection_second(OutcomeObservation, OutcomeInput, OutcomeExecutionResult),
+      Categories.intersection_first(OutcomeObservation, OutcomeExecution, OutcomeResult)))
+
+def updated_result_inclusion() -> Categories.Inclusion<OutcomeObservation, UpdatedOutcome, OutcomeResult>:
+  Categories.inclusion_compose(OutcomeObservation, UpdatedOutcome, OutcomeInputExecutionResult, OutcomeResult,
+    Categories.intersection_second(OutcomeObservation, OutcomeOwnership, OutcomeInputExecutionResult),
+    Categories.inclusion_compose(OutcomeObservation, OutcomeInputExecutionResult, OutcomeExecutionResult, OutcomeResult,
+      Categories.intersection_second(OutcomeObservation, OutcomeInput, OutcomeExecutionResult),
+      Categories.intersection_second(OutcomeObservation, OutcomeExecution, OutcomeResult)))
+
+# Outcome transitions preserve the complete retained command and execution context.
+def construct_outcome(request: OutcomeRequest) -> Categories.Membership<OutcomeObservation, UpdatedOutcome>:
+  OutcomeRequest{Job{+connection, +project, +key, +arguments, +workspace, +sandbox, +previous}, +value} = request
+  +source = {Job{connection, project, key, arguments, workspace, sandbox, previous}: Job}
+  +result = {Job{connection, project, key, arguments, workspace, sandbox, value}: Job}
+  Categories.Membership{OutcomeObservation{OutcomeRequest{source, value}, result},
+    Categories.Intersection{{==}, Categories.Intersection{{==}, Categories.Intersection{{==}, {==}}}}}
+
+def constructed_outcome(member: Categories.Membership<OutcomeObservation, UpdatedOutcome>) -> Job:
+  Categories.Membership{OutcomeObservation{request, result}, evidence} = member
+  result
+
 def with_outcome(value: Outcome, job: Job) -> Job:
-  Job{connection, project, request, arguments, workspace, sandbox, previous} = job
-  Job{connection, project, request, arguments, workspace, sandbox, value}
+  constructed_outcome(construct_outcome(OutcomeRequest{job, value}))
 
 # Model birth.
 
@@ -293,11 +423,26 @@ def capacity_admission(found: Maybe<&1, Categories.Membership<JobCapacity, Avail
 def new_job(job: Job, state: State) -> Resolution:
   capacity_admission(Categories.admit(JobCapacity, capacity_available, JobCapacity{job, state}))
 
+def OwnedJob(connection: Nat, project: Nat) -> Job -> Type:
+  Categories.holds(Job, job => owned(connection, project, job))
+
+def arguments_match(arguments: J.Json, job: Job) -> Bool:
+  Same.json(128n, arguments, job_arguments(job))
+
+def ArgumentsMatch(arguments: J.Json) -> Job -> Type:
+  Categories.holds(Job, job => arguments_match(arguments, job))
+
 def retry_compatible(connection: Nat, project: Nat, arguments: J.Json, +job: Job) -> Bool:
-  owned(connection, project, job) && Same.json(128n, arguments, job_arguments(job))
+  owned(connection, project, job) && arguments_match(arguments, job)
 
 def CompatibleRetry(connection: Nat, project: Nat, arguments: J.Json) -> Job -> Type:
-  Categories.holds(Job, job => retry_compatible(connection, project, arguments, job))
+  job => Categories.intersection(Job, OwnedJob(connection, project), ArgumentsMatch(arguments), job)
+
+def compatible_owned_inclusion(connection: Nat, project: Nat, arguments: J.Json) -> Categories.Inclusion<Job, CompatibleRetry(connection, project, arguments), OwnedJob(connection, project)>:
+  Categories.intersection_first(Job, OwnedJob(connection, project), ArgumentsMatch(arguments))
+
+def compatible_arguments_inclusion(connection: Nat, project: Nat, arguments: J.Json) -> Categories.Inclusion<Job, CompatibleRetry(connection, project, arguments), ArgumentsMatch(arguments)>:
+  Categories.intersection_second(Job, OwnedJob(connection, project), ArgumentsMatch(arguments))
 
 def reuse_admitted(connection: Nat, project: Nat, arguments: J.Json, id: Nat,
   admitted: Categories.Membership<Job, CompatibleRetry(connection, project, arguments)>) -> Resolution:
@@ -315,8 +460,8 @@ def run_existing(found: Maybe<&2, Finite.Entry(Job)>, +connection: Nat, +project
   match found:
     case Some{(id, job)}:
       compatible_admission(connection, project, arguments, id,
-        Categories.admit(Job, job => retry_compatible(connection, project, arguments, job), job))
-    case None{}: new_job(Job{connection, project, request, arguments, workspace, sandbox, Running{}}, state)
+        Categories.admit_intersection(Job, job => owned(connection, project, job), job => arguments_match(arguments, job), job))
+    case None{}: new_job(constructed_job(construct_job(JobRequest{connection, project, request, arguments, workspace, sandbox})), state)
 
 def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, project: Nat,
   +request: String, arguments: J.Json, +state: State) -> Resolution:
@@ -368,9 +513,6 @@ def change_job(remove: Bool, id: Nat, +job: Job) -> Resolution:
     case True{}:
       forget_admission(Categories.admit(JobRemoval, finished_job, JobRemoval{id, job}))
     case False{}: cancel_pending(pending(outcome(job)), id, job)
-
-def OwnedJob(connection: Nat, project: Nat) -> Job -> Type:
-  Categories.holds(Job, job => owned(connection, project, job))
 
 def owner_job(connection: Nat, project: Nat, id: Nat, remove: Bool,
   admitted: Categories.Membership<Job, OwnedJob(connection, project)>) -> Resolution:

@@ -79,11 +79,58 @@ def contains(values: +List<J.Json>, +item: J.Json) -> Bool:
 def namespace() -> J.Json:
   J.get(Account.contract(), "namespace")
 
-# A protocol family is an open conjunction of independent capacities. Its
-# constructor is reusable by another catalog entry without a provider branch.
+# Connection mechanisms determine descriptor policy; provider identities stay open.
+type Connection is Data:
+  EnvironmentSSE{endpoint: String, credential: String}
+  AccountSSE{}
+  WebConnection{endpoint: String, credential: String}
 
-def responses_family(identity: String, endpoint: String, credential: String, independent_text: Bool, summary: String, reasoning: String, auth: String, receipt: Bool, namespaced: Bool) -> J.Json:
-  J.Object{Con{J.Field{"provider", J.Text{identity}}, Con{J.Field{"protocol", J.Text{"responses"}}, Con{J.Field{"stream_kind", J.Text{"responses"}}, Con{J.Field{"conversation", J.Boolean{True{}}}, Con{J.Field{"tools", J.Boolean{True{}}}, Con{J.Field{"independent_text", J.Boolean{independent_text}}, Con{J.Field{"summary", J.Text{summary}}, Con{J.Field{"reasoning", J.Text{reasoning}}, Con{J.Field{"auth", J.Text{auth}}, Con{J.Field{"receipt", J.Boolean{receipt}}, Con{J.Field{"namespaced", J.Boolean{namespaced}}, Con{J.Field{"endpoint", J.Text{endpoint}}, Con{J.Field{"api_key_env", J.Text{credential}}, Nil{}}}}}}}}}}}}}}}
+type Request is Data:
+  Request{identity: String, connection: Connection}
+
+type Observation is Data:
+  Observation{request: Request, backend: J.Json}
+
+def connection_auth(connection: Connection) -> String:
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: "environment"
+    case AccountSSE{}: "account"
+    case WebConnection{endpoint, credential}: "web"
+
+def connection_transport(connection: Connection) -> String:
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: "sse"
+    case AccountSSE{}: "sse"
+    case WebConnection{endpoint, credential}: "web"
+
+def connection_endpoint(connection: Connection) -> String:
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: endpoint
+    case AccountSSE{}: ""
+    case WebConnection{endpoint, credential}: endpoint
+
+def connection_credential(connection: Connection) -> String:
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: credential
+    case AccountSSE{}: ""
+    case WebConnection{endpoint, credential}: credential
+
+def connection_stream_kind(connection: Connection) -> String:
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: "responses"
+    case AccountSSE{}: "chatgpt"
+    case WebConnection{endpoint, credential}: "responses"
+
+def responses_family(identity: String, endpoint: String, credential: String, independent_text: Bool, auth: String, transport: String, stream_kind: String) -> J.Json:
+  J.Object{[J.Field{"provider", J.Text{identity}}, J.Field{"protocol", J.Text{"responses"}},
+    J.Field{"stream_kind", J.Text{stream_kind}}, J.Field{"conversation", J.Boolean{True{}}},
+    J.Field{"tools", J.Boolean{True{}}}, J.Field{"independent_text", J.Boolean{independent_text}},
+    J.Field{"auth", J.Text{auth}}, J.Field{"transport", J.Text{transport}}, J.Field{"endpoint", J.Text{endpoint}}, J.Field{"api_key_env", J.Text{credential}}]}
+
+def produce(request: Request) -> J.Json:
+  Request{identity, +connection} = request
+  responses_family(identity, connection_endpoint(connection), connection_credential(connection), True{},
+    connection_auth(connection), connection_transport(connection), connection_stream_kind(connection))
 
 def conversation(backend: J.Json) -> Type:
   {J.boolean(J.get(backend, "conversation")) == True{} : Bool}
@@ -100,17 +147,177 @@ def protocol(backend: J.Json) -> Type:
 def responses_capabilities(backend: J.Json) -> Type:
   Categories.intersection(J.Json, (value => Categories.intersection(J.Json, conversation, protocol, value)), (value => Categories.intersection(J.Json, tool_capable, independent_text, value)), backend)
 
-def responses_member(identity: String, endpoint: String, credential: String, summaries: String, reasoning: String, auth: String, receipt: Bool, namespaced: Bool) -> Categories.Membership<J.Json, responses_capabilities>:
-  Categories.Membership{responses_family(identity, endpoint, credential, True{}, summaries, reasoning, auth, receipt, namespaced), Categories.Intersection{Categories.Intersection{{==}, {==}}, Categories.Intersection{{==}, {==}}}}
+def descriptor_capabilities(observation: Observation) -> Type:
+  Observation{request, backend} = observation
+  responses_capabilities(backend)
 
-def response_value(identity: String, endpoint: String, credential: String, summaries: String, reasoning: String, auth: String, receipt: Bool, namespaced: Bool) -> J.Json:
-  Categories.value(J.Json, responses_capabilities, responses_member(identity, endpoint, credential, summaries, reasoning, auth, receipt, namespaced))
+def descriptor_identity(observation: Observation) -> Type:
+  Observation{Request{identity, connection}, backend} = observation
+  {J.get(backend, "provider") == J.Text{identity} : J.Json}
+
+def descriptor_auth(observation: Observation) -> Type:
+  Observation{Request{identity, connection}, backend} = observation
+  {J.get(backend, "auth") == J.Text{connection_auth(connection)} : J.Json}
+
+def descriptor_transport(observation: Observation) -> Type:
+  Observation{Request{identity, connection}, backend} = observation
+  {J.get(backend, "transport") == J.Text{connection_transport(connection)} : J.Json}
+
+def descriptor_endpoint(observation: Observation) -> Type:
+  Observation{Request{identity, connection}, backend} = observation
+  {J.get(backend, "endpoint") == J.Text{connection_endpoint(connection)} : J.Json}
+
+def descriptor_credential(observation: Observation) -> Type:
+  Observation{Request{identity, connection}, backend} = observation
+  {J.get(backend, "api_key_env") == J.Text{connection_credential(connection)} : J.Json}
+
+def descriptor_stream_kind(observation: Observation) -> Type:
+  Observation{Request{identity, connection}, backend} = observation
+  {J.get(backend, "stream_kind") == J.Text{connection_stream_kind(connection)} : J.Json}
+
+def connection_bindings(observation: Observation) -> Type:
+  Categories.intersection(Observation, descriptor_identity, (value => Categories.intersection(Observation, descriptor_auth, (value => Categories.intersection(Observation, descriptor_transport, (value => Categories.intersection(Observation, descriptor_endpoint, (value => Categories.intersection(Observation, descriptor_credential, descriptor_stream_kind, value)), value)), value)), value)), observation)
+
+def descriptor_category(observation: Observation) -> Type:
+  Categories.intersection(Observation, descriptor_capabilities, connection_bindings, observation)
+
+def constructed_capabilities(identity: String, +connection: Connection) -> descriptor_capabilities(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: Categories.Intersection{Categories.Intersection{{==}, {==}}, Categories.Intersection{{==}, {==}}}
+    case AccountSSE{}: Categories.Intersection{Categories.Intersection{{==}, {==}}, Categories.Intersection{{==}, {==}}}
+    case WebConnection{endpoint, credential}: Categories.Intersection{Categories.Intersection{{==}, {==}}, Categories.Intersection{{==}, {==}}}
+
+def constructed_identity(identity: String, +connection: Connection) -> descriptor_identity(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: {==}
+    case AccountSSE{}: {==}
+    case WebConnection{endpoint, credential}: {==}
+
+def constructed_auth(identity: String, +connection: Connection) -> descriptor_auth(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: {==}
+    case AccountSSE{}: {==}
+    case WebConnection{endpoint, credential}: {==}
+
+def constructed_transport(identity: String, +connection: Connection) -> descriptor_transport(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: {==}
+    case AccountSSE{}: {==}
+    case WebConnection{endpoint, credential}: {==}
+
+def constructed_endpoint(identity: String, +connection: Connection) -> descriptor_endpoint(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: {==}
+    case AccountSSE{}: {==}
+    case WebConnection{endpoint, credential}: {==}
+
+def constructed_credential(identity: String, +connection: Connection) -> descriptor_credential(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: {==}
+    case AccountSSE{}: {==}
+    case WebConnection{endpoint, credential}: {==}
+
+def constructed_stream_kind(identity: String, +connection: Connection) -> descriptor_stream_kind(Observation{Request{identity, connection}, produce(Request{identity, connection})}):
+  match connection:
+    case EnvironmentSSE{endpoint, credential}: {==}
+    case AccountSSE{}: {==}
+    case WebConnection{endpoint, credential}: {==}
+
+def construction_evidence(request: Request) -> descriptor_category(Observation{request, produce(request)}):
+  Request{+identity, +connection} = request
+  Categories.Intersection{constructed_capabilities(identity, connection), Categories.Intersection{constructed_identity(identity, connection), Categories.Intersection{constructed_auth(identity, connection), Categories.Intersection{constructed_transport(identity, connection), Categories.Intersection{constructed_endpoint(identity, connection), Categories.Intersection{constructed_credential(identity, connection), constructed_stream_kind(identity, connection)}}}}}}
+
+def construct(+request: Request) -> Categories.Membership<Observation, descriptor_category>:
+  +backend = produce(request)
+  Categories.Membership{Observation{request, backend}, construction_evidence(request)}
+
+def responses_member(request: Request) -> Categories.Membership<Observation, descriptor_category>:
+  construct(request)
+
+def descriptor_value(observation: Observation) -> J.Json:
+  Observation{request, backend} = observation
+  backend
+
+def response_value(request: Request) -> J.Json:
+  descriptor_value(Categories.value(Observation, descriptor_category, construct(request)))
+
+def project_descriptor_capabilities(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_capabilities(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  capabilities
+
+def descriptor_capabilities_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_capabilities>:
+  Categories.Inclusion{project_descriptor_capabilities}
+
+def project_descriptor_identity(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_identity(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  Categories.Intersection{identity_evidence, bindings} = bindings
+  identity_evidence
+
+def descriptor_identity_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_identity>:
+  Categories.Inclusion{project_descriptor_identity}
+
+def project_descriptor_auth(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_auth(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  Categories.Intersection{identity_evidence, bindings} = bindings
+  Categories.Intersection{auth_evidence, bindings} = bindings
+  auth_evidence
+
+def descriptor_auth_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_auth>:
+  Categories.Inclusion{project_descriptor_auth}
+
+def project_descriptor_transport(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_transport(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  Categories.Intersection{identity_evidence, bindings} = bindings
+  Categories.Intersection{auth_evidence, bindings} = bindings
+  Categories.Intersection{transport_evidence, bindings} = bindings
+  transport_evidence
+
+def descriptor_transport_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_transport>:
+  Categories.Inclusion{project_descriptor_transport}
+
+def project_descriptor_endpoint(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_endpoint(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  Categories.Intersection{identity_evidence, bindings} = bindings
+  Categories.Intersection{auth_evidence, bindings} = bindings
+  Categories.Intersection{transport_evidence, bindings} = bindings
+  Categories.Intersection{endpoint_evidence, bindings} = bindings
+  endpoint_evidence
+
+def descriptor_endpoint_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_endpoint>:
+  Categories.Inclusion{project_descriptor_endpoint}
+
+def project_descriptor_credential(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_credential(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  Categories.Intersection{identity_evidence, bindings} = bindings
+  Categories.Intersection{auth_evidence, bindings} = bindings
+  Categories.Intersection{transport_evidence, bindings} = bindings
+  Categories.Intersection{endpoint_evidence, bindings} = bindings
+  Categories.Intersection{credential_evidence, bindings} = bindings
+  credential_evidence
+
+def descriptor_credential_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_credential>:
+  Categories.Inclusion{project_descriptor_credential}
+
+def project_descriptor_stream_kind(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_stream_kind(observation):
+  Categories.Intersection{capabilities, bindings} = evidence
+  Categories.Intersection{identity_evidence, bindings} = bindings
+  Categories.Intersection{auth_evidence, bindings} = bindings
+  Categories.Intersection{transport_evidence, bindings} = bindings
+  Categories.Intersection{endpoint_evidence, bindings} = bindings
+  Categories.Intersection{credential_evidence, bindings} = bindings
+  bindings
+
+def descriptor_stream_kind_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_stream_kind>:
+  Categories.Inclusion{project_descriptor_stream_kind}
 
 def echo_backend() -> J.Json:
-  put(put(put(responses_family("echo", "", "", False{}, "unsupported", "none", "none", False{}, False{}), "protocol", J.Text{"echo"}), "tools", J.Boolean{False{}}), "transport", J.Text{"echo"})
+  put(put(responses_family("echo", "", "", False{}, "none", "echo", "responses"), "protocol", J.Text{"echo"}), "tools", J.Boolean{False{}})
 
 def catalog() -> J.Json:
-  J.Array{Con{echo_backend(), Con{put(response_value("responses", "https://api.openai.com/v1/responses", "OPENAI_API_KEY", "native", "configuration_update", "environment", False{}, False{}), "transport", J.Text{"sse"}), Con{put(put(response_value("chatgpt", "", "", "text", "per_request", "account", False{}, True{}), "transport", J.Text{"sse"}), "stream_kind", J.Text{"chatgpt"}), Con{put(response_value("chatgpt-web", "http://127.0.0.1:8787/v1/responses", "CHATGPT_WEB_TOKEN", "checkpoint", "fixed", "web", True{}, False{}), "transport", J.Text{"web"}), Nil{}}}}}}
+  J.Array{[echo_backend(),
+    response_value(Request{"responses", EnvironmentSSE{"https://api.openai.com/v1/responses", "OPENAI_API_KEY"}}),
+    response_value(Request{"chatgpt", AccountSSE{}}),
+    response_value(Request{"chatgpt-web", WebConnection{"http://127.0.0.1:8787/v1/responses", "CHATGPT_WEB_TOKEN"}})]}
 
 def lookup_choice(found: Bool, entry: J.Json, fallback: J.Json) -> J.Json:
   match found:
@@ -1086,7 +1293,7 @@ law complete_correspondence:
 
 
 law response_family_protocol:
-  @identity:String -> @endpoint:String -> @credential:String -> @independent:Bool -> @summary:String -> @reasoning:String -> @auth:String -> @receipt:Bool -> @namespaced:Bool -> {J.get(responses_family(identity, endpoint, credential, independent, summary, reasoning, auth, receipt, namespaced), "protocol") == J.Text{"responses"} : J.Json}
+  @identity:String -> @endpoint:String -> @credential:String -> @independent:Bool -> @auth:String -> @transport:String -> @stream_kind:String -> {J.get(responses_family(identity, endpoint, credential, independent, auth, transport, stream_kind), "protocol") == J.Text{"responses"} : J.Json}
 
 
 
@@ -1096,7 +1303,7 @@ law response_family_protocol:
 
 
 law response_family_identity:
-  @identity:String -> @endpoint:String -> @credential:String -> @independent:Bool -> @summary:String -> @reasoning:String -> @auth:String -> @receipt:Bool -> @namespaced:Bool -> {J.get(responses_family(identity, endpoint, credential, independent, summary, reasoning, auth, receipt, namespaced), "provider") == J.Text{identity} : J.Json}
+  @identity:String -> @endpoint:String -> @credential:String -> @independent:Bool -> @auth:String -> @transport:String -> @stream_kind:String -> {J.get(responses_family(identity, endpoint, credential, independent, auth, transport, stream_kind), "provider") == J.Text{identity} : J.Json}
 
 
 

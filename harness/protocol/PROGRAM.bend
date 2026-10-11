@@ -1,4 +1,5 @@
 import Base
+import ../tools/SYNTAX.bend as Native
 import ../../bendlib/categories.bend as Categories
 import ../features/STATE.bend as FeatureState
 import ../features/protocol.bend as FeatureProtocol
@@ -311,22 +312,35 @@ def branch(+count: Nat, +texts: +List<String>, +selection: Result<&2, &2, String
   +request = {BranchRequest{count, texts, selection, task, world} : BranchRequest}
   branch_admitted(Categories.admit(BranchRequest, branch_accepts, request), request)
 
-def invocation(tool: D.Builtin, +arguments: J.Json, +task: D.Task, +world: M.World()) -> Invocation:
+def native_query(query: Native.Query, +arguments: J.Json, +caller: Nat) -> M.Query:
+  match query:
+    case Native.Read{target, after, limit}:
+      M.Read{Native.number(target, arguments, caller), Native.number(after, arguments, caller), Native.number(limit, arguments, caller)}
+    case Native.Tasks{}: M.ListTasks{}
+    case Native.Describe{}: M.Describe{}
+    case Native.Projects{}: M.ListProjects{}
+    case Native.Project{project}: M.ReadProject{Native.number(project, arguments, caller)}
+
+def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, +task: D.Task, +world: M.World()) -> Invocation:
   match tool:
-    case D.ForkTask{}:
-      +count = number(arguments, "child_count", 0n)
-      +texts = J.text_values(J.items(J.get(arguments, "messages")))
-      branch(count, texts,
-        Commands.selected_settings(J.get(arguments, "settings"), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), task, world)
-    case D.ReadTask{}:
-      Internal{Commands.resolve(M.Observe{M.Read{number(arguments, "task_id", 0n), number(arguments, "after", 0n), number(arguments, "limit", 100n)}}, world)}
-    case D.SendMessage{}:
-      Internal{Commands.resolve(M.Send{number(arguments, "task_id", 0n), J.text(J.get(arguments, "message"))}, world)}
-    case D.ArchiveTask{}:
-      Internal{Commands.resolve(M.ChangeStatus{number(arguments, "task_id", 0n), D.Archive{}}, world)}
-    case D.CancelOperation{}:
-      Internal{Commands.resolve(M.Cancel{number(arguments, "task_id", D.task_id(task)), number(arguments, "operation_id", 0n)}, world)}
-    case _: Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+    case Native.Observe{query}:
+      Internal{Commands.resolve(M.Observe{native_query(query, arguments, caller)}, world)}
+    case Native.Send{target, message}:
+      Internal{Commands.resolve(M.Send{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
+    case Native.Steer{target, message}:
+      Internal{Commands.resolve(M.Steer{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
+    case Native.Archive{target}:
+      Internal{Commands.resolve(M.ChangeStatus{Native.number(target, arguments, caller), D.Archive{}}, world)}
+    case Native.Cancel{target, operation}:
+      Internal{Commands.resolve(M.Cancel{Native.number(target, arguments, caller), Native.number(operation, arguments, caller)}, world)}
+    case Native.Fork{count, messages, settings}:
+      branch(Native.number(count, arguments, caller), Native.texts(messages, arguments),
+        Commands.selected_settings(Native.settings(settings, arguments), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), task, world)
+    case Native.Process{}:
+      Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+
+def invocation(tool: Native.Body, +arguments: J.Json, +task: D.Task, +world: M.World()) -> Invocation:
+  invocation_with_caller(tool, arguments, D.task_id(task), task, world)
 
 def result(found: Maybe<&2, D.Task>, call: D.Call, remaining: +List<D.Attempt>, decision: M.Decision()) -> M.Decision():
   match found:

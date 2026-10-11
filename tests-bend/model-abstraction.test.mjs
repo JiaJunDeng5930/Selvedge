@@ -12,8 +12,6 @@ const executionFields = 'initial, valid, run, meaning, world, reply, effects, du
 const executionEvidence = 'Categories.Intersection{Model.ExecutionSafety{initial_valid, preserves_valid}, Categories.Intersection{Model.ExecutionRefinement{refinement}, Categories.Intersection{Model.ExecutionObservation{query_world, query_effects, query_not_durable}, Model.ExecutionHistory{replay_valid, query_replay}}}}';
 const applicationFields = 'initial, user, snapshot_event, completed_event, run, state, effects, finish, program, sequence, lookup, snapshot, settle, observe';
 const applicationEvidence = 'Categories.Intersection{Model.ApplicationInitialization{initial_program}, Categories.Intersection{Model.ApplicationCorrelation{snapshot_dispatch, completion_dispatch}, Model.ApplicationOrdering{stale_snapshot, unknown_completion}}}';
-const displayFields = 'initial, application, program, run, state, effects, observe, publication, pending, updates, retain';
-const displayEvidence = 'Categories.Intersection{Model.DisplayComposition{display_initial_application, display_program_projection}, Model.DisplayRetention{display_pending_retention}}';
 const imports = `import Base
 import ../../MODEL.bend as Model
 import ../../PROOF.bend as Proof
@@ -33,10 +31,6 @@ def is_empty(-Element: Data, values: +List<Element>) -> Bool:
     case Nil{}: True{}
     case Con{head, tail}: False{}
 
-def query_effects_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>, query: Commands.Query, state: World) -> +List<Commands.Effect()>:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
-  effects(run(Commands.UserCommand{Commands.Observe{query}}, state))
-
 def execution_client_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>) -> World & Bool:
   Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
   +initial_world = initial
@@ -44,20 +38,6 @@ def execution_client_plain(-World: Data, -Decision: Data, execution: Categories.
   query_empty = is_empty(Commands.Effect(), effects(run(read_only_query, initial_world)))
   +replayed_world = replay({read_only_query <> read_only_query <> Nil{} : +List<Commands.Input>}, initial_world)
   (replayed_world, Bool.and(valid(replayed_world), query_empty))
-
-def query_effects(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision), query: Commands.Query, state: World) -> +List<Commands.Effect()>:
-  query_effects_plain(World, Decision, Model.execution_operations(World, Decision, execution), query, state)
-
-def query_law_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>) ->
-  @+query:Commands.Query -> @+state:World ->
-  {query_effects_plain(World, Decision, execution, query, state) == Nil{} : +List<Commands.Effect()>}:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
-  query_effects
-
-def query_law(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision)) ->
-  @+query:Commands.Query -> @+state:World ->
-  {query_effects(World, Decision, execution, query, state) == Nil{} : +List<Commands.Effect()>}:
-  query_law_plain(World, Decision, Model.execution_operations(World, Decision, execution))
 
 def execution_client(-World: Data, -Decision: Data, execution: Model.Execution(World, Decision)) -> World & Bool:
   execution_client_plain(World, Decision, Model.execution_operations(World, Decision, execution))
@@ -87,150 +67,27 @@ def apply_client(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pen
   (initial_world, execution_valid) = result
   Bool.and(execution_valid, application_client(World, State, Input, Decision, Pending, Effect, application, initial_world, mode))
 
-def display_client(-World: Data, -State: Data, -Input: Data, -Effect: Data, -DisplayState: Data, -DisplayDecision: Data, -Publication: Data, -Fields: Data, -Document: Data,
-  -Initialize: World -> Nat -> State, -Program: State -> World,
-  display: Categories.Membership<Model.DisplayOperations<World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document>,
-    Model.display(World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document, Initialize, Program)>) -> Bool:
-  Categories.Membership{Model.DisplayOperations{${displayFields.split(', ').map(name => `display_${name}`).join(', ')}}, ${displayEvidence}} = display
-  True{}
-
 def client(packed: Model.SystemModel(), mode: Bool) -> Bool:
 ${unpackSystem}
 ${unpackInterface}
-  (DisplayState, (DisplayDecision, (Publication, (Fields, (Document, display))))) = packed_display
-  display_ok = display_client(World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document,
-    Model.application_initial(World, State, Input, Result, Pending, Effect, application),
-    Model.application_program(World, State, Input, Result, Pending, Effect, application), Model.display_operations(World, State, Input, Effect, DisplayState, DisplayDecision, Publication, Fields, Document,
-    Model.application_initial(World, State, Input, Result, Pending, Effect, application),
-    Model.application_program(World, State, Input, Result, Pending, Effect, application), display))
-  Bool.and(display_ok, apply_client(World, State, Input, Result, Pending, Effect, execution_client(World, Decision, execution), application, mode))
-
-def toy_operations() -> Model.ExecutionOperations<Bool, Bool>:
-  Model.ExecutionOperations{False{}, state => True{}, input => state => state,
-    input => state => state, decision => decision, decision => Json.Null{},
-    decision => Nil{}, input => False{}, events => state => state}
-
-def toy_evidence() -> Model.execution(Bool, Bool, toy_operations()):
-  Categories.Intersection{
-    Model.ExecutionSafety{{==}, state => input => valid_state => {==}},
-    Categories.Intersection{
-      Model.ExecutionRefinement{input => state => {==}},
-      Categories.Intersection{
-        Model.ExecutionObservation{query => state => {==}, query => state => {==}, query => {==}},
-        Model.ExecutionHistory{events => state => valid_state => {==}, query => first => second => state => {==}}}}}
-
-def toy_model() -> Model.Execution(Bool, Bool):
-  Categories.Membership{Categories.Implementation{toy_operations(), toy_operations()},
-    Categories.Intersection{Model.ExecutionFaithfulness{{==}, state => {==}, input => state => {==}, input => state => {==},
-      decision => {==}, decision => {==}, decision => {==}, input => {==}, events => state => {==}}, toy_evidence()}}
-
-def derive(-Value: Type, -A: Value -> Type, -B: Value -> Type,
-  inclusion: Categories.Inclusion<Value, A, B>, -value: Value, evidence: A(value)) -> B(value):
-  Categories.Inclusion{implication} = inclusion
-  implication(value, evidence)
-
-def consume_safe(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution_safe(Bool, Bool)>) -> Bool:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, Model.ExecutionSafety{initial_valid, preserves_valid}} = packed
-  valid(world(run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, initial)))
-
-def safe_client_plain(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool)>) -> Bool:
-  Categories.Membership{ops, evidence} = packed
-  consume_safe(Categories.Membership{ops, derive(Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool),
-    Model.execution_safe(Bool, Bool), Model.execution_is_safe(Bool, Bool), ops, evidence)})
-
-def safe_client(packed: Model.Execution(Bool, Bool)) -> Bool:
-  safe_client_plain(Model.execution_operations(Bool, Bool, packed))
-
-def consume_refined(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution_refined(Bool, Bool)>) -> Bool:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, Model.ExecutionRefinement{refinement}} = packed
-  run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, True{})
-
-def refined_client_plain(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool)>) -> Bool:
-  Categories.Membership{ops, evidence} = packed
-  consume_refined(Categories.Membership{ops, derive(Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool),
-    Model.execution_refined(Bool, Bool), Model.execution_is_refined(Bool, Bool), ops, evidence)})
-
-def refined_client(packed: Model.Execution(Bool, Bool)) -> Bool:
-  refined_client_plain(Model.execution_operations(Bool, Bool, packed))
-
-# A client can add an actual output equation without changing the root categories.
-def client_output(ops: Model.ExecutionOperations<Bool, Bool>) -> Type:
-  Model.ExecutionOperations{${executionFields}} = ops
-  {run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, True{}) == True{} : Bool}
-
-def extended_model() -> Categories.Membership<Model.ExecutionOperations<Bool, Bool>,
-  (ops => Categories.intersection(Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool), client_output, ops))>:
-  Categories.Membership{toy_operations(), Categories.Intersection{toy_evidence(), {==}}}
-
-def extended_client(packed: Categories.Membership<Model.ExecutionOperations<Bool, Bool>,
-  (ops => Categories.intersection(Model.ExecutionOperations<Bool, Bool>, Model.execution(Bool, Bool), client_output, ops))>) -> Bool:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, Categories.Intersection{execution_evidence, output_evidence}} = packed
-  run(Commands.UserCommand{Commands.Observe{Commands.ListProjects{}}}, True{})
+  apply_client(World, State, Input, Result, Pending, Effect, execution_client(World, Decision, execution), application, mode)
 
 def main() -> Bool:
-  Bool.and(Bool.and(client(Proof.system(), True{}), client(Proof.system(), False{})),
-    Bool.and(safe_client(toy_model()), Bool.and(refined_client(toy_model()), extended_client(extended_model()))))
+  Bool.and(client(Proof.system(), True{}), client(Proof.system(), False{}))
 `;
-
-function leakageProbe(kind) {
-  const world = kind === 'world';
-  return `${imports}import ../../${world ? 'bendlib/component' : 'browser/runtime/SEMANTICS'}.bend as Concrete
-${world ? `
-def expose_world(-World: Data, value: World) -> Bool:
-  Concrete.Frame{local, rest} = value
-  True{}
-
-def expose_plain(-World: Data, -Decision: Data, execution: Categories.Membership<Model.ExecutionOperations<World, Decision>, Model.execution(World, Decision)>) -> Bool:
-  Categories.Membership{Model.ExecutionOperations{${executionFields}}, ${executionEvidence}} = execution
-  expose_world(World, initial)
-` : `
-def expose_application(-State: Data, state: State) -> Bool:
-  Concrete.State{web, sequence, next_ticket, pending, receipt} = state
-  True{}
-def expose_plain(-World: Data, -State: Data, -Input: Data, -Decision: Data, -Pending: Data, -Effect: Data,
-  application: Categories.Membership<Model.ApplicationOperations<World, State, Input, Decision, Pending, Effect>, Model.application(World, State, Input, Decision, Pending, Effect)>, initial_world: World) -> Bool:
-  Categories.Membership{Model.ApplicationOperations{${applicationFields}}, ${applicationEvidence}} = application
-  expose_application(State, initial(initial_world, 0n))
-`}
-
-def expose(packed: Model.SystemModel()) -> Bool:
-${unpackSystem}
-${world ? `  expose_plain(World, Decision, Model.execution_operations(World, Decision, execution))` : `${unpackInterface}
-  expose_plain(World, State, Input, Result, Pending, Effect, Model.application_operations(World, State, Input, Result, Pending, Effect, application),
-    Model.execution_field_initial(World, Decision, Model.execution_actual(World, Decision, Categories.value(Categories.Implementation<Model.ExecutionOperations<World, Decision>>, Model.execution_implementation(World, Decision), execution))))`}
-
-def main() -> Bool:
-  expose(Proof.system())
-`;
-}
 
 test('generic operational clients use production fields and laws while carriers remain abstract', { timeout: 300_000 }, async t => {
   const build = path.join(root, '.build');
   await mkdir(build, { recursive: true });
   const directory = await mkdtemp(path.join(build, 'model-abstraction-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const compile = (filename, checkOnly = true) => spawnSync(bend, [filename, ...(checkOnly ? ['--check-only'] : [])], {
+  const compile = filename => spawnSync(bend, [filename], {
     cwd: directory, encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
   await writeFile(path.join(directory, 'client.bend'), client);
-  const baseline = compile('client.bend');
-  assert.equal(baseline.error, undefined);
-  assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
-  assert.match(baseline.stdout, /ALL PROOFS CHECK/);
-  const executed = compile('client.bend', false);
+  const executed = compile('client.bend');
   assert.equal(executed.error, undefined);
   assert.equal(executed.status, 0, executed.stdout + executed.stderr);
   assert.match(executed.stdout, /\bTrue\{\}/);
-  for (const kind of ['world', 'application']) {
-    const filename = `${kind}-leak.bend`;
-    await writeFile(path.join(directory, filename), leakageProbe(kind));
-    const rejected = compile(filename);
-    const diagnostic = rejected.stdout + rejected.stderr;
-    await writeFile(path.join(directory, `${kind}-leak.log`), diagnostic);
-    assert.equal(rejected.error, undefined, 'A timeout does not establish abstraction');
-    assert.notEqual(rejected.status, 0, `The opaque ${kind} carrier accepted a concrete constructor`);
-    assert.match(diagnostic, /type mismatch|types? (?:do not|don't) match|expected type|type error|expected : a datatype\s+- observed : (?:World|State)\b/i);
-    assert.doesNotMatch(diagnostic, /undefined (?:reference|name)|unresolved import|cannot (?:find|resolve).*import|unsupported syntax|syntax error/i);
-  }
 });

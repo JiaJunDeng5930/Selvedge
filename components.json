@@ -30,6 +30,8 @@
     "bendlib/association-map.bend",
     "bendlib/component.bend",
     "harness/DOMAIN.bend",
+    "harness/tools/SYNTAX.bend",
+    "harness/tools/MODEL.bend",
     "bendlib/effects.bend",
     "bendlib/equality.bend",
     "bendlib/json.bend",
@@ -604,7 +606,8 @@
       "browser/appearance/DESIGN.bend",
       "browser/appearance/TYPOGRAPHY.bend",
       "browser/document/MODEL.bend",
-      "interaction/conversation/CODE.bend"
+      "interaction/conversation/CODE.bend",
+      "bendlib/categories.bend"
     ],
     "browser/document/SPEC.bend": [
       "interaction/IDENTITY.bend",
@@ -1494,7 +1497,8 @@
       "harness/approval/HOOKS.bend",
       "harness/execution/notifications.bend",
       "harness/workspace/WORKSPACE.bend",
-      "harness/approval/MODEL.bend"
+      "harness/approval/MODEL.bend",
+      "harness/tools/SYNTAX.bend"
     ],
     "harness/MODEL.bend": [
       "bendlib/effects.bend",
@@ -1502,7 +1506,8 @@
       "bendlib/component.bend",
       "harness/DOMAIN.bend",
       "harness/reasoning/MODEL.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "harness/tools/MODEL.bend"
     ],
     "harness/PROOF.bend": [
       "bendlib/categories.bend",
@@ -1582,7 +1587,8 @@
       "harness/workspace/WORKSPACE.bend",
       "harness/approval/MODEL.bend",
       "harness/protocol/RESULTS.bend",
-      "harness/reasoning/SPEC.bend"
+      "harness/reasoning/SPEC.bend",
+      "harness/tools/SYNTAX.bend"
     ],
     "harness/features/CODEC.bend": [
       "harness/features/MODEL.bend",
@@ -1722,7 +1728,8 @@
       "harness/workspace/WORKSPACE.bend",
       "harness/approval/MODEL.bend",
       "harness/reasoning/MODEL.bend",
-      "harness/reasoning/SPEC.bend"
+      "harness/reasoning/SPEC.bend",
+      "harness/tools/SYNTAX.bend"
     ],
     "harness/protocol/PROOF.bend": [
       "bendlib/categories.bend",
@@ -1856,7 +1863,8 @@
       "harness/INVARIANTS.bend",
       "harness/approval/HOOKS.bend",
       "harness/approval/MODEL.bend",
-      "harness/reasoning/MODEL.bend"
+      "harness/reasoning/MODEL.bend",
+      "harness/tools/MODEL.bend"
     ],
     "harness/workspace/CONTRACT.bend": [
       "harness/features/MODEL.bend",
@@ -2045,7 +2053,9 @@
       "bendlib/json.bend",
       "interaction/IDENTITY.bend"
     ],
-    "interaction/presentation/COMPOSITION.bend": [],
+    "interaction/presentation/COMPOSITION.bend": [
+      "bendlib/categories.bend"
+    ],
     "interaction/presentation/CONTRACT.bend": [
       "harness/COMMANDS.bend",
       "harness/MODEL.bend",
@@ -2547,7 +2557,8 @@
       "harness/approval/MODEL.bend",
       "harness/reasoning/PROGRAM.bend",
       "features/board/scheduling.bend",
-      "features/board/scheduling-spec.bend"
+      "features/board/scheduling-spec.bend",
+      "harness/tools/SYNTAX.bend"
     ],
     "harness/execution/PROOF.bend": [
       "bendlib/categories.bend",

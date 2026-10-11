@@ -168,8 +168,14 @@ def phase_has_call(phase: D.Phase, id: String) -> Bool:
     case D.HookPending{ticket, reference, call, pending, remaining}: has_attempt(D.CheckedAttempt{call, reference <> pending} <> remaining, id)
     case _: False{}
 
-def review_right(+call: D.Call, reviewer: D.ApprovalReviewer, contract: D.Contract) -> Bool:
-  String.eq(T.call_name(call), "bash") && Approvals.requested(T.call_arguments(call)) && Approvals.valid_request(T.call_arguments(call)) &&
+def review_process(found: Maybe<&2, D.Tool>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{tool}: D.native_process(D.tool_source(tool))
+
+def review_right(+call: D.Call, reviewer: D.ApprovalReviewer, +contract: D.Contract) -> Bool:
+  review_process(T.find_tool(T.task_tools(contract), T.call_name(call))) &&
+    Approvals.requested(T.call_arguments(call)) && Approvals.valid_request(T.call_arguments(call)) &&
     Approvals.bound(Workspace.approval(D.contract_context(contract)), reviewer)
 
 def result_right(stage: D.OperationStage, +operation: D.Operation(), rest: +List<D.Operation()>, phase: D.Phase,
@@ -642,3 +648,7 @@ def decision_limits(previous: M.World(), candidate: M.Decision(), limits_value: 
 
 def decision(+previous: M.World(), candidate: M.Decision()) -> Bool:
   decision_limits(previous, candidate, D.state_limits(C.local(D.State, F.State(), previous)))
+
+
+# Rejection retains the complete old world without dispatching effects.
+# Accepted decisions satisfy both successor validity and transition authority.

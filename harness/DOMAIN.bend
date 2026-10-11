@@ -2,6 +2,7 @@ import Base
 import ./reasoning/MODEL.bend as Reasoning
 import ../bendlib/json.bend as J
 import ./transport/schema.bend as Schema
+import ./tools/SYNTAX.bend as Native
 import ../bendlib/association-map.bend as Finite
 
 # Task-domain values and rules have no dependency on the assembled application.
@@ -78,14 +79,6 @@ def after_input(status: Status) -> Status:
   match status:
     case Stopped{}: Active{}
     case other: other
-
-type Builtin is Data:
-  ForkTask{}
-  ReadTask{}
-  SendMessage{}
-  ArchiveTask{}
-  Bash{}
-  CancelOperation{}
 
 type PluginRef is Data:
   PluginRef{name: String, revision: String}
@@ -164,7 +157,7 @@ def plugins_json(plugins: +List<Plugin>) -> J.Json:
   J.Array{plugin_values(plugins)}
 
 type Source is Data:
-  Harness{tool: Builtin}
+  Harness{program: Native.Body}
   Mcp{server: String, remote: String}
   Extension{plugin: PluginRef, remote: String}
 
@@ -179,10 +172,27 @@ type Execution is Data:
   InternalOperation{}
   ExternalMutation{}
 
+def native_execution_checked(external: Bool) -> Execution:
+  match external:
+    case True{}: ExternalMutation{}
+    case False{}: InternalOperation{}
+
+def native_execution(program: Native.Body) -> Execution:
+  native_execution_checked(Native.external(program))
+
+def native_process(source: Source) -> Bool:
+  match source:
+    case Harness{program}: Native.external(program)
+    case _: False{}
+
+def native_source(source: Source) -> Bool:
+  match source:
+    case Harness{program}: True{}
+    case _: False{}
+
 def execution(source: Source) -> Execution:
   match source:
-    case Harness{Bash{}}: ExternalMutation{}
-    case Harness{_}: InternalOperation{}
+    case Harness{program}: native_execution(program)
     case Mcp{server, remote}: ExternalMutation{}
     case Extension{plugin, remote}: ExternalMutation{}
 
@@ -210,12 +220,7 @@ def tool_source(tool: Tool) -> Source:
 
 def source_same(a: Source, b: Source) -> Bool:
   match a b:
-    case Harness{ForkTask{}} Harness{ForkTask{}}: True{}
-    case Harness{ReadTask{}} Harness{ReadTask{}}: True{}
-    case Harness{SendMessage{}} Harness{SendMessage{}}: True{}
-    case Harness{ArchiveTask{}} Harness{ArchiveTask{}}: True{}
-    case Harness{Bash{}} Harness{Bash{}}: True{}
-    case Harness{CancelOperation{}} Harness{CancelOperation{}}: True{}
+    case Harness{left} Harness{right}: Native.same(left, right)
     case Mcp{server_a, remote_a} Mcp{server_b, remote_b}:
       String.eq(server_a, server_b) && String.eq(remote_a, remote_b)
     case Extension{plugin_a, remote_a} Extension{plugin_b, remote_b}:
@@ -232,8 +237,8 @@ def source_json(source: Source) -> J.Json:
   match source:
     case Extension{plugin, remote}:
       J.Object{[J.Field{"plugin", plugin_json(plugin)}, J.Field{"name", J.Text{remote}}]}
-    case Harness{tool}:
-      J.Text{"harness"}
+    case Harness{program}:
+      J.Object{[J.Field{"kind", J.Text{"native"}}, J.Field{"program", Native.json(program)}]}
     case Mcp{server, remote}:
       J.Object{[J.Field{"server", J.Text{server}}, J.Field{"name", J.Text{remote}}]}
 
@@ -250,15 +255,16 @@ def tools_json(tools: +List<Tool>) -> +List<J.Json>:
 def string_schema(description: String) -> J.Json:
   J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"description", J.Text{description}}]}
 
-def integer_schema(description: String, minimum: Nat, maximum: Nat) -> J.Json:
+# NOTE: Fixed-width schema bounds avoid expanding large Peano naturals during proof normalization.
+def integer_schema(description: String, minimum: U32, maximum: U32) -> J.Json:
   J.Object{[J.Field{"type", J.Text{"integer"}}, J.Field{"description", J.Text{description}},
-    J.Field{"minimum", J.nat(minimum)}, J.Field{"maximum", J.nat(maximum)}]}
+    J.Field{"minimum", J.Number{U32.show(minimum)}}, J.Field{"maximum", J.Number{U32.show(maximum)}}]}
 
 # These definitions are the provider manifest and the executable tool vocabulary.
 # A task freezes them at birth; catalog reloads only affect route availability.
 
 def task_id_schema() -> J.Json:
-  integer_schema("Task identity", 0n, U32.to_nat(4294967295))
+  integer_schema("Task identity", 0, 4294967295)
 
 type Profile is Data:
   Profile{key: String, provider: String, name: String, reasoning: Reasoning.Policy, options: Maybe<&2, ReasoningOptions>}
@@ -579,32 +585,15 @@ def fork_settings_schema() -> J.Json:
   Schema.object([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
     J.Field{"approval", approval_schema()}, J.Field{"project_id", task_id_schema()}], Nil{})
 
-def builtins(max_fork: Nat) -> +List<Tool>:
-  [Tool{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
-    Schema.object([J.Field{"child_count", integer_schema("Number of children", 1n, max_fork)},
-      J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}},
-        J.Field{"items", string_schema("Initial child message")}]} },
-      J.Field{"settings", fork_settings_schema()}], [J.Text{"child_count"}]), Harness{ForkTask{}}},
-   Tool{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
-    Schema.object([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
-      J.Field{"after", integer_schema("Exclusive history offset", 0n, U32.to_nat(4294967295))},
-      J.Field{"limit", integer_schema("Maximum messages", 1n, 100n)}], [J.Text{"task_id"}]), Harness{ReadTask{}}},
-   Tool{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
-    Schema.object([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
-      J.Field{"message", string_schema("Nonempty message")}], [J.Text{"task_id"}, J.Text{"message"}]), Harness{SendMessage{}}},
-   Tool{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
-    Schema.object([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))}], [J.Text{"task_id"}]), Harness{ArchiveTask{}}},
-   Tool{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
-    Schema.object([J.Field{"command", string_schema("Command to run")},
-      J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100n, U32.to_nat(1800000))},
+def process_schema() -> J.Json:
+  Schema.object([J.Field{"command", string_schema("Command to run")},
+      J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100, 1800000)},
       J.Field{"sandbox_permissions", J.Object{[J.Field{"type", J.Text{"string"}},
         J.Field{"enum", J.Array{[J.Text{"use_default"}, J.Text{"require_escalated"}]}}]}},
       J.Field{"justification", string_schema("Required for require_escalated: explain the necessary outside-workspace write, network access, or other sandbox exception; at most 2048 UTF-8 bytes")},
-      J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1n, U32.to_nat(65536))}],
-      [J.Text{"command"}]), Harness{Bash{}}},
-   Tool{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Schema.object([J.Field{"operation_id", task_id_schema()}, J.Field{"task_id", integer_schema("Task identity; defaults to this task", 0n, U32.to_nat(4294967295))}],
-      [J.Text{"operation_id"}]), Harness{CancelOperation{}}}]
+      J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1, 65536)}],
+      [J.Text{"command"}])
+
 
 type Contract is Data:
   Contract{model: Model, tools: +List<Tool>, max_fork: Nat, max_descendants: Nat, plugins: +List<Plugin>, context: TaskContext}
@@ -1136,5 +1125,5 @@ def matches_optional_id(expected: Nat, actual: Maybe<&2, Nat>) -> Bool:
     case None{}: False{}
     case Some{id}: Nat.is_eq(expected, id)
 
-def initial_state() -> State:
-  State{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits(), Projects{Nil{}, 0}}
+def initial_state(+catalog: +List<Tool>) -> State:
+  State{Nil{}, 0n, 0n, Environment{catalog, Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits(), Projects{Nil{}, 0}}

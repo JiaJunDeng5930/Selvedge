@@ -73,11 +73,11 @@ def native(+values: +List<Source.Node>) -> +List<Source.Node>:
     case Con{node, rest}: native(rest)
 
 def text(+key: UIIdentity.Key, +value: String, +visual: Design.Style, +tier: T.Tier, +emphasis: T.Emphasis) -> Source.Node:
-  Source.Text{key, value, Source.ExplicitFont{T.with_emphasis(T.with_tier(Design.style_text(visual), tier), emphasis)}, T.NormalAnywhere{}}
+  Source.constructed_text_node(Source.construct_text(Source.TextRequest{key, value, Source.ExplicitFont{T.with_emphasis(T.with_tier(Design.style_text(visual), tier), emphasis)}, T.NormalAnywhere{}}))
 
 def group(+key: UIIdentity.Key, +visual: Design.Style, +direction: Model.Direction, +width: Model.AxisSize,
   +height: Model.AxisSize, +children: +List<Source.Node>) -> Source.Node:
-  Source.Box{key, Source.Div{}, Factory.content_style(visual, direction, width, height, AuthoredControls.parent_gap(visual)), Nil{}, children}
+  Source.constructed_box_node(Source.construct_box(Source.BoxRequest{key, Source.Div{}, Factory.content_style(visual, direction, width, height, AuthoredControls.parent_gap(visual)), Nil{}, children}))
 
 def role_tag(+role: SurfaceTypes.Role) -> Source.BoxTag:
   match role:
@@ -165,7 +165,7 @@ def caption(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +vis
     case _: Nil{}
 
 def box(+key: UIIdentity.Key, +tag: Source.BoxTag, +style: Source.Style, +attrs: +List<Source.Attribute>, +children: +List<Source.Node>) -> Source.Node:
-  Source.Box{key, tag, style, attrs, children}
+  Source.constructed_box_node(Source.construct_box(Source.BoxRequest{key, tag, style, attrs, children}))
 
 def target_source(+target: Source.NativeTarget) -> Code.Source:
   match target:
@@ -408,10 +408,10 @@ def scroll_content(+value: Source.Style) -> Source.Style:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, Model.ScrollVertically{}, position}, font, chrome, states}
 
 def lane(+key: UIIdentity.Key, +label: String, +stage: Board.Stage, +count: Nat, +visual: Design.Style, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
-  Source.Control{key, Source.SectionControl{}, Factory.with_direction(Factory.style(visual, Model.LimitedSize{Design.lane_minimum_width(parameters), 0n, Design.lane_minimum_width(parameters)}, Model.StretchSize{}, Model.Confined{}), Model.Vertical{}), [Source.DataAttribute{"board-stage", Board.stage_name(stage)}, Source.DataAttribute{"board-count", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{},
+  Source.constructed_control_node(Source.construct_control(Source.ControlRequest{key, Source.SectionControl{}, Factory.with_direction(Factory.style(visual, Model.LimitedSize{Design.lane_minimum_width(parameters), 0n, Design.lane_minimum_width(parameters)}, Model.StretchSize{}, Model.Confined{}), Model.Vertical{}), [Source.DataAttribute{"board-stage", Board.stage_name(stage)}, Source.DataAttribute{"board-count", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{},
     [box(UIIdentity.part(key, "@heading"), Source.Header{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.DataAttribute{"board-lane-heading", ""}],
       [group(UIIdentity.part(key, "@heading-leading"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, [box(UIIdentity.part(key, "@stage-mark"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"board-stage-mark", Board.stage_name(stage)}, Source.AriaAttribute{"hidden", "true"}], Nil{}), text(UIIdentity.part(key, "@title"), label, visual, T.Support{}, T.Medium{}), text(UIIdentity.part(key, "@count"), Nat.show(count), visual, T.Support{}, T.Regular{})]), group(UIIdentity.part(key, "@heading-trailing"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, lane_children(children, True{}, stage))]),
-     box(UIIdentity.part(key, "@cards"), Source.Div{}, scroll_content(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, AuthoredControls.parent_gap(visual))), [Source.DataAttribute{"board-cards", ""}], append(empty_lane(count, key, visual), lane_children(children, False{}, stage)))]}
+     box(UIIdentity.part(key, "@cards"), Source.Div{}, scroll_content(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, AuthoredControls.parent_gap(visual))), [Source.DataAttribute{"board-cards", ""}], append(empty_lane(count, key, visual), lane_children(children, False{}, stage)))]}))
 
 def optional_text_present(+empty: Bool, +value: String, +key: UIIdentity.Key, +part: String, +visual: Design.Style) -> +List<Source.Node>:
   match empty:
@@ -480,10 +480,10 @@ def card_movement_available(values: +List<Child>) -> Bool:
 
 def card(+key: UIIdentity.Key, +face: View.CardFace, +visual: Design.Style, +children: +List<Child>, +representation: Controls.Representation, +parameters: Design.LayoutParameters, +movable: Bool) -> Source.Node:
   View.CardFace{+id, +title, description, priority, pinned_value, +status, project, labels, owner, updated} = face
-  Source.Control{key, Source.ArticleControl{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"card-id", Nat.show(id)}, Source.DataAttribute{"card-title", title}, Source.DraggableAttribute{FieldOptions.boolean(movable)}], title, movable, Doc.DragCard{UIIdentity.encode(key)}, [Doc.DropCard{UIIdentity.encode(key)}],
+  Source.constructed_control_node(Source.construct_control(Source.ControlRequest{key, Source.ArticleControl{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"card-id", Nat.show(id)}, Source.DataAttribute{"card-title", title}, Source.DraggableAttribute{FieldOptions.boolean(movable)}], title, movable, Doc.DragCard{UIIdentity.encode(key)}, [Doc.DropCard{UIIdentity.encode(key)}],
     append(append(card_grip(representation, key, visual), [group(UIIdentity.part(key, "@metadata"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append([text(UIIdentity.part(key, "@reference"), Board.identifier(id), visual, T.Support{}, T.Regular{}), text(UIIdentity.part(key, "@priority"), Board.priority_label(priority), visual, T.Support{}, T.Regular{})], append(pinned(pinned_value, key, visual), optional_text(status, key, "status", visual)))),
       group(UIIdentity.part(key, "@actions"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, [group(UIIdentity.part(key, "@open"), visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, card_title(key, title, visual, card_actions(children, False{}))), group(UIIdentity.part(key, "@more"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, card_actions(children, True{}))])]),
-      append(optional_text(description, key, "description", visual), append([group(UIIdentity.part(key, "@context"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append(optional_text(project, key, "project", visual), card_labels(labels, key, 0n, visual)))], [group(UIIdentity.part(key, "@movement"), visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, card_movement_nodes(children)), box(UIIdentity.part(key, "@footer"), Source.Footer{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.DataAttribute{"card-footer", ""}], append(optional_text(owner, key, "owner", visual), optional_text(updated, key, "updated", visual)))])))}
+      append(optional_text(description, key, "description", visual), append([group(UIIdentity.part(key, "@context"), visual, Model.ResponsiveHorizontal{}, Model.StretchSize{}, Model.NaturalSize{}, append(optional_text(project, key, "project", visual), card_labels(labels, key, 0n, visual)))], [group(UIIdentity.part(key, "@movement"), visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, card_movement_nodes(children)), box(UIIdentity.part(key, "@footer"), Source.Footer{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, AuthoredControls.parent_gap(visual)), [Source.DataAttribute{"card-footer", ""}], append(optional_text(owner, key, "owner", visual), optional_text(updated, key, "updated", visual)))])))}))
 
 def task_status_size() -> Nat:
   16n
@@ -542,7 +542,7 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.PageRegion{region, position}: box(key, Source.Div{}, region_style(visual, region, position), [Source.DataAttribute{"page-position", position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content)
     case SurfaceTypes.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
     case SurfaceTypes.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
-    case SurfaceTypes.CardArchive{count}: Source.Control{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}
+    case SurfaceTypes.CardArchive{count}: Source.constructed_control_node(Source.construct_control(Source.ControlRequest{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}))
     case SurfaceTypes.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
     case SurfaceTypes.MovableCard{destinations, face}: movable_source(key, representation, visual, parameters)
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))

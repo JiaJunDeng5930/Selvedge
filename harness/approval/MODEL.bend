@@ -34,9 +34,7 @@ def valid_request(+arguments: J.Json) -> Bool:
     (D.nonempty(String.trim(J.text(J.get(arguments, "justification")))) && bounded(J.text(J.get(arguments, "justification"))))
 
 def needed(source: D.Source, +arguments: J.Json, policy: D.ApprovalPolicy) -> Bool:
-  match source:
-    case D.Harness{D.Bash{}}: requested(arguments) && Bool.not(W.full_access(policy))
-    case _: False{}
+  D.native_process(source) && requested(arguments) && Bool.not(W.full_access(policy))
 
 def reviewer(policy: D.ApprovalPolicy) -> D.ApprovalReviewer:
   match policy:

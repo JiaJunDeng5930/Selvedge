@@ -13,19 +13,12 @@ const build = Bun.spawn([process.execPath, 'scripts/build.mjs'], {
 });
 const buildExitCode = await build.exited;
 if (buildExitCode !== 0) process.exit(buildExitCode);
-// NOTE: Repeated whole-program compiler mutations and extension builds belong to full validation.
-const fullValidationOnly = new Set([
-  'board-proof.test.mjs',
-  'chatgpt-plugin-proof.test.mjs',
-  'locality.test.mjs',
-  'proof-gate.test.mjs',
-  'reasoning-proof.test.mjs',
-  'whole-program-proof.test.mjs',
-]);
+// NOTE: Native extension builds remain in full validation.
+const fullValidationOnly = new Set(['locality.test.mjs']);
 const files = (await readdir(new URL('../tests-bend/', import.meta.url)))
   .filter(name => name.endsWith('.test.mjs') && (!ci || !fullValidationOnly.has(name)))
   .sort().map(name => `tests-bend/${name}`);
-console.log(`${ci ? 'CI integration' : 'Full validation'} suite: ${files.length} files; 2 isolated Bun processes${ci ? `; ${fullValidationOnly.size} full-validation files deferred` : ''}.`);
+console.log(`${ci ? 'CI integration' : 'Full validation'} suite: ${files.length} files; 1 isolated Bun process${ci ? `; ${fullValidationOnly.size} full-validation files deferred` : ''}.`);
 
 const active = new Set();
 const records = [];
@@ -99,7 +92,8 @@ async function worker() {
     await runFile(file);
   }
 }
-await Promise.all([worker(), worker()]);
+// NOTE: Serialize compiler and native extension workloads to bound memory use.
+await worker();
 const sum = key => records.reduce((total, record) => total + record[key], 0);
 const unsuccessful = records.filter(record => !record.success).length;
 const incomplete = files.length - records.length;

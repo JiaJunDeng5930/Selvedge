@@ -1564,3 +1564,19 @@ status repair subsequently passed its original seven tests. These scoped repairs
 and reruns do not constitute a new zero-failure run of the complete 45-file suite.
 Formal acceptance and these fixtures do not establish physical browser layout,
 focus behavior or host execution of external effects.
+
+## Removing checker-only tests
+
+The test scope now excludes callbacks whose only criterion is Bend accepting or
+rejecting source code, proofs or certificates. Repeating that verdict did not
+supply an independent domain-behavior observation; universal requirements remain
+with actual production constructions and their proofs. Eight checker-only files
+were removed, and mixed suites retain generated runtime values, JavaScript
+translator source-data assertions, source-boundary checks and native extension
+round trips with clients frozen. Only the native locality suite remains deferred
+from routine CI.
+
+The production proof and certificate gates remain in checks and builds. Earlier
+measurements and checker-mutation outcomes above are historical records. Tests and
+proofs were not run for this removal, and the stopped complete-suite run is not
+reported as passing.

@@ -423,9 +423,9 @@ bun run bench
 
 `check` verifies the pinned compiler, proof obligations and host/script syntax.
 The default build also produces the kernel, browser and host JavaScript libraries.
-The remaining tests cover compiler and external component boundaries, integration
-flows and negative proof mutations; their evidence responsibilities are recorded
-in [tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
+The remaining tests cover actual compiler execution, external component boundaries
+and integration flows; their evidence responsibilities are recorded in
+[tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
 claim that a particular checkout has passed them. Tests that exercise workspace
 isolation require a working platform sandbox. The benchmark measures committed
 transitions and replay without a machine-dependent CI threshold. `just` provides
@@ -434,7 +434,7 @@ aliases for the development commands.
 CI runs production proofs, syntax, a JavaScript library build, regular
 integration tests and the tracked-file index on Linux for each PR and main
 update. `bun run test:ci` retains real sandbox, SQLite, process and protocol
-tests; repeated whole-program proof mutations and native extension builds stay
+tests; native extension builds stay
 in `bun run test` and the pre-push hook. Select `full` when manually running CI
 to run the complete suite on Linux and macOS. GitHub enables that manual entry
 after this workflow reaches the default branch. Ubuntu CI loads a user-namespace

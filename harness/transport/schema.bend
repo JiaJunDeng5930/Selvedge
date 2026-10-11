@@ -19,11 +19,21 @@ def required(names: +List<J.Json>, +fields: +List<J.Field>) -> Bool:
     case Con{J.Text{name}, rest}: exists(fields, name) && required(rest, fields)
     case Con{other, rest}: False{}
 
-def natural_bounds(value: Maybe<&2, Nat>, lower: Maybe<&2, Nat>, upper: Maybe<&2, Nat>) -> Bool:
+def number(value: J.Json) -> Maybe<&2, U32>:
+  match value:
+    case J.Number{lexeme}: U32.read(lexeme)
+    case _: None{}
+
+def number_or(value: Maybe<&2, U32>, fallback: U32) -> U32:
+  match value:
+    case None{}: fallback
+    case Some{n}: n
+
+def natural_bounds(value: Maybe<&2, U32>, lower: Maybe<&2, U32>, upper: Maybe<&2, U32>) -> Bool:
   match value:
     case None{}: False{}
     case Some{+n}:
-      Nat.is_le(J.natural_or(lower, 0n), n) && Nat.is_le(n, J.natural_or(upper, U32.to_nat(4294967295)))
+      U32.is_le(number_or(lower, 0), n) && U32.is_le(n, number_or(upper, 4294967295))
 
 def allowed_type(+schema: J.Json, expected: String) -> Bool:
   String.eq(J.text(J.get(schema, "type")), expected)
@@ -31,6 +41,47 @@ def allowed_type(+schema: J.Json, expected: String) -> Bool:
 def property_exists(value: J.Json) -> Bool:
   match value:
     case J.Object{fields}: True{}
+    case _: False{}
+
+def contains(strings: +List<String>, +value: String) -> Bool:
+  match strings:
+    case Nil{}: False{}
+    case Con{item, rest}: String.eq(item, value) || contains(rest, value)
+
+def string_enum_values(fuel: Nat, values: +List<J.Json>, +seen: +List<String>) -> Bool:
+  match fuel values:
+    case 0n _: False{}
+    case 1n+p Nil{}: True{}
+    case 1n+p Con{J.Text{+text}, rest}:
+      Bool.not(contains(seen, text)) && string_enum_values(p, rest, text <> seen)
+    case 1n+p _: False{}
+
+def string_enum_shape(value: J.Json) -> Bool:
+  match value:
+    case J.Array{Con{first, rest}}: string_enum_values(256n, first <> rest, Nil{})
+    case _: False{}
+
+def string_enum_definition(schema: J.Json) -> Bool:
+  match schema:
+    case J.Object{+fields}:
+      Bool.not(exists(fields, "enum")) || string_enum_shape(J.get(J.Object{fields}, "enum"))
+    case _: False{}
+
+def string_enum_member(fuel: Nat, values: +List<J.Json>, +text: String) -> Bool:
+  match fuel values:
+    case 0n _: False{}
+    case 1n+p Nil{}: False{}
+    case 1n+p Con{J.Text{item}, rest}:
+      String.eq(item, text) || string_enum_member(p, rest, text)
+    case 1n+p _: False{}
+
+def string_enum_accepts(+value: J.Json, text: String) -> Bool:
+  string_enum_shape(value) && string_enum_member(256n, J.items(value), text)
+
+def string_enum_allowed(schema: J.Json, text: String) -> Bool:
+  match schema:
+    case J.Object{+fields}:
+      Bool.not(exists(fields, "enum")) || string_enum_accepts(J.get(J.Object{fields}, "enum"), text)
     case _: False{}
 
 type Check is Data:
@@ -41,11 +92,11 @@ type Check is Data:
 def check(fuel: Nat, job: Check) -> Bool:
   match fuel job:
     case 0n _: False{}
-    case 1n+p CheckValue{schema, J.Text{text}}:
-      allowed_type(schema, "string")
+    case 1n+p CheckValue{+schema, J.Text{text}}:
+      allowed_type(schema, "string") && string_enum_allowed(schema, text)
     case 1n+p CheckValue{+schema, J.Number{lexeme}}:
-      allowed_type(schema, "integer") && natural_bounds(Nat.read(lexeme),
-        J.natural(J.get(schema, "minimum")), J.natural(J.get(schema, "maximum")))
+      allowed_type(schema, "integer") && natural_bounds(U32.read(lexeme),
+        number(J.get(schema, "minimum")), number(J.get(schema, "maximum")))
     case 1n+p CheckValue{schema, J.Boolean{value}}:
       allowed_type(schema, "boolean")
     case 1n+p CheckValue{schema, J.Null{}}:
@@ -71,11 +122,6 @@ def valid(schema: J.Json, value: J.Json) -> Bool:
 # Extension schemas use exactly the native decidable fragment. Unsupported
 # JSON Schema keywords are rejected at registration, never silently ignored.
 
-def contains(strings: +List<String>, +value: String) -> Bool:
-  match strings:
-    case Nil{}: False{}
-    case Con{item, rest}: String.eq(item, value) || contains(rest, value)
-
 def keywords(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
   match fields:
     case Nil{}: True{}
@@ -99,15 +145,15 @@ def closed(value: J.Json) -> Bool:
     case J.Boolean{False{}}: True{}
     case _: False{}
 
-def bounded_natural(value: Maybe<&2, Nat>) -> Bool:
+def bounded_natural(value: Maybe<&2, U32>) -> Bool:
   match value:
     case None{}: False{}
-    case Some{n}: Nat.is_le(n, U32.to_nat(4294967295))
+    case Some{n}: True{}
 
 def bound(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
-    case J.Number{lexeme}: bounded_natural(Nat.read(lexeme))
+    case J.Number{lexeme}: bounded_natural(number(J.Number{lexeme}))
     case _: False{}
 
 def required_names(names: +List<J.Json>, +properties: +List<J.Field>, +seen: +List<String>) -> Bool:
@@ -147,9 +193,10 @@ def definition_shape(kind: String, +value: J.Json) -> Bool:
     case "object": keys(value, ["type", "description", "title", "properties", "required", "additionalProperties"]) &&
       closed(J.get(value, "additionalProperties")) && property_requirements(J.get(value, "properties"), J.get(value, "required"))
     case "array": keys(value, ["type", "description", "title", "items"]) && J.is_object(J.get(value, "items"))
+    case "string": keys(value, ["type", "description", "title", "enum"]) && string_enum_definition(value)
     case "integer": keys(value, ["type", "description", "title", "minimum", "maximum"]) &&
       bound(J.get(value, "minimum")) && bound(J.get(value, "maximum")) &&
-      Nat.is_le(J.natural_or(J.natural(J.get(value, "minimum")), 0n), J.natural_or(J.natural(J.get(value, "maximum")), U32.to_nat(4294967295)))
+      U32.is_le(number_or(number(J.get(value, "minimum")), 0), number_or(number(J.get(value, "maximum")), 4294967295))
     case _: keys(value, ["type", "description", "title"])
 
 def definition(fuel: Nat, jobs: Maybe<&2, +List<Definition>>) -> Bool:

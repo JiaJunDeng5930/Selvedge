@@ -10,6 +10,10 @@ type Intersection<-Value: Type, -A: Value -> Type, -B: Value -> Type, -value: Va
 def intersection(-Value: Type, -A: Value -> Type, -B: Value -> Type, -value: Value) -> Type:
   Intersection<Value, A, B, value>
 
+def apply_inclusion(-Value: Type, -A: Value -> Type, -B: Value -> Type, inclusion: Inclusion<Value, A, B>, -value: Value, evidence: A(value)) -> B(value):
+  Inclusion{derive} = inclusion
+  derive(value, evidence)
+
 def inclusion_identity(-Value: Type, -A: Value -> Type) -> Inclusion<Value, A, A>:
   Inclusion{value => evidence => evidence}
 
@@ -17,6 +21,13 @@ def inclusion_compose(-Value: Type, -A: Value -> Type, -B: Value -> Type, -C: Va
   Inclusion{first} = first
   Inclusion{second} = second
   Inclusion{value => evidence => second(value, first(value, evidence))}
+
+def inverse_image(-Source: Type, -Target: Type, projection: Source -> Target, category: Target -> Type, value: Source) -> Type:
+  category(projection(value))
+
+def pullback_inclusion(-Source: Type, -Target: Type, -projection: Source -> Target, -first: Target -> Type, -second: Target -> Type, inclusion: Inclusion<Target, first, second>) -> Inclusion<Source, inverse_image(Source, Target, projection, first), inverse_image(Source, Target, projection, second)>:
+  Inclusion{evidence} = inclusion
+  Inclusion{value => proof => evidence(projection(value), proof)}
 
 def project_intersection_first(-Value: Type, -A: Value -> Type, -B: Value -> Type, -value: Value, evidence: intersection(Value, A, B, value)) -> A(value):
   Intersection{first, second} = evidence
@@ -35,6 +46,19 @@ def intersection_second(-Value: Type, -A: Value -> Type, -B: Value -> Type) -> I
 type Membership<-Value: Type, -category: Value -> Type> is Type:
   Membership{value: Value, evidence: category(value)}
 
+def map_membership(-Source: Type, -Target: Type, projection: Source -> Target, -category: Target -> Type, member: Membership<Source, inverse_image(Source, Target, projection, category)>) -> Membership<Target, category>:
+  Membership{value, evidence} = member
+  projected = projection(value)
+  Membership{projected, evidence}
+
+def reclassify(-Value: Type, -first: Value -> Type, -second: Value -> Type, member: Membership<Value, first>, inclusion: Inclusion<Value, first, second>) -> Membership<Value, second>:
+  Membership{value, evidence} = member
+  Inclusion{derive} = inclusion
+  Membership{value, derive(value, evidence)}
+
+def extend_instance(-Value: Type, -base: Value -> Type, -additional: Value -> Type, value: Value, base_evidence: base(value), additional_evidence: additional(value)) -> Membership<Value, (value => intersection(Value, base, additional, value))>:
+  Membership{value, Intersection{base_evidence, additional_evidence}}
+
 type Construction<-Request: Data, -Result: Data> is Data:
   Construction{request: Request, result: Result}
 
@@ -45,6 +69,11 @@ def constructed_by(-Request: Data, -Result: Data, -producer: Request -> Result, 
 def construct(-Request: Data, -Result: Data, producer: Request -> Result, +request: Request) -> Membership<Construction<Request, Result>, constructed_by(Request, Result, producer)>:
   +result = producer(request)
   Membership{Construction{request, result}, {==}}
+
+# Provenance alone supplies no domain property; the family law supplies it.
+def construct_certified(-Request: Data, -Result: Data, producer: Request -> Result, -premise: Request -> Type, -category: Construction<Request, Result> -> Type, evidence: @-request:Request -> premise(request) -> category(Construction{request, producer(request)}), +request: Request, accepted: premise(request)) -> Membership<Construction<Request, Result>, (value => intersection(Construction<Request, Result>, constructed_by(Request, Result, producer), category, value))>:
+  +result = producer(request)
+  Membership{Construction{request, result}, Intersection{{==}, evidence(request, accepted)}}
 
 type Implementation<-Operations: Type> is Type:
   Implementation{specification: Operations, operations: Operations}

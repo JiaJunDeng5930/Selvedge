@@ -5,9 +5,9 @@ import ./BACKENDS.bend as B
 def B.complete_correspondence():
   operation => source => {==}
 def B.response_family_protocol():
-  identity => endpoint => credential => independent => summary => reasoning => auth => receipt => namespaced => {==}
+  identity => endpoint => credential => independent => auth => transport => stream_kind => {==}
 def B.response_family_identity():
-  identity => endpoint => credential => independent => summary => reasoning => auth => receipt => namespaced => {==}
+  identity => endpoint => credential => independent => auth => transport => stream_kind => {==}
 def B.tool_authority_projection():
   effect => profile => input => {==}
 def B.callable_identity():

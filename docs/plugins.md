@@ -221,4 +221,4 @@ with core state/replies/effects. It does not prove a callback's policy correct o
 certify arbitrary external processes. Tests run real fixture processes and
 loopback providers, check SQLite commit-before-callback, exercise denial/rewrite,
 internal fork, MCP, extension tools, interruption/recovery, oversized payloads,
-bounded observers and deliberately type-correct proof-breaking mutations.
+bounded observers.

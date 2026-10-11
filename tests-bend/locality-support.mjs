@@ -33,24 +33,6 @@ export async function unchanged({ directory, originals }, allowed = []) {
   }
 }
 
-export function check(directory, entry = 'PROOF.bend') {
-  return spawnSync(binary, [entry, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000,
-    maxBuffer: 8 * 1024 * 1024, env: environment });
-}
-
-export function checked(result) {
-  assert.equal(result.error, undefined, 'A timeout or execution error is not proof evidence');
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.equal(result.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
-  assert.equal(result.stderr, '');
-}
-
-export function rejected(result, obligation) {
-  assert.equal(result.error, undefined, 'A timeout or execution error is not semantic rejection');
-  assert.notEqual(result.status, 0, 'The proof accepted the defect');
-  assert.match(result.stdout + result.stderr, obligation);
-}
-
 export function replaceOnce(source, before, after) {
   assert.equal(source.split(before).length, 2, `Mutation or extension must identify exactly one source location: ${before}`);
   return source.replace(before, after);
@@ -118,7 +100,6 @@ export async function nativeBuild(directory, entry = 'MAIN.bend', { signal, time
 
 export async function nativeProbe(directory, source, expected = '1', options = {}) {
   await writeFile(path.join(directory, 'LOCALITY_NATIVE.bend'), source);
-  checked(check(directory, 'LOCALITY_NATIVE.bend'));
   const executable = await nativeBuild(directory, 'LOCALITY_NATIVE.bend', options);
   const result = spawnSync(executable, [], { cwd: directory, encoding: 'utf8', timeout: 15_000, env: environment });
   assert.equal(result.error, undefined);

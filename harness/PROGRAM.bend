@@ -1,4 +1,5 @@
 import Base
+import ./tools/SYNTAX.bend as Native
 import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
 import ./features/execution.bend as FeatureExec
@@ -316,7 +317,7 @@ def realize_invocation(operation: Protocol.Invocation, +call: D.Call, +remaining
     case Protocol.Branch{count, messages, selection}:
       commit_invoked_fork(children(count, next_task(world), 1n, Commands.selected_parent(selection, task), T.call_id(call), remaining, messages), call, remaining, task, world)
 
-def builtin(tool: D.Builtin, arguments: J.Json, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
+def builtin(tool: Native.Body, arguments: J.Json, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
   realize_invocation(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)
 
 def realize_action_calculation(action: Execution.Action, world: M.World()) -> M.Decision():
@@ -429,26 +430,8 @@ def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():
     case M.UserCommand{M.Observe{request}}: deliver(False{}, observe(request, world), world)
     case other: update(other, world)
 
-type TransitionRequest is Data:
-  TransitionRequest{input: M.Input, world: M.World()}
-
-def transition_result(request: TransitionRequest) -> M.Decision():
-  TransitionRequest{input, world} = request
-  transition_calculation(input, world)
-
-def ConstructedTransition() -> Type:
-  Categories.Membership<Categories.Construction<TransitionRequest, M.Decision()>,
-    Categories.constructed_by(TransitionRequest, M.Decision(), transition_result)>
-
-def construct_transition(input: M.Input, world: M.World()) -> ConstructedTransition():
-  Categories.construct(TransitionRequest, M.Decision(), transition_result, TransitionRequest{input, world})
-
-def consume_transition(member: ConstructedTransition()) -> M.Decision():
-  Categories.Membership{Categories.Construction{request, result}, evidence} = member
-  result
-
 def transition(input: M.Input, +world: M.World()) -> M.Decision():
-  consume_transition(construct_transition(input, world))
+  transition_calculation(input, world)
 
 def next(world: M.World(), input: M.Input) -> M.World():
   decision_world(transition(input, world))

@@ -1,4 +1,5 @@
 import Base
+import ./tools/MODEL.bend as Tools
 import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
 import ../bendlib/component.bend as C
@@ -11,7 +12,7 @@ def World() -> Data:
   C.Frame<D.State, F.State()>
 
 def initial() -> World():
-  C.Frame{D.initial_state(), F.initial()}
+  C.Frame{D.initial_state(Tools.catalog(4n)), F.initial()}
 
 def Effect() -> Data:
   Effects.Effect<F.Effect>
@@ -100,13 +101,13 @@ def commands() -> +List<CommandSpec>:
      D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"summary", D.string_schema("Optional continuation note; useful when the provider cannot accept the old context. Read describe for the byte limit.")}], [J.Text{"task_id"}])},
    CommandSpec{"fork", "Fork an idle task, subject to every ancestor's descendant limit.", ForkCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()},
-       J.Field{"child_count", D.integer_schema("Number of children", 1n, U32.to_nat(4294967295))},
+       J.Field{"child_count", D.integer_schema("Number of children", 1, 4294967295)},
        J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", D.string_schema("Child request")}]}},
        J.Field{"settings", D.task_settings_schema()}],
        [J.Text{"task_id"}, J.Text{"child_count"}])},
    CommandSpec{"read", "Read a bounded history page without advancing the task.", ReadCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"after", D.integer_schema("History offset", 0n, U32.to_nat(4294967295))},
-       J.Field{"limit", D.integer_schema("Page size; defaults to 100", 1n, 100n)}], [J.Text{"task_id"}])},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"after", D.integer_schema("History offset", 0, 4294967295)},
+       J.Field{"limit", D.integer_schema("Page size; defaults to 100", 1, 100)}], [J.Text{"task_id"}])},
    CommandSpec{"list", "Read task summaries and the currently available model profiles and tools.", ListCommand{},
      D.command_schema(Nil{}, Nil{})},
    CommandSpec{"describe", "Read this executable command vocabulary and the effect-boundary limits.", DescribeCommand{},

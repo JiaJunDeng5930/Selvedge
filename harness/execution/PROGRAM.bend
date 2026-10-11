@@ -1,4 +1,5 @@
 import Base
+import ../tools/SYNTAX.bend as Native
 import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as F
 import ../../bendlib/effects.bend as Effects
@@ -67,7 +68,7 @@ def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json) -> Boo
   match source:
     case D.Extension{plugin, remote}: Schema.valid(schema, arguments)
     case D.Mcp{server, remote}: J.is_object(arguments)
-    case D.Harness{D.Bash{}}:
+    case D.Harness{Native.Process{}}:
       Schema.valid(schema, arguments) && D.nonempty(J.text(J.get(arguments, "command"))) &&
         Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}})) && Approvals.valid_request(arguments)
     case D.Harness{other}: Schema.valid(schema, arguments)
@@ -104,7 +105,7 @@ def external_capacity(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>
   external_capacity_admitted(Categories.admit(ExternalCapacityRequest, external_capacity_accepts, request), request)
 
 type InternalCapacityRequest is Data:
-  InternalCapacityRequest{builtin: D.Builtin, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
+  InternalCapacityRequest{builtin: Native.Body, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
 
 def internal_capacity_accepts(request: InternalCapacityRequest) -> Bool:
   InternalCapacityRequest{+builtin, +call, +remaining, +task, +world} = request
@@ -125,7 +126,7 @@ def internal_capacity_admitted(admission: Maybe<&1, Categories.Membership<Intern
       InternalCapacityRequest{+builtin, +call, +remaining, +task, +world} = request
       Failure{"operation_limit", "This task has reached its result-processing operation limit; wait for results or cancel an operation", call, remaining, task}
 
-def internal_capacity(+builtin: D.Builtin, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
+def internal_capacity(+builtin: Native.Body, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> Action:
   +request = {InternalCapacityRequest{builtin, call, remaining, task, world} : InternalCapacityRequest}
   internal_capacity_admitted(Categories.admit(InternalCapacityRequest, internal_capacity_accepts, request), request)
 
@@ -176,10 +177,46 @@ def available_accepts(request: AvailableRequest) -> Bool:
 def available_category() -> AvailableRequest -> Type:
   Categories.holds(AvailableRequest, available_accepts)
 
+def available_validation(request: AvailableRequest) -> ValidatedRequest:
+  AvailableRequest{tool, call, remaining, task, world} = request
+  ValidatedRequest{tool, call, remaining, task, world}
+
+def ready_arguments(request: AvailableRequest) -> Bool:
+  validated_accepts(available_validation(request))
+
+def ready_validation_category() -> AvailableRequest -> Type:
+  Categories.inverse_image(AvailableRequest, ValidatedRequest, available_validation, validated_category())
+
+def ReadyCategory() -> AvailableRequest -> Type:
+  request => Categories.intersection(AvailableRequest, available_category(), ready_validation_category(), request)
+
+def ready_availability() -> Categories.Inclusion<AvailableRequest, ReadyCategory(), available_category()>:
+  Categories.intersection_first(AvailableRequest, available_category(), ready_validation_category())
+
+def ready_validation() -> Categories.Inclusion<AvailableRequest, ReadyCategory(), ready_validation_category()>:
+  Categories.intersection_second(AvailableRequest, available_category(), ready_validation_category())
+
+def ready_validation_member(member: Categories.Membership<AvailableRequest, ReadyCategory()>) -> Categories.Membership<ValidatedRequest, validated_category()>:
+  Categories.map_membership(AvailableRequest, ValidatedRequest, available_validation, validated_category(),
+    Categories.reclassify(AvailableRequest, ReadyCategory(), ready_validation_category(), member, ready_validation()))
+
+def ready_accepted(member: Categories.Membership<AvailableRequest, ReadyCategory()>) -> Action:
+  validated_accepted(ready_validation_member(member))
+
+def ready_invalid(request: AvailableRequest) -> Action:
+  AvailableRequest{tool, call, remaining, task, world} = request
+  Failure{"invalid_arguments", "Tool arguments do not satisfy its frozen schema", call, remaining, task}
+
+def ready_checked(+request: AvailableRequest, evidence: available_category()(request), allowed: Bool,
+  checked: {ready_arguments(request) == allowed : Bool}) -> Action:
+  match allowed:
+    case True{}:
+      ready_accepted(Categories.Membership{request, Categories.Intersection{evidence, checked}})
+    case False{}: ready_invalid(request)
+
 def available_accepted(member: Categories.Membership<AvailableRequest, available_category()>) -> Action:
-  Categories.Membership{request, evidence} = member
-  AvailableRequest{+tool, +call, +remaining, +task, +world} = request
-  validated(tool, call, remaining, task, world)
+  Categories.Membership{+request, evidence} = member
+  ready_checked(request, evidence, ready_arguments(request), {==})
 
 def available_admitted(admission: Maybe<&1, Categories.Membership<AvailableRequest, available_category()>>, request: AvailableRequest) -> Action:
   match admission:

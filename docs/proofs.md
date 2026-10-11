@@ -28,10 +28,10 @@ Task storage's production `update_state` specializes the abstract
 `Tasks.update_carrier` computation to the domain model's task observation and
 write operation. Its provider proves the complete required update and frame
 preservation for arbitrary surrounding state; client proofs use that storage
-operation instead of expanding its concrete task list reconstruction. The locality
-replacement fixture changes that reconstruction and discharges the same local contract with the imported `app_nil_r` theorem;
-all client proofs remain byte-identical. The extension fixture likewise checks
-the full proof root with the original global UI, wire and native entry frozen.
+operation instead of expanding its concrete task list reconstruction. Actual
+native extension fixtures execute with the existing source and client tree frozen;
+replacement equality remains a production proof obligation rather than a
+checker-only test fixture.
 
 The locality, interaction and browser contracts group existing obligations by responsibility;
 their assembly still requires every group's evidence. Grouping is a reading
@@ -71,11 +71,6 @@ production modules; a caller does not import open laws merely to compute validit
 
 [PROOF.bend](../features/board/PROOF.bend) constructs the production board refinement and callback
 evidence declared in [features/board/CONTRACT.bend](../features/board/CONTRACT.bend).
-[../tests-bend/board-proof.test.mjs](../tests-bend/board-proof.test.mjs)
-challenges that production binding using type-correct defects, rather than
-treating a successful checker invocation as evidence that the specification
-detects those defects.
-
 Proof discovery resolves each law's module and declaration identity and requires
 one complete, unique provider for that identity. Provider filenames do not define
 the binding. Bend rejects using an unfilled law as live proof evidence. Modules

@@ -297,7 +297,7 @@ def create_category(-world: M.World()) -> B.Draft -> Type:
 def create_accepted(+now: U32, +assist: Bool, +profile: String, +world: M.World(), member: Categories.Membership<B.Draft, create_category(world)>) -> Resolution:
   Categories.Membership{+draft, evidence} = member
   create_kind(assist, U32.to_nat(B.next_card(S.registry(world))),
-      B.Card{0n, draft, None{}, False{}, now, now, B.NoEnrichment{}, "", False{}}, profile, world)
+      B.constructed_card(B.construct_card(B.CardRequest{draft, now})), profile, world)
 
 def create_admitted(+now: U32, +assist: Bool, +profile: String, +world: M.World(), found: Maybe<&1, Categories.Membership<B.Draft, create_category(world)>>) -> Resolution:
   match found:

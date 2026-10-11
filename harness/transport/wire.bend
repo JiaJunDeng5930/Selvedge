@@ -1,4 +1,5 @@
 import Base
+import ../tools/MODEL.bend as Tools
 import ../../bendlib/categories.bend as Categories
 import ../features/CODEC.bend as FeatureCodec
 import ./wire-shape.bend as Shape
@@ -367,12 +368,13 @@ def config_payload(+body: J.Json) -> Bool:
   valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
     Shape.is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
+    Nat.is_le(Protocol.number(body, "max_fork", 0n), U32.to_nat(4294967295)) &&
     Shape.is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n))
 
 def config_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => config_payload(value)))>) -> Result<&2, &2, String, M.Input>:
   Categories.Membership{+body, evidence} = member
   +max_fork = Protocol.number(body, "max_fork", 0n)
-  Done{M.Configure{D.Environment{List.append(&2, D.Tool, D.builtins(max_fork), remote_tools(J.items(J.get(body, "tools")))),
+  Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork), remote_tools(J.items(J.get(body, "tools")))),
     profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
     plugin_values(J.items(J.get(body, "plugins")))}}}
 

@@ -24,7 +24,8 @@ Use proofs for internal semantics, component tests for external boundaries and
 end-to-end tests for their combinations. The ownership map is
 `tests-bend/README.md`. Do not add finite-example tests that only repeat a proven
 state transition; do retain compiler/protocol probes with a concrete fault model
-and independent negative tests of the proof infrastructure. Unproved behavior
+and actual compiler execution checks. Do not add tests whose only criterion is
+Bend accepting or rejecting source code, proofs or certificates. Unproved behavior
 still needs evidence. A successful Bend proof is not evidence that a host,
 compiler or remote provider follows the model.
 

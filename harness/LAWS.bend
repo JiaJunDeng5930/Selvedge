@@ -1,4 +1,5 @@
 import Base
+import ./tools/SYNTAX.bend as Native
 import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
 import ../bendlib/component.bend as C
@@ -171,7 +172,7 @@ law invocation_semantics:
   {P.realize_invocation(operation, call, remaining, task, world) == Protocol.invoked(operation, call, remaining, task, world) : M.Decision()}
 
 law builtin_semantics:
-  for +tool: D.Builtin
+  for +tool: Native.Body
   for +arguments: J.Json
   for +call: D.Call
   for +remaining: +List<D.Attempt>
@@ -627,7 +628,7 @@ law internal_effect_retry_safe:
 
 law bash_recovery_blocked:
   for call: D.Call
-  {D.may_execute(D.recovery(D.Harness{D.Bash{}}), D.RecoveryAttempt{call}) == False{} : Bool}
+  {D.may_execute(D.recovery(D.Harness{Native.Process{}}), D.RecoveryAttempt{call}) == False{} : Bool}
 
 law mcp_recovery_blocked:
   for server: String

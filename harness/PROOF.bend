@@ -19,7 +19,7 @@ import ../bendlib/categories.bend as Categories
 import ./execution/notifications.bend as Notifications
 
 def board_frame(value: Board.State, world: M.World()) ->
-  {F.rest(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.rest(C.rest(D.State, F.State(), world)) : F.Rest()}:
+  {F.modules(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.modules(C.rest(D.State, F.State(), world)) : F.Modules()}:
   match world:
     case C.Frame{core, state}: FrameProof.board_frame(value, state)
 
@@ -201,7 +201,8 @@ def observe_certificate(query: M.Query, +world: M.World()) ->
   Laws.Admitted(world, P.deliver(False{}, P.observe(query, world), world)):
   deliver_certificate(False{}, P.observe(query, world), world, Fail{({==}, {==})})
 
-def Laws.transition_admitted(world, input):
+def transition_calculation_certificate(input: M.Input, +world: M.World()) ->
+  Laws.Admitted(world, P.transition_calculation(input, world)):
   match input:
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
     case M.UserCommand{M.FeatureCommand{command}}:
@@ -242,6 +243,10 @@ def Laws.transition_admitted(world, input):
     case M.Configure{settings}: update_certificate(M.Configure{settings}, world)
     case M.Recover{}: update_certificate(M.Recover{}, world)
     case M.Continue{}: update_certificate(M.Continue{}, world)
+
+
+def Laws.transition_admitted(world, input):
+  transition_calculation_certificate(input, world)
 
 def certificate_world(+previous: M.World(), +decision: M.Decision(),
   evidence: {I.world(previous) == True{} : Bool}, certificate: Laws.Admitted(previous, decision)) ->

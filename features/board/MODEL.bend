@@ -2,6 +2,7 @@ import Base
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
+import ../../bendlib/categories.bend as Categories
 
 # A card is planned work, not a disguised running task. Its optional task link
 # names the existing task registry; it does not copy that task's execution state.
@@ -41,6 +42,12 @@ type Enrichment is Data:
 type Card is Data:
   Card{revision: Nat, draft: Draft, task: Maybe<&2, Nat>, archived: Bool,
     created: U32, updated: U32, enrichment: Enrichment, start_error: String, pinned: Bool}
+
+type CardRequest is Data:
+  CardRequest{draft: Draft, now: U32}
+
+type CardObservation is Data:
+  CardObservation{request: CardRequest, card: Card}
 
 type AgentProfile is Data:
   AgentProfile{revision: Nat, name: String, profile: String, reasoning: String,
@@ -153,6 +160,73 @@ def start_error(card: Card) -> String:
 def pinned(card: Card) -> Bool:
   Card{revision, draft, task, archived, created, updated, enrichment, start_error, pinned} = card
   pinned
+
+# Birth membership describes the actual card; contextual draft admission belongs
+# to the resolver and does not follow from this field construction.
+def born_draft(observation: CardObservation) -> Type:
+  CardObservation{CardRequest{requested, now}, card} = observation
+  {draft(card) == requested : Draft}
+
+def born_revision(observation: CardObservation) -> Type:
+  CardObservation{request, card} = observation
+  {revision(card) == 0n : Nat}
+
+def card_timestamps(+card: Card) -> (U32 & U32):
+  (created(card), updated(card))
+
+def born_timestamps(observation: CardObservation) -> Type:
+  CardObservation{CardRequest{requested, now}, card} = observation
+  {card_timestamps(card) == (now, now) : (U32 & U32)}
+
+def card_lifecycle(+card: Card) -> (Maybe<&2, Nat> & (Bool & (Enrichment & (String & Bool)))):
+  (task(card), (archived(card), (enrichment(card), (start_error(card), pinned(card)))))
+
+def born_lifecycle(observation: CardObservation) -> Type:
+  CardObservation{request, card} = observation
+  {card_lifecycle(card) == (None{}, (False{}, (NoEnrichment{}, ("", False{})))) :
+    (Maybe<&2, Nat> & (Bool & (Enrichment & (String & Bool))))}
+
+def born_draft_revision(observation: CardObservation) -> Type:
+  Categories.intersection(CardObservation, born_draft, born_revision, observation)
+
+def born_timestamps_lifecycle(observation: CardObservation) -> Type:
+  Categories.intersection(CardObservation, born_timestamps, born_lifecycle, observation)
+
+def born_card(observation: CardObservation) -> Type:
+  Categories.intersection(CardObservation, born_draft_revision, born_timestamps_lifecycle, observation)
+
+def born_card_draft() -> Categories.Inclusion<CardObservation, born_card, born_draft>:
+  Categories.inclusion_compose(CardObservation, born_card, born_draft_revision, born_draft,
+    Categories.intersection_first(CardObservation, born_draft_revision, born_timestamps_lifecycle),
+    Categories.intersection_first(CardObservation, born_draft, born_revision))
+
+def born_card_revision() -> Categories.Inclusion<CardObservation, born_card, born_revision>:
+  Categories.inclusion_compose(CardObservation, born_card, born_draft_revision, born_revision,
+    Categories.intersection_first(CardObservation, born_draft_revision, born_timestamps_lifecycle),
+    Categories.intersection_second(CardObservation, born_draft, born_revision))
+
+def born_card_timestamps() -> Categories.Inclusion<CardObservation, born_card, born_timestamps>:
+  Categories.inclusion_compose(CardObservation, born_card, born_timestamps_lifecycle, born_timestamps,
+    Categories.intersection_second(CardObservation, born_draft_revision, born_timestamps_lifecycle),
+    Categories.intersection_first(CardObservation, born_timestamps, born_lifecycle))
+
+def born_card_lifecycle() -> Categories.Inclusion<CardObservation, born_card, born_lifecycle>:
+  Categories.inclusion_compose(CardObservation, born_card, born_timestamps_lifecycle, born_lifecycle,
+    Categories.intersection_second(CardObservation, born_draft_revision, born_timestamps_lifecycle),
+    Categories.intersection_second(CardObservation, born_timestamps, born_lifecycle))
+
+def card_birth_evidence(+requested: Draft, +now: U32) -> born_card(CardObservation{
+  CardRequest{requested, now}, Card{0n, requested, None{}, False{}, now, now, NoEnrichment{}, "", False{}}}):
+  Categories.Intersection{Categories.Intersection{{==}, {==}}, Categories.Intersection{{==}, {==}}}
+
+def construct_card(request: CardRequest) -> Categories.Membership<CardObservation, born_card>:
+  CardRequest{+requested, +now} = request
+  +card: Card = Card{0n, requested, None{}, False{}, now, now, NoEnrichment{}, "", False{}}
+  Categories.Membership{CardObservation{CardRequest{requested, now}, card}, card_birth_evidence(requested, now)}
+
+def constructed_card(member: Categories.Membership<CardObservation, born_card>) -> Card:
+  Categories.Membership{CardObservation{request, card}, evidence} = member
+  card
 
 def agent_revision(agent: AgentProfile) -> Nat:
   AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent

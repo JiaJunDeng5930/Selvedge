@@ -235,10 +235,12 @@ export class Service extends EventEmitter {
         input = boundary('effect.completion', { effect, result: outcome });
       } else {
         let result;
-        if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
+        if (effect.tool.source?.kind === 'native' && effect.tool.source.program?.kind === 'Process') {
           if (!effect.execution) throw new Error('A Bash effect requires a committed task execution plan');
           result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
             readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
+        } else if (effect.tool.source?.kind === 'native') {
+          throw new Error('The kernel requested an invalid external native capability');
         } else if (effect.tool.source?.plugin) {
           const client = this.#plugins.get(effect.tool.source.plugin.name);
           if (!client) throw new Error('Plugin tool route is unavailable');
