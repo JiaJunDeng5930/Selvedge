@@ -32,7 +32,6 @@ const root = document.getElementById('surface');
 let textMeasurementScope = root;
 let textMeasurer = createTextMeasurer(textMeasurementScope);
 let state = Bend.initial(Bend.empty(), 0n);
-let token = sessionStorage.getItem('selvedge-token') ?? '';
 let connection;
 let revision = 0;
 let dragged = null;
@@ -303,8 +302,8 @@ function observeClock() {
 function clockVisibilityChanged() {
   if (document.visibilityState === 'visible') observeClock();
 }
-async function request(url, options = {}, credential = token) {
-  const response = await fetch(url, { ...options, headers: { authorization: `Bearer ${credential}`, ...options.headers } });
+async function request(url, options = {}) {
+  const response = await fetch(url, { ...options, credentials: 'same-origin' });
   const body = await response.json();
   if (!response.ok) { const error = new Error(body.error?.message ?? body.error ?? `HTTP ${response.status}`); error.body = body; throw error; }
   return body;
@@ -350,11 +349,10 @@ async function service(effect) {
   switch (bendTag(effect)) {
     case 'Authenticate': {
       try {
-        const body = await request('/api/browser/state', {}, effect.credential);
-        token = effect.credential; sessionStorage.setItem('selvedge-token', token);
+        const body = await request('/api/browser/state');
         snapshot(body); product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(true, bendValue('Unit')) }));
         connection?.abort(); connection = new AbortController();
-        void watch(connection.signal, token);
+        void watch(connection.signal);
       } catch (error) { product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(false, error.message) })); }
       break;
     }
@@ -388,7 +386,7 @@ async function service(effect) {
     }
     case 'ReadAttachment': {
       try {
-        const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { headers: { authorization: `Bearer ${token}` } });
+        const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { credentials: 'same-origin' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const resource = URL.createObjectURL(await response.blob()); resources.add(resource);
         product(bendValue('interaction/MODEL.AttachmentRead', { ticket: effect.ticket, result: result(true, resource) }));
@@ -396,7 +394,7 @@ async function service(effect) {
       break;
     }
     case 'DownloadAttachment': {
-      const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { headers: { authorization: `Bearer ${token}` } });
+      const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { credentials: 'same-origin' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a'); link.href = url; link.download = effect.file.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); break;
@@ -643,10 +641,10 @@ function streamNotice(notice) {
   if (next.publish) streamFacts();
 }
 
-async function watch(signal, credential) {
+async function watch(signal) {
   while (!signal.aborted) {
     try {
-      const response = await fetch(`/api/events?after=${revision}`, { headers: { authorization: `Bearer ${credential}` }, signal });
+      const response = await fetch(`/api/events?after=${revision}`, { credentials: 'same-origin', signal });
       if (!response.ok || !response.body) throw new Error(`Event connection: HTTP ${response.status}`);
       const reader = response.body.getReader(); const decoder = new TextDecoder();
       const frames = new EventFrames(notice => {
@@ -738,9 +736,7 @@ document.addEventListener('visibilitychange', clockVisibilityChanged);
 document.addEventListener('visibilitychange', retryPendingFocus);
 window.addEventListener('focus', retryPendingFocus);
 native(bendValue('browser/MODEL.Mount'));
-const hash = new URLSearchParams(location.hash.slice(1));
-if (hash.has('token')) { token = hash.get('token'); history.replaceState(null, '', location.pathname + location.search); }
-if (token) commit(Bend.connect(token, state));
+commit(Bend.connect(state));
 document.fonts.ready.then(environment).catch(error => console.error(error));
 
 function editorEvent(node, event) {

@@ -23,7 +23,7 @@ type Decision is Data:
     interaction_effects: +List<E.Effect>, service_effects: +List<Services.Effect>, durable: Bool}
 
 type Settings is Data:
-  Settings{open: Bool, access: Services.Access, credential_entered: Bool,
+  Settings{open: Bool, access: Services.Access,
     appearance: Services.Appearance, open_action: Input, close_action: Input, connect_action: Input}
 
 type Scene is Data:

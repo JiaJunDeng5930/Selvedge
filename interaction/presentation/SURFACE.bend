@@ -86,7 +86,6 @@ type Meaning is Data:
   ComposerAction{subject: V.ComposerSubject, input: InteractionTypes.Input, availability: V.Availability}
   Edit{editor: U.Editor, field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, choices: +List<OperationParameters.ChoiceValue>}
   SearchChoices{query: String}
-  EnterCredential{entered: Bool}
   ReceiveFile{editor: U.Editor, enabled: Bool}
   EnterDirectory{editor: U.Editor, text: String}
   BoardProfile{automatic: Bool, selected: String, choices: +List<D.Profile>, enabled: Bool}
@@ -102,7 +101,6 @@ type Gesture is Data:
   Press{}
   Change{value: OperationParameters.Value}
   Search{query: String}
-  Credential{value: String}
   Filter{value: B.Filter}
   Attach{file: Services.SelectedFile}
   Directory{path: String}

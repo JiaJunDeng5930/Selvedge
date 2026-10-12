@@ -131,7 +131,7 @@ law temporary_scope:
 def settings_classification(open: Bool, fallback: Model.Scope, actual: Model.Scope) -> Type:
   match open:
     case False{}: {actual == fallback : Model.Scope}
-    case True{}: {actual == Model.Temporary{"settings", "settings/credential", "settings/open", None{}} : Model.Scope}
+    case True{}: {actual == Model.Temporary{"settings", "settings/connect", "settings/open", None{}} : Model.Scope}
 
 def preview_classification(preview: Services.Preview, fallback: Model.Scope, actual: Model.Scope) -> Type:
   match preview:

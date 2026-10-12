@@ -798,7 +798,7 @@ def attach(+key: String, +file: Services.SelectedFile, +state: State) -> Decisio
 
 def place(+key: String, +target: String, +state: State) -> Decision: accept(True{}, Legacy.place(key, target, legacy(state)), state)
 
-def connect(+credential: String, +state: State) -> Decision: accept(True{}, Legacy.connect(credential, legacy(state)), state)
+def connect(+state: State) -> Decision: accept(True{}, Legacy.connect(legacy(state)), state)
 
 def directories_completed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directories_completed(ticket, ok, body, legacy(state)), state)
 

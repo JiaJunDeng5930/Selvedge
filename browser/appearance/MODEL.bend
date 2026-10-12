@@ -596,7 +596,7 @@ def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
 def present_fields(+content: InteractionTypes.Scene, base: +List<SurfaceTypes.Node>, overlays: +List<SurfaceTypes.Node>,
   +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>, +scale: T.Scale) -> Design.Surface:
   InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker} = content
-  InteractionTypes.Settings{open, access, credential_entered, appearance, open_action,
+  InteractionTypes.Settings{open, access, appearance, open_action,
     close_action, connect_action} = settings
   +initial_text: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, scale}
   Design.Surface{content, theme(appearance, system_dark),

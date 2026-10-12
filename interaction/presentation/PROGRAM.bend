@@ -1352,20 +1352,19 @@ def layers(values: +List<V.Layer>, +state: InteractionTypes.State) -> +List<Surf
       SurfaceTypes.Node{layer_key(initial), initial, View.layer_title(content), layer_role(kind), dismissal_meaning(dismissal),
         layer_content(content, layer_key(initial), state)} <> layers(rest, state)
 
-def settings_visible(open: Bool, +entered: Bool, close: InteractionTypes.Input, connect: InteractionTypes.Input) -> +List<SurfaceTypes.Node>:
+def settings_visible(open: Bool, close: InteractionTypes.Input, connect: InteractionTypes.Input) -> +List<SurfaceTypes.Node>:
   match open:
     case False{}: Nil{}
     case True{}: [SurfaceTypes.Node{Identity.Place{"/layers/settings"}, "settings", "Settings", SurfaceTypes.Dialog{}, SurfaceTypes.LayerRegion{close, True{}, True{}},
-      [SurfaceTypes.Node{Identity.Part{Identity.Place{"/layers/settings"}, "credential"}, "settings/credential", "Access token", SurfaceTypes.Field{}, SurfaceTypes.EnterCredential{entered}, Nil{}},
-       region(Identity.Place{"/layers/settings"}, "appearance", "Appearance", SurfaceTypes.Section{}, [
+      [region(Identity.Place{"/layers/settings"}, "appearance", "Appearance", SurfaceTypes.Section{}, [
          product_action(Identity.Place{"/layers/settings"}, "light", "Light appearance", InteractionTypes.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
          product_action(Identity.Place{"/layers/settings"}, "dark", "Dark appearance", InteractionTypes.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
          product_action(Identity.Place{"/layers/settings"}, "system", "System appearance", InteractionTypes.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]),
-       dialog_actions(Identity.Place{"/layers/settings"}, [product_action(Identity.Place{"/layers/settings"}, "connect", "Connect", connect, entered)])]}]
+       dialog_actions(Identity.Place{"/layers/settings"}, [product_action(Identity.Place{"/layers/settings"}, "connect", "Connect", connect, True{})])]}]
 
 def settings(view: InteractionTypes.Settings) -> +List<SurfaceTypes.Node>:
-  InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect_action} = view
-  settings_visible(open, entered, close_action, connect_action)
+  InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect_action} = view
+  settings_visible(open, close_action, connect_action)
 
 def preview_controls(file: B.Attachment, ready: Bool) -> +List<SurfaceTypes.Node>:
   [SurfaceTypes.Node{Identity.Place{"/layers/attachment-preview"}, "attachment-preview", "Attachment preview", SurfaceTypes.Dialog{},
@@ -1562,7 +1561,6 @@ def bind(meaning: SurfaceTypes.Meaning, gesture: SurfaceTypes.Gesture) -> Maybe<
     case SurfaceTypes.Edit{+editor, +field, OperationParameters.DisplayOnly{}, +value, choices} SurfaceTypes.Change{+next}: None{}
     case SurfaceTypes.Edit{+editor, +field, entry, +value, choices} SurfaceTypes.Change{+next}: Some{InteractionTypes.EditField{editor, field, next}}
     case SurfaceTypes.SearchChoices{query} SurfaceTypes.Search{+next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
-    case SurfaceTypes.EnterCredential{entered} SurfaceTypes.Credential{+value}: Some{InteractionTypes.ServiceInput{Services.EnterCredential{value}}}
     case SurfaceTypes.BoardSearch{+filter} SurfaceTypes.Search{+next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
     case SurfaceTypes.ReceiveFile{+editor, +enabled} SurfaceTypes.Attach{file}: when_available(enabled, InteractionTypes.ServiceInput{Services.AddFile{editor, file}})
     case SurfaceTypes.BoardProfile{automatic, selected, choices, +enabled} SurfaceTypes.SelectBoardProfile{+profile}: when_available(enabled && profile_exists(D.find_profile(choices, profile)), InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BoardCommand{B.Settings{automatic, profile}}}}})
@@ -1720,7 +1718,6 @@ def focusable(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.Edit{editor, field, OperationParameters.DirectoryCollection{}, value, choices}: False{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
-    case SurfaceTypes.EnterCredential{entered}: True{}
     case SurfaceTypes.BoardSearch{filter}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: enabled
     case SurfaceTypes.EnterDirectory{editor, text}: True{}

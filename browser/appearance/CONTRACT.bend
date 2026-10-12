@@ -347,7 +347,7 @@ law paint_evidence:
 def configured_appearance(surface: SurfaceTypes.Surface) -> Services.Appearance:
   SurfaceTypes.Surface{content, base, overlays, active_scope} = surface
   InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker} = content
-  InteractionTypes.Settings{open, access, credential_entered, appearance, open_action,
+  InteractionTypes.Settings{open, access, appearance, open_action,
     close_action, connect_action} = settings
   appearance
 

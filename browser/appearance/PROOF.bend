@@ -344,7 +344,7 @@ def present_preserves_semantics(+surface: SurfaceTypes.Surface, system_dark: Boo
       match content:
         case InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
-            case InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect}:
+            case InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect}:
               +context = Controls.initial(content)
               +base_step = Equal.cong(+List<SurfaceTypes.Node>, SurfaceTypes.Surface,
                 (prepared_base => SurfaceTypes.Surface{content, prepared_base,
@@ -369,7 +369,7 @@ def present_uses_configured_appearance(surface: SurfaceTypes.Surface, system_dar
       match content:
         case InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
-            case InteractionTypes.Settings{open, access, credential_entered, appearance,
+            case InteractionTypes.Settings{open, access, appearance,
               open_action, close_action, connect_action}: {==}
 
 def light_appearance_wins(system_dark: Bool) ->

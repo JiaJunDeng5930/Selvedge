@@ -81,7 +81,7 @@ async function fixture(t, review = () => answer(JSON.stringify({ decision: 'allo
     assert.equal(response.status, 200);
     const { program } = decodeBendValue(await response.json());
     const task = BigInt(id);
-    const authenticated = ui.authenticated(program, task, f.site.token);
+    const authenticated = ui.authenticated(program, task);
     assert.equal(authenticated.$, 'Done');
     const state = authenticated.value;
     return { ui, program, task, state, surface: ui.surface_state(state) };

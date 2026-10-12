@@ -42,7 +42,7 @@ def place(key: String, target: String, state: Browser.State) -> Browser.Decision
 
 def program(state: Browser.State) -> M.World(): Browser.program(state)
 
-def connect(credential: String, state: Browser.State) -> Browser.Decision: Browser.connect(credential, state)
+def connect(state: Browser.State) -> Browser.Decision: Browser.connect(state)
 
 def directories_completed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directories_completed(ticket, ok, body, state)
 

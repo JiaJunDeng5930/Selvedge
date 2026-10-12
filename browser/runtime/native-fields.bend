@@ -66,7 +66,6 @@ def same_meaning(original: SurfaceTypes.Meaning, current: SurfaceTypes.Meaning) 
     case SurfaceTypes.EnterDirectory{editor, text} SurfaceTypes.EnterDirectory{other, new_text}: U.same_editor(editor, other)
     case SurfaceTypes.ReceiveFile{editor, enabled} SurfaceTypes.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
     case SurfaceTypes.SearchChoices{query} SurfaceTypes.SearchChoices{new_query}: True{}
-    case SurfaceTypes.EnterCredential{entered} SurfaceTypes.EnterCredential{new_entered}: True{}
     case SurfaceTypes.BoardSearch{filter} SurfaceTypes.BoardSearch{new_filter}: True{}
     case SurfaceTypes.DirectoryBrowserLocation{value} SurfaceTypes.DirectoryBrowserLocation{new_value}: True{}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled} SurfaceTypes.BoardProfile{new_automatic, new_selected, new_choices, new_enabled}: True{}
@@ -143,7 +142,6 @@ def editing(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
-    case SurfaceTypes.EnterCredential{entered}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: True{}
     case SurfaceTypes.EnterDirectory{editor, text}: True{}
     case SurfaceTypes.BoardSearch{filter}: True{}

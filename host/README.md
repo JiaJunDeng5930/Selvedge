@@ -73,7 +73,11 @@ available through the ordinary typed
 `PROOF.system()` and `PROOF.harness()` constructors; their complete model evidence
 is retained by the verification entry. Bend owns interaction state, layout and
 Document construction. `public/renderer.mjs` interprets the Document as DOM;
-`public/app.mjs` performs authentication, network requests and physical effects.
+Opening the local server URL establishes an HttpOnly browser session;
+`public/app.mjs` connects automatically and performs network requests and physical
+effects. Reopen that URL after a server restart to refresh the session. The CLI
+discovers its separate Bearer credential from the service home; ChatGPT plugin
+connections retain their own credentials.
 The browser submits only public commands through `/api/browser/command`.
 The server authenticates those commands and resolves them against the current
 kernel world; a local enabled control is not authority to execute. Snapshots are
@@ -152,12 +156,16 @@ Artifacts have private permissions; they are not automatically garbage-collected
 because durable history may reference them. File synchronization is reported in
 artifact metadata; filesystem loss or external deletion remains possible.
 
-The journal stores canonical task-local workspace observations and verifies the
-kernel fingerprint/current format before reconstruction. Existing execution plans
-retain their meaning after a restart in another launch directory. No workspace
-migration or global directory binding is involved. Different operations and
-service homes do not serialize arbitrary filesystem mutations, even when pointed
-at the same workspace.
+The journal stores canonical task-local workspace observations. Reopening checks
+the stored format and integrity, then validates complete committed decisions by
+replaying them through the current kernel without executing their effects.
+Format 3 is independent of build provenance; an existing format 2 journal is
+converted atomically after those checks pass. Unknown formats and incompatible
+decisions fail without altering the journal. Existing execution plans retain
+their meaning after a restart in another launch directory. No workspace migration
+or global directory binding is involved. Different operations and service homes
+do not serialize arbitrary filesystem mutations, even when pointed at the same
+workspace.
 
 Native operations have stable task/operation identities and one current effect
 ticket. An after callback gets a fresh ticket without changing the operation ID.

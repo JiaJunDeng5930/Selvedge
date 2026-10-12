@@ -66,7 +66,7 @@ def layer_scope(layers: +List<E.Layer>, beside: Bool) -> Scope:
 
 def settings_scope(open: Bool, fallback: Scope) -> Scope:
   match open:
-    case True{}: Temporary{"settings", "settings/credential", "settings/open", None{}}
+    case True{}: Temporary{"settings", "settings/connect", "settings/open", None{}}
     case False{}: fallback
 
 def preview_scope(preview: Services.Preview, fallback: Scope) -> Scope:

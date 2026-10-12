@@ -289,14 +289,13 @@ def code_scenes(application: E.Application) -> +List<Content.Scene>:
 def observe(capacity: View.Capacity, state: InteractionTypes.State) -> InteractionTypes.Scene:
   InteractionTypes.State{+application, +observed_state} = state
   access = Services.access(observed_state)
-  credential = Services.credential(observed_state)
   settings = Services.settings_open(observed_state)
   appearance = Services.appearance(observed_state)
   transfers = Services.transfers(observed_state)
   preview = Services.preview(observed_state)
   directory_picker = Services.directory_picker(observed_state)
   InteractionTypes.Scene{View2.observe(capacity, application),
-    InteractionTypes.Settings{settings, access, Bool.not(String.eq(credential, "")), appearance,
+    InteractionTypes.Settings{settings, access, appearance,
       InteractionTypes.ServiceInput{Services.OpenSettings{}}, InteractionTypes.ServiceInput{Services.CloseSettings{}}, InteractionTypes.ServiceInput{Services.Connect{}}}, transfers, preview, code_scenes(application), directory_picker}
 
 def step(input: InteractionTypes.Input, state: InteractionTypes.State) -> InteractionTypes.Decision:

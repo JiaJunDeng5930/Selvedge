@@ -57,7 +57,6 @@ def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: True{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: field_control(entry)
     case SurfaceTypes.SearchChoices{query}: True{}
-    case SurfaceTypes.EnterCredential{entered}: True{}
     case SurfaceTypes.BoardSearch{filter}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: True{}
     case SurfaceTypes.EnterDirectory{editor, text}: True{}

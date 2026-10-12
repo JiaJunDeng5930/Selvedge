@@ -42,14 +42,13 @@ def authenticated_connection(decision: CoreTypes.Decision, task: Nat) -> Result<
   match decision:
     case CoreTypes.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}:
       match service_effects:
-        case Con{Services.Authenticate{ticket, credential}, Nil{}}:
+        case Con{Services.Authenticate{ticket}, Nil{}}:
           connected = state_of(ProductUI.step(ProductUI.Authenticated{ticket, Done{Unit{}}}, state))
           Done{state_of(ProductUI.step(ProductUI.InterfaceInput{CoreTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}}}, connected))}
         case _: Fail{"Expected exactly one authentication request"}
 
-def authenticated(program: M.World(), task: Nat, credential: String) -> Result<&2, &2, String, CoreTypes.State>:
-  entered = state_of(Core.step(CoreTypes.ServiceInput{Services.EnterCredential{credential}}, ProductUI.initial(program)))
-  authenticated_connection(Core.step(CoreTypes.ServiceInput{Services.Connect{}}, entered), task)
+def authenticated(program: M.World(), task: Nat) -> Result<&2, &2, String, CoreTypes.State>:
+  authenticated_connection(Core.step(CoreTypes.ServiceInput{Services.Connect{}}, ProductUI.initial(program)), task)
 
 def surface_state(state: CoreTypes.State) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, state)
