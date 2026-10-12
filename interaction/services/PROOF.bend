@@ -22,13 +22,13 @@ import ../presentation/SURFACE.bend as SurfaceTypes
 def draft_composer_context(+message: U.Text, profile: String, reasoning: String, +config: Context.Configuration, scene: V.EditorScene, +world: M.World()) ->
   {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config}, scene, world)) ==
     Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>}:
-  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+  V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
 def message_composer_context(+task: Nat, message: U.Text, delivery: U.Delivery, scene: V.EditorScene, +world: M.World()) ->
   {Rule.composer_context(View.composer_scene(U.Message{task, message, delivery}, scene, world)) ==
     View.committed_observation(View.committed_context(Tasks.find(Commands.entries(world), task))) : Maybe<&2, Context.Observation>}:
-  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+  V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
 def retained_summary(+value: Context.Observation, parent: Identity.Key, state: InteractionTypes.State) ->
@@ -273,6 +273,6 @@ def Rule.permissions_evidence():
     mode => {==},
     sandboxed_network,
     task => workspace => mode => network => approval => project => guidance => access => profiles => {==},
-    task => workspace => mode => network => approval => project => guidance => access => profiles => {==},
+    +task => +workspace => +mode => +network => +approval => +project => +guidance => +access => {==},
     origin => project => workspace => sandbox => approval => guidance => profiles => {==},
-    origin => project => workspace => sandbox => approval => guidance => profiles => {==}}
+    +origin => +project => +workspace => +sandbox => +approval => +guidance => {==}}

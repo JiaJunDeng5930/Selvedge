@@ -64,8 +64,10 @@ type Meaning is Data:
   WorkspaceMember{collection: Experience.Collection, path: String}
   ActionUnit{action: Experience.ActionUnit}
   ActionFeedback{feedback: Experience.Feedback}
+  ActionExplanation{assessment: Experience.Assessment}
+  ActionCommit{assessment: Experience.Assessment, input: InteractionTypes.Input, availability: V.Availability}
   ObjectGroup{object: Experience.Object}
-  SupportingControl{support: Experience.Support, input: InteractionTypes.Input, availability: V.Availability}
+  SupportingControl{support: Experience.Support, property: Experience.Property, input: InteractionTypes.Input, availability: V.Availability}
   InformationText{role: Information.TextRole}
   LayerRegion{dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DirectoryBrowserLocation{value: String}

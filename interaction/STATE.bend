@@ -161,12 +161,31 @@ def command_offline(command: Maybe<&2, M.Command>, access: Services.Access) -> B
     case Some{command}: Bool.not(Services.connected(access))
     case None{}: False{}
 
-def submission_blocked_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Bool:
+def obstruction_present(obstruction: Maybe<&2, String>) -> Bool:
+  match obstruction:
+    case None{}: False{}
+    case Some{reason}: True{}
+
+def submit_obstruction(connected: Bool, blocked: Bool) -> Maybe<&2, String>:
+  match connected blocked:
+    case False{} _: Some{"Connect before submitting"}
+    case True{} True{}: Some{"Finish this editor's file uploads before submitting"}
+    case True{} False{}: None{}
+
+def action_obstruction(blocked: Bool) -> Maybe<&2, String>:
+  match blocked:
+    case True{}: Some{"Connect before running this action"}
+    case False{}: None{}
+
+def submission_obstruction_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Maybe<&2, String>:
   match input:
-    case E.UserInput{U.Activate{U.Submit{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
-    case E.UserInput{U.Activate{U.ConfirmAction{}}}: Bool.not(Services.connected(access))
-    case E.UserInput{U.Activate{action}}: command_offline(U.direct_command(action), access)
-    case _: False{}
+    case E.UserInput{U.Activate{U.Submit{editor}}}: submit_obstruction(Services.connected(access), Services.blocks(editor, transfers))
+    case E.UserInput{U.Activate{U.ConfirmAction{}}}: action_obstruction(Bool.not(Services.connected(access)))
+    case E.UserInput{U.Activate{action}}: action_obstruction(command_offline(U.direct_command(action), access))
+    case _: None{}
+
+def submission_blocked_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Bool:
+  obstruction_present(submission_obstruction_access(access, transfers, input))
 
 def submission_blocked(+services: Services.State, input: E.Input) -> Bool:
   submission_blocked_access(Services.access(services), Services.transfers(services), input)
@@ -304,15 +323,15 @@ def step(input: InteractionTypes.Input, state: InteractionTypes.State) -> Intera
 # Renderers observe a control through this entry, so service readiness and the
 # domain command contract cannot disagree about whether activation is allowed.
 
-def control_availability(blocked: Bool, intrinsic: View.Availability) -> View.Availability:
-  match blocked:
-    case True{}: View.Unavailable{"Connect and finish pending file uploads before submitting"}
-    case False{}: intrinsic
+def control_availability(obstruction: Maybe<&2, String>, intrinsic: View.Availability) -> View.Availability:
+  match obstruction:
+    case Some{reason}: View.Unavailable{reason}
+    case None{}: intrinsic
 
 def control(state: InteractionTypes.State, declaration: View.ControlDeclaration) -> InteractionTypes.Control:
-  InteractionTypes.State{application, services} = state
+  InteractionTypes.State{application, +services} = state
   View.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
-  InteractionTypes.Control{identity, label, prominence, InteractionTypes.ApplicationInput{E.UserInput{input}}, control_availability(submission_blocked(services, E.UserInput{input}), availability)}
+  InteractionTypes.Control{identity, label, prominence, InteractionTypes.ApplicationInput{E.UserInput{input}}, control_availability(submission_obstruction_access(Services.access(services), Services.transfers(services), E.UserInput{input}), availability)}
 
 def runtime(decision: InteractionTypes.Decision) -> M.Decision():
   InteractionTypes.Decision{+observed_state, reply, effects, interaction, service, durable} = decision

@@ -77,3 +77,8 @@ check results and the current validation status are recorded in
 [the exploration notes](../../docs/bend2-exploration.md). The production provider
 adoption passed the formal check and the focused original construction fixtures.
 Physical browser layout, focus and interaction still require external evidence.
+
+`CONTRACT.AuthoredShellRequirements` binds navigation placement and the complete
+source styles of responsive toolbar and composer action groups. These groups use
+layout's horizontal-or-vertical allocation. `property_current_values` and
+`property_caption_wraps` bind property face text to its measured wrapping modes.

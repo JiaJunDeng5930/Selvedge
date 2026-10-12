@@ -1,3 +1,4 @@
+import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
@@ -219,7 +220,7 @@ def measure_width(parameters: Design.LayoutParameters, heading: Composition.Head
 
 def beside_main_style(style: S.Style, +required: Nat) -> Type:
   S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  {Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{Nat.max(minimum_width, required), minimum_height}, scroll, position}, font, chrome, states} : S.Style}
+  {Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} : S.Style}
 
 def compact_main_style(style: S.Style, required: Nat) -> Type:
   {Shell.beside_style(False{}, required, style) == style : S.Style}
@@ -253,7 +254,7 @@ def root_minimum(node: S.Node) -> E.Extent:
 
 def beside_box_floor(structure: Design.MainStructure, key: UIIdentity.Key, tag: S.BoxTag, style: S.Style, attributes: +List<S.Attribute>, children: +List<S.Node>, maximum: Nat, +required: Nat) -> Type:
   S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  {root_minimum(Shell.main_box(structure, key, tag, Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}), attributes, children, maximum)) == E.Extent{Nat.max(minimum_width, required), minimum_height} : E.Extent}
+  {root_minimum(Shell.main_box(structure, key, tag, Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}), attributes, children, maximum)) == E.Extent{minimum_width, minimum_height} : E.Extent}
 
 def navigation_projection(content: InteractionTypes.Scene) -> Type:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -341,6 +342,17 @@ def task_action_flow(+visual: Design.Style, position: Composition.Position) -> T
         E.Frame{E.ambient(0n, 0n), E.SeparateFrames{E.InlineControls{}}}),
       Model.Horizontal{}), Spatial.Leading{}, Spatial.Centered{}) : S.Style}
 
+def responsive_action_group_style(+typography: T.Presentation) -> S.Style:
+  S.Style{S.Layout{Model.ResponsiveHorizontal{}, Spatial.Leading{}, Spatial.Stretch{},
+    E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{4n}}, Model.StretchSize{}, Model.NaturalSize{},
+    E.Extent{0n, 32n}, Model.Confined{}, Spatial.InFlow{}}, S.ExplicitFont{typography}, Appearance.base_chrome(), Design.Passive{}}
+
+def toolbar_responsive(+meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Type:
+  {Authored.role_style(Appearance.style(SurfaceTypes.Toolbar{}, meaning, typography), SurfaceTypes.Toolbar{}) == responsive_action_group_style(typography) : S.Style}
+
+def composer_actions_responsive(+meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Type:
+  {Authored.role_style(Appearance.style(SurfaceTypes.ComposerActions{}, meaning, typography), SurfaceTypes.ComposerActions{}) == responsive_action_group_style(typography) : S.Style}
+
 type AuthoredShellRequirements is Type:
   AuthoredShellRequirements{
     conversation_title_font: @+font:S.FontChoice -> conversation_title_font(font),
@@ -358,6 +370,8 @@ type AuthoredShellRequirements is Type:
     conversation_main: @+measure:Composition.Measure -> @+key:UIIdentity.Key -> @tag:S.BoxTag -> @+style:S.Style -> @attributes:+List<S.Attribute> -> @title:S.Node -> @actions:S.Node -> @remaining:+List<S.Node> -> @+maximum:Nat -> conversation_main(measure, key, tag, style, attributes, title, actions, remaining, maximum),
     conversation_header: @+key:UIIdentity.Key -> @+style:S.Style -> @title:S.Node -> @actions:S.Node -> conversation_header(key, style, title, actions),
     task_action_flow: @+visual:Design.Style -> @position:Composition.Position -> task_action_flow(visual, position),
+    toolbar_responsive: @+meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> toolbar_responsive(meaning, typography),
+    composer_actions_responsive: @+meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> composer_actions_responsive(meaning, typography),
     navigation_projection: @content:InteractionTypes.Scene -> navigation_projection(content),
     assembly_placement: @+content:InteractionTypes.Scene -> @+theme:Design.Theme -> @+base:+List<Design.Node> -> @+overlays:+List<Design.Node> -> @scope:Maybe<&2, String> -> @+base_nodes:+List<S.Node> -> @+overlay_nodes:+List<S.Node> -> @+capacity:View.Capacity -> @+parameters:Design.LayoutParameters -> @+layers:+List<View.Layer> -> @+anchors:+List<Shell.Anchor> -> @+font:T.Presentation -> @placement:View.NavigationPlacement -> @projected:{Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement} -> assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement),
     beside_box_floor: @structure:Design.MainStructure -> @key:UIIdentity.Key -> @tag:S.BoxTag -> @style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @maximum:Nat -> @+required:Nat -> beside_box_floor(structure, key, tag, style, attributes, children, maximum, required),
@@ -1018,8 +1032,10 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.WorkspaceCollection{collection}: SurfaceTypes.Region{}
     case SurfaceTypes.WorkspaceMember{collection, path}: SurfaceTypes.Region{}
     case SurfaceTypes.ActionUnit{action}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionExplanation{assessment}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: SurfaceTypes.Activate{input, Controls.assessment_availability(assessment, availability)}
     case SurfaceTypes.ActionFeedback{feedback}: SurfaceTypes.Region{}
-    case SurfaceTypes.SupportingControl{support, input, availability}: source_support_binding(UX.support_visible(support), input, availability)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: source_support_binding(UX.support_visible(support), input, availability)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.BoardLane{stage, count}: SurfaceTypes.Region{}
     case SurfaceTypes.CardArchive{count}: SurfaceTypes.Region{}
@@ -1054,12 +1070,16 @@ type ContextControlRequirements is Type:
     choice_observed_tabs: @+key:UIIdentity.Key -> @semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @kind:SurfaceTypes.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
       {Observed.expected_tabs([SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Choice{kind, classification, selected, description, input, availability}, Nil{}}], elements, native_focus) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, UIIdentity.encode(key))), UIIdentity.encode(key), Nil{}) : +List<String>},
     workspace_label: @+label:String -> @expanded:Bool -> {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    permissions_label: @workspace:Bool -> @+label:String -> @current:Controls.Face -> @+execution:Maybe<&2,Context.Observation> -> {Controls.support_face_kind(True{}, workspace, label, current, execution) == Controls.permission_picker(Controls.permission_face(execution)) : Controls.Face},
+    property_contents: @+property:UXTypes.Property -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
+      {A.face_members(Controls.PropertyFace{property}, key, parent, geometry) ==
+        List.append(&2, S.Node, A.leading_icon(Controls.property_icon(property), key, parent, A.face_icon_size(geometry)),
+        [S.Box{UIIdentity.part(key, "value"), S.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 2n), Nil{}, A.property_text(property, key, parent)},
+         A.glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, A.face_icon_size(geometry))]) : +List<S.Node>},
     initial_execution: @+content:InteractionTypes.Scene -> {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2,Context.Observation>},
     draft_permission_face: @+origin:Context.Origin -> @+project:Maybe<&2,Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> {Controls.permission_face(Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}) == Controls.permission_values_face(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : Controls.Face},
     committed_permission_face: @+task:Nat -> @+workspace:Domain.Workspace -> @+sandbox:Domain.Sandbox -> @+approval:Domain.ApprovalPolicy -> @+project:Maybe<&2,Nat> -> @+guidance:Domain.ProjectContext -> @+access:Domain.ExecutionAccess -> {Controls.permission_face(Some{Context.CommittedExecution{Context.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, access}}}) == Controls.permission_values_face(sandbox, Context.approval_choice(approval)) : Controls.Face},
     unavailable_permission_face: @+reason:String -> {Controls.permission_face(Some{Context.DraftExecution{Context.ContextUnavailable{reason}}}) == Controls.IconFace{Controls.Warning{}} : Controls.Face},
-    permission_accessible_name: @+label:String -> {Controls.support_name_kind(True{}, label) == "Permissions: " ++ label : String},
+    property_accessible_name: @+property:UXTypes.Property -> @area:Controls.Area -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback -> {Controls.supporting_fields(property, area, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) == Controls.Action{Controls.Button{input, availability, UX.property_help(property), Controls.PropertyFace{property}, behavior, Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.PropertyFace{property}, area), placement, feedback}} : Controls.Representation},
     permission_help: @+filesystem:Controls.Icon -> @+network:Controls.Icon -> @+approval:Controls.Icon -> @+name:String -> {Controls.help_for(Controls.PermissionFace{filesystem, network, approval}, View.Available{}, Controls.Quiet{}, name) == Controls.tooltip(name) : Controls.Help},
     filesystem_write_icon: {Controls.filesystem_icon(Domain.WorkspaceWrite{}) == Controls.Pencil{} : Controls.Icon},
     filesystem_read_icon: {Controls.filesystem_icon(Domain.ReadOnly{}) == Controls.Eye{} : Controls.Icon},
@@ -1131,6 +1151,7 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
     case Controls.PickerFace{icon, text}: Some{text}
     case Controls.ChoiceFace{text, description, icon, checked}: Some{text}
     case Controls.DisclosureFace{text, expanded}: Some{text}
+    case Controls.PropertyFace{property}: Some{UX.property_value(property)}
     case Controls.PermissionFace{filesystem, network, approval}: None{}
 
 def required_menu_text(purpose: Controls.Purpose, label: String) -> Maybe<&2, String>:
@@ -1399,3 +1420,17 @@ type FocusOwnershipRequirements is Type:
 
 law focus_ownership_evidence:
   FocusOwnershipRequirements
+
+
+law property_current_values:
+  for +property: UXTypes.Property
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  {A.property_text(property, key, parent) ==
+    [S.Text{UIIdentity.part(key, "property-title"), UX.property_title(property), S.ExplicitFont{T.supporting(A.parent_font(parent))}, T.NormalWords{}},
+     A.caption(UIIdentity.part(key, "property-value"), UX.property_value(property), parent, T.UnbrokenLine{}),
+     S.Text{UIIdentity.part(key, "property-detail"), UX.property_detail(property), S.ExplicitFont{T.supporting(A.parent_font(parent))}, T.NormalWords{}}] : +List<S.Node>}
+
+law property_caption_wraps:
+  for property: UXTypes.Property
+  {Controls.caption_wrapping(Controls.PropertyFace{property}) == T.UnbrokenLine{} : T.Wrapping}

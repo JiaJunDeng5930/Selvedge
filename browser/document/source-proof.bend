@@ -297,7 +297,9 @@ def experience_source(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.
     case SurfaceTypes.WorkspaceCollection{collection}: {==}
     case SurfaceTypes.WorkspaceMember{collection, path}: {==}
     case SurfaceTypes.ActionUnit{action}: {==}
-    case SurfaceTypes.SupportingControl{support, input, availability}: {==}
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: {==}
+    case SurfaceTypes.ActionExplanation{assessment}: {==}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: {==}
     case SurfaceTypes.ActionFeedback{feedback}: {==}
     case SurfaceTypes.InformationText{role}: {==}
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: {==}
@@ -368,7 +370,7 @@ def grouped_menu_source(+key: UIIdentity.Key, +tag: Source.BoxTag, +style: Sourc
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
   {==}
 
-def support_source(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> RuleSourceRules.support_source(visible, key, support, label, visual, representation):
+def support_source(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> RuleSourceRules.support_source(visible, key, support, property, label, visual, representation):
   match visible:
     case False{}: {==}
     case True{}: {==}

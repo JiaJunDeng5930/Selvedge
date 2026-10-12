@@ -275,14 +275,8 @@ def main_box(structure: Design.MainStructure, +key: UIIdentity.Key, tag: Source.
   Design.MainStructure{measure, heading, organization} = structure
   organized_main_box(measure, organization, key, tag, style, attributes, heading_children(heading, key, style, children), maximum)
 
-def minimum_style(style: Source.Style, +required: Nat) -> Source.Style:
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{Nat.max(minimum_width, required), minimum_height}, scroll, position}, font, chrome, states}
-
 def beside_style(beside: Bool, required: Nat, style: Source.Style) -> Source.Style:
-  match beside:
-    case True{}: minimum_style(style, required)
-    case False{}: style
+  style
 
 def main_nodes(values: +List<Source.Node>, +structure: Design.MainStructure, +maximum: Nat, +beside: Bool, +required: Nat) -> +List<Source.Node>:
   match values:

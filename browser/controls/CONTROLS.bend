@@ -184,6 +184,11 @@ def face_leading_slot(value: Controls.Geometry) -> Nat:
   Controls.Geometry{demand, size, radius, slot} = value
   slot
 
+def property_text(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  [Source.Text{UIIdentity.part(key, "property-title"), UX.property_title(property), Source.ExplicitFont{T.supporting(parent_font(parent))}, T.NormalWords{}},
+         caption(UIIdentity.part(key, "property-value"), UX.property_value(property), parent, T.UnbrokenLine{}),
+         Source.Text{UIIdentity.part(key, "property-detail"), UX.property_detail(property), Source.ExplicitFont{T.supporting(parent_font(parent))}, T.NormalWords{}}]
+
 def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   match value:
     case Controls.TextFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
@@ -192,6 +197,11 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
     case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.UnbrokenIconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
+    case Controls.PropertyFace{+property}:
+      List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
+      [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 2n), Nil{},
+        property_text(property, key, parent)},
+       glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
     case Controls.PickerFace{leading, text}:
       List.append(&2, Source.Node, leading_icon(leading, key, parent, face_icon_size(geometry)),
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]}, glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
@@ -248,6 +258,7 @@ def action_width(value: Controls.Face, visual: Design.Style) -> Model.AxisSize:
 def action_alignment(value: Controls.Face) -> Spatial.Alignment:
   match value:
     case Controls.ChoiceFace{text, description, icon, checked}: Spatial.Leading{}
+    case Controls.PropertyFace{property}: Spatial.Leading{}
     case Controls.PickerFace{leading, text}: Spatial.Leading{}
     case _: Spatial.Centered{}
 

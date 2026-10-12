@@ -25,3 +25,20 @@ and attaches composer controls and feedback to the same action identity. The
 complete construction obligations are `ExperienceRequirements` in the contract;
 the existing composer, permission and submission obligations bind the surrounding
 trees and native field payloads.
+
+Closed composer controls retain an owner-built `Property`: field scope, title,
+current value and provenance come from the same domain observation. Creation
+context places Project before Working directory outside the writing enclosure;
+existing-task composition keeps that group absent.
+
+`editor_scene` produces one `Assessment` from the body, pending state and world.
+The editor and composer carry that assessment into the passive action explanation
+and canonical commit. The first obstruction supplies the visible guidance; all
+obstructions remain in the assessment. The actual canonical control supplies final service availability. A distinct
+unavailable reason restricts the same assessment; the commit and passive guidance
+consume that restriction without reconstructing service guards. The complete tree and interaction equations in the contract
+bind these constructions to the actual producers.
+
+`CompositionRequirements` also binds the expanded and collapsed navigation
+placement selected by `VIEW.navigation_placement`; the shell consumes that scene
+placement through its authored assembly obligations.

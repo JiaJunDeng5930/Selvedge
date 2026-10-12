@@ -33,7 +33,7 @@ def Rule.backward_backward(left, top, width, height, viewport_width, viewport_he
 def Rule.negative_top_regression(): {==}
 
 def profile_edges(+profile: E.Profile) ->
-  {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, E.block_presence(profile)) : (Nat & Nat)}:
+  {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (E.inline_presence(profile), E.block_presence(profile)) : (Nat & Nat)}:
   match profile:
     case E.IconControl{}: {==}
     case E.TextControl{}: {==}

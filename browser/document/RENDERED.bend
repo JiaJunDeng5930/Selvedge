@@ -51,8 +51,9 @@ def field_control(entry: Forms.Entry) -> Bool:
 
 def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
-    case SurfaceTypes.SupportingControl{support, input, availability}: UX.support_visible(support)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: UX.support_visible(support)
     case SurfaceTypes.MovableCard{destinations, face}: True{}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: True{}
     case SurfaceTypes.Activate{input, availability}: True{}
     case SurfaceTypes.PanelToggle{expanded, input, availability}: True{}
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: True{}
@@ -67,8 +68,9 @@ def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
 
 def required_enabled(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
-    case SurfaceTypes.SupportingControl{support, input, availability}: UX.support_visible(support) && enabled(availability)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: UX.support_visible(support) && enabled(availability)
     case SurfaceTypes.MovableCard{destinations, face}: InterfaceView.has_available_destination(destinations)
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: UX.assessment_ready(assessment) && enabled(availability)
     case SurfaceTypes.Activate{input, availability}: enabled(availability)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: enabled(availability)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: enabled(availability)

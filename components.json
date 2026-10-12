@@ -264,6 +264,7 @@
       "browser/layout/natural-size.bend"
     ],
     "browser/appearance/MODEL.bend": [
+      "browser/layout/ACTIVITY.bend",
       "interaction/IDENTITY.bend",
       "browser/layout/GEOMETRY.bend",
       "browser/layout/enclosure.bend",
@@ -320,6 +321,7 @@
       "browser/controls/authored-primitives.bend"
     ],
     "browser/controls/CONTRACT.bend": [
+      "interaction/experience/MODEL.bend",
       "interaction/experience/PROGRAM.bend",
       "interaction/presentation/INFORMATION.bend",
       "interaction/IDENTITY.bend",
@@ -435,6 +437,7 @@
       "interaction/presentation/VIEW.bend"
     ],
     "browser/controls/PROGRAM.bend": [
+      "browser/layout/ACTIVITY.bend",
       "interaction/experience/PROGRAM.bend",
       "interaction/experience/MODEL.bend",
       "interaction/IDENTITY.bend",
@@ -720,6 +723,7 @@
       "browser/runtime/SEMANTICS.bend"
     ],
     "browser/document/source-contract.bend": [
+      "browser/layout/ACTIVITY.bend",
       "interaction/services/CONTEXT.bend",
       "interaction/experience/MODEL.bend",
       "interaction/experience/PROGRAM.bend",
@@ -840,6 +844,7 @@
       "interaction/TYPES.bend"
     ],
     "browser/layout/CONTRACT.bend": [
+      "browser/layout/activity-contract.bend",
       "browser/layout/measurement-contract.bend",
       "browser/layout/SOURCE.bend",
       "browser/layout/physical-plan.bend",
@@ -868,6 +873,8 @@
       "browser/document/MODEL.bend"
     ],
     "browser/layout/PROOF.bend": [
+      "browser/layout/activity-proof.bend",
+      "browser/layout/activity-contract.bend",
       "browser/layout/measurement-contract.bend",
       "browser/layout/CONTENT.bend",
       "interaction/presentation/MODEL.bend",
@@ -1482,11 +1489,11 @@
       "harness/execution/OPERATIONS.bend",
       "harness/INVARIANTS.bend",
       "bendlib/stdlib.bend",
+      "bendlib/equality.bend",
       "harness/workspace/WORKSPACE.bend",
       "harness/workspace/PROJECTS.bend",
       "harness/transport/schema.bend",
       "harness/approval/MODEL.bend",
-      "bendlib/equality.bend",
       "harness/reasoning/context.bend",
       "harness/reasoning/MODEL.bend"
     ],
@@ -1948,6 +1955,7 @@
       "harness/transport/schema.bend"
     ],
     "interaction/CONTRACT.bend": [
+      "bendlib/association-map.bend",
       "harness/MODEL.bend",
       "harness/PROGRAM.bend",
       "interaction/MODEL.bend",
@@ -1998,6 +2006,7 @@
       "interaction/presentation/SURFACE.bend"
     ],
     "interaction/PROOF.bend": [
+      "interaction/INPUT.bend",
       "bendlib/json.bend",
       "interaction/IDENTITY.bend",
       "interaction/identity-laws.bend",
@@ -2146,6 +2155,7 @@
       "harness/conversation/PROGRAM.bend"
     ],
     "interaction/presentation/MODEL.bend": [
+      "interaction/experience/MODEL.bend",
       "interaction/conversation/OUTPUT.bend",
       "interaction/submission/FIELDS.bend",
       "features/board/MODEL.bend",
@@ -2190,6 +2200,7 @@
       "interaction/presentation/VIEW.bend"
     ],
     "interaction/presentation/PROOF.bend": [
+      "interaction/experience/PROGRAM.bend",
       "interaction/experience/MODEL.bend",
       "interaction/INPUT.bend",
       "interaction/presentation/CONTRACT.bend",
@@ -2225,6 +2236,8 @@
       "interaction/TYPES.bend"
     ],
     "interaction/presentation/VIEW.bend": [
+      "interaction/experience/PROGRAM.bend",
+      "interaction/experience/MODEL.bend",
       "interaction/conversation/OUTPUT.bend",
       "interaction/submission/FIELDS.bend",
       "harness/MODEL.bend",
@@ -2247,6 +2260,8 @@
       "interaction/presentation/MODEL.bend"
     ],
     "interaction/presentation/interaction-proof.bend": [
+      "interaction/experience/MODEL.bend",
+      "interaction/experience/PROGRAM.bend",
       "interaction/submission/FIELDS.bend",
       "bendlib/categories.bend",
       "harness/DOMAIN.bend",
@@ -2362,6 +2377,8 @@
       "interaction/presentation/SURFACE.bend"
     ],
     "interaction/session/CONTRACT.bend": [
+      "interaction/experience/PROGRAM.bend",
+      "bendlib/categories.bend",
       "interaction/submission/CONTRACT.bend",
       "harness/INVARIANTS.bend",
       "harness/MODEL.bend",
@@ -2373,13 +2390,16 @@
       "interaction/session/PROGRAM.bend",
       "interaction/INPUT.bend",
       "features/board/MODEL.bend",
+      "features/board/STATE.bend",
       "bendlib/association-map.bend",
       "interaction/conversation/CODE.bend",
       "interaction/conversation/OUTPUT.bend",
-      "interaction/services/CONTEXT.bend",
-      "features/board/STATE.bend"
+      "interaction/services/CONTEXT.bend"
     ],
     "interaction/session/MODEL.bend": [
+      "interaction/experience/PROGRAM.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/COMMANDS.bend",
       "bendlib/categories.bend",
       "harness/INVARIANTS.bend",
       "bendlib/stdlib.bend",
@@ -2397,9 +2417,7 @@
       "bendlib/json.bend",
       "harness/transport/command-codec.bend",
       "interaction/services/CONTEXT.bend",
-      "interaction/INPUT.bend",
-      "harness/tasks/PROGRAM.bend",
-      "harness/COMMANDS.bend"
+      "interaction/INPUT.bend"
     ],
     "interaction/session/PROGRAM.bend": [
       "interaction/session/MODEL.bend",
@@ -2410,6 +2428,7 @@
       "bendlib/categories.bend",
       "harness/INVARIANTS.bend",
       "features/board/MODEL.bend",
+      "features/board/STATE.bend",
       "harness/MODEL.bend",
       "harness/PROGRAM.bend",
       "bendlib/association-map.bend",
@@ -2424,8 +2443,7 @@
       "interaction/INPUT.bend",
       "interaction/session/CONTRACT.bend",
       "harness/transport/command-codec.bend",
-      "interaction/submission/PROOF.bend",
-      "features/board/STATE.bend"
+      "interaction/submission/PROOF.bend"
     ],
     "interaction/submission/CONTRACT.bend": [
       "interaction/experience/MODEL.bend",
@@ -2718,6 +2736,13 @@
       "browser/layout/enclosure.bend"
     ],
     "interaction/experience/CONTRACT.bend": [
+      "harness/features/MODEL.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/MODEL.bend",
+      "harness/COMMANDS.bend",
+      "harness/workspace/PROJECTS.bend",
+      "features/board/MODEL.bend",
+      "bendlib/json.bend",
       "interaction/experience/MODEL.bend",
       "interaction/experience/PROGRAM.bend",
       "interaction/INPUT.bend",
@@ -2735,6 +2760,13 @@
       "harness/DOMAIN.bend"
     ],
     "interaction/experience/PROGRAM.bend": [
+      "features/board/STATE.bend",
+      "harness/MODEL.bend",
+      "harness/COMMANDS.bend",
+      "harness/features/MODEL.bend",
+      "harness/workspace/PROJECTS.bend",
+      "harness/tasks/PROGRAM.bend",
+      "features/board/MODEL.bend",
       "interaction/experience/MODEL.bend",
       "interaction/INPUT.bend",
       "interaction/submission/FIELDS.bend",
@@ -2744,6 +2776,14 @@
       "harness/workspace/WORKSPACE.bend"
     ],
     "interaction/experience/PROOF.bend": [
+      "bendlib/stdlib.bend",
+      "harness/features/MODEL.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/MODEL.bend",
+      "harness/COMMANDS.bend",
+      "harness/workspace/PROJECTS.bend",
+      "features/board/MODEL.bend",
+      "bendlib/json.bend",
       "interaction/experience/CONTRACT.bend",
       "interaction/experience/MODEL.bend",
       "interaction/experience/PROGRAM.bend",
@@ -2754,6 +2794,41 @@
       "harness/reasoning/MODEL.bend",
       "bendlib/equality-proof.bend",
       "harness/transport/schema.bend"
+    ],
+    "browser/layout/ACTIVITY.bend": [
+      "browser/layout/enclosure.bend"
+    ],
+    "browser/layout/activity-proof.bend": [
+      "browser/controls/PROGRAM.bend",
+      "interaction/experience/MODEL.bend",
+      "browser/appearance/DESIGN.bend",
+      "browser/editor/MODEL.bend",
+      "browser/layout/ACTIVITY.bend",
+      "browser/layout/enclosure.bend",
+      "browser/layout/activity-contract.bend",
+      "bendlib/algebra-proof.bend"
+    ],
+    "browser/layout/activity-contract.bend": [
+      "interaction/presentation/SURFACE.bend",
+      "browser/layout/GEOMETRY.bend",
+      "interaction/conversation/CODE.bend",
+      "interaction/services/MODEL.bend",
+      "interaction/services/CONTEXT.bend",
+      "interaction/presentation/MODEL.bend",
+      "browser/editor/MODEL.bend",
+      "browser/layout/ACTIVITY.bend",
+      "browser/layout/enclosure.bend",
+      "browser/appearance/MODEL.bend",
+      "browser/appearance/DESIGN.bend",
+      "browser/appearance/TYPOGRAPHY.bend",
+      "browser/controls/PROGRAM.bend",
+      "interaction/experience/MODEL.bend"
+    ],
+    "features/board/MODEL.bend": [
+      "harness/DOMAIN.bend",
+      "bendlib/json.bend",
+      "bendlib/association-map.bend",
+      "bendlib/categories.bend"
     ]
   },
   "feature_alphabet": "harness/features/MODEL.bend",
@@ -2974,12 +3049,31 @@
         "Decision",
         "Collection",
         "ActionUnit",
-        "Support"
+        "Support",
+        "ProjectObservation",
+        "WorkspaceObservation",
+        "PermissionsObservation",
+        "ModelObservation",
+        "DeliveryObservation",
+        "Assessment",
+        "Obstruction"
       ],
       "owners": [
         "interaction/experience/MODEL.bend",
         "interaction/experience/PROGRAM.bend",
-        "interaction/experience/PROOF.bend"
+        "interaction/experience/PROOF.bend",
+        "interaction/experience/CONTRACT.bend"
+      ]
+    },
+    {
+      "module": "browser/layout/ACTIVITY.bend",
+      "constructors": [
+        "Grammar"
+      ],
+      "owners": [
+        "browser/layout/ACTIVITY.bend",
+        "browser/layout/activity-contract.bend",
+        "browser/layout/activity-proof.bend"
       ]
     }
   ],

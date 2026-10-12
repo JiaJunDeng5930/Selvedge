@@ -1,3 +1,4 @@
+import ../layout/ACTIVITY.bend as Activity
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/GEOMETRY.bend as SpatialModel
@@ -204,9 +205,9 @@ def work_description_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
   field_values(NaturalSize.limit(), value, 0n, 110n, radius)
 
-def message_field(+value: Design.Style) -> Design.Style:
+def message_field(capacity: Nat, +value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
-  field_values(NaturalSize.limit(), value, 0n, 44n, radius)
+  field_values(capacity, value, 0n, Activity.primary_minimum(Activity.initial()), radius)
 
 def normalize_text_field(kind: EditorLayout.FieldKind, value: Design.Style) -> Design.Style:
   match kind:
@@ -218,12 +219,21 @@ def normalize_text_area(kind: EditorLayout.FieldKind, value: Design.Style) -> De
     case EditorLayout.WorkDescription{}: work_description_field(value)
     case _: value
 
-def normalize_field(kind: EditorLayout.FieldKind, widget: Controls.Widget, value: Design.Style) -> Design.Style:
+def select_field_constructor(kind: EditorLayout.FieldKind, widget: Controls.Widget) -> Nat -> Design.Style -> Design.Style:
   match widget:
-    case Controls.TextInput{}: normalize_text_field(kind, value)
-    case Controls.TextArea{}: normalize_text_area(kind, value)
-    case Controls.MessageInput{}: message_field(value)
-    case _: value
+    case Controls.TextInput{}: capacity => value => normalize_text_field(kind, value)
+    case Controls.TextArea{}: capacity => value => normalize_text_area(kind, value)
+    case Controls.MessageInput{}: capacity => value => message_field(capacity, value)
+    case _: capacity => value => value
+
+def normalize_field(kind: EditorLayout.FieldKind, +widget: Controls.Widget, value: Design.Style) -> Design.Style:
+  match widget:
+    case Controls.MessageInput{}:
+      constructor = select_field_constructor(kind, widget)
+      constructor(NaturalSize.limit(), value)
+    case _:
+      constructor = select_field_constructor(kind, widget)
+      constructor(0n, value)
 
 def search_field_style(+typography: T.Presentation) -> Design.Style:
   field_values(NaturalSize.limit(), with_content_area(field_surface(Surfaces.Inset{}, typography), Enclosure.area(Enclosure.SearchField{})), 1n, 32n, 6n)
@@ -362,6 +372,7 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.SingleLineFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.UnbrokenIconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
+    case Controls.PropertyFace{property}: Nat.add(text_line_height(NaturalSize.limit(), text), Nat.add(text_line_height(NaturalSize.limit(), T.supporting(text)), Nat.add(text_line_height(NaturalSize.limit(), T.supporting(text)), 4n)))
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
@@ -493,7 +504,7 @@ def action_focus_states(+chrome: Design.Chrome, states: Design.ControlStates) ->
 
 def action_unit_style(value: Design.Style) -> Design.Style:
   Design.Style{text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
-  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, action_focus_states(chrome, states)}
+  Design.Style{text, chrome, alignment, flow, overflow, Activity.frame(Activity.initial()), minimum, maximum, action_focus_states(chrome, states)}
 
 def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
@@ -591,9 +602,17 @@ def alert_style(role: SurfaceTypes.Role, value: Design.Style) -> Design.Style:
         Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, SpatialModel.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
     case _: value
 
+def activity_controls(role: SurfaceTypes.Role, context: Controls.Context, value: Design.Style) -> Design.Style:
+  match role context:
+    case SurfaceTypes.Toolbar{} Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}: modeled_container(value, SpatialModel.SplitRowFlow{}, Activity.clearance(Activity.initial()))
+    case SurfaceTypes.ComposerActions{} _:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      modeled_container(Design.Style{text, chrome, SpatialModel.Trailing{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.SplitRowFlow{}, Activity.clearance(Activity.initial()))
+    case _ _: value
+
 def prepared_style(+key: UIIdentity.Key, semantic: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
-  alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))
+  activity_controls(role, local, alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography)))
 
 def nodes_at(values: +List<SurfaceTypes.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
   match values:

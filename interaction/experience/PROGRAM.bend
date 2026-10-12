@@ -1,4 +1,11 @@
 import Base
+import ../../features/board/STATE.bend as BoardState
+import ../../harness/MODEL.bend as World
+import ../../harness/COMMANDS.bend as Commands
+import ../../harness/features/MODEL.bend as F
+import ../../harness/workspace/PROJECTS.bend as Projects
+import ../../harness/tasks/PROGRAM.bend as Tasks
+import ../../features/board/MODEL.bend as Board
 import ./MODEL.bend as M
 import ../INPUT.bend as U
 import ../submission/FIELDS.bend as Forms
@@ -432,3 +439,520 @@ def feedback(editor: U.Editor, value: U.Feedback) -> Maybe<&2, M.Feedback>:
   match value:
     case U.Rejected{revision, reason}: Some{M.Feedback{editor, revision, reason}}
     case _: None{}
+
+# Property observations preserve the source values rather than authored captions.
+def selected_project(selected: Maybe<&2, Nat>, world: World.World()) -> Maybe<&2, D.Project>:
+  match selected:
+    case None{}: None{}
+    case Some{id}: Projects.find(Projects.registry(F.State(), world), id)
+
+def project_property(editor: U.Editor, +selected: Maybe<&2, Nat>, world: World.World()) -> M.Property:
+  M.ProjectObservation{editor, selected, selected_project(selected, world)}
+
+def origin_project(origin: Context.Origin) -> Maybe<&2, Nat>:
+  match origin:
+    case Context.ProjectDefaults{id}: Some{id}
+    case Context.ProjectForParent{task, id}: Some{id}
+    case _: None{}
+def observation_project(observation: Context.Observation) -> Maybe<&2, Nat>:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: origin_project(origin)
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}: project
+    case _: None{}
+
+def workspace_property(editor: U.Editor, +observation: Context.Observation, world: World.World()) -> M.Property:
+  M.WorkspaceObservation{editor, observation, selected_project(observation_project(observation), world)}
+
+def permissions_property(editor: U.Editor, observation: Context.Observation) -> M.Property:
+  M.PermissionsObservation{editor, observation}
+
+def model_property(editor: U.Editor, +profile: String, effort: String, world: World.World()) -> M.Property:
+  M.ModelObservation{editor, profile, effort, D.find_profile(Commands.configured(Commands.settings(world)), profile)}
+
+def delivery_property(editor: U.Editor, delivery: U.Delivery) -> M.Property:
+  M.DeliveryObservation{editor, delivery}
+
+def property_editor(property: M.Property) -> U.Editor:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: editor
+    case M.WorkspaceObservation{editor, observation, source}: editor
+    case M.PermissionsObservation{editor, observation}: editor
+    case M.ModelObservation{editor, profile, effort, found}: editor
+    case M.DeliveryObservation{editor, delivery}: editor
+
+def property_kind(property: M.Property) -> M.PropertyKind:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: M.ProjectProperty{}
+    case M.WorkspaceObservation{editor, observation, source}: M.WorkspaceProperty{}
+    case M.PermissionsObservation{editor, observation}: M.PermissionsProperty{}
+    case M.ModelObservation{editor, profile, effort, found}: M.ModelProperty{}
+    case M.DeliveryObservation{editor, delivery}: M.DeliveryProperty{}
+
+def kind_fields(kind: M.PropertyKind) -> +List<Forms.Field>:
+  match kind:
+    case M.ProjectProperty{}: [Forms.ContextOrigin{}]
+    case M.WorkspaceProperty{}: [Forms.WorkspaceDirectories{}, Forms.WorkspacePrimary{}]
+    case M.PermissionsProperty{}: [Forms.SandboxMode{}, Forms.NetworkAccess{}, Forms.ApprovalPolicy{}]
+    case M.ModelProperty{}: [Forms.ModelProfile{}, Forms.ReasoningEffort{}]
+    case M.DeliveryProperty{}: [Forms.DeliveryIntent{}]
+
+def property_fields(property: M.Property) -> +List<Forms.Field>:
+  kind_fields(property_kind(property))
+
+def property_subjects(+property: M.Property) -> +List<M.Subject>:
+  subjects(property_fields(property), property_editor(property))
+
+def property_owner(+property: M.Property) -> M.Object:
+  group_owner(property_editor(property), property_fields(property))
+
+def project_state(selected: Maybe<&2, Nat>, found: Maybe<&2, D.Project>) -> M.PropertyState:
+  match selected found:
+    case None{} _: M.Absent{}
+    case Some{id} None{}: M.Invalid{}
+    case Some{id} Some{project}: M.Selected{}
+
+def observed_workspace(observation: Context.Observation) -> Maybe<&2, D.Workspace>:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, Context.InheritedWorkspace{workspace}, sandbox, approval, guidance}}: Some{workspace}
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, Context.EnteredWorkspace{workspace}, sandbox, approval, guidance}}: Some{workspace}
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}: Some{workspace}
+    case _: None{}
+
+def primary_state(primary: Maybe<&2, String>) -> M.PropertyState:
+  match primary:
+    case None{}: M.Absent{}
+    case Some{path}: M.Selected{}
+
+def workspace_state(workspace: Maybe<&2, D.Workspace>) -> M.PropertyState:
+  match workspace:
+    case None{}: M.UnavailableObservation{}
+    case Some{workspace}: primary_state(Workspace.primary(workspace))
+
+def observation_state(observation: Context.Observation) -> M.PropertyState:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: M.UnavailableObservation{}
+    case _: M.Selected{}
+
+def permitted_state(permitted: Bool) -> M.PropertyState:
+  match permitted:
+    case True{}: M.Selected{}
+    case False{}: M.Invalid{}
+
+def model_state(found: Maybe<&2, D.Profile>, effort: String) -> M.PropertyState:
+  match found:
+    case None{}: M.Invalid{}
+    case Some{+profile}: permitted_state(D.profile_permitted(profile, D.profile_selection(effort, profile)))
+
+def property_state(property: M.Property) -> M.PropertyState:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: project_state(selected, found)
+    case M.WorkspaceObservation{editor, observation, source}: workspace_state(observed_workspace(observation))
+    case M.PermissionsObservation{editor, observation}: observation_state(observation)
+    case M.ModelObservation{editor, profile, effort, found}: model_state(found, effort)
+    case M.DeliveryObservation{editor, delivery}: M.Selected{}
+
+def kind_title(kind: M.PropertyKind) -> String:
+  match kind:
+    case M.ProjectProperty{}: "Project"
+    case M.WorkspaceProperty{}: "Working directory"
+    case M.PermissionsProperty{}: "Permissions"
+    case M.ModelProperty{}: "Model"
+    case M.DeliveryProperty{}: "Delivery"
+
+def property_title(property: M.Property) -> String:
+  kind_title(property_kind(property))
+
+def project_value(selected: Maybe<&2, Nat>, found: Maybe<&2, D.Project>) -> String:
+  match selected found:
+    case None{} _: "No project"
+    case Some{id} None{}: "Missing project " ++ Nat.show(id)
+    case Some{id} Some{D.Project{name, workspace, guidance}}: name
+
+def segment_fallback(nonempty: Bool, segment: String, fallback: String) -> String:
+  match nonempty:
+    case True{}: segment
+    case False{}: fallback
+
+def last_segment(segments: +List<String>, fallback: String) -> String:
+  match segments:
+    case Nil{}: fallback
+    case Con{+segment, rest}: last_segment(rest, segment_fallback(D.nonempty(segment), segment, fallback))
+
+def primary_caption(primary: Maybe<&2, String>) -> String:
+  match primary:
+    case None{}: "No directory"
+    case Some{+path}: last_segment(String.split(path, '/'), path)
+
+def primary_value(workspace: Maybe<&2, D.Workspace>) -> String:
+  match workspace:
+    case None{}: "Unavailable"
+    case Some{workspace}: primary_caption(Workspace.primary(workspace))
+
+def sandbox_caption(sandbox: D.Sandbox) -> String:
+  D.Sandbox{mode, network} = sandbox
+  D.sandbox_mode_name(mode)
+
+def permission_value(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      sandbox_caption(Context.unwrap_sandbox(sandbox))
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, access}}:
+      Context.filesystem_summary(access, mode)
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: "Unavailable"
+
+def model_value(key: String, found: Maybe<&2, D.Profile>) -> String:
+  match found:
+    case None{}: "Missing model " ++ key
+    case Some{D.Profile{key, provider, name, policy, options}}: name
+
+def property_value(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: project_value(selected, found)
+    case M.WorkspaceObservation{editor, observation, source}: primary_value(observed_workspace(observation))
+    case M.PermissionsObservation{editor, observation}: permission_value(observation)
+    case M.ModelObservation{editor, profile, effort, found}: model_value(profile, found)
+    case M.DeliveryObservation{editor, delivery}: U.delivery_caption(delivery)
+
+def origin_detail(origin: Context.Origin) -> String:
+  match origin:
+    case Context.EnvironmentDefaults{}: "Environment defaults"
+    case Context.ProjectDefaults{id}: "From project"
+    case Context.ParentTask{id}: "From parent task"
+    case Context.ProjectForParent{task, project}: "From project"
+
+def override_detail(origin: Context.Origin) -> String:
+  match origin:
+    case Context.ProjectDefaults{id}: "Custom · overrides project defaults"
+    case Context.ProjectForParent{task, id}: "Custom · overrides project defaults"
+    case Context.ParentTask{id}: "Custom · overrides parent task defaults"
+    case Context.EnvironmentDefaults{}: "Custom · overrides environment defaults"
+
+def workspace_detail(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: reason
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, Context.InheritedWorkspace{workspace}, sandbox, approval, guidance}}: origin_detail(origin)
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, Context.EnteredWorkspace{workspace}, sandbox, approval, guidance}}: override_detail(origin)
+    case Context.CommittedExecution{context}: "Task workspace"
+
+def network_detail(network: Bool) -> String:
+  match network:
+    case True{}: "Network on"
+    case False{}: "Network off"
+
+def approval_detail(choice: Context.ApprovalChoice) -> String:
+  match choice:
+    case Context.Ask{}: "Ask"
+    case Context.Unrestricted{}: "Unrestricted"
+    case Context.AutomaticReview{profile}: "Review " ++ profile
+
+def sandbox_network_caption(sandbox: D.Sandbox) -> String:
+  D.Sandbox{mode, network} = sandbox
+  network_detail(network)
+def permission_base_key(origin: Context.Origin) -> String:
+  match origin:
+    case Context.EnvironmentDefaults{}: "environment"
+    case Context.ProjectDefaults{id}: "environment"
+    case Context.ParentTask{id}: "task/" ++ Nat.show(id)
+    case Context.ProjectForParent{task, id}: "task/" ++ Nat.show(task)
+
+def sandbox_source_key(origin: Context.Origin, sandbox: Context.SandboxValue) -> String:
+  match sandbox:
+    case Context.InheritedSandbox{value}: permission_base_key(origin)
+    case Context.ChosenSandbox{value}: "custom"
+
+def approval_source_key(origin: Context.Origin, approval: Context.ApprovalValue) -> String:
+  match approval:
+    case Context.InheritedApproval{value}: permission_base_key(origin)
+    case Context.ChosenApproval{value}: "custom"
+
+def permission_source_key(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: "unavailable"
+    case Context.DraftExecution{Context.ProspectiveContext{+origin, project, workspace, sandbox, approval, guidance}}:
+      "sandbox/" ++ sandbox_source_key(origin, sandbox) ++ ";approval/" ++ approval_source_key(origin, approval)
+    case Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}: "task/" ++ Nat.show(task)
+
+def permission_inheritance_detail(sandbox: Context.SandboxValue, approval: Context.ApprovalValue) -> String:
+  match sandbox approval:
+    case Context.InheritedSandbox{value} Context.InheritedApproval{policy}: "Defaults"
+    case _ _: "Custom"
+
+def permission_base_label(origin: Context.Origin) -> String:
+  match origin:
+    case Context.EnvironmentDefaults{}: "Environment defaults"
+    case Context.ProjectDefaults{id}: "Environment defaults"
+    case Context.ParentTask{id}: "Parent task " ++ Nat.show(id)
+    case Context.ProjectForParent{task, id}: "Parent task " ++ Nat.show(task)
+
+def sandbox_source_label(origin: Context.Origin, sandbox: Context.SandboxValue) -> String:
+  match sandbox:
+    case Context.InheritedSandbox{value}: permission_base_label(origin)
+    case Context.ChosenSandbox{value}: "Custom"
+
+def approval_source_label(origin: Context.Origin, approval: Context.ApprovalValue) -> String:
+  match approval:
+    case Context.InheritedApproval{value}: permission_base_label(origin)
+    case Context.ChosenApproval{value}: "Custom"
+
+def permission_source_detail(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: reason
+    case Context.DraftExecution{Context.ProspectiveContext{+origin, project, workspace, sandbox, approval, guidance}}:
+      "Filesystem/network: " ++ sandbox_source_label(origin, sandbox) ++ "; Approval: " ++ approval_source_label(origin, approval)
+    case Context.CommittedExecution{Context.EffectiveContext{+task, context, guidance, access}}:
+      "Filesystem/network: Task " ++ Nat.show(task) ++ "; Approval: Task " ++ Nat.show(task)
+
+def permission_detail(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: reason
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, +sandbox, +approval, guidance}}:
+      sandbox_network_caption(Context.unwrap_sandbox(sandbox)) ++ " · " ++ approval_detail(Context.observed_approval(approval)) ++ " · " ++ permission_inheritance_detail(sandbox, approval)
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, access}}:
+      Context.network_summary(access, network) ++ " · " ++ approval_detail(Context.approval_choice(approval)) ++ " · Task permissions"
+
+def property_detail(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, None{}, found}: "Optional"
+    case M.ProjectObservation{editor, Some{id}, None{}}: "Invalid reference"
+    case M.ProjectObservation{editor, Some{id}, Some{project}}: "Task context"
+    case M.WorkspaceObservation{editor, observation, source}: workspace_detail(observation)
+    case M.PermissionsObservation{editor, observation}: permission_detail(observation)
+    case M.ModelObservation{editor, key, effort, found}: "Reasoning · " ++ effort
+    case M.DeliveryObservation{editor, U.Send{}}: "Send a new message"
+    case M.DeliveryObservation{editor, U.Steer{}}: "Guide the current task"
+
+def origin_key(origin: Context.Origin) -> String:
+  match origin:
+    case Context.EnvironmentDefaults{}: "environment"
+    case Context.ProjectDefaults{id}: "project/" ++ Nat.show(id)
+    case Context.ParentTask{id}: "task/" ++ Nat.show(id)
+    case Context.ProjectForParent{task, id}: "project/" ++ Nat.show(id)
+
+def observation_source(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: "unavailable"
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: origin_key(origin)
+    case Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}: "task/" ++ Nat.show(task)
+
+def property_source_key(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: "project/" ++ U.optional_key(selected)
+    case M.WorkspaceObservation{editor, observation, source}: observation_source(observation)
+    case M.PermissionsObservation{editor, observation}: permission_source_key(observation)
+    case M.ModelObservation{editor, profile, effort, found}: "model/" ++ profile
+    case M.DeliveryObservation{editor, delivery}: U.editor_key(editor)
+
+def join_paths(roots: +List<String>) -> String:
+  match roots:
+    case Nil{}: ""
+    case Con{path, rest}: path ++ "\n" ++ join_paths(rest)
+
+def workspace_paths(workspace: Maybe<&2, D.Workspace>) -> String:
+  match workspace:
+    case None{}: ""
+    case Some{D.Workspace{roots, primary}}: join_paths(roots)
+
+def source_name(source: Maybe<&2, D.Project>) -> String:
+  match source:
+    case None{}: ""
+    case Some{D.Project{name, workspace, guidance}}: " · " ++ name
+
+def property_help(+property: M.Property) -> String:
+  match property:
+    case M.WorkspaceObservation{editor, +observation, source}:
+      workspace_detail(observation) ++ source_name(source) ++ " · " ++ observation_source(observation) ++ "\n" ++ workspace_paths(observed_workspace(observation))
+    case M.PermissionsObservation{editor, +observation}:
+      "Permissions: " ++ permission_value(observation) ++ " · " ++ permission_detail(observation) ++ "\n" ++ permission_source_detail(observation)
+    case _: property_title(property) ++ ": " ++ property_value(property) ++ " · " ++ property_detail(property)
+
+def scoped_property_support(matches: Bool, action: M.ActionUnit, property: M.Property) -> M.Support:
+  match matches:
+    case True{}: support(action, property_fields(property))
+    case False{}: support(action, Nil{})
+
+def property_support(+action: M.ActionUnit, +property: M.Property) -> M.Support:
+  scoped_property_support(U.same_editor(action_editor(action), property_editor(property)), action, property)
+
+
+def obstruction(editor: U.Editor, field: Forms.Field, code: String, message: String) -> M.Obstruction:
+  +subject: M.Subject = M.Subject{editor, field}
+  M.Obstruction{owner(subject), Some{subject}, code, message}
+
+def failed_requirement(valid: Bool, obstruction: M.Obstruction) -> +List<M.Obstruction>:
+  match valid:
+    case True{}: Nil{}
+    case False{}: [obstruction]
+
+def origin_failure(preview: Context.Preview, editor: U.Editor) -> +List<M.Obstruction>:
+  match preview:
+    case Context.ContextUnavailable{reason}: [obstruction(editor, Forms.ContextOrigin{}, "context_unavailable", reason)]
+    case _: Nil{}
+
+def context_requirements(+body: U.Body, +world: World.World()) -> +List<M.Obstruction>:
+  match body:
+    case U.NewTask{message, profile, reasoning, context}: origin_failure(Context.preview(context, world), U.NewTaskEditor{})
+    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: origin_failure(Context.preview(context, world), U.AgentEditor{id})
+    case U.Fork{task, count, messages, context}: origin_failure(Context.preview(context, world), U.ForkEditor{task})
+    case _: Nil{}
+
+def model_requirements(found: Maybe<&2, D.Profile>, +effort: String, +editor: U.Editor) -> +List<M.Obstruction>:
+  match found:
+    case None{}: [obstruction(editor, Forms.ModelProfile{}, "model_not_found", "Choose a configured model")]
+    case Some{+profile}: failed_requirement(D.profile_permitted(profile, D.profile_selection(effort, profile)),
+      obstruction(editor, Forms.ReasoningEffort{}, "invalid_reasoning", "Choose an allowed reasoning effort"))
+
+def fork_requirements(found: Maybe<&2, D.Task>, +count: Nat, +messages: +List<String>, +task: Nat, +world: World.World()) -> +List<M.Obstruction>:
+  match found:
+    case None{}: [M.Obstruction{M.Task{task}, None{}, "task_not_found", "The target task does not exist"}]
+    case Some{+parent}:
+      List.append(&2, M.Obstruction, failed_requirement(Commands.branch_parent_valid(D.task_status(parent), D.task_phase(parent)),
+        M.Obstruction{M.Task{task}, None{}, "task_busy", "A manual fork requires an active, idle task"}),
+      List.append(&2, M.Obstruction, failed_requirement(Commands.branch_count_valid(count, parent),
+        obstruction(U.ForkEditor{task}, Forms.ForkCount{}, "invalid_fork_count", "Choose a fork count within the task limit")),
+      List.append(&2, M.Obstruction, failed_requirement(Commands.branch_messages_valid(count, messages),
+        obstruction(U.ForkEditor{task}, Forms.ForkMessages{}, "invalid_fork_messages", "Provide one message per fork, or no messages")),
+      failed_requirement(Commands.branch_capacity_valid(count, parent, world),
+        M.Obstruction{M.Task{task}, None{}, "resource_limit", "An ancestor descendant limit prevents this fork"}))))
+
+def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstruction>:
+  match body:
+    case U.NewTask{message, profile, reasoning, context}:
+      List.append(&2, M.Obstruction, failed_requirement(D.nonempty(U.text(message)),
+        obstruction(U.NewTaskEditor{}, Forms.MessageText{}, "empty_message", "Write a task to start")),
+        model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{}))
+    case U.Message{task, message, delivery}:
+      failed_requirement(D.nonempty(U.text(message)), obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send"))
+    case U.Project{id, name, workspace}:
+      failed_requirement(Projects.name_valid(name), obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes"))
+    case U.Agent{+id, revision, +name, +profile, +reasoning, instructions, context, concurrency}:
+      List.append(&2, M.Obstruction, failed_requirement(Board.agent_name_valid(name), obstruction(U.AgentEditor{id}, Forms.AgentName{}, "invalid_agent_name", "Enter a valid agent name")),
+      List.append(&2, M.Obstruction, failed_requirement(Board.agent_profile_valid(profile), obstruction(U.AgentEditor{id}, Forms.ModelProfile{}, "invalid_agent_profile", "Enter a valid model profile")),
+      List.append(&2, M.Obstruction, failed_requirement(Board.agent_reasoning_valid(reasoning), obstruction(U.AgentEditor{id}, Forms.ReasoningEffort{}, "invalid_agent_reasoning", "Enter a valid reasoning effort")),
+      List.append(&2, M.Obstruction, failed_requirement(Board.agent_instructions_valid(instructions), obstruction(U.AgentEditor{id}, Forms.AgentInstructions{}, "invalid_agent_instructions", "Shorten the agent instructions")),
+      List.append(&2, M.Obstruction, failed_requirement(Board.agent_concurrency_valid(concurrency), obstruction(U.AgentEditor{id}, Forms.AgentConcurrency{}, "invalid_agent_concurrency", "Choose concurrency from 1 to 64")),
+      model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.AgentEditor{id}))))))
+    case U.Fork{+task, count, messages, context}:
+      fork_requirements(Tasks.find(Commands.entries(world), task), count, messages, task, world)
+    case _: Nil{}
+
+def agent_reference_requirement(found: Maybe<&2, Board.AgentProfile>, editor: U.Editor) -> +List<M.Obstruction>:
+  match found:
+    case Some{agent}: Nil{}
+    case None{}: [M.Obstruction{root_object(editor), None{}, "agent_not_found", "The agent does not exist"}]
+
+def existing_agent_requirement(selected: Maybe<&2, Nat>, +world: World.World()) -> +List<M.Obstruction>:
+  match selected:
+    case None{}: Nil{}
+    case Some{+id}: agent_reference_requirement(Board.find_agent(BoardState.registry(world), id), U.AgentEditor{Some{id}})
+
+def record_requirements(body: U.Body, world: World.World()) -> +List<M.Obstruction>:
+  match body:
+    case U.Project{+id, name, workspace}: failed_requirement(Projects.reference_valid(id, Projects.registry(F.State(), world)),
+      M.Obstruction{root_object(U.ProjectEditor{id}), None{}, "project_not_found", "The project does not exist"})
+    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: existing_agent_requirement(id, world)
+    case _: Nil{}
+def requirements(+body: U.Body, pending: Bool, +world: World.World()) -> +List<M.Obstruction>:
+  List.append(&2, M.Obstruction, failed_requirement(Bool.not(pending),
+    M.Obstruction{root_object(U.owner(body)), None{}, "pending", "Wait for the current submission"}),
+  List.append(&2, M.Obstruction, failed_requirement(U.valid_origin(body),
+    obstruction(U.owner(body), Forms.ContextOrigin{}, "invalid_origin", "Choose a valid task context")),
+  List.append(&2, M.Obstruction, context_requirements(body, world), List.append(&2, M.Obstruction, record_requirements(body, world), body_requirements(body, world)))))
+
+def requirements_empty(requirements: +List<M.Obstruction>) -> Bool:
+  match requirements:
+    case Nil{}: True{}
+    case Con{obstruction, rest}: False{}
+
+def can_prepare(body: U.Body, pending: Bool, world: World.World()) -> Bool:
+  requirements_empty(requirements(body, pending, world))
+
+def resolved_assessment(operation: Commands.Operation, identity: M.ActionIdentity, editor: U.Editor) -> M.Assessment:
+  match operation:
+    case Commands.Refuse{code, reason}: M.Assessment{identity, Nil{}, M.Blocked{}, Some{M.Obstruction{root_object(editor), None{}, code, reason}}}
+    case _: M.Assessment{identity, Nil{}, M.Ready{}, None{}}
+
+def prepared_assessment(workspace: Maybe<&2, D.Workspace>, +body: U.Body, revision: Nat, now: U32, world: World.World()) -> M.Assessment:
+  match workspace:
+    case Some{workspace}: M.Assessment{M.ActionIdentity{U.owner(body), revision}, Nil{}, M.NeedsDirectoryObservation{}, None{}}
+    case None{}: resolved_assessment(Commands.resolve(U.command(body, now), world), M.ActionIdentity{U.owner(body), revision}, U.owner(body))
+
+def assessed_requirements(requirements: +List<M.Obstruction>, +body: U.Body, revision: Nat, now: U32, world: World.World()) -> M.Assessment:
+  match requirements:
+    case Nil{}: prepared_assessment(U.required_workspace(body), body, revision, now, world)
+    case Con{first, rest}: M.Assessment{M.ActionIdentity{U.owner(body), revision}, first <> rest, M.Blocked{}, None{}}
+
+def assess(+body: U.Body, revision: Nat, pending: Bool, now: U32, +world: World.World()) -> M.Assessment:
+  assessed_requirements(requirements(body, pending, world), body, revision, now, world)
+
+def assessment_identity(assessment: M.Assessment) -> M.ActionIdentity:
+  M.Assessment{identity, requirements, state, refusal} = assessment
+  identity
+
+def assessment_state(assessment: M.Assessment) -> M.AssessmentState:
+  M.Assessment{identity, requirements, state, refusal} = assessment
+  state
+
+def refusal_obstructions(refusal: Maybe<&2, M.Obstruction>) -> +List<M.Obstruction>:
+  match refusal:
+    case None{}: Nil{}
+    case Some{obstruction}: [obstruction]
+
+def assessment_obstructions(assessment: M.Assessment) -> +List<M.Obstruction>:
+  M.Assessment{identity, requirements, state, refusal} = assessment
+  List.append(&2, M.Obstruction, requirements, refusal_obstructions(refusal))
+
+def obstruction_target(obstruction: M.Obstruction) -> M.Object:
+  M.Obstruction{target, field, code, message} = obstruction
+  target
+
+def obstruction_field(obstruction: M.Obstruction) -> Maybe<&2, M.Subject>:
+  M.Obstruction{target, field, code, message} = obstruction
+  field
+
+def obstruction_code(obstruction: M.Obstruction) -> String:
+  M.Obstruction{target, field, code, message} = obstruction
+  code
+
+def obstruction_message(obstruction: M.Obstruction) -> String:
+  M.Obstruction{target, field, code, message} = obstruction
+  message
+
+def first_reason(obstructions: +List<M.Obstruction>) -> String:
+  match obstructions:
+    case Nil{}: ""
+    case Con{first, rest}: obstruction_message(first)
+
+def first_field(obstructions: +List<M.Obstruction>) -> Maybe<&2, M.Subject>:
+  match obstructions:
+    case Nil{}: None{}
+    case Con{first, rest}: obstruction_field(first)
+
+def assessment_reason(assessment: M.Assessment) -> String:
+  first_reason(assessment_obstructions(assessment))
+
+def assessment_field(assessment: M.Assessment) -> Maybe<&2, M.Subject>:
+  first_field(assessment_obstructions(assessment))
+
+def state_ready(state: M.AssessmentState) -> Bool:
+  match state:
+    case M.Ready{}: True{}
+    case M.NeedsDirectoryObservation{}: True{}
+    case M.Blocked{}: False{}
+
+# Readiness permits the next preparation step; it is not directory validation.
+def assessment_ready(assessment: M.Assessment) -> Bool:
+  state_ready(assessment_state(assessment))
+
+
+def identity_editor(identity: M.ActionIdentity) -> U.Editor:
+  M.ActionIdentity{editor, revision} = identity
+  editor
+
+def restriction_obstructions(+assessment: M.Assessment, reason: String) -> +List<M.Obstruction>:
+  List.append(&2, M.Obstruction, assessment_obstructions(assessment),
+    [M.Obstruction{root_object(identity_editor(assessment_identity(assessment))), None{}, "control_unavailable", reason}])
+
+# A final control refusal is an observed service obstruction. Earlier causes,
+# including backend refusal, survive in the same ordered observation list.
+def restricted(+assessment: M.Assessment, reason: String) -> M.Assessment:
+  M.Assessment{assessment_identity(assessment), restriction_obstructions(assessment, reason), M.Blocked{}, None{}}

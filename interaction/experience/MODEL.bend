@@ -54,3 +54,37 @@ type Support is Data:
 
 type Feedback is Data:
   Feedback{editor: U.Editor, revision: Nat, reason: String}
+
+# These observations are constructed by the owning operations, then read through
+# getters. A missing reference remains distinct from an optional absent value.
+type PropertyKind is Data:
+  ProjectProperty{}
+  WorkspaceProperty{}
+  PermissionsProperty{}
+  ModelProperty{}
+  DeliveryProperty{}
+
+type PropertyState is Data:
+  Selected{}
+  Absent{}
+  Invalid{}
+  UnavailableObservation{}
+
+type Property is Data:
+  ProjectObservation{editor: U.Editor, selected: Maybe<&2, Nat>, found: Maybe<&2, D.Project>}
+  WorkspaceObservation{editor: U.Editor, observation: Context.Observation, source: Maybe<&2, D.Project>}
+  PermissionsObservation{editor: U.Editor, observation: Context.Observation}
+  ModelObservation{editor: U.Editor, profile: String, effort: String, found: Maybe<&2, D.Profile>}
+  DeliveryObservation{editor: U.Editor, delivery: U.Delivery}
+
+type Obstruction is Data:
+  Obstruction{target: Object, field: Maybe<&2, Subject>, code: String, message: String}
+
+type AssessmentState is Data:
+  Ready{}
+  NeedsDirectoryObservation{}
+  Blocked{}
+
+type Assessment is Data:
+  Assessment{identity: ActionIdentity, requirements: +List<Obstruction>, state: AssessmentState,
+    refusal: Maybe<&2, Obstruction>}

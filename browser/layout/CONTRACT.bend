@@ -1,3 +1,4 @@
+import ./activity-contract.bend as ActivityRules
 import Base
 import ./measurement-contract.bend as ContentRules
 import ./SOURCE.bend as PhysicalSource
@@ -25,6 +26,7 @@ def production_claim(+engine: World.Engine) -> Type:
 
 type Requirements is Type:
   Requirements{
+    activity: ActivityRules.Requirements,
     stale: @+generation:Nat -> @+receipts:+List<String> -> @+engine:World.Engine ->
       {Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) == False{} : Bool} ->
       stale_claim(generation, receipts, engine),

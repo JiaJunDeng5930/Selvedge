@@ -1,3 +1,5 @@
+import ./activity-proof.bend as ActivityProof
+import ./activity-contract.bend as ActivityRules
 import Base
 import ./measurement-contract.bend as RulePhysicalContentRules
 import ./CONTENT.bend as Content
@@ -76,7 +78,7 @@ def rejection(+valid: Bool, +request: Content.Request, +observation: Content.Obs
     proof)
 
 def RuleContract.evidence():
-  RuleContract.Requirements{+generation => +receipts => +engine => proof => stale(generation, receipts, engine, proof),
+  RuleContract.Requirements{ActivityRules.evidence(),+generation => +receipts => +engine => proof => stale(generation, receipts, engine, proof),
     +valid => +request => +observation => +batch => proof => rejection(valid, request, observation, batch, proof),
     +engine => ProofSizingProof.production(engine), RulePhysicalSourceRules.width_evidence(~Content.Value, ~Doc.DOMEvent),
     RulePhysicalSourceRules.height_evidence(~Content.Value, ~Doc.DOMEvent), RulePhysicalSourceRules.allocation_population_evidence(~Content.Value, ~Doc.DOMEvent)}

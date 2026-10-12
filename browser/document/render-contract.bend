@@ -416,12 +416,14 @@ law source_frame_evidence:
 
 law supporting_is_interactive:
   for +support: UXTypes.Support
+  for property: UXTypes.Property
   for input: InteractionTypes.Input
   for availability: View.Availability
-  {Model.interactive(SurfaceTypes.SupportingControl{support, input, availability}) == UX.support_visible(support) : Bool}
+  {Model.interactive(SurfaceTypes.SupportingControl{support, property, input, availability}) == UX.support_visible(support) : Bool}
 
 law supporting_enabled_by_availability:
   for +support: UXTypes.Support
+  for property: UXTypes.Property
   for input: InteractionTypes.Input
   for +availability: View.Availability
-  {Model.required_enabled(SurfaceTypes.SupportingControl{support, input, availability}) == UX.support_visible(support) && Model.enabled(availability) : Bool}
+  {Model.required_enabled(SurfaceTypes.SupportingControl{support, property, input, availability}) == UX.support_visible(support) && Model.enabled(availability) : Bool}

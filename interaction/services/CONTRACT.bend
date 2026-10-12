@@ -30,12 +30,15 @@ type PermissionsRequirements is Type:
     sandboxed_network: @network:Bool -> {Context.network_summary(D.Sandboxed{}, network) == View.execution_network_summary(network) : String},
     committed_permissions: @task:Nat -> @workspace:D.Workspace -> @mode:D.SandboxMode -> @network:Bool -> @approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess -> @profiles:+List<D.Profile> ->
       {View.observation_permissions(Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, access}}, profiles) == Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ View.policy_approval_summary(approval) : String},
-    committed_facts: @task:Nat -> @workspace:D.Workspace -> @mode:D.SandboxMode -> @network:Bool -> @approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess -> @profiles:+List<D.Profile> ->
-      {InterfaceView.observation_facts(Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, access}}, profiles) == Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ View.policy_approval_summary(approval) : String},
+    committed_facts: @+task:Nat -> @+workspace:D.Workspace -> @+mode:D.SandboxMode -> @+network:Bool -> @+approval:D.ApprovalPolicy -> @+project:Maybe<&2, Nat> -> @+guidance:D.ProjectContext -> @+access:D.ExecutionAccess ->
+      {InterfaceView.observation_facts(Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, access}}) ==
+        "Permissions · " ++ Context.filesystem_summary(access, mode) ++ " · " ++ (Context.network_summary(access, network) ++ " · " ++ UX.approval_detail(Context.approval_choice(approval)) ++ " · Task permissions") ++ "; " ++ ("Filesystem/network: Task " ++ Nat.show(task) ++ "; Approval: Task " ++ Nat.show(task)) : String},
     configured_permissions: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @profiles:+List<D.Profile> ->
       {View.observation_permissions(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, profiles) == "Configured: " ++ View.execution_permissions_summary(Context.unwrap_sandbox(sandbox), View.value_approval_summary(approval, profiles)) : String},
-    configured_facts: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @profiles:+List<D.Profile> ->
-      {InterfaceView.observation_facts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, profiles) == "Configured: " ++ InterfaceView.sandbox_facts(Context.unwrap_sandbox(sandbox)) ++ "; " ++ View.value_approval_summary(approval, profiles) : String}}
+    configured_facts: @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview ->
+      {InterfaceView.observation_facts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}) ==
+        "Permissions · " ++ UX.sandbox_caption(Context.unwrap_sandbox(sandbox)) ++ " · " ++ (UX.sandbox_network_caption(Context.unwrap_sandbox(sandbox)) ++ " · " ++ UX.approval_detail(Context.observed_approval(approval)) ++ " · " ++ UX.permission_inheritance_detail(sandbox, approval)) ++ "; " ++ ("Filesystem/network: " ++ UX.sandbox_source_label(origin, sandbox) ++ "; Approval: " ++ UX.approval_source_label(origin, approval)) : String}}
+
 
 law permissions_evidence:
   PermissionsRequirements
@@ -43,7 +46,7 @@ law permissions_evidence:
 def composer_context(value: Maybe<&2, V.ComposerScene>) -> Maybe<&2, Context.Observation>:
   match value:
     case None{}: None{}
-    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: context
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}: context
 
 def node_context(value: SurfaceTypes.Node) -> Maybe<&2, Context.Observation>:
   match value:
@@ -168,11 +171,11 @@ type ContextRequirements is Type:
     unavailable_choice: @selected:Bool -> @description:String -> @input:InteractionTypes.Input -> @reason:String -> {InterfaceView.bind(SurfaceTypes.Choice{SurfaceTypes.SingleChoice{}, None{}, selected, description, input, V.Unavailable{reason}}, SurfaceTypes.Press{}) == None{} : Maybe<&2, InteractionTypes.Input>},
     draft_footer: @+editor:U.Editor -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
       {View.draft_context_footer(editor, observation, profiles) ==
-        [V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), View.observation_permissions(observation, profiles), V.Secondary{},
+        [V.ComposerControl{UX.permissions_property(editor, observation), V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), View.observation_permissions(observation, profiles), V.Secondary{},
           U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>},
     committed_footer: @+task:Nat -> @+observation:Context.Observation -> @+world:M.World() ->
       {View.committed_context_footer(task, Some{observation}, world) ==
-        [V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), View.observation_permissions(observation, Board.profiles(world)), V.Secondary{},
+        [V.ComposerControl{UX.permissions_property(U.MessageEditor{task}, observation), V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), View.observation_permissions(observation, Board.profiles(world)), V.Secondary{},
           U.Activate{U.OpenPanel{U.PermissionsConfiguration{U.MessageEditor{task}}, "composer/permissions/message/" ++ Nat.show(task)}}, View.task_execution_availability(Tasks.find(Commands.entries(world), task), world)}}] : +List<V.ComposerControl>},
     workspace_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent: Identity.Key -> @state:InteractionTypes.State ->
       workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),

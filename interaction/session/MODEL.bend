@@ -1,3 +1,4 @@
+import ../experience/PROGRAM.bend as UX
 import Base
 import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../harness/COMMANDS.bend as Commands
@@ -928,7 +929,7 @@ def prepare(application: Application, workspace: Maybe<&2, D.Workspace>, +draft:
 
 def submission_ready(+pending: +List<Pending>, +program: M.World(), draft: U.Draft) -> Bool:
   U.Draft{revision, +body, feedback, directory_entry} = draft
-  Bool.not(busy(pending, U.owner(body))) && U.valid_origin(body) && U.model_permitted(body, program)
+  UX.can_prepare(body, busy(pending, U.owner(body)), program)
 
 def ready_submission(+pending: +List<Pending>, +program: M.World()) -> U.Draft -> Type:
   Categories.holds(U.Draft, (draft => submission_ready(pending, program, draft)))
@@ -938,9 +939,14 @@ def submit_ready(+pending: +List<Pending>, +program: M.World(), member: Categori
   U.Draft{revision, body, feedback, directory_entry} = draft
   prepare(application, U.required_workspace(body), draft)
 
-def submit_admitted(+pending: +List<Pending>, +program: M.World(), admitted: Maybe<&1, Categories.Membership<U.Draft, ready_submission(pending, program)>>, application: Application) -> Decision:
+def submission_refusal(+pending: +List<Pending>, +program: M.World(), candidate: U.Draft, +application: Application) -> Decision:
+  U.Draft{revision, +body, feedback, directory_entry} = candidate
+  +now = now(session(application))
+  refuse(application, UX.assessment_reason(UX.assessed_requirements(UX.requirements(body, busy(pending, U.owner(body)), program), body, revision, now, program)))
+
+def submit_admitted(+pending: +List<Pending>, +program: M.World(), candidate: U.Draft, admitted: Maybe<&1, Categories.Membership<U.Draft, ready_submission(pending, program)>>, application: Application) -> Decision:
   match admitted:
-    case None{}: refuse(application, "Submission is pending, composition is active, or the context origin or model selection is invalid")
+    case None{}: submission_refusal(pending, program, candidate, application)
     case Some{member}: submit_ready(pending, program, member, application)
 
 def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decision:
@@ -948,7 +954,7 @@ def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decisi
     case None{}: refuse(application, "The editor is not open")
     case Some{+draft}:
       Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-      submit_admitted(pending, program, Categories.admit(U.Draft, (draft => submission_ready(pending, program, draft)), draft), application)
+      submit_admitted(pending, program, draft, Categories.admit(U.Draft, (draft => submission_ready(pending, program, draft)), draft), application)
 
 def submit(editor: U.Editor, +application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application

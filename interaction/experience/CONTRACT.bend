@@ -1,4 +1,11 @@
 import Base
+import ../../harness/features/MODEL.bend as F
+import ../../harness/tasks/PROGRAM.bend as Tasks
+import ../../harness/MODEL.bend as World
+import ../../harness/COMMANDS.bend as Commands
+import ../../harness/workspace/PROJECTS.bend as Projects
+import ../../features/board/MODEL.bend as Board
+import ../../bendlib/json.bend as J
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ../INPUT.bend as U
@@ -8,6 +15,156 @@ import ../../harness/DOMAIN.bend as D
 import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../../harness/transport/schema.bend as Schema
+
+def property_editor_meaning(property: M.Property) -> U.Editor:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: editor
+    case M.WorkspaceObservation{editor, observation, source}: editor
+    case M.PermissionsObservation{editor, observation}: editor
+    case M.ModelObservation{editor, profile, effort, found}: editor
+    case M.DeliveryObservation{editor, delivery}: editor
+def property_kind_meaning(property: M.Property) -> M.PropertyKind:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: M.ProjectProperty{}
+    case M.WorkspaceObservation{editor, observation, source}: M.WorkspaceProperty{}
+    case M.PermissionsObservation{editor, observation}: M.PermissionsProperty{}
+    case M.ModelObservation{editor, profile, effort, found}: M.ModelProperty{}
+    case M.DeliveryObservation{editor, delivery}: M.DeliveryProperty{}
+def property_state_meaning(property: M.Property) -> M.PropertyState:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: P.project_state(selected, found)
+    case M.WorkspaceObservation{editor, observation, source}: P.workspace_state(P.observed_workspace(observation))
+    case M.PermissionsObservation{editor, observation}: P.observation_state(observation)
+    case M.ModelObservation{editor, profile, effort, found}: P.model_state(found, effort)
+    case M.DeliveryObservation{editor, delivery}: M.Selected{}
+def property_value_meaning(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: P.project_value(selected, found)
+    case M.WorkspaceObservation{editor, observation, source}: P.primary_value(P.observed_workspace(observation))
+    case M.PermissionsObservation{editor, observation}: P.permission_value(observation)
+    case M.ModelObservation{editor, profile, effort, found}: P.model_value(profile, found)
+    case M.DeliveryObservation{editor, delivery}: U.delivery_caption(delivery)
+def property_detail_meaning(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, None{}, found}: "Optional"
+    case M.ProjectObservation{editor, Some{id}, None{}}: "Invalid reference"
+    case M.ProjectObservation{editor, Some{id}, Some{project}}: "Task context"
+    case M.WorkspaceObservation{editor, observation, source}: P.workspace_detail(observation)
+    case M.PermissionsObservation{editor, observation}: P.permission_detail(observation)
+    case M.ModelObservation{editor, key, effort, found}: "Reasoning · " ++ effort
+    case M.DeliveryObservation{editor, U.Send{}}: "Send a new message"
+    case M.DeliveryObservation{editor, U.Steer{}}: "Guide the current task"
+def property_source_key_meaning(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: "project/" ++ U.optional_key(selected)
+    case M.WorkspaceObservation{editor, observation, source}: P.observation_source(observation)
+    case M.PermissionsObservation{editor, observation}: P.permission_source_key(observation)
+    case M.ModelObservation{editor, profile, effort, found}: "model/" ++ profile
+    case M.DeliveryObservation{editor, delivery}: U.editor_key(editor)
+def property_help_meaning(+property: M.Property) -> String:
+  match property:
+    case M.WorkspaceObservation{editor, +observation, source}:
+      P.workspace_detail(observation) ++ P.source_name(source) ++ " · " ++ P.observation_source(observation) ++ "\n" ++ P.workspace_paths(P.observed_workspace(observation))
+    case M.PermissionsObservation{editor, +observation}:
+      "Permissions: " ++ P.permission_value(observation) ++ " · " ++ P.permission_detail(observation) ++ "\n" ++ P.permission_source_detail(observation)
+    case _: P.property_title(property) ++ ": " ++ P.property_value(property) ++ " · " ++ P.property_detail(property)
+
+def permission_draft_source_meaning(origin: Context.Origin, sandbox: Context.SandboxValue, approval: Context.ApprovalValue) -> String:
+  match origin sandbox approval:
+    case Context.EnvironmentDefaults{} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "environment" ++ ";approval/" ++ "environment"
+    case Context.EnvironmentDefaults{} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "environment" ++ ";approval/" ++ "custom"
+    case Context.EnvironmentDefaults{} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "environment"
+    case Context.EnvironmentDefaults{} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "custom"
+    case Context.ProjectDefaults{id} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "environment" ++ ";approval/" ++ "environment"
+    case Context.ProjectDefaults{id} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "environment" ++ ";approval/" ++ "custom"
+    case Context.ProjectDefaults{id} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "environment"
+    case Context.ProjectDefaults{id} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "custom"
+    case Context.ParentTask{+task} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ ("task/" ++ Nat.show(task)) ++ ";approval/" ++ ("task/" ++ Nat.show(task))
+    case Context.ParentTask{+task} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ ("task/" ++ Nat.show(task)) ++ ";approval/" ++ "custom"
+    case Context.ParentTask{+task} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ ("task/" ++ Nat.show(task))
+    case Context.ParentTask{+task} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "custom"
+    case Context.ProjectForParent{+task, id} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ ("task/" ++ Nat.show(task)) ++ ";approval/" ++ ("task/" ++ Nat.show(task))
+    case Context.ProjectForParent{+task, id} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ ("task/" ++ Nat.show(task)) ++ ";approval/" ++ "custom"
+    case Context.ProjectForParent{+task, id} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ ("task/" ++ Nat.show(task))
+    case Context.ProjectForParent{+task, id} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "custom"
+
+type SharedRequirements is Type:
+  SharedRequirements{
+    project_lookup: @editor:U.Editor -> @+selected:Maybe<&2, Nat> -> @world:World.World() -> {P.project_property(editor, selected, world) == M.ProjectObservation{editor, selected, P.selected_project(selected, world)} : M.Property},
+    workspace_lookup: @editor:U.Editor -> @+observation:Context.Observation -> @world:World.World() -> {P.workspace_property(editor, observation, world) == M.WorkspaceObservation{editor, observation, P.selected_project(P.observation_project(observation), world)} : M.Property},
+    permissions_observation: @editor:U.Editor -> @observation:Context.Observation -> {P.permissions_property(editor, observation) == M.PermissionsObservation{editor, observation} : M.Property},
+    model_lookup: @editor:U.Editor -> @+profile:String -> @effort:String -> @world:World.World() -> {P.model_property(editor, profile, effort, world) == M.ModelObservation{editor, profile, effort, D.find_profile(Commands.configured(Commands.settings(world)), profile)} : M.Property},
+    delivery_observation: @editor:U.Editor -> @delivery:U.Delivery -> {P.delivery_property(editor, delivery) == M.DeliveryObservation{editor, delivery} : M.Property},
+    property_editor: @+property:M.Property -> {P.property_editor(property) == property_editor_meaning(property) : U.Editor},
+    property_kind: @+property:M.Property -> {P.property_kind(property) == property_kind_meaning(property) : M.PropertyKind},
+    property_state: @+property:M.Property -> {P.property_state(property) == property_state_meaning(property) : M.PropertyState},
+    property_value: @+property:M.Property -> {P.property_value(property) == property_value_meaning(property) : String},
+    property_detail: @+property:M.Property -> {P.property_detail(property) == property_detail_meaning(property) : String},
+    permission_draft_sources: @+editor:U.Editor -> @+origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
+      {P.property_source_key(P.permissions_property(editor, Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}})) == permission_draft_source_meaning(origin, sandbox, approval) : String},
+    permission_committed_source: @editor:U.Editor -> @+task:Nat -> @context:D.TaskContext -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess ->
+      {P.property_source_key(P.permissions_property(editor, Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}})) == "task/" ++ Nat.show(task) : String},
+    property_source_key: @+property:M.Property -> {P.property_source_key(property) == property_source_key_meaning(property) : String},
+    property_help: @+property:M.Property -> {P.property_help(property) == property_help_meaning(property) : String},
+    property_fields: @+property:M.Property -> {P.property_fields(property) == P.kind_fields(P.property_kind(property)) : +List<Forms.Field>},
+    property_subjects: @+property:M.Property -> {P.property_subjects(property) == P.subjects(P.property_fields(property), P.property_editor(property)) : +List<M.Subject>},
+    property_owner: @+property:M.Property -> {P.property_owner(property) == P.group_owner(P.property_editor(property), P.property_fields(property)) : M.Object},
+    property_title: @+property:M.Property -> {P.property_title(property) == P.kind_title(P.property_kind(property)) : String},
+    project_optional: @editor:U.Editor -> @world:World.World() -> {P.property_state(P.project_property(editor, None{}, world)) == M.Absent{} : M.PropertyState},
+    project_invalid: @editor:U.Editor -> @id:Nat -> {P.property_state(M.ProjectObservation{editor, Some{id}, None{}}) == M.Invalid{} : M.PropertyState},
+    project_none_caption: @editor:U.Editor -> @world:World.World() -> {P.property_value(P.project_property(editor, None{}, world)) == "No project" : String},
+    permissions_tuple: @editor:U.Editor -> @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> {P.property_value(P.permissions_property(editor, Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}})) == P.sandbox_caption(Context.unwrap_sandbox(sandbox)) : String},
+    workspace_entered: @editor:U.Editor -> @+origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:D.Workspace -> @sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @source:Maybe<&2, D.Project> -> {P.property_detail(M.WorkspaceObservation{editor, Context.DraftExecution{Context.ProspectiveContext{origin, project, Context.EnteredWorkspace{workspace}, sandbox, approval, guidance}}, source}) == P.override_detail(origin) : String},
+    property_support: @+action:M.ActionUnit -> @+property:M.Property -> {P.property_support(action, property) == P.scoped_property_support(U.same_editor(P.action_editor(action), P.property_editor(property)), action, property) : M.Support},
+    support_same: @action:M.ActionUnit -> @+property:M.Property -> {P.scoped_property_support(True{}, action, property) == P.support(action, P.property_fields(property)) : M.Support},
+    support_mismatch: @action:M.ActionUnit -> @property:M.Property -> {P.scoped_property_support(False{}, action, property) == P.support(action, Nil{}) : M.Support},
+    requirements: @+body:U.Body -> @pending:Bool -> @+world:World.World() -> {P.requirements(body, pending, world) == List.append(&2, M.Obstruction, P.failed_requirement(Bool.not(pending), M.Obstruction{P.root_object(U.owner(body)), None{}, "pending", "Wait for the current submission"}), List.append(&2, M.Obstruction, P.failed_requirement(U.valid_origin(body), P.obstruction(U.owner(body), Forms.ContextOrigin{}, "invalid_origin", "Choose a valid task context")), List.append(&2, M.Obstruction, P.context_requirements(body, world), List.append(&2, M.Obstruction, P.record_requirements(body, world), P.body_requirements(body, world))))) : +List<M.Obstruction>},
+    can_prepare: @body:U.Body -> @pending:Bool -> @world:World.World() -> {P.can_prepare(body, pending, world) == P.requirements_empty(P.requirements(body, pending, world)) : Bool},
+    assessment: @+body:U.Body -> @revision:Nat -> @pending:Bool -> @now:U32 -> @+world:World.World() -> {P.assess(body, revision, pending, now, world) == P.assessed_requirements(P.requirements(body, pending, world), body, revision, now, world) : M.Assessment},
+    blocked_retains: @+first:M.Obstruction -> @+rest:+List<M.Obstruction> -> @body:U.Body -> @revision:Nat -> @now:U32 -> @world:World.World() -> {P.assessed_requirements(first <> rest, body, revision, now, world) == M.Assessment{M.ActionIdentity{U.owner(body), revision}, first <> rest, M.Blocked{}, None{}} : M.Assessment},
+    directory_next: @workspace:D.Workspace -> @body:U.Body -> @revision:Nat -> @now:U32 -> @world:World.World() -> {P.prepared_assessment(Some{workspace}, body, revision, now, world) == M.Assessment{M.ActionIdentity{U.owner(body), revision}, Nil{}, M.NeedsDirectoryObservation{}, None{}} : M.Assessment},
+    actual_resolution: @+body:U.Body -> @+revision:Nat -> @now:U32 -> @world:World.World() -> {P.prepared_assessment(None{}, body, revision, now, world) == P.resolved_assessment(Commands.resolve(U.command(body, now), world), M.ActionIdentity{U.owner(body), revision}, U.owner(body)) : M.Assessment},
+    actual_refusal: @+code:String -> @+reason:String -> @+identity:M.ActionIdentity -> @editor:U.Editor -> {P.resolved_assessment(Commands.Refuse{code, reason}, identity, editor) == M.Assessment{identity, Nil{}, M.Blocked{}, Some{M.Obstruction{P.root_object(editor), None{}, code, reason}}} : M.Assessment},
+    assessment_identity: @+identity:M.ActionIdentity -> @+requirements:+List<M.Obstruction> -> @+state:M.AssessmentState -> @+refusal:Maybe<&2, M.Obstruction> -> {P.assessment_identity(M.Assessment{identity, requirements, state, refusal}) == identity : M.ActionIdentity},
+    assessment_state: @+identity:M.ActionIdentity -> @+requirements:+List<M.Obstruction> -> @+state:M.AssessmentState -> @+refusal:Maybe<&2, M.Obstruction> -> {P.assessment_state(M.Assessment{identity, requirements, state, refusal}) == state : M.AssessmentState},
+    assessment_obstructions: @+identity:M.ActionIdentity -> @+requirements:+List<M.Obstruction> -> @+state:M.AssessmentState -> @+refusal:Maybe<&2, M.Obstruction> -> {P.assessment_obstructions(M.Assessment{identity, requirements, state, refusal}) == List.append(&2, M.Obstruction, requirements, P.refusal_obstructions(refusal)) : +List<M.Obstruction>},
+    assessment_reason: @+assessment:M.Assessment -> {P.assessment_reason(assessment) == P.first_reason(P.assessment_obstructions(assessment)) : String},
+    assessment_field: @+assessment:M.Assessment -> {P.assessment_field(assessment) == P.first_field(P.assessment_obstructions(assessment)) : Maybe<&2, M.Subject>},
+    assessment_ready: @+assessment:M.Assessment -> {P.assessment_ready(assessment) == P.state_ready(P.assessment_state(assessment)) : Bool},
+    directory_ready: {P.state_ready(M.NeedsDirectoryObservation{}) == True{} : Bool},
+    blocked_not_ready: {P.state_ready(M.Blocked{}) == False{} : Bool},
+    new_task_content: @message:U.Text -> @+profile:String -> @+reasoning:String -> @context:Context.Configuration -> @+world:World.World() -> {P.body_requirements(U.NewTask{message, profile, reasoning, context}, world) == List.append(&2, M.Obstruction, P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.NewTaskEditor{}, Forms.MessageText{}, "empty_message", "Write a task to start")), P.model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{})) : +List<M.Obstruction>},
+    message_content: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @world:World.World() -> {P.body_requirements(U.Message{task, message, delivery}, world) == P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send")) : +List<M.Obstruction>},
+    project_name: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.body_requirements(U.Project{id, name, workspace}, world) == P.failed_requirement(Projects.name_valid(name), P.obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes")) : +List<M.Obstruction>},
+    agent_guard: @revision:Nat -> @+name:String -> @+profile:String -> @+reasoning:String -> @+instructions:String -> @settings:J.Json -> @+concurrency:Nat -> {Board.valid_agent(Board.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}) == Board.agent_name_valid(name) && Board.agent_profile_valid(profile) && Board.agent_reasoning_valid(reasoning) && Board.agent_instructions_valid(instructions) && Board.agent_concurrency_valid(concurrency) : Bool},
+    fork_guard: @+count:Nat -> @+messages:+List<String> -> @+parent:D.Task -> @+world:World.World() -> {Commands.branch_fits(count, messages, parent, world) == Commands.branch_count_valid(count, parent) && Commands.branch_messages_valid(count, messages) && Commands.branch_capacity_valid(count, parent, world) : Bool},
+    lookup_selected: @+id:Nat -> @world:World.World() -> {P.selected_project(Some{id}, world) == Projects.find(Projects.registry(F.State(), world), id) : Maybe<&2, D.Project>},
+    project_name_guard: @+name:String -> {Projects.name_valid(name) == D.nonempty(name) && Nat.is_le(J.utf8_length(name), 256n) : Bool},
+    agent_name_valid: @+name:String -> {Board.agent_name_valid(name) == D.nonempty(name) && Board.limited(name, 160n) : Bool},
+    agent_profile_valid: @+profile:String -> {Board.agent_profile_valid(profile) == D.nonempty(profile) && Board.limited(profile, 1024n) : Bool},
+    agent_reasoning_valid: @+reasoning:String -> {Board.agent_reasoning_valid(reasoning) == D.nonempty(reasoning) && Board.limited(reasoning, 64n) : Bool},
+    agent_instructions_valid: @+instructions:String -> {Board.agent_instructions_valid(instructions) == Board.limited(instructions, 100000n) : Bool},
+    agent_concurrency_valid: @+count:Nat -> {Board.agent_concurrency_valid(count) == Nat.is_le(1n, count) && Nat.is_le(count, 64n) : Bool},
+    branch_count_guard: @+count:Nat -> @+parent:D.Task -> {Commands.branch_count_valid(count, parent) == Nat.is_le(1n, count) && Nat.is_le(count, Commands.per_fork(D.task_contract(parent))) : Bool},
+    branch_messages_guard: @+count:Nat -> @+messages:+List<String> -> {Commands.branch_messages_valid(count, messages) == Nat.is_eq(List.length(&2, String, messages), 0n) || Nat.is_eq(List.length(&2, String, messages), count) : Bool},
+    branch_capacity_guard: @+count:Nat -> @+parent:D.Task -> @world:World.World() -> {Commands.branch_capacity_valid(count, parent, world) == Tasks.ancestors_fit(D.task_id(parent) <> D.task_lineage(parent), Commands.entries(world), count) : Bool},
+    context_failure: @+editor:U.Editor -> @+reason:String -> {P.origin_failure(Context.ContextUnavailable{reason}, editor) == [P.obstruction(editor, Forms.ContextOrigin{}, "context_unavailable", reason)] : +List<M.Obstruction>},
+    model_missing: @effort:String -> @+editor:U.Editor -> {P.model_requirements(None{}, effort, editor) == [P.obstruction(editor, Forms.ModelProfile{}, "model_not_found", "Choose a configured model")] : +List<M.Obstruction>},
+    model_permitted: @+profile:D.Profile -> @+effort:String -> @+editor:U.Editor -> {P.model_requirements(Some{profile}, effort, editor) == P.failed_requirement(D.profile_permitted(profile, D.profile_selection(effort, profile)), P.obstruction(editor, Forms.ReasoningEffort{}, "invalid_reasoning", "Choose an allowed reasoning effort")) : +List<M.Obstruction>},
+    project_record: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.record_requirements(U.Project{id, name, workspace}, world) == P.failed_requirement(Projects.reference_valid(id, Projects.registry(F.State(), world)), M.Obstruction{P.root_object(U.ProjectEditor{id}), None{}, "project_not_found", "The project does not exist"}) : +List<M.Obstruction>},
+    agent_record: @+editor:U.Editor -> {P.agent_reference_requirement(None{}, editor) == [M.Obstruction{P.root_object(editor), None{}, "agent_not_found", "The agent does not exist"}] : +List<M.Obstruction>},
+    obstruction_failure: @+obstruction:M.Obstruction -> {P.failed_requirement(False{}, obstruction) == [obstruction] : +List<M.Obstruction>},
+    obstruction_pass: @obstruction:M.Obstruction -> {P.failed_requirement(True{}, obstruction) == Nil{} : +List<M.Obstruction>},
+    obstruction_target: @+target:M.Object -> @+field:Maybe<&2, M.Subject> -> @+code:String -> @+message:String -> {P.obstruction_target(M.Obstruction{target, field, code, message}) == target : M.Object},
+    obstruction_field: @+target:M.Object -> @+field:Maybe<&2, M.Subject> -> @+code:String -> @+message:String -> {P.obstruction_field(M.Obstruction{target, field, code, message}) == field : Maybe<&2, M.Subject>},
+    obstruction_code: @+target:M.Object -> @+field:Maybe<&2, M.Subject> -> @+code:String -> @+message:String -> {P.obstruction_code(M.Obstruction{target, field, code, message}) == code : String},
+    obstruction_message: @+target:M.Object -> @+field:Maybe<&2, M.Subject> -> @+code:String -> @+message:String -> {P.obstruction_message(M.Obstruction{target, field, code, message}) == message : String},
+    restricted_identity: @+assessment:M.Assessment -> @reason:String -> {P.assessment_identity(P.restricted(assessment, reason)) == P.assessment_identity(assessment) : M.ActionIdentity},
+    restricted_obstructions: @+assessment:M.Assessment -> @+reason:String -> {P.assessment_obstructions(P.restricted(assessment, reason)) == P.restriction_obstructions(assessment, reason) : +List<M.Obstruction>},
+    restricted_state: @assessment:M.Assessment -> @reason:String -> {P.assessment_state(P.restricted(assessment, reason)) == M.Blocked{} : M.AssessmentState},
+    restricted_first_reason: @+assessment:M.Assessment -> @+reason:String -> {P.assessment_reason(P.restricted(assessment, reason)) == P.first_reason(P.restriction_obstructions(assessment, reason)) : String},
+    restriction_append: @+assessment:M.Assessment -> @+reason:String -> {P.restriction_obstructions(assessment, reason) == List.append(&2, M.Obstruction, P.assessment_obstructions(assessment), [M.Obstruction{P.root_object(P.identity_editor(P.assessment_identity(assessment))), None{}, "control_unavailable", reason}]) : +List<M.Obstruction>}
+  }
 
 type Requirements is Type:
   Requirements{
@@ -123,6 +280,7 @@ type Requirements is Type:
     object_support: @field:Forms.Field -> {P.support_field(M.ObjectEditing{}, field) == False{} : Bool},
     continuation_excludes_workspace: @task:Nat -> {P.support_field(M.Continuation{task}, Forms.WorkspaceDirectories{}) == False{} : Bool},
     creation_excludes_delivery: {P.support_field(M.Creation{}, Forms.DeliveryIntent{}) == False{} : Bool},
+    shared: SharedRequirements,
     feedback_retention: @+editor:U.Editor -> @+revision:Nat -> @+reason:String -> {P.feedback(editor, U.Rejected{revision, reason}) == Some{M.Feedback{editor, revision, reason}} : Maybe<&2, M.Feedback>}
   }
 

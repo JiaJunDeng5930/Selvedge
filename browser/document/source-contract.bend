@@ -1,3 +1,4 @@
+import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/services/CONTEXT.bend as Workspace
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/experience/PROGRAM.bend as UX
@@ -349,7 +350,9 @@ def experience_source(+key: Identity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.WorkspaceCollection{collection}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(key, label, visual, Source.TabIndexAttribute{"-1"} <> Authored.subject_attributes(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}), content) : Source.Node}
     case SurfaceTypes.WorkspaceMember{collection, path}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.workspace_member(key, collection, path, visual, content) : Source.Node}
     case SurfaceTypes.ActionUnit{action}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_unit(key, action, visual, content) : Source.Node}
-    case SurfaceTypes.SupportingControl{support, input, availability}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.supporting_control_visible(UX.support_visible(support), key, support, label, visual, representation) : Source.Node}
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.supporting_control_visible(UX.support_visible(support), key, support, property, label, visual, representation) : Source.Node}
+    case SurfaceTypes.ActionExplanation{assessment}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_explanation(key, assessment, visual) : Source.Node}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.button_source(key, visual, representation), [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}]) : Source.Node}
     case SurfaceTypes.ActionFeedback{feedback}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_feedback(key, feedback, visual, content) : Source.Node}
     case _: {content == content : +List<Source.Node>}
 
@@ -387,16 +390,16 @@ def feedback_source(+key: Identity.Key, +feedback: UXTypes.Feedback, +visual: De
 
 def aggregate_focus(+visual: Design.Style) -> Type:
   Design.Style{+text, +chrome, +alignment, +flow, +overflow, +frame, +minimum, +maximum, +states} = visual
-  {Appearance.action_unit_style(visual) == Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, Appearance.action_focus_states(chrome, states)} : Design.Style}
+  {Appearance.action_unit_style(visual) == Design.Style{text, chrome, alignment, flow, overflow, Activity.frame(Activity.initial()), minimum, maximum, Appearance.action_focus_states(chrome, states)} : Design.Style}
 
 def grouped_menu_source(+key: Identity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> Type:
   Source.Style{Source.Layout{direction, main, cross, +frame, width, height, minimum, scroll, position}, font, chrome, states} = style
   {Authored.grouped_menu_visible(SurfaceTypes.Menu{}, True{}, Source.Box{key, tag, style, attributes, content}) == Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(frame))), attributes, content} : Source.Node}
 
-def support_source(visible: Bool, +key: Identity.Key, +support: UXTypes.Support, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> Type:
+def support_source(visible: Bool, +key: Identity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> Type:
   match visible:
-    case False{}: {Authored.supporting_control_visible(visible, key, support, label, visual, representation) == Source.Box{key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}], Nil{}} : Source.Node}
-    case True{}: {Authored.supporting_control_visible(visible, key, support, label, visual, representation) == Authored.add_attributes(Authored.button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{Controls.support_name(support, label)}], [Source.DataAttribute{"support-properties", Authored.support_property_keys(UX.support_subjects(support))}])) : Source.Node}
+    case False{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation) == Source.Box{key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}], Nil{}} : Source.Node}
+    case True{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation) == Authored.add_attributes(Authored.button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{UX.property_help(property)}], List.append(&2, Source.Attribute, [Source.DataAttribute{"support-properties", Authored.support_property_keys(UX.support_subjects(support))}], [Source.DataAttribute{"object-owner", UX.object_key(UX.property_owner(property))}, Source.DataAttribute{"source-owner", UX.property_source_key(property)}]))) : Source.Node}
 
 def typed_action_style(+key: Identity.Key, +action: UXTypes.ActionUnit, family: Controls.SourceFamily, representation: Controls.Representation, +visual: Design.Style, typography: T.Presentation) -> Type:
   {Appearance.family_style(key, SurfaceTypes.ActionUnit{action}, family, representation, visual, typography) == Appearance.action_unit_style(visual) : Design.Style}
@@ -440,7 +443,7 @@ type Requirements is Type:
     compound_directory_source: @+field:Forms.Field -> @+value:Forms.Observed -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @+children:+List<Source.Node> -> compound_directory_source(field, value, key, label, visual, children),
     directory_source: @+editor:User.Editor -> @+field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @+key:Identity.Key -> @label:String -> @role:SurfaceTypes.Role -> @visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> directory_source(editor, field, value, choices, key, label, role, visual, representation, children, parameters, content),
     object_source: @+key:Identity.Key -> @+object:UXTypes.Object -> @+label:String -> @+visual:Design.Style -> @+content:+List<Source.Node> -> object_source(key, object, label, visual, content),
-    support_source: @visible:Bool -> @+key:Identity.Key -> @+support:UXTypes.Support -> @+label:String -> @+visual:Design.Style -> @+representation:Controls.Representation -> support_source(visible, key, support, label, visual, representation),
+    support_source: @visible:Bool -> @+key:Identity.Key -> @+support:UXTypes.Support -> @+property:UXTypes.Property -> @+label:String -> @+visual:Design.Style -> @+representation:Controls.Representation -> support_source(visible, key, support, property, label, visual, representation),
     typed_action_style: @+key:Identity.Key -> @+action:UXTypes.ActionUnit -> @family:Controls.SourceFamily -> @representation:Controls.Representation -> @+visual:Design.Style -> @typography:T.Presentation -> typed_action_style(key, action, family, representation, visual, typography),
     action_focus_states: @+chrome:Design.Chrome -> @+states:Design.ControlStates -> action_focus_states(chrome, states),
     alternative_rest: @+typography:T.Presentation -> alternative_rest(typography),

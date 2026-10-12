@@ -46,7 +46,7 @@ def spacing(profile: Profile) -> Insets:
     case Field{}: Insets{8n, 6n}
     case SearchField{}: Insets{8n, 4n}
     case Composer{}: Insets{12n, 0n}
-    case EmbeddedEditor{}: Insets{8n, 0n}
+    case EmbeddedEditor{}: Insets{0n, 0n}
     case Card{}: Insets{12n, 12n}
     case Menu{}: Insets{8n, 8n}
     case UserMessage{}: Insets{12n, 8n}
@@ -57,6 +57,11 @@ def spacing(profile: Profile) -> Insets:
     case Lane{}: Insets{8n, 8n}
     case ArchiveGroup{}: Insets{2n, 2n}
     case PageContent{}: Insets{24n, 24n}
+
+def inline_presence(profile: Profile) -> Nat:
+  match profile:
+    case EmbeddedEditor{}: 0n
+    case _: 1n
 
 def block_presence(profile: Profile) -> Nat:
   match profile:

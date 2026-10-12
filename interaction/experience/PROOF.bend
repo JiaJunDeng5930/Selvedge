@@ -1,4 +1,12 @@
 import Base
+import ../../bendlib/stdlib.bend as Std
+import ../../harness/features/MODEL.bend as F
+import ../../harness/tasks/PROGRAM.bend as Tasks
+import ../../harness/MODEL.bend as World
+import ../../harness/COMMANDS.bend as Commands
+import ../../harness/workspace/PROJECTS.bend as Projects
+import ../../features/board/MODEL.bend as Board
+import ../../bendlib/json.bend as J
 import ./CONTRACT.bend as Rule
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
@@ -48,6 +56,178 @@ def duplicate_input(label: String, explanation: String, +value: M.Value, +rest: 
     P.admitted_candidate(compatible, True{}, remaining), False{},
     Equal.cong(Bool, Bool, (duplicate => P.admitted_candidate(compatible, duplicate, remaining)), Schema.contains(P.value_key(value) <> seen, P.value_key(value)), True{}, head_contains(P.value_key(value), seen)),
     duplicate_rejection(compatible, remaining))
+def property_editor_equation(+property: M.Property) ->
+  {P.property_editor(property) == Rule.property_editor_meaning(property) : U.Editor}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_kind_equation(+property: M.Property) ->
+  {P.property_kind(property) == Rule.property_kind_meaning(property) : M.PropertyKind}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_state_equation(+property: M.Property) ->
+  {P.property_state(property) == Rule.property_state_meaning(property) : M.PropertyState}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_value_equation(+property: M.Property) ->
+  {P.property_value(property) == Rule.property_value_meaning(property) : String}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_detail_equation(+property: M.Property) ->
+  {P.property_detail(property) == Rule.property_detail_meaning(property) : String}:
+  match property:
+    case M.ProjectObservation{editor, None{}, found}: {==}
+    case M.ProjectObservation{editor, Some{id}, None{}}: {==}
+    case M.ProjectObservation{editor, Some{id}, Some{project}}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, key, effort, found}: {==}
+    case M.DeliveryObservation{editor, U.Send{}}: {==}
+    case M.DeliveryObservation{editor, U.Steer{}}: {==}
+
+def property_source_key_equation(+property: M.Property) ->
+  {P.property_source_key(property) == Rule.property_source_key_meaning(property) : String}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_help_equation(+property: M.Property) ->
+  {P.property_help(property) == Rule.property_help_meaning(property) : String}:
+  match property:
+    case M.WorkspaceObservation{editor, +observation, source}: {==}
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+
+def restricted_obstructions_equation(+assessment: M.Assessment, +reason: String) ->
+  {P.assessment_obstructions(P.restricted(assessment, reason)) == P.restriction_obstructions(assessment, reason) : +List<M.Obstruction>}:
+  Std.app_nil_r(M.Obstruction, P.restriction_obstructions(assessment, reason))
+
+def restricted_reason_equation(+assessment: M.Assessment, +reason: String) ->
+  {P.assessment_reason(P.restricted(assessment, reason)) == P.first_reason(P.restriction_obstructions(assessment, reason)) : String}:
+  Equal.cong(+List<M.Obstruction>, String, P.first_reason,
+    P.assessment_obstructions(P.restricted(assessment, reason)), P.restriction_obstructions(assessment, reason),
+    restricted_obstructions_equation(assessment, reason))
+
+def permission_draft_sources_equation(+editor: U.Editor, +origin: Context.Origin, project: Maybe<&2, Nat>, workspace: Context.WorkspaceValue, +sandbox: Context.SandboxValue, +approval: Context.ApprovalValue, guidance: Context.GuidancePreview) ->
+  {P.property_source_key(P.permissions_property(editor, Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}})) == Rule.permission_draft_source_meaning(origin, sandbox, approval) : String}:
+  match origin sandbox approval:
+    case Context.EnvironmentDefaults{} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.EnvironmentDefaults{} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.EnvironmentDefaults{} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.EnvironmentDefaults{} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.ProjectDefaults{id} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.ProjectDefaults{id} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.ProjectDefaults{id} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.ProjectDefaults{id} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.ParentTask{task} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.ParentTask{task} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.ParentTask{task} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.ParentTask{task} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.ProjectForParent{task, id} Context.InheritedSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.ProjectForParent{task, id} Context.InheritedSandbox{value} Context.ChosenApproval{policy}: {==}
+    case Context.ProjectForParent{task, id} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: {==}
+    case Context.ProjectForParent{task, id} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: {==}
+
+def shared_evidence() -> Rule.SharedRequirements:
+  Rule.SharedRequirements{
+    editor => +selected => world => {==},
+    editor => +observation => world => {==},
+    editor => observation => {==},
+    editor => +profile => effort => world => {==},
+    editor => delivery => {==},
+    +property => property_editor_equation(property),
+    +property => property_kind_equation(property),
+    +property => property_state_equation(property),
+    +property => property_value_equation(property),
+    +property => property_detail_equation(property),
+    +editor => +origin => project => workspace => +sandbox => +approval => guidance => permission_draft_sources_equation(editor, origin, project, workspace, sandbox, approval, guidance),
+    editor => +task => context => guidance => access => {==},
+    +property => property_source_key_equation(property),
+    +property => property_help_equation(property),
+    +property => {==},
+    +property => {==},
+    +property => {==},
+    +property => {==},
+    editor => world => {==},
+    editor => id => {==},
+    editor => world => {==},
+    editor => origin => project => workspace => +sandbox => approval => guidance => {==},
+    editor => +origin => project => workspace => sandbox => approval => guidance => source => {==},
+    +action => +property => {==},
+    action => +property => {==},
+    action => property => {==},
+    +body => pending => +world => {==},
+    body => pending => world => {==},
+    +body => revision => pending => now => +world => {==},
+    +first => +rest => body => revision => now => world => {==},
+    workspace => body => revision => now => world => {==},
+    +body => +revision => now => world => {==},
+    +code => +reason => +identity => editor => {==},
+    +identity => +requirements => +state => +refusal => {==},
+    +identity => +requirements => +state => +refusal => {==},
+    +identity => +requirements => +state => +refusal => {==},
+    +assessment => {==},
+    +assessment => {==},
+    +assessment => {==},
+    {==},
+    {==},
+    message => +profile => +reasoning => context => +world => {==},
+    +task => message => delivery => world => {==},
+    +id => name => workspace => world => {==},
+    revision => +name => +profile => +reasoning => +instructions => settings => +concurrency => {==},
+    +count => +messages => +parent => +world => {==},
+    +id => world => {==},
+    +name => {==},
+    +name => {==},
+    +profile => {==},
+    +reasoning => {==},
+    +instructions => {==},
+    +count => {==},
+    +count => +parent => {==},
+    +count => +messages => {==},
+    +count => +parent => world => {==},
+    +editor => +reason => {==},
+    effort => +editor => {==},
+    +profile => +effort => +editor => {==},
+    +id => name => workspace => world => {==},
+    +editor => {==},
+    +obstruction => {==},
+    obstruction => {==},
+    +target => +field => +code => +message => {==},
+    +target => +field => +code => +message => {==},
+    +target => +field => +code => +message => {==},
+    +target => +field => +code => +message => {==},
+    +assessment => reason => {==},
+    +assessment => +reason => restricted_obstructions_equation(assessment, reason),
+    assessment => reason => {==},
+    +assessment => +reason => restricted_reason_equation(assessment, reason),
+    +assessment => +reason => {==}}
+
 def Rule.experience_evidence():
   Rule.Requirements{
     +subject => observation => question => alternatives => {==},
@@ -132,4 +312,5 @@ def Rule.experience_evidence():
     field => {==},
     task => {==},
     {==},
+    shared_evidence(),
     +editor => +revision => +reason => {==}}

@@ -505,3 +505,7 @@ def Rule.valid_stale_completion_decision():
     E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}},
     stale_checked_refinement(I.world(program), program, result, draft, session, previous, {==}, absent),
     Equal.cong(Bool, E.Decision, (value => Rule.stale_completion_spec(value, previous, program, result, session)), I.world(program), True{}, observed))
+
+def Rule.submission_requirements_gate(pending, world, revision, body, feedback, entry): {==}
+
+def Rule.invalid_preparation_complete_refusal(pending, world, revision, body, feedback, entry, application): {==}

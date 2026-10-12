@@ -522,7 +522,7 @@ type LayerTitleRequirements is Type:
       {View.layer_title(V.BoardSettings{automatic, selected, profiles, automation}) == "看板设置" : String},
     board_filters: @filter:B.Filter -> {View.layer_title(V.BoardFilters{filter}) == "筛选任务" : String},
     unavailable: {View.layer_title(V.ObjectEditor{None{}}) == "Editor unavailable" : String},
-    editor: @identity:U.Editor -> @revision:Nat -> @groups:+List<V.InputGroup> -> @sections:+List<Forms.Section> -> @submit:V.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> {View.layer_title(V.ObjectEditor{Some{V.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}) == View.editor_title(identity) : String},
+    editor: @identity:U.Editor -> @revision:Nat -> @groups:+List<V.InputGroup> -> @sections:+List<Forms.Section> -> @assessment:Experience.Assessment -> @submit:V.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> {View.layer_title(V.ObjectEditor{Some{V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending}}}) == View.editor_title(identity) : String},
     workspace: @editor:U.Editor -> @fields:+List<V.InputGroup> -> {View.layer_title(V.WorkspaceSettings{editor, fields}) == "Working directories" : String},
     permissions: @editor:U.Editor -> @fields:+List<V.InputGroup> -> {View.layer_title(V.PermissionSettings{editor, fields}) == "Permissions" : String},
     committed: @context:Maybe<&2, Context.EffectiveContext> -> {View.layer_title(V.CommittedContext{context}) == "Execution context" : String},
@@ -655,7 +655,7 @@ def expected_action_role(prominence: V.Prominence) -> SurfaceTypes.Role:
     case V.Secondary{}: SurfaceTypes.Button{}
 
 def expected_action(parent: Identity.Key, control: InteractionTypes.Control) -> SurfaceTypes.Node:
-  InteractionTypes.Control{+identity, label, prominence, input, availability} = control
+  InteractionTypes.Control{+identity, label, prominence, input, +availability} = control
   SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, expected_action_role(prominence),
     SurfaceTypes.Activate{input, availability}, Nil{}}
 
@@ -702,17 +702,17 @@ def introduction_project(value: V.CreationIntroduction) -> Maybe<&2, V.ProjectCh
 def composer_footer(view: Maybe<&2, V.ComposerScene>) -> +List<V.ComposerControl>:
   match view:
     case None{}: Nil{}
-    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: execution_controls
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}: execution_controls
 
 def composer_phase(value: Maybe<&2, V.ComposerScene>) -> Maybe<&2, V.ComposerPhase>:
   match value:
     case None{}: None{}
-    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: Some{phase}
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}: Some{phase}
 
 def composer_creation_controls(value: Maybe<&2, V.ComposerScene>) -> +List<V.ComposerControl>:
   match value:
     case None{}: Nil{}
-    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: creation_context
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}: creation_context
 
 def first_node_meaning(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Meaning>:
   match nodes:
@@ -740,10 +740,10 @@ def composer_enclosure_children(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, +L
 def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> Maybe<&2, +List<SurfaceTypes.Node>>:
   match view:
     case None{}: None{}
-    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
+    case Some{V.ComposerScene{+identity, +revision, message, phase, creation_context, execution_controls, context, +assessment, +submit, feedback, +pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       Some{Model.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
-        List.append(&2, SurfaceTypes.Node, Model.action_feedback_nodes(identity, feedback, key), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), submit, key, state)])}
+        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), Model.action_feedback_nodes(identity, feedback, key)), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)])}
 
 def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match context:
@@ -763,6 +763,8 @@ def expected_permission_menu_group(+editor: U.Editor, group: V.InputGroup, +pare
 type CompositionRequirements is Type:
   CompositionRequirements{
     production_regions: PageRegionRequirements,
+    expanded_navigation: @beside:Bool -> {View.navigation_placement(beside, True{}) == V.LeadingNavigation{} : V.NavigationPlacement},
+    collapsed_navigation: @beside:Bool -> {View.navigation_placement(beside, False{}) == V.CollapsedNavigation{} : V.NavigationPlacement},
     committed_permission_summary: @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.permission_summary(U.MessageEditor{task}, preview, parent, state) ==
         expected_committed_permission_summary(View.committed_context(T.find(Commands.entries(E.program(Core.application(state))), task)), parent, state) : +List<SurfaceTypes.Node>},
@@ -805,8 +807,8 @@ type CompositionRequirements is Type:
     creation_project: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, V.ProjectChoice>},
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<V.ComposerControl> ->
-      @+context:Maybe<&2, Context.Preview> -> @submit:V.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> @+world:M.World() ->
-      {introduction_context(View.creation_introduction(Some{V.ComposerScene{identity, revision, message, V.Creation{}, Nil{}, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
+      @+context:Maybe<&2, Context.Preview> -> @assessment:Experience.Assessment -> @submit:V.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> @+world:M.World() ->
+      {introduction_context(View.creation_introduction(Some{V.ComposerScene{identity, revision, message, V.Creation{}, Nil{}, footer, View.preview_observation(context), assessment, submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
     creation_page: @+input:Maybe<&2, V.ComposerScene> -> @+parent: Identity.Key -> @+world:M.World() ->
       @+session:E.Session -> @+services:Services.State ->
       {Model.page_contents(V.StartPage{input}, parent, Core.from_application(E.from_program(world, session), services)) ==
@@ -818,7 +820,7 @@ type CompositionRequirements is Type:
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() ->
       {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
         [View.model_composer_control(profile, reasoning, world),
-         V.ComposerControl{V.PermissionsSubject{}, View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>},
+         V.ComposerControl{UX.permissions_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>},
     model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String},
     creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
@@ -828,8 +830,8 @@ type CompositionRequirements is Type:
       {composer_creation_controls(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Nil{} : +List<V.ComposerControl>},
     creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() ->
       {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-        [V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})},
-         V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})}] : +List<V.ComposerControl>}
+        [V.ComposerControl{UX.project_property(U.NewTaskEditor{}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
+         V.ComposerControl{UX.workspace_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}
 
   }
 
@@ -1000,7 +1002,7 @@ type ProjectInteractionRequirements is Type:
          View.native("project/delete/" ++ Nat.show(id), "Delete project", V.Destructive{}, U.DeleteProject{id}, world)] : +List<V.ControlDeclaration>},
     chooser_single_name: @+id:Nat -> @+name:String -> @+workspace:D.Workspace ->
       {(View.creation_heading(Some{V.ProjectChoice{id, name, workspace}}), View.project_choice_label(Some{V.ProjectChoice{id, name, workspace}})) ==
-    ("Work on", name) : Sigma<&2, &2, String, (_ => String)>},
+    ("Work on " ++ name, name) : Sigma<&2, &2, String, (_ => String)>},
     task_status_visible: @+id:Nat -> @title:String -> @+status:V.TaskStatus -> @+selected:Bool -> @+open:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.task_entries([V.TaskEntry{id, title, status, selected, open}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "task", Nat.show(id)}, "task-row", "", SurfaceTypes.Section{}, SurfaceTypes.TaskRow{id, status, selected},
@@ -1156,13 +1158,14 @@ law composer_tree_present_agreement:
   for creation_context: +List<V.ComposerControl>
   for execution_controls: +List<V.ComposerControl>
   for context: Maybe<&2, Context.Observation>
+  for +assessment: Experience.Assessment
   for submit: V.ControlDeclaration
   for feedback: U.Feedback
   for pending: Bool
   for +parent: Identity.Key
   for +state: InteractionTypes.State
-  {Model.composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state) ==
-      Model.expected_composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state) : +List<SurfaceTypes.Node>}
+  {Model.composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}, parent, state) ==
+      Model.expected_composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}, parent, state) : +List<SurfaceTypes.Node>}
 
 law composer_tree_agreement:
   for view: Maybe<&2, V.ComposerScene>
@@ -1178,13 +1181,14 @@ law composer_enclosure_present_agreement:
   for creation_context: +List<V.ComposerControl>
   for execution_controls: +List<V.ComposerControl>
   for context: Maybe<&2, Context.Observation>
+  for +assessment: Experience.Assessment
   for submit: V.ControlDeclaration
   for feedback: U.Feedback
   for pending: Bool
   for +parent: Identity.Key
   for +state: InteractionTypes.State
-  {composer_enclosure_children(Model.composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state)) ==
-    expected_composer_enclosure_children(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>}
+  {composer_enclosure_children(Model.composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}, parent, state)) ==
+    expected_composer_enclosure_children(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>}
 
 law composer_enclosure_agreement:
   for view: Maybe<&2, V.ComposerScene>
@@ -1355,14 +1359,15 @@ law editor_submit_region:
   for revision: Nat
   for groups: +List<V.InputGroup>
   for structure: +List<Forms.Section>
+  for +assessment: Experience.Assessment
   for submit: V.ControlDeclaration
   for feedback: U.Feedback
   for pending: Bool
   for +parent: Identity.Key
   for +state: InteractionTypes.State
-  {Model.editor(Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}, parent, state) ==
+  {Model.editor(Some{V.EditorScene{identity, revision, groups, structure, assessment, submit, feedback, pending}}, parent, state) ==
     List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
-      List.append(&2, SurfaceTypes.Node, Model.action_feedback_nodes(identity, feedback, parent), [Model.dialog_actions(parent, [Model.declared(parent, submit, state)])])) : +List<SurfaceTypes.Node>}
+      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), Model.action_feedback_nodes(identity, feedback, parent)), [Model.dialog_actions(parent, [Model.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])) : +List<SurfaceTypes.Node>}
 
 law confirmation_actions_region:
   for title: String
@@ -1600,27 +1605,32 @@ def expected_model_effort_surface(entry: Forms.Entry, +observation: Forms.Observ
     case Forms.DirectoryCollection{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.DirectoryCollection{}}, editor, parent, state, groups)
     case Forms.FileCollection{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.FileCollection{}}, editor, parent, state, groups)
 
+
+def expected_action_commit(assessment: Experience.Assessment, +parent: Identity.Key, control: InteractionTypes.Control) -> SurfaceTypes.Node:
+  InteractionTypes.Control{+identity, label, prominence, input, +availability} = control
+  SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, Model.action_role(prominence), SurfaceTypes.ActionCommit{Model.final_assessment(availability, assessment), input, availability}, Nil{}}
+
 type ExperienceRequirements is Type:
   ExperienceRequirements{
     effort_entry_surface: @+entry:Forms.Entry -> @+observation:Forms.Observed -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
       {Model.model_effort_surface(entry, observation, editor, parent, state, groups) == expected_model_effort_surface(entry, observation, editor, parent, state, groups) : SurfaceTypes.Node},
     model_decisions_complete: @+profile:String -> @+reasoning:String -> @+choices:+List<D.Profile> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
       {Model.model_decisions(profile, reasoning, choices, editor, parent, state, groups) == Model.decision_surface(UX.decision(Experience.Subject{editor, Forms.ModelProfile{}}, Forms.ModelValue{profile, reasoning}, "Model", Model.admitted_model_alternatives(Experience.Subject{editor, Forms.ModelProfile{}}, Forms.ModelValue{profile, reasoning}, choices)), parent, state) <> [Model.model_effort_surface(Model.actual_entry(Forms.ReasoningEffort{}, Forms.Choice{}, Forms.ModelValue{profile, reasoning}, state), Forms.ModelValue{profile, reasoning}, editor, parent, state, groups)] : +List<SurfaceTypes.Node>},
-    action_footer_groups: @+controls:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+submit:V.ControlDeclaration -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-      {Model.action_footer(controls, action, submit, parent, state) == SurfaceTypes.Node{Identity.Part{parent, "actions"}, "actions", "Actions", SurfaceTypes.ComposerActions{}, SurfaceTypes.Region{}, [SurfaceTypes.Node{Identity.Part{parent, "supporting-controls"}, "supporting-controls", "Supporting controls", SurfaceTypes.Toolbar{}, SurfaceTypes.Region{}, Model.supporting_controls(controls, action, parent, state)}, Model.canonical_commit(action, submit, parent, state)]} : SurfaceTypes.Node},
-    supporting_binding: @+support:Experience.Support -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @+gesture:SurfaceTypes.Gesture ->
-      {Model.bind(SurfaceTypes.SupportingControl{support, input, availability}, gesture) == expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>},
-    supporting_available: @+support:Experience.Support -> @input:InteractionTypes.Input -> @+availability:V.Availability ->
-      {Model.focusable(SurfaceTypes.SupportingControl{support, input, availability}) == UX.support_visible(support) && Model.available(availability) : Bool},
-    supporting_submission: @+support:Experience.Support -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @+editor:U.Editor ->
-      {Model.submits(SurfaceTypes.SupportingControl{support, input, availability}, editor) == expected_supporting_submission(support, input, availability, editor) : Bool},
+    action_footer_groups: @+controls:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+assessment:Experience.Assessment -> @+submit:V.ControlDeclaration -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.action_footer(controls, action, assessment, submit, parent, state) == SurfaceTypes.Node{Identity.Part{parent, "actions"}, "actions", "Actions", SurfaceTypes.ComposerActions{}, SurfaceTypes.Region{}, [SurfaceTypes.Node{Identity.Part{parent, "supporting-controls"}, "supporting-controls", "Supporting controls", SurfaceTypes.Toolbar{}, SurfaceTypes.Region{}, Model.supporting_controls(controls, action, parent, state)}, Model.canonical_commit(action, assessment, submit, parent, state)]} : SurfaceTypes.Node},
+    supporting_binding: @+support:Experience.Support -> @+property:Experience.Property -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @+gesture:SurfaceTypes.Gesture ->
+      {Model.bind(SurfaceTypes.SupportingControl{support, property, input, availability}, gesture) == expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>},
+    supporting_available: @+support:Experience.Support -> @+property:Experience.Property -> @input:InteractionTypes.Input -> @+availability:V.Availability ->
+      {Model.focusable(SurfaceTypes.SupportingControl{support, property, input, availability}) == UX.support_visible(support) && Model.available(availability) : Bool},
+    supporting_submission: @+support:Experience.Support -> @+property:Experience.Property -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @+editor:U.Editor ->
+      {Model.submits(SurfaceTypes.SupportingControl{support, property, input, availability}, editor) == expected_supporting_submission(support, input, availability, editor) : Bool},
     empty_model_mapping: @subject:Experience.Subject -> @observed:Forms.Observed -> {Model.admitted_model_alternatives(subject, observed, Nil{}) == Nil{} : +List<Experience.Alternative>},
     model_picker_tree: @+profile:String -> @+reasoning:String -> @+choices:+List<D.Profile> -> @+rest:+List<V.InputGroup> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.picker_fields(V.ModelInput{profile, reasoning, choices} <> rest, editor, parent, state) == List.append(&2, SurfaceTypes.Node, Model.model_decisions(profile, reasoning, choices, editor, parent, state, V.ModelInput{profile, reasoning, choices} <> rest), Model.picker_fields(rest, editor, parent, state)) : +List<SurfaceTypes.Node>},
     object_group_owner: @+title:String -> @+entries:+List<Forms.FieldScene> -> @+rest:+List<Forms.Section> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+ordinal:Nat -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
       {Model.sections(Forms.Section{title, entries} <> rest, editor, parent, ordinal, state, groups) == SurfaceTypes.Node{Identity.Entity{parent, "section", Nat.show(ordinal)}, "section/" ++ Nat.show(ordinal), title, SurfaceTypes.Section{}, SurfaceTypes.ObjectGroup{UX.group_owner(editor, Model.section_fields(entries))}, Model.fields(entries, editor, Identity.Entity{parent, "section", Nat.show(ordinal)}, state, groups)} <> Model.sections(rest, editor, parent, (ordinal + 1n : Nat), state, groups) : +List<SurfaceTypes.Node>},
-    supporting_action: @+subject:V.ComposerSubject -> @+declaration:V.ControlDeclaration -> @+rest:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-      {Model.supporting_controls(V.ComposerControl{subject, declaration} <> rest, action, parent, state) == List.append(&2, SurfaceTypes.Node, Model.supporting_control_owned(UX.support(action, Model.supporting_fields(subject)), parent, Core.control(state, declaration), state), Model.supporting_controls(rest, action, parent, state)) : +List<SurfaceTypes.Node>},
+    supporting_action: @+property:Experience.Property -> @+declaration:V.ControlDeclaration -> @+rest:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.supporting_controls(V.ComposerControl{property, declaration} <> rest, action, parent, state) == List.append(&2, SurfaceTypes.Node, Model.supporting_control_owned(UX.property_support(action, property), property, parent, Core.control(state, declaration), state), Model.supporting_controls(rest, action, parent, state)) : +List<SurfaceTypes.Node>},
     admitted_model_mapping: @+subject:Experience.Subject -> @+observed:Forms.Observed -> @+profile:D.Profile -> @+rest:+List<D.Profile> ->
       {Model.admitted_model_alternatives(subject, observed, profile <> rest) == List.append(&2, Experience.Alternative, UX.decision_alternatives(UX.decision(subject, observed, "Model", Model.profile_alternatives([profile]))), Model.admitted_model_alternatives(subject, observed, rest)) : +List<Experience.Alternative>},
     decision_construction: @+decision:Experience.Decision -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
@@ -1629,12 +1639,61 @@ type ExperienceRequirements is Type:
       {Model.decision_choice_resolved(Some{input}, decision, Experience.Alternative{label, explanation, value}, parent, state) == Model.declared_choice(UX.selected(decision, value), explanation, V.ControlDeclaration{UX.value_key(value), label, V.Secondary{}, input, V.Available{}}, parent, state) : SurfaceTypes.Node},
     collection_member: @+collection:Experience.Collection -> @+path:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.collection_member(collection, path, parent, state) == SurfaceTypes.Node{Identity.Entity{parent, "directory", path}, "directory/" ++ path, path, SurfaceTypes.Content{}, SurfaceTypes.WorkspaceMember{collection, path}, List.append(&2, SurfaceTypes.Node, Model.collection_primary_controls(UX.is_primary(collection, path), collection, path, Identity.Entity{parent, "directory", path}, state), Model.collection_control(UX.remove_member(collection, path), "directory/remove", "Remove", V.Destructive{}, Identity.Entity{parent, "directory", path}, state))} : SurfaceTypes.Node},
-    canonical_commit: @+action:Experience.ActionUnit -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @input:U.Input -> @+availability:V.Availability -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-      {Model.canonical_commit(action, V.ControlDeclaration{identity, label, prominence, input, availability}, parent, state) == Model.declared(parent, V.ControlDeclaration{identity, label, prominence, UX.commit(action), availability}, state) : SurfaceTypes.Node},
+    canonical_commit: @+action:Experience.ActionUnit -> @+assessment:Experience.Assessment -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @input:U.Input -> @+availability:V.Availability -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.canonical_commit(action, assessment, V.ControlDeclaration{identity, label, prominence, input, availability}, parent, state) == expected_action_commit(assessment, parent, Core.control(state, V.ControlDeclaration{identity, label, prominence, UX.commit(action), availability})) : SurfaceTypes.Node},
     feedback_identity: @+editor:U.Editor -> @+revision:Nat -> @+reason:String -> @+parent:Identity.Key ->
       {Model.action_feedback_nodes(editor, U.Rejected{revision, reason}, parent) == [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ActionFeedback{Experience.Feedback{editor, revision, reason}}, [SurfaceTypes.Node{Identity.Part{parent, "reason"}, "submission-feedback/reason", reason, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{reason}, Nil{}}]}] : +List<SurfaceTypes.Node>},
-    supporting_identity: @+support:Experience.Support -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:InteractionTypes.Input -> @+availability:V.Availability ->
-      {Model.supporting_node(True{}, support, parent, InteractionTypes.Control{identity, label, prominence, input, availability}) == [SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, Model.action_role(prominence), SurfaceTypes.SupportingControl{support, input, availability}, Nil{}}] : +List<SurfaceTypes.Node>}}
+    supporting_identity: @+support:Experience.Support -> @+property:Experience.Property -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:InteractionTypes.Input -> @+availability:V.Availability ->
+      {Model.supporting_node(True{}, support, property, parent, InteractionTypes.Control{identity, label, prominence, input, availability}) == [SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, Model.action_role(prominence), SurfaceTypes.SupportingControl{support, property, input, availability}, Nil{}}] : +List<SurfaceTypes.Node>}}
 
 law experience_evidence:
   ExperienceRequirements
+
+def expected_assessed_editor_scene(+revision: Nat, +body: U.Body, feedback: U.Feedback, +waiting: Bool, now: U32, +world: M.World()) -> V.EditorScene:
+  +identity = U.owner(body)
+  +assessment = UX.assessed_requirements(UX.requirements(body, waiting, world), body, revision, now, world)
+  V.EditorScene{identity, revision, View.input_groups(body, world), Forms.structure(body), assessment,
+    V.ControlDeclaration{"submit/" ++ U.editor_key(identity), View.submit_label(body), V.Primary{}, U.Activate{U.Submit{identity}},
+      View.assessment_availability(assessment)}, feedback, waiting}
+
+law assessed_editor_scene:
+  @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @entry:String -> @+pending:+List<E.Pending> -> @+now:U32 -> @+world:M.World() ->
+  {View.editor_scene(U.Draft{revision, body, feedback, entry}, pending, now, world) ==
+    expected_assessed_editor_scene(revision, body, feedback, E.busy(pending, U.owner(body)), now, world) : V.EditorScene}
+
+law available_assessment_preserved:
+  @+assessment:Experience.Assessment ->
+  {Model.final_assessment(V.Available{}, assessment) == assessment : Experience.Assessment}
+
+law directory_assessment_preserved:
+  @+assessment:Experience.Assessment ->
+  {Model.final_assessment(V.NeedsDirectoryObservation{}, assessment) == assessment : Experience.Assessment}
+
+law unavailable_assessment_uses_actual_reason:
+  @+assessment:Experience.Assessment -> @+reason:String ->
+  {Model.final_assessment(V.Unavailable{reason}, assessment) == Model.restrict_different_reason(String.eq(reason, UX.assessment_reason(assessment)), assessment, reason) : Experience.Assessment}
+
+law duplicate_assessment_reason_preserved:
+  @+assessment:Experience.Assessment -> @reason:String ->
+  {Model.restrict_different_reason(True{}, assessment, reason) == assessment : Experience.Assessment}
+
+law distinct_assessment_reason_retained:
+  @+assessment:Experience.Assessment -> @+reason:String ->
+  {Model.restrict_different_reason(False{}, assessment, reason) == UX.restricted(assessment, reason) : Experience.Assessment}
+
+law commit_explanation_observes_same_assessment:
+  @+assessment:Experience.Assessment -> @+parent:Identity.Key -> @identity:String -> @label:String -> @prominence:V.Prominence -> @input:InteractionTypes.Input -> @+availability:V.Availability ->
+  {Model.action_control_explanation(assessment, parent, InteractionTypes.Control{identity, label, prominence, input, availability}) ==
+    Model.action_explanation(Model.final_assessment(availability, assessment), parent) : +List<SurfaceTypes.Node>}
+
+
+law context_permission_facts:
+  @+observation:Context.Observation ->
+  {Model.observation_facts(observation) == "Permissions · " ++ UX.permission_value(observation) ++ " · " ++ UX.permission_detail(observation) ++ "; " ++ UX.permission_source_detail(observation) : String}
+
+law context_summary_labels:
+  @+observation:Context.Observation -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.context_summary_node(observation, parent, state) ==
+    SurfaceTypes.Node{Identity.Part{parent, "source"}, "context/source", "Execution context", SurfaceTypes.Content{}, SurfaceTypes.ContextSummary{observation},
+      [SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "source"}, "workspace-source"}, "context/workspace-source", "Working directories · " ++ View.execution_source_summary(observation, E.program(Core.application(state))), SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Working directories · " ++ View.execution_source_summary(observation, E.program(Core.application(state)))}, Nil{}},
+       SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "source"}, "permissions"}, "context/permissions", Model.observation_facts(observation), SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{Model.observation_facts(observation)}, Nil{}}]} : SurfaceTypes.Node}

@@ -107,8 +107,8 @@ def Rule.feedback_evidence():
     +parent => revision => +reason => {==},
     parent => {==},
     parent => revision => reply => {==},
-    +identity => revision => groups => +structure => +submit => submitted => +reason => pending => +parent => +state => {==},
-    +identity => revision => message => +footer => context => +submit => submitted => +reason => pending => +parent => +state => {==}}
+    +identity => revision => groups => +structure => +assessment => +submit => submitted => +reason => pending => +parent => +state => {==},
+    +identity => revision => message => +footer => context => +assessment => +submit => submitted => +reason => pending => +parent => +state => {==}}
 
 def with_native_preserves_drafts(+decision: E.Decision, +result: J.Json, +effects: +List<M.Effect()>, durable: Bool) ->
   {Rule.decision_drafts(E.with_native(decision, result, effects, durable)) == Rule.decision_drafts(decision) : +List<U.Draft>}:

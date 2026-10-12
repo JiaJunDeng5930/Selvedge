@@ -1,3 +1,4 @@
+import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
@@ -121,6 +122,7 @@ type Face is Data:
   IconTextFace{icon: Icon, text: String}
   UnbrokenIconTextFace{icon: Icon, text: String}
   # Render the value and a trailing chevron, with room reserved for both.
+  PropertyFace{property: UXTypes.Property}
   PickerFace{leading: Maybe<&2, Icon>, text: String}
   # Every option reserves the check column, including unselected options.
   ChoiceFace{text: String, description: Maybe<&2, String>, icon: Maybe<&2, Icon>, checked: Bool}
@@ -135,6 +137,7 @@ def caption_wrapping(face: Face) -> Typography.Wrapping:
     case UnbrokenFace{text}: Typography.UnbrokenLine{}
     case IconTextFace{icon, text}: Typography.SingleLine{}
     case UnbrokenIconTextFace{icon, text}: Typography.UnbrokenLine{}
+    case PropertyFace{property}: Typography.UnbrokenLine{}
     case PickerFace{leading, text}: Typography.SingleLine{}
     case DisclosureFace{text, expanded}: Typography.SingleLine{}
     case ChoiceFace{text, description, icon, checked}: Typography.NormalWords{}
@@ -275,7 +278,7 @@ type Purpose is Data:
 def composer_execution(value: Maybe<&2, View.ComposerScene>) -> Maybe<&2, Workspace.Observation>:
   match value:
     case None{}: None{}
-    case Some{View.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: context
+    case Some{View.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}: context
 
 def page_execution(page: View.Page) -> Maybe<&2, Workspace.Observation>:
   match page:
@@ -724,6 +727,7 @@ def labelled_help(feedback: Feedback, availability: View.Availability) -> Help:
 def help_for(face: Face, availability: View.Availability, feedback: Feedback, name: String) -> Help:
   match face:
     case IconFace{icon}: tooltip(help_text(availability, feedback, name))
+    case PropertyFace{property}: tooltip(help_text(availability, feedback, UX.property_help(property)))
     case PermissionFace{filesystem, network, approval}: tooltip(help_text(availability, feedback, name))
     case _: labelled_help(feedback, availability)
 
@@ -736,6 +740,7 @@ def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
     case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}
     case ProjectTaskCreation{} IconFace{icon} NavigationArea{}: Geometry{Space.fixed_demand(24n, 24n), 16n, 6n, 0n}
     case _ IconFace{icon} _: Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}
+    case _ PropertyFace{property} _: Geometry{Space.fixed_demand(0n, Activity.supporting_minimum(Activity.initial())), 16n, 6n, 0n}
     case _ _ NavigationArea{}: Geometry{Space.fixed_demand(0n, 29n), 16n, 6n, 20n}
     case _ _ MenuArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
     case _ PickerFace{icon, text} ComposerArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n}
@@ -1096,75 +1101,52 @@ def represent_action(key: UIIdentity.Key, +input: InteractionTypes.Input, availa
   Context{+area, selection, code, appearance, access, open, layers, execution, +source_family} = context
   source_action(area, source_family, make_action(key, input, availability, label, role, context))
 
-def permission_picker(value: Face) -> Face:
-  match value:
-    case PermissionFace{filesystem, network, approval}: PickerFace{Some{filesystem}, "Permissions"}
-    case _: PickerFace{Some{Warning{}}, "Permissions"}
+def property_kind_icon(kind: UXTypes.PropertyKind) -> Maybe<&2, Icon>:
+  match kind:
+    case UXTypes.ProjectProperty{}: Some{ArchiveBox{}}
+    case UXTypes.WorkspaceProperty{}: Some{Folder{}}
+    case UXTypes.PermissionsProperty{}: Some{Shield{}}
+    case UXTypes.ModelProperty{}: None{}
+    case UXTypes.DeliveryProperty{}: Some{ArrowUp{}}
 
-def permission_field(field: Forms.Field) -> Bool:
-  match field:
-    case Forms.SandboxMode{}: True{}
-    case Forms.NetworkAccess{}: True{}
-    case Forms.ApprovalPolicy{}: True{}
-    case _: False{}
+def property_icon(property: UXTypes.Property) -> Maybe<&2, Icon>:
+  property_kind_icon(UX.property_kind(property))
 
-def workspace_field(field: Forms.Field) -> Bool:
-  match field:
-    case Forms.WorkspaceDirectories{}: True{}
-    case Forms.WorkspacePrimary{}: True{}
-    case Forms.ContextOrigin{}: True{}
-    case _: False{}
-
-def every_permission_field(fields: +List<Forms.Field>) -> Bool:
-  match fields:
-    case Nil{}: True{}
-    case Con{field, rest}: permission_field(field) && every_permission_field(rest)
-
-def every_workspace_field(fields: +List<Forms.Field>) -> Bool:
-  match fields:
-    case Nil{}: True{}
-    case Con{field, rest}: workspace_field(field) && every_workspace_field(rest)
-
-def support_face_kind(permissions: Bool, workspace: Bool, label: String, current: Face, execution: Maybe<&2, Workspace.Observation>) -> Face:
-  match permissions workspace:
-    case True{} _: permission_picker(permission_face(execution))
-    case False{} True{}: PickerFace{Some{Folder{}}, label}
-    case _ _: current
-
-def support_face_fields(+fields: +List<Forms.Field>, label: String, current: Face, execution: Maybe<&2, Workspace.Observation>) -> Face:
-  support_face_kind(every_permission_field(fields), every_workspace_field(fields), label, current, execution)
-
-def support_face(support: UXTypes.Support, label: String, current: Face, execution: Maybe<&2, Workspace.Observation>) -> Face:
-  support_face_fields(UX.support_fields(support), label, current, execution)
-
-def support_name_kind(permissions: Bool, label: String) -> String:
-  match permissions:
-    case True{}: "Permissions: " ++ label
-    case False{}: label
-
-def support_name(support: UXTypes.Support, label: String) -> String:
-  support_name_kind(every_permission_field(UX.support_fields(support)), label)
-
-def supporting_fields(+support: UXTypes.Support, +label: String, area: Area, execution: Maybe<&2, Workspace.Observation>, value: Representation) -> Representation:
+def supporting_fields(+property: UXTypes.Property, area: Area, value: Representation) -> Representation:
   match value:
     case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
-      +shown = support_face(support, label, face, execution)
-      Action{Button{input, availability, support_name(support, label), shown, behavior, geometry_for(ChooseValue{False{}}, shown, area), placement, feedback}}
+      +shown: Face = PropertyFace{property}
+      Action{Button{input, availability, UX.property_help(property), shown, behavior, geometry_for(ChooseValue{False{}}, shown, area), placement, feedback}}
     case _: value
 
-def make_support_visible(visible: Bool, key: UIIdentity.Key, +support: UXTypes.Support, input: InteractionTypes.Input, availability: View.Availability, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
+def make_support_visible(visible: Bool, key: UIIdentity.Key, support: UXTypes.Support, +property: UXTypes.Property, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match visible:
     case False{}: NoControl{}
     case True{}:
-      Context{+area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
-      supporting_fields(support, label, area, execution, represent_action(key, input, availability, label, role, context))
+      Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
+      supporting_fields(property, area, represent_action(key, input, availability, label, role, context))
 
-def make_support(key: UIIdentity.Key, +support: UXTypes.Support, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
-  make_support_visible(UX.support_visible(support), key, support, input, availability, label, role, context)
+def make_support(key: UIIdentity.Key, +support: UXTypes.Support, property: UXTypes.Property, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
+  make_support_visible(UX.support_visible(support), key, support, property, input, availability, label, role, context)
+
+def assessed_availability(ready: Bool, assessment: UXTypes.Assessment, availability: View.Availability) -> View.Availability:
+  match ready:
+    case True{}: availability
+    case False{}: View.Unavailable{UX.assessment_reason(assessment)}
+
+def assessment_availability(+assessment: UXTypes.Assessment, availability: View.Availability) -> View.Availability:
+  assessed_availability(UX.assessment_ready(assessment), assessment, availability)
+
+def assessment_help(obstructions: +List<UXTypes.Obstruction>) -> String:
+  match obstructions:
+    case Nil{}: ""
+    case Con{obstruction, Nil{}}: UX.obstruction_message(obstruction)
+    case Con{obstruction, rest}: UX.obstruction_message(obstruction) ++ " · " ++ assessment_help(rest)
 
 def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
-    case SurfaceTypes.SupportingControl{support, input, availability}: make_support(key, support, input, availability, label, role, context)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: make_support(key, support, property, input, availability, label, role, context)
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: represent_action(key, input, assessment_availability(assessment, availability), label, role, context)
     case SurfaceTypes.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
     case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)

@@ -195,24 +195,40 @@ def per_fork(contract: D.Contract) -> Nat:
   D.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   max_fork
 
-def branch_fits(+count: Nat, messages: +List<String>, +parent: D.Task, world: M.World()) -> Bool:
+def branch_count_valid(+count: Nat, parent: D.Task) -> Bool:
+  Nat.is_le(1n, count) && Nat.is_le(count, per_fork(D.task_contract(parent)))
+
+def branch_messages_valid(count: Nat, messages: +List<String>) -> Bool:
   +size = List.length(&2, String, messages)
-  Nat.is_le(1n, count) && Nat.is_le(count, per_fork(D.task_contract(parent))) &&
-    (Nat.is_eq(size, 0n) || Nat.is_eq(size, count)) &&
-    T.ancestors_fit(D.task_id(parent) <> D.task_lineage(parent), entries(world), count)
+  Nat.is_eq(size, 0n) || Nat.is_eq(size, count)
+
+def branch_capacity_valid(+count: Nat, +parent: D.Task, world: M.World()) -> Bool:
+  T.ancestors_fit(D.task_id(parent) <> D.task_lineage(parent), entries(world), count)
+
+def branch_parent_valid(status: D.Status, phase: D.Phase) -> Bool:
+  match status phase:
+    case D.Active{} D.Idle{}: True{}
+    case _ _: False{}
+
+def branch_fits(+count: Nat, messages: +List<String>, +parent: D.Task, world: M.World()) -> Bool:
+  branch_count_valid(count, parent) && branch_messages_valid(count, messages) && branch_capacity_valid(count, parent, world)
 
 def branch_permitted(+world: M.World(), operation: Operation) -> Bool:
   match operation:
     case Branch{parent, count, messages, selection}: branch_fits(count, messages, parent, world)
     case _: False{}
 
-def branch_ready(status: D.Status, phase: D.Phase, +parent: D.Task,
+def branch_ready_eligible(eligible: Bool, +parent: D.Task,
   +count: Nat, +messages: +List<String>, world: M.World()) -> Operation:
-  match status phase:
-    case D.Active{} D.Idle{}:
+  match eligible:
+    case True{}:
       require(operation => branch_permitted(world, operation), Branch{parent, count, messages, task_selection(parent)},
         "resource_limit", "Fork count, aligned messages, or an ancestor descendant limit is invalid")
-    case _ _: Refuse{"task_busy", "A manual fork requires an active, idle task"}
+    case False{}: Refuse{"task_busy", "A manual fork requires an active, idle task"}
+
+def branch_ready(status: D.Status, phase: D.Phase, parent: D.Task,
+  count: Nat, messages: +List<String>, world: M.World()) -> Operation:
+  branch_ready_eligible(branch_parent_valid(status, phase), parent, count, messages, world)
 
 def branched(found: Maybe<&2, D.Task>, count: Nat, messages: +List<String>, world: M.World()) -> Operation:
   match found:

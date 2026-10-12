@@ -33,9 +33,12 @@ def missing(found: Maybe<&2, D.Project>) -> Bool:
     case None{}: True{}
     case Some{project}: False{}
 
+def name_valid(+name: String) -> Bool:
+  D.nonempty(name) && Nat.is_le(J.utf8_length(name), 256n)
+
 def valid_project(project: D.Project) -> Bool:
   D.Project{+name, +workspace, +guidance} = project
-  D.nonempty(name) && Nat.is_le(J.utf8_length(name), 256n) && W.valid(workspace) &&
+  name_valid(name) && W.valid(workspace) &&
     W.valid_guidance(guidance) && W.guidance_member(W.primary(workspace), guidance)
 
 def valid_entries(entries: +List<Finite.Entry(D.Project)>, +next_id: Nat) -> Bool:

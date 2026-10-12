@@ -1,3 +1,5 @@
+import ../experience/PROGRAM.bend as UX
+import ../../bendlib/categories.bend as Categories
 import Base
 import ../submission/CONTRACT.bend as SubmissionRule
 import ../../harness/INVARIANTS.bend as I
@@ -379,3 +381,12 @@ law valid_stale_completion_decision:
   @observed:{I.world(program) == True{} : Bool} ->
   @absent:{E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool} ->
   {ExperienceProgram.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}} : E.Decision}
+
+law submission_requirements_gate:
+  @+pending:+List<E.Pending> -> @+world:M.World() -> @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @entry:String ->
+  {E.submission_ready(pending, world, U.Draft{revision, body, feedback, entry}) == UX.can_prepare(body, E.busy(pending, U.owner(body)), world) : Bool}
+
+law invalid_preparation_complete_refusal:
+  @+pending:+List<E.Pending> -> @+world:M.World() -> @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @entry:String -> @+application:E.Application ->
+  {E.submit_admitted(pending, world, U.Draft{revision, body, feedback, entry}, None{}, application) ==
+    E.Decision{application, D.failure("interaction_refused", UX.assessment_reason(UX.assessed_requirements(UX.requirements(body, E.busy(pending, U.owner(body)), world), body, revision, E.now(E.session(application)), world))), Nil{}, Nil{}, False{}} : E.Decision}

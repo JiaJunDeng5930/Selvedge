@@ -1,3 +1,4 @@
+import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../INPUT.bend as U
 import Base
@@ -16,7 +17,7 @@ import ./VIEW.bend as View
 import ../../harness/tasks/PROGRAM.bend as T
 import ../../harness/COMMANDS.bend as Commands
 
-def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state):
+def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
   match creation_context execution_controls:
     case Nil{} Nil{}: {==}
     case Nil{} Con{first, rest}: {==}
@@ -26,10 +27,10 @@ def Rule.composer_tree_present_agreement(identity, revision, message, phase, cre
 def Rule.composer_tree_agreement(view, parent, state):
   match view:
     case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
-      Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state)
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
+      Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
 
-def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state):
+def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
   match creation_context execution_controls:
     case Nil{} Nil{}: {==}
     case Nil{} Con{first, rest}: {==}
@@ -39,8 +40,8 @@ def Rule.composer_enclosure_present_agreement(identity, revision, message, phase
 def Rule.composer_enclosure_agreement(view, parent, state):
   match view:
     case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
-      Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state)
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
+      Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
 
 def Rule.relocated_valid_content(valid, node, scene, base, overlays):
   match valid:
@@ -118,7 +119,7 @@ def Rule.overlay_navigation_scope(key, semantic, label, meaning, children, rest)
 def Rule.dialog_actions_region(parent, children):
   {==}
 
-def Rule.editor_submit_region(identity, revision, groups, structure, submit, feedback, pending, parent, state):
+def Rule.editor_submit_region(identity, revision, groups, structure, assessment, submit, feedback, pending, parent, state):
   {==}
 
 def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
@@ -168,8 +169,8 @@ def Rule.permission_menu_agreement(editor, group, parent, state):
     case V.ForkInput{count, messages}: {==}
     case V.SummaryInput{summary}: {==}
 
-def supporting_binding_agreement(+support: Experience.Support, +input: InteractionTypes.Input, +availability: V.Availability, +gesture: SurfaceTypes.Gesture) ->
-  {Model.bind(SurfaceTypes.SupportingControl{support, input, availability}, gesture) == Rule.expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>}:
+def supporting_binding_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +gesture: SurfaceTypes.Gesture) ->
+  {Model.bind(SurfaceTypes.SupportingControl{support, property, input, availability}, gesture) == Rule.expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>}:
   match gesture:
     case SurfaceTypes.Place{target}: {==}
     case SurfaceTypes.Press{}: {==}
@@ -181,8 +182,8 @@ def supporting_binding_agreement(+support: Experience.Support, +input: Interacti
     case SurfaceTypes.ConfirmDirectory{}: {==}
     case SurfaceTypes.SelectBoardProfile{profile}: {==}
 
-def supporting_submission_agreement(+support: Experience.Support, +input: InteractionTypes.Input, +availability: V.Availability, +editor: U.Editor) ->
-  {Model.submits(SurfaceTypes.SupportingControl{support, input, availability}, editor) == Rule.expected_supporting_submission(support, input, availability, editor) : Bool}:
+def supporting_submission_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +editor: U.Editor) ->
+  {Model.submits(SurfaceTypes.SupportingControl{support, property, input, availability}, editor) == Rule.expected_supporting_submission(support, input, availability, editor) : Bool}:
   match input:
     case InteractionTypes.ApplicationInput{E.ContentInput{p0, p1}}: {==}
     case InteractionTypes.ApplicationInput{E.PreviewObserved{p0}}: {==}
@@ -234,22 +235,40 @@ def effort_entry_surface_agreement(+entry: Forms.Entry, +observation: Forms.Obse
     case Forms.DirectoryCollection{}: {==}
     case Forms.FileCollection{}: {==}
 
+def canonical_commit_agreement(+action: Experience.ActionUnit, +assessment: Experience.Assessment, +identity: String, +label: String, +prominence: V.Prominence, input: U.Input, +availability: V.Availability, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Model.canonical_commit(action, assessment, V.ControlDeclaration{identity, label, prominence, input, availability}, parent, state) == Rule.expected_action_commit(assessment, parent, Core.control(state, V.ControlDeclaration{identity, label, prominence, UX.commit(action), availability})) : SurfaceTypes.Node}:
+  InteractionTypes.State{application, services} = state
+  {==}
+
 def Rule.experience_evidence():
   Rule.ExperienceRequirements{
     entry => observation => editor => parent => state => groups => effort_entry_surface_agreement(entry, observation, editor, parent, state, groups),
     profile => reasoning => choices => editor => parent => state => groups => {==},
-    controls => action => submit => parent => state => {==},
-    support => input => availability => gesture => supporting_binding_agreement(support, input, availability, gesture),
-    support => input => availability => {==},
-    support => input => availability => editor => supporting_submission_agreement(support, input, availability, editor),
+    controls => action => assessment => submit => parent => state => {==},
+    support => property => input => availability => gesture => supporting_binding_agreement(support, property, input, availability, gesture),
+    support => property => input => availability => {==},
+    support => property => input => availability => editor => supporting_submission_agreement(support, property, input, availability, editor),
     subject => observed => {==},
     profile => reasoning => choices => rest => editor => parent => state => {==},
     title => entries => rest => editor => parent => ordinal => state => groups => {==},
-    subject => declaration => rest => action => parent => state => {==},
+    property => declaration => rest => action => parent => state => {==},
     subject => observed => profile => rest => {==},
     decision => parent => state => {==},
     decision => label => explanation => value => input => parent => state => {==},
     collection => path => parent => state => {==},
-    action => identity => label => prominence => input => availability => parent => state => {==},
+    action => assessment => identity => label => prominence => input => availability => parent => state => canonical_commit_agreement(action, assessment, identity, label, prominence, input, availability, parent, state),
     editor => revision => reason => parent => {==},
-    support => parent => identity => label => prominence => input => availability => {==}}
+    support => property => parent => identity => label => prominence => input => availability => {==}}
+
+def Rule.assessed_editor_scene(revision, body, feedback, entry, pending, now, world): {==}
+
+def Rule.available_assessment_preserved(assessment): {==}
+def Rule.directory_assessment_preserved(assessment): {==}
+def Rule.unavailable_assessment_uses_actual_reason(assessment, reason): {==}
+def Rule.duplicate_assessment_reason_preserved(assessment, reason): {==}
+def Rule.distinct_assessment_reason_retained(assessment, reason): {==}
+def Rule.commit_explanation_observes_same_assessment(assessment, parent, identity, label, prominence, input, availability): {==}
+
+
+def Rule.context_permission_facts(observation): {==}
+def Rule.context_summary_labels(observation, parent, state): {==}

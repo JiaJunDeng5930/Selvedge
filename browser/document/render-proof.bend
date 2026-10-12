@@ -207,8 +207,8 @@ def RuleCodeObservationRules.source_frame_evidence():
     +focused => +entries => +elements => +viewport => {==},
     +key => +element => +viewport => {==}}
 
-def RuleCodeObservationRules.supporting_is_interactive(support, input, availability):
+def RuleCodeObservationRules.supporting_is_interactive(support, property, input, availability):
   {==}
 
-def RuleCodeObservationRules.supporting_enabled_by_availability(support, input, availability):
+def RuleCodeObservationRules.supporting_enabled_by_availability(support, property, input, availability):
   {==}

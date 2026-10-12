@@ -574,6 +574,19 @@ def action_unit(key: UIIdentity.Key, +action: UXTypes.ActionUnit, visual: Design
   box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
     List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.identity(action))}], List.append(&2, Source.Attribute, subject_attributes(UX.content_subject(action)), AuthoredControls.focus_attributes(AuthoredControls.AggregateFocus{}))), content)
 
+def assessment_subject(field: Maybe<&2, UXTypes.Subject>) -> +List<Source.Attribute>:
+  match field:
+    case None{}: Nil{}
+    case Some{subject}: subject_attributes(subject)
+
+def explanation_visible(blocked: Bool, +key: UIIdentity.Key, +assessment: UXTypes.Assessment, +visual: Design.Style) -> Source.Node:
+  match blocked:
+    case False{}: box(key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), Nil{}, Nil{})
+    case True{}: box(key, Source.Div{}, role_style(visual, SurfaceTypes.Content{}), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}], assessment_subject(UX.assessment_field(assessment))), [text(UIIdentity.part(key, "reason"), UX.assessment_reason(assessment), visual, T.Support{}, T.Regular{})])
+
+def action_explanation(key: UIIdentity.Key, +assessment: UXTypes.Assessment, +visual: Design.Style) -> Source.Node:
+  explanation_visible(Bool.not(String.eq(UX.assessment_reason(assessment), "")), key, assessment, visual)
+
 def support_property_keys(subjects: +List<UXTypes.Subject>) -> String:
   match subjects:
     case Nil{}: ""
@@ -583,13 +596,13 @@ def support_property_keys(subjects: +List<UXTypes.Subject>) -> String:
 def support_properties(subjects: +List<UXTypes.Subject>) -> +List<Source.Attribute>:
   [Source.DataAttribute{"support-properties", support_property_keys(subjects)}]
 
-def supporting_control_visible(visible: Bool, key: UIIdentity.Key, +support: UXTypes.Support, label: String, visual: Design.Style, representation: Controls.Representation) -> Source.Node:
+def supporting_control_visible(visible: Bool, key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, label: String, visual: Design.Style, representation: Controls.Representation) -> Source.Node:
   match visible:
     case False{}: box(key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}], Nil{})
-    case True{}: add_attributes(button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{Controls.support_name(support, label)}], support_properties(UX.support_subjects(support))))
+    case True{}: add_attributes(button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{UX.property_help(property)}], List.append(&2, Source.Attribute, support_properties(UX.support_subjects(support)), [Source.DataAttribute{"object-owner", UX.object_key(UX.property_owner(property))}, Source.DataAttribute{"source-owner", UX.property_source_key(property)}])))
 
-def supporting_control(key: UIIdentity.Key, +support: UXTypes.Support, label: String, visual: Design.Style, representation: Controls.Representation) -> Source.Node:
-  supporting_control_visible(UX.support_visible(support), key, support, label, visual, representation)
+def supporting_control(key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, label: String, visual: Design.Style, representation: Controls.Representation) -> Source.Node:
+  supporting_control_visible(UX.support_visible(support), key, support, property, label, visual, representation)
 
 def action_feedback(+key: UIIdentity.Key, feedback: UXTypes.Feedback, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
   UXTypes.Feedback{+editor, +revision, +reason} = feedback
@@ -622,7 +635,9 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.WorkspaceCollection{collection}: workspace_collection(key, collection, label, visual, content)
     case SurfaceTypes.WorkspaceMember{collection, path}: workspace_member(key, collection, path, visual, content)
     case SurfaceTypes.ActionUnit{action}: action_unit(key, action, visual, content)
-    case SurfaceTypes.SupportingControl{support, input, availability}: supporting_control(key, support, label, visual, representation)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: supporting_control(key, support, property, label, visual, representation)
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: add_attributes(button_source(key, visual, representation), [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}])
+    case SurfaceTypes.ActionExplanation{assessment}: action_explanation(key, assessment, visual)
     case SurfaceTypes.ActionFeedback{feedback}: action_feedback(key, feedback, visual, content)
     case SurfaceTypes.Edit{+editor, +field, Forms.DirectoryCollection{}, value, choices}: add_attributes(compound_directory(field, value, key, label, visual, content), [Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}])
     case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound(key, label, field, visual, content)
