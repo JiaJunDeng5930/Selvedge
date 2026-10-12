@@ -1,3 +1,6 @@
+import ../../interaction/services/CONTEXT.bend as Workspace
+import ../../interaction/experience/MODEL.bend as UXTypes
+import ../../interaction/INPUT.bend as User
 import ../controls/CONTROLS.bend as AuthoredControls
 import ../../interaction/submission/FIELDS.bend as Forms
 import ../../interaction/TYPES.bend as InteractionTypes
@@ -287,5 +290,162 @@ def owned_foreground(+owner: UIIdentity.Key, +role: Information.TextRole, value:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
 
+def experience_source(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.experience_source(key, label, role, meaning, visual, representation, children, parameters, content):
+  match meaning:
+    case SurfaceTypes.DecisionGroup{decision}: {==}
+    case SurfaceTypes.ObjectGroup{object}: {==}
+    case SurfaceTypes.WorkspaceCollection{collection}: {==}
+    case SurfaceTypes.WorkspaceMember{collection, path}: {==}
+    case SurfaceTypes.ActionUnit{action}: {==}
+    case SurfaceTypes.SupportingControl{support, input, availability}: {==}
+    case SurfaceTypes.ActionFeedback{feedback}: {==}
+    case SurfaceTypes.InformationText{role}: {==}
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: {==}
+    case SurfaceTypes.DirectoryBrowserLocation{value}: {==}
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: {==}
+    case SurfaceTypes.CardContent{face}: {==}
+    case SurfaceTypes.MovableCard{destinations, face}: {==}
+    case SurfaceTypes.Region{}: {==}
+    case SurfaceTypes.PageContext{conversation}: {==}
+    case SurfaceTypes.ActivityContent{expanded, audit}: {==}
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
+    case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.ProjectChooser{selected}: {==}
+    case SurfaceTypes.DirectoryRow{path, primary}: {==}
+    case SurfaceTypes.ContextSummary{observation}: {==}
+    case SurfaceTypes.ChoiceGroup{}: {==}
+    case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: {==}
+    case SurfaceTypes.PageRegion{region, position}: {==}
+    case SurfaceTypes.BoardLane{stage, count}: {==}
+    case SurfaceTypes.CardArchive{count}: {==}
+    case SurfaceTypes.BoardSearch{filter}: {==}
+    case SurfaceTypes.BoardGroup{grouping}: {==}
+    case SurfaceTypes.ReadOnly{text}: {==}
+    case SurfaceTypes.Fact{value}: {==}
+    case SurfaceTypes.RichText{source, value}: {==}
+    case SurfaceTypes.TaskFacts{details}: {==}
+    case SurfaceTypes.CodeFacts{view}: {==}
+    case SurfaceTypes.Activate{input, availability}: {==}
+    case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
+    case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
+    case SurfaceTypes.EnterDirectory{editor, text}: {==}
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
+
+def owned_group_source(+key: UIIdentity.Key, +label: String, +visual: Design.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> RuleSourceRules.owned_group_source(key, label, visual, attributes, content):
+  {==}
+
+def property_source(+editor: User.Editor, +field: Forms.Field, +key: UIIdentity.Key, entry: Forms.Entry, observed: Forms.Observed, choices: +List<Forms.ChoiceValue>) -> RuleSourceRules.property_source(editor, field, key, entry, observed, choices):
+  {==}
+
+def subject_source(+subject: UXTypes.Subject) -> RuleSourceRules.subject_source(subject):
+  UXTypes.Subject{editor, field} = subject
+  {==}
+
+def selected_marker(+selected: Bool, +key: UIIdentity.Key, +visual: Design.Style, +size: Nat) -> RuleSourceRules.selected_marker(selected, key, visual, size):
+  match selected:
+    case True{}: {==}
+    case False{}: {==}
+
+def slot_emphasis(+scale: T.Scale) -> RuleSourceRules.slot_emphasis(scale):
+  {==}
+
+def member_source(+key: UIIdentity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.member_source(key, collection, path, visual, content):
+  {==}
+
+def action_source(+key: UIIdentity.Key, +action: UXTypes.ActionUnit, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.action_source(key, action, visual, content):
+  {==}
+
+def feedback_source(+key: UIIdentity.Key, +feedback: UXTypes.Feedback, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.feedback_source(key, feedback, visual, content):
+  UXTypes.Feedback{editor, revision, reason} = feedback
+  {==}
+
+def aggregate_focus(+visual: Design.Style) -> RuleSourceRules.aggregate_focus(visual):
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+  {==}
+
+def grouped_menu_source(+key: UIIdentity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> RuleSourceRules.grouped_menu_source(key, tag, style, attributes, content):
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  {==}
+
+def support_source(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> RuleSourceRules.support_source(visible, key, support, label, visual, representation):
+  match visible:
+    case False{}: {==}
+    case True{}: {==}
+
+def typed_action_style(+key: UIIdentity.Key, +action: UXTypes.ActionUnit, family: Controls.SourceFamily, representation: Controls.Representation, +visual: Design.Style, typography: T.Presentation) -> RuleSourceRules.typed_action_style(key, action, family, representation, visual, typography):
+  {==}
+
+def action_focus_states(+chrome: Design.Chrome, +states: Design.ControlStates) -> RuleSourceRules.action_focus_states(chrome, states):
+  Design.Chrome{foreground, background, border, width, radius, shadow} = chrome
+  match states:
+    case Design.Passive{}: {==}
+    case Design.SurfaceFeedback{hover, pressed}: {==}
+    case Design.Interactive{hover, pressed, opacity, focus}: {==}
+
+def alternative_rest(+typography: T.Presentation) -> RuleSourceRules.alternative_rest(typography):
+  T.Presentation{tier, emphasis, scale} = typography
+  {==}
+
+def alternative_states(+typography: T.Presentation) -> RuleSourceRules.alternative_states(typography):
+  {==}
+
+def object_source(+key: UIIdentity.Key, +object: UXTypes.Object, +label: String, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.object_source(key, object, label, visual, content):
+  {==}
+
+def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key: UIIdentity.Key, +label: String, +visual: Design.Style, +children: +List<Source.Node>) -> RuleSourceRules.compound_directory_source(field, value, key, label, visual, children):
+  match field:
+    case Forms.WorkspaceDirectories{}:
+      match value:
+        case Forms.WorkspaceValue{workspace}: {==}
+        case Forms.ContextValue{preview}:
+          match preview:
+            case Workspace.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: {==}
+            case Workspace.ContextUnavailable{reason}: {==}
+        case Forms.ToggleValue{enabled}: {==}
+        case Forms.TextValue{text}: {==}
+        case Forms.CountValue{count}: {==}
+        case Forms.TextsValue{values}: {==}
+        case Forms.ModelValue{profile, reasoning}: {==}
+        case Forms.DeliveryValue{delivery}: {==}
+        case Forms.StageValue{stage}: {==}
+        case Forms.PriorityValue{priority}: {==}
+        case Forms.OwnerValue{owner}: {==}
+        case Forms.ProjectValue{project}: {==}
+        case Forms.AttachmentsValue{files}: {==}
+        case Forms.AssistanceValue{enabled, profile}: {==}
+        case Forms.OptionalTextValue{text}: {==}
+        case Forms.NotApplicable{}: {==}
+    case Forms.MessageText{}: {==}
+    case Forms.ProjectName{}: {==}
+    case Forms.WorkspacePrimary{}: {==}
+    case Forms.ContextOrigin{}: {==}
+    case Forms.SandboxMode{}: {==}
+    case Forms.NetworkAccess{}: {==}
+    case Forms.ApprovalPolicy{}: {==}
+    case Forms.ModelProfile{}: {==}
+    case Forms.ReasoningEffort{}: {==}
+    case Forms.DeliveryIntent{}: {==}
+    case Forms.CardTitle{}: {==}
+    case Forms.CardDescription{}: {==}
+    case Forms.CardStage{}: {==}
+    case Forms.CardPriority{}: {==}
+    case Forms.CardOwner{}: {==}
+    case Forms.CardProject{}: {==}
+    case Forms.CardLabels{}: {==}
+    case Forms.CardAttachments{}: {==}
+    case Forms.ContinueCapture{}: {==}
+    case Forms.AssistedCapture{}: {==}
+    case Forms.AssistanceProfile{}: {==}
+    case Forms.AgentName{}: {==}
+    case Forms.AgentInstructions{}: {==}
+    case Forms.AgentConcurrency{}: {==}
+    case Forms.ForkCount{}: {==}
+    case Forms.ForkMessages{}: {==}
+    case Forms.CompactionSummary{}: {==}
+
+def directory_source(+editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.directory_source(editor, field, value, choices, key, label, role, visual, representation, children, parameters, content):
+  {==}
+
 def RuleSourceRules.evidence():
-  RuleSourceRules.Requirements{owned_alignment, owned_width, owned_foreground, +value => {==}, owned_information, scalar_information, field_label, option_label, option_description, group_title, panel_title, dialog_title, +key => {==}, option_reference, compound_label, role => area => {==}, selected => {==}, user_width_policy, user_message_width, fact_display_value, fact_content, fact_source_dispatch, native_field_footprint, card_regions, board_group_content_minimum, board_group, confined_content_minimum, page_region, parameter_calculations, board_controls, board_stages, heading_caption, lane_style, parameter_source, position_of_actual_rule, border_of_actual_rule, font_resolution, event_ownership, bounded_policy_factory}
+  RuleSourceRules.Requirements{compound_directory_source, directory_source, object_source, support_source, typed_action_style, action_focus_states, alternative_rest, alternative_states, member_source, action_source, feedback_source, aggregate_focus, grouped_menu_source, experience_source, owned_group_source, property_source, subject_source, selected_marker, slot_emphasis, owned_alignment, owned_width, owned_foreground, +value => {==}, owned_information, scalar_information, field_label, option_label, option_description, group_title, panel_title, dialog_title, +key => {==}, option_reference, compound_label, role => area => {==}, selected => {==}, user_width_policy, user_message_width, fact_display_value, fact_content, fact_source_dispatch, native_field_footprint, card_regions, board_group_content_minimum, board_group, confined_content_minimum, page_region, parameter_calculations, board_controls, board_stages, heading_caption, lane_style, parameter_source, position_of_actual_rule, border_of_actual_rule, font_resolution, event_ownership, bounded_policy_factory}

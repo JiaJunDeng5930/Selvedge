@@ -116,6 +116,15 @@ def primary_button(+typography: T.Presentation) -> Design.Style:
 def destructive_button(+typography: T.Presentation) -> Design.Style:
   button_style(Design.SurfaceForeground{Surfaces.DestructiveAction{}}, Surfaces.DestructiveAction{}, T.Medium{}, typography)
 
+def transparent_rest(value: Design.Style) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, Design.Transparent{}, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}
+
+def alternative_button(selected: Bool, +typography: T.Presentation) -> Design.Style:
+  match selected:
+    case True{}: transparent_rest(button_style(Design.SurfaceForeground{Surfaces.Choice{True{}}}, Surfaces.Choice{True{}}, T.Medium{}, typography))
+    case False{}: button_style(Design.SurfaceForeground{Surfaces.Choice{False{}}}, Surfaces.Choice{False{}}, T.Medium{}, typography)
+
 def choice_button(selected: Bool, +typography: T.Presentation) -> Design.Style:
   match selected:
     case True{}: button_style(Design.SurfaceForeground{Surfaces.Choice{True{}}}, Surfaces.Choice{True{}}, T.Medium{}, typography)
@@ -386,9 +395,9 @@ def action_style(+value: Design.Style, +face: Controls.Face, +geometry: Controls
 def selection_style(value: Design.Style, behavior: Controls.Behavior, +typography: T.Presentation) -> Design.Style:
   match behavior:
     case Controls.Radio{selected}: choice_button(selected, Design.style_text(value))
-    case Controls.ChoiceRadio{selected}: choice_button(selected, Design.style_text(value))
+    case Controls.ChoiceRadio{selected}: alternative_button(selected, Design.style_text(value))
     case Controls.MenuCheckbox{selected}: choice_button(selected, Design.style_text(value))
-    case Controls.ChoiceCheckbox{selected}: choice_button(selected, Design.style_text(value))
+    case Controls.ChoiceCheckbox{selected}: alternative_button(selected, Design.style_text(value))
     case Controls.Toggle{selected}: choice_button(selected, Design.style_text(value))
     case _: value
 
@@ -475,6 +484,17 @@ def lane_style(value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
   Design.Style{text, Design.Chrome{foreground, surface(Surfaces.Lane{Surfaces.Neutral{}}, Surfaces.Rest{}), border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{Enclosure.area(Enclosure.Lane{}), arrangement}, minimum, maximum, states}
 
+def action_focus_states(+chrome: Design.Chrome, states: Design.ControlStates) -> Design.ControlStates:
+  Design.Chrome{+foreground, +background, +border, width, radius, shadow} = chrome
+  match states:
+    case Design.Interactive{hover, pressed, opacity, focus}: Design.Interactive{hover, pressed, opacity, Design.FocusIndicator{border, 1n, 0n}}
+    case Design.SurfaceFeedback{hover, pressed}: Design.Interactive{hover, pressed, 40n, Design.FocusIndicator{border, 1n, 0n}}
+    case Design.Passive{}: Design.Interactive{Design.PhasePaint{foreground, background}, Design.PhasePaint{foreground, background}, 40n, Design.FocusIndicator{border, 1n, 0n}}
+
+def action_unit_style(value: Design.Style) -> Design.Style:
+  Design.Style{text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, action_focus_states(chrome, states)}
+
 def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
     case SurfaceTypes.BoardLane{stage, count}: lane_style(value)
@@ -484,6 +504,9 @@ def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Co
     case SurfaceTypes.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
     case SurfaceTypes.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
     case SurfaceTypes.ChoiceGroup{}: choice_group_style(value)
+    case SurfaceTypes.DecisionGroup{decision}: choice_group_style(value)
+    case SurfaceTypes.WorkspaceMember{collection, path}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
+    case SurfaceTypes.ActionUnit{action}: action_unit_style(value)
     case SurfaceTypes.Region{}: source_header_style(key, family, value, typography)
     case SurfaceTypes.PageContext{conversation}: source_header_style(key, family, value, typography)
     case SurfaceTypes.ActivityContent{expanded, audit}: source_header_style(key, family, value, typography)

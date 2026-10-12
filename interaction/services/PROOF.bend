@@ -1,3 +1,6 @@
+import ../experience/PROGRAM.bend as UX
+import ../experience/MODEL.bend as Experience
+import ../submission/FIELDS.bend as Forms
 import Base
 import ../IDENTITY.bend as Identity
 import ./CONTRACT.bend as Rule
@@ -12,7 +15,6 @@ import ../INPUT.bend as U
 import ../session/MODEL.bend as E
 import ../presentation/MODEL.bend as V
 import ../presentation/PROGRAM.bend as InterfaceView
-import ../submission/FIELDS.bend as Forms
 import ../presentation/VIEW.bend as View
 import ../TYPES.bend as InteractionTypes
 import ../presentation/SURFACE.bend as SurfaceTypes
@@ -34,37 +36,41 @@ def retained_summary(+value: Context.Observation, parent: Identity.Key, state: I
   InteractionTypes.State{E.Application{world, session}, services} = state
   {==}
 
-def mode_input(+mode: D.SandboxMode, current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_input(InterfaceView.sandbox_choice(mode, current, network, editor, parent, state)) ==
-    Some{InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}}}} : Maybe<&2, InteractionTypes.Input>}:
-  InteractionTypes.State{application, services} = state
-  {==}
+def alternative_value(value: Experience.Alternative) -> Experience.Value:
+  Experience.Alternative{label, explanation, value} = value
+  value
 
-def network_input(+mode: D.SandboxMode, current: Bool, +target: Bool, +editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_input(InterfaceView.network_choice(mode, current, target, editor, parent, state)) ==
-    Some{InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, target}}}}}}} : Maybe<&2, InteractionTypes.Input>}:
-  InteractionTypes.State{application, services} = state
-  {==}
+def input_projection(+found: Maybe<&2, U.Input>, +decision: Experience.Decision, +alternative: Experience.Alternative, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_input(InterfaceView.decision_choice_resolved(found, decision, alternative, parent, state)) == Rule.expected_input(found) : Maybe<&2, InteractionTypes.Input>}:
+  match found alternative state:
+    case None{} Experience.Alternative{label, explanation, value} InteractionTypes.State{application, services}: {==}
+    case Some{input} Experience.Alternative{label, explanation, value} InteractionTypes.State{application, services}: {==}
 
-def network_selection(mode: D.SandboxMode, +current: Bool, +target: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_selection(InterfaceView.network_choice(mode, current, target, editor, parent, state)) == Some{Cmp.is_eq(Bool.cmp(current, target))} : Maybe<&2, Bool>}:
-  match current target state:
-    case False{} False{} InteractionTypes.State{application, services}: {==}
-    case False{} True{} InteractionTypes.State{application, services}: {==}
-    case True{} False{} InteractionTypes.State{application, services}: {==}
-    case True{} True{} InteractionTypes.State{application, services}: {==}
+def selection_projection(+found: Maybe<&2, U.Input>, +decision: Experience.Decision, +alternative: Experience.Alternative, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_selection(InterfaceView.decision_choice_resolved(found, decision, alternative, parent, state)) == Rule.expected_selection(found, UX.selected(decision, alternative_value(alternative))) : Maybe<&2, Bool>}:
+  match found alternative state:
+    case None{} Experience.Alternative{label, explanation, value} InteractionTypes.State{application, services}: {==}
+    case Some{input} Experience.Alternative{label, explanation, value} InteractionTypes.State{application, services}: {==}
 
-def approval_input(+choice: Context.ApprovalChoice, current: Context.ApprovalChoice, reviewer: Maybe<&2, D.Profile>, +editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_input(InterfaceView.approval_choice_node(choice, current, reviewer, editor, parent, state)) ==
-    Some{InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfigureContext{Context.SetApproval{choice}}}}}} : Maybe<&2, InteractionTypes.Input>}:
-  InteractionTypes.State{application, services} = state
-  {==}
+def mode_input(+mode: D.SandboxMode, +current: D.SandboxMode, +network: Bool, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_input(InterfaceView.sandbox_choice(mode, current, network, editor, parent, state)) == Rule.expected_input(UX.choose(UX.decision(Experience.Subject{editor, Forms.SandboxMode{}}, InterfaceView.field_value(state, editor, Forms.SandboxMode{}), "Filesystem access", [InterfaceView.sandbox_alternative(mode)]), Experience.Filesystem{mode})) : Maybe<&2, InteractionTypes.Input>}:
+  input_projection(UX.choose(UX.decision(Experience.Subject{editor, Forms.SandboxMode{}}, InterfaceView.field_value(state, editor, Forms.SandboxMode{}), "Filesystem access", [InterfaceView.sandbox_alternative(mode)]), Experience.Filesystem{mode}), UX.decision(Experience.Subject{editor, Forms.SandboxMode{}}, InterfaceView.field_value(state, editor, Forms.SandboxMode{}), "Filesystem access", [InterfaceView.sandbox_alternative(mode)]), InterfaceView.sandbox_alternative(mode), parent, state)
 
-def automatic_selection(+current: String, +next: String, reviewer: Maybe<&2, D.Profile>, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_selection(InterfaceView.approval_choice_node(Context.AutomaticReview{next}, Context.AutomaticReview{current}, reviewer, editor, parent, state)) ==
-    Some{String.eq(current, next)} : Maybe<&2, Bool>}:
-  InteractionTypes.State{application, services} = state
-  {==}
+def network_input(+mode: D.SandboxMode, +current: Bool, +target: Bool, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_input(InterfaceView.network_choice(mode, current, target, editor, parent, state)) == Rule.expected_input(UX.choose(UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), Experience.Network{target})) : Maybe<&2, InteractionTypes.Input>}:
+  input_projection(UX.choose(UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), Experience.Network{target}), UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), InterfaceView.network_alternative(target), parent, state)
+
+def network_selection(+mode: D.SandboxMode, +current: Bool, +target: Bool, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_selection(InterfaceView.network_choice(mode, current, target, editor, parent, state)) == Rule.expected_selection(UX.choose(UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), Experience.Network{target}), UX.selected(UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), Experience.Network{target})) : Maybe<&2, Bool>}:
+  selection_projection(UX.choose(UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), Experience.Network{target}), UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(target)]), InterfaceView.network_alternative(target), parent, state)
+
+def approval_input(+choice: Context.ApprovalChoice, +current: Context.ApprovalChoice, +reviewer: Maybe<&2, D.Profile>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_input(InterfaceView.approval_choice_node(choice, current, reviewer, editor, parent, state)) == Rule.expected_input(UX.choose(UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(choice, reviewer)]), Experience.Approval{choice})) : Maybe<&2, InteractionTypes.Input>}:
+  input_projection(UX.choose(UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(choice, reviewer)]), Experience.Approval{choice}), UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(choice, reviewer)]), InterfaceView.approval_alternative(choice, reviewer), parent, state)
+
+def automatic_selection(+current: String, +next: String, +reviewer: Maybe<&2, D.Profile>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Rule.choice_selection(InterfaceView.approval_choice_node(Context.AutomaticReview{next}, Context.AutomaticReview{current}, reviewer, editor, parent, state)) == Rule.expected_selection(UX.choose(UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(Context.AutomaticReview{next}, reviewer)]), Experience.Approval{Context.AutomaticReview{next}}), UX.selected(UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(Context.AutomaticReview{next}, reviewer)]), Experience.Approval{Context.AutomaticReview{next}})) : Maybe<&2, Bool>}:
+  selection_projection(UX.choose(UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(Context.AutomaticReview{next}, reviewer)]), Experience.Approval{Context.AutomaticReview{next}}), UX.decision(Experience.Subject{editor, Forms.ApprovalPolicy{}}, InterfaceView.field_value(state, editor, Forms.ApprovalPolicy{}), "Approval policy", [InterfaceView.approval_alternative(Context.AutomaticReview{next}, reviewer)]), InterfaceView.approval_alternative(Context.AutomaticReview{next}, reviewer), parent, state)
 
 def no_duplicate_network_reset(config: Context.Configuration) ->
   {InterfaceView.reset_change(config, Forms.NetworkAccess{}) == None{} : Maybe<&2, Context.Change>}:
@@ -132,9 +138,7 @@ def permissions_menu_observation(+editor: U.Editor, config: Context.Configuratio
     case U.MessageEditor{+task}:
       InteractionTypes.State{E.Application{+world, +session}, +services} = state
       committed_permission_observation(View.committed_context(Tasks.find(Commands.entries(world), task)), parent, InteractionTypes.State{E.Application{world, session}, services},
-        InterfaceView.sandbox_choices(Context.unwrap_sandbox(sandbox), U.MessageEditor{task}, parent, InteractionTypes.State{E.Application{world, session}, services}) <>
-        InterfaceView.network_choices(Context.unwrap_sandbox(sandbox), U.MessageEditor{task}, parent, InteractionTypes.State{E.Application{world, session}, services}) <>
-        InterfaceView.approval_choices(Context.observed_approval(approval), reviewers, U.MessageEditor{task}, parent, InteractionTypes.State{E.Application{world, session}, services}) <> Nil{})
+        InterfaceView.permission_decisions(U.MessageEditor{task}, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers, parent, InteractionTypes.State{E.Application{world, session}, services}))
     case U.NewTaskEditor{}:
       InteractionTypes.State{E.Application{world, session}, services} = state
       {==}
@@ -159,44 +163,44 @@ def admitted_task_identity(+task: D.Task) ->
   D.Task{id, lineage, D.Contract{model, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified} = task
   {==}
 
-def network_group_selection(mode: D.SandboxMode, +network: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.network_pair(InterfaceView.network_choices(D.Sandbox{mode, network}, editor, parent, state)) == (Some{Bool.not(network)}, Some{network}) : Sigma<&2, &2, Maybe<&2, Bool>, (_ => Maybe<&2, Bool>)>}:
+def network_group_selection(+mode: D.SandboxMode, +network: Bool, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {InterfaceView.network_choices(D.Sandbox{mode, network}, editor, parent, state) == InterfaceView.decision_surface(UX.decision(Experience.Subject{editor, Forms.NetworkAccess{}}, InterfaceView.field_value(state, editor, Forms.NetworkAccess{}), "Network access", [InterfaceView.network_alternative(False{}), InterfaceView.network_alternative(True{})]), parent, state) : SurfaceTypes.Node}:
   match network state:
     case False{} InteractionTypes.State{application, services}: {==}
     case True{} InteractionTypes.State{application, services}: {==}
 
 def filesystem_write_caption(current: D.SandboxMode, network: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.sandbox_choice(D.WorkspaceWrite{}, current, network, editor, parent, state)) == Some{Rule.ChoiceCaption{"Workspace write", "Allow edits in the working directories."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.sandbox_alternative(D.WorkspaceWrite{})) == Some{Rule.ChoiceCaption{"Workspace write", "Allow edits in the working directories."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
 def filesystem_read_caption(current: D.SandboxMode, network: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.sandbox_choice(D.ReadOnly{}, current, network, editor, parent, state)) == Some{Rule.ChoiceCaption{"Read only", "Read files without modifying them."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.sandbox_alternative(D.ReadOnly{})) == Some{Rule.ChoiceCaption{"Read only", "Read files without modifying them."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
 def network_disabled_caption(mode: D.SandboxMode, current: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.network_choice(mode, current, False{}, editor, parent, state)) == Some{Rule.ChoiceCaption{"Disabled", "Keep network access off."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.network_alternative(False{})) == Some{Rule.ChoiceCaption{"Disabled", "Keep network access off."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
 def network_enabled_caption(mode: D.SandboxMode, current: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.network_choice(mode, current, True{}, editor, parent, state)) == Some{Rule.ChoiceCaption{"Enabled", "Allow network access."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.network_alternative(True{})) == Some{Rule.ChoiceCaption{"Enabled", "Allow network access."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
 def ask_caption(current: Context.ApprovalChoice, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.approval_choice_node(Context.Ask{}, current, None{}, editor, parent, state)) == Some{Rule.ChoiceCaption{"Ask", "Ask before running actions that require approval."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.approval_alternative(Context.Ask{}, None{})) == Some{Rule.ChoiceCaption{"Ask", "Ask before running actions that require approval."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
 def unrestricted_caption(current: Context.ApprovalChoice, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.approval_choice_node(Context.Unrestricted{}, current, None{}, editor, parent, state)) == Some{Rule.ChoiceCaption{"Unrestricted", "Run actions without approval prompts."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.approval_alternative(Context.Unrestricted{}, None{})) == Some{Rule.ChoiceCaption{"Unrestricted", "Run actions without approval prompts."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
 def automatic_caption(+key: String, provider: String, +name: String, reasoning: Reasoning.Policy, options: Maybe<&2, D.ReasoningOptions>, current: Context.ApprovalChoice, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
-  {Rule.choice_caption(InterfaceView.approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, reasoning, options}}, editor, parent, state)) == Some{Rule.ChoiceCaption{"Automatic review: " ++ name, "Use this model to review approval requests."}} : Maybe<&2, Rule.ChoiceCaption>}:
+  {Rule.alternative_caption(InterfaceView.approval_alternative(Context.AutomaticReview{key}, Some{D.Profile{key, provider, name, reasoning, options}})) == Some{Rule.ChoiceCaption{"Automatic review: " ++ name, "Use this model to review approval requests."}} : Maybe<&2, Rule.ChoiceCaption>}:
   InteractionTypes.State{application, services} = state
   {==}
 
@@ -219,7 +223,7 @@ def Rule.context_evidence():
     mode => current => editor => parent => state => network_enabled_caption(mode, current, editor, parent, state),
     current => editor => parent => state => ask_caption(current, editor, parent, state),
     current => editor => parent => state => unrestricted_caption(current, editor, parent, state),
-    key => provider => name => reasoning => current => editor => parent => state => automatic_caption(key, provider, name, reasoning, current, editor, parent, state),
+    key => provider => name => reasoning => options => current => editor => parent => state => automatic_caption(key, provider, name, reasoning, options, current, editor, parent, state),
     key => {==},
     task => admitted_task_identity(task), path => primary => gesture => {==}, value => gesture => {==},
     selected => description => input => {==}, selected => description => input => reason => {==},
@@ -236,8 +240,8 @@ def Rule.context_evidence():
     task => message => delivery => scene => world => message_composer_context(task, message, delivery, scene, world),
     +task => {==},
     value => parent => state => retained_summary(value, parent, state),
-    +path => +primary => choose => remove => parent => state => {==},
-    +path => +rest => +primary => +editor => {==},
+    +path => +collection => parent => state => {==},
+    +collection => +path => +parent => +state => {==},
     mode => current => network => editor => parent => state => mode_input(mode, current, network, editor, parent, state),
     mode => current => target => editor => parent => state => network_input(mode, current, target, editor, parent, state),
     mode => current => target => editor => parent => state => network_selection(mode, current, target, editor, parent, state),

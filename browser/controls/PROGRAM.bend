@@ -1,3 +1,5 @@
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/GEOMETRY.bend as SpatialModel
@@ -346,6 +348,8 @@ def area_for_node(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, inheri
     case SurfaceTypes.BoardGroup{SurfaceTypes.PrimaryAction{}}: ToolbarArea{}
     case SurfaceTypes.BoardLane{stage, count}: BoardLaneArea{}
     case SurfaceTypes.ChoiceGroup{}: ChoiceGroupArea{}
+    case SurfaceTypes.DecisionGroup{decision}: ChoiceGroupArea{}
+    case SurfaceTypes.ActionUnit{action}: ComposerArea{}
     case _: area_for(role, inherited)
 
 def source_scope(role: SurfaceTypes.Role, inherited: SourceFamily) -> SourceFamily:
@@ -782,35 +786,6 @@ def permission_face(observation: Maybe<&2, Workspace.Observation>) -> Face:
       permission_values_face(sandbox, Workspace.approval_choice(approval))
     case _: IconFace{Warning{}}
 
-def delivery_name(delivery: UserInput.Delivery) -> String:
-  match delivery:
-    case UserInput.Send{}: "Send a new message"
-    case UserInput.Steer{}: "Steer the running task"
-
-def composer_face(subject: View.ComposerSubject, label: String, current: Face,
-  execution: Maybe<&2, Workspace.Observation>) -> Face:
-  match subject:
-    case View.ModelSubject{}: current
-    case View.WorkspaceSubject{}: PickerFace{Some{Folder{}}, label}
-    case View.PermissionsSubject{}: permission_face(execution)
-    case View.DeliverySubject{UserInput.Send{}}: IconFace{ArrowUp{}}
-    case View.DeliverySubject{UserInput.Steer{}}: IconFace{Branch{}}
-
-def composer_name(subject: View.ComposerSubject, label: String) -> String:
-  match subject:
-    case View.PermissionsSubject{}: "Permissions: " ++ label
-    case View.DeliverySubject{delivery}: delivery_name(delivery)
-    case _: label
-
-def composer_action_fields(+subject: View.ComposerSubject, +label: String,
-  execution: Maybe<&2, Workspace.Observation>, area: Area, value: Representation) -> Representation:
-  match value:
-    case Action{Button{input, +availability, old_name, current, behavior, geometry, placement, +feedback}}:
-      +name = composer_name(subject, label)
-      +face = composer_face(subject, label, current, execution)
-      Action{Button{input, availability, name, face, behavior, geometry_for(ChooseValue{False{}}, face, area), placement, feedback}}
-    case _: value
-
 def action_for_purpose(+intent: Purpose, +area: Area, +input: InteractionTypes.Input,
   +availability: View.Availability, label: String, role: SurfaceTypes.Role) -> Representation:
   +control_name = name_for(intent, label)
@@ -839,11 +814,6 @@ def panel_toggle_fields(+expanded: Bool, value: Representation) -> Representatio
 def make_panel_toggle(key: UIIdentity.Key, expanded: Bool, input: InteractionTypes.Input, availability: View.Availability,
   label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
   panel_toggle_fields(expanded, make_action(key, input, availability, label, role, context))
-
-def make_composer_action(key: UIIdentity.Key, subject: View.ComposerSubject, input: InteractionTypes.Input,
-  availability: View.Availability, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
-  Context{area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
-  composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
 
 def choice_description_for(empty: Bool, value: String) -> Maybe<&2, String>:
   match empty:
@@ -1126,9 +1096,75 @@ def represent_action(key: UIIdentity.Key, +input: InteractionTypes.Input, availa
   Context{+area, selection, code, appearance, access, open, layers, execution, +source_family} = context
   source_action(area, source_family, make_action(key, input, availability, label, role, context))
 
+def permission_picker(value: Face) -> Face:
+  match value:
+    case PermissionFace{filesystem, network, approval}: PickerFace{Some{filesystem}, "Permissions"}
+    case _: PickerFace{Some{Warning{}}, "Permissions"}
+
+def permission_field(field: Forms.Field) -> Bool:
+  match field:
+    case Forms.SandboxMode{}: True{}
+    case Forms.NetworkAccess{}: True{}
+    case Forms.ApprovalPolicy{}: True{}
+    case _: False{}
+
+def workspace_field(field: Forms.Field) -> Bool:
+  match field:
+    case Forms.WorkspaceDirectories{}: True{}
+    case Forms.WorkspacePrimary{}: True{}
+    case Forms.ContextOrigin{}: True{}
+    case _: False{}
+
+def every_permission_field(fields: +List<Forms.Field>) -> Bool:
+  match fields:
+    case Nil{}: True{}
+    case Con{field, rest}: permission_field(field) && every_permission_field(rest)
+
+def every_workspace_field(fields: +List<Forms.Field>) -> Bool:
+  match fields:
+    case Nil{}: True{}
+    case Con{field, rest}: workspace_field(field) && every_workspace_field(rest)
+
+def support_face_kind(permissions: Bool, workspace: Bool, label: String, current: Face, execution: Maybe<&2, Workspace.Observation>) -> Face:
+  match permissions workspace:
+    case True{} _: permission_picker(permission_face(execution))
+    case False{} True{}: PickerFace{Some{Folder{}}, label}
+    case _ _: current
+
+def support_face_fields(+fields: +List<Forms.Field>, label: String, current: Face, execution: Maybe<&2, Workspace.Observation>) -> Face:
+  support_face_kind(every_permission_field(fields), every_workspace_field(fields), label, current, execution)
+
+def support_face(support: UXTypes.Support, label: String, current: Face, execution: Maybe<&2, Workspace.Observation>) -> Face:
+  support_face_fields(UX.support_fields(support), label, current, execution)
+
+def support_name_kind(permissions: Bool, label: String) -> String:
+  match permissions:
+    case True{}: "Permissions: " ++ label
+    case False{}: label
+
+def support_name(support: UXTypes.Support, label: String) -> String:
+  support_name_kind(every_permission_field(UX.support_fields(support)), label)
+
+def supporting_fields(+support: UXTypes.Support, +label: String, area: Area, execution: Maybe<&2, Workspace.Observation>, value: Representation) -> Representation:
+  match value:
+    case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
+      +shown = support_face(support, label, face, execution)
+      Action{Button{input, availability, support_name(support, label), shown, behavior, geometry_for(ChooseValue{False{}}, shown, area), placement, feedback}}
+    case _: value
+
+def make_support_visible(visible: Bool, key: UIIdentity.Key, +support: UXTypes.Support, input: InteractionTypes.Input, availability: View.Availability, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
+  match visible:
+    case False{}: NoControl{}
+    case True{}:
+      Context{+area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
+      supporting_fields(support, label, area, execution, represent_action(key, input, availability, label, role, context))
+
+def make_support(key: UIIdentity.Key, +support: UXTypes.Support, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
+  make_support_visible(UX.support_visible(support), key, support, input, availability, label, role, context)
+
 def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
-    case SurfaceTypes.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
+    case SurfaceTypes.SupportingControl{support, input, availability}: make_support(key, support, input, availability, label, role, context)
     case SurfaceTypes.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
     case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)

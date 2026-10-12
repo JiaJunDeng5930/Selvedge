@@ -1,3 +1,5 @@
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/presentation/INFORMATION.bend as Information
 import ./SURFACES.bend as Surfaces
 import Base
@@ -293,10 +295,15 @@ def placeholder(widget: Controls.Widget, meaning: SurfaceTypes.Meaning, name: St
     case Controls.MessageInput{}: "Ask anything, or describe a task"
     case _: semantic_placeholder(meaning, name)
 
+def message_binding(field: Forms.Field, key: UIIdentity.Key) -> +List<Source.Attribute>:
+  match field:
+    case Forms.MessageText{}: [Source.EditorBindingAttribute{key}]
+    case _: Nil{}
+
 def field_metadata(key: UIIdentity.Key, value: SurfaceTypes.Meaning) -> +List<Source.Attribute>:
   match value:
-    case SurfaceTypes.Edit{editor, Forms.MessageText{}, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.EditorBindingAttribute{key}]
-    case SurfaceTypes.Edit{editor, field, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(field)}]
+    case SurfaceTypes.Edit{+editor, +field, entry, observed, choices}:
+      List.append(&2, Source.Attribute, [Source.DataAttribute{"field", Forms.key(field)}, Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}], message_binding(field, key))
     case _: Nil{}
 
 def field_kind(value: Controls.Widget) -> Source.NativeFieldKind:

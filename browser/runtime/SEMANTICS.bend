@@ -135,7 +135,7 @@ def busy(pending: +List<Pending>, +key: String) -> Bool:
 
 def mask_meaning(blocked: Bool, meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
   match blocked meaning:
-    case True{} SurfaceTypes.ComposerAction{subject, input, availability}: SurfaceTypes.ComposerAction{subject, input, View.Unavailable{"Request pending"}}
+    case True{} SurfaceTypes.SupportingControl{support, input, availability}: SurfaceTypes.SupportingControl{support, input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.Activate{input, availability}: SurfaceTypes.Activate{input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: SurfaceTypes.Choice{kind, icon, selected, description, input, View.Unavailable{"Request pending"}}
     case _ other: other

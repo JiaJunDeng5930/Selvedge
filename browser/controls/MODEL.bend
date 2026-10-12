@@ -1,3 +1,6 @@
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/experience/MODEL.bend as UXTypes
+import ../layout/HIERARCHY.bend as Hierarchy
 import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ../reading/MODEL.bend as ReadingBinding
@@ -376,7 +379,6 @@ def board_group_label(+value: SurfaceTypes.BoardGrouping) -> String:
 
 def lane_create(+stage: Board.Stage, +meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
-    case SurfaceTypes.ComposerAction{subject, InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.NewCard{requested}}}}, availability}: String.eq(Board.stage_name(stage), Board.stage_name(requested))
     case SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.NewCard{requested}}}}, availability}: String.eq(Board.stage_name(stage), Board.stage_name(requested))
     case _: False{}
 
@@ -434,7 +436,6 @@ def card_labels(+values: +List<String>, +key: UIIdentity.Key, +index: Nat, +visu
 
 def more_action(+meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
-    case SurfaceTypes.ComposerAction{subject, InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{object}, trigger}}}}, availability}: True{}
     case SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{object}, trigger}}}}, availability}: True{}
     case _: False{}
 
@@ -506,6 +507,15 @@ def task_children(+values: +List<Child>, +status: View.TaskStatus, +visual: Desi
 def compound(+key: UIIdentity.Key, +label: String, +field: Forms.Field, +visual: Design.Style, +children: +List<Source.Node>) -> Source.Node:
   box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.FieldLabel{}))}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], AuthoredControls.owned_text(key, Information.FieldLabel{}, label, visual) <> children)
 
+def compound_owned(key: UIIdentity.Key, label: String, +field: Forms.Field, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], children)
+
+def compound_directory(field: Forms.Field, value: Forms.Observed, key: UIIdentity.Key, label: String, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
+  match field value:
+    case Forms.WorkspaceDirectories{} Forms.WorkspaceValue{workspace}: compound_owned(key, label, field, visual, children)
+    case Forms.WorkspaceDirectories{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: compound_owned(key, label, field, visual, children)
+    case _ _: compound(key, label, field, visual, children)
+
 def chooser_selection(+value: Maybe<&2, Nat>) -> +List<Source.Attribute>:
   match value:
     case None{}: Nil{}
@@ -531,11 +541,91 @@ def layer_title(role: SurfaceTypes.Role, key: UIIdentity.Key, label: String, vis
     case SurfaceTypes.Dialog{}: content
     case _: AuthoredControls.owned_text(key, Information.SurfaceTitle{}, label, visual) <> content
 
+def subject_attributes(+subject: UXTypes.Subject) -> +List<Source.Attribute>:
+  UXTypes.Subject{editor, field} = subject
+  [Source.DataAttribute{"property", UX.subject_key(subject)}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(subject))}, Source.DataAttribute{"field", Forms.key(field)}]
+
+def owned_members(+key: UIIdentity.Key, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(UIIdentity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.member_frame(Hierarchy.initial())), Nil{}, content)
+
+def owned_group(+key: UIIdentity.Key, label: String, +visual: Design.Style, attributes: +List<Source.Attribute>, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.initial())), Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))} <> attributes,
+    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), owned_members(key, visual, content)])
+
+def decision_group(key: UIIdentity.Key, +decision: UXTypes.Decision, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  owned_group(key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> subject_attributes(UX.decision_subject(decision)), content)
+
+def object_group(+key: UIIdentity.Key, object: UXTypes.Object, label: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.initial())), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))}, Source.DataAttribute{"object-owner", UX.object_key(object)}],
+    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), box(UIIdentity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(Hierarchy.member_frame(Hierarchy.initial())))), Nil{}, content)])
+
+def collection_subject(collection: UXTypes.Collection) -> UXTypes.Subject:
+  UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}
+
+def workspace_collection(key: UIIdentity.Key, +collection: UXTypes.Collection, label: String, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  owned_group(key, label, visual, Source.TabIndexAttribute{"-1"} <> subject_attributes(collection_subject(collection)), content)
+
+def workspace_member(+key: UIIdentity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+    List.append(&2, Source.Attribute, subject_attributes(collection_subject(collection)), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"member", path}, Source.DataAttribute{"reference-property", UX.subject_key(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspacePrimary{}})}, Source.DataAttribute{"primary", FieldOptions.boolean(UX.is_primary(collection, path))}]),
+    [box(UIIdentity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)])
+
+def action_unit(key: UIIdentity.Key, +action: UXTypes.ActionUnit, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+    List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.identity(action))}], List.append(&2, Source.Attribute, subject_attributes(UX.content_subject(action)), AuthoredControls.focus_attributes(AuthoredControls.AggregateFocus{}))), content)
+
+def support_property_keys(subjects: +List<UXTypes.Subject>) -> String:
+  match subjects:
+    case Nil{}: ""
+    case Con{subject, Nil{}}: UX.subject_key(subject)
+    case Con{subject, rest}: UX.subject_key(subject) ++ "|" ++ support_property_keys(rest)
+
+def support_properties(subjects: +List<UXTypes.Subject>) -> +List<Source.Attribute>:
+  [Source.DataAttribute{"support-properties", support_property_keys(subjects)}]
+
+def supporting_control_visible(visible: Bool, key: UIIdentity.Key, +support: UXTypes.Support, label: String, visual: Design.Style, representation: Controls.Representation) -> Source.Node:
+  match visible:
+    case False{}: box(key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}], Nil{})
+    case True{}: add_attributes(button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{Controls.support_name(support, label)}], support_properties(UX.support_subjects(support))))
+
+def supporting_control(key: UIIdentity.Key, +support: UXTypes.Support, label: String, visual: Design.Style, representation: Controls.Representation) -> Source.Node:
+  supporting_control_visible(UX.support_visible(support), key, support, label, visual, representation)
+
+def action_feedback(+key: UIIdentity.Key, feedback: UXTypes.Feedback, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  UXTypes.Feedback{+editor, +revision, +reason} = feedback
+  box(key, Source.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.RoleAttribute{"alert"}, Source.DataAttribute{"action-owner", UX.action_key(UXTypes.ActionIdentity{editor, revision})}, Source.DataAttribute{"action-revision", Nat.show(revision)}, Source.DataAttribute{"action-reason", reason}], text(UIIdentity.part(key, "text"), reason, visual, T.Body{}, T.Regular{}) <> content)
+
+def grouped_children(values: +List<Child>) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{Child{key, role, meaning, control, nodes}, rest}:
+      match meaning:
+        case SurfaceTypes.DecisionGroup{decision}: True{}
+        case SurfaceTypes.ObjectGroup{object}: True{}
+        case SurfaceTypes.WorkspaceCollection{collection}: True{}
+        case _: grouped_children(rest)
+
+def grouped_menu_visible(role: SurfaceTypes.Role, grouped: Bool, node: Source.Node) -> Source.Node:
+  match role grouped node:
+    case SurfaceTypes.Menu{} True{} Source.Box{key, tag, +style, attributes, nodes}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+      Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(frame))), attributes, nodes}
+    case _ _ other: other
+
+def grouped_menu(role: SurfaceTypes.Role, children: +List<Child>, node: Source.Node) -> Source.Node:
+  grouped_menu_visible(role, grouped_children(children), node)
+
 def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
-    case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound(key, label, field, visual, content)
+    case SurfaceTypes.DecisionGroup{decision}: decision_group(key, decision, visual, content)
+    case SurfaceTypes.ObjectGroup{object}: object_group(key, object, label, visual, content)
+    case SurfaceTypes.WorkspaceCollection{collection}: workspace_collection(key, collection, label, visual, content)
+    case SurfaceTypes.WorkspaceMember{collection, path}: workspace_member(key, collection, path, visual, content)
+    case SurfaceTypes.ActionUnit{action}: action_unit(key, action, visual, content)
+    case SurfaceTypes.SupportingControl{support, input, availability}: supporting_control(key, support, label, visual, representation)
+    case SurfaceTypes.ActionFeedback{feedback}: action_feedback(key, feedback, visual, content)
+    case SurfaceTypes.Edit{+editor, +field, Forms.DirectoryCollection{}, value, choices}: add_attributes(compound_directory(field, value, key, label, visual, content), [Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}])
     case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound(key, label, field, visual, content)
-    case SurfaceTypes.ComposerAction{subject, input, availability}: button_source(key, visual, representation)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: button_source(key, visual, representation)
     case SurfaceTypes.Activate{input, availability}: button_source(key, visual, representation)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: button_source(key, visual, representation)
@@ -655,10 +745,15 @@ def composer_focus(role: SurfaceTypes.Role, node: Source.Node) -> Source.Node:
       Source.Box{key, tag, style, List.append(&2, Source.Attribute, attributes, AuthoredControls.focus_attributes(AuthoredControls.AggregateFocus{})), children}
     case _ other: other
 
+def meaning_focus(meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, node: Source.Node) -> Source.Node:
+  match meaning:
+    case SurfaceTypes.ActionUnit{action}: node
+    case _: composer_focus(role, node)
+
 def regular(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
     case SurfaceTypes.Dialog{}: regular_content(key, label, role, meaning, visual, representation, children, parameters, dialog_content(key, label, visual, children))
-    case _: composer_focus(role, regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children))))
+    case _: grouped_menu(role, children, meaning_focus(meaning, role, regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))))
 
 def read_only_role(+role: SurfaceTypes.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Authorship:
   match role:

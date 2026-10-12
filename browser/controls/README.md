@@ -17,8 +17,8 @@ the imports acyclic. The root [PROOF.bend](../../PROOF.bend) assembles the produ
 
 [BUTTONS.bend](BUTTONS.bend) is the public category and construction entry for
 regular scene action buttons. `PROGRAM.Button` is the typed construction syntax;
-`Representation.Action` carries that value. All four existing action meanings
-(`Activate`, `ComposerAction`, `PanelToggle` and `Choice`) use this family through
+`Representation.Action` carries that value. The action meanings
+(`Activate`, `SupportingControl`, `PanelToggle` and `Choice`) use this family through
 `MODEL`. Face, behavior, geometry, placement and feedback remain explicit inputs.
 Help is derived from the final face, availability, feedback and declared name by
 `PROGRAM.button_help`; callers cannot independently supply a stale help value.

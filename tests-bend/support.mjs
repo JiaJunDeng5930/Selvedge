@@ -67,6 +67,9 @@ def commands_of(decision: CoreTypes.Decision) -> Result<&2, &2, String, String>:
   match decision:
     case CoreTypes.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: J.show(J.Array{requests(interaction_effects)})
 
+def activate_state(state: CoreTypes.State, key: String) -> CoreTypes.State:
+  state_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, state))
+
 def press_state(state: CoreTypes.State, key: String) -> Result<&2, &2, String, String>:
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, state))
 
@@ -74,7 +77,7 @@ def press(program: M.World(), task: Nat, key: String) -> Result<&2, &2, String, 
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, selected(program, task)))
 `);
     await compileJavaScript({ entry, output, sourceRoot: repository,
-      exports: { surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', press_state: 'press_state' } });
+      exports: { surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', activate_state: 'activate_state', press_state: 'press_state' } });
     return import(pathToFileURL(output).href);
   })();
 }

@@ -1,3 +1,4 @@
+import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -680,13 +681,20 @@ def selection_widget(widget: Controls.Widget) -> Bool:
     case Controls.ToggleInput{}: True{}
     case _: False{}
 
+def expected_workspace_picker(found: Maybe<&2, Domain.Workspace>, +editor: User.Editor, +parent: UIIdentity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: [SurfaceTypes.Node{UIIdentity.Part{parent, "unavailable"}, "context/unavailable", "Workspace is unavailable", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Workspace is unavailable"}, Nil{}}]
+    case Some{workspace}:
+      +collection = UX.collection(editor, workspace)
+      [SurfaceTypes.Node{UIIdentity.Part{parent, "workspace"}, "workspace/collection", "Working directories", SurfaceTypes.Section{}, SurfaceTypes.WorkspaceCollection{collection},
+        SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Add directories and choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
+        SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, Nil{}} <>
+        InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <>
+        InterfaceView.collection_rows(UX.collection_members(collection), collection, parent, state)}]
+
 type PickerRequirements is Type:
   PickerRequirements{service: CoreDirectory.DirectoryPickerRequirements,
-    open_and_browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) ==
-          SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
-          SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, Nil{}} <>
-          InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <>
-          InterfaceView.directory_values(InterfaceView.workspace_observed(InterfaceView.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<SurfaceTypes.Node>},
+    open_and_browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) == expected_workspace_picker(InterfaceView.workspace_observed(InterfaceView.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<SurfaceTypes.Node>},
     finite_choice: @+field:Forms.Field -> @+value:Forms.Observed -> {selection_widget(Controls.widget_for(Forms.Choice{}, field, value)) == True{} : Bool},
     location_binding: @value:String -> @+path:String -> {InterfaceView.bind(SurfaceTypes.DirectoryBrowserLocation{value}, SurfaceTypes.Directory{path}) == Some{InteractionTypes.ServiceInput{Services.WriteDirectoryLocation{path}}} : Maybe<&2, InteractionTypes.Input>},
     browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.directory_browse(editor, parent, state) == InterfaceView.product_action(parent, "workspace/browse", "Browse folders",
@@ -781,6 +789,12 @@ def selected_background_wash_percent(background: Surfaces.Color) -> Nat:
 def selected_wash_percent(phase: Surfaces.Phase) -> Nat:
   selected_background_wash_percent(Surfaces.background(Surfaces.Choice{True{}}, phase))
 
+def alternative_phase_background(phase: Surfaces.Phase) -> Design.Paint:
+  match phase:
+    case Surfaces.Rest{}: Design.Transparent{}
+    case Surfaces.Hovered{}: Design.SurfacePaint{Surfaces.Choice{True{}}, Surfaces.Hovered{}}
+    case Surfaces.Pressed{}: Design.SurfacePaint{Surfaces.Choice{True{}}, Surfaces.Pressed{}}
+
 type SurfaceRequirements is Type:
   SurfaceRequirements{
     ordinary_foreground: {Surfaces.foreground(Surfaces.QuietAction{}) == Surfaces.Token{"--color-token-text-primary"} : Surfaces.Color},
@@ -811,7 +825,7 @@ type SurfaceRequirements is Type:
     board_search_surface: @+typography:T.Presentation -> @filter:Board.Filter -> {Appearance.style_background(Appearance.field_style(SurfaceTypes.BoardSearch{filter}, typography)) == Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}} : Design.Paint},
     selected_control_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.Radio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint},
     toggle_control_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.Toggle{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint},
-    menu_choice_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}}
+    menu_choice_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == alternative_phase_background(phase) : Design.Paint}}
 
 law surface_evidence:
   SurfaceRequirements
@@ -982,6 +996,11 @@ law named_icon_caption:
   for text: String
   {Controls.named_face(Some{icon},text,False{}) == Controls.UnbrokenIconTextFace{icon,text} : Controls.Face}
 
+def source_support_binding(visible: Bool, input: InteractionTypes.Input, availability: View.Availability) -> SurfaceTypes.Meaning:
+  match visible:
+    case True{}: SurfaceTypes.Activate{input, availability}
+    case False{}: SurfaceTypes.Region{}
+
 def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
   match meaning:
     case SurfaceTypes.PageRegion{region, position}: SurfaceTypes.Region{}
@@ -994,7 +1013,13 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.DirectoryRow{path, primary}: SurfaceTypes.Region{}
     case SurfaceTypes.ContextSummary{observation}: SurfaceTypes.Region{}
     case SurfaceTypes.ChoiceGroup{}: SurfaceTypes.Region{}
-    case SurfaceTypes.ComposerAction{subject, input, availability}: SurfaceTypes.Activate{input, availability}
+    case SurfaceTypes.DecisionGroup{decision}: SurfaceTypes.Region{}
+    case SurfaceTypes.ObjectGroup{object}: SurfaceTypes.Region{}
+    case SurfaceTypes.WorkspaceCollection{collection}: SurfaceTypes.Region{}
+    case SurfaceTypes.WorkspaceMember{collection, path}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionUnit{action}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionFeedback{feedback}: SurfaceTypes.Region{}
+    case SurfaceTypes.SupportingControl{support, input, availability}: source_support_binding(UX.support_visible(support), input, availability)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.BoardLane{stage, count}: SurfaceTypes.Region{}
     case SurfaceTypes.CardArchive{count}: SurfaceTypes.Region{}
@@ -1029,15 +1054,13 @@ type ContextControlRequirements is Type:
     choice_observed_tabs: @+key:UIIdentity.Key -> @semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @kind:SurfaceTypes.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
       {Observed.expected_tabs([SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Choice{kind, classification, selected, description, input, availability}, Nil{}}], elements, native_focus) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, UIIdentity.encode(key))), UIIdentity.encode(key), Nil{}) : +List<String>},
     workspace_label: @+label:String -> @expanded:Bool -> {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    permissions_label: @+label:String -> @current:Controls.Face -> @+execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face},
+    permissions_label: @workspace:Bool -> @+label:String -> @current:Controls.Face -> @+execution:Maybe<&2,Context.Observation> -> {Controls.support_face_kind(True{}, workspace, label, current, execution) == Controls.permission_picker(Controls.permission_face(execution)) : Controls.Face},
     initial_execution: @+content:InteractionTypes.Scene -> {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2,Context.Observation>},
     draft_permission_face: @+origin:Context.Origin -> @+project:Maybe<&2,Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> {Controls.permission_face(Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}) == Controls.permission_values_face(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : Controls.Face},
     committed_permission_face: @+task:Nat -> @+workspace:Domain.Workspace -> @+sandbox:Domain.Sandbox -> @+approval:Domain.ApprovalPolicy -> @+project:Maybe<&2,Nat> -> @+guidance:Domain.ProjectContext -> @+access:Domain.ExecutionAccess -> {Controls.permission_face(Some{Context.CommittedExecution{Context.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, access}}}) == Controls.permission_values_face(sandbox, Context.approval_choice(approval)) : Controls.Face},
     unavailable_permission_face: @+reason:String -> {Controls.permission_face(Some{Context.DraftExecution{Context.ContextUnavailable{reason}}}) == Controls.IconFace{Controls.Warning{}} : Controls.Face},
-    permission_accessible_name: @+label:String -> {Controls.composer_name(View.PermissionsSubject{}, label) == "Permissions: " ++ label : String},
+    permission_accessible_name: @+label:String -> {Controls.support_name_kind(True{}, label) == "Permissions: " ++ label : String},
     permission_help: @+filesystem:Controls.Icon -> @+network:Controls.Icon -> @+approval:Controls.Icon -> @+name:String -> {Controls.help_for(Controls.PermissionFace{filesystem, network, approval}, View.Available{}, Controls.Quiet{}, name) == Controls.tooltip(name) : Controls.Help},
-    delivery_send_face: @+label:String -> @current:Controls.Face -> @execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.DeliverySubject{User.Send{}}, label, current, execution) == Controls.IconFace{Controls.ArrowUp{}} : Controls.Face},
-    delivery_steer_face: @+label:String -> @current:Controls.Face -> @execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.DeliverySubject{User.Steer{}}, label, current, execution) == Controls.IconFace{Controls.Branch{}} : Controls.Face},
     filesystem_write_icon: {Controls.filesystem_icon(Domain.WorkspaceWrite{}) == Controls.Pencil{} : Controls.Icon},
     filesystem_read_icon: {Controls.filesystem_icon(Domain.ReadOnly{}) == Controls.Eye{} : Controls.Icon},
     network_enabled_icon: {Controls.network_icon(True{}) == Controls.Globe{} : Controls.Icon},

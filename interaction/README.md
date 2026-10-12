@@ -8,6 +8,10 @@ Start with [MODEL.bend](MODEL.bend), [TYPES.bend](TYPES.bend), [STATE.bend](STAT
 owns the computations over those values; clients that exchange vocabulary do
 not need to import its implementation.
 
+[experience/README.md](experience/README.md) is the entry for object ownership,
+property decisions, workspace membership and action identity. Presentation builds
+controls through its operational constructors before browser interpretation.
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;

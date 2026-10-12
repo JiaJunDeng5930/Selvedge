@@ -1,3 +1,4 @@
+import ../../interaction/experience/PROGRAM.bend as UX
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -50,8 +51,8 @@ def field_control(entry: Forms.Entry) -> Bool:
 
 def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
+    case SurfaceTypes.SupportingControl{support, input, availability}: UX.support_visible(support)
     case SurfaceTypes.MovableCard{destinations, face}: True{}
-    case SurfaceTypes.ComposerAction{subject, input, availability}: True{}
     case SurfaceTypes.Activate{input, availability}: True{}
     case SurfaceTypes.PanelToggle{expanded, input, availability}: True{}
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: True{}
@@ -66,8 +67,8 @@ def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
 
 def required_enabled(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
+    case SurfaceTypes.SupportingControl{support, input, availability}: UX.support_visible(support) && enabled(availability)
     case SurfaceTypes.MovableCard{destinations, face}: InterfaceView.has_available_destination(destinations)
-    case SurfaceTypes.ComposerAction{subject, input, availability}: enabled(availability)
     case SurfaceTypes.Activate{input, availability}: enabled(availability)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: enabled(availability)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: enabled(availability)

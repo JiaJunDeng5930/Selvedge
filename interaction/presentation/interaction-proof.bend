@@ -1,3 +1,4 @@
+import ../submission/FIELDS.bend as Forms
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../../harness/DOMAIN.bend as D
@@ -692,6 +693,12 @@ def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, re
   V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
   {==}
 
+def workspace_description_agreement(+found: Maybe<&2, D.Workspace>, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
+  {Rule.collection_instruction(Model.workspace_collection_menu(found, editor, None{}, parent, state)) == Rule.expected_collection_instruction(found) : Maybe<&2, SurfaceTypes.Meaning>}:
+  match found:
+    case None{}: {==}
+    case Some{workspace}: {==}
+
 def Rule.composition_evidence():
   Rule.CompositionRequirements{
     Rule.page_region_evidence(),
@@ -706,7 +713,7 @@ def Rule.composition_evidence():
     id => speaker => text => source => task => parent => state => visible_speaker_evidence(id, speaker, text, source, task, parent, state),
     +id => attention => +expanded => summary => audit => expand => collapse => +task => +parent => +state => {==},
     view => parent => state => Rule.composer_tree_agreement(view, parent, state),
-    editor => parent => state => {==},
+    editor => parent => state => workspace_description_agreement(Model.workspace_observed(Model.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state),
     view => parent => state => Rule.composer_enclosure_agreement(view, parent, state),
     recipe => structure_evidence(recipe),
     +context => +world => {==},

@@ -40,19 +40,66 @@ def choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Ob
     case Forms.DirectoryCollection{}: {==}
     case Forms.FileCollection{}: {==}
 
+def property_choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Observed, +editor: U.Editor, +groups: +List<View.InputGroup>) ->
+  {Interface.scoped_entry_choices(entry, field, value, editor, groups) == Rule.expected_property_choices(entry, field, value, editor, groups) : +List<Forms.ChoiceValue>}:
+  match field value:
+    case Forms.WorkspacePrimary{} Forms.ToggleValue{enabled}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.ToggleValue{enabled}, groups)
+    case Forms.WorkspacePrimary{} Forms.TextValue{text}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.TextValue{text}, groups)
+    case Forms.WorkspacePrimary{} Forms.CountValue{count}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.CountValue{count}, groups)
+    case Forms.WorkspacePrimary{} Forms.TextsValue{values}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.TextsValue{values}, groups)
+    case Forms.WorkspacePrimary{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.WorkspacePrimary{} Forms.ContextValue{preview}: {==}
+    case Forms.WorkspacePrimary{} Forms.ModelValue{profile, reasoning}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.ModelValue{profile, reasoning}, groups)
+    case Forms.WorkspacePrimary{} Forms.DeliveryValue{delivery}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.DeliveryValue{delivery}, groups)
+    case Forms.WorkspacePrimary{} Forms.StageValue{stage}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.StageValue{stage}, groups)
+    case Forms.WorkspacePrimary{} Forms.PriorityValue{priority}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.PriorityValue{priority}, groups)
+    case Forms.WorkspacePrimary{} Forms.OwnerValue{owner}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.OwnerValue{owner}, groups)
+    case Forms.WorkspacePrimary{} Forms.ProjectValue{project}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.ProjectValue{project}, groups)
+    case Forms.WorkspacePrimary{} Forms.AttachmentsValue{files}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.AttachmentsValue{files}, groups)
+    case Forms.WorkspacePrimary{} Forms.AssistanceValue{enabled, profile}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.AssistanceValue{enabled, profile}, groups)
+    case Forms.WorkspacePrimary{} Forms.OptionalTextValue{text}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.OptionalTextValue{text}, groups)
+    case Forms.WorkspacePrimary{} Forms.NotApplicable{}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.NotApplicable{}, groups)
+    case Forms.MessageText{} _: choices_agreement(entry, Forms.MessageText{}, value, groups)
+    case Forms.ProjectName{} _: choices_agreement(entry, Forms.ProjectName{}, value, groups)
+    case Forms.WorkspaceDirectories{} _: choices_agreement(entry, Forms.WorkspaceDirectories{}, value, groups)
+    case Forms.ContextOrigin{} _: choices_agreement(entry, Forms.ContextOrigin{}, value, groups)
+    case Forms.SandboxMode{} _: choices_agreement(entry, Forms.SandboxMode{}, value, groups)
+    case Forms.NetworkAccess{} _: choices_agreement(entry, Forms.NetworkAccess{}, value, groups)
+    case Forms.ApprovalPolicy{} _: choices_agreement(entry, Forms.ApprovalPolicy{}, value, groups)
+    case Forms.ModelProfile{} _: choices_agreement(entry, Forms.ModelProfile{}, value, groups)
+    case Forms.ReasoningEffort{} _: choices_agreement(entry, Forms.ReasoningEffort{}, value, groups)
+    case Forms.DeliveryIntent{} _: choices_agreement(entry, Forms.DeliveryIntent{}, value, groups)
+    case Forms.CardTitle{} _: choices_agreement(entry, Forms.CardTitle{}, value, groups)
+    case Forms.CardDescription{} _: choices_agreement(entry, Forms.CardDescription{}, value, groups)
+    case Forms.CardStage{} _: choices_agreement(entry, Forms.CardStage{}, value, groups)
+    case Forms.CardPriority{} _: choices_agreement(entry, Forms.CardPriority{}, value, groups)
+    case Forms.CardOwner{} _: choices_agreement(entry, Forms.CardOwner{}, value, groups)
+    case Forms.CardProject{} _: choices_agreement(entry, Forms.CardProject{}, value, groups)
+    case Forms.CardLabels{} _: choices_agreement(entry, Forms.CardLabels{}, value, groups)
+    case Forms.CardAttachments{} _: choices_agreement(entry, Forms.CardAttachments{}, value, groups)
+    case Forms.ContinueCapture{} _: choices_agreement(entry, Forms.ContinueCapture{}, value, groups)
+    case Forms.AssistedCapture{} _: choices_agreement(entry, Forms.AssistedCapture{}, value, groups)
+    case Forms.AssistanceProfile{} _: choices_agreement(entry, Forms.AssistanceProfile{}, value, groups)
+    case Forms.AgentName{} _: choices_agreement(entry, Forms.AgentName{}, value, groups)
+    case Forms.AgentInstructions{} _: choices_agreement(entry, Forms.AgentInstructions{}, value, groups)
+    case Forms.AgentConcurrency{} _: choices_agreement(entry, Forms.AgentConcurrency{}, value, groups)
+    case Forms.ForkCount{} _: choices_agreement(entry, Forms.ForkCount{}, value, groups)
+    case Forms.ForkMessages{} _: choices_agreement(entry, Forms.ForkMessages{}, value, groups)
+    case Forms.CompactionSummary{} _: choices_agreement(entry, Forms.CompactionSummary{}, value, groups)
+
 def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<View.InputGroup>) ->
   {Interface.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==
     SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
       SurfaceTypes.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field),
-        Rule.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups)},
+        Rule.expected_property_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups)},
       Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)} : SurfaceTypes.Node}:
   Equal.cong(+List<Forms.ChoiceValue>, SurfaceTypes.Node,
     choices => SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
       SurfaceTypes.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field), choices},
       Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)},
-    Interface.entry_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    Rule.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    choices_agreement(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups))
+    Interface.scoped_entry_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups),
+    Rule.expected_property_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups),
+    property_choices_agreement(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups))
 
 def Rule.feedback_evidence():
   Rule.FeedbackRequirements{

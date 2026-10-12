@@ -1,3 +1,6 @@
+import ../submission/field-options.bend as FieldOptions
+import ../experience/PROGRAM.bend as UX
+import ../experience/MODEL.bend as Experience
 import ./INFORMATION.bend as Information
 import Base
 import ../../harness/COMMANDS.bend as Commands
@@ -716,6 +719,16 @@ def first_node_meaning(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, SurfaceType
     case Nil{}: None{}
     case Con{node, rest}: Some{meaning(node)}
 
+def collection_instruction(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Meaning>:
+  match nodes:
+    case Con{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.WorkspaceCollection{collection}, children}, rest}: first_node_meaning(children)
+    case _: None{}
+
+def expected_collection_instruction(found: Maybe<&2, D.Workspace>) -> Maybe<&2, SurfaceTypes.Meaning>:
+  match found:
+    case None{}: None{}
+    case Some{workspace}: Some{SurfaceTypes.InformationText{Information.Description{}}}
+
 def composer_enclosure_children(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, +List<SurfaceTypes.Node>>:
   match nodes:
     case Nil{}: None{}
@@ -730,7 +743,7 @@ def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +pare
     case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       Some{Model.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
-        List.append(&2, SurfaceTypes.Node, Model.feedback_nodes(key, feedback), [Model.expected_composer_actions(execution_controls, submit, key, state)])}
+        List.append(&2, SurfaceTypes.Node, Model.action_feedback_nodes(identity, feedback, key), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), submit, key, state)])}
 
 def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match context:
@@ -743,10 +756,8 @@ def expected_permission_menu_group(+editor: U.Editor, group: V.InputGroup, +pare
     case V.ExecutionInput{+config, Context.ProspectiveContext{+origin, +project, +workspace, +sandbox, +approval, +guidance}, controls, projects, reviewers}:
       List.append(&2, SurfaceTypes.Node,
         Model.permission_summary(editor, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, parent, state),
-        Model.sandbox_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
-        Model.network_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
-        Model.approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
-        Model.permission_resets(editor, config, parent, state))
+        List.append(&2, SurfaceTypes.Node, Model.permission_decisions(editor, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers, parent, state),
+        Model.permission_resets(editor, config, parent, state)))
     case _: Nil{}
 
 type CompositionRequirements is Type:
@@ -784,9 +795,9 @@ type CompositionRequirements is Type:
           [Model.user_action(Identity.Entity{parent, "activity", Nat.show(id)}, "disclosure", Model.disclosure_label(expanded), Model.disclosure_input(expanded, expand, collapse), True{}, state)]}] : +List<SurfaceTypes.Node>},
     composer_tree: @view:Maybe<&2, V.ComposerScene> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.composer(view, parent, state) == Model.expected_composer(view, parent, state) : +List<SurfaceTypes.Node>},
-    workspace_description: @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
-      {first_node_meaning(Model.field_children(Forms.WorkspaceDirectories{}, editor, parent, state)) ==
-        Some{SurfaceTypes.InformationText{Information.Description{}}} : Maybe<&2, SurfaceTypes.Meaning>},
+    workspace_description: @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {collection_instruction(Model.field_children(Forms.WorkspaceDirectories{}, editor, parent, state)) ==
+        expected_collection_instruction(Model.workspace_observed(Model.field_value(state, editor, Forms.WorkspaceDirectories{}))) : Maybe<&2, SurfaceTypes.Meaning>},
     composer_enclosure: @view:Maybe<&2, V.ComposerScene> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {composer_enclosure_children(Model.composer(view, parent, state)) == expected_composer_enclosure_children(view, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>},
     structure_order: @recipe:Composition.Recipe ->
@@ -896,14 +907,14 @@ def first_spatial_identity(nodes: +List<SurfaceTypes.Node>) -> Identity.Key:
 
 type DirectoryIdentityRequirements is Type:
   DirectoryIdentityRequirements{
-    row: @+path:String -> @primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
-      {spatial_identity(Model.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)) == Identity.Entity{parent, "directory", path} : Identity.Key},
-    primary: @+path:String -> @control:V.ControlDeclaration -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
-      {first_spatial_identity(Model.directory_primary_controls(True{}, control, Identity.Entity{parent, "directory", path}, state)) == Identity.Part{Identity.Entity{parent, "directory", path}, "primary"} : Identity.Key},
-    slot_not_directory: @path:String -> @primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @+parent:Identity.Key -> @state:InteractionTypes.State -> @other:String -> @name:String ->
-      {Identity.same(Identity.Part{spatial_identity(Model.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)), name}, Identity.Entity{parent, "directory", other}) == False{} : Bool},
-    directory_not_slot: @path:String -> @primary:Bool -> @choose:V.ControlDeclaration -> @remove:V.ControlDeclaration -> @+parent:Identity.Key -> @state:InteractionTypes.State -> @other:String -> @name:String ->
-      {Identity.same(Identity.Entity{parent, "directory", other}, Identity.Part{spatial_identity(Model.directory_node(V.WorkspaceRoot{path, primary, choose, remove}, parent, state)), name}) == False{} : Bool}}
+    row: @+path:String -> @collection:Experience.Collection -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
+      {spatial_identity(Model.collection_member(collection, path, parent, state)) == Identity.Entity{parent, "directory", path} : Identity.Key},
+    primary: @+path:String -> @collection:Experience.Collection -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
+      {first_spatial_identity(Model.collection_primary_controls(True{}, collection, path, Identity.Entity{parent, "directory", path}, state)) == Identity.Part{Identity.Entity{parent, "directory", path}, "primary"} : Identity.Key},
+    slot_not_directory: @path:String -> @collection:Experience.Collection -> @+parent:Identity.Key -> @state:InteractionTypes.State -> @other:String -> @name:String ->
+      {Identity.same(Identity.Part{spatial_identity(Model.collection_member(collection, path, parent, state)), name}, Identity.Entity{parent, "directory", other}) == False{} : Bool},
+    directory_not_slot: @path:String -> @collection:Experience.Collection -> @+parent:Identity.Key -> @state:InteractionTypes.State -> @other:String -> @name:String ->
+      {Identity.same(Identity.Entity{parent, "directory", other}, Identity.Part{spatial_identity(Model.collection_member(collection, path, parent, state)), name}) == False{} : Bool}}
 
 law directory_identity_requirements:
   DirectoryIdentityRequirements
@@ -1351,7 +1362,7 @@ law editor_submit_region:
   for +state: InteractionTypes.State
   {Model.editor(Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}, parent, state) ==
     List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
-      List.append(&2, SurfaceTypes.Node, Model.feedback_nodes(parent, feedback), [Model.dialog_actions(parent, [Model.declared(parent, submit, state)])])) : +List<SurfaceTypes.Node>}
+      List.append(&2, SurfaceTypes.Node, Model.action_feedback_nodes(identity, feedback, parent), [Model.dialog_actions(parent, [Model.declared(parent, submit, state)])])) : +List<SurfaceTypes.Node>}
 
 law confirmation_actions_region:
   for title: String
@@ -1567,3 +1578,63 @@ law task_permission_resets_absent:
 law permission_menu_agreement:
   @+editor:U.Editor -> @group:V.InputGroup -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
   {Model.permission_menu_group(editor, group, parent, state) == expected_permission_menu_group(editor, group, parent, state) : +List<SurfaceTypes.Node>}
+
+def expected_supporting_binding(support: Experience.Support, input: InteractionTypes.Input, availability: V.Availability, gesture: SurfaceTypes.Gesture) -> Maybe<&2, InteractionTypes.Input>:
+  match gesture:
+    case SurfaceTypes.Press{}: Model.when_available(UX.support_visible(support) && Model.available(availability), input)
+    case _: None{}
+
+def expected_supporting_submission(support: Experience.Support, input: InteractionTypes.Input, availability: V.Availability, editor: U.Editor) -> Bool:
+  match input:
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{owner}}}}: UX.support_visible(support) && Model.available(availability) && U.same_editor(owner, editor)
+    case _: False{}
+
+def expected_model_effort_surface(entry: Forms.Entry, +observation: Forms.Observed, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, groups: +List<V.InputGroup>) -> SurfaceTypes.Node:
+  match entry:
+    case Forms.Choice{}: Model.decision_surface(UX.decision(Experience.Subject{editor, Forms.ReasoningEffort{}}, observation, "Reasoning effort", Model.effort_alternatives(FieldOptions.choices(Forms.ReasoningEffort{}, observation, groups))), parent, state)
+    case Forms.SingleLine{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.SingleLine{}}, editor, parent, state, groups)
+    case Forms.DisplayOnly{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.DisplayOnly{}}, editor, parent, state, groups)
+    case Forms.Multiline{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.Multiline{}}, editor, parent, state, groups)
+    case Forms.MultipleChoices{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.MultipleChoices{}}, editor, parent, state, groups)
+    case Forms.PositiveInteger{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.PositiveInteger{}}, editor, parent, state, groups)
+    case Forms.DirectoryCollection{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.DirectoryCollection{}}, editor, parent, state, groups)
+    case Forms.FileCollection{}: Model.field_node(Forms.FieldScene{Forms.ReasoningEffort{}, "Reasoning effort", Forms.FileCollection{}}, editor, parent, state, groups)
+
+type ExperienceRequirements is Type:
+  ExperienceRequirements{
+    effort_entry_surface: @+entry:Forms.Entry -> @+observation:Forms.Observed -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
+      {Model.model_effort_surface(entry, observation, editor, parent, state, groups) == expected_model_effort_surface(entry, observation, editor, parent, state, groups) : SurfaceTypes.Node},
+    model_decisions_complete: @+profile:String -> @+reasoning:String -> @+choices:+List<D.Profile> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
+      {Model.model_decisions(profile, reasoning, choices, editor, parent, state, groups) == Model.decision_surface(UX.decision(Experience.Subject{editor, Forms.ModelProfile{}}, Forms.ModelValue{profile, reasoning}, "Model", Model.admitted_model_alternatives(Experience.Subject{editor, Forms.ModelProfile{}}, Forms.ModelValue{profile, reasoning}, choices)), parent, state) <> [Model.model_effort_surface(Model.actual_entry(Forms.ReasoningEffort{}, Forms.Choice{}, Forms.ModelValue{profile, reasoning}, state), Forms.ModelValue{profile, reasoning}, editor, parent, state, groups)] : +List<SurfaceTypes.Node>},
+    action_footer_groups: @+controls:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+submit:V.ControlDeclaration -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.action_footer(controls, action, submit, parent, state) == SurfaceTypes.Node{Identity.Part{parent, "actions"}, "actions", "Actions", SurfaceTypes.ComposerActions{}, SurfaceTypes.Region{}, [SurfaceTypes.Node{Identity.Part{parent, "supporting-controls"}, "supporting-controls", "Supporting controls", SurfaceTypes.Toolbar{}, SurfaceTypes.Region{}, Model.supporting_controls(controls, action, parent, state)}, Model.canonical_commit(action, submit, parent, state)]} : SurfaceTypes.Node},
+    supporting_binding: @+support:Experience.Support -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @+gesture:SurfaceTypes.Gesture ->
+      {Model.bind(SurfaceTypes.SupportingControl{support, input, availability}, gesture) == expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>},
+    supporting_available: @+support:Experience.Support -> @input:InteractionTypes.Input -> @+availability:V.Availability ->
+      {Model.focusable(SurfaceTypes.SupportingControl{support, input, availability}) == UX.support_visible(support) && Model.available(availability) : Bool},
+    supporting_submission: @+support:Experience.Support -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @+editor:U.Editor ->
+      {Model.submits(SurfaceTypes.SupportingControl{support, input, availability}, editor) == expected_supporting_submission(support, input, availability, editor) : Bool},
+    empty_model_mapping: @subject:Experience.Subject -> @observed:Forms.Observed -> {Model.admitted_model_alternatives(subject, observed, Nil{}) == Nil{} : +List<Experience.Alternative>},
+    model_picker_tree: @+profile:String -> @+reasoning:String -> @+choices:+List<D.Profile> -> @+rest:+List<V.InputGroup> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.picker_fields(V.ModelInput{profile, reasoning, choices} <> rest, editor, parent, state) == List.append(&2, SurfaceTypes.Node, Model.model_decisions(profile, reasoning, choices, editor, parent, state, V.ModelInput{profile, reasoning, choices} <> rest), Model.picker_fields(rest, editor, parent, state)) : +List<SurfaceTypes.Node>},
+    object_group_owner: @+title:String -> @+entries:+List<Forms.FieldScene> -> @+rest:+List<Forms.Section> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+ordinal:Nat -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
+      {Model.sections(Forms.Section{title, entries} <> rest, editor, parent, ordinal, state, groups) == SurfaceTypes.Node{Identity.Entity{parent, "section", Nat.show(ordinal)}, "section/" ++ Nat.show(ordinal), title, SurfaceTypes.Section{}, SurfaceTypes.ObjectGroup{UX.group_owner(editor, Model.section_fields(entries))}, Model.fields(entries, editor, Identity.Entity{parent, "section", Nat.show(ordinal)}, state, groups)} <> Model.sections(rest, editor, parent, (ordinal + 1n : Nat), state, groups) : +List<SurfaceTypes.Node>},
+    supporting_action: @+subject:V.ComposerSubject -> @+declaration:V.ControlDeclaration -> @+rest:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.supporting_controls(V.ComposerControl{subject, declaration} <> rest, action, parent, state) == List.append(&2, SurfaceTypes.Node, Model.supporting_control_owned(UX.support(action, Model.supporting_fields(subject)), parent, Core.control(state, declaration), state), Model.supporting_controls(rest, action, parent, state)) : +List<SurfaceTypes.Node>},
+    admitted_model_mapping: @+subject:Experience.Subject -> @+observed:Forms.Observed -> @+profile:D.Profile -> @+rest:+List<D.Profile> ->
+      {Model.admitted_model_alternatives(subject, observed, profile <> rest) == List.append(&2, Experience.Alternative, UX.decision_alternatives(UX.decision(subject, observed, "Model", Model.profile_alternatives([profile]))), Model.admitted_model_alternatives(subject, observed, rest)) : +List<Experience.Alternative>},
+    decision_construction: @+decision:Experience.Decision -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
+      {Model.decision_surface(decision, parent, state) == SurfaceTypes.Node{Identity.Part{parent, UX.subject_key(UX.decision_subject(decision))}, "decision/" ++ UX.subject_key(UX.decision_subject(decision)), UX.decision_question(decision), SurfaceTypes.Section{}, SurfaceTypes.DecisionGroup{decision}, Model.decision_content(UX.decision_availability(decision), decision, Identity.Part{parent, UX.subject_key(UX.decision_subject(decision))}, state)} : SurfaceTypes.Node},
+    alternative_input_selection: @+decision:Experience.Decision -> @+label:String -> @+explanation:String -> @+value:Experience.Value -> @+input:U.Input -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.decision_choice_resolved(Some{input}, decision, Experience.Alternative{label, explanation, value}, parent, state) == Model.declared_choice(UX.selected(decision, value), explanation, V.ControlDeclaration{UX.value_key(value), label, V.Secondary{}, input, V.Available{}}, parent, state) : SurfaceTypes.Node},
+    collection_member: @+collection:Experience.Collection -> @+path:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.collection_member(collection, path, parent, state) == SurfaceTypes.Node{Identity.Entity{parent, "directory", path}, "directory/" ++ path, path, SurfaceTypes.Content{}, SurfaceTypes.WorkspaceMember{collection, path}, List.append(&2, SurfaceTypes.Node, Model.collection_primary_controls(UX.is_primary(collection, path), collection, path, Identity.Entity{parent, "directory", path}, state), Model.collection_control(UX.remove_member(collection, path), "directory/remove", "Remove", V.Destructive{}, Identity.Entity{parent, "directory", path}, state))} : SurfaceTypes.Node},
+    canonical_commit: @+action:Experience.ActionUnit -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @input:U.Input -> @+availability:V.Availability -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.canonical_commit(action, V.ControlDeclaration{identity, label, prominence, input, availability}, parent, state) == Model.declared(parent, V.ControlDeclaration{identity, label, prominence, UX.commit(action), availability}, state) : SurfaceTypes.Node},
+    feedback_identity: @+editor:U.Editor -> @+revision:Nat -> @+reason:String -> @+parent:Identity.Key ->
+      {Model.action_feedback_nodes(editor, U.Rejected{revision, reason}, parent) == [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ActionFeedback{Experience.Feedback{editor, revision, reason}}, [SurfaceTypes.Node{Identity.Part{parent, "reason"}, "submission-feedback/reason", reason, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{reason}, Nil{}}]}] : +List<SurfaceTypes.Node>},
+    supporting_identity: @+support:Experience.Support -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:InteractionTypes.Input -> @+availability:V.Availability ->
+      {Model.supporting_node(True{}, support, parent, InteractionTypes.Control{identity, label, prominence, input, availability}) == [SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, Model.action_role(prominence), SurfaceTypes.SupportingControl{support, input, availability}, Nil{}}] : +List<SurfaceTypes.Node>}}
+
+law experience_evidence:
+  ExperienceRequirements

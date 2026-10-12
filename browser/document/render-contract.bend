@@ -1,3 +1,5 @@
+import ../../interaction/experience/MODEL.bend as UXTypes
+import ../../interaction/experience/PROGRAM.bend as UX
 import Base
 import ../controls/MODEL.bend as Authored
 import ./SOURCE.bend as Source
@@ -411,3 +413,15 @@ type SourceFrameRequirements is Type:
 
 law source_frame_evidence:
   SourceFrameRequirements
+
+law supporting_is_interactive:
+  for +support: UXTypes.Support
+  for input: InteractionTypes.Input
+  for availability: View.Availability
+  {Model.interactive(SurfaceTypes.SupportingControl{support, input, availability}) == UX.support_visible(support) : Bool}
+
+law supporting_enabled_by_availability:
+  for +support: UXTypes.Support
+  for input: InteractionTypes.Input
+  for +availability: View.Availability
+  {Model.required_enabled(SurfaceTypes.SupportingControl{support, input, availability}) == UX.support_visible(support) && Model.enabled(availability) : Bool}

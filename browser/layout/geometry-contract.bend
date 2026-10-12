@@ -1,4 +1,5 @@
 import Base
+import ./HIERARCHY.bend as Hierarchy
 import ./SPACE.bend as Space
 import ./GEOMETRY.bend as SpatialModel
 import ../appearance/DESIGN.bend as Model
@@ -508,3 +509,32 @@ law backward_backward:
 law negative_top_regression:
   {SpatialModel.visible(SpatialModel.Forward{100n}, SpatialModel.Backward{8n}, 40n, 40n, 1000n, 800n) ==
     SpatialModel.Box{100n, 0n, 40n, 32n} : SpatialModel.Box}
+
+
+law hierarchy_heading_separation:
+  for +grammar: Hierarchy.Grammar
+  {Nat.is_lt(Hierarchy.member_gap(grammar), Hierarchy.heading_gap(grammar)) == True{} : Bool}
+
+law hierarchy_group_separation:
+  for +grammar: Hierarchy.Grammar
+  {Nat.is_lt(Hierarchy.heading_gap(grammar), Hierarchy.group_gap(grammar)) == True{} : Bool}
+
+law hierarchy_member_nesting:
+  for grammar: Hierarchy.Grammar
+  {Nat.is_lt(0n, Hierarchy.member_inset(grammar)) == True{} : Bool}
+
+law hierarchy_member_frame:
+  for +grammar: Hierarchy.Grammar
+  {Hierarchy.member_frame(grammar) == E.Frame{E.ambient(Hierarchy.member_inset(grammar), 0n),
+    E.EmbeddedContent{Hierarchy.member_gap(grammar)}} : E.Frame}
+
+law hierarchy_heading_frame:
+  for +grammar: Hierarchy.Grammar
+  {Hierarchy.heading_frame(grammar) == E.Frame{E.ambient(0n, 0n),
+    E.EmbeddedContent{Hierarchy.heading_gap(grammar)}} : E.Frame}
+
+law hierarchy_grouped_frame:
+  for +grammar: Hierarchy.Grammar
+  for +area: E.ContentArea
+  {Hierarchy.grouped_frame(grammar, area) == E.Frame{area,
+    E.EmbeddedContent{Hierarchy.group_gap(grammar)}} : E.Frame}

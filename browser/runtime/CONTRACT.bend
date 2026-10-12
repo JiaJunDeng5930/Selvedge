@@ -1,3 +1,4 @@
+import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
@@ -995,3 +996,15 @@ law publication_focus_loss:
   for current: {Nat.is_eq(received, ticket(Platform.platform(model_state))) == True{} : Bool}
   for active: {Platform.active_target(Platform.core(model_state), capacity(Platform.platform(model_state)), target) == True{} : Bool}
   {Platform.step(Platform.PublicationFocusObserved{received, Some{target}, None{}}, model_state) == Platform.Decision{Platform.unchanged(Platform.core(model_state)), Platform.platform(model_state), loss_effects(Platform.core(model_state), Platform.platform(model_state), target)} : Platform.Decision}
+
+def supporting_mask(blocked: Bool, +support: UXTypes.Support, +input: InteractionTypes.Input, +availability: View.Availability) -> Type:
+  match blocked:
+    case True{}: {Legacy.mask_meaning(blocked, SurfaceTypes.SupportingControl{support, input, availability}) == SurfaceTypes.SupportingControl{support, input, View.Unavailable{"Request pending"}} : SurfaceTypes.Meaning}
+    case False{}: {Legacy.mask_meaning(blocked, SurfaceTypes.SupportingControl{support, input, availability}) == SurfaceTypes.SupportingControl{support, input, availability} : SurfaceTypes.Meaning}
+
+law supporting_mask_evidence:
+  for blocked: Bool
+  for +support: UXTypes.Support
+  for +input: InteractionTypes.Input
+  for +availability: View.Availability
+  supporting_mask(blocked, support, input, availability)

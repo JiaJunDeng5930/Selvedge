@@ -1,3 +1,6 @@
+import ../../interaction/services/CONTEXT.bend as Workspace
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/presentation/INFORMATION.bend as Information
 import ./authored-proof.bend as AuthoredProof
 import ../document/MODEL.bend as Doc
@@ -65,13 +68,6 @@ def choice_retains_binding(+key: UIIdentity.Key, kind: SurfaceTypes.ChoiceKind, 
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
 
-def composer_action_retains_binding(+key: UIIdentity.Key, subject: View.ComposerSubject, +input: InteractionTypes.Input,
-  +availability: View.Availability, label: String, role: SurfaceTypes.Role, context: Controls.Context) ->
-  {Rule.binding(Controls.make_composer_action(key, subject, input, availability, label, role, context)) ==
-    SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
-  match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
-
 def presented_action_retains_binding(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, feedback: Controls.Feedback) ->
   {Rule.binding(Controls.presented_action(input, availability, name, projection, placement, feedback)) == SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
   match projection:
@@ -96,11 +92,30 @@ def represented_action_retains_binding(+key: UIIdentity.Key, +input: Interaction
     source_action_retains_binding(area, family, Controls.make_action(key, input, availability, label, role, context)),
     action_retains_binding(key, input, availability, label, role, context))
 
+def supporting_fields_retains_binding(support: UXTypes.Support, label: String, area: Controls.Area, execution: Maybe<&2, Workspace.Observation>, value: Controls.Representation) ->
+  {Rule.binding(Controls.supporting_fields(support, label, area, execution, value)) == Rule.binding(value) : SurfaceTypes.Meaning}:
+  match value:
+    case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.Input{input}: {==}
+    case Controls.Movable{value}: {==}
+    case Controls.NoControl{}: {==}
+
+def make_support_retains_binding(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +input: InteractionTypes.Input, +availability: View.Availability, +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) ->
+  {Rule.binding(Controls.make_support_visible(visible, key, support, input, availability, label, role, context)) == Rule.source_support_binding(visible, input, availability) : SurfaceTypes.Meaning}:
+  match visible:
+    case False{}: {==}
+    case True{}:
+      Controls.Context{+area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
+      Equal.trans(SurfaceTypes.Meaning,
+        Rule.binding(Controls.supporting_fields(support, label, area, execution, Controls.represent_action(key, input, availability, label, role, context))),
+        Rule.binding(Controls.represent_action(key, input, availability, label, role, context)), SurfaceTypes.Activate{input, availability},
+        supporting_fields_retains_binding(support, label, area, execution, Controls.represent_action(key, input, availability, label, role, context)),
+        represented_action_retains_binding(key, input, availability, label, role, context))
+
 def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, label: String,
   role: SurfaceTypes.Role, context: Controls.Context) ->
   {Rule.binding(Controls.represent(key, meaning, label, role, context)) == Rule.source_binding(meaning) : SurfaceTypes.Meaning}:
   match meaning:
-    case SurfaceTypes.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
     case SurfaceTypes.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context)
@@ -110,6 +125,13 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
     case SurfaceTypes.ChoiceGroup{}: {==}
+    case SurfaceTypes.DecisionGroup{decision}: {==}
+    case SurfaceTypes.ObjectGroup{object}: {==}
+    case SurfaceTypes.WorkspaceCollection{collection}: {==}
+    case SurfaceTypes.WorkspaceMember{collection, path}: {==}
+    case SurfaceTypes.ActionUnit{action}: {==}
+    case SurfaceTypes.ActionFeedback{feedback}: {==}
+    case SurfaceTypes.SupportingControl{+support, input, availability}: make_support_retains_binding(UX.support_visible(support), key, support, input, availability, label, role, context)
 
     case SurfaceTypes.Edit{editor, field, entry, value, choices}:
       match entry:
@@ -837,7 +859,7 @@ def toggle_control_phase(value: Design.Style, phase: Surfaces.Phase, +typography
     case Surfaces.Pressed{}: {==}
 
 def menu_choice_phase(value: Design.Style, phase: Surfaces.Phase, +typography: T.Presentation) ->
-  {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}:
+  {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == Rule.alternative_phase_background(phase) : Design.Paint}:
   match phase:
     case Surfaces.Rest{}: {==}
     case Surfaces.Hovered{}: {==}
@@ -1289,8 +1311,22 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
     case Forms.ForkMessages{}: ordinary_choice(value)
     case Forms.CompactionSummary{}: ordinary_choice(value)
 
+def workspace_picker(found: Maybe<&2, Domain.Workspace>, +editor: User.Editor, +parent: UIIdentity.Key, +state: InteractionTypes.State) ->
+  {InterfaceView.workspace_collection_menu(found, editor, None{}, parent, state) == Rule.expected_workspace_picker(found, editor, parent, state) : +List<SurfaceTypes.Node>}:
+  match found:
+    case None{}: {==}
+    case Some{workspace}:
+      +collection = UX.collection(editor, workspace)
+      +members = InterfaceView.collection_rows(UX.collection_members(collection), collection, parent, state)
+      Equal.cong(+List<SurfaceTypes.Node>, +List<SurfaceTypes.Node>,
+        rows => [SurfaceTypes.Node{UIIdentity.Part{parent, "workspace"}, "workspace/collection", "Working directories", SurfaceTypes.Section{}, SurfaceTypes.WorkspaceCollection{collection},
+          SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Add directories and choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
+          SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, Nil{}} <>
+          InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <> rows}],
+        List.append(&2, SurfaceTypes.Node, members, Nil{}), members, Std.app_nil_r(SurfaceTypes.Node, members))
+
 def Rule.picker_requirements():
-  Rule.PickerRequirements{CoreDirectory.directory_picker_requirements(), +editor => +parent => +state => {==}, finite_choice, value => +path => {==}, +editor => +parent => +state => {==}}
+  Rule.PickerRequirements{CoreDirectory.directory_picker_requirements(), +editor => +parent => +state => workspace_picker(InterfaceView.workspace_observed(InterfaceView.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state), finite_choice, value => +path => {==}, +editor => +parent => +state => {==}}
 
 def initial_execution(+content: InteractionTypes.Scene) ->
   {Rule.execution_observation(Controls.initial(content)) == Rule.page_observation(content) : Maybe<&2, Context.Observation>}:
@@ -1305,15 +1341,13 @@ def Rule.context_control_evidence():
     kind => icon => +selected => description => +input => +availability => {==},
     +key => semantic => +label => role => kind => icon => +selected => description => +input => +availability => +elements => +native_focus => {==},
     +label => expanded => {==},
-    +label => current => +execution => {==},
+    workspace => +label => current => +execution => {==},
     initial_execution,
     +origin => +project => +workspace => +sandbox => +approval => +guidance => {==},
     +task => +workspace => +sandbox => +approval => +project => +guidance => +access => {==},
     +reason => {==},
     +label => {==},
     +filesystem => +network => +approval => +name => {==},
-    +label => current => execution => {==},
-    +label => current => execution => {==},
     {==},
     {==},
     {==},

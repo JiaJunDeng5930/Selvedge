@@ -209,33 +209,8 @@ function preferenceEffects(decision) {
   return effects;
 }
 
-function runtimeEffects(decision, tag) {
-  const effects = [];
-  for (let rest = decision.effects; bendTag(rest) === 'Con'; rest = rest.tail) {
-    if (bendTag(rest.head) === tag) effects.push(rest.head);
-  }
-  return effects;
-}
-
-// Transport the emitted JSON value without reconstructing a command schema.
-function browserCommandText(value) {
-  const items = list => {
-    const result = [];
-    for (let rest = list; bendTag(rest) === 'Con'; rest = rest.tail) result.push(rest.head);
-    return result;
-  };
-  switch (bendTag(value)) {
-    case 'Null': return 'null';
-    case 'Boolean': return value.value ? 'true' : 'false';
-    case 'Number': return value.lexeme;
-    case 'Text': return JSON.stringify(value.value);
-    case 'Array': return `[${items(value.items).map(browserCommandText).join(',')}]`;
-    case 'Object': return `{${items(value.fields).map(field => `${JSON.stringify(field.name)}:${browserCommandText(field.value)}`).join(',')}}`;
-    default: throw new TypeError('Expected the production browser command JSON');
-  }
-}
-
-test('the browser task model edit reaches the authenticated server with each current approval policy', { timeout: 20_000 }, async t => {
+test('the browser reasoning choice reaches the authenticated server with each current approval policy', { timeout: 180_000 }, async t => {
+  const ui = await browserUI(t);
   const upstream = await chatgptFixture(t, (request, response) => {
     if (request.method === 'GET') jsonResponse(response, { models: [model('task-edit')] });
     else modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Task settled.' }] }]);
@@ -262,16 +237,32 @@ test('the browser task model edit reaches the authenticated server with each cur
     assert.equal(before.task.settings.project_id, project.reply.result.project_id);
     assert.deepEqual(before.task.settings.workspace, { roots: [workspace], primary_root: workspace });
     const snapshot = server.service.browserSnapshot();
-    let state = browserModel.initial(browserModel.empty(), 0n);
-    state = browserModel.step(bendValue('browser/runtime/SEMANTICS.Snapshot', {
-      sequence: BigInt(snapshot.sequence), program: snapshot.program }), state).state;
-    const changed = browserModel.step(applicationEvent(bendValue('interaction/session/MODEL.UserInput', { input:
-      bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.MessageEditor', { task: BigInt(task) }),
-        edit: bendValue('interaction/INPUT.ChooseModel', { profile, reasoning: 'high' }) }) })), state);
-    const commands = runtimeEffects(changed, 'Command');
-    assert.equal(commands.length, 1, `Task ${task} model edit must emit one actual server command`);
-    const commandText = browserCommandText(commands[0].command);
-    const generatedBody = JSON.parse(commandText);
+    const authenticated = ui.authenticated(snapshot.program, BigInt(task));
+    assert.equal(bendTag(authenticated), 'Done');
+    const selected = authenticated.value;
+    const modelControl = surfaceNodes(ui.surface_state(selected))
+      .find(node => node.semantic === `composer/model/message/${task}`);
+    assert.ok(modelControl, 'The selected task must expose its actual model control');
+    const opened = ui.activate_state(selected, ui.key(modelControl));
+    const decisions = surfaceNodes(ui.surface_state(opened)).filter(node =>
+      bendTag(node.meaning) === 'DecisionGroup'
+      && bendTag(node.meaning.decision.subject.field) === 'ReasoningEffort');
+    assert.equal(decisions.length, 1, 'The actual model menu must expose one reasoning decision');
+    assert.equal(bendTag(decisions[0].meaning.decision.subject.editor), 'MessageEditor');
+    assert.equal(Number(decisions[0].meaning.decision.subject.editor.task), task);
+    const options = [];
+    for (let rest = decisions[0].children; bendTag(rest) === 'Con'; rest = rest.tail) options.push(rest.head);
+    const high = options.find(node => node.semantic === 'effort/high');
+    assert.ok(high, 'The actual reasoning decision must expose the permitted high option');
+    assert.equal(bendTag(high.meaning), 'Choice');
+    assert.equal(bendTag(high.meaning.kind), 'SingleChoice');
+    assert.equal(bendTag(high.meaning.availability), 'Available');
+    assert.equal(high.meaning.selected, false);
+    const pressed = ui.press_state(opened, ui.key(high));
+    assert.equal(bendTag(pressed), 'Done');
+    const commands = JSON.parse(pressed.value);
+    assert.equal(commands.length, 1, `Task ${task} reasoning choice must emit one actual server command`);
+    const generatedBody = commands[0];
     assert.equal(generatedBody.op, 'configure_task_execution');
     assert.equal(generatedBody.task_id, task);
     assert.equal(generatedBody.approval.mode, approval.mode);
@@ -279,7 +270,7 @@ test('the browser task model edit reaches the authenticated server with each cur
     if (approval.reviewer_profile) assert.equal(generatedBody.approval.reviewer_profile, approval.reviewer_profile);
     const response = await fetch(`${server.address}/api/browser/command`, { method: 'POST',
       headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
-      body: `{"command":${commandText}}` });
+      body: JSON.stringify({ command: generatedBody }) });
     const result = await response.json();
     assert.equal(response.status, 200, JSON.stringify(result));
     assert.equal(result.reply.ok, true, JSON.stringify(result.reply));

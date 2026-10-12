@@ -1,5 +1,6 @@
 import Base
 import ./geometry-contract.bend as Rule
+import ./HIERARCHY.bend as Hierarchy
 import ./enclosure.bend as E
 import ../appearance/DESIGN.bend as D
 import ../controls/PROGRAM.bend as C
@@ -150,46 +151,46 @@ def actual_choice_normalization(+key: Identity.Key, +selected: Bool, +descriptio
   match context:
     case C.Context{C.PageArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.NavigationArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ComposerArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ToolbarArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.CodeArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ActivityArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ApprovalArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.MenuArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ChoiceGroupArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.DialogArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.CollectionArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.CardArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.BoardViewArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.BoardLaneArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
-      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
 
 def Rule.frame_relation_evidence():
   Rule.FrameRelationRequirements{
@@ -1302,3 +1303,34 @@ def Rule.physical_space_evidence(A, E):
 
 def Rule.aligned_clearance_contains(outside, horizontal, vertical, extent):
   clearance_layered_contains(outside, extent)
+
+
+# The geometry domain needs strict separation, rather than non-strict bounds.
+# Nat comparison cancels successors; splitting the increment exposes positivity.
+def hierarchy_positive_extension(+base: Nat, +extra: Nat) ->
+  {Nat.is_lt(base, Nat.add(Nat.add(base, extra), 1n)) == True{} : Bool}:
+  match base:
+    case 0n:
+      match extra:
+        case 0n: {==}
+        case 1n+rest: {==}
+    case 1n+rest:
+      hierarchy_positive_extension(rest, extra)
+
+def Rule.hierarchy_heading_separation(grammar):
+  Hierarchy.Grammar{gap, heading_extra, group_extra, nesting_extra} = grammar
+  hierarchy_positive_extension(gap, heading_extra)
+
+def Rule.hierarchy_group_separation(grammar):
+  Hierarchy.Grammar{gap, heading_extra, group_extra, nesting_extra} = grammar
+  hierarchy_positive_extension(Hierarchy.heading_gap(grammar), group_extra)
+
+def Rule.hierarchy_member_nesting(grammar):
+  Hierarchy.Grammar{gap, heading_extra, group_extra, nesting_extra} = grammar
+  hierarchy_positive_extension(0n, nesting_extra)
+
+def Rule.hierarchy_member_frame(grammar): {==}
+
+def Rule.hierarchy_heading_frame(grammar): {==}
+
+def Rule.hierarchy_grouped_frame(grammar, area): {==}

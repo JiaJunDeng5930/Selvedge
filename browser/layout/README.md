@@ -9,6 +9,10 @@ Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend) and
 [measurement-contract.bend](measurement-contract.bend) and
 [render-contract.bend](render-contract.bend).
 
+[HIERARCHY.bend](HIERARCHY.bend) constructs frames for members, headings and
+separate groups. Its production geometry evidence is part of
+[geometry-proof.bend](geometry-proof.bend).
+
 Evidence follows complete responsibilities: [geometry-proof.bend](geometry-proof.bend)
 for geometry, [allocation-proof.bend](allocation-proof.bend) for packing and
 allocation, [sizing-proof.bend](sizing-proof.bend) for measured dimensions and their

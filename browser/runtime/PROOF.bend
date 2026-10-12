@@ -1252,3 +1252,8 @@ def display_model() -> Model.DisplayModel(M.World(), Browser.State, Browser.Inpu
             state => {==}},
           Model.DisplayRetention{capacity => last => state => published => pending =>
             publication_preserves_pending_at(capacity, last, state, published, pending)}}}})))))
+
+def Rule.supporting_mask_evidence(blocked, support, input, availability):
+  match blocked:
+    case True{}: {==}
+    case False{}: {==}

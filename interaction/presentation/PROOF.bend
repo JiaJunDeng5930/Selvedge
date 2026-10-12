@@ -1,3 +1,5 @@
+import ../experience/MODEL.bend as Experience
+import ../INPUT.bend as U
 import Base
 import ./CONTRACT.bend as Rule
 import ./MODEL.bend as V
@@ -165,3 +167,89 @@ def Rule.permission_menu_agreement(editor, group, parent, state):
     case V.AgentIdentityInput{name, instructions, concurrency}: {==}
     case V.ForkInput{count, messages}: {==}
     case V.SummaryInput{summary}: {==}
+
+def supporting_binding_agreement(+support: Experience.Support, +input: InteractionTypes.Input, +availability: V.Availability, +gesture: SurfaceTypes.Gesture) ->
+  {Model.bind(SurfaceTypes.SupportingControl{support, input, availability}, gesture) == Rule.expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>}:
+  match gesture:
+    case SurfaceTypes.Place{target}: {==}
+    case SurfaceTypes.Press{}: {==}
+    case SurfaceTypes.Change{value}: {==}
+    case SurfaceTypes.Search{query}: {==}
+    case SurfaceTypes.Filter{value}: {==}
+    case SurfaceTypes.Attach{file}: {==}
+    case SurfaceTypes.Directory{path}: {==}
+    case SurfaceTypes.ConfirmDirectory{}: {==}
+    case SurfaceTypes.SelectBoardProfile{profile}: {==}
+
+def supporting_submission_agreement(+support: Experience.Support, +input: InteractionTypes.Input, +availability: V.Availability, +editor: U.Editor) ->
+  {Model.submits(SurfaceTypes.SupportingControl{support, input, availability}, editor) == Rule.expected_supporting_submission(support, input, availability, editor) : Bool}:
+  match input:
+    case InteractionTypes.ApplicationInput{E.ContentInput{p0, p1}}: {==}
+    case InteractionTypes.ApplicationInput{E.PreviewObserved{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectProject{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ToggleProjectGroup{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BeginTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditProject{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.NewCard{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditCard{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditAgent{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ForkTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ControlTask{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CancelOperation{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ReviewApproval{p0, p1, p2, p3}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.DeleteProject{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BoardCommand{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.OpenPanel{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ClosePanel{}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ConfirmAction{}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{p0, p1}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.ReadTimeline{p0, p1, p2}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.SetDisclosure{p0, p1, p2, p3}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.RuntimeInput{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.ProgramObserved{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.CommandCompleted{p0, p1, p2}}: {==}
+    case InteractionTypes.ApplicationInput{E.DirectoriesObserved{p0, p1}}: {==}
+    case InteractionTypes.ApplicationInput{E.ClockObserved{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.ModelPreferenceRestored{p0, p1}}: {==}
+    case InteractionTypes.ServiceInput{p0}: {==}
+    case InteractionTypes.EditField{p0, p1, p2}: {==}
+    case InteractionTypes.RemoveAttachment{p0, p1}: {==}
+
+def effort_entry_surface_agreement(+entry: Forms.Entry, +observation: Forms.Observed, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<V.InputGroup>) ->
+  {Model.model_effort_surface(entry, observation, editor, parent, state, groups) == Rule.expected_model_effort_surface(entry, observation, editor, parent, state, groups) : SurfaceTypes.Node}:
+  match entry:
+    case Forms.Choice{}: {==}
+    case Forms.SingleLine{}: {==}
+    case Forms.DisplayOnly{}: {==}
+    case Forms.Multiline{}: {==}
+    case Forms.MultipleChoices{}: {==}
+    case Forms.PositiveInteger{}: {==}
+    case Forms.DirectoryCollection{}: {==}
+    case Forms.FileCollection{}: {==}
+
+def Rule.experience_evidence():
+  Rule.ExperienceRequirements{
+    entry => observation => editor => parent => state => groups => effort_entry_surface_agreement(entry, observation, editor, parent, state, groups),
+    profile => reasoning => choices => editor => parent => state => groups => {==},
+    controls => action => submit => parent => state => {==},
+    support => input => availability => gesture => supporting_binding_agreement(support, input, availability, gesture),
+    support => input => availability => {==},
+    support => input => availability => editor => supporting_submission_agreement(support, input, availability, editor),
+    subject => observed => {==},
+    profile => reasoning => choices => rest => editor => parent => state => {==},
+    title => entries => rest => editor => parent => ordinal => state => groups => {==},
+    subject => declaration => rest => action => parent => state => {==},
+    subject => observed => profile => rest => {==},
+    decision => parent => state => {==},
+    decision => label => explanation => value => input => parent => state => {==},
+    collection => path => parent => state => {==},
+    action => identity => label => prominence => input => availability => parent => state => {==},
+    editor => revision => reason => parent => {==},
+    support => parent => identity => label => prominence => input => availability => {==}}

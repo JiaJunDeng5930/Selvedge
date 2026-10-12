@@ -1,4 +1,5 @@
 import Base
+import ../experience/MODEL.bend as Experience
 import ./INFORMATION.bend as Information
 import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
@@ -58,6 +59,13 @@ type ChoiceKind is Data:
   MultipleChoice{}
 
 type Meaning is Data:
+  DecisionGroup{decision: Experience.Decision}
+  WorkspaceCollection{collection: Experience.Collection}
+  WorkspaceMember{collection: Experience.Collection, path: String}
+  ActionUnit{action: Experience.ActionUnit}
+  ActionFeedback{feedback: Experience.Feedback}
+  ObjectGroup{object: Experience.Object}
+  SupportingControl{support: Experience.Support, input: InteractionTypes.Input, availability: V.Availability}
   InformationText{role: Information.TextRole}
   LayerRegion{dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DirectoryBrowserLocation{value: String}
@@ -85,7 +93,6 @@ type Meaning is Data:
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
   Activate{input: InteractionTypes.Input, availability: V.Availability}
-  ComposerAction{subject: V.ComposerSubject, input: InteractionTypes.Input, availability: V.Availability}
   Edit{editor: U.Editor, field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, choices: +List<OperationParameters.ChoiceValue>}
   SearchChoices{query: String}
   ReceiveFile{editor: U.Editor, enabled: Bool}
