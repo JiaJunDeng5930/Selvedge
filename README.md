@@ -397,10 +397,10 @@ retry notices are visible in the event stream and browser.
 
 The current journal format is `selvedge-bend-journal-3`, independent of build
 fingerprints and compiler versions, with task-local workspace settings stored in
-its inputs. Existing format 2 journals are converted atomically only after their
-integrity and complete committed decisions pass replay validation against the
-current kernel. Ordinary source, compiler and UI updates do not require a new
-service home. Unknown formats or incompatible committed decisions are rejected;
+its inputs. Reopening validates integrity and complete committed decisions
+against the current kernel. Ordinary source, compiler and UI updates do not
+require a new service home. There is no migration of persisted formats. Unknown
+formats or incompatible committed decisions are rejected;
 a different service launch directory does not itself make a journal incompatible.
 The earlier Rust implementation is retained in Git history, not as a second
 runtime in the checkout.

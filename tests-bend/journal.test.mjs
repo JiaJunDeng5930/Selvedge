@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Journal } from '../host/journal.mjs';
-import { createHash } from 'node:crypto';
 
 async function temporary(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-bend-test-'));
@@ -79,10 +78,11 @@ test('obsolete schemas and unknown journal formats fail without changing saved d
   await current.close();
   const database = new DatabaseSync(currentFile);
   database.prepare("UPDATE meta SET value = ? WHERE key='format'").run('unknown-format');
+  const before = database.prepare('SELECT key, value FROM meta ORDER BY key').all();
+  await assert.rejects(Journal.open(currentFile), /current Selvedge Bend journal format/);
+  assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all(), before);
+  assert.equal(database.prepare('SELECT count(*) AS n FROM journal').get().n, 0);
   database.close();
-  const before = savedJournal(currentFile);
-  await assert.rejects(Journal.open(currentFile), /supported Selvedge Bend journal format/);
-  assert.deepEqual(savedJournal(currentFile), before);
 });
 
 test('journal corruption is detected before any saved effect is published', async t => {
@@ -107,7 +107,10 @@ test('the journal stores task workspaces rather than a service-wide cwd identity
   const reopened = await Journal.open(filename);
   assert.equal(reopened.sequence, 2);
   assert.deepEqual((await reopened.execute(command({ op: 'read', task_id: 0 }))).reply, original.reply);
-  assert.deepEqual(savedJournal(filename).meta.map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-3' }]);
+  const database = new DatabaseSync(filename, { readOnly: true });
+  try {
+    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-3' }]);
+  } finally { database.close(); }
   await reopened.close();
 });
 
@@ -136,113 +139,4 @@ test('public observations leave pending work and the SQLite journal unchanged, i
   const settled = await journal.execute(model(0, 0));
   assert.equal(settled.reply.result.accepted, true);
   assert.equal(settled.sequence, before.sequence + 1);
-});
-
-
-function savedJournal(filename) {
-  const database = new DatabaseSync(filename, { readOnly: true });
-  try {
-    return {
-      meta: database.prepare('SELECT key, value FROM meta ORDER BY key').all(),
-      rows: database.prepare('SELECT * FROM journal ORDER BY seq').all(),
-    };
-  } finally { database.close(); }
-}
-
-async function previousFormatJournal(filename, transform = text => text) {
-  const journal = await Journal.open(filename);
-  await journal.execute(environment);
-  await journal.execute(command({ op: 'create', profile: 'fixture', message: 'saved history 世界' }));
-  await journal.execute(model(0, 0, [
-    { id: 'first', name: 'bash', arguments: { command: 'printf first' } },
-    { id: 'second', name: 'bash', arguments: { command: 'printf second' } },
-  ]));
-  const observed = await journal.execute(command({ op: 'read', task_id: 0 }));
-  await journal.close();
-  const database = new DatabaseSync(filename);
-  try {
-    const format = 'selvedge-bend-journal-2';
-    const fingerprint = 'ab'.repeat(32);
-    database.exec('DELETE FROM meta');
-    const insert = database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
-    for (const [key, value] of Object.entries({ format, compiler: '0.0.1', fingerprint })) insert.run(key, value);
-    let previous = createHash('sha256').update(format).update(fingerprint).digest('hex');
-    const update = database.prepare('UPDATE journal SET decision = ?, previous = ?, digest = ? WHERE seq = ?');
-    for (const row of database.prepare('SELECT * FROM journal ORDER BY seq').all()) {
-      const decision = transform(row.decision, row.seq);
-      const digest = createHash('sha256').update(previous).update('\0').update(String(row.seq))
-        .update('\0').update(row.input).update('\0').update(decision).digest('hex');
-      update.run(decision, previous, digest, row.seq);
-      previous = digest;
-    }
-  } finally { database.close(); }
-  return observed;
-}
-
-test('a prior journal replays committed history independently of its old compiler and build fingerprint', async t => {
-  const filename = await temporary(t);
-  const observed = await previousFormatJournal(filename);
-  const legacy = savedJournal(filename);
-  let journal = await Journal.open(filename);
-  t.after(() => journal.close());
-  assert.equal(journal.sequence, observed.sequence);
-  assert.deepEqual((await journal.execute(command({ op: 'read', task_id: 0 }))).reply, observed.reply);
-  const converted = savedJournal(filename);
-  assert.deepEqual(converted.meta.map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-3' }]);
-  assert.deepEqual(converted.rows.map(({ input, decision }) => ({ input, decision })),
-    legacy.rows.map(({ input, decision }) => ({ input, decision })));
-  assert.equal(converted.rows[0].previous, createHash('sha256').update('selvedge-bend-journal-3').digest('hex'));
-  const appended = await journal.execute(command({ op: 'create', profile: 'fixture', message: 'after conversion' }));
-  assert.equal(appended.sequence, observed.sequence + 1);
-  await journal.close();
-  journal = await Journal.open(filename);
-  assert.equal(journal.sequence, appended.sequence);
-  assert.deepEqual((await journal.execute(command({ op: 'read', task_id: 0 }))).reply, observed.reply);
-  assert.equal((await journal.execute(command({ op: 'read', task_id: 1 }))).reply.result.messages[0].content, 'after conversion');
-});
-
-test('a corrupt prior journal fails integrity before changing its metadata or committed rows', async t => {
-  const filename = await temporary(t);
-  await previousFormatJournal(filename);
-  const database = new DatabaseSync(filename);
-  database.prepare('UPDATE journal SET decision = ? WHERE seq = 2').run('{}');
-  database.close();
-  const before = savedJournal(filename);
-  await assert.rejects(Journal.open(filename), /integrity failure at sequence 2/);
-  assert.deepEqual(savedJournal(filename), before);
-});
-
-test('validly hashed prior decisions must preserve the complete committed meaning before conversion', async t => {
-  for (const [name, sequence, change] of [
-    ['reply', 2, decision => { decision.reply.ok = !decision.reply.ok; }],
-    ['effects', 2, decision => { decision.effects = []; }],
-    ['durability', 2, decision => { decision.durable = false; }],
-    ['effect ordering', 3, decision => {
-      assert.equal(decision.effects.length, 2);
-      decision.effects.reverse();
-    }],
-  ]) {
-    const filename = await temporary(t);
-    await previousFormatJournal(filename, (text, rowSequence) => {
-      if (rowSequence !== sequence) return text;
-      const decision = JSON.parse(text);
-      change(decision);
-      return JSON.stringify(decision);
-    });
-    const before = savedJournal(filename);
-    await assert.rejects(Journal.open(filename), new RegExp(`Committed decision incompatibility at sequence ${sequence}`), name);
-    assert.deepEqual(savedJournal(filename), before, name);
-  }
-});
-
-test('equivalent parsed prior decisions accept different object ordering and whitespace while retaining saved bytes', async t => {
-  const filename = await temporary(t);
-  const reorder = value => Array.isArray(value) ? value.map(reorder) : value !== null && typeof value === 'object'
-    ? Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reorder(item)])) : value;
-  const observed = await previousFormatJournal(filename, text => JSON.stringify(reorder(JSON.parse(text)), null, 2));
-  const before = savedJournal(filename);
-  const journal = await Journal.open(filename);
-  t.after(() => journal.close());
-  assert.deepEqual((await journal.execute(command({ op: 'read', task_id: 0 }))).reply, observed.reply);
-  assert.deepEqual(savedJournal(filename).rows.map(row => row.decision), before.rows.map(row => row.decision));
 });

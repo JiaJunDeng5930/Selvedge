@@ -41,9 +41,7 @@ export class Journal extends EventEmitter {
       journal.#lock.exec('PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY); BEGIN EXCLUSIVE');
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
       await chmod(filename, 0o600);
-      const previousFormat = journal.#openSchema();
-      if (previousFormat) journal.#previous = createHash('sha256')
-        .update(previousFormat.format).update(previousFormat.fingerprint).digest('hex');
+      journal.#openSchema();
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
       journal.kernel = new Kernel(kernelOptions);
       journal.description = await journal.kernel.initialize();
@@ -61,7 +59,6 @@ export class Journal extends EventEmitter {
         journal.sequence = row.seq;
         journal.#previous = row.digest;
       }
-      if (previousFormat) journal.#convertPreviousFormat();
       return journal;
     } catch (error) {
       await journal.close();
@@ -86,33 +83,7 @@ export class Journal extends EventEmitter {
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     if (entries.length === 1 && entries[0].key === 'format' && entries[0].value === journalFormat) return;
-    if (entries.length === 3 && entries[0].key === 'compiler' && entries[1].key === 'fingerprint' && entries[2].key === 'format' &&
-        /^\d+\.\d+\.\d+$/.test(entries[0].value) && /^[a-fA-F0-9]{64}$/.test(entries[1].value) && entries[2].value === 'selvedge-bend-journal-2') {
-      return { format: entries[2].value, fingerprint: entries[1].value };
-    }
-    throw new Error('The database does not have a supported Selvedge Bend journal format');
-  }
-
-  #convertPreviousFormat() {
-    // Conversion follows complete integrity and replay validation. Preserve the
-    // original committed bytes while removing the former build-bound genesis.
-    let previous = genesis();
-    this.#database.exec('BEGIN IMMEDIATE');
-    try {
-      const update = this.#database.prepare('UPDATE journal SET previous = ?, digest = ? WHERE seq = ?');
-      for (const row of this.#database.prepare('SELECT seq, input, decision FROM journal ORDER BY seq').iterate()) {
-        const hash = digest(previous, row.seq, row.input, row.decision);
-        update.run(previous, hash, row.seq);
-        previous = hash;
-      }
-      this.#database.exec('DELETE FROM meta');
-      this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('format', journalFormat);
-      this.#database.exec('COMMIT');
-    } catch (error) {
-      this.#database.exec('ROLLBACK');
-      throw error;
-    }
-    this.#previous = previous;
+    throw new Error('The database does not have the current Selvedge Bend journal format');
   }
 
   #poison(error) {

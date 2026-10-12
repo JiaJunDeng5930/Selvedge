@@ -29,24 +29,10 @@ provenance. Format 3 no longer records a source fingerprint or compiler version
 as a compatibility requirement. Build identities remain useful for compilation
 and diagnostic evidence, without deciding whether stored work can be restored.
 
-The supported format 2 conversion validates the old journal using its own stored
-provenance and checks every committed decision against the current kernel before
-changing the database. Comparing complete decisions preserves replies, ordered
-effects and durability as well as reconstructed state. Integrity alone would
-not detect a validly stored history whose meaning has changed; agreement on state
-alone could overlook changes to promised results or external actions.
-
-Conversion is atomic and retains the original input and decision bytes. A failed
-validation must leave the original journal available for investigation, while a
-successful conversion must not leave a partially rewritten history. Replaying
-for validation never publishes historical effects. Unknown formats and actual
-decision incompatibilities remain errors instead of being hidden by conversion.
 
 ## Limits
 
-This decision permits the specific format 2 conversion; it does not establish a
-general migration framework or accept unknown historical schemas. Ordinary build
-changes can preserve compatibility, but changes to committed semantics still
-require replay agreement. HTTP, cookie handling, SQLite transactions and compiler
-execution remain external boundaries covered by integration checks, not by the
-pure Bend proofs alone.
+Ordinary build changes can preserve compatibility, but changes to committed
+semantics still require replay agreement. HTTP, cookie handling, SQLite
+transactions and compiler execution remain external boundaries covered by
+integration checks, not by the pure Bend proofs alone.

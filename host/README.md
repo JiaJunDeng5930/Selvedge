@@ -159,9 +159,8 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-Format 3 is independent of build provenance; an existing format 2 journal is
-converted atomically after those checks pass. Unknown formats and incompatible
-decisions fail without altering the journal. Existing execution plans retain
+Format 3 is independent of build provenance. Persisted formats are not migrated;
+unknown formats and incompatible decisions fail without altering the journal. Existing execution plans retain
 their meaning after a restart in another launch directory. No workspace migration
 or global directory binding is involved. Different operations and service homes
 do not serialize arbitrary filesystem mutations, even when pointed at the same
