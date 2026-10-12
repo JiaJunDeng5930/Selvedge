@@ -373,7 +373,7 @@ def agent_selection(result: Result<&2, &2, String, Workspace.Selection>) -> Bool
     case Done{selection}: True{}
 
 def agent_environment(+profile: D.Profile, +agent: B.AgentProfile, environment: D.Environment) -> Bool:
-  D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins} = environment
+  D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins, instructions} = environment
   D.profile_permitted(profile, D.profile_selection(B.agent_reasoning(agent), profile)) &&
     agent_selection(Workspace.resolve(B.agent_settings(agent), Workspace.defaults(guidance), guidance, profile, profiles))
 

@@ -27,7 +27,6 @@ type Action is Data:
   Rest{}
   Idle{task: D.Task}
   Model{task: D.Task}
-  Summary{task: D.Task, resume: Bool}
   External{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task}
   Review{reviewer: D.ApprovalReviewer, call: D.Call, remaining: +List<D.Attempt>, task: D.Task}
   Granted{reviewer: D.ApprovalReviewer, tool: D.Tool, operation: D.Operation(), task: D.Task}
@@ -38,7 +37,7 @@ type Action is Data:
 
 def catalog_environment(world: M.World(), environment_value: D.Environment) -> +List<D.Tool>:
   match world environment_value:
-    case C.Frame{+task_state, +board} D.Environment{tools, profiles, max_fork, max_descendants, project, plugins}:
+    case C.Frame{+task_state, +board} D.Environment{tools, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tools
 
 def catalog(+world: M.World()) -> +List<D.Tool>:
@@ -49,20 +48,8 @@ def context(+task: D.Task) -> J.Json:
     J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}},
     J.Field{"history", J.Array{T.messages_json(D.history_messages(D.context_history(D.task_history(task)), Nil{}))}}]}
 
-def oversized(rendered: Result<&2, &2, String, String>) -> Bool:
-  match rendered:
-    case Fail{reason}: True{}
-    case Done{text}: Nat.is_le(D.context_threshold_bytes(), J.utf8_length(text))
-
-def model_with_operations(large: Bool, pending: Bool, task: D.Task) -> Action:
-  match large pending:
-    case True{} True{}: Idle{task}
-    case True{} False{}: Summary{task, True{}}
-    case False{} _: Model{task}
-
 def model(+task: D.Task, world: M.World()) -> Action:
-  model_with_operations(D.compactable(D.context_history(D.task_history(task))) &&
-    oversized(J.render(D.state_render_budget(C.local(D.State, F.State(), world)), J.One{context(task)})), D.operations_pending(D.task_operations(task)), task)
+  Model{task}
 
 def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json) -> Bool:
   match source:
@@ -353,7 +340,6 @@ def resolve(work: D.Work, +task: D.Task, world: M.World()) -> Action:
     case D.NoWork{}: Rest{}
     case D.BecomeIdle{}: Idle{task}
     case D.RequestNextModel{}: model(task, world)
-    case D.RequestContextSummary{}: Summary{task, True{}}
     case D.RunNextTool{}: tool(D.task_phase(task), task, world)
     case D.RunGrantedOperation{}: grant(Ops.find_granted(D.task_operations(task)), task, world)
 
@@ -364,16 +350,6 @@ def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
     case Idle{task} _:
       C.Decision{Commands.replace(D.with_phase(D.Idle{}, task), world), D.success(J.Null{}), Nil{}}
     case Model{task} _: Reasoning.start(F.State(), F.Effect, task, world)
-    case Summary{+task, +resume} C.Frame{+task_state, +board}:
-      tasks = D.state_tasks(task_state)
-      next_task = D.state_next_task(task_state)
-      +ticket = D.state_next_ticket(task_state)
-      environment = D.state_environment(task_state)
-      limits = D.state_limits(task_state)
-      projects = D.state_projects(task_state)
-      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_notified(False{}, D.with_phase(D.SummaryPending{ticket, resume}, task))), task_state)), board},
-        D.success(J.Object{[J.Field{"task_id", J.nat(D.task_id(task))}]}),
-        [Effects.RequestSummary{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
     case External{+tool, +call, remaining, +task} C.Frame{+task_state_2, +board}:
       tasks = D.state_tasks(task_state_2)
       next_task = D.state_next_task(task_state_2)

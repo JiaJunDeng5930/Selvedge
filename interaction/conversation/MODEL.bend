@@ -149,8 +149,8 @@ def audit_title(message: D.Message) -> String:
     case D.ApprovalRecord{task, operation, call, reviewer, outcome}: "Approval: " ++ D.approval_decision(outcome)
     case D.AfterRecord{task, operation, plugin, outcome}: "Tool result processing"
     case D.ForkResult{task, call, branch}: "Task fork"
-    case D.ContextCheckpoint{summary}: "Context compacted"
-    case D.ConfigurationUpdate{effort}: "Reasoning changed to " ++ effort
+    case D.ContextCheckpoint{summary}: "Context summary"
+    case D.ContextMessage{D.ReasoningConfiguration{effort}}: "Reasoning changed to " ++ effort
     case D.ModelContext{value}: "Model activity"
     case _: "Conversation event"
 

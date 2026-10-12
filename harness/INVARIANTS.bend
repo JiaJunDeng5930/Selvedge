@@ -46,15 +46,25 @@ def unique_profiles(profiles: +List<D.Profile>) -> Bool:
 def project_context(project: D.ProjectContext) -> Bool:
   Workspace.valid_guidance(project)
 
+def instruction_snapshot(snapshot: Maybe<&2, D.InstructionSnapshot>) -> Bool:
+  match snapshot:
+    case None{}: True{}
+    case Some{D.InstructionSnapshot{path, revision, content}}:
+      Workspace.valid_path(path) && Nat.is_eq(J.utf8_length(revision), 64n) && Nat.is_le(J.utf8_length(content), D.project_limit())
+
+def instructions(value: D.InitialInstructions) -> Bool:
+  D.InitialInstructions{configured, global} = value
+  Nat.is_le(J.utf8_length(configured), D.project_limit()) && instruction_snapshot(global)
+
 def environment(environment: D.Environment) -> Bool:
-  D.Environment{+catalog, profiles, max_fork, max_descendants, project, +plugins} = environment
-  Hooks.valid(plugins) && Hooks.routes(catalog, plugins) && project_context(project) && unique_tools(catalog) && unique_profiles(profiles) &&
+  D.Environment{+catalog, profiles, max_fork, max_descendants, project, +plugins, initial} = environment
+  instructions(initial) && Hooks.valid(plugins) && Hooks.routes(catalog, plugins) && project_context(project) && unique_tools(catalog) && unique_profiles(profiles) &&
     Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def contract(contract: D.Contract) -> Bool:
-  D.Contract{D.Model{+profile, reasoning, +project}, +tools, max_fork, max_descendants, +plugins, +context} = contract
-  Workspace.valid_context(context) && Workspace.guidance_member(Workspace.primary(Workspace.workspace(context)), project) &&
-    Hooks.valid(plugins) && Hooks.routes(tools, plugins) && project_context(project) &&
+  D.Contract{D.Model{+profile, reasoning}, +tools, max_fork, max_descendants, +plugins, +context} = contract
+  Workspace.valid_context(context) &&
+    Hooks.valid(plugins) && Hooks.routes(tools, plugins) &&
     D.profile_valid(profile) && D.profile_permitted(profile, reasoning) &&
     unique_tools(tools) && Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
@@ -106,7 +116,6 @@ def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.
     case D.Archived{} D.Idle{}: True{}
     case D.Archived{} _: False{}
     case _ D.Idle{}: True{}
-    case _ D.CompactionReady{}: True{}
     case _ D.Ready{pending}: attempts(pending, history)
     case _ D.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ D.ReasoningPending{ticket, revision}: Nat.is_lt(ticket, next_ticket) && Nat.is_le(revision, D.history_length(history))
@@ -262,6 +271,7 @@ def distinct_operations(operations: +List<D.Operation()>, +tasks: +List<D.Task>)
 def task(task: D.Task, expected_id: Nat, +all: +List<D.Task>, +next_ticket: Nat, +budget: Nat) -> Bool:
   D.Task{+id, ancestors, +frozen, +status, +history, queued, +pending, +operations, notified} = task
   Nat.is_eq(id, expected_id) && contract(frozen) &&
+    project_context(D.history_project(history)) && Workspace.guidance_member(Workspace.primary(Workspace.workspace(D.contract_context(frozen))), D.history_project(history)) &&
     lineage(ancestors, id, frozen, all, budget) &&
     Nat.is_le(T.descendant_count(all, id), T.contract_limit(frozen)) &&
     phase(status, pending, history, T.task_tools(frozen), next_ticket) &&
@@ -474,7 +484,7 @@ def settled_calls(remaining: D.History, +whole: D.History) -> Bool:
       has_output(whole, id) && settled_calls(previous, whole)
     case D.HistoryNode{previous, other}: settled_calls(previous, whole)
 
-# A context cut cannot strand a tool call on the omitted side of a checkpoint.
+# Summary requests retain every call and require its result to be committed.
 # The same admission certificate used for all effects enforces this precondition.
 
 def summary_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, +sent_history: D.History, +budget: Nat) -> Bool:
@@ -627,7 +637,7 @@ def effects(pending: +List<M.Effect()>, +tasks: +List<D.Task>, +first_ticket: Na
     case Con{Effects.ContinueScheduling{}, rest}: effects(rest, tasks, first_ticket, budget)
 
 def profiles(environment: D.Environment) -> +List<D.Profile>:
-  D.Environment{catalog, profiles, forks, descendants, project, plugins} = environment
+  D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions} = environment
   profiles
 
 def feature_effects(effects: +List<M.Effect()>, +state: F.State(), +profiles: +List<D.Profile>) -> Bool:

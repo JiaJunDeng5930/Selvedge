@@ -32,7 +32,8 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
     assert.ok(decision.effects.some(effect => ['model', 'summary'].includes(effect.kind)), 'request must follow the committed intent');
     switch (index) {
       case 0:
-        assert.match(body.instructions, /AGENTS\.md/);
+        assert.ok(!body.instructions);
+        assert.ok(body.input.some(item => item.role === 'developer'));
         assert.equal(body.parallel_tool_calls, true);
         assert.equal(body.tools.some(tool => ['read_file', 'write_file', 'edit_file'].includes(tool.name)), false);
         return call('read-source', 'bash', { command: 'cat math.mjs' });
@@ -56,13 +57,12 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
       case 5:
         assert.equal(body.tool_choice, 'none');
         assert.deepEqual(body.tools, []);
-        assert.match(body.instructions, /Summarize this task/);
+        assert.match(JSON.stringify(body.input), /Summarize this task/);
         return answer('math.mjs addition fixed. check.mjs verified add(2, 3) = 5. No unfinished side effects.');
       case 6:
-        assert.match(body.input[0].content, /Project context snapshot/);
-        assert.match(body.input[1].content, /Task continuation summary/);
-        assert.match(body.input[1].content, /addition fixed/);
-        assert.equal(body.input.some(item => item.content === 'Fix the addition bug and run a real test.'), false);
+        assert.match(JSON.stringify(body.input), /Task continuation summary/);
+        assert.match(JSON.stringify(body.input), /addition fixed/);
+        assert.equal(body.input.some(item => item.content === 'Fix the addition bug and run a real test.'), true);
         return answer('Continuing from the preserved checkpoint.');
       default: throw new Error(`Unexpected model request ${index}`);
     }

@@ -8,7 +8,7 @@ async function kernel(t) {
   await k.initialize();
   const send = async input => (await k.request(input)).value;
   const command = command => send({ kind: 'command', command });
-  const configured = await send({ kind: 'configure', profiles: [
+  const configured = await send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [
     { key: 'worker', provider: 'responses', name: 'worker-model', reasoning_options: null },
     { key: 'reviewer', provider: 'responses', name: 'review-model', reasoning_options: null },
   ], tools: [], max_fork: 4, max_descendants: 8 });

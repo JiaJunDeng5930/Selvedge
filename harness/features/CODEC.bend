@@ -45,7 +45,7 @@ def effect_json(model_json: D.Model -> J.Json, effect: F.Effect) -> J.Json:
     case F.ChatGPTEffect{effect}: ChatGPT.effect_json(effect)
     case F.RequestBoardText{card_id, ticket, profile, prompt, retitle}:
       J.Object{[J.Field{"kind", J.Text{"board_text"}}, J.Field{"card_id", J.nat(card_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"model", model_json(D.Model{profile, "default", D.NoProject{}})}, J.Field{"prompt", J.Text{prompt}}, J.Field{"retitle", J.Boolean{retitle}}]}
+        J.Field{"model", model_json(D.Model{profile, "default"})}, J.Field{"prompt", J.Text{prompt}}, J.Field{"retitle", J.Boolean{retitle}}]}
 
 def board_text_outcome(ok: Bool, +body: J.Json) -> B.Outcome:
   match ok:

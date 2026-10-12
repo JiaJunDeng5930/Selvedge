@@ -178,8 +178,8 @@ explicit unprivileged asynchronous-result data, not a duplicate function output.
 
 After-hook transport carries the frozen route, operation/callback identities,
 effective call and current result. Only value replacement is allowed; execution
-errors cannot be cleared by plugins. The raw execution receipt remains durable
-but outside the default provider projection. A result-processing restart failure
+errors cannot be cleared by plugins. The raw execution receipt remains durable and is encoded as tagged history data
+in model requests. A result-processing restart failure
 does not repeat the execution or callback. Tests cross real process/SQLite/provider
 boundaries; the semantic obligations themselves belong to the Bend proof root.
 
@@ -188,8 +188,8 @@ necessarily the latest journal row. Concurrent completions may advance the log
 before an already-authorized process starts. Integration fixtures verify causal
 authorization by operation identity and retain the no-replay-on-restart check.
 
-`providers.mjs` consumes the instructions and retry policy supplied by the native
-model. Only pre-stream connection failures and declared transient HTTP statuses
+`providers.mjs` consumes the recorded history and retry policy supplied by the
+native model. Only pre-stream connection failures and declared transient HTTP statuses
 are retried, within the request's overall deadline. Waiting is cancellable;
 excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
@@ -213,7 +213,7 @@ Summary requests use the ordinary model transport but receive no tools. ChatGPT
 and API-key profiles use bounded text summarization.
 The host does not decide when to compact, which history to retain, or whether a completion
 is current. Bend performs those decisions, validates summaries, and commits a
-checkpoint before using its context projection. Supplied checkpoints need no
+checkpoint as an additional history entry. Supplied checkpoints need no
 host/model effect. Model retries and text deltas are notices, not extra task
 history or a second scheduler.
 
@@ -224,8 +224,18 @@ native phase owns whether to summarize, retry with a fresh ticket or stop; the
 adapter has no hidden context-recovery counter. Upstream error bodies are not
 copied into the durable conversation.
 
-Root project guidance is observed once before configuration and durably recorded
-in the environment. Providers consume the frozen task snapshot from the committed
-effect, never a fresh filesystem read. It is unprivileged repository data, not an
-extra system prompt. `project-context.test.mjs` and `context-recovery.test.mjs`
-exercise restart and compaction with this same contract.
+Set `instructions` in the service home's `config.json` to customize the initial
+assistant instruction. Omitting the key uses the kernel default; an empty string
+is accepted. Values must be valid UTF-8 without NUL bytes and fit the instruction
+byte limit. Place global guidance in `<service home>/AGENTS.md`; the service reads
+it as a bounded regular UTF-8 file, rejects symbolic links, and records its content
+hash. A missing file supplies no global guidance.
+
+The service snapshots configured, global and project guidance before configuring
+the kernel. Root tasks record those snapshots in their history. An explicit
+workspace selection reads the selected root's `AGENTS.md` before submitting the
+command. Existing tasks keep their recorded content after configuration or file
+changes. A fork inherits its parent's history; explicit workspace selection records
+the selected guidance after that inherited history. Model dispatch uses these
+recorded entries without reading instruction files again. The provider input also
+carries recorded settings, reasoning changes, receipts and audit records.

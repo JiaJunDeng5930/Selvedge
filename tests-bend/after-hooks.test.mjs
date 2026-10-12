@@ -13,9 +13,9 @@ const read = async (service, task_id = 0) => (await service.command({ op: 'read'
 const delivered = (page, id) => page.messages.findLast(message =>
   ['function_output', 'operation_result'].includes(message.role) && message.call_id === id);
 
-test('after chains cross stdio, native execution, SQLite and provider encoding without exposing raw audit records', { timeout: 20_000 }, async t => {
+test('after chains cross stdio, native execution, SQLite and provider encoding while retaining committed audit records as data', { timeout: 20_000 }, async t => {
   const directory = await home(t);
-  const secret = 'execution-only-secret-not-in-the-model-request';
+  const secret = 'stored-original-execution-result';
   const source = path.join(directory, 'input.txt');
   const marker = path.join(directory, 'executions.txt');
   await writeFile(source, secret);
@@ -46,10 +46,11 @@ test('after chains cross stdio, native execution, SQLite and provider encoding w
   assert.deepEqual(raw.content, { secret });
   assert.equal(raw.is_error, true);
   for (const effect of journal(directory).flatMap(row => row.effects).filter(effect => effect.kind === 'model')) {
-    assert.ok(effect.history.every(message => !['tool_receipt', 'after_record'].includes(message.role)));
-    assert.equal(JSON.stringify(effect.history).includes(secret), false);
+    assert.deepEqual(page.messages.slice(0, effect.history.length), effect.history);
+    if (effect.history.some(message => message.role === 'tool_receipt')) assert.ok(JSON.stringify(effect.history).includes(secret));
   }
-  assert.equal(JSON.stringify(provider.requests).includes(secret), false);
+  assert.equal(JSON.stringify(provider.requests).includes(secret), true);
+  assert.ok(provider.requests.slice(1).some(request => JSON.stringify(request.input).includes('after_record')));
   assert.deepEqual(provider.failures, []);
 });
 

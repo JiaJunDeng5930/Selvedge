@@ -500,3 +500,23 @@ def Web.retirement_metadata_rejection():
   error => source => {==}
 def Web.retirement_admitted_metadata_writes():
   metadata => source => {==}
+
+def Web.summary_preserves_page_reset_policy():
+  body => deferred => source => {==}
+def Web.instruction_context_encoding():
+  item => {==}
+
+def Web.tool_receipt_history_success():
+  item => {==}
+def Web.tool_receipt_history_data():
+  item => {==}
+
+def Web.after_record_history_success():
+  item => {==}
+def Web.after_record_history_data():
+  item => {==}
+
+def Web.approval_record_history_success():
+  item => {==}
+def Web.approval_record_history_data():
+  item => {==}

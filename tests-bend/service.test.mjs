@@ -52,7 +52,7 @@ test('root-issued browser sessions, event delivery, CLI discovery, and restart u
   const created = await post({ op: 'create', profile: 'demo', message: 'hello 世界' });
   assert.equal(created.status, 200);
   const settled = await taskIdle(running.service);
-  assert.deepEqual(settled.messages.map(message => message.content), ['hello 世界', '[Offline demo] hello 世界']);
+  assert.deepEqual(settled.messages.filter(message => message.role === 'user' || message.role === 'assistant').map(message => message.content), ['hello 世界', '[Offline demo] hello 世界']);
   const sequence = running.service.journal.sequence;
   const read = await post({ op: 'read', task_id: 0 });
   assert.equal((await read.json()).sequence, sequence);

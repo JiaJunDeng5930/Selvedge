@@ -52,8 +52,8 @@ def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
     case D.ReasoningRecord{owner, effort, remaining, sampling}:
       +audit_message: D.Message = D.ReasoningRecord{owner, effort, remaining, sampling}
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
-    case D.ConfigurationUpdate{effort}:
-      +audit_message: D.Message = D.ConfigurationUpdate{effort}
+    case D.ContextMessage{context}:
+      +audit_message: D.Message = D.ContextMessage{context}
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
     case D.HookRecord{task_id, call_id, plugin, outcome}:
       +audit_message: D.Message = D.HookRecord{task_id, call_id, plugin, outcome}
@@ -147,8 +147,8 @@ def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, e
     case D.ReasoningRecord{owner, effort, remaining, sampling}:
       +audit_message: D.Message = D.ReasoningRecord{owner, effort, remaining, sampling}
       audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
-    case D.ConfigurationUpdate{effort}:
-      +audit_message: D.Message = D.ConfigurationUpdate{effort}
+    case D.ContextMessage{context}:
+      +audit_message: D.Message = D.ContextMessage{context}
       audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
     case D.HookRecord{task_id, call_id, plugin, outcome}:
       +audit_message: D.Message = D.HookRecord{task_id, call_id, plugin, outcome}

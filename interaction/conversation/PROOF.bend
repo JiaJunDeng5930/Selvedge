@@ -147,7 +147,7 @@ def audit_classification(+message: D.Message, +index: Nat, +tail: +List<Actual.G
     case D.FailureMessage{text}: {==}
     case D.ContextCheckpoint{summary}: {==}
     case D.ReasoningRecord{owner, effort, remaining, sampling}: {==}
-    case D.ConfigurationUpdate{effort}: {==}
+    case D.ContextMessage{context}: {==}
     case D.HookRecord{task_id, call_id, plugin, outcome}: {==}
     case D.ToolReceipt{task_id, operation_id, call, value, error}: {==}
     case D.AfterRecord{task_id, operation_id, plugin, outcome}: {==}

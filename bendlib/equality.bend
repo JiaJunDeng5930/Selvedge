@@ -80,12 +80,43 @@ def project(left: D.ProjectContext, right: D.ProjectContext) -> Bool:
       string_equal(root_a, root_b) && string_equal(revision_a, revision_b) && string_equal(text_a, text_b)
     case _ _: False{}
 
+def optional_string(left: Maybe<&2, String>, right: Maybe<&2, String>) -> Bool:
+  match left right:
+    case None{} None{}: True{}
+    case Some{a} Some{b}: string_equal(a, b)
+    case _ _: False{}
+
+def optional_natural(left: Maybe<&2, Nat>, right: Maybe<&2, Nat>) -> Bool:
+  match left right:
+    case None{} None{}: True{}
+    case Some{a} Some{b}: Nat.is_eq(a, b)
+    case _ _: False{}
+
+def sandbox_mode(left: D.SandboxMode, right: D.SandboxMode) -> Bool:
+  match left right:
+    case D.WorkspaceWrite{} D.WorkspaceWrite{}: True{}
+    case D.ReadOnly{} D.ReadOnly{}: True{}
+    case _ _: False{}
+
+def approval(left: D.ApprovalPolicy, right: D.ApprovalPolicy) -> Bool:
+  match left right:
+    case D.FullAccess{} D.FullAccess{}: True{}
+    case D.AskForApproval{} D.AskForApproval{}: True{}
+    case D.ApprovalForMe{a} D.ApprovalForMe{b}: Workspace.profile_same(a, b)
+    case _ _: False{}
+
+def task_context(left: D.TaskContext, right: D.TaskContext) -> Bool:
+  D.TaskContext{D.Workspace{roots_a, primary_a}, D.Sandbox{mode_a, network_a}, approval_a, project_a} = left
+  D.TaskContext{D.Workspace{roots_b, primary_b}, D.Sandbox{mode_b, network_b}, approval_b, project_b} = right
+  strings(roots_a, roots_b) && optional_string(primary_a, primary_b) && sandbox_mode(mode_a, mode_b) &&
+    booleans(network_a, network_b) && approval(approval_a, approval_b) && optional_natural(project_a, project_b)
+
 def model(left: D.Model, right: D.Model) -> Bool:
   match left right:
-    case D.Model{D.Profile{key_a, provider_a, name_a, policy_a, options_a}, reasoning_a, project_a}
-         D.Model{D.Profile{key_b, provider_b, name_b, policy_b, options_b}, reasoning_b, project_b}:
+    case D.Model{D.Profile{key_a, provider_a, name_a, policy_a, options_a}, reasoning_a}
+         D.Model{D.Profile{key_b, provider_b, name_b, policy_b, options_b}, reasoning_b}:
       string_equal(key_a, key_b) && string_equal(provider_a, provider_b) &&
-        string_equal(name_a, name_b) && Reasoning.same(policy_a, policy_b) && D.reasoning_options_same(options_a, options_b) && string_equal(reasoning_a, reasoning_b) && project(project_a, project_b)
+        string_equal(name_a, name_b) && Reasoning.same(policy_a, policy_b) && D.reasoning_options_same(options_a, options_b) && string_equal(reasoning_a, reasoning_b)
 
 def tool(budget: Nat, left: D.Tool, right: D.Tool) -> Bool:
   match left right:
@@ -111,8 +142,8 @@ def contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
 # inherited. Existing tasks still use exact contract equality in retained().
 
 def inherited_contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
-  D.Contract{D.Model{profile_a, reasoning_a, guidance_a}, tools_a, fork_a, descendants_a, plugins_a, context_a} = left
-  D.Contract{D.Model{profile_b, reasoning_b, guidance_b}, tools_b, fork_b, descendants_b, plugins_b, context_b} = right
+  D.Contract{D.Model{profile_a, reasoning_a}, tools_a, fork_a, descendants_a, plugins_a, context_a} = left
+  D.Contract{D.Model{profile_b, reasoning_b}, tools_b, fork_b, descendants_b, plugins_b, context_b} = right
   Workspace.profile_same(profile_a, profile_b) && string_equal(reasoning_a, reasoning_b) && tools(budget, tools_a, tools_b) &&
     Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, D.plugins_json(plugins_a), D.plugins_json(plugins_b))
 
@@ -148,7 +179,7 @@ def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
     case D.ContextCheckpoint{a} D.ContextCheckpoint{b}: string_equal(a, b)
     case D.ReasoningRecord{oa, ea, ra, sa} D.ReasoningRecord{ob, eb, rb, sb}:
       Nat.is_eq(oa, ob) && string_equal(ea, eb) && Nat.is_eq(ra, rb) && booleans(sa, sb)
-    case D.ConfigurationUpdate{a} D.ConfigurationUpdate{b}: string_equal(a, b)
+    case D.ContextMessage{a} D.ContextMessage{b}: json(budget, D.context_json(a), D.context_json(b))
     case _ _: False{}
 
 def history(+budget: Nat, left: D.History, right: D.History) -> Bool:

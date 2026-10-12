@@ -168,8 +168,7 @@ def message_json(message: D.Message) -> J.Json:
       J.Object{[J.Field{"role", J.Text{"reasoning_record"}}, J.Field{"task_id", J.nat(owner)},
         J.Field{"content", J.Object{[J.Field{"effort", J.Text{effort}}, J.Field{"remaining", J.nat(remaining)},
           J.Field{"sampling", J.Boolean{sampling}}]}}]}
-    case D.ConfigurationUpdate{effort}:
-      J.Object{[J.Field{"role", J.Text{"configuration_update"}}, J.Field{"content", J.Text{effort}}]}
+    case D.ContextMessage{context}: D.context_json(context)
 
 def messages_json(messages: +List<D.Message>) -> +List<J.Json>:
   match messages:
@@ -181,13 +180,12 @@ def phase_name(phase: D.Phase) -> String:
     case D.HookPending{ticket, reference, call, pending, remaining}: "hook_pending"
     case D.Idle{}: "idle"
     case D.Ready{calls}: "ready"
-    case D.CompactionReady{}: "compaction_ready"
     case D.ModelPending{ticket, callable}: "model_pending"
     case D.ReasoningPending{ticket, revision}: "reasoning_pending"
     case D.SummaryPending{ticket, resume}: "summary_pending"
 
 def summary(task: D.Task) -> J.Json:
-  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy, options}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy, options}, reasoning}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
@@ -314,18 +312,14 @@ def model_reply_admission(+allowed: +List<String>, +task: D.Task,
       settled_model(D.task_notified(task), D.append_message(D.FailureMessage{"invalid model reply: duplicate call identity, unavailable tool, or invalid arguments"}, task))
 
 def context_limit(reducible: Bool, task: D.Task) -> D.Task:
-  match reducible:
-    case True{}:
-      D.with_phase(D.CompactionReady{}, D.append_message(D.FailureMessage{"Model context limit reached; requesting one checkpoint before retry"}, task))
-    case False{}:
-      promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}, task)))
+  promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Model context limit reached; full task history retained"}, task)))
 
 def model_outcome(outcome: D.Outcome, +allowed: +List<String>, +task: D.Task) -> D.Task:
   match outcome:
     case D.ModelFailure{message}:
       settled_model(D.task_notified(task), D.append_message(D.FailureMessage{message}, task))
     case D.ContextLimit{}:
-      context_limit(D.compactable(D.context_history(D.task_history(task))), task)
+      context_limit(False{}, task)
     case D.ModelReply{+items}:
       model_reply_admission(allowed, task, Categories.admit(ModelReplyCandidate, candidate => model_reply_permitted(allowed, task, candidate), ModelReplyCandidate{items}))
 
@@ -366,9 +360,7 @@ def has_provider_checkpoint(items: +List<D.ModelItem>) -> Bool:
     case Con{other, rest}: has_provider_checkpoint(rest)
 
 def after_summary(resume: Bool) -> D.Phase:
-  match resume:
-    case True{}: D.Ready{Nil{}}
-    case False{}: D.Idle{}
+  D.Idle{}
 
 # Failure ends this summary attempt, not independently queued user requests.
 # With no new input the task stays idle; frozen input stays queued. This never
@@ -453,8 +445,6 @@ def interrupted_history(phase: D.Phase, history: D.History) -> D.History:
       interrupt_attempts(remaining, D.HistoryNode{history,
         D.FunctionOutput{call_id(call), D.failure("hook_cancelled", "Authorization was interrupted; the tool was not dispatched. The plugin callback may already have run."), True{}}})
     case D.Idle{}: history
-    case D.CompactionReady{}:
-      D.HistoryNode{history, D.FailureMessage{"Context recovery cancelled before dispatch; original history retained"}}
     case D.ModelPending{ticket, callable}:
       D.HistoryNode{history, D.FailureMessage{"Model request interrupted by the user"}}
     case D.ReasoningPending{ticket, revision}:
@@ -498,16 +488,11 @@ def steering_effects(-EffectRest: Data, phase: D.Phase, id: Nat) -> +List<Effect
     case D.SummaryPending{ticket, resume}: [Effects.CancelTicket{id, ticket}]
     case _: Nil{}
 
-def recover_summary(resume: Bool) -> D.Phase:
-  match resume:
-    case True{}: D.CompactionReady{}
-    case False{}: D.Idle{}
-
 def recover_phase(phase: D.Phase) -> D.Phase:
   match phase:
     case D.ModelPending{ticket, callable}: D.Ready{Nil{}}
     case D.ReasoningPending{ticket, revision}: D.Ready{Nil{}}
-    case D.SummaryPending{ticket, resume}: recover_summary(resume)
+    case D.SummaryPending{ticket, resume}: D.Idle{}
     case other: other
 
 def recovered_operations(pending: Bool, task: D.Task) -> D.Task:
