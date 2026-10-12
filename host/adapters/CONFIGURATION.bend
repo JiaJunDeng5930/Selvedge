@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
+import ../../harness/DOMAIN.bend as D
 
 # Sources are observations of persisted JSON. Original UTF-16 strings and
 # environment bytes remain in host; reconstruction plans select original refs.
@@ -142,11 +143,18 @@ def config_env_fields(values: +List<J.Json>) -> Bool:
     case Con{head, rest}: config_kind(J.get(head, "value"), "string") && config_env_fields(rest)
 def config_environment(+value: J.Json) -> Bool:
   Bool.not(config_defined(value)) || (config_kind(value, "object") && config_env_fields(J.items(J.get(value, "fields"))))
+def configured_instruction(instructions: D.InitialInstructions) -> String:
+  D.InitialInstructions{configured, global} = instructions
+  configured
+
+def configured_default() -> String:
+  configured_instruction(D.default_instructions())
+
 def config_defaults(+source: J.Json) -> J.Json:
-  J.Object{Con{J.Field{"format", J.Text{"selvedge-bend-config-1"}}, Con{J.Field{"host", J.Text{"127.0.0.1"}}, Con{J.Field{"port", J.Number{"7421"}}, Con{J.Field{"max_fork", J.Number{"4"}}, Con{J.Field{"max_descendants", J.Number{"64"}}, Con{J.Field{"profiles", J.Object{Con{J.Field{"demo", J.Object{Con{J.Field{"provider", J.Text{"echo"}}, Con{J.Field{"model", J.Text{"echo"}}, Nil{}}}}}, Nil{}}}}, Con{J.Field{"mcp", J.Object{Nil{}}}, Con{J.Field{"plugins", J.Object{Nil{}}}, Nil{}}}}}}}}}}
+  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}]}
 def config_head_format(+valid: Bool, +value: J.Json) -> J.Json:
   match valid:
-    case True{}: J.Object{Con{J.Field{"base", J.get(value, "ref")}, Con{J.Field{"fields", J.Array{Con{J.Object{Con{J.Field{"key", J.Text{"host"}}, Con{J.Field{"value", config_value(config_get(value, "host"), J.get(config_defaults(J.Null{}), "host"))}, Nil{}}}}, Con{J.Object{Con{J.Field{"key", J.Text{"port"}}, Con{J.Field{"value", config_value(config_get(value, "port"), J.get(config_defaults(J.Null{}), "port"))}, Nil{}}}}, Con{J.Object{Con{J.Field{"key", J.Text{"max_fork"}}, Con{J.Field{"value", config_value(config_get(value, "max_fork"), J.get(config_defaults(J.Null{}), "max_fork"))}, Nil{}}}}, Con{J.Object{Con{J.Field{"key", J.Text{"max_descendants"}}, Con{J.Field{"value", config_value(config_get(value, "max_descendants"), J.get(config_defaults(J.Null{}), "max_descendants"))}, Nil{}}}}, Con{J.Object{Con{J.Field{"key", J.Text{"profiles"}}, Con{J.Field{"value", config_value(config_get(value, "profiles"), J.get(config_defaults(J.Null{}), "profiles"))}, Nil{}}}}, Con{J.Object{Con{J.Field{"key", J.Text{"mcp"}}, Con{J.Field{"value", config_value(config_get(value, "mcp"), J.get(config_defaults(J.Null{}), "mcp"))}, Nil{}}}}, Con{J.Object{Con{J.Field{"key", J.Text{"plugins"}}, Con{J.Field{"value", config_value(config_get(value, "plugins"), J.get(config_defaults(J.Null{}), "plugins"))}, Nil{}}}}, Nil{}}}}}}}}}}, Nil{}}}}
+    case True{}: J.Object{[J.Field{"base", J.get(value, "ref")}, J.Field{"fields", J.Array{[J.Object{[J.Field{"key", J.Text{"host"}}, J.Field{"value", config_value(config_get(value, "host"), J.get(config_defaults(J.Null{}), "host"))}]}, J.Object{[J.Field{"key", J.Text{"port"}}, J.Field{"value", config_value(config_get(value, "port"), J.get(config_defaults(J.Null{}), "port"))}]}, J.Object{[J.Field{"key", J.Text{"max_fork"}}, J.Field{"value", config_value(config_get(value, "max_fork"), J.get(config_defaults(J.Null{}), "max_fork"))}]}, J.Object{[J.Field{"key", J.Text{"max_descendants"}}, J.Field{"value", config_value(config_get(value, "max_descendants"), J.get(config_defaults(J.Null{}), "max_descendants"))}]}, J.Object{[J.Field{"key", J.Text{"instructions"}}, J.Field{"value", config_value(config_get(value, "instructions"), J.get(config_defaults(J.Null{}), "instructions"))}]}, J.Object{[J.Field{"key", J.Text{"profiles"}}, J.Field{"value", config_value(config_get(value, "profiles"), J.get(config_defaults(J.Null{}), "profiles"))}]}, J.Object{[J.Field{"key", J.Text{"mcp"}}, J.Field{"value", config_value(config_get(value, "mcp"), J.get(config_defaults(J.Null{}), "mcp"))}]}, J.Object{[J.Field{"key", J.Text{"plugins"}}, J.Field{"value", config_value(config_get(value, "plugins"), J.get(config_defaults(J.Null{}), "plugins"))}]}]}}]}
     case False{}: J.Object{Con{J.Field{"error", J.Array{Con{config_literal(J.Text{"The configuration is not in the current Bend format"}), Nil{}}}}, Con{J.Field{"code", J.Text{"Error"}}, Nil{}}}}
 def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
   config_guard(J.same(unknown, J.Null{}), config_error(Con{config_literal(J.Text{"Unknown configuration field: "}), Con{config_ref(unknown), Nil{}}}),
@@ -154,7 +162,7 @@ def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
 def config_configuration_head(+source: J.Json) -> J.Json:
   +value = J.get(source, "value")
   config_guard(config_kind(value, "object"), config_failure("configuration must be an object"),
-    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), Con{"format", Con{"host", Con{"port", Con{"max_fork", Con{"max_descendants", Con{"profiles", Con{"chatgpt", Con{"mcp", Con{"plugins", Con{"reasoning_evaluators", Con{"chatgpt_plugin", Nil{}}}}}}}}}}}}), value))
+    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), Con{"format", Con{"host", Con{"port", Con{"max_fork", Con{"max_descendants", Con{"profiles", Con{"chatgpt", Con{"mcp", Con{"plugins", Con{"reasoning_evaluators", Con{"chatgpt_plugin", Con{"instructions", Nil{}}}}}}}}}}}}}), value))
 def config_configuration_transport(+source: J.Json) -> J.Json:
   +value = J.get(source, "transport")
   config_guard(config_text_equal(J.get(value, "host"), "127.0.0.1") || config_text_equal(J.get(value, "host"), "::1"), config_failure("The local server requires a loopback address"),
@@ -162,7 +170,8 @@ def config_configuration_transport(+source: J.Json) -> J.Json:
     config_guard(config_bound(J.get(value, "max_fork"), "1", "4294967295"), config_failure("max_fork must be in 1..4294967295"),
     config_guard(config_bound(J.get(value, "max_descendants"), "1", "4294967295"), config_failure("max_descendants must be in 1..4294967295"),
     config_guard(config_kind(J.get(value, "profiles"), "object"), config_failure("profiles must be an object"),
-    config_literal(J.Null{}))))))
+    config_guard(config_kind(J.get(value, "instructions"), "string") && J.boolean(J.get(source, "instructions_well_formed")) && Model.nonnegative_le(J.get(source, "instructions_bytes"), Nat.show(D.project_limit())), config_failure("instructions must be a bounded UTF-8 string"),
+    config_literal(J.Null{})))))))
 def config_label_prefix(+plugin: Bool) -> String:
   match plugin:
     case True{}: "plugin "
@@ -423,3 +432,6 @@ def factory(+operation: String) -> Model.Adapter((source => meaning(operation, s
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})
 def run(+operation: String, source: J.Json) -> J.Json:
   Model.execute((candidate => meaning(operation, candidate)), factory(operation), source)
+
+law initial_instruction_default:
+  @source:J.Json -> {J.get(config_defaults(source), "instructions") == J.Text{configured_default()} : J.Json}

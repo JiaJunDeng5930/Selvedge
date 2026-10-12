@@ -1412,9 +1412,9 @@ type BoundaryRequirements is Type:
         Code.Decision{Code.Block{identity, source,
           Code.CodeView{Bool.not(wrap), copy}, next}, Nil{}} : Code.Decision},
     effective_contract: @+model:D.Model -> @+tools:+List<D.Tool> -> @max_fork:Nat ->
-      @max_descendants:Nat -> @+plugins:+List<D.Plugin> -> @+context:D.TaskContext -> @task:Nat ->
-      {Context.effective_contract(D.Contract{model, tools, max_fork, max_descendants, plugins, context}, task) ==
-        Context.EffectiveContext{task, context, D.model_guidance(model), W.default_access(context)} : Context.EffectiveContext},
+      @max_descendants:Nat -> @+plugins:+List<D.Plugin> -> @+context:D.TaskContext -> @task:Nat -> @+guidance:D.ProjectContext ->
+      {Context.effective_contract(D.Contract{model, tools, max_fork, max_descendants, plugins, context}, task, guidance) ==
+        Context.EffectiveContext{task, context, guidance, W.default_access(context)} : Context.EffectiveContext},
     preview_override: @origin:Context.Origin -> @+workspace:D.Workspace -> @+sandbox:D.Sandbox ->
       @approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @+guidance:D.ProjectContext ->
       @+entered_workspace:D.Workspace -> @+entered_sandbox:D.Sandbox ->

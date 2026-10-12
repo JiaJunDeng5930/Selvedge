@@ -273,12 +273,12 @@ def required_workspace(config: Configuration) -> Maybe<&2, D.Workspace>:
   Configuration{origin, workspace, sandbox, approval} = config
   workspace
 
-def effective_contract(contract: D.Contract, task: Nat) -> EffectiveContext:
+def effective_contract(contract: D.Contract, task: Nat, guidance: D.ProjectContext) -> EffectiveContext:
   D.Contract{model, tools, max_fork, max_descendants, plugins, +context} = contract
-  EffectiveContext{task, context, D.model_guidance(model), W.default_access(context)}
+  EffectiveContext{task, context, guidance, W.default_access(context)}
 
 def effective(+task: D.Task) -> EffectiveContext:
-  effective_contract(D.task_contract(task), D.task_id(task))
+  effective_contract(D.task_contract(task), D.task_id(task), D.task_guidance(task))
 
 def observation_valid(observation: DirectoryObservation) -> Bool:
   DirectoryObservation{+workspace, +guidance} = observation

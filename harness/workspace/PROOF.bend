@@ -11,6 +11,7 @@ import ./CONTRACT.bend as A
 import ../../bendlib/association-map.bend as Finite
 import ../protocol/PROGRAM.bend as Protocol
 import ../../bendlib/json-proof.bend as JsonProof
+import ../../bendlib/equality.bend as Same
 import ../../bendlib/equality-proof.bend as EqualityProof
 
 def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
@@ -23,11 +24,17 @@ def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.
   D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
   {==}
 
-def override_context(+context:D.TaskContext, guidance:D.ProjectContext, task:D.Task) ->
+def recorded_context(changed: Bool, +context:D.TaskContext, guidance:D.ProjectContext, parent:D.Task) ->
+  {D.task_context(Commands.record_selection(changed, W.Selection{context, guidance}, parent)) == context : D.TaskContext}:
+  match changed parent:
+    case False{} D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}:
+      match contract:
+        case D.Contract{D.Model{profile, reasoning}, tools, forks, descendants, plugins, previous}: {==}
+    case True{} D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, old_context}, status, history, queued, phase, operations, notified}: {==}
+
+def override_context(+context:D.TaskContext, +guidance:D.ProjectContext, +task:D.Task) ->
   {D.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : D.TaskContext}:
-  D.Task{id, lineage, D.Contract{D.Model{profile, reasoning, previous}, tools, max_fork, max_descendants, plugins, old_context},
-    status, history, queued, phase, operations, notified} = task
-  {==}
+  recorded_context(Bool.not(Same.project(guidance, D.task_guidance(task)) && Same.task_context(context, D.task_context(task))), context, guidance, task)
 
 def project_frame(registry:D.Projects, +world:M.World()) ->
   {Commands.entries(Projects.store(F.State(), registry, world)) == Commands.entries(world) : +List<D.Task>}:

@@ -199,9 +199,9 @@ def found_event(found: Maybe<&2, D.Task>, kind: D.EventKind, value: J.Json) -> +
     case Some{task}: task_event(kind, None{}, value, task)
 
 def model_started(id: Nat, ticket: Nat, model: D.Model, kind: String, tasks: +List<D.Task>) -> +List<D.Notice>:
-  D.Model{profile, reasoning, project} = model
+  D.Model{profile, reasoning} = model
   found_event(T.find(tasks, id), D.ModelStarted{}, J.Object{[J.Field{"ticket", J.nat(ticket)}, J.Field{"kind", J.Text{kind}},
-    J.Field{"model", View.model_json(D.Model{profile, reasoning, D.NoProject{}})}]})
+    J.Field{"model", View.model_json(D.Model{profile, reasoning})}]})
 
 def dispatched(effects: +List<M.Effect()>, +tasks: +List<D.Task>) -> +List<D.Notice>:
   match effects:

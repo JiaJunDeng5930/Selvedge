@@ -8,6 +8,7 @@ import ../bendlib/stdlib.bend as Std
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ./tasks/PROGRAM.bend as T
+import ./tasks/CONTRACT.bend as TaskRequirements
 import ../bendlib/json.bend as J
 import ./INVARIANTS.bend as I
 import ./COMMANDS.bend as Commands
@@ -25,6 +26,8 @@ import ./approval/HOOKS.bend as Hooks
 import ./execution/notifications.bend as Notifications
 import ./workspace/WORKSPACE.bend as Workspace
 import ./approval/MODEL.bend as Approvals
+import ../bendlib/equality.bend as Same
+import ./reasoning/PROGRAM.bend as ActualReasoning
 
 law hook_gateway:
   for +tool: D.Tool
@@ -357,19 +360,23 @@ law tool_dispatch:
       D.with_state_tasks(T.replace(D.state_tasks(state), T.promote(Ops.started(D.state_next_ticket(state), call, remaining, task))), state)), board},
       J.Null{}, [Effects.ExecuteTool{D.task_id(task), D.state_next_ticket(state), tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]} : M.Decision()}
 
-law small_context_dispatch:
+law full_history_dispatch:
   for +task: D.Task
   for +world: M.World()
-  {P.realize_action_calculation(Execution.model_with_operations(False{}, False{}, task), world) == P.model_request_direct(task, world) : M.Decision()}
+  {P.model_request(task, world) == P.model_request_direct(task, world) : M.Decision()}
 
-law large_context_dispatch:
+law model_has_no_context_preflight:
   for +task: D.Task
-  for +world: M.World()
-  {P.realize_action_calculation(Execution.model_with_operations(True{}, False{}, task), world) == P.summary_request(task, True{}, world) : M.Decision()}
+  for world: M.World()
+  {Execution.model(task, world) == Execution.Model{task} : Execution.Action}
 
-law oversized_operation_barrier:
+law summary_request_full_history:
   for +task: D.Task
-  {Execution.model_with_operations(True{}, True{}, task) == Execution.Idle{task} : Execution.Action}
+  for +state: D.State
+  for +board: F.State()
+  {P.decision_effects(P.summary_request(task, False{}, C.Frame{state, board})) ==
+    [Effects.RequestSummary{D.task_id(task), D.state_next_ticket(state), T.task_model(D.task_contract(task)),
+      D.HistoryNode{D.task_history(task), D.UserMessage{D.summary_instructions()}}, D.task_context(task)}] : +List<M.Effect()>}
 
 law accepted_model_settlement:
   for +outcome: D.Outcome
@@ -400,23 +407,15 @@ law accepted_summary_settlement:
 
 # Recovery is a committed state-machine path, not an adapter-owned retry loop.
 
-law context_recovery_work:
+law context_limit_stops:
   for +task: D.Task
-  for +world: M.World()
-  {P.work_calculation(D.RequestContextSummary{}, task, world) == P.summary_request(task, True{}, world) : M.Decision()}
+  {T.context_limit(True{}, task) ==
+    T.promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Model context limit reached; full task history retained"}, task))) : D.Task}
 
-law context_recovery_ready:
-  for task: D.Task
-  {D.task_phase(T.context_limit(True{}, task)) == D.CompactionReady{} : D.Phase}
-
-law recover_resumable_summary:
+law summary_recovery_idle:
   for ticket: Nat
-  {T.recover_phase(D.SummaryPending{ticket, True{}}) == D.CompactionReady{} : D.Phase}
-
-law checkpoint_consumes_compaction:
-  for history: D.History
-  for summary: String
-  {D.compactable(D.context_history(D.HistoryNode{history, D.ContextCheckpoint{summary}})) == False{} : Bool}
+  for resume: Bool
+  {T.recover_phase(D.SummaryPending{ticket, resume}) == D.Idle{} : D.Phase}
 
 law checkpoint_is_not_recompacted:
   for +id: Nat
@@ -447,7 +446,7 @@ law context_limit_after_checkpoint_stops:
   {T.model_outcome(D.ContextLimit{}, allowed,
     D.Task{id, lineage, contract, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, Nil{}, phase, operations, notified}) ==
     D.Task{id, lineage, contract, status, D.HistoryNode{D.HistoryNode{history, D.ContextCheckpoint{summary}},
-      D.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
+      D.FailureMessage{"Model context limit reached; full task history retained"}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
 
 law summary_context_limit_stops:
   for resume: Bool
@@ -724,30 +723,20 @@ law context_has_no_call_authority:
 # This is an idempotent context projection, not a semantic-equivalence claim
 # about model-generated text. The append-only history invariant is unchanged.
 
+law full_history_source:
+  for +history: D.History
+  {D.context_history(history) == history : D.History}
+
 law context_projection_idempotent:
   for +history: D.History
   {D.context_history(D.context_history(history)) == D.context_history(history) : D.History}
-
-law retained_users_projected:
-  for +history: D.History
-  {D.context_history(D.retained_users(history)) == D.retained_users(history) : D.History}
-
-law retained_users_idempotent:
-  for +history: D.History
-  {D.retained_users(D.retained_users(history)) == D.retained_users(history) : D.History}
 
 law provider_checkpoint_context:
   for +history: D.History
   for +value: J.Json
   for checked: {D.is_provider_checkpoint(value) == True{} : Bool}
   {D.context_history(D.HistoryNode{history, D.ModelContext{value}}) ==
-    D.HistoryNode{D.retained_users(D.context_history(history)), D.ModelContext{value}} : D.History}
-
-law provider_checkpoint_consumes_compaction:
-  for +history: D.History
-  for +value: J.Json
-  for +checked: {D.is_provider_checkpoint(value) == True{} : Bool}
-  {D.compactable(D.context_history(D.HistoryNode{history, D.ModelContext{value}})) == False{} : Bool}
+    D.HistoryNode{history, D.ModelContext{value}} : D.History}
 
 law provider_summary_preserves_record:
   for +value: J.Json
@@ -758,11 +747,11 @@ law provider_summary_preserves_record:
   {T.summary_outcome(D.ModelReply{[D.Context{value}]}, resume, task) ==
     T.promote(D.with_phase(T.after_summary(resume), D.append_message(D.ModelContext{value}, task))) : D.Task}
 
-law checkpoint_cuts_context:
+law checkpoint_preserves_context:
   for history: D.History
   for +summary: String
   {D.context_history(D.HistoryNode{history, D.ContextCheckpoint{summary}}) ==
-    D.HistoryNode{D.EmptyHistory{}, D.ContextCheckpoint{summary}} : D.History}
+    D.HistoryNode{history, D.ContextCheckpoint{summary}} : D.History}
 
 law summary_rejects_invocations:
   for call: D.Call
@@ -809,3 +798,86 @@ law command_consumer_correspondence:
 law input_consumer_correspondence:
   for member: Protocol.ConstructedInput()
   {P.realize_event(member) == P.input_consumer_correspondence_required(member) : M.Decision()}
+
+
+law initial_history_order:
+  for +instructions: D.InitialInstructions
+  for +project: D.ProjectContext
+  for +message: String
+  for +id: Nat
+  for +lineage: +List<Nat>
+  for +profile: D.Profile
+  for +reasoning: String
+  for +tools: +List<D.Tool>
+  for +max_fork: Nat
+  for +max_descendants: Nat
+  for +plugins: +List<D.Plugin>
+  for +context: D.TaskContext
+  for +status: D.Status
+  for +history: D.History
+  for +queued: +List<String>
+  for +phase: D.Phase
+  for +operations: +List<D.Operation()>
+  for +notified: Bool
+  {D.task_history(D.initialize_history(instructions, project, message,
+    D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context}, status, history, queued, phase, operations, notified})) ==
+    TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, history) : D.History}
+
+law context_append_preserves_prefix:
+  for +context: D.HistoryContext
+  for +task: D.Task
+  {D.task_history(D.append_context(context, task)) ==
+    D.HistoryNode{D.task_history(task), D.ContextMessage{context}} : D.History}
+
+law recorded_selection_history:
+  for changed: Bool
+  for +selection: Workspace.Selection
+  for +parent: D.Task
+  {D.task_history(Commands.record_selection(changed, selection, parent)) ==
+    TaskRequirements.selected_history(changed, selection, parent) : D.History}
+
+
+law selected_parent_history:
+  for +context: D.TaskContext
+  for +guidance: D.ProjectContext
+  for +parent: D.Task
+  {D.task_history(Commands.selected_parent(Workspace.Selection{context, guidance}, parent)) ==
+    TaskRequirements.selected_history(Bool.not(Same.project(guidance, D.task_guidance(parent)) && Same.task_context(context, D.task_context(parent))),
+      Workspace.Selection{context, guidance}, parent) : D.History}
+
+law model_request_full_history:
+  for +task: D.Task
+  for +state: D.State
+  for +board: F.State()
+  for +catalog: +List<D.Tool>
+  for profiles: +List<D.Profile>
+  for forks: Nat
+  for descendants: Nat
+  for project: D.ProjectContext
+  for plugins: +List<D.Plugin>
+  for instructions: D.InitialInstructions
+  {P.decision_effects(ActualReasoning.request_environment(F.State(), F.Effect, task, C.Frame{state, board},
+    D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions})) ==
+    [Effects.RequestModel{D.task_id(task), D.state_next_ticket(state), T.task_model(D.task_contract(task)), D.task_history(task),
+      T.task_tools(D.task_contract(task)), T.callable(T.task_tools(D.task_contract(task)), catalog), D.task_context(task)}] : +List<M.Effect()>}
+
+law root_initial_history:
+  for +profile: D.Profile
+  for +reasoning: String
+  for +message: String
+  for +context: D.TaskContext
+  for +instructions: D.InitialInstructions
+  for +project: D.ProjectContext
+  for +catalog: +List<D.Tool>
+  for profiles: +List<D.Profile>
+  for +forks: Nat
+  for +descendants: Nat
+  for +plugins: +List<D.Plugin>
+  for +state: D.State
+  for board: F.State()
+  {D.state_tasks(C.local(D.State, F.State(), P.decision_world(P.execute_start_environment(profile, reasoning, message,
+    Workspace.Selection{context, project}, C.Frame{state, board},
+    D.Environment{catalog, profiles, forks, descendants, D.NoProject{}, plugins, instructions})))) ==
+    List.append(&2, D.Task, D.state_tasks(state), [D.Task{D.state_next_task(state), Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context},
+      D.Active{}, TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, D.EmptyHistory{}),
+      Nil{}, D.Ready{Nil{}}, Nil{}, True{}}]) : +List<D.Task>}

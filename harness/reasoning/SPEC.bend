@@ -14,7 +14,7 @@ import ../execution/OPERATIONS.bend as Ops
 # frame, privacy and lease properties in the reasoning boundary.
 def model_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>, environment_value: D.Environment) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match world environment_value:
-    case C.Frame{+task_state, +rest} D.Environment{+catalog, profiles, forks, descendants, project, plugins}:
+    case C.Frame{+task_state, +rest} D.Environment{+catalog, profiles, forks, descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
       +ticket = D.state_next_ticket(task_state)
       +tools = T.task_tools(D.task_contract(task))

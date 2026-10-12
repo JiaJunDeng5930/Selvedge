@@ -39,7 +39,7 @@ def environment(world: M.World()) -> D.Environment:
   environment
 
 def catalog(environment: D.Environment) -> +List<D.Tool>:
-  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions} = environment
   catalog
 
 def next_task(world: M.World()) -> Nat:
@@ -61,11 +61,12 @@ def id_result(id: Nat) -> J.Json:
 
 def execute_start_environment(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
   match selection world environment_value:
-    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
+    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
       +next_task = D.state_next_task(task_state)
-      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
-        D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
+      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context},
+        D.Active{}, D.EmptyHistory{}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
+      task = D.initialize_history(instructions, guidance, message, task)
       respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
 
 def execute_start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
@@ -112,8 +113,9 @@ def commit_fork(built: Commands.Children, call: D.Call, remaining: +List<D.Attem
       respond(C.Frame{D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, T.replace(tasks, caller), new_tasks), task_state)), board},
         J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]})
 
-def summary_request(+task: D.Task, resume: Bool, world: M.World()) -> M.Decision():
+def summary_request(task: D.Task, resume: Bool, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
+  +task = D.append_message(D.UserMessage{D.summary_instructions()}, task)
   tasks = D.state_tasks(task_state)
   +next_ticket = D.state_next_ticket(task_state)
   next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, resume}, task))
@@ -325,7 +327,6 @@ def realize_action_calculation(action: Execution.Action, world: M.World()) -> M.
     case Execution.Rest{}: respond(world, J.Null{})
     case Execution.Idle{task}: respond(store(D.with_phase(D.Idle{}, task), world), J.Null{})
     case Execution.Model{task}: model_request_direct(task, world)
-    case Execution.Summary{task, resume}: summary_request(task, resume, world)
     case Execution.External{tool, call, remaining, task}: external_tool(tool, call, remaining, task, world)
     case Execution.Review{reviewer, call, remaining, task}: approval_request(reviewer, call, remaining, task, world)
     case Execution.Granted{reviewer, tool, operation, task}: elevated_tool(reviewer, tool, operation, task, world)

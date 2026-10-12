@@ -11,7 +11,7 @@ async function fixture(t, handler) {
   const kernel = new Kernel();
   t.after(() => kernel.close());
   const description = await kernel.initialize();
-  await kernel.request({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8 });
+  await kernel.request({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8 });
   const decision = (await kernel.request({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'hello' } })).value;
   const server = http.createServer((request, response) => {
     request.resume();
@@ -24,7 +24,7 @@ async function fixture(t, handler) {
   t.after(() => { if (oldKey === undefined) delete process.env.SELVEDGE_RETRY_FIXTURE_KEY; else process.env.SELVEDGE_RETRY_FIXTURE_KEY = oldKey; });
   const config = validateConfig({ ...defaultConfig, profiles: { fixture: { provider: 'responses', model: 'fixture',
     endpoint: `http://127.0.0.1:${server.address().port}/responses`, api_key_env: 'SELVEDGE_RETRY_FIXTURE_KEY', timeout_ms: 5000 } } });
-  return { run: options => requestModel(decision.effects[0], config, directory, description.limits, options), description };
+  return { run: (options, history = decision.effects[0].history) => requestModel({ ...decision.effects[0], history }, config, directory, description.limits, options), description };
 }
 
 function complete(response) {
@@ -33,6 +33,27 @@ function complete(response) {
     { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] },
   ] } })}\n\n`);
 }
+
+test('Responses HTTP preserves a recorded reasoning change between surrounding messages', async t => {
+  const { run } = await fixture(t, (request, response) => {
+    const chunks = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+    const body = JSON.parse(Buffer.concat(chunks));
+    assert.deepEqual(body.input, [
+      { role: 'user', content: 'before recorded effort' },
+      { type: 'configuration_update', reasoning: { effort: 'high' } },
+      { role: 'user', content: 'after recorded effort' },
+    ]);
+    assert.ok(!body.instructions); complete(response);
+    });
+  });
+  await run({}, [
+    { role: 'user', content: 'before recorded effort' },
+    { role: 'task_context', type: 'reasoning_configuration', effort: 'high' },
+    { role: 'user', content: 'after recorded effort' },
+  ]);
+});
 
 test('model requests retry transient headers within the native retry budget', async t => {
   let calls = 0;

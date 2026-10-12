@@ -48,3 +48,25 @@ def B.profile_catalog_model():
   key => profile => {==}
 def B.profile_catalog_default():
   profile => first => rest => {==}
+
+def B.accepted_prepare_history():
+  effect => {==}
+def B.model_independent_history():
+  effect => {==}
+def B.summary_independent_history():
+  effect => {==}
+
+def B.tool_receipt_input_success():
+  message => profile => {==}
+def B.tool_receipt_input_data():
+  message => profile => {==}
+
+def B.after_record_input_success():
+  message => profile => {==}
+def B.after_record_input_data():
+  message => profile => {==}
+
+def B.approval_record_input_success():
+  message => profile => {==}
+def B.approval_record_input_data():
+  message => profile => {==}

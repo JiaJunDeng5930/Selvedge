@@ -154,8 +154,8 @@ export function modelResponse(response, output, deltas = []) {
 
 export const modelEffect = () => ({
   kind: 'model', task_id: 1, ticket: 2,
-  model: { profile: 'fixture', provider: 'chatgpt', name: 'model-from-account', reasoning: 'medium', project: null },
-  instructions: 'Fixture instructions', history: [{ role: 'user', content: 'hello' }],
+  model: { profile: 'fixture', provider: 'chatgpt', name: 'model-from-account', reasoning: 'medium' },
+  history: [{ role: 'task_context', type: 'instruction', source: 'configured', content: 'Fixture instructions' }, { role: 'user', content: 'hello' }],
   tools: [
     { name: 'allowed', description: 'Allowed tool', parameters: { type: 'object', properties: {} } },
     { name: 'withheld', description: 'Not callable', parameters: { type: 'object', properties: {} } },

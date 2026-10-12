@@ -8,6 +8,7 @@ import ./features/MODEL.bend as F
 import ../bendlib/effects.bend as Effects
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
+import ../bendlib/equality.bend as Same
 import ./MODEL.bend as M
 import ../bendlib/json.bend as J
 import ./tasks/PROGRAM.bend as T
@@ -55,7 +56,7 @@ def settings(world: M.World()) -> D.Environment:
   environment
 
 def configured(environment: D.Environment) -> +List<D.Profile>:
-  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions} = environment
   profiles
 
 def permitted_operation(-predicate: Operation -> Bool, member: Categories.Membership<Operation, Categories.holds(Operation, predicate)>) -> Operation:
@@ -99,10 +100,10 @@ def checkpoint_permitted(operation: Operation) -> Bool:
     case _: False{}
 
 def task_selection(+task: D.Task) -> Workspace.Selection:
-  Workspace.Selection{D.task_context(task), D.model_guidance(T.task_model(D.task_contract(task)))}
+  Workspace.Selection{D.task_context(task), D.task_guidance(task)}
 
 def environment_selection(environment: D.Environment) -> Workspace.Selection:
-  D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins} = environment
+  D.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins, instructions} = environment
   Workspace.Selection{Workspace.defaults(guidance), guidance}
 
 def project_settings(base: Result<&2, &2, String, Workspace.Selection>, options: J.Json,
@@ -145,11 +146,22 @@ def configure_branch(operation: Operation, options: J.Json, world: M.World()) ->
 
 def selected_contract(selection: Workspace.Selection, contract: D.Contract) -> D.Contract:
   Workspace.Selection{context, guidance} = selection
-  D.Contract{D.Model{profile, reasoning, previous_guidance}, tools, max_fork, max_descendants, plugins, previous_context} = contract
-  D.Contract{D.Model{profile, reasoning, guidance}, tools, max_fork, max_descendants, plugins, context}
+  D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, previous_context} = contract
+  D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context}
 
-def selected_parent(selection: Workspace.Selection, +parent: D.Task) -> D.Task:
-  D.with_contract(selected_contract(selection, D.task_contract(parent)), parent)
+def record_selection(changed: Bool, +selection: Workspace.Selection, +parent: D.Task) -> D.Task:
+  match changed:
+    case False{}: D.with_contract(selected_contract(selection, D.task_contract(parent)), parent)
+    case True{}:
+      Workspace.Selection{+context, guidance} = selection
+      +model = T.task_model(D.task_contract(parent))
+      D.append_context(D.TaskSettings{context, D.profile_key(D.model_profile(model)), D.model_selection(model)},
+        D.append_context(D.ProjectGuidance{guidance}, D.with_contract(selected_contract(selection, D.task_contract(parent)), parent)))
+
+def selected_parent(+selection: Workspace.Selection, +parent: D.Task) -> D.Task:
+  Workspace.Selection{context, guidance} = selection
+  record_selection(Bool.not(Same.project(guidance, D.task_guidance(parent)) &&
+    Same.task_context(context, D.task_context(parent))), selection, parent)
 
 def recipient(found: Maybe<&2, D.Task>, +message: String) -> Operation:
   match found:
@@ -321,11 +333,12 @@ def changed(id: Nat, task: D.Task, world: M.World(), effects: +List<M.Effect()>)
 
 def start_environment(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
   match selection world environment_value:
-    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
+    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
       +next_task = D.state_next_task(task_state)
-      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
-        D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
+      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context},
+        D.Active{}, D.EmptyHistory{}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
+      task = D.initialize_history(instructions, guidance, message, task)
       C.Decision{C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board},
         D.success(id_result(next_task)), Nil{}}
 
@@ -395,8 +408,9 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
   +parent = D.append_message(D.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
-def summarize(+task: D.Task, world: M.World()) -> M.Decision():
+def summarize(task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
+  +task = D.append_message(D.UserMessage{D.summary_instructions()}, task)
   tasks = D.state_tasks(task_state)
   +next_ticket = D.state_next_ticket(task_state)
   next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, False{}}, task))
@@ -416,7 +430,7 @@ def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat) -> J.Json:
 
 def listing_environment(world: M.World(), environment_value: D.Environment) -> J.Json:
   match world environment_value:
-    case C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
+    case C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
       D.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
         J.Field{"profiles", J.Array{D.profiles_json(profiles)}}, J.Field{"tools", J.Array{D.tools_json(catalog)}},

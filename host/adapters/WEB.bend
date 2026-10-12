@@ -1,4 +1,5 @@
 import Base
+import ./BACKENDS.bend as Backend
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
@@ -253,14 +254,31 @@ def context_valid(valid: Bool, value: J.Json) -> Result<&2, &2, String, +List<J.
     case False{}: Fail{"ChatGPT Web cannot import opaque provider context; supply a text checkpoint"}
 def context_receipt(owned: Bool, +value: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
   match owned:
-    case True{}: Done{Nil{}}
+    case True{}: Done{message("user", text("Committed provider receipt:\n" ++ shown(value))) <> Nil{}}
     case False{}: context_valid(eq(value, "type", "message") && eq(value, "role", "assistant") && is_array(get(value, "content")) && context_parts(J.items(get(value, "content"))), value)
 def context_message(+value: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
   context_receipt(receipt_tag(value), value)
 def append_fields(left: +List<J.Field>, right: +List<J.Field>) -> +List<J.Field>: List.append(&2, J.Field, left, right)
+def history_data(+item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  Done{message("user", text("Committed task history data:\n" ++ shown(item))) <> Nil{}}
+def history_context_kind(kind: String, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  match kind:
+    case "instruction": Done{message("developer", get(item, "content")) <> Nil{}}
+    case "project": Done{message("developer", text("Committed project guidance snapshot:\n" ++ shown(item))) <> Nil{}}
+    case "reasoning_configuration": Done{message("developer", text("Committed reasoning effort for subsequent responses: " ++ J.text(get(item, "effort")))) <> Nil{}}
+    case _: history_data(item)
+def history_context_checked(valid: Bool, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  match valid:
+    case True{}: history_context_kind(name(item, "type"), item)
+    case False{}: Fail{"Malformed or unsupported task context message"}
+
 def history_item_role(role: String, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
   match role:
-    case "reasoning_record": Done{Nil{}}
+    case "reasoning_record": history_data(item)
+    case "tool_receipt": history_data(item)
+    case "after_record": history_data(item)
+    case "approval_record": history_data(item)
+    case "task_context": history_context_checked(Backend.context_valid(name(item, "type"), item), item)
     case "user": Done{message("user", get(item, "content")) <> Nil{}}
     case "assistant": Done{message("assistant", get(item, "content")) <> Nil{}}
     case "function_call": Done{message("assistant", text("Historical tool call (already requested, not a new invocation):\n" ++ shown(get(item, "content")))) <> Nil{}}
@@ -589,15 +607,11 @@ def continuation_span(+source: J.Json) -> Bool:
 def continuation_suffix(+source: J.Json) -> +List<J.Json>:
   +receipt = continuation_receipt(source)
   +history = J.items(get(get(source, "effect"), "history"))
-  append(history_take(history_drop(history, number(get(receipt, "input_count"))), Nat.sub(Nat.sub(number(get(source, "receipt_position")), number(get(receipt, "output_count"))), number(get(receipt, "input_count")))), history_drop(history, Nat.add(number(get(source, "receipt_position")), 1n)))
+  append(history_take(history_drop(history, number(get(receipt, "input_count"))), Nat.sub(Nat.sub(number(get(source, "receipt_position")), number(get(receipt, "output_count"))), number(get(receipt, "input_count")))), history_drop(history, number(get(source, "receipt_position"))))
 def successor_body(id: J.Json, input: +List<J.Json>) -> J.Json:
   object(field("previous_response_id", id) <> field("input", J.Array{input}) <> field("stream", J.Boolean{True{}}) <> Nil{})
-def history_role(items: +List<J.Json>, +role: String) -> Bool:
-  match items:
-    case Nil{}: False{}
-    case Con{item, rest}: eq(item, "role", role) || history_role(rest, role)
 def continuation_result(body: J.Json, deferred: +List<J.Json>, +source: J.Json) -> J.Json:
-  Model.success(object(field("body", body) <> field("deferred", J.Array{deferred}) <> field("input_count", J.nat(count(J.items(get(get(source, "effect"), "history"))))) <> field("receipt_position", get(source, "receipt_position")) <> field("reset", J.Boolean{cancelled(source) || (history_role(J.items(get(get(source, "effect"), "history")), "context_summary") && Bool.not(history_role(J.items(get(get(source, "effect"), "history")), "error")))}) <> Nil{}))
+  Model.success(object(field("body", body) <> field("deferred", J.Array{deferred}) <> field("input_count", J.nat(count(J.items(get(get(source, "effect"), "history"))))) <> field("receipt_position", get(source, "receipt_position")) <> field("reset", J.Boolean{cancelled(source)}) <> Nil{}))
 def root_instructions(present: Bool, request: J.Json) -> +List<J.Field>:
   match present:
     case True{}: field("instructions", get(request, "instructions")) <> Nil{}
@@ -2349,3 +2363,23 @@ def meaning(+operation: String, source: J.Json) -> J.Json:
   meaning_route_0(String.eq(operation, "web.messages"), operation, source)
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}
+
+law summary_preserves_page_reset_policy:
+  @body:J.Json -> @deferred:List<&2, J.Json> -> @source:J.Json -> {get(get(continuation_result(body, deferred, source), "value"), "reset") == J.Boolean{cancelled(source)} : J.Json}
+law instruction_context_encoding:
+  @item:J.Json -> {history_context_kind("instruction", item) == Done{message("developer", get(item, "content")) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}
+
+law tool_receipt_history_success:
+  @item:J.Json -> {history_item(Backend.put(item, "role", J.Text{"tool_receipt"})) == history_data(Backend.put(item, "role", J.Text{"tool_receipt"})) : Result<&2, &2, String, List<&2, J.Json>>}
+law tool_receipt_history_data:
+  @item:J.Json -> {history_item_role("tool_receipt", item) == Done{message("user", text("Committed task history data:\n" ++ shown(item))) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}
+
+law after_record_history_success:
+  @item:J.Json -> {history_item(Backend.put(item, "role", J.Text{"after_record"})) == history_data(Backend.put(item, "role", J.Text{"after_record"})) : Result<&2, &2, String, List<&2, J.Json>>}
+law after_record_history_data:
+  @item:J.Json -> {history_item_role("after_record", item) == Done{message("user", text("Committed task history data:\n" ++ shown(item))) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}
+
+law approval_record_history_success:
+  @item:J.Json -> {history_item(Backend.put(item, "role", J.Text{"approval_record"})) == history_data(Backend.put(item, "role", J.Text{"approval_record"})) : Result<&2, &2, String, List<&2, J.Json>>}
+law approval_record_history_data:
+  @item:J.Json -> {history_item_role("approval_record", item) == Done{message("user", text("Committed task history data:\n" ++ shown(item))) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}

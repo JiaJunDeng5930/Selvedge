@@ -27,10 +27,10 @@ test('project selection reaches a real multi-root Bash sandbox only after its pl
   await symlink(roots[1], alias);
   const api_key_env = credentials(t);
   const model = await responsesServer(t, async (body, index) => {
-    assert.ok(body.instructions.includes('Committed task settings'));
+    assert.ok(JSON.stringify(body.input).includes('settings'));
     if (index === 0) {
-      assert.ok(body.instructions.includes(roots[0]));
-      assert.ok(body.instructions.includes(roots[1]));
+      assert.ok(JSON.stringify(body.input).includes(roots[0]));
+      assert.ok(JSON.stringify(body.input).includes(roots[1]));
       const db = new DatabaseSync(path.join(state, 'journal.sqlite'), { readOnly: true });
       const recorded = JSON.parse(db.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get().decision);
       db.close();

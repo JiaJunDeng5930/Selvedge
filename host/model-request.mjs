@@ -59,10 +59,6 @@ export async function requestHeaders(send, policy, signal, onRetry) {
   }
 }
 
-export function taskInstructions(instructions, settings) {
-  return boundary('backend.task_instructions', { instructions, settings });
-}
-
 export function prepareModelRequest(effect) {
   return boundary('backend.prepare', effect);
 }

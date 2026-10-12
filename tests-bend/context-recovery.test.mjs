@@ -8,7 +8,7 @@ import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, taskIdle } from './support.mjs';
 
-test('the service commits overflow and summary before retrying, without repeating a completed file mutation on restart', { timeout: 15_000 }, async t => {
+test('the service commits context-limit failure without summary or retry, without repeating a completed file mutation on restart', { timeout: 15_000 }, async t => {
   const directory = await home(t);
   const key = 'SELVEDGE_OVERFLOW_FIXTURE_KEY';
   const old = process.env[key];
@@ -28,10 +28,11 @@ test('the service commits overflow and summary before retrying, without repeatin
       try { record = db.prepare('SELECT input, decision FROM journal ORDER BY seq DESC LIMIT 1').get(); }
       finally { db.close(); }
       const committed = JSON.parse(record.decision).effects;
-      const kind = index === 2 ? 'summary' : 'model';
+      const kind = 'model';
+      assert.ok(index < 2, 'Context-limit failures must not retry or summarize');
       assert.ok(committed.some(effect => effect.kind === kind));
       committedKinds.push(kind);
-      assert.match(body.input[0].content, /Keep completed writes/);
+      assert.match(JSON.stringify(body.input), /Keep completed writes/);
       if (index === 1) {
         assert.ok(body.input.some(item => item.type === 'function_call_output' && item.call_id === 'only-write'));
         response.writeHead(400, { 'content-type': 'application/json' });
@@ -42,16 +43,6 @@ test('the service commits overflow and summary before retrying, without repeatin
       if (index === 0) {
         output = [{ type: 'function_call', call_id: 'only-write', name: 'bash',
           arguments: JSON.stringify({ command: "printf 'committed once' > result.txt" }) }];
-      } else if (index === 2) {
-        assert.equal(JSON.parse(record.input).failure_kind, 'context_limit');
-        assert.deepEqual(body.tools, []);
-        assert.equal(body.tool_choice, 'none');
-        output = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'result.txt was written successfully; do not repeat the write.' }] }];
-      } else {
-        assert.equal(index, 3, 'A stopped recovery must not silently retry again');
-        assert.equal(body.input.length, 2, 'Project snapshot plus committed checkpoint is the new context');
-        assert.match(JSON.stringify(body.input), /do not repeat the write/);
-        output = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'completed' }] }];
       }
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\n\n`);
@@ -66,13 +57,16 @@ test('the service commits overflow and summary before retrying, without repeatin
   await service.command({ op: 'create', profile: 'fixture', message: 'write the artifact and complete the objective' });
   const page = await taskIdle(service);
   assert.deepEqual(failures, []);
-  assert.deepEqual(committedKinds, ['model', 'model', 'summary', 'model']);
+  assert.deepEqual(committedKinds, ['model', 'model']);
+  assert.ok(page.messages.some(item => item.role === 'function_output' && item.is_error === false), JSON.stringify(page.messages));
   assert.equal(await readFile(path.join(directory, 'result.txt'), 'utf8'), 'committed once');
   assert.equal(JSON.stringify(page).includes('upstream-private-diagnostic'), false);
   assert.equal(page.messages.filter(x => x.role === 'function_output').length, 1);
+  assert.ok(page.messages.some(x => x.role === 'error'));
+  assert.equal(page.messages.some(x => x.role === 'context_summary'), false);
   await service.close();
   service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   assert.deepEqual((await taskIdle(service)).messages, page.messages);
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 2);
   assert.equal(await readFile(path.join(directory, 'result.txt'), 'utf8'), 'committed once');
 });

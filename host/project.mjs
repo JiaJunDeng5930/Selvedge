@@ -4,17 +4,15 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
 
-/** Observe root guidance before a configuration/birth command; the journal owns the snapshot. */
-export async function snapshotProject(cwd, limits, { signal } = {}) {
+async function snapshotInstructions(filename, limits, { signal } = {}) {
   signal?.throwIfAborted();
   const maximum = limits.project_context_bytes;
   if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('The kernel did not declare a project-context bound');
-  const workspace = await realpath(cwd);
-  if (Buffer.byteLength(workspace) > 4096) throw new Error('Workspace path exceeds the model boundary');
+  if (Buffer.byteLength(filename) > 4096) throw new Error('Instruction path exceeds the model boundary');
   let file;
-  try { file = await open(path.join(workspace, 'AGENTS.md'), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW); }
+  try { file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW); }
   catch (error) {
-    if (error.code === 'ENOENT') return { workspace, revision: 'absent', instructions: '' };
+    if (error.code === 'ENOENT') return null;
     throw error;
   }
   try {
@@ -38,8 +36,32 @@ export async function snapshotProject(cwd, limits, { signal } = {}) {
     let instructions;
     try { instructions = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
     catch { throw new Error('File is not valid UTF-8'); }
-    return { workspace, revision: createHash('sha256').update(bytes).digest('hex'), instructions };
+    return { path: filename, revision: createHash('sha256').update(bytes).digest('hex'), content: instructions };
   } finally { await file.close(); }
+}
+
+/** Observe guidance before a birth command; the journal owns the snapshot. */
+export async function snapshotProject(cwd, limits, options) {
+  const workspace = await realpath(cwd);
+  const snapshot = await snapshotInstructions(path.join(workspace, 'AGENTS.md'), limits, options);
+  return { workspace, revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
+}
+
+export async function snapshotGlobalInstructions(home, limits, options) {
+  return snapshotInstructions(path.join(await realpath(home), 'AGENTS.md'), limits, options);
+}
+
+export function configuredInstructions(config, limits) {
+  const value = config.instructions;
+  const maximum = limits.project_context_bytes;
+  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('The kernel did not declare an instruction bound');
+  if (typeof value !== 'string' || !value.isWellFormed() || value.includes('\0')) {
+    throw new TypeError('Configured instructions must be a valid UTF-8 string without NUL bytes');
+  }
+  if (Buffer.byteLength(value, 'utf8') > maximum) {
+    throw new RangeError('Configured instructions exceed the instruction byte limit');
+  }
+  return value;
 }
 
 /**
