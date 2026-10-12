@@ -18,7 +18,7 @@ directory without downloading, building, or sharing a kernel executable.
 Run `bun run check`, `bun run test`, and `bun run index:check` before submitting work.
 The commit hook checks proofs, syntax, and the tracked-file index; the push hook
 runs native integration tests. `just check` runs the same checks, and `just hooks`
-executes the configured hook stages. CI covers macOS and Linux.
+executes the configured hook stages. GitHub Actions CI is disabled; run these checks locally.
 
 Use proofs for internal semantics, component tests for external boundaries and
 end-to-end tests for their combinations. The ownership map is

@@ -435,15 +435,8 @@ isolation require a working platform sandbox. The benchmark measures committed
 transitions and replay without a machine-dependent CI threshold. `just` provides
 aliases for the development commands.
 
-CI runs production proofs, syntax, a JavaScript library build, regular
-integration tests and the tracked-file index on Linux for each PR and main
-update. `bun run test:ci` retains real sandbox, SQLite, process and protocol
-tests; native extension builds stay
-in `bun run test` and the pre-push hook. Select `full` when manually running CI
-to run the complete suite on Linux and macOS. GitHub enables that manual entry
-after this workflow reaches the default branch. Ubuntu CI loads a user-namespace
-AppArmor rule for `/usr/bin/bwrap` and checks network namespace setup before
-integration tests.
+GitHub Actions CI is disabled by project decision. Run validation locally with
+the commands above; the commit and push hooks remain available.
 
 After adding or deleting files, stage the changed paths, run `bun run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is
