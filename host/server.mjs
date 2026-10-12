@@ -160,7 +160,8 @@ export async function startServer(options) {
           const data = await readFile(new URL(`./public/${file}`, import.meta.url));
           response.writeHead(200, { 'content-type': contentType, 'cache-control': url.pathname === '/' ? 'no-store' : 'no-cache',
             ...(url.pathname === '/' ? { 'set-cookie': `selvedge-session=${token}; Path=/api; HttpOnly; SameSite=Strict` } : {}),
-            'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            // NOTE: Browser annotations inject inline styles into their selection overlay.
+            'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
             'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
           response.end(data);
           return;
