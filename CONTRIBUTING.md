@@ -18,7 +18,7 @@ directory without downloading, building, or sharing a kernel executable.
 Run `bun run check`, `bun run test`, and `bun run index:check` before submitting work.
 The commit hook checks proofs, syntax, and the tracked-file index; the push hook
 runs native integration tests. `just check` runs the same checks, and `just hooks`
-executes the configured hook stages. CI covers macOS and Linux.
+executes the configured hook stages. GitHub Actions CI is disabled; run these checks locally.
 
 Use proofs for internal semantics, component tests for external boundaries and
 end-to-end tests for their combinations. The ownership map is
@@ -35,8 +35,7 @@ logs, benchmark measurements, and investigation notes belong in `.workpad/`.
 
 ## Persistent data
 
-A journal belongs to one compiler/source identity. Use a fresh temporary home
-for changed kernels. Do not add migration adapters, obsolete-format fallbacks,
+Use a fresh temporary home for tests. Do not add migration adapters, obsolete-format fallbacks,
 or compatibility layers unless explicitly requested. Preserve existing user data
 rather than changing it to make a development run succeed.
 

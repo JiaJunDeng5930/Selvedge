@@ -71,19 +71,18 @@ export async function build({ native = false, force = false } = {}) {
   await buildModel();
 
   const inputs = await bendSources(root);
-  const journalFormat = 'selvedge-bend-journal-2';
   const backend = 'bend-javascript';
   const kernelManifest = JSON.parse(await readFile(`${kernel.output}.json`, 'utf8'));
   const javascriptCompiler = kernelManifest.compiler;
-  const hash = createHash('sha256').update(`Bend ${expectedVersion}\0${journalFormat}\0${backend}\0`)
+  const hash = createHash('sha256').update(`Bend ${expectedVersion}\0${backend}\0`)
     .update(JSON.stringify(javascriptCompiler)).update('\0').update(kernel.fingerprint).update('\0').update(browser.fingerprint).update('\0').update(host.fingerprint).update('\0');
   for (const name of inputs) hash.update(name).update('\0').update(await readFile(path.join(root, name))).update('\0');
   const fingerprint = hash.digest('hex');
   const directory = path.join(root, '.build');
   await mkdir(directory, { recursive: true });
-  // Publish journal identity only after all production libraries have compiled successfully.
+  // Publish build identity only after all production libraries have compiled successfully.
   await writeFile(path.join(directory, 'kernel.json'), JSON.stringify({
-    format: journalFormat, compiler: expectedVersion, fingerprint, backend, javascriptCompiler,
+    compiler: expectedVersion, fingerprint, backend, javascriptCompiler,
     sources: inputs, models: { kernel: kernel.fingerprint, browser: browser.fingerprint, host: host.fingerprint },
   }, null, 2) + '\n');
 

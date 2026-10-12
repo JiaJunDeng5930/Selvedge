@@ -10,11 +10,10 @@ type Appearance is Data:
   DarkAppearance{}
 
 type Access is Data:
-  CredentialRequired{}
+  NotConnected{}
   Connecting{ticket: Nat}
   Connected{}
   ConnectionLost{reason: String}
-  CredentialRejected{reason: String}
 
 type SelectedFile is Data:
   SelectedFile{handle: String, name: String, mime: String, bytes: U32}
@@ -42,61 +41,52 @@ type DirectoryPicker is Data:
   FailedDirectory{ticket: Nat, editor: U.Editor, path: String, reason: String, trigger: String}
 
 type State is Data:
-  State{access: Access, credential: String, settings_open: Bool, appearance: Appearance,
+  State{access: Access, settings_open: Bool, appearance: Appearance,
     next: Nat, transfers: +List<Finite.Entry(Transfer)>, preview: Preview, directory_picker: DirectoryPicker}
 
 def access(state: State) -> Access:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   access
 
 def with_access(value: Access, state: State) -> State:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  State{value, credential, settings_open, appearance, next, transfers, preview, directory_picker}
-
-def with_credential(value: String, state: State) -> State:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  State{access, value, settings_open, appearance, next, transfers, preview, directory_picker}
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{value, settings_open, appearance, next, transfers, preview, directory_picker}
 
 def with_settings_open(value: Bool, state: State) -> State:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  State{access, credential, value, appearance, next, transfers, preview, directory_picker}
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, value, appearance, next, transfers, preview, directory_picker}
 
 def with_transfers(value: +List<Finite.Entry(Transfer)>, state: State) -> State:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  State{access, credential, settings_open, appearance, next, value, preview, directory_picker}
-
-def credential(state: State) -> String:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  credential
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, value, preview, directory_picker}
 
 def settings_open(state: State) -> Bool:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   settings_open
 
 def appearance(state: State) -> Appearance:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   appearance
 
 def next(state: State) -> Nat:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   next
 
 def transfers(state: State) -> +List<Finite.Entry(Transfer)>:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   transfers
 
 def preview(state: State) -> Preview:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   preview
 
 def directory_picker(state: State) -> DirectoryPicker:
-  State{access, credential, settings_open, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
   directory_picker
 
 type Input is Data:
   OpenSettings{}
   CloseSettings{}
-  EnterCredential{value: String}
   Connect{}
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
   Disconnected{reason: String}
@@ -119,7 +109,7 @@ type Input is Data:
 
 type Effect is Data:
   SessionReady{}
-  Authenticate{ticket: Nat, credential: String}
+  Authenticate{ticket: Nat}
   StoreAppearance{appearance: Appearance}
   Upload{ticket: Nat, file: SelectedFile}
   CancelTransfer{ticket: Nat}
@@ -133,7 +123,7 @@ type Decision is Data:
   Decision{state: State, effects: +List<Effect>}
 
 def initial() -> State:
-  State{CredentialRequired{}, "", True{}, SystemAppearance{}, 0n, Nil{}, NoPreview{}, NoDirectoryPicker{}}
+  State{NotConnected{}, False{}, SystemAppearance{}, 0n, Nil{}, NoPreview{}, NoDirectoryPicker{}}
 
 def connected(access: Access) -> Bool:
   match access:
@@ -168,10 +158,10 @@ def authentication_owned(request: AuthenticationRequest) -> Bool:
   expected_access(access(state), ticket)
 
 def authentication_calculation(state: State, result: Result<&2, &2, String, Unit>) -> Decision:
-  State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings, appearance, next, transfers, preview, directory_picker} = state
   match result:
-    case Done{unit}: Decision{State{Connected{}, "", False{}, appearance, next, transfers, preview, directory_picker}, [SessionReady{}]}
-    case Fail{reason}: Decision{State{CredentialRejected{reason}, "", True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
+    case Done{unit}: Decision{State{Connected{}, False{}, appearance, next, transfers, preview, directory_picker}, [SessionReady{}]}
+    case Fail{reason}: Decision{State{ConnectionLost{reason}, True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
 
 def authentication(member: Categories.Membership<AuthenticationRequest, Categories.holds(AuthenticationRequest, authentication_owned)>) -> Decision:
   Categories.Membership{AuthenticationRequest{ticket, state, result}, evidence} = member
@@ -187,12 +177,12 @@ def upload_finished(found: Maybe<&2, Transfer>, state: State, +ticket: Nat,
   result: Result<&2, &2, String, B.Attachment>) -> Decision:
   match found:
     case Some{Uploading{editor, file}}:
-      State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = state
+      State{access, settings, appearance, next, transfers, preview, directory_picker} = state
       match result:
         case Done{attachment}:
-          Decision{State{access, credential, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, [AttachToDraft{editor, attachment}]}
+          Decision{State{access, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, [AttachToDraft{editor, attachment}]}
         case Fail{reason}:
-          Decision{State{access, credential, settings, appearance, next,
+          Decision{State{access, settings, appearance, next,
             (ticket, UploadFailed{editor, file, reason}) <> Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, Nil{}}
     case _: Decision{state, Nil{}}
 
@@ -204,8 +194,8 @@ def upload_connected(request: UploadRequest) -> Bool:
   connected(access(state))
 
 def upload_calculation(editor: U.Editor, +file: SelectedFile, state: State) -> Decision:
-  State{access, credential, settings, appearance, +next, transfers, preview, directory_picker} = state
-  Decision{State{access, credential, settings, appearance, (next + 1n : Nat), (next, Uploading{editor, file}) <> transfers, preview, directory_picker}, [Upload{next, file}]}
+  State{access, settings, appearance, +next, transfers, preview, directory_picker} = state
+  Decision{State{access, settings, appearance, (next + 1n : Nat), (next, Uploading{editor, file}) <> transfers, preview, directory_picker}, [Upload{next, file}]}
 
 def begin_upload(member: Categories.Membership<UploadRequest, Categories.holds(UploadRequest, upload_connected)>) -> Decision:
   Categories.Membership{UploadRequest{editor, file, state}, evidence} = member
@@ -222,8 +212,8 @@ def request_upload(editor: U.Editor, file: SelectedFile, +state: State) -> Decis
 def retry(found: Maybe<&2, Transfer>, ticket: Nat, state: State) -> Decision:
   match found:
     case Some{UploadFailed{editor, file, reason}}:
-      State{+access, credential, settings, appearance, next, transfers, preview, directory_picker} = state
-      request_upload(editor, file, State{access, credential, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker})
+      State{+access, settings, appearance, next, transfers, preview, directory_picker} = state
+      request_upload(editor, file, State{access, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker})
     case _: Decision{state, Nil{}}
 
 type PreviewResult is Data:
@@ -234,10 +224,10 @@ def preview_result_owned(request: PreviewResult) -> Bool:
   Nat.is_eq(current, ticket)
 
 def preview_calculation(state: State, +file: B.Attachment, trigger: String, result: Result<&2, &2, String, String>) -> Decision:
-  State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = state
+  State{access, settings, appearance, next, transfers, preview, directory_picker} = state
   match result:
-    case Done{resource}: Decision{State{access, credential, settings, appearance, next, transfers, ReadyPreview{file, resource, passive_image(file), trigger}, directory_picker}, Nil{}}
-    case Fail{reason}: Decision{State{access, credential, settings, appearance, next, transfers, FailedPreview{file, reason, trigger}, directory_picker}, Nil{}}
+    case Done{resource}: Decision{State{access, settings, appearance, next, transfers, ReadyPreview{file, resource, passive_image(file), trigger}, directory_picker}, Nil{}}
+    case Fail{reason}: Decision{State{access, settings, appearance, next, transfers, FailedPreview{file, reason, trigger}, directory_picker}, Nil{}}
 
 def finish_preview(member: Categories.Membership<PreviewResult, Categories.holds(PreviewResult, preview_result_owned)>) -> Decision:
   Categories.Membership{PreviewResult{current, ticket, state, file, trigger, result}, evidence} = member
@@ -264,31 +254,20 @@ def lose_transfers(transfers: +List<Finite.Entry(Transfer)>, +reason: String) ->
     case Nil{}: Nil{}
     case Con{entry, rest}: lose_transfer(entry, reason) <> lose_transfers(rest, reason)
 
-def credential_entered(state: State) -> Bool:
-  Bool.not(String.eq(credential(state), ""))
-
 def connect_calculation(state: State) -> Decision:
-  State{access, credential, settings, appearance, +next, transfers, preview, directory_picker} = state
-  Decision{State{Connecting{next}, "", settings, appearance, (next + 1n : Nat), lose_transfers(transfers, "Connection replaced"), NoPreview{}, directory_picker}, [Authenticate{next, credential}]}
+  State{access, settings, appearance, +next, transfers, preview, directory_picker} = state
+  Decision{State{Connecting{next}, settings, appearance, (next + 1n : Nat), lose_transfers(transfers, "Connection replaced"), NoPreview{}, directory_picker}, [Authenticate{next}]}
 
-def connect(member: Categories.Membership<State, Categories.holds(State, credential_entered)>) -> Decision:
-  Categories.Membership{state, evidence} = member
+def connect(state: State) -> Decision:
   connect_calculation(state)
 
-def connect_admitted(found: Maybe<&1, Categories.Membership<State, Categories.holds(State, credential_entered)>>, state: State) -> Decision:
-  match found:
-    case Some{member}: connect(member)
-    case None{}:
-      State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = state
-      Decision{State{CredentialRequired{}, "", True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
-
 def replace_directory(state: State, directory_picker: DirectoryPicker) -> State:
-  State{access, credential, settings, appearance, next, transfers, preview, old_picker} = state
-  State{access, credential, settings, appearance, next, transfers, preview, directory_picker}
+  State{access, settings, appearance, next, transfers, preview, old_picker} = state
+  State{access, settings, appearance, next, transfers, preview, directory_picker}
 
 def open_directory(editor: U.Editor, +path: String, +trigger: String, state: State) -> Decision:
-  State{access, credential, settings, appearance, +next, transfers, preview, old_picker} = state
-  Decision{State{access, credential, settings, appearance, (next + 1n : Nat), transfers, preview,
+  State{access, settings, appearance, +next, transfers, preview, old_picker} = state
+  Decision{State{access, settings, appearance, (next + 1n : Nat), transfers, preview,
     LoadingDirectory{next, editor, path, trigger}}, [ReadDirectories{next, path}]}
 
 def visit_directory(picker: DirectoryPicker, path: String, state: State) -> Decision:
@@ -345,30 +324,29 @@ def choose_directory(picker: DirectoryPicker, state: State) -> Decision:
     case _: Decision{state, Nil{}}
 
 def dispatch(state: State, input: Input) -> Decision:
-  State{+access, +credential, +settings, +appearance, +next, +transfers, +preview, +directory_picker} = state
+  State{+access, +settings, +appearance, +next, +transfers, +preview, +directory_picker} = state
   match input:
-    case OpenDirectoryPicker{editor, path, trigger}: open_directory(editor, path, trigger, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case WriteDirectoryLocation{value}: write_directory(directory_picker, value, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case VisitDirectory{path}: visit_directory(directory_picker, path, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case GoDirectory{}: go_directory(directory_picker, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case DirectoryListed{ticket, result}: directory_listed(directory_picker, ticket, result, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case ChooseDirectory{}: choose_directory(directory_picker, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case CloseDirectoryPicker{}: Decision{State{access, credential, settings, appearance, next, transfers, preview, NoDirectoryPicker{}}, Nil{}}
-    case OpenSettings{}: Decision{State{access, credential, True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
-    case CloseSettings{}: Decision{State{access, credential, False{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
-    case EnterCredential{value}: Decision{State{access, value, settings, appearance, next, transfers, preview, directory_picker}, Nil{}}
-    case Connect{}: connect_admitted(Categories.admit(State, credential_entered, State{access, credential, settings, appearance, next, transfers, preview, directory_picker}), State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case Authenticated{+ticket, result}: authentication_admitted(Categories.admit(AuthenticationRequest, authentication_owned, AuthenticationRequest{ticket, State{access, credential, settings, appearance, next, transfers, preview, directory_picker}, result}), State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case Disconnected{+reason}: Decision{State{ConnectionLost{reason}, credential, settings, appearance, next, lose_transfers(transfers, reason), NoPreview{}, directory_picker}, Nil{}}
-    case ChooseAppearance{+selected}: Decision{State{access, credential, settings, selected, next, transfers, preview, directory_picker}, [StoreAppearance{selected}]}
-    case AddFile{editor, +file}: request_upload(editor, file, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case RetryUpload{+ticket}: retry(Finite.find(~Transfer, transfers, ticket), ticket, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case CancelUpload{+ticket}: Decision{State{access, credential, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, [CancelTransfer{ticket}]}
-    case Uploaded{+ticket, result}: upload_finished(Finite.find(~Transfer, transfers, ticket), State{access, credential, settings, appearance, next, transfers, preview, directory_picker}, ticket, result)
-    case OpenPreview{+file, trigger}: Decision{State{access, credential, settings, appearance, (next + 1n : Nat), transfers, LoadingPreview{next, file, trigger}, directory_picker}, [ReadAttachment{next, file}]}
-    case Previewed{+ticket, result}: preview_result(preview, ticket, result, State{access, credential, settings, appearance, next, transfers, preview, directory_picker})
-    case ClosePreview{}: Decision{State{access, credential, settings, appearance, next, transfers, NoPreview{}, directory_picker}, Nil{}}
-    case Download{+file}: Decision{State{access, credential, settings, appearance, next, transfers, preview, directory_picker}, [DownloadAttachment{file}]}
+    case OpenDirectoryPicker{editor, path, trigger}: open_directory(editor, path, trigger, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case WriteDirectoryLocation{value}: write_directory(directory_picker, value, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case VisitDirectory{path}: visit_directory(directory_picker, path, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case GoDirectory{}: go_directory(directory_picker, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case DirectoryListed{ticket, result}: directory_listed(directory_picker, ticket, result, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case ChooseDirectory{}: choose_directory(directory_picker, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case CloseDirectoryPicker{}: Decision{State{access, settings, appearance, next, transfers, preview, NoDirectoryPicker{}}, Nil{}}
+    case OpenSettings{}: Decision{State{access, True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
+    case CloseSettings{}: Decision{State{access, False{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
+    case Connect{}: connect(State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case Authenticated{+ticket, result}: authentication_admitted(Categories.admit(AuthenticationRequest, authentication_owned, AuthenticationRequest{ticket, State{access, settings, appearance, next, transfers, preview, directory_picker}, result}), State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case Disconnected{+reason}: Decision{State{ConnectionLost{reason}, settings, appearance, next, lose_transfers(transfers, reason), NoPreview{}, directory_picker}, Nil{}}
+    case ChooseAppearance{+selected}: Decision{State{access, settings, selected, next, transfers, preview, directory_picker}, [StoreAppearance{selected}]}
+    case AddFile{editor, +file}: request_upload(editor, file, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case RetryUpload{+ticket}: retry(Finite.find(~Transfer, transfers, ticket), ticket, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case CancelUpload{+ticket}: Decision{State{access, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, [CancelTransfer{ticket}]}
+    case Uploaded{+ticket, result}: upload_finished(Finite.find(~Transfer, transfers, ticket), State{access, settings, appearance, next, transfers, preview, directory_picker}, ticket, result)
+    case OpenPreview{+file, trigger}: Decision{State{access, settings, appearance, (next + 1n : Nat), transfers, LoadingPreview{next, file, trigger}, directory_picker}, [ReadAttachment{next, file}]}
+    case Previewed{+ticket, result}: preview_result(preview, ticket, result, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case ClosePreview{}: Decision{State{access, settings, appearance, next, transfers, NoPreview{}, directory_picker}, Nil{}}
+    case Download{+file}: Decision{State{access, settings, appearance, next, transfers, preview, directory_picker}, [DownloadAttachment{file}]}
 
 def step(input: Input, state: State) -> Decision:
   dispatch(state, input)

@@ -3,15 +3,18 @@ import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { mkdir, chmod } from 'node:fs/promises';
 import path from 'node:path';
-import { Kernel, buildIdentity } from './kernel.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import { Kernel } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
+
+export const journalFormat = 'selvedge-bend-journal-3';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
   journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, decision TEXT NOT NULL, previous TEXT NOT NULL, digest TEXT NOT NULL) STRICT',
 };
 const normalize = sql => sql.replace(/\s+/g, ' ').trim();
-const identityKeys = ['format', 'compiler', 'fingerprint'];
+const genesis = () => createHash('sha256').update(journalFormat).digest('hex');
 const digest = (previous, sequence, input, decision) => createHash('sha256')
   .update(previous).update('\0').update(String(sequence)).update('\0')
   .update(input).update('\0').update(decision).digest('hex');
@@ -25,12 +28,11 @@ export class Journal extends EventEmitter {
   #closing = false;
   #previous;
 
-  static async open(filename, { kernelOptions, identity } = {}) {
+  static async open(filename, { kernelOptions } = {}) {
     const journal = new Journal();
     journal.filename = filename;
-    journal.identity = identity ?? await buildIdentity();
     journal.sequence = 0;
-    journal.#previous = createHash('sha256').update(journal.identity.format).update(journal.identity.fingerprint).digest('hex');
+    journal.#previous = genesis();
     try {
       await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
       // An OS-backed SQLite lock is released on process death. No stale-PID
@@ -50,8 +52,8 @@ export class Journal extends EventEmitter {
           throw new Error(`Journal integrity failure at sequence ${row.seq}`);
         }
         const replayed = await journal.kernel.request(parseJson(row.input));
-        if (!replayed.value.durable || replayed.text !== row.decision) {
-          throw new Error(`Kernel replay disagrees with committed decision ${row.seq}`);
+        if (!replayed.value.durable || !isDeepStrictEqual(replayed.value, parseJson(row.decision))) {
+          throw new Error(`Committed decision incompatibility at sequence ${row.seq}: current kernel replay disagrees with the saved decision`);
         }
         journal.program = replayed.program;
         journal.sequence = row.seq;
@@ -70,8 +72,7 @@ export class Journal extends EventEmitter {
       this.#database.exec('BEGIN IMMEDIATE');
       try {
         for (const sql of Object.values(schema)) this.#database.exec(sql);
-        const insert = this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
-        for (const key of identityKeys) insert.run(key, this.identity[key]);
+        this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('format', journalFormat);
         this.#database.exec('COMMIT');
       } catch (error) {
         this.#database.exec('ROLLBACK');
@@ -81,9 +82,8 @@ export class Journal extends EventEmitter {
       throw new Error('The database does not have the current Selvedge Bend journal schema');
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
-    if (entries.length !== identityKeys.length || entries.some(row => this.identity[row.key] !== row.value)) {
-      throw new Error('The database belongs to a different kernel or persistent format; automatic conversion is not supported');
-    }
+    if (entries.length === 1 && entries[0].key === 'format' && entries[0].value === journalFormat) return;
+    throw new Error('The database does not have the current Selvedge Bend journal format');
   }
 
   #poison(error) {

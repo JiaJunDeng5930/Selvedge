@@ -28,7 +28,7 @@ This file is for coding agents working in this repository.
 - `pre-commit` runs `bun scripts/check.mjs` to check actual component boundaries, the pinned compiler, reproducible imported certificates, Bend proof obligations, the native entry point and host/script syntax. `scripts/build.mjs` checks the same source boundaries before using a cached binary.
 - `pre-commit` runs `bun scripts/agents-index.mjs check` to check the tracked-file index.
 - `pre-push` runs `bun run test` for native kernel and host integration tests.
-- `just hooks` runs both configured stages. CI runs the same proof, syntax, integration, and index checks on macOS and Linux.
+- `just hooks` runs both configured stages.
 
 ## Persistent Data Formats
 
@@ -76,11 +76,9 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.gitattributes,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,scripts/,tests-bend/,theory/}
+|.:{.codex/,.editorconfig,.gitattributes,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
-|.github:{workflows/}
-|.github/workflows:{ci.yml}
 |bendlib:{README.md,algebra-proof.bend,association-map.bend,categories.bend,component.bend,effects.bend,equality-proof.bend,equality.bend,json-proof.bend,json.bend,logic-proof.bend,relations.bend,stdlib.bend,theory.bend}
 |browser:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,appearance/,controls/,document/,editor/,focus/,layout/,model-proof.bend,model-rules.bend,reading/,runtime/}
 |browser/appearance:{CONTRACT.bend,DESIGN.bend,FONT.bend,ICONS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TYPOGRAPHY.bend}
@@ -92,7 +90,7 @@ This file is for coding agents working in this repository.
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend,utility-proof.bend}
 |docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,task-board.md}
-|docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md,0038-capability-based-native-tool-construction.md}
+|docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md,0038-capability-based-native-tool-construction.md,0039-local-browser-sessions-and-stable-journals.md}
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
 |features:{README.md,board/,chatgpt/}

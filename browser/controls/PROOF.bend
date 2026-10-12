@@ -121,7 +121,6 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
         case Forms.DirectoryCollection{}: {==}
         case Forms.FileCollection{}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
-    case SurfaceTypes.EnterCredential{entered}: {==}
     case SurfaceTypes.BoardSearch{filter}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
@@ -193,7 +192,7 @@ def fields_retain_bindings(content: InteractionTypes.Scene, +base: +List<Surface
   match content:
     case InteractionTypes.Scene{view, settings, transfers, preview, code, directory_picker}:
       match settings:
-        case InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect}:
+        case InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect}:
           +base_step = Equal.cong(+List<Rule.BoundNode>, Rule.Bindings,
             (bound_base => Rule.Bindings{bound_base, Rule.presented_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))}),
             Rule.presented_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))), Rule.source_nodes(base), nodes_retain_bindings(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content)))
@@ -1282,7 +1281,7 @@ def Rule.picker_requirements():
 def initial_execution(+content: InteractionTypes.Scene) ->
   {Rule.execution_observation(Controls.initial(content)) == Rule.page_observation(content) : Maybe<&2, Context.Observation>}:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
-  InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect} = settings
+  InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect} = settings
   {==}
 
 def Rule.context_control_evidence():

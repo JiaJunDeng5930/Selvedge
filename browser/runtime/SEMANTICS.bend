@@ -174,24 +174,6 @@ def empty() -> M.World():
 def code_key(source: Code.Source, ordinal: Nat) -> String:
   Code.dom_key(Code.Identity{source, ordinal})
 
-def prefer_key(found: Maybe<&2, String>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
-  match found:
-    case Some{key}: Some{key}
-    case None{}: fallback
-
-def credential_key(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, String>:
-  match nodes:
-    case Nil{}: None{}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.EnterCredential{entered}, children}, rest}: Some{UIIdentity.encode(key)}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}: prefer_key(credential_key(children), credential_key(rest))
-
-def connect_key(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, String>:
-  match nodes:
-    case Nil{}: None{}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ComposerAction{subject, InteractionTypes.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{UIIdentity.encode(key)}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Activate{InteractionTypes.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{UIIdentity.encode(key)}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}: prefer_key(connect_key(children), connect_key(rest))
-
 def choose_removed(same: Bool, entry: Pending, rest: +List<Pending>) -> +List<Pending>:
   match same:
     case True{}: rest
@@ -519,9 +501,6 @@ def directories_completed(ticket: Nat, ok: Bool, +body: J.Json, state: State) ->
       guidance = Workspace.read_guidance(J.get(body, "guidance"), workspace, D.NoProject{})
       product_input(Product.Directories{ticket, Done{Context.DirectoryObservation{workspace, guidance}}}, state)
 
-# Credentials and connection controls are found by their current authority,
-# so DOM identifiers never become another source of settings semantics.
-
 def snapshot_new(newer: Bool, sequence: Nat, world: M.World(), state: State) -> Decision:
   match newer:
     case False{}: Decision{state, Nil{}}
@@ -545,16 +524,6 @@ def complete_new(newer: Bool, ticket: Nat, received: Nat, supplied: M.World(), r
   match newer:
     case True{}: settle_new(ticket, received, supplied, reply, completion, state)
     case False{}: settle_old(ticket, reply, completion, state)
-
-def connect_entered(found: Maybe<&2, String>, entered: State, first: +List<Effect>) -> Decision:
-  match found:
-    case None{}: Decision{entered, first}
-    case Some{key}:
-      append_decision(first, activate(key, entered))
-
-def entered_connect(decision: Decision) -> Decision:
-  Decision{+entered, first} = decision
-  connect_entered(connect_key(nodes(entered)), entered, first)
 
 def editor_found(found: Maybe<&2, SurfaceTypes.Node>, event: Editor.EditorEvent, state: State) -> Decision:
   match found:
@@ -688,7 +657,6 @@ def field_text(editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: 
 def gesture_text(meaning: SurfaceTypes.Meaning, text: String, state: State) -> Maybe<&2, SurfaceTypes.Gesture>:
   match meaning:
     case SurfaceTypes.SearchChoices{query}: Some{SurfaceTypes.Search{text}}
-    case SurfaceTypes.EnterCredential{entered}: Some{SurfaceTypes.Credential{text}}
     case SurfaceTypes.EnterDirectory{editor, current}: Some{SurfaceTypes.Directory{text}}
     case SurfaceTypes.DirectoryBrowserLocation{value}: Some{SurfaceTypes.Directory{text}}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: Some{SurfaceTypes.SelectBoardProfile{text}}
@@ -721,14 +689,8 @@ def confirm_gesture(found: Maybe<&2, SurfaceTypes.Node>, admitted: Bool) -> Mayb
 def confirm_text(+key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, +state: State) -> Decision:
   apply_gesture(confirm_gesture(found_node(key, state), confirmation_key(keyboard, composing, control, alt, shift, meta)), key, state)
 
-def connect_credential(found: Maybe<&2, String>, credential: String, state: State) -> Decision:
-  match found:
-    case None{}: Decision{state, Nil{}}
-    case Some{key}:
-      entered_connect(edit_text(key, credential, state))
-
-def connect(credential: String, +state: State) -> Decision:
-  connect_credential(credential_key(nodes(state)), credential, state)
+def connect(+state: State) -> Decision:
+  product_input(Product.InterfaceInput{InteractionTypes.ServiceInput{Services.Connect{}}}, state)
 
 type DismissTarget is Data:
   DismissTarget{identity: String, input: InteractionTypes.Input, outside: Bool, escape: Bool}

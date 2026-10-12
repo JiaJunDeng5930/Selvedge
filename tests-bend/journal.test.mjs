@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Journal } from '../host/journal.mjs';
-import { buildIdentity } from '../host/kernel.mjs';
 
 async function temporary(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-bend-test-'));
@@ -65,7 +64,7 @@ test('one journal has one owner, and the OS-backed lock is released on close', a
   await second.close();
 });
 
-test('obsolete schemas and incompatible kernel fingerprints fail without migration', async t => {
+test('obsolete schemas and unknown journal formats fail without changing saved data', async t => {
   const filename = await temporary(t);
   const old = new DatabaseSync(filename);
   old.exec('CREATE TABLE obsolete (value TEXT)');
@@ -77,8 +76,13 @@ test('obsolete schemas and incompatible kernel fingerprints fail without migrati
   const currentFile = `${filename}.current`;
   const current = await Journal.open(currentFile);
   await current.close();
-  const identity = await buildIdentity();
-  await assert.rejects(Journal.open(currentFile, { identity: { ...identity, fingerprint: 'different' } }), /different kernel/);
+  const database = new DatabaseSync(currentFile);
+  database.prepare("UPDATE meta SET value = ? WHERE key='format'").run('unknown-format');
+  const before = database.prepare('SELECT key, value FROM meta ORDER BY key').all();
+  await assert.rejects(Journal.open(currentFile), /current Selvedge Bend journal format/);
+  assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all(), before);
+  assert.equal(database.prepare('SELECT count(*) AS n FROM journal').get().n, 0);
+  database.close();
 });
 
 test('journal corruption is detected before any saved effect is published', async t => {
@@ -103,7 +107,10 @@ test('the journal stores task workspaces rather than a service-wide cwd identity
   const reopened = await Journal.open(filename);
   assert.equal(reopened.sequence, 2);
   assert.deepEqual((await reopened.execute(command({ op: 'read', task_id: 0 }))).reply, original.reply);
-  assert.equal(reopened.identity.workspace, undefined);
+  const database = new DatabaseSync(filename, { readOnly: true });
+  try {
+    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-3' }]);
+  } finally { database.close(); }
   await reopened.close();
 });
 

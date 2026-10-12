@@ -12,16 +12,34 @@ import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { events } from '../host/network.mjs';
 import { home, taskIdle, responsesServer, shellQuote } from './support.mjs';
 
-test('HTTP, event delivery, CLI discovery, and restart use the native task service', { timeout: 15_000 }, async t => {
+test('root-issued browser sessions, event delivery, CLI discovery, and restart use the native task service', { timeout: 15_000 }, async t => {
   const directory = await home(t);
   const config = validateConfig({ ...defaultConfig, port: 0 });
   let running = await startServer({ home: directory, config, cwd: directory });
   t.after(() => running.close());
   const headers = { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' };
-  const post = body => fetch(`${running.address}/api/commands`, { method: 'POST', headers, body: JSON.stringify(body) });
+  let cookie;
+  const browserHeaders = () => ({ cookie, 'content-type': 'application/json', origin: running.address });
+  const post = body => fetch(`${running.address}/api/commands`, { method: 'POST', headers: browserHeaders(), body: JSON.stringify(body) });
   assert.equal((await fetch(`${running.address}/api/health`)).status, 401);
-  const page = await fetch(running.address);
+  assert.equal(running.url, `${running.address}/`);
+  const rejectedRoot = await fetch(running.url, { headers: { host: 'untrusted.invalid' } });
+  assert.equal(rejectedRoot.status, 400);
+  assert.equal(rejectedRoot.headers.get('set-cookie'), null);
+  const page = await fetch(running.url);
   assert.equal(page.status, 200);
+  const session = page.headers.get('set-cookie');
+  assert.match(session, /^selvedge-session=[^;]+;/);
+  for (const attribute of ['HttpOnly', 'SameSite=Strict', 'Path=/api']) assert.ok(session.split(';').map(item => item.trim()).includes(attribute));
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  cookie = session.split(';')[0];
+  assert.equal((await fetch(`${running.address}/api/health`, { headers })).status, 200);
+  assert.equal((await fetch(`${running.address}/api/browser/state`, { headers: browserHeaders() })).status, 200);
+  assert.equal((await fetch(`${running.address}/api/health`, { headers: { ...browserHeaders(), origin: 'http://untrusted.invalid' } })).status, 403);
+  for (const malformed of [`${cookie}; ${cookie}`, 'selvedge-session', 'selvedge-session=']) {
+    assert.equal((await fetch(`${running.address}/api/health`, { headers: { cookie: malformed } })).status, 401);
+  }
+  assert.equal((await fetch(`${running.address}/api/health`, { headers: { ...browserHeaders(), authorization: 'Bearer wrong' } })).status, 401);
   assert.match(await page.text(), /bootstrap\.mjs/);
   const bootstrap = await fetch(`${running.address}/bootstrap.mjs`);
   assert.equal(bootstrap.status, 200);
@@ -39,7 +57,7 @@ test('HTTP, event delivery, CLI discovery, and restart use the native task servi
   const read = await post({ op: 'read', task_id: 0 });
   assert.equal((await read.json()).sequence, sequence);
   const controller = new AbortController();
-  const stream = await fetch(`${running.address}/api/events?after=0`, { headers, signal: controller.signal });
+  const stream = await fetch(`${running.address}/api/events?after=0`, { headers: browserHeaders(), signal: controller.signal });
   const iterator = events(stream.body, running.service.limits.frame_bytes);
   try {
     assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'stream-state', streams: [] });
@@ -49,13 +67,24 @@ test('HTTP, event delivery, CLI discovery, and restart use the native task servi
     controller.abort();
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });
   }
-  const eventPage = await fetch(`${running.address}/api/event-page?after=0`, { headers });
+  const eventPage = await fetch(`${running.address}/api/event-page?after=0`, { headers: browserHeaders() });
   assert.equal((await eventPage.json()).result.at(-1).sequence, sequence);
   const cli = fileURLToPath(new URL('../host/cli.mjs', import.meta.url));
   const described = await promisify(execFile)(process.execPath, [cli, '--home', directory, 'describe'], { timeout: 5000 });
   assert.deepEqual(JSON.parse(described.stdout), running.service.description);
   await running.close();
   running = await startServer({ home: directory, config, cwd: directory });
+  assert.equal(running.url, `${running.address}/`);
+  assert.equal((await fetch(`${running.address}/api/browser/state`, { headers: browserHeaders() })).status, 401);
+  const freshPage = await fetch(running.url);
+  assert.equal(freshPage.status, 200);
+  const freshCookie = freshPage.headers.get('set-cookie').split(';')[0];
+  assert.notEqual(freshCookie, cookie);
+  cookie = freshCookie;
+  const restored = await fetch(`${running.address}/api/browser/state`, { headers: browserHeaders() });
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).sequence, running.service.journal.sequence);
+  assert.deepEqual((await (await post({ op: 'read', task_id: 0 })).json()).result.messages, settled.messages);
   assert.deepEqual((await taskIdle(running.service)).messages, settled.messages);
 });
 

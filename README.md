@@ -175,8 +175,8 @@ workspace roots. The same fields are available through the CLI and command API.
 
 The actual command and context guarantees are bound by
 `harness/workspace/CONTRACT.bend` in `CONCEPTS.Harness.working_context`.
-Journal format 2 records these task-local plans, not a global working directory;
-opening an older kernel/format is rejected without automatic migration.
+The journal records these task-local plans, not a global working directory;
+reopening validates their committed decisions before restoring the service.
 Command descriptions, validation schemas, lifecycle controls, and client forms
 derive from the executable definitions. [host/README.md](host/README.md) describes
 the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates support.
@@ -232,9 +232,11 @@ archive against `bend-checksums.txt`. It changes neither the system compiler nor
 another worktree. Bootstrap installs the locked Bun dependencies; `gpt-tokenizer`
 provides the local token-budget estimate used by the optional reasoning evaluator.
 
-The server prints a local URL with its access token. Open it to create a task,
-send or steer messages, and open Details for task controls, branches, context
-checkpoints and the frozen tool contract. The task sidebar, conversation and
+The server prints its fixed local URL, normally `http://127.0.0.1:7421/`.
+Opening it establishes a browser session automatically, including in a new tab
+or after a server restart. Create a task, send or steer messages, and open Details
+for task controls, branches, context checkpoints and the frozen tool contract.
+The task sidebar, conversation and
 composer adapt to desktop and narrow screens, with light/dark themes. Streaming
 Markdown preserves stable blocks and unsent drafts.
 The default `demo` profile runs without credentials or an external model request.
@@ -393,13 +395,15 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-There is one current journal format, tied to the complete Bend source fingerprint
-and compiler version, with task-local workspace settings stored in its inputs.
-Another kernel or an obsolete database format is rejected; a different service
-launch directory is not a reason to reject an otherwise matching journal.
-Use a separate home when changing the kernel; this branch provides no migration
-or backward-compatible reader. The earlier Rust implementation is retained in
-Git history, not as a second runtime in the checkout.
+The current journal format is `selvedge-bend-journal-3`, independent of build
+fingerprints and compiler versions, with task-local workspace settings stored in
+its inputs. Reopening validates integrity and complete committed decisions
+against the current kernel. Ordinary source, compiler and UI updates do not
+require a new service home. There is no migration of persisted formats. Unknown
+formats or incompatible committed decisions are rejected;
+a different service launch directory does not itself make a journal incompatible.
+The earlier Rust implementation is retained in Git history, not as a second
+runtime in the checkout.
 
 The Bend proofs do not establish model termination, that every valid request fits
 the resource bounds, scheduler fairness, or that an operating system or remote
@@ -431,15 +435,8 @@ isolation require a working platform sandbox. The benchmark measures committed
 transitions and replay without a machine-dependent CI threshold. `just` provides
 aliases for the development commands.
 
-CI runs production proofs, syntax, a JavaScript library build, regular
-integration tests and the tracked-file index on Linux for each PR and main
-update. `bun run test:ci` retains real sandbox, SQLite, process and protocol
-tests; native extension builds stay
-in `bun run test` and the pre-push hook. Select `full` when manually running CI
-to run the complete suite on Linux and macOS. GitHub enables that manual entry
-after this workflow reaches the default branch. Ubuntu CI loads a user-namespace
-AppArmor rule for `/usr/bin/bwrap` and checks network namespace setup before
-integration tests.
+GitHub Actions CI is disabled by project decision. Run validation locally with
+the commands above; the commit and push hooks remain available.
 
 After adding or deleting files, stage the changed paths, run `bun run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

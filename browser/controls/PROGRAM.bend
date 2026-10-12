@@ -282,7 +282,7 @@ def page_execution(page: View.Page) -> Maybe<&2, Workspace.Observation>:
 
 def initial(content: InteractionTypes.Scene) -> Context:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention},
-    InteractionTypes.Settings{open, access, entered, appearance, open_action, close_action, connect},
+    InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect},
     transfers, preview, code, directory_picker} = content
   Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main), Unscoped{}}
 
@@ -685,7 +685,6 @@ def feedback_for(purpose: Purpose) -> Feedback:
     case CopyCode{Code.CopySucceeded{ticket}}: Succeeded{"Code copied"}
     case CopyCode{Code.CopyFailed{ticket}}: Failed{"Could not copy code"}
     case Connect{Services.Connecting{ticket}}: Working{"Connecting"}
-    case Connect{Services.CredentialRejected{reason}}: Failed{reason}
     case Connect{Services.ConnectionLost{reason}}: Failed{reason}
     case _: Quiet{}
 
@@ -1136,7 +1135,6 @@ def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: Strin
     case SurfaceTypes.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
     case SurfaceTypes.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
     case SurfaceTypes.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
-    case SurfaceTypes.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
     case SurfaceTypes.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, InterfaceView.availability(enabled))
     case SurfaceTypes.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
     case SurfaceTypes.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})

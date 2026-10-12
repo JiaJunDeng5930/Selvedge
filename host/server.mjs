@@ -65,9 +65,30 @@ export async function startServer(options) {
   }
 
   function authorized(request) {
-    const supplied = Buffer.from(request.headers.authorization ?? '');
-    const expected = Buffer.from(`Bearer ${token}`);
+    // NOTE: Explicit Authorization must stand on its own; browser cookies cannot
+    // hide a stale or invalid credential supplied by another client.
+    const authorization = request.headers.authorization;
+    const credential = authorization !== undefined ? authorization : sessionCookie(request.headers.cookie);
+    if (typeof credential !== 'string') return false;
+    const supplied = Buffer.from(credential);
+    const expected = Buffer.from(authorization !== undefined ? `Bearer ${token}` : token);
     return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+
+  function sessionCookie(header) {
+    if (typeof header !== 'string') return null;
+    let session = null;
+    for (const part of header.split(';')) {
+      const cookie = part.trim();
+      const separator = cookie.indexOf('=');
+      const name = separator < 0 ? cookie : cookie.slice(0, separator);
+      if (name.trim() !== 'selvedge-session') continue;
+      if (name !== 'selvedge-session' || separator < 0 || session !== null) return null;
+      const value = cookie.slice(separator + 1);
+      if (!/^[0-9a-f]{64}$/.test(value)) return null;
+      session = value;
+    }
+    return session;
   }
 
   function sendEvent(response, event) {
@@ -122,6 +143,7 @@ export async function startServer(options) {
           break;
         case 'observe_local_authorization':
           source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
+          source.cookie = { present: request.headers.cookie !== undefined, type: typeof request.headers.cookie };
           source.authorized = authorized(request);
           plan = decide('http.local_authorization');
           break;
@@ -136,7 +158,8 @@ export async function startServer(options) {
         case 'asset': {
           const [file, contentType] = assets.get(url.pathname);
           const data = await readFile(new URL(`./public/${file}`, import.meta.url));
-          response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-cache',
+          response.writeHead(200, { 'content-type': contentType, 'cache-control': url.pathname === '/' ? 'no-store' : 'no-cache',
+            ...(url.pathname === '/' ? { 'set-cookie': `selvedge-session=${token}; Path=/api; HttpOnly; SameSite=Strict` } : {}),
             'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
             'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
           response.end(data);
@@ -265,6 +288,6 @@ export async function startServer(options) {
     const endpoint = server.address();
     address = `http://${endpoint.family === 'IPv6' ? `[${endpoint.address}]` : endpoint.address}:${endpoint.port}`;
     await writeAtomic(filename, { format: 'selvedge-local-server-1', address, token, pid: process.pid });
-    return { service, server, address, token, close, url: `${address}/#token=${token}` };
+    return { service, server, address, token, close, url: `${address}/` };
   } catch (error) { await close(); throw error; }
 }

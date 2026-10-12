@@ -264,9 +264,14 @@ def reply_status_plan(ok: Bool) -> J.Json:
     case True{}: J.Number{"200"}
     case False{}: J.Number{"400"}
 
+def credential_observed(+source: J.Json, authorization_present: Bool) -> Bool:
+  match authorization_present:
+    case True{}: String.eq(J.text(J.get(J.get(source, "authorization"), "type")), "string")
+    case False{}: Bool.not(connection_path(source)) && flag(J.get(source, "cookie"), "present") &&
+      String.eq(J.text(J.get(J.get(source, "cookie"), "type")), "string")
+
 def authorization_valid(+source: J.Json) -> Bool:
-  flag(source, "authorized") && flag(J.get(source, "authorization"), "present") &&
-    String.eq(J.text(J.get(J.get(source, "authorization"), "type")), "string")
+  flag(source, "authorized") && credential_observed(source, flag(J.get(source, "authorization"), "present"))
 
 def body_route_valid(+source: J.Json) -> Bool:
   Bool.not(String.eq(body_target(source), "")) && String.eq(J.text(J.get(source, "target")), body_target(source))

@@ -91,11 +91,11 @@ def lifted(decision: E.Decision, services: Services.State) ->
 def runtime_input(+input: M.Input, +program: M.World(), +session: E.Session, services: Services.State) ->
   {Core.runtime(Core.step(InteractionTypes.ApplicationInput{E.RuntimeInput{input}}, InteractionTypes.State{E.Application{program, session}, services})) ==
     Program.transition(input, program) : M.Decision()}:
-  Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = services
+  Services.State{access, settings, appearance, next, transfers, preview, directory_picker} = services
   Equal.trans(M.Decision(),
-    Core.runtime(Core.application_result(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker})),
+    Core.runtime(Core.application_result(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, settings, appearance, next, transfers, preview, directory_picker})),
     Existing.runtime_observation(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session})), Program.transition(input, program),
-    lifted(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}),
+    lifted(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, settings, appearance, next, transfers, preview, directory_picker}),
     ExistingProof.runtime_input(input, program, session))
 
 def Architecture.surface():

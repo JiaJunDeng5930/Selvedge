@@ -1,5 +1,8 @@
 # 0026: Separate routine CI from compiler-intensive assurance checks
 
+Status: Superseded by the project owner's decision to disable GitHub Actions CI
+and remove its workflow. Local validation commands and Git hooks remain available.
+
 ## Context
 
 The Linux full-suite run at `0a32dbe` passed 278 tests in 1755.5 s. Most of that

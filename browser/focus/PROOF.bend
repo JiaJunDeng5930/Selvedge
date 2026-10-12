@@ -83,7 +83,7 @@ def Rule.current_scope(state, capacity): {==}
 
 def Rule.logical_priority(state, capacity):
   match state capacity:
-    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
+    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}, Services.State{access, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
 
 def Rule.current_surface(state, capacity, surface, observed):
   Equal.cong(SurfaceTypes.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), InterfaceView.observe(capacity, state), surface, observed)
