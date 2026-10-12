@@ -261,34 +261,66 @@ def creation_introduction_fields(+context: Maybe<&2, Context.Preview>, +world: M
 def creation_introduction(composer: Maybe<&2, ViewTypes.ComposerScene>, world: M.World()) -> ViewTypes.CreationIntroduction:
   match composer:
     case None{}: creation_introduction_fields(None{}, world)
-    case Some{ViewTypes.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}:
+    case Some{ViewTypes.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
       creation_introduction_fields(draft_preview(context), world)
 
 def draft_context_footer(+editor: U.Editor, +observation: Context.Observation, profiles: +List<D.Profile>) -> +List<ViewTypes.ComposerControl>:
-  [ViewTypes.ComposerControl{ViewTypes.WorkspaceSubject{}, context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor})},
-   ViewTypes.ComposerControl{ViewTypes.PermissionsSubject{}, context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})}]
+  [ViewTypes.ComposerControl{ViewTypes.PermissionsSubject{}, context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})}]
 
-def committed_context_footer(+task: Nat, observation: Maybe<&2, Context.Observation>, profiles: +List<D.Profile>) -> +List<ViewTypes.ComposerControl>:
+def operation_availability(operation: Commands.Operation) -> ViewTypes.Availability:
+  match operation:
+    case Commands.Refuse{code, reason}: ViewTypes.Unavailable{reason}
+    case _: ViewTypes.Available{}
+
+def current_execution_availability(+task: Nat, +current: D.ExecutionConfiguration, +world: M.World()) -> ViewTypes.Availability:
+  D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  operation_availability(Commands.resolve(M.ConfigureTaskExecution{task, profile, reasoning, sandbox, approval}, world))
+
+def task_execution_availability(+found: Maybe<&2, D.Task>, +world: M.World()) -> ViewTypes.Availability:
+  match found:
+    case None{}: ViewTypes.Unavailable{"The task no longer exists"}
+    case Some{+task}: current_execution_availability(D.task_id(task), D.task_execution(task), world)
+def committed_context_footer(+task: Nat, observation: Maybe<&2, Context.Observation>, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
   match observation:
     case None{}: Nil{}
     case Some{+value}:
-      [ViewTypes.ComposerControl{ViewTypes.WorkspaceSubject{}, context_control("composer/workspace/message/" ++ Nat.show(task), observation_workspace(value), U.TaskContext{task})},
-       ViewTypes.ComposerControl{ViewTypes.PermissionsSubject{}, context_control("composer/permissions/message/" ++ Nat.show(task), observation_permissions(value, profiles), U.TaskContext{task})}]
+      [ViewTypes.ComposerControl{ViewTypes.PermissionsSubject{}, ViewTypes.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), observation_permissions(value, Board.profiles(world)), ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.PermissionsConfiguration{U.MessageEditor{task}}, "composer/permissions/message/" ++ Nat.show(task)}}, task_execution_availability(Tasks.find(Commands.entries(world), task), world)}}]
 
+def creation_context_controls(+editor: U.Editor, +observation: Context.Observation, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
+  [ViewTypes.ComposerControl{ViewTypes.WorkspaceSubject{}, context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor})},
+   ViewTypes.ComposerControl{ViewTypes.WorkspaceSubject{}, context_control("composer/project", project_choice_label(creation_selected_project(draft_preview(Some{observation}), world)), U.ProjectPicker{})}]
+
+def task_model_found(+found: Maybe<&2, D.Task>, +task: Nat, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
+  match found:
+    case None{}: Nil{}
+    case Some{+value}:
+      [ViewTypes.ComposerControl{ViewTypes.ModelSubject{}, ViewTypes.ControlDeclaration{"composer/model/message/" ++ Nat.show(task), profile_label(D.find_profile(Board.profiles(world), D.task_profile(value)), D.task_profile(value)) ++ " · " ++ D.task_reasoning(value), ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.MessageEditor{task}}, "composer/model/message/" ++ Nat.show(task)}}, task_execution_availability(Some{value}, world)}}]
+
+def task_model_controls(+task: Nat, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
+  task_model_found(Tasks.find(Commands.entries(world), task), task, world)
+
+def selection_available(allowed: Bool) -> ViewTypes.Availability:
+  match allowed:
+    case True{}: ViewTypes.Available{}
+    case False{}: ViewTypes.Unavailable{"No configured model offers the selected reasoning effort"}
+
+def model_composer_control(+profile: String, +reasoning: String, +world: M.World()) -> ViewTypes.ComposerControl:
+  ViewTypes.ComposerControl{ViewTypes.ModelSubject{}, ViewTypes.ControlDeclaration{"composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile) ++ " · " ++ reasoning, ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}}, selection_available(E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning))}}
 def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()) -> Maybe<&2, ViewTypes.ComposerScene>:
   match body:
     case U.NewTask{message, +profile, reasoning, context}:
       ViewTypes.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
       +observation: Context.Observation = Context.DraftExecution{Context.preview(context, world)}
-      Some{ViewTypes.ComposerScene{identity, revision, message,
-        ViewTypes.ComposerControl{ViewTypes.ModelSubject{}, control("composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"})} <>
+      Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Creation{},
+        creation_context_controls(U.NewTaskEditor{}, observation, world),
+        model_composer_control(profile, reasoning, world) <>
           draft_context_footer(U.NewTaskEditor{}, observation, Board.profiles(world)), Some{observation}, submit, feedback, pending}}
     case U.Message{+task, message, +delivery}:
       ViewTypes.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
       +observation: Maybe<&2, Context.Observation> = committed_observation(committed_context(Tasks.find(Commands.entries(world), task)))
-      Some{ViewTypes.ComposerScene{identity, revision, message,
-        ViewTypes.ComposerControl{ViewTypes.DeliverySubject{delivery}, control("composer/delivery/" ++ Nat.show(task), U.delivery_caption(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
-          committed_context_footer(task, observation, Board.profiles(world)), observation, submit, feedback, pending}}
+      Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Conversation{task}, Nil{},
+        List.append(&2, ViewTypes.ComposerControl, task_model_controls(task, world), ViewTypes.ComposerControl{ViewTypes.DeliverySubject{delivery}, control("composer/delivery/" ++ Nat.show(task), U.delivery_caption(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
+          committed_context_footer(task, observation, world)), observation, submit, feedback, pending}}
     case _: None{}
 
 def project_choices(entries: +List<Finite.Entry(D.Project)>) -> +List<ViewTypes.ProjectChoice>:
@@ -389,10 +421,20 @@ def capture_inputs(id: Maybe<&2, Nat>, assist: Bool, profile: String, world: M.W
     case None{}: [ViewTypes.CardAssistanceInput{assist, profile, Board.profiles(world)}]
     case Some{id}: Nil{}
 
+def task_execution_context(+task: D.Task, +context: D.TaskContext, +world: M.World()) -> +List<ViewTypes.InputGroup>:
+  D.TaskContext{workspace, sandbox, approval, project} = context
+  [ViewTypes.ModelInput{D.task_profile(task), D.task_reasoning(task), Board.profiles(world)},
+   execution_group(U.MessageEditor{D.task_id(task)}, Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, world)]
+
+def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List<ViewTypes.InputGroup>:
+  match found:
+    case None{}: Nil{}
+    case Some{+task}: task_execution_context(task, D.task_context(task), world)
+
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
     case U.NewTask{message, profile, reasoning, context}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
-    case U.Message{task, message, delivery}: [ViewTypes.MessageInput{message}, delivery_controls(task, delivery)]
+    case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
     case U.Project{id, name, +workspace}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
@@ -409,11 +451,6 @@ def submit_label(body: U.Body) -> String:
     case U.Fork{task, count, messages, context}: "Fork task"
     case U.Compact{task, summary}: "Compact history"
     case _: "Save"
-
-def operation_availability(operation: Commands.Operation) -> ViewTypes.Availability:
-  match operation:
-    case Commands.Refuse{code, reason}: ViewTypes.Unavailable{reason}
-    case _: ViewTypes.Available{}
 
 def preparation_availability(workspace: Maybe<&2, D.Workspace>, body: U.Body, now: U32, world: M.World()) -> ViewTypes.Availability:
   match workspace:
@@ -544,8 +581,8 @@ def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.
     ViewTypes.ControlDeclaration{"navigation/toggle", "Toggle sidebar", ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:
-  D.Task{id, lineage, D.Contract{+model, tools, max_fork, max_descendants, plugins, +context}, status, history, queued, phase, operations, notified} = task
-  ViewTypes.TaskDetails{Context.effective(task), model, tools, lineage, queued, status, phase}
+  D.Task{id, lineage, D.Contract{+model, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified} = task
+  ViewTypes.TaskDetails{Context.effective(task), D.task_model(task), tools, lineage, queued, status, phase}
 
 def lifecycle(+id: Nat, +value: D.Control, +label: String, world: M.World()) -> ViewTypes.ControlDeclaration:
   native("task/" ++ Nat.show(id) ++ "/" ++ label, label, ViewTypes.Secondary{}, U.ControlTask{id, value}, world)

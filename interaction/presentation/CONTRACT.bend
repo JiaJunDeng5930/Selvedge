@@ -1,5 +1,7 @@
+import ./INFORMATION.bend as Information
 import Base
 import ../../harness/COMMANDS.bend as Commands
+import ../../harness/tasks/PROGRAM.bend as T
 import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
 import ../../harness/reasoning/MODEL.bend as Reasoning
@@ -590,7 +592,7 @@ type PageRegionRequirements is Type:
         Some{[Model.region(parent, "heading", "Board", SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
     creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, V.ProjectChoice> -> @+choose:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.creation_introduction_nodes(V.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
-        Some{[SurfaceTypes.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, SurfaceTypes.Heading{}, SurfaceTypes.ReadOnly{heading}, Nil{}}, Model.creation_project_node(V.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<SurfaceTypes.Node>>},
+        Some{[SurfaceTypes.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.IntroductionTitle{}}, Nil{}}]} : Maybe<&2, +List<SurfaceTypes.Node>>},
     task_reading: @+value:V.TaskScene -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> task_reading(value, parent, state),
     task_title: @+value:V.TaskScene -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
@@ -668,7 +670,7 @@ def first_speech_projection(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, Speech
 def expected_structure(recipe: Composition.Recipe) -> Composition.Structure:
   match recipe:
     case Composition.Recipe{measure, heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.CreationContext{} <> Composition.centered_composer_region(composer), Nil{}}
+      Composition.Structure{Nil{}, Composition.CreationIntroduction{} <> Composition.centered_composer_region(composer), Nil{}}
     case Composition.Recipe{measure, heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       Composition.Structure{[Composition.ConversationTitle{}, Composition.TaskActions{}],
         [Composition.TimelineContent{}],
@@ -697,11 +699,66 @@ def introduction_project(value: V.CreationIntroduction) -> Maybe<&2, V.ProjectCh
 def composer_footer(view: Maybe<&2, V.ComposerScene>) -> +List<V.ComposerControl>:
   match view:
     case None{}: Nil{}
-    case Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}: footer
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: execution_controls
+
+def composer_phase(value: Maybe<&2, V.ComposerScene>) -> Maybe<&2, V.ComposerPhase>:
+  match value:
+    case None{}: None{}
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: Some{phase}
+
+def composer_creation_controls(value: Maybe<&2, V.ComposerScene>) -> +List<V.ComposerControl>:
+  match value:
+    case None{}: Nil{}
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: creation_context
+
+def first_node_meaning(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Meaning>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{node, rest}: Some{meaning(node)}
+
+def composer_enclosure_children(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, +List<SurfaceTypes.Node>>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}:
+      match role:
+        case SurfaceTypes.Composer{}: Some{children}
+        case _: composer_enclosure_children(rest)
+
+def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> Maybe<&2, +List<SurfaceTypes.Node>>:
+  match view:
+    case None{}: None{}
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
+      +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
+      Some{Model.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
+        List.append(&2, SurfaceTypes.Node, Model.feedback_nodes(key, feedback), [Model.expected_composer_actions(execution_controls, submit, key, state)])}
+
+def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match context:
+    case Some{value}: [Model.context_summary_node(Context.CommittedExecution{value}, parent, state)]
+    case None{}: Model.unavailable_context("Task execution context is unavailable", parent)
+
+def expected_permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match group:
+    case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: Model.unavailable_context(reason, parent)
+    case V.ExecutionInput{+config, Context.ProspectiveContext{+origin, +project, +workspace, +sandbox, +approval, +guidance}, controls, projects, reviewers}:
+      List.append(&2, SurfaceTypes.Node,
+        Model.permission_summary(editor, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, parent, state),
+        Model.sandbox_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
+        Model.network_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
+        Model.approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
+        Model.permission_resets(editor, config, parent, state))
+    case _: Nil{}
 
 type CompositionRequirements is Type:
   CompositionRequirements{
     production_regions: PageRegionRequirements,
+    committed_permission_summary: @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.permission_summary(U.MessageEditor{task}, preview, parent, state) ==
+        expected_committed_permission_summary(View.committed_context(T.find(Commands.entries(E.program(Core.application(state))), task)), parent, state) : +List<SurfaceTypes.Node>},
+    task_permission_resets: @task:Nat -> @config:Context.Configuration -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+      {Model.permission_resets(U.MessageEditor{task}, config, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    permission_menu: @+editor:U.Editor -> @group:V.InputGroup -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.permission_menu_group(editor, group, parent, state) == expected_permission_menu_group(editor, group, parent, state) : +List<SurfaceTypes.Node>},
     observed_page: @navigation:V.Navigation -> @main:V.Page -> @layers:+List<V.Layer> ->
       @placement:V.NavigationPlacement -> @attention:String ->
       {View.scene_page(V.Scene{navigation, main, layers, V.Arrangement{placement}, attention}) ==
@@ -727,13 +784,18 @@ type CompositionRequirements is Type:
           [Model.user_action(Identity.Entity{parent, "activity", Nat.show(id)}, "disclosure", Model.disclosure_label(expanded), Model.disclosure_input(expanded, expand, collapse), True{}, state)]}] : +List<SurfaceTypes.Node>},
     composer_tree: @view:Maybe<&2, V.ComposerScene> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.composer(view, parent, state) == Model.expected_composer(view, parent, state) : +List<SurfaceTypes.Node>},
+    workspace_description: @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+      {first_node_meaning(Model.field_children(Forms.WorkspaceDirectories{}, editor, parent, state)) ==
+        Some{SurfaceTypes.InformationText{Information.Description{}}} : Maybe<&2, SurfaceTypes.Meaning>},
+    composer_enclosure: @view:Maybe<&2, V.ComposerScene> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {composer_enclosure_children(Model.composer(view, parent, state)) == expected_composer_enclosure_children(view, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>},
     structure_order: @recipe:Composition.Recipe ->
       {Composition.structure(recipe) == expected_structure(recipe) : Composition.Structure},
     creation_project: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, V.ProjectChoice>},
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<V.ComposerControl> ->
       @+context:Maybe<&2, Context.Preview> -> @submit:V.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> @+world:M.World() ->
-      {introduction_context(View.creation_introduction(Some{V.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
+      {introduction_context(View.creation_introduction(Some{V.ComposerScene{identity, revision, message, V.Creation{}, Nil{}, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
     creation_page: @+input:Maybe<&2, V.ComposerScene> -> @+parent: Identity.Key -> @+world:M.World() ->
       @+session:E.Session -> @+services:Services.State ->
       {Model.page_contents(V.StartPage{input}, parent, Core.from_application(E.from_program(world, session), services)) ==
@@ -744,10 +806,20 @@ type CompositionRequirements is Type:
       {Model.controls(declaration <> rest, parent, state) == Model.declared(parent, declaration, state) <> Model.controls(rest, parent, state) : +List<SurfaceTypes.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() ->
       {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-        [V.ComposerControl{V.ModelSubject{}, View.control("composer/model", View.profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"})},
-         V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})},
+        [View.model_composer_control(profile, reasoning, world),
          V.ComposerControl{V.PermissionsSubject{}, View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>},
-    model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String}
+    model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String},
+    creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() ->
+      {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
+    conversation_phase: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
+      {composer_phase(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Some{V.Conversation{task}} : Maybe<&2, V.ComposerPhase>},
+    conversation_has_no_creation_context: @task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
+      {composer_creation_controls(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Nil{} : +List<V.ComposerControl>},
+    creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() ->
+      {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
+        [V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})},
+         V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})}] : +List<V.ComposerControl>}
+
   }
 
 law composition_evidence:
@@ -955,6 +1027,7 @@ type ProjectInteractionRequirements is Type:
       {Model.project_collection_entries(Con{first, rest}, parent, state) ==
     Model.projects(Con{first, rest}, parent, state) : +List<SurfaceTypes.Node>},
     select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> ->
+      @valid_manual:{E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool} ->
       @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
        {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
         E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
@@ -1068,21 +1141,45 @@ law composer_tree_present_agreement:
   for +identity: U.Editor
   for revision: Nat
   for message: U.Text
-  for footer: +List<V.ComposerControl>
+  for phase: V.ComposerPhase
+  for creation_context: +List<V.ComposerControl>
+  for execution_controls: +List<V.ComposerControl>
   for context: Maybe<&2, Context.Observation>
   for submit: V.ControlDeclaration
   for feedback: U.Feedback
   for pending: Bool
   for +parent: Identity.Key
   for +state: InteractionTypes.State
-  {Model.composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) ==
-      Model.expected_composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) : +List<SurfaceTypes.Node>}
+  {Model.composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state) ==
+      Model.expected_composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state) : +List<SurfaceTypes.Node>}
 
 law composer_tree_agreement:
   for view: Maybe<&2, V.ComposerScene>
   for +parent: Identity.Key
   for +state: InteractionTypes.State
   {Model.composer(view, parent, state) == Model.expected_composer(view, parent, state) : +List<SurfaceTypes.Node>}
+
+law composer_enclosure_present_agreement:
+  for +identity: U.Editor
+  for revision: Nat
+  for message: U.Text
+  for phase: V.ComposerPhase
+  for creation_context: +List<V.ComposerControl>
+  for execution_controls: +List<V.ComposerControl>
+  for context: Maybe<&2, Context.Observation>
+  for submit: V.ControlDeclaration
+  for feedback: U.Feedback
+  for pending: Bool
+  for +parent: Identity.Key
+  for +state: InteractionTypes.State
+  {composer_enclosure_children(Model.composer(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state)) ==
+    expected_composer_enclosure_children(Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>}
+
+law composer_enclosure_agreement:
+  for view: Maybe<&2, V.ComposerScene>
+  for +parent: Identity.Key
+  for +state: InteractionTypes.State
+  {composer_enclosure_children(Model.composer(view, parent, state)) == expected_composer_enclosure_children(view, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>}
 
 law relocated_valid_content:
   for valid: Bool
@@ -1457,3 +1554,16 @@ type BoundaryRequirements is Type:
 
 law boundary_evidence:
   BoundaryRequirements
+
+law committed_permission_summary_agreement:
+  @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.permission_summary(U.MessageEditor{task}, preview, parent, state) ==
+    expected_committed_permission_summary(View.committed_context(T.find(Commands.entries(E.program(Core.application(state))), task)), parent, state) : +List<SurfaceTypes.Node>}
+
+law task_permission_resets_absent:
+  @task:Nat -> @config:Context.Configuration -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.permission_resets(U.MessageEditor{task}, config, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law permission_menu_agreement:
+  @+editor:U.Editor -> @group:V.InputGroup -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.permission_menu_group(editor, group, parent, state) == expected_permission_menu_group(editor, group, parent, state) : +List<SurfaceTypes.Node>}

@@ -1,3 +1,7 @@
+import ../controls/CONTROLS.bend as AuthoredControls
+import ../../interaction/submission/FIELDS.bend as Forms
+import ../../interaction/TYPES.bend as InteractionTypes
+import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ./SOURCE.bend as Source
 import ./source-contract.bend as RuleSourceRules
@@ -73,7 +77,44 @@ def board_controls(visual: Design.Style, position: Composition.Position) -> Rule
 
 def board_stages(visual: Design.Style, position: Composition.Position) -> RuleSourceRules.board_stages(visual, position): {==}
 
-def heading_caption(key: UIIdentity.Key, label: String, visual: Design.Style) -> RuleSourceRules.heading_caption(key, label, visual): {==}
+def owned_information(+owner: UIIdentity.Key, +role: Information.TextRole, +value: String, +visual: Design.Style) -> RuleSourceRules.owned_information(owner, role, value, visual):
+  match role:
+    case Information.IntroductionTitle{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.SurfaceTitle{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.GroupTitle{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.FieldLabel{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.FieldValue{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.OptionLabel{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.Description{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+    case Information.Status{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
+
+
+def heading_caption(key: UIIdentity.Key, label: String, visual: Design.Style) -> RuleSourceRules.heading_caption(key, label, visual):
+  owned_information(key, Information.SurfaceTitle{}, label, visual)
 
 def lane_style(key: UIIdentity.Key, label: String, stage: Board.Stage, count: Nat, visual: Design.Style, children: +List<Authored.Child>, parameters: Design.LayoutParameters) -> RuleSourceRules.lane_style(key, label, stage, count, visual, children, parameters): {==}
 
@@ -124,8 +165,6 @@ def user_message_width(+visual: Design.Style) -> RuleSourceRules.user_message_wi
     width => Factory.style(visual, width, Model.NaturalSize{}, Model.Confined{}),
     Factory.adaptive_natural_width(visual), RuleSourceRules.adaptive_user_width(visual), user_width_policy(visual))
 
-def RuleSourceRules.evidence():
-  RuleSourceRules.Requirements{user_width_policy, user_message_width, fact_display_value, fact_content, fact_source_dispatch, native_field_footprint, card_regions, board_group_content_minimum, board_group, confined_content_minimum, page_region, parameter_calculations, board_controls, board_stages, heading_caption, lane_style, parameter_source, position_of_actual_rule, border_of_actual_rule, font_resolution, event_ownership, bounded_policy_factory}
 
 def RuleSourceRules.movement_field_has_own_identity(key, destinations, face, name, handle, geometry, visual, parameters): {==}
 
@@ -134,3 +173,119 @@ def RuleSourceRules.movement_child_is_authored(key, role, destinations, face, co
 def RuleSourceRules.card_source_dispatch(key, label, role, face, visual, representation, children, parameters, content): {==}
 
 def RuleSourceRules.movement_source_dispatch(key, label, role, destinations, face, visual, representation, children, parameters, content): {==}
+
+
+def scalar_information(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +text_role: Information.TextRole, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.scalar_information(key, label, role, text_role, visual, representation, children, parameters, content):
+  owned_information(key, text_role, label, visual)
+
+def field_label(+key: UIIdentity.Key, +label: String, +visual: Design.Style, field: Source.Node) -> RuleSourceRules.field_label(key, label, visual, field):
+  owned_information(key, Information.FieldLabel{}, label, visual)
+
+def option_label(+key: UIIdentity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry) -> RuleSourceRules.option_label(key, label, description, icon, selected, visual, geometry):
+  match icon:
+    case None{}: owned_information(key, Information.OptionLabel{}, label, visual)
+    case Some{glyph}: owned_information(key, Information.OptionLabel{}, label, visual)
+
+def option_description(+key: UIIdentity.Key, +value: String, +visual: Design.Style) -> RuleSourceRules.option_description(key, value, visual):
+  owned_information(key, Information.Description{}, value, visual)
+
+def group_title(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.group_title(key, label, role, visual, representation, children, parameters, content):
+  owned_information(key, Information.GroupTitle{}, label, visual)
+
+def panel_title(+key: UIIdentity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.panel_title(key, label, dismiss, outside, escape, visual, representation, children, parameters, content):
+  owned_information(key, Information.SurfaceTitle{}, label, visual)
+
+def dialog_title(+key: UIIdentity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> RuleSourceRules.dialog_title(key, label, visual, children):
+  owned_information(key, Information.SurfaceTitle{}, label, visual)
+
+def owned_alignment(+owner: UIIdentity.Key, +role: Information.TextRole, value: String, visual: Design.Style) -> RuleSourceRules.owned_alignment(owner, role, value, visual):
+  match role:
+    case Information.IntroductionTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.SurfaceTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.GroupTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.FieldLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.FieldValue{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.OptionLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.Description{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.Status{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+
+def option_reference(+key: UIIdentity.Key, +label: String, +description: Maybe<&2, String>, icon: Maybe<&2, Controls.Icon>, selected: Bool) -> RuleSourceRules.option_reference(key, label, description, icon, selected):
+  match description:
+    case None{}: {==}
+    case Some{text}: {==}
+
+def compound_label(+key: UIIdentity.Key, +label: String, field: Forms.Field, +visual: Design.Style, children: +List<Source.Node>) -> RuleSourceRules.compound_label(key, label, field, visual, children):
+  owned_information(key, Information.FieldLabel{}, label, visual)
+
+def owned_width(owner: UIIdentity.Key, role: Information.TextRole, value: String, visual: Design.Style) -> {RuleSourceRules.information_width(AuthoredControls.owned_text(owner, role, value, visual)) == Some{Model.StretchSize{}} : Maybe<&2, Model.AxisSize>}:
+  match role:
+    case Information.IntroductionTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.SurfaceTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.GroupTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.FieldLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.FieldValue{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.OptionLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.Description{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.Status{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+
+def owned_foreground(+owner: UIIdentity.Key, +role: Information.TextRole, value: String, +visual: Design.Style) -> RuleSourceRules.owned_foreground(owner, role, value, visual):
+  match role:
+    case Information.IntroductionTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.SurfaceTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.GroupTitle{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.FieldLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.FieldValue{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.OptionLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.Description{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.Status{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+
+def RuleSourceRules.evidence():
+  RuleSourceRules.Requirements{owned_alignment, owned_width, owned_foreground, +value => {==}, owned_information, scalar_information, field_label, option_label, option_description, group_title, panel_title, dialog_title, +key => {==}, option_reference, compound_label, role => area => {==}, selected => {==}, user_width_policy, user_message_width, fact_display_value, fact_content, fact_source_dispatch, native_field_footprint, card_regions, board_group_content_minimum, board_group, confined_content_minimum, page_region, parameter_calculations, board_controls, board_stages, heading_caption, lane_style, parameter_source, position_of_actual_rule, border_of_actual_rule, font_resolution, event_ownership, bounded_policy_factory}

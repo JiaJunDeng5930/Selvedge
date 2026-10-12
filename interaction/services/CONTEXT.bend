@@ -229,7 +229,7 @@ def preview(+config: Configuration, world: M.World()) -> Preview:
   Configuration{origin, workspace, sandbox, approval} = config
   preview_selected(inherited(origin, world), config)
 
-# A task's observation uses its contract, never the project's current defaults.
+# Task observations combine immutable workspace ownership with current execution policy.
 
 def modify_workspace(+config: Configuration, change: WorkspaceEdit, world: M.World()) -> Result<&2, &2, String, Configuration>:
   edit_preview(preview(config, world), change, config)
@@ -278,7 +278,8 @@ def effective_contract(contract: D.Contract, task: Nat) -> EffectiveContext:
   EffectiveContext{task, context, D.model_guidance(model), W.default_access(context)}
 
 def effective(+task: D.Task) -> EffectiveContext:
-  effective_contract(D.task_contract(task), D.task_id(task))
+  +context = D.task_context(task)
+  EffectiveContext{D.task_id(task), context, D.model_guidance(D.task_model(task)), W.default_access(context)}
 
 def observation_valid(observation: DirectoryObservation) -> Bool:
   DirectoryObservation{+workspace, +guidance} = observation

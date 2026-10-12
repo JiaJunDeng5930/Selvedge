@@ -19,7 +19,7 @@ type Observation is Data:
 
 def source(+key: UIIdentity.Key, +visual: Design.Style, +button: Controls.Button) -> Source.Node:
   Controls.Button{input, +availability, +name, +value, +state, +geometry, placement, +response} = button
-  Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), A.action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(state), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, value, state, geometry, placement, response})), A.feedback(response))))), name, A.enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, A.face(key, value, visual, geometry)}
+  Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), A.action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, A.choice_association(value, key), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(state), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, value, state, geometry, placement, response})), A.feedback(response)))))), name, A.enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, A.face(key, value, visual, geometry)}
 
 def native_tag(node: Source.Node) -> Maybe<&2, Source.ControlTag>:
   match node:
@@ -51,8 +51,8 @@ def button_face(button: Controls.Button) -> Controls.Face:
   face
 
 def expected_attributes(+key: UIIdentity.Key, +button: Controls.Button) -> +List<Source.Attribute>:
-  Controls.Button{input, +availability, +name, face, +behavior, geometry, placement, +feedback} = button
-  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(behavior), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback})), A.feedback(feedback)))))
+  Controls.Button{input, +availability, +name, +face, +behavior, geometry, placement, +feedback} = button
+  List.append(&2, Source.Attribute, A.choice_association(face, key), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(behavior), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback})), A.feedback(feedback))))))
 
 def expected_style(+visual: Design.Style, button: Controls.Button) -> Source.Style:
   Controls.Button{input, availability, name, +face, behavior, +geometry, placement, feedback} = button

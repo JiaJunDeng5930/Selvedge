@@ -212,8 +212,37 @@ def container_observation(+capacity: Nat, +value: Content.Value, interaction: Mo
     case Content.Value{Source.RichText{key, style, content, attachments, owner}, font}: {==}
     case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}: {==}
 
+def rich_alignment(+key: Identity.Key, extent: E.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> RulePhysicalControlRules.rich_alignment_claim(key, extent, rule, children):
+  E.Extent{width, height} = extent
+  Model.Rule{direction, main, cross, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
+  match direction:
+    case Model.Horizontal{}:
+      match main:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+    case Model.ResponsiveHorizontal{}:
+      match main:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+    case Model.Vertical{}:
+      match cross:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+    case Model.Layered{}:
+      match cross:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+
 def RulePhysicalControlRules.renderer_evidence():
-  RulePhysicalControlRules.RendererRequirements{key => dom_key => tag => attrs => styles => events => children => {==}, identity => dom_key => attrs => styles => events => input_key => input_attrs => input_styles => input_events => input_children => rest => {==}, owner => target => key => identity => native_target => attrs => style => original => font => interaction => rule => bounds => canvas => direction => children => {==}, leaf_observation, container_observation, reading_box, styles => {==}, styles => {==}, rich_parent, generation => key => tag => style => children => font => theme => {==}, admitted_world, rejected_world}
+  RulePhysicalControlRules.RendererRequirements{rich_alignment, key => dom_key => tag => attrs => styles => events => children => {==}, identity => dom_key => attrs => styles => events => input_key => input_attrs => input_styles => input_events => input_children => rest => {==}, owner => target => key => identity => native_target => attrs => style => original => font => interaction => rule => bounds => canvas => direction => children => {==}, leaf_observation, container_observation, reading_box, styles => {==}, styles => {==}, rich_parent, generation => key => tag => style => children => font => theme => {==}, admitted_world, rejected_world}
 
 def measured_minimum_bound(+observation: Content.Observation) ->
   {Nat.is_le(RulePhysicalControlRules.minimum_width(SourceSource.text_natural_demand(T.SingleLine{}, observation)), SourceSource.observation_advance(observation)) == True{} : Bool}:

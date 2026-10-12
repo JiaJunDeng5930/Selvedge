@@ -43,8 +43,7 @@ def lease(history: D.History, +owner: Nat) -> R.Lease:
     case D.HistoryNode{previous, other}: lease(previous, owner)
 
 def task_policy(task: D.Task) -> R.Policy:
-  D.Task{id, lineage, D.Contract{model, tools, forks, descendants, plugins, context}, status, history, queued, phase, operations, notified} = task
-  D.model_reasoning(model)
+  D.model_reasoning(D.task_model(task))
 
 # Configuration updates are trusted native items, never opaque model output.
 # A checkpoint starts a new provider context, so its next generation needs a

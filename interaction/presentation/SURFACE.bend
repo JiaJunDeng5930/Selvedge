@@ -1,4 +1,5 @@
 import Base
+import ./INFORMATION.bend as Information
 import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
 import ../../features/board/MODEL.bend as B
@@ -57,6 +58,7 @@ type ChoiceKind is Data:
   MultipleChoice{}
 
 type Meaning is Data:
+  InformationText{role: Information.TextRole}
   LayerRegion{dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DirectoryBrowserLocation{value: String}
   PanelToggle{expanded: Bool, input: InteractionTypes.Input, availability: V.Availability}

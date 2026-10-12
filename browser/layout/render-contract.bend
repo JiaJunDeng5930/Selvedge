@@ -504,8 +504,38 @@ def container_observation_claim(+capacity: Nat, +value: Content.Value, interacti
         case False{}: {True{} == True{} : Bool}
     case _: {True{} == True{} : Bool}
 
+def rich_alignment_property(values: +List<Doc.Property>) -> Maybe<&2, String>:
+  match values:
+    case Nil{}: None{}
+    case Con{Doc.Property{"text-align", value}, rest}: Some{value}
+    case Con{other, rest}: rich_alignment_property(rest)
+
+def rich_rendered_alignment(node: Doc.Node) -> Maybe<&2, String>:
+  match node:
+    case Doc.Element{key, tag, attrs, styles, events, children}: rich_alignment_property(styles)
+    case _: None{}
+
+def alignment_value(alignment: Spatial.Alignment) -> String:
+  match alignment:
+    case Spatial.Centered{}: "center"
+    case Spatial.Trailing{}: "end"
+    case _: "start"
+
+def inline_text_alignment(direction: Model.Direction, main: Spatial.Alignment, cross: Spatial.Alignment) -> String:
+  match direction:
+    case Model.Horizontal{}: alignment_value(main)
+    case Model.ResponsiveHorizontal{}: alignment_value(main)
+    case _: alignment_value(cross)
+
+def rich_alignment_claim(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> Type:
+  Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position} = rule
+  {rich_rendered_alignment(Renderer.rich_content_frame(key, extent,
+    Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position}, children)) ==
+    Some{inline_text_alignment(direction, main, cross)} : Maybe<&2, String>}
+
 type RendererRequirements is Type:
   RendererRequirements{
+    rich_alignment: @+key:UIIdentity.Key -> @extent:Enclosure.Extent -> @rule:Model.Rule -> @children:+List<Doc.Node> -> rich_alignment_claim(key, extent, rule, children),
     observed_element: @key:String -> @dom_key:String -> @tag:String -> @attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @events:+List<Doc.DOMEvent> -> @children:+List<Doc.Node> ->
       {Renderer.observed(key, Doc.Element{dom_key, tag, attrs, styles, events, children}) == Doc.Element{dom_key, tag, Renderer.properties(attrs, [Doc.Property{"data-frame-key", key}]), styles, events, children} : Doc.Node},
     observed_toggle: @identity:String -> @dom_key:String -> @attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @events:+List<Doc.DOMEvent> -> @input_key:String -> @input_attrs:+List<Doc.Property> -> @input_styles:+List<Doc.Property> -> @input_events:+List<Doc.DOMEvent> -> @input_children:+List<Doc.Node> -> @rest:+List<Doc.Node> ->

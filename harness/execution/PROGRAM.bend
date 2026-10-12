@@ -45,7 +45,7 @@ def catalog(+world: M.World()) -> +List<D.Tool>:
   catalog_environment(world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def context(+task: D.Task) -> J.Json:
-  J.Object{[J.Field{"model", View.model_json(T.task_model(D.task_contract(task)))},
+  J.Object{[J.Field{"model", View.model_json(D.task_model(task))},
     J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}},
     J.Field{"history", J.Array{T.messages_json(D.history_messages(D.context_history(D.task_history(task)), Nil{}))}}]}
 
@@ -373,7 +373,7 @@ def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
       projects = D.state_projects(task_state)
       C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_notified(False{}, D.with_phase(D.SummaryPending{ticket, resume}, task))), task_state)), board},
         D.success(J.Object{[J.Field{"task_id", J.nat(D.task_id(task))}]}),
-        [Effects.RequestSummary{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
+        [Effects.RequestSummary{D.task_id(task), ticket, D.task_model(task), D.context_history(D.task_history(task)), D.task_context(task)}]}
     case External{+tool, +call, remaining, +task} C.Frame{+task_state_2, +board}:
       tasks = D.state_tasks(task_state_2)
       next_task = D.state_next_task(task_state_2)

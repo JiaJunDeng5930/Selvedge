@@ -89,6 +89,7 @@ def native_field_appearance(kind: NativeFieldKind) -> String:
 type Attribute is Data:
   ReadingAttribute{binding: ReadingBinding.Binding}
   EditorBindingAttribute{key: Identity.Key}
+  IdAttribute{value: String}
   DataAttribute{name: String, value: String}
   AriaAttribute{name: String, value: String}
   RoleAttribute{value: String}
@@ -217,6 +218,7 @@ def attribute_properties(attribute: Attribute) -> +List<Doc.Property>:
     case ReadingAttribute{ReadingBinding.Binding{ReadingBinding.Context{task, generation}, part}}:
       [Doc.Property{"data-reading-task", Nat.show(task)}, Doc.Property{"data-reading-generation", Nat.show(generation)}, Doc.Property{"data-reading-" ++ ReadingBinding.part_name(part), ""}]
     case EditorBindingAttribute{key}: [Doc.Property{"data-native-editor-key", Identity.encode(key)}]
+    case IdAttribute{value}: [Doc.Property{"id", value}]
     case DataAttribute{name, value}: [Doc.Property{"data-" ++ name, value}]
     case AriaAttribute{name, value}: [Doc.Property{"aria-" ++ name, value}]
     case RoleAttribute{value}: [Doc.Property{"role", value}]

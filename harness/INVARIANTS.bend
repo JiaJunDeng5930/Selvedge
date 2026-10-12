@@ -63,7 +63,7 @@ def lineage_parent(found: Maybe<&2, D.Task>, child: Nat, tail: +List<Nat>, contr
     case None{}: False{}
     case Some{+parent}:
       Nat.is_lt(D.task_id(parent), child) && Same.naturals(tail, D.task_lineage(parent)) &&
-        Same.inherited_contract(budget, contract, D.task_contract(parent))
+        Same.inherited_creation(budget, contract, D.task_contract(parent))
 
 def lineage(lineage: +List<Nat>, child: Nat, contract: D.Contract, tasks: +List<D.Task>, budget: Nat) -> Bool:
   match lineage:
@@ -259,15 +259,24 @@ def distinct_operations(operations: +List<D.Operation()>, +tasks: +List<D.Task>)
     case Con{+operation, rest}:
       Bool.not(has_ticket(tasks, Ops.ticket(operation))) && Bool.not(has_ticket(tasks, Ops.callback(operation))) && distinct_operations(rest, tasks)
 
-def task(task: D.Task, expected_id: Nat, +all: +List<D.Task>, +next_ticket: Nat, +budget: Nat) -> Bool:
-  D.Task{+id, ancestors, +frozen, +status, +history, queued, +pending, +operations, notified} = task
-  Nat.is_eq(id, expected_id) && contract(frozen) &&
+def execution_configuration(+current: D.ExecutionConfiguration, contract: D.Contract) -> Bool:
+  match current:
+    case D.ExecutionConfiguration{profile, reasoning, +model, sandbox, approval}:
+      String.eq(profile, D.profile_key(D.model_profile(model))) && String.eq(reasoning, D.model_selection(model)) &&
+        Same.json(65536n, D.project_json(D.model_guidance(model)), D.project_json(D.model_guidance(T.task_model(contract))))
+
+def task_checked(task: D.Task, +effective: D.Contract, expected_id: Nat, +all: +List<D.Task>, +next_ticket: Nat, +budget: Nat) -> Bool:
+  D.Task{+id, ancestors, +frozen, +current, +status, +history, queued, +pending, +operations, notified} = task
+  Nat.is_eq(id, expected_id) && contract(frozen) && execution_configuration(current, frozen) && contract(effective) &&
     lineage(ancestors, id, frozen, all, budget) &&
     Nat.is_le(T.descendant_count(all, id), T.contract_limit(frozen)) &&
     phase(status, pending, history, T.task_tools(frozen), next_ticket) &&
-    checked_phase(pending, history, id, frozen, budget) &&
+    checked_phase(pending, history, id, effective, budget) &&
     operation_status(status, operations) && Nat.is_le(List.length(&2, D.Operation(), operations), D.operation_limit()) &&
-    operation_rights(operations, pending, history, id, frozen, next_ticket, budget)
+    operation_rights(operations, pending, history, id, effective, next_ticket, budget)
+
+def task(+task: D.Task, expected_id: Nat, all: +List<D.Task>, next_ticket: Nat, budget: Nat) -> Bool:
+  task_checked(task, D.effective_contract(task), expected_id, all, next_ticket, budget)
 
 def tasks(remaining: +List<D.Task>, +expected_id: Nat, +all: +List<D.Task>, +next_task: Nat, +next_ticket: Nat, +budget: Nat) -> Bool:
   match remaining:
@@ -385,8 +394,8 @@ def found_archived(found: Maybe<&2, D.Task>) -> Bool:
 
 def cancellation_authorized(found: Maybe<&2, D.Task>) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, contract, D.Stopped{}, history, queued, D.Idle{}, operations, notified}}: True{}
-    case Some{D.Task{id, lineage, contract, D.Archived{}, history, queued, D.Idle{}, operations, notified}}: True{}
+    case Some{D.Task{id, lineage, contract, +current, D.Stopped{}, history, queued, D.Idle{}, operations, notified}}: True{}
+    case Some{D.Task{id, lineage, contract, +current, D.Archived{}, history, queued, D.Idle{}, operations, notified}}: True{}
     case _: False{}
 
 def retired_ticket(found: Maybe<&2, D.Task>, +ticket: Nat) -> Bool:
@@ -454,17 +463,17 @@ def live_effects(+effects: +List<M.Effect()>, tasks: +List<D.Task>) -> +List<M.E
 def model_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, sent_history: D.History,
   tools: +List<D.Tool>, callable: +List<String>, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, +contract, D.Active{}, +history, queued, D.ModelPending{expected, allowed}, operations, notified}}:
-      Nat.is_eq(ticket, expected) && Same.model(model, T.task_model(contract)) &&
-        ReasoningContext.valid_sample(D.model_reasoning(T.task_model(contract)), id, history) &&
+    case Some{D.Task{id, lineage, +contract, +current, D.Active{}, +history, queued, D.ModelPending{expected, allowed}, operations, notified}}:
+      Nat.is_eq(ticket, expected) && Same.model(model, D.execution_model(current)) &&
+        ReasoningContext.valid_sample(D.model_reasoning(D.execution_model(current)), id, history) &&
         Same.history(budget, sent_history, D.context_history(history)) && Same.tools(budget, tools, T.task_tools(contract)) && Same.strings(callable, allowed)
     case _: False{}
 
 def reasoning_effect(found: Maybe<&2, D.Task>, ticket: Nat, +model: D.Model, sent_history: D.History, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, contract, D.Active{}, +history, queued, D.ReasoningPending{expected, revision}, operations, notified}}:
+    case Some{D.Task{id, lineage, contract, +current, D.Active{}, +history, queued, D.ReasoningPending{expected, revision}, operations, notified}}:
       Nat.is_eq(ticket, expected) && Nat.is_eq(revision, D.history_length(history)) &&
-        Reasoning.automatic(D.model_reasoning(model)) && Same.model(model, T.task_model(contract)) && Same.history(budget, sent_history, history)
+        Reasoning.automatic(D.model_reasoning(model)) && Same.model(model, D.execution_model(current)) && Same.history(budget, sent_history, history)
     case _: False{}
 
 def settled_calls(remaining: D.History, +whole: D.History) -> Bool:
@@ -479,8 +488,8 @@ def settled_calls(remaining: D.History, +whole: D.History) -> Bool:
 
 def summary_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, +sent_history: D.History, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, contract, D.Active{}, history, queued, D.SummaryPending{expected, resume}, operations, notified}}:
-      Bool.not(D.operations_pending(operations)) && Nat.is_eq(ticket, expected) && Same.model(model, T.task_model(contract)) &&
+    case Some{D.Task{id, lineage, contract, +current, D.Active{}, history, queued, D.SummaryPending{expected, resume}, operations, notified}}:
+      Bool.not(D.operations_pending(operations)) && Nat.is_eq(ticket, expected) && Same.model(model, D.execution_model(current)) &&
         Same.history(budget, sent_history, D.context_history(history)) && settled_calls(sent_history, sent_history)
     case _: False{}
 
@@ -514,14 +523,14 @@ def after_effect(found: Maybe<&2, D.Task>, operation: Nat, ticket: Nat, plugin: 
 
 def tool_effect(found: Maybe<&2, D.Task>, ticket: Nat, tool: D.Tool, call: D.Call, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}}:
+    case Some{D.Task{id, lineage, contract, +current, status, history, queued, phase, operations, notified}}:
       runs_tools(status) && operation_effect(Ops.find_callback(operations, ticket), call, budget) &&
         tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
 
 def hook_effect(found: Maybe<&2, D.Task>, ticket: Nat, plugin: D.PluginRef, +tool: D.Tool, +call: D.Call, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, contract, status, history, queued, D.HookPending{expected, reference, current, pending, remaining}, operations, notified}}:
+    case Some{D.Task{id, lineage, contract, +current, status, history, queued, D.HookPending{expected, reference, +current, pending, remaining}, operations, notified}}:
       runs_tools(status) && Nat.is_eq(ticket, expected) && D.plugin_same(plugin, reference) && Same.call(budget, call, current) &&
         String.eq(D.tool_name(tool), T.call_name(call)) && tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
@@ -591,10 +600,16 @@ def feature_ticket_fresh(found: Maybe<&2, Nat>, rest: +List<M.Effect()>, first: 
     case None{}: True{}
     case Some{+ticket}: Nat.is_le(first, ticket) && Bool.not(has_effect_ticket(rest, ticket))
 
+def missing_task(found: Maybe<&2, D.Task>) -> Bool:
+  match found:
+    case None{}: True{}
+    case Some{task}: False{}
+
 def effects(pending: +List<M.Effect()>, +tasks: +List<D.Task>, +first_ticket: Nat, +budget: Nat) -> Bool:
   match pending:
     case Nil{}: True{}
     case Con{Effects.NotifyPlugins{events}, rest}: effects(rest, tasks, first_ticket, budget)
+    case Con{Effects.ResetModelSession{id}, rest}: Bool.not(missing_task(T.find(tasks, id))) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && model_effect(T.find(tasks, id), ticket, model, history, tools, callable, budget) && effects(rest, tasks, first_ticket, budget)

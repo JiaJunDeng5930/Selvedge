@@ -1,9 +1,11 @@
+import ./INFORMATION.bend as Information
 import Base
 import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
 import ../submission/MODEL.bend as Receipt
 import ../../harness/MODEL.bend as M
 import ../../harness/COMMANDS.bend as Commands
+import ../../harness/tasks/PROGRAM.bend as T
 import ../../features/board/MODEL.bend as B
 import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/features/MODEL.bend as F
@@ -360,7 +362,7 @@ def field_children(field: OperationParameters.Field, +editor: U.Editor, +parent:
     case OperationParameters.CardAttachments{}: file_field(editor, parent, state)
     case OperationParameters.WorkspaceDirectories{}:
       SurfaceTypes.Node{Identity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", SurfaceTypes.Content{},
-        SurfaceTypes.ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
+        SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
       SurfaceTypes.Node{Identity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
       directory_confirm(editor, parent, state) <>
       directory_browse(editor, parent, state) <>
@@ -471,14 +473,28 @@ def composer_control_resolved(subject: V.ComposerSubject, parent: Identity.Key, 
   InteractionTypes.Control{+identity, label, prominence, input, availability} = control
   SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, action_role(prominence), SurfaceTypes.ComposerAction{subject, input, availability}, Nil{}}
 
-def composer_control(parent: Identity.Key, value: V.ComposerControl, state: InteractionTypes.State) -> SurfaceTypes.Node:
+def composer_control_owned(+subject: V.ComposerSubject, +parent: Identity.Key, +control: InteractionTypes.Control, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  match control:
+    case InteractionTypes.Control{identity, label, prominence, InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.OpenPanel{U.ProjectPicker{}, trigger}}}}, availability}:
+      +application = Core.application(state)
+      +session = E.session(application)
+      +world = E.program(application)
+      SurfaceTypes.Node{Identity.Part{parent, "project"}, "project-chooser", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectChooser{View.active_project(E.route(session), session, world)}, [composer_control_resolved(subject, parent, control)]}
+    case _: composer_control_resolved(subject, parent, control)
+
+def composer_control(parent: Identity.Key, value: V.ComposerControl, +state: InteractionTypes.State) -> SurfaceTypes.Node:
   V.ComposerControl{subject, declaration} = value
-  composer_control_resolved(subject, parent, Core.control(state, declaration))
+  composer_control_owned(subject, parent, Core.control(state, declaration), state)
 
 def composer_controls(values: +List<V.ComposerControl>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{control, rest}: composer_control(parent, control, state) <> composer_controls(rest, parent, state)
+
+def composer_creation_context(controls: +List<V.ComposerControl>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match controls:
+    case Nil{}: Nil{}
+    case Con{first, rest}: [region(parent, "creation-context", "Creation context", SurfaceTypes.Toolbar{}, composer_controls(first <> rest, parent, state))]
 
 def composer_choices(footer: +List<V.ComposerControl>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match footer:
@@ -503,19 +519,22 @@ def expected_composer_actions(footer: +List<V.ComposerControl>, submit: V.Contro
 def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
     case None{}: Nil{}
-    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
-      [SurfaceTypes.Node{key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.Region{},
-        field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, key, state, Nil{}) <>
-          List.append(&2, SurfaceTypes.Node, feedback_nodes(key, feedback), [expected_composer_actions(footer, submit, key, state)])}]
+      List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, key, state),
+        [SurfaceTypes.Node{key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.Region{},
+          field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, key, state, Nil{}) <>
+            List.append(&2, SurfaceTypes.Node, feedback_nodes(key, feedback), [expected_composer_actions(execution_controls, submit, key, state)])}])
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
     case None{}: Nil{}
-    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
       +composer_key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
-      [SurfaceTypes.Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.Region{}, field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
-          List.append(&2, SurfaceTypes.Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)])}]
+      List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, composer_key, state),
+        [SurfaceTypes.Node{composer_key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.Region{},
+          field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
+            List.append(&2, SurfaceTypes.Node, feedback_nodes(composer_key, feedback), [composer_actions(execution_controls, submit, composer_key, state)])}])
 
 def approval_fact(+parent: Identity.Key, +key: String, +label: String, text: String) -> SurfaceTypes.Node:
   SurfaceTypes.Node{Identity.Part{parent, key}, key, label, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}}
@@ -937,7 +956,7 @@ def board_toolbar(+filter: B.Filter, +working: Nat, create: V.ControlDeclaration
 
 def creation_title_node(value: V.CreationIntroduction, parent: Identity.Key) -> SurfaceTypes.Node:
   V.CreationIntroduction{+heading, summary, context, project, choose} = value
-  SurfaceTypes.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, SurfaceTypes.Heading{}, SurfaceTypes.ReadOnly{heading}, Nil{}}
+  SurfaceTypes.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "title"}, "creation/title", heading, SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.IntroductionTitle{}}, Nil{}}
 
 def creation_project_node(value: V.CreationIntroduction, +parent: Identity.Key, state: InteractionTypes.State) -> SurfaceTypes.Node:
   V.CreationIntroduction{heading, summary, context, project, choose} = value
@@ -948,8 +967,7 @@ def creation_context_node(value: V.CreationIntroduction, parent: Identity.Key) -
   SurfaceTypes.Node{Identity.Part{Identity.Part{Identity.Part{Identity.Part{parent, "creation"}, "introduction"}, "creation"}, "context"}, "creation/context", "Workspace configuration", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{summary}, Nil{}}
 
 def creation_introduction_nodes(+value: V.CreationIntroduction, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  [page_region(parent, Composition.CreationIntroduction{}, Composition.BodyPosition{}, [creation_title_node(value, parent), creation_project_node(value, parent, state)]),
-   page_region(parent, Composition.CreationContext{}, Composition.BodyPosition{}, [creation_context_node(value, parent)])]
+  [page_region(parent, Composition.CreationIntroduction{}, Composition.BodyPosition{}, [creation_title_node(value, parent)])]
 
 def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   +observed_application = Core.application(state)
@@ -1019,7 +1037,7 @@ def delivery_selected(current: U.Delivery, candidate: U.Delivery) -> Bool:
 def picker_fields(values: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{V.ModelInput{profile, reasoning, choices}, rest}: List.append(&2, SurfaceTypes.Node, model_choices(choices, profile, reasoning, editor, parent, state), picker_fields(rest, editor, parent, state))
+    case Con{V.ModelInput{profile, reasoning, choices}, rest}: List.append(&2, SurfaceTypes.Node, model_choices(choices, profile, reasoning, editor, parent, state), field_node(OperationParameters.FieldScene{OperationParameters.ReasoningEffort{}, "Reasoning effort", OperationParameters.Choice{}}, editor, parent, state, Nil{}) <> picker_fields(rest, editor, parent, state))
     case Con{V.DeliveryInput{+selected, send, steer}, rest}:
       declared_choice(delivery_selected(selected, U.Send{}), "Send a new message to this task.", send, parent, state) <>
       declared_choice(delivery_selected(selected, U.Steer{}), "Guide the current run with this message.", steer, parent, state) <> picker_fields(rest, editor, parent, state)
@@ -1224,16 +1242,35 @@ def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Iden
     case Nil{}: Nil{}
     case Con{group, rest}: List.append(&2, SurfaceTypes.Node, workspace_menu_group(editor, group, parent, state), workspace_menu(rest, editor, parent, state))
 
+def committed_permission_summary(found: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match found:
+    case Some{context}: [context_summary_node(Context.CommittedExecution{context}, parent, state)]
+    case None{}: unavailable_context("Task execution context is unavailable", parent)
+
+def permission_summary(editor: U.Editor, preview: Context.Preview, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.MessageEditor{task}:
+      world = E.program(Core.application(state))
+      committed_permission_summary(View.committed_context(T.find(Commands.entries(world), task)), parent, state)
+    case _: [context_summary_node(Context.DraftExecution{preview}, parent, state)]
+
+def permission_resets(+editor: U.Editor, +config: Context.Configuration, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.MessageEditor{task}: Nil{}
+    case _:
+      List.append(&2, SurfaceTypes.Node, reset_control(reset_change(config, OperationParameters.SandboxMode{}), editor, OperationParameters.SandboxMode{}, "filesystem and network access", parent, state),
+        reset_control(reset_change(config, OperationParameters.ApprovalPolicy{}), editor, OperationParameters.ApprovalPolicy{}, "approval policy", parent, state))
+
 def permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match group:
     case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
     case V.ExecutionInput{+config, Context.ProspectiveContext{+origin, +project, +workspace, +sandbox, +approval, +guidance}, controls, projects, reviewers}:
-      context_summary_node(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, parent, state) <>
-      sandbox_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
-      network_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
-      approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
-      List.append(&2, SurfaceTypes.Node, reset_control(reset_change(config, OperationParameters.SandboxMode{}), editor, OperationParameters.SandboxMode{}, "filesystem and network access", parent, state),
-        reset_control(reset_change(config, OperationParameters.ApprovalPolicy{}), editor, OperationParameters.ApprovalPolicy{}, "approval policy", parent, state))
+      List.append(&2, SurfaceTypes.Node,
+        permission_summary(editor, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, parent, state),
+        sandbox_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
+        network_choices(Context.unwrap_sandbox(sandbox), editor, parent, state) <>
+        approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
+        permission_resets(editor, config, parent, state))
     case _: Nil{}
 
 def permission_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:

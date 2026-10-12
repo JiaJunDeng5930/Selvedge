@@ -1,3 +1,7 @@
+import ../controls/SURFACES.bend as Surfaces
+import ../../interaction/submission/FIELDS.bend as Forms
+import ../../interaction/TYPES.bend as InteractionTypes
+import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ../controls/PROGRAM.bend as Controls
 import ../controls/MODEL.bend as Authored
@@ -90,8 +94,126 @@ def board_controls(visual: Design.Style, position: Composition.Position) -> Type
 def board_stages(visual: Design.Style, position: Composition.Position) -> Type:
   {Authored.region_style(visual, Composition.BoardStages{}, position) == Factory.with_direction(Factory.style(Appearance.with_arrangement(visual, Enclosure.SeparateFrames{Enclosure.BoardColumns{}}), Model.StretchSize{}, Model.StretchSize{}, Model.ScrollHorizontally{}), Model.Horizontal{}) : Source.Style}
 
+type InformationObservation is Data:
+  MissingInformation{}
+  ObservedInformation{key: Identity.Key, attributes: +List<Source.Attribute>, value: String, font: Source.FontChoice, wrapping: T.Wrapping}
+
+def information_observation(node: Source.Node) -> InformationObservation:
+  match node:
+    case Source.Box{key, tag, style, attributes, [Source.Text{text_key, value, font, wrapping}]}: ObservedInformation{key, attributes, value, font, wrapping}
+    case _: MissingInformation{}
+
+def first_information(nodes: +List<Source.Node>) -> InformationObservation:
+  match nodes:
+    case Con{node, rest}: information_observation(node)
+    case Nil{}: MissingInformation{}
+
+def required_information_font_role(+role: Information.TextRole, scale: T.Scale) -> T.Presentation:
+  match role:
+    case Information.IntroductionTitle{}: T.Presentation{T.Display{}, T.Strong{}, scale}
+    case Information.SurfaceTitle{}: T.Presentation{T.Title{}, T.Medium{}, scale}
+    case Information.GroupTitle{}: T.Presentation{T.Section{}, T.Medium{}, scale}
+    case Information.FieldLabel{}: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case Information.FieldValue{}: T.Presentation{T.Body{}, T.Regular{}, scale}
+    case Information.OptionLabel{}: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case Information.Description{}: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case Information.Status{}: T.Presentation{T.Support{}, T.Regular{}, scale}
+
+def required_information_font(+role: Information.TextRole, parent: T.Presentation) -> T.Presentation:
+  T.Presentation{tier, emphasis, scale} = parent
+  required_information_font_role(role, scale)
+
+def required_information(+owner: Identity.Key, +role: Information.TextRole, value: String, visual: Design.Style) -> InformationObservation:
+  +key = Identity.part(owner, "@information/" ++ Information.name(role))
+  ObservedInformation{key, [Source.IdAttribute{Identity.encode(key)}, Source.DataAttribute{"information-owner", Identity.encode(owner)}, Source.DataAttribute{"information-role", Information.name(role)}], value, Source.ExplicitFont{required_information_font(role, Design.style_text(visual))}, T.NormalWords{}}
+
+def information_alignment(node: Source.Node) -> Maybe<&2, Spatial.Alignment>:
+  match node:
+    case Source.Box{key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}: Some{main}
+    case _: None{}
+
+def required_alignment(role: Information.TextRole) -> Spatial.Alignment:
+  match role:
+    case Information.IntroductionTitle{}: Spatial.Centered{}
+    case _: Spatial.Leading{}
+
+def owned_alignment(+owner: Identity.Key, +role: Information.TextRole, value: String, visual: Design.Style) -> Type:
+  {information_alignment(AuthoredControls.owned_text(owner, role, value, visual)) == Some{required_alignment(role)} : Maybe<&2, Spatial.Alignment>}
+
+def information_width(node: Source.Node) -> Maybe<&2, Model.AxisSize>:
+  match node:
+    case Source.Box{key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}: Some{width}
+    case _: None{}
+
+def information_foreground(node: Source.Node) -> Maybe<&2, Design.Paint>:
+  match node:
+    case Source.Box{key, tag, Source.Style{layout, font, Design.Chrome{foreground, background, border, width, radius, shadow}, states}, attributes, children}: Some{foreground}
+    case _: None{}
+
+def parent_foreground(visual: Design.Style) -> Design.Paint:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual
+  foreground
+
+def required_foreground(role: Information.TextRole, visual: Design.Style) -> Design.Paint:
+  match role:
+    case Information.Description{}: Design.TextForeground{Surfaces.SecondaryText{}}
+    case Information.Status{}: Design.TextForeground{Surfaces.SecondaryText{}}
+    case _: parent_foreground(visual)
+
+def owned_foreground(+owner: Identity.Key, +role: Information.TextRole, value: String, +visual: Design.Style) -> Type:
+  {information_foreground(AuthoredControls.owned_text(owner, role, value, visual)) == Some{required_foreground(role, visual)} : Maybe<&2, Design.Paint>}
+
+def owned_information(+owner: Identity.Key, +role: Information.TextRole, +value: String, +visual: Design.Style) -> Type:
+  {information_observation(AuthoredControls.owned_text(owner, role, value, visual)) == required_information(owner, role, value, visual) : InformationObservation}
+
+def scalar_information(+key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +text_role: Information.TextRole, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(key, label, role, SurfaceTypes.InformationText{text_role}, visual, representation, children, parameters, content))) == required_information(key, text_role, label, visual) : InformationObservation}
+
+def field_label(+key: Identity.Key, +label: String, +visual: Design.Style, field: Source.Node) -> Type:
+  {first_information(Source.children_of(AuthoredControls.label_field(Controls.AboveInput{}, key, label, visual, field))) == required_information(key, Information.FieldLabel{}, label, visual) : InformationObservation}
+
+def option_text(nodes: +List<Source.Node>) -> InformationObservation:
+  match nodes:
+    case Con{Source.Glyph{key, drawing, style}, rest}: option_text(rest)
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}: first_information(children)
+    case _: MissingInformation{}
+
+def option_label(+key: Identity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry) -> Type:
+  {option_text(AuthoredControls.face(key, Controls.ChoiceFace{label, description, icon, selected}, visual, geometry)) == required_information(key, Information.OptionLabel{}, label, visual) : InformationObservation}
+
+def option_description(+key: Identity.Key, +value: String, +visual: Design.Style) -> Type:
+  {first_information(AuthoredControls.face_description(Some{value}, key, visual)) == required_information(key, Information.Description{}, value, visual) : InformationObservation}
+
+def group_title(+key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(key, label, role, SurfaceTypes.ChoiceGroup{}, visual, representation, children, parameters, content))) == required_information(key, Information.GroupTitle{}, label, visual) : InformationObservation}
+
+def panel_title(+key: Identity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
+
+def dialog_title(+key: Identity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> Type:
+  {dialog_information(Authored.dialog_content(key, label, visual, children)) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
+
+def dialog_information(nodes: +List<Source.Node>) -> InformationObservation:
+  match nodes:
+    case Con{Source.Box{header_key, header_tag, header_style, header_attributes, [Source.Box{title_key, title_tag, title_style, title_attributes, title_children}]}, rest}: first_information(title_children)
+    case _: MissingInformation{}
+
+def visible_label_reference(+key: Identity.Key) -> Type:
+  {AuthoredControls.label_attributes(Controls.AboveInput{}, key) == [Source.AriaAttribute{"labelledby", Identity.encode(Identity.part(key, "@information/field-label"))}] : +List<Source.Attribute>}
+
+def option_reference(+key: Identity.Key, +label: String, +description: Maybe<&2, String>, icon: Maybe<&2, Controls.Icon>, selected: Bool) -> Type:
+  {AuthoredControls.choice_association(Controls.ChoiceFace{label, description, icon, selected}, key) == required_option_reference(key, description) : +List<Source.Attribute>}
+
+def required_option_reference(+key: Identity.Key, description: Maybe<&2, String>) -> +List<Source.Attribute>:
+  match description:
+    case None{}: [Source.AriaAttribute{"labelledby", Identity.encode(Identity.part(key, "@information/option-label"))}]
+    case Some{text}: [Source.AriaAttribute{"labelledby", Identity.encode(Identity.part(key, "@information/option-label"))}, Source.AriaAttribute{"describedby", Identity.encode(Identity.part(key, "@information/description"))}]
+
+def compound_label(+key: Identity.Key, +label: String, field: Forms.Field, +visual: Design.Style, children: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.compound(key, label, field, visual, children))) == required_information(key, Information.FieldLabel{}, label, visual) : InformationObservation}
+
 def heading_caption(key: Identity.Key, label: String, visual: Design.Style) -> Type:
-  {Authored.caption(key, label, SurfaceTypes.Heading{}, visual) == [Factory.text(Identity.part(key, "@title"), label, Source.ExplicitFont{Design.style_text(visual)}, T.NormalAnywhere{})] : +List<Source.Node>}
+  {first_information(Authored.caption(key, label, SurfaceTypes.Heading{}, visual)) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
 
 def lane_style(key: Identity.Key, label: String, stage: Board.Stage, count: Nat, visual: Design.Style, children: +List<Authored.Child>, parameters: Design.LayoutParameters) -> Type:
   {Authored.layout_of_lane(Authored.lane(key, label, stage, count, visual, children, parameters)) == Some{Factory.with_direction(Factory.style(visual, Model.LimitedSize{Design.lane_minimum_width(parameters), 0n, Design.lane_minimum_width(parameters)}, Model.StretchSize{}, Model.Confined{}), Model.Vertical{})} : Maybe<&2, Source.Style>}
@@ -108,7 +230,7 @@ def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advanc
       NaturalSize.Sum{input_minimum, NaturalSize.Sum{T.scaling_calculation(32n, scale), NaturalSize.Product{NaturalSize.Value{3n}, T.scaling_calculation(16n, scale)}}}}}}
   {Design.parameter_calculations(capacity, scale, height, advance) == [
     T.scaling_calculation(275n, scale),
-    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{64n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}},
+    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{40n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}},
     T.scaling_calculation(360n, scale),
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
@@ -217,6 +339,23 @@ def fact_source_dispatch(key: Identity.Key, label: String, role: SurfaceTypes.Ro
 
 type Requirements is Type:
   Requirements{
+    owned_alignment: @+owner:Identity.Key -> @+role:Information.TextRole -> @value:String -> @visual:Design.Style -> owned_alignment(owner, role, value, visual),
+    owned_width: @owner:Identity.Key -> @role:Information.TextRole -> @value:String -> @visual:Design.Style -> {information_width(AuthoredControls.owned_text(owner, role, value, visual)) == Some{Model.StretchSize{}} : Maybe<&2, Model.AxisSize>},
+    owned_foreground: @+owner:Identity.Key -> @+role:Information.TextRole -> @value:String -> @+visual:Design.Style -> owned_foreground(owner, role, value, visual),
+    id_property: @+value:String -> {Source.attribute_properties(Source.IdAttribute{value}) == [Doc.Property{"id", value}] : +List<Doc.Property>},
+    owned_information: @+owner:Identity.Key -> @+role:Information.TextRole -> @+value:String -> @+visual:Design.Style -> owned_information(owner, role, value, visual),
+    scalar_information: @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+text_role:Information.TextRole -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> scalar_information(key, label, role, text_role, visual, representation, children, parameters, content),
+    field_label: @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @field:Source.Node -> field_label(key, label, visual, field),
+    option_label: @+key:Identity.Key -> @+label:String -> @description:Maybe<&2, String> -> @+icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> @+visual:Design.Style -> @geometry:Controls.Geometry -> option_label(key, label, description, icon, selected, visual, geometry),
+    option_description: @+key:Identity.Key -> @+value:String -> @+visual:Design.Style -> option_description(key, value, visual),
+    group_title: @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> group_title(key, label, role, visual, representation, children, parameters, content),
+    panel_title: @+key:Identity.Key -> @+label:String -> @dismiss:InteractionTypes.Input -> @outside:Bool -> @escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> panel_title(key, label, dismiss, outside, escape, visual, representation, children, parameters, content),
+    dialog_title: @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @children:+List<Authored.Child> -> dialog_title(key, label, visual, children),
+    visible_label_reference: @+key:Identity.Key -> visible_label_reference(key),
+    option_reference: @+key:Identity.Key -> @+label:String -> @+description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> option_reference(key, label, description, icon, selected),
+    compound_label: @+key:Identity.Key -> @+label:String -> @field:Forms.Field -> @+visual:Design.Style -> @children:+List<Source.Node> -> compound_label(key, label, field, visual, children),
+    choice_group_scope: @role:SurfaceTypes.Role -> @area:Controls.Area -> {Controls.area_for_node(role, SurfaceTypes.ChoiceGroup{}, area) == Controls.ChoiceGroupArea{} : Controls.Area},
+    choice_group_radio: @selected:Bool -> {AuthoredControls.behavior(Controls.choice_behavior(SurfaceTypes.SingleChoice{}, Controls.ChoiceGroupArea{}, selected)) == [Source.RoleAttribute{"radio"}, Source.AriaAttribute{"checked", FieldOptions.boolean(selected)}] : +List<Source.Attribute>},
     user_width_policy: @+visual:Design.Style -> {Factory.adaptive_natural_width(visual) == adaptive_user_width(visual) : Model.AxisSize},
     user_message_width: @+visual:Design.Style -> user_message_width(visual),
     fact_display_value: @+value:String -> fact_display_value(value),

@@ -419,7 +419,7 @@ def page_content() -> Type:
 
 type EnclosureRequirements is Type:
   EnclosureRequirements{
-    page_content: page_content(),positive: @+profile:E.Profile -> {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, 1n) : (Nat & Nat)},
+    page_content: page_content(),profile_edges: @+profile:E.Profile -> {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, E.block_presence(profile)) : (Nat & Nat)},
     extent: @+width:Nat -> @+height:Nat -> @+border:Nat -> @+space:E.ContentArea -> {E.required_extent(width, height, border, space) == E.Extent{Nat.add(width, Nat.mul(2n, Nat.add(border, E.inline(space)))), Nat.add(height, Nat.mul(2n, Nat.add(border, E.block(space))))} : E.Extent},
     borderless: @+width:Nat -> @+height:Nat -> @+profile:E.Profile -> {E.required_extent(width, height, 0n, E.area(profile)) == E.Extent{Nat.add(width, Nat.mul(2n, E.inline(E.area(profile)))), Nat.add(height, Nat.mul(2n, E.block(E.area(profile))))} : E.Extent},
     action_insets: @+value:Model.Style -> @+geometry:C.Geometry -> @+space:E.ContentArea -> @+gap:Nat -> @content_height:Nat -> {area(A.action_style_insets(value, geometry, space, gap, content_height)) == space : E.ContentArea},
@@ -444,7 +444,9 @@ type EnclosureRequirements is Type:
     state_allocation: @+value:Model.Style -> @+space:E.ContentArea -> {interaction(A.with_content_area(value, space)) == interaction(value) : Model.ControlStates},
     text_layout: @+text:String -> {C.layout_content_area(C.content_layout(C.TextFace{text})) == E.area(E.TextControl{}) : E.ContentArea},
     option_layout: @+text:String -> @+selected:Bool -> {C.layout_content_area(C.content_layout(C.ChoiceFace{text, None{}, None{}, selected})) == E.area(E.OptionControl{}) : E.ContentArea},
-    embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.area(E.Field{}) : E.ContentArea}}
+    embedded_input: @+typography:T.Presentation -> {area(A.widget_field_style(C.MessageInput{}, Forms.Multiline{}, typography)) == E.area(E.EmbeddedEditor{}) : E.ContentArea},
+    composer_edges: {E.spacing(E.Composer{}) == E.Insets{12n, 0n} : E.Insets},
+    embedded_editor_edges: {E.spacing(E.EmbeddedEditor{}) == E.Insets{8n, 0n} : E.Insets}}
 
 law enclosure_evidence:
   EnclosureRequirements

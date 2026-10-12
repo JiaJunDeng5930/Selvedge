@@ -343,6 +343,12 @@ def drawing(+key: UIIdentity.Key, +value: Source.Drawing, +bounds: Spatial.Box, 
 
 # The allocator has already excluded border and frame from this content extent.
 
+def text_alignment(alignment: Spatial.Alignment) -> String:
+  match alignment:
+    case Spatial.Centered{}: "center"
+    case Spatial.Trailing{}: "end"
+    case _: "start"
+
 def rich_content_frame(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> Doc.Node:
   Enclosure.Extent{width, height} = extent
   Model.Rule{direction, main, cross, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
@@ -350,7 +356,8 @@ def rich_content_frame(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Mod
   Doc.Element{UIIdentity.encode(UIIdentity.part(key, "content")), "div", Nil{},
     [Paint.property("position", "absolute"), Paint.property("left", Paint.px(Enclosure.inline(insets))),
      Paint.property("top", Paint.px(Enclosure.block(insets))), Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height)),
-     Paint.property("margin", "0"), Paint.property("padding", "0"), Paint.property("border", "0"), Paint.property("box-sizing", "border-box")], Nil{}, children}
+     Paint.property("margin", "0"), Paint.property("padding", "0"), Paint.property("border", "0"), Paint.property("box-sizing", "border-box"),
+     Paint.property("text-align", text_alignment(drawing_inline_alignment(direction, main, cross)))], Nil{}, children}
 
 def toggle_checked(attrs: +List<Source.Attribute>) -> Bool:
   match attrs:

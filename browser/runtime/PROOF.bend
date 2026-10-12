@@ -1088,12 +1088,13 @@ def confirmation_failed_world(owned: Bool, reason: String, destination: U.Route,
 def rejected_valid_world(completion: E.Completion, reason: String, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(SessionRule.valid_completion_spec(completion, program, D.failure("command_not_submitted", reason), session)) == program : M.World()}:
   match completion:
+    case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
     case E.DirectCompletion{}: {==}
     case E.DraftCompletion{draft}: {==}
     case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer} = session
+      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer, model_preference, draft_model_manual} = session
       confirmation_failed_world(SessionRule.confirmation_spec(layers, command, trigger, occurrence), reason, destination, program,
-        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}, program))
+        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}, program))
 
 def rejected_checked_world(+valid: Bool, +completion: E.Completion, +reason: String, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(SessionRule.completion_checked_spec(valid, completion, program, D.failure("command_not_submitted", reason), session, program)) == program : M.World()}:

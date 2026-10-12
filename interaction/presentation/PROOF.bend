@@ -7,17 +7,38 @@ import ../TYPES.bend as InteractionTypes
 import ../submission/FIELDS.bend as Forms
 import ../../harness/DOMAIN.bend as D
 import ../session/MODEL.bend as E
+import ../services/CONTEXT.bend as Context
+import ../IDENTITY.bend as Identity
+import ../STATE.bend as Core
+import ./VIEW.bend as View
+import ../../harness/tasks/PROGRAM.bend as T
+import ../../harness/COMMANDS.bend as Commands
 
-def Rule.composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state):
-  match footer:
-    case Nil{}: {==}
-    case Con{first, rest}: {==}
+def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state):
+  match creation_context execution_controls:
+    case Nil{} Nil{}: {==}
+    case Nil{} Con{first, rest}: {==}
+    case Con{first, rest} Nil{}: {==}
+    case Con{first, rest} Con{other, tail}: {==}
 
 def Rule.composer_tree_agreement(view, parent, state):
   match view:
     case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
-      Rule.composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state)
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
+      Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state)
+
+def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state):
+  match creation_context execution_controls:
+    case Nil{} Nil{}: {==}
+    case Nil{} Con{first, rest}: {==}
+    case Con{first, rest} Nil{}: {==}
+    case Con{first, rest} Con{other, tail}: {==}
+
+def Rule.composer_enclosure_agreement(view, parent, state):
+  match view:
+    case None{}: {==}
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}:
+      Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending, parent, state)
 
 def Rule.relocated_valid_content(valid, node, scene, base, overlays):
   match valid:
@@ -103,7 +124,7 @@ def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
 
 def Rule.card_ordered_movement(view, parent, state):
   V.CardScene{id, value, open, actions, linked, destinations, candidates} = view
-  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = state
   {==}
 
 def Rule.card_surface_placement(key, semantic, label, face, children, target): {==}
@@ -117,3 +138,30 @@ def Rule.interface_input(input, state):
 
 def Rule.interface_evidence():
   Rule.InterfaceRequirements{Rule.interface_input}
+
+def committed_permission_summary_agreement(+found: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Model.committed_permission_summary(found, parent, state) == Rule.expected_committed_permission_summary(found, parent, state) : +List<SurfaceTypes.Node>}:
+  match found:
+    case Some{context}: {==}
+    case None{}: {==}
+
+def Rule.committed_permission_summary_agreement(task, preview, parent, state):
+  committed_permission_summary_agreement(View.committed_context(T.find(Commands.entries(E.program(Core.application(state))), task)), parent, state)
+
+def Rule.task_permission_resets_absent(task, config, parent, state):
+  {==}
+
+def Rule.permission_menu_agreement(editor, group, parent, state):
+  match group:
+    case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: {==}
+    case V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}: {==}
+    case V.MessageInput{value}: {==}
+    case V.ModelInput{profile, reasoning, choices}: {==}
+    case V.DeliveryInput{selected, send, steer}: {==}
+    case V.ProjectNameInput{name}: {==}
+    case V.ProjectWorkspaceInput{workspace, controls}: {==}
+    case V.CardContentInput{value, projects, stages, priorities, owners}: {==}
+    case V.CardAssistanceInput{enabled, profile, choices}: {==}
+    case V.AgentIdentityInput{name, instructions, concurrency}: {==}
+    case V.ForkInput{count, messages}: {==}
+    case V.SummaryInput{summary}: {==}

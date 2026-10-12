@@ -15,6 +15,7 @@ def step(input: E.Input, +application: E.Application) -> E.Decision:
     case E.ProgramObserved{program}: E.observe_program(program, application)
     case E.CommandCompleted{program, result, completion}: E.complete_command(program, result, completion, application)
     case E.DirectoriesObserved{ticket, result}: E.observed(ticket, result, application)
+    case E.ModelPreferenceRestored{profile, reasoning}: E.restore_preference(profile, reasoning, application)
     case E.ClockObserved{now}:
       +program = E.program(application)
       +observed_session = E.session(application)

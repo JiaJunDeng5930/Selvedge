@@ -507,7 +507,7 @@ def receipt_source(+decision: InteractionTypes.Decision, previous: +List<E.Layer
 def receipt_record_source(+before: InteractionTypes.State, key: String, +decision: InteractionTypes.Decision) ->
   {Rule.receipt(Model.record_source(before, key, decision)) == Rule.receipt(decision) : Rule.Receipt}:
   InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention,
-    navigation, filter, now, next, pending, previews, code, next_layer}}, services} = before
+    navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = before
   receipt_source(decision, layers, Model.origin(layers, key))
 
 def receipt_navigation_closed(+decision: InteractionTypes.Decision) ->
@@ -657,7 +657,7 @@ def structure_evidence(recipe: Composition.Recipe)
 def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text,
   +footer: +List<V.ComposerControl>, +context: Maybe<&2, Context.Preview>, submit: V.ControlDeclaration,
   feedback: U.Feedback, pending: Bool, +world: M.World()) ->
-  {Rule.introduction_context(View.creation_introduction(Some{V.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>}:
+  {Rule.introduction_context(View.creation_introduction(Some{V.ComposerScene{identity, revision, message, V.Creation{}, Nil{}, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>}:
   match context:
     case None{}: {==}
     case Some{preview}: {==}
@@ -665,15 +665,39 @@ def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text
 def composer_has_context(+message: U.Text, +profile: String, reasoning: String, +context: Context.Configuration,
   scene: V.EditorScene, +world: M.World()) ->
   {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-    [V.ComposerControl{V.ModelSubject{}, View.control("composer/model", View.profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"})},
-     V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})},
+    [View.model_composer_control(profile, reasoning, world),
          V.ComposerControl{V.PermissionsSubject{}, View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}:
+  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+  {==}
+
+def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World()) ->
+  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
+  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+  {==}
+
+def conversation_phase(scene: V.EditorScene, +task: Nat, message: U.Text, delivery: U.Delivery, world: M.World()) ->
+  {Rule.composer_phase(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Some{V.Conversation{task}} : Maybe<&2, V.ComposerPhase>}:
+  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+  {==}
+
+def conversation_context_empty(scene: V.EditorScene, task: Nat, message: U.Text, delivery: U.Delivery, world: M.World()) ->
+  {Rule.composer_creation_controls(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Nil{} : +List<V.ComposerControl>}:
+  V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+  {==}
+
+def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World()) ->
+  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
+    [V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})},
+     V.ComposerControl{V.WorkspaceSubject{}, View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
   {==}
 
 def Rule.composition_evidence():
   Rule.CompositionRequirements{
     Rule.page_region_evidence(),
+    task => preview => parent => state => Rule.committed_permission_summary_agreement(task, preview, parent, state),
+    task => config => parent => state => Rule.task_permission_resets_absent(task, config, parent, state),
+    editor => group => parent => state => Rule.permission_menu_agreement(editor, group, parent, state),
     navigation => main => layers => placement => attention => {==},
     task => task_recipe_evidence(task),
     composer => approvals => return_latest => conversation_recipe_evidence(composer, approvals, return_latest),
@@ -682,10 +706,16 @@ def Rule.composition_evidence():
     id => speaker => text => source => task => parent => state => visible_speaker_evidence(id, speaker, text, source, task, parent, state),
     +id => attention => +expanded => summary => audit => expand => collapse => +task => +parent => +state => {==},
     view => parent => state => Rule.composer_tree_agreement(view, parent, state),
+    editor => parent => state => {==},
+    view => parent => state => Rule.composer_enclosure_agreement(view, parent, state),
     recipe => structure_evidence(recipe),
     +context => +world => {==},
     identity => revision => message => footer => context => submit => feedback => pending => world => current_composer_context(identity, revision, message, footer, context, submit, feedback, pending, world),
     +input => +parent => +world => +session => +services => {==},
     +declaration => +rest => +parent => +state => {==},
     message => profile => reasoning => context => scene => world => composer_has_context(message, profile, reasoning, context, scene, world),
-    fallback => {==}}
+    fallback => {==},
+    message => profile => reasoning => context => scene => world => creation_phase(scene, message, profile, reasoning, context, world),
+    task => message => delivery => scene => world => conversation_phase(scene, task, message, delivery, world),
+    task => message => delivery => scene => world => conversation_context_empty(scene, task, message, delivery, world),
+    message => profile => reasoning => context => scene => world => creation_controls(scene, message, profile, reasoning, context, world)}

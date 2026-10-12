@@ -20,7 +20,7 @@ def model_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, world:
       +tools = T.task_tools(D.task_contract(task))
       +allowed = T.callable(tools, catalog)
       C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_phase(D.ModelPending{ticket, allowed}, task)), task_state)), rest}, J.Null{},
-        [Effects.RequestModel{D.task_id(task), ticket, T.task_model(D.task_contract(task)),
+        [Effects.RequestModel{D.task_id(task), ticket, D.task_model(task),
           D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
 
 def model(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
@@ -31,7 +31,7 @@ def evaluator(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame
   tasks = D.state_tasks(task_state)
   +ticket = D.state_next_ticket(task_state)
   C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_phase(D.ReasoningPending{ticket, D.history_length(D.task_history(task))}, task)), task_state)), rest}, J.Null{},
-    [Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]}
+    [Effects.RequestReasoning{D.task_id(task), ticket, D.task_model(task), D.task_history(task)}]}
 
 def required(-StateRest: Data, -EffectRest: Data, plan: R.Plan, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match plan:

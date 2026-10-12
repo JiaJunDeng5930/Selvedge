@@ -110,7 +110,7 @@ type FeedbackRequirements is Type:
         List.append(&2, SurfaceTypes.Node, InterfaceView.sections(structure, identity, parent, 0n, state, groups),
           [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{reason}, Nil{}}, InterfaceView.dialog_actions(parent, [InterfaceView.declared(parent, submit, state)])]) : +List<SurfaceTypes.Node>},
     composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> -> @context:Maybe<&2, Context.Observation> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
-      {InterfaceView.composer(Some{View.ComposerScene{identity, revision, message, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
+      {InterfaceView.composer(Some{View.ComposerScene{identity, revision, message, View.Creation{}, Nil{}, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.Region{},
           InterfaceView.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, Identity.Entity{parent, "composer", U.editor_key(identity)}, state, Nil{}) <>
             [SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "composer", U.editor_key(identity)}, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{reason}, Nil{}},

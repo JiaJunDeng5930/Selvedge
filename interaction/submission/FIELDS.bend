@@ -1,4 +1,5 @@
 import Base
+import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../bendlib/categories.bend as Categories
 import ../../harness/COMMANDS.bend as Commands
 import ../../harness/MODEL.bend as M
@@ -115,7 +116,7 @@ def structure(body: U.Body) -> +List<Section>:
     case U.NewTask{message, profile, reasoning, context}:
       [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution()]
     case U.Message{task, message, delivery}:
-      [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}]
+      [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}]}]
     case U.Project{id, name, workspace}:
       [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}]},
        Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}, FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}}]}]
@@ -268,10 +269,27 @@ def fork_value(field: Field, count: Nat, messages: +List<String>, config: Contex
     case ForkMessages{}: TextsValue{messages}
     case other: context_value(other, config, world)
 
-def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
+def task_message_field(field: Field, message: U.Text, delivery: U.Delivery, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:
+  match field:
+    case MessageText{}: TextValue{U.text(message)}
+    case DeliveryIntent{}: DeliveryValue{delivery}
+    case ModelProfile{}: ModelValue{profile, reasoning}
+    case ReasoningEffort{}: ModelValue{profile, reasoning}
+    case other: context_value(other, config, world)
+
+def task_context_field(+field: Field, +message: U.Text, delivery: U.Delivery, +task: D.Task, context: D.TaskContext, +world: M.World()) -> Observed:
+  D.TaskContext{workspace, sandbox, approval, project} = context
+  task_message_field(field, message, delivery, D.task_profile(task), D.task_reasoning(task), Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, world)
+
+def task_field(found: Maybe<&2, D.Task>, field: Field, message: U.Text, delivery: U.Delivery, world: M.World()) -> Observed:
+  match found:
+    case None{}: message_value(field, message, delivery)
+    case Some{+task}: task_context_field(field, message, delivery, task, D.task_context(task), world)
+
+def observed(body: U.Body, field: Field, +world: M.World()) -> Observed:
   match body:
     case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
-    case U.Message{task, message, delivery}: message_value(field, message, delivery)
+    case U.Message{task, message, delivery}: task_field(Tasks.find(Commands.entries(world), task), field, message, delivery, world)
     case U.Project{id, name, workspace}: project_value(field, name, workspace)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_value(draft, field, assist, profile, keep_open)
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)

@@ -246,7 +246,7 @@ def A.announcement():
 
 def notification_join(+task: D.Task) ->
   {D.task_notified(D.notify(task)) == Bool.or(D.task_notified(task), True{}) : Bool}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def notification_sticky(+task: D.Task) -> {D.task_notified(D.notify(task)) == True{} : Bool}:
@@ -254,7 +254,7 @@ def notification_sticky(+task: D.Task) -> {D.task_notified(D.notify(task)) == Tr
     notification_join(task), Std.orb_true_r(D.task_notified(task)))
 
 def notification_consumed(task: D.Task) -> {D.task_notified(Ops.publish(task)) == False{} : Bool}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def A.notifications():
@@ -263,12 +263,12 @@ def A.notifications():
 
 def settlement_phase(operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
   {D.task_phase(Ops.completed(operation, value, error, task)) == D.wake_phase(D.task_phase(task)) : D.Phase}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def settlement_rights(+operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
   {D.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(D.task_operations(task), Ops.ticket(operation)) : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def settlement_notifies(+operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
@@ -278,21 +278,21 @@ def settlement_notifies(+operation: D.Operation(), value: J.Json, error: Bool, +
 
 def steering_rights(message: String, +task: D.Task) ->
   {D.task_operations(T.steer(message, task)) == D.task_operations(task) : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def steering_queue(message: String, +task: D.Task) ->
   {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<String>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def abandonment(task: D.Task) -> {D.task_operations(Ops.abandoned(task)) == Nil{} : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def publication(+task: D.Task) ->
   {D.task_operations(Ops.publish(task)) == Std.map(~D.Operation(), ~D.Operation(), ~Ops.announce, D.task_operations(task)) : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def final_output(ticket: Nat, +call: D.Call, +value: J.Json, +error: Bool) ->
@@ -306,11 +306,11 @@ def later_output(+operation: D.Operation(), +value: J.Json, +error: Bool) ->
   (ticket, D.OperationBody{D.Call{id, name, arguments}, announced, stage}) = operation
   {==}
 
-def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, status: D.Status,
+def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, current: D.ExecutionConfiguration, status: D.Status,
   history: D.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<D.Operation()>,
   notified: Bool, operation: D.Operation(), value: J.Json, error: Bool) ->
   {D.task_phase(T.complete_operation(operation, value, error,
-    D.Task{id, lineage, contract, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
+    D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
     D.ModelPending{ticket, allowed} : D.Phase}:
   match status:
     case D.Active{}: {==}
@@ -326,8 +326,8 @@ def A.coordination():
     (task => abandonment(task)), (task => publication(task)),
     (ticket => call => value => error => final_output(ticket, call, value, error)),
     (operation => value => error => later_output(operation, value, error)),
-    (id => lineage => contract => status => history => queued => ticket => allowed => operations => notified => operation => value => error =>
-      pending_model(id, lineage, contract, status, history, queued, ticket, allowed, operations, notified, operation, value, error))}
+    (id => lineage => contract => current => status => history => queued => ticket => allowed => operations => notified => operation => value => error =>
+      pending_model(id, lineage, contract, current, status, history, queued, ticket, allowed, operations, notified, operation, value, error))}
 
 
 law work_construction_meaning:

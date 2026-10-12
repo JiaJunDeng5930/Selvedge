@@ -165,7 +165,7 @@ def ordinary_field_style(entry: Forms.Entry, +typography: T.Presentation) -> Des
 def widget_field_style(widget: Controls.Widget, entry: Forms.Entry, +typography: T.Presentation) -> Design.Style:
   match widget:
     case Controls.ToggleInput{}: toggle_field(typography)
-    case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}, typography), Enclosure.area(Enclosure.Field{}))
+    case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}, typography), Enclosure.area(Enclosure.EmbeddedEditor{}))
     case _: ordinary_field_style(entry, typography)
 
 def text_line_height(capacity: Nat, value: T.Presentation) -> Nat:
@@ -261,7 +261,7 @@ def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T
         SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.Composer{}:
       with_content_area(fields(typography, surface_chrome(16n, True{}), SpatialModel.Stretch{},
-        SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
+        SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 0n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
     case SurfaceTypes.DialogActions{}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
     case SurfaceTypes.ComposerActions{}: toolbar_style(SpatialModel.SplitRowFlow{}, typography)
     case SurfaceTypes.Approval{}:
@@ -536,7 +536,6 @@ def field_tier(meaning: SurfaceTypes.Meaning) -> T.Tier:
 
 def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, inherited: T.Presentation, in_main: Bool, start: Bool, +scale: T.Scale) -> T.Presentation:
   match role meaning:
-    case _ SurfaceTypes.PageRegion{Composition.CreationContext{}, position}: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.Navigation{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.NavigationHeader{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
     case SurfaceTypes.Heading{} _: T.Presentation{heading_tier(in_main, start), T.Medium{}, scale}

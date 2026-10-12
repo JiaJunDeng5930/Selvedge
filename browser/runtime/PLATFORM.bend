@@ -292,6 +292,7 @@ def active_focus(core: InteractionTypes.State, capacity: View.Capacity, identity
 def found_content_owner(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
   match found:
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReadOnly{text}, children}}: True{}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InformationText{information_role}, children}}: True{}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.RichText{source, value}, children}}: True{}
     case _: False{}
 

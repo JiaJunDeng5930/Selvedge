@@ -1,6 +1,8 @@
+import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/SPACE.bend as Space
+import ../layout/natural-size.bend as NaturalSize
 import ../appearance/TYPOGRAPHY.bend as T
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/INPUT.bend as User
@@ -224,6 +226,19 @@ def compact_main_style(style: S.Style, required: Nat) -> Type:
 def main_population(key: UIIdentity.Key, tag: S.BoxTag, style: S.Style, attributes: +List<S.Attribute>, children: +List<S.Node>, rest: +List<S.Node>, structure: Design.MainStructure, maximum: Nat, beside: Bool, required: Nat) -> Type:
   {Shell.main_nodes(S.Box{key, tag, style, attributes, children} <> rest, structure, maximum, beside, required) == Shell.main_box(structure, key, tag, Shell.beside_style(beside, required, style), attributes, children, maximum) <> Shell.main_nodes(rest, structure, maximum, beside, required) : +List<S.Node>}
 
+def second_calculation(values: +List<NaturalSize.Calculation>) -> Maybe<&2, NaturalSize.Calculation>:
+  match values:
+    case Con{first, Con{second, rest}}: Some{second}
+    case _: None{}
+
+def editable_main_minimum(capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> Type:
+  {second_calculation(Design.parameter_calculations(capacity, scale, height, advance)) ==
+    Some{NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{40n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}}} : Maybe<&2, NaturalSize.Calculation>}
+
+def reading_main_minimum(+advance: Nat, +scale: T.Scale) -> Type:
+  {Design.reading_minimum_calculation(advance, scale) ==
+    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{64n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}} : NaturalSize.Calculation}
+
 def main_placement_input(placement: View.NavigationPlacement, parameters: Design.LayoutParameters, structure: Design.MainStructure, reading_width: Nat, navigation: +List<S.Node>, main: +List<S.Node>, settings: +List<S.Node>, other: +List<S.Node>, docked: +List<S.Node>, font: T.Presentation) -> Type:
   match placement:
     case View.LeadingNavigation{}: {Shell.body_direction(View.LeadingNavigation{}, parameters, structure, reading_width, navigation, main, settings, other, docked, font) == Shell.body_mode(True{}, Design.navigation_width(parameters), Design.main_minimum_width(parameters), structure, reading_width, navigation, main, settings, other, docked, font) : S.Node}
@@ -348,6 +363,8 @@ type AuthoredShellRequirements is Type:
     beside_main_style: @style:S.Style -> @+required:Nat -> beside_main_style(style, required),
     compact_main_style: @style:S.Style -> @required:Nat -> compact_main_style(style, required),
     main_population: @key:UIIdentity.Key -> @tag:S.BoxTag -> @style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @rest:+List<S.Node> -> @structure:Design.MainStructure -> @maximum:Nat -> @beside:Bool -> @required:Nat -> main_population(key, tag, style, attributes, children, rest, structure, maximum, beside, required),
+    editable_main_minimum: @capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> editable_main_minimum(capacity, scale, height, advance),
+    reading_main_minimum: @+advance:Nat -> @+scale:T.Scale -> reading_main_minimum(advance, scale),
     main_placement_input: @placement:View.NavigationPlacement -> @parameters:Design.LayoutParameters -> @structure:Design.MainStructure -> @reading_width:Nat -> @navigation:+List<S.Node> -> @main:+List<S.Node> -> @settings:+List<S.Node> -> @other:+List<S.Node> -> @docked:+List<S.Node> -> @font:T.Presentation -> main_placement_input(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font),
     measure_width: @parameters:Design.LayoutParameters -> @heading:Composition.Heading -> @organization:Composition.Body -> measure_width(parameters, heading, organization),
     recipe_structure: @recipe:Composition.Recipe -> recipe_structure(recipe),
@@ -666,7 +683,7 @@ def selection_widget(widget: Controls.Widget) -> Bool:
 type PickerRequirements is Type:
   PickerRequirements{service: CoreDirectory.DirectoryPickerRequirements,
     open_and_browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) ==
-          SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
+          SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
           SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, Nil{}} <>
           InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <>
           InterfaceView.directory_values(InterfaceView.workspace_observed(InterfaceView.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<SurfaceTypes.Node>},
@@ -912,6 +929,10 @@ law unbroken_face_caption:
 
 type ControlContentRequirements is Type:
   ControlContentRequirements{
+    model_profile_text: @+profile:String -> @reasoning:String ->
+      {A.field_text(Forms.ModelProfile{}, Forms.ModelValue{profile, reasoning}) == profile : String},
+    model_reasoning_text: @profile:String -> @+reasoning:String ->
+      {A.field_text(Forms.ReasoningEffort{}, Forms.ModelValue{profile, reasoning}) == reasoning : String},
     enabled_matches_interface: @+availability:View.Availability ->
       {A.enabled(availability) == InterfaceView.available(availability) : Bool},
     choice_caption_words: @text:String -> @description:Maybe<&2,String> -> @icon:Maybe<&2,Controls.Icon> -> @checked:Bool ->
@@ -924,7 +945,7 @@ type ControlContentRequirements is Type:
         S.Text{key,text,S.ExplicitFont{A.parent_font(parent)},T.NormalWords{}} : S.Node},
     choice_description_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style ->
       {A.face_description(Some{text},key,parent) ==
-        [S.Text{UIIdentity.part(key,"description"),text,S.ExplicitFont{T.supporting(A.parent_font(parent))},T.NormalWords{}}] : +List<S.Node>},
+        [S.Box{A.information_key(key, Information.Description{}), S.Span{}, A.information_style(Information.Description{}, parent), [S.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, S.DataAttribute{"information-owner", UIIdentity.encode(key)}, S.DataAttribute{"information-role", "description"}], [S.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, S.ExplicitFont{T.with_emphasis(T.with_tier(A.parent_font(parent), T.Support{}), T.Regular{})}, T.NormalWords{}}]}] : +List<S.Node>},
     permission_layout: @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
       {Controls.content_layout(Controls.PermissionFace{filesystem, network, approval}) == Controls.ContentLayout{Spatial.LeadingContents{}, E.area(E.TextControl{}), 6n} : Controls.ContentLayout},
     icon_layout: @icon:Controls.Icon ->
@@ -979,6 +1000,7 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.CardArchive{count}: SurfaceTypes.Region{}
     case SurfaceTypes.CardContent{face}: SurfaceTypes.Region{}
     case SurfaceTypes.BoardGroup{grouping}: SurfaceTypes.Region{}
+    case SurfaceTypes.InformationText{role}: SurfaceTypes.Region{}
     case SurfaceTypes.ReadOnly{text}: SurfaceTypes.Region{}
     case SurfaceTypes.Fact{value}: SurfaceTypes.Region{}
     case SurfaceTypes.RichText{source, value}: SurfaceTypes.Region{}
@@ -1341,3 +1363,16 @@ type FormInputRequirements is Type:
 
 law form_input_evidence:
   FormInputRequirements
+
+
+type FocusOwnershipRequirements is Type:
+  FocusOwnershipRequirements{
+    message_embedded: {A.widget_focus(Controls.MessageInput{}) == A.EmbeddedFocus{} : A.FocusOwnership},
+    independent_attributes: {A.focus_attributes(A.IndependentFocus{}) == Nil{} : +List<S.Attribute>},
+    aggregate_attributes: {A.focus_attributes(A.AggregateFocus{}) == [S.DataAttribute{"focus-owner", "aggregate"}] : +List<S.Attribute>},
+    embedded_attributes: {A.focus_attributes(A.EmbeddedFocus{}) == [S.DataAttribute{"focus-owner", "embedded"}] : +List<S.Attribute>},
+    composer_preserves_children: @+key:UIIdentity.Key -> @+tag:S.BoxTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+children:+List<S.Node> ->
+      {Authored.composer_focus(SurfaceTypes.Composer{}, S.Box{key, tag, style, attributes, children}) == S.Box{key, tag, style, List.append(&2, S.Attribute, attributes, [S.DataAttribute{"focus-owner", "aggregate"}]), children} : S.Node}}
+
+law focus_ownership_evidence:
+  FocusOwnershipRequirements

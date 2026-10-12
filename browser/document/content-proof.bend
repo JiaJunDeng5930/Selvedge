@@ -710,6 +710,7 @@ def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +sem
     case Controls.CardArea{}: {==}
     case Controls.BoardViewArea{}: {==}
     case Controls.BoardLaneArea{}: {==}
+    case Controls.ChoiceGroupArea{}: {==}
 
 def unscoped_projection(+area: Controls.Area, +input: InteractionTypes.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
   {Controls.contextual_source_presentation(area, Controls.Unscoped{}, input, name, face, behavior, geometry) == Controls.ActionPresentation{face, behavior, geometry} : Controls.ActionPresentation}:
@@ -727,6 +728,7 @@ def unscoped_projection(+area: Controls.Area, +input: InteractionTypes.Input, +n
     case Controls.CardArea{}: {==}
     case Controls.BoardViewArea{}: {==}
     case Controls.BoardLaneArea{}: {==}
+    case Controls.ChoiceGroupArea{}: {==}
 
 def status_indicator_extent(+key: UIIdentity.Key, status: View.TaskStatus, visual: Design.Style) ->
   {Rule.status_extent(Authored.task_status_indicator(key, status, visual)) == (Model.ExactSize{16n}, (Model.ExactSize{16n}, Enclosure.Extent{16n, 16n})) : Model.AxisSize & (Model.AxisSize & Enclosure.Extent)}:

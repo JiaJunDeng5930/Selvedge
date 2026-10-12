@@ -16,6 +16,7 @@ import { browseDirectories } from './directories.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
+import { WebRequestStore } from './chatgpt-web-store.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class CommandNotSubmitted extends Error {
@@ -141,6 +142,11 @@ export class Service extends EventEmitter {
 
   #dispatch(effect, sequence, firstOrdinal = 0) {
     if (this.#closing || this.#failure) return;
+    if (effect.kind === 'reset_model_session') {
+      try { WebRequestStore.resetExisting(this.home, effect.task_id); }
+      catch (error) { this.#fatal(error); }
+      return;
+    }
     if (effect.kind === 'plugin_events') {
       effect.events.forEach(({ recipients, ...event }, index) => {
         for (const reference of recipients) {

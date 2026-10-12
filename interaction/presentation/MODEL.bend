@@ -57,8 +57,13 @@ type ComposerSubject is Data:
 type ComposerControl is Data:
   ComposerControl{subject: ComposerSubject, declaration: ControlDeclaration}
 
+type ComposerPhase is Data:
+  Creation{}
+  Conversation{task: Nat}
+
 type ComposerScene is Data:
-  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, footer: +List<ComposerControl>,
+  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, phase: ComposerPhase,
+    creation_context: +List<ComposerControl>, execution_controls: +List<ComposerControl>,
     context: Maybe<&2, Context.Observation>, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
 # Derived from the current composer; this is not another mutable draft.

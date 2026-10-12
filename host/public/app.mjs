@@ -340,6 +340,7 @@ async function execute(effect) {
       catch (error) { commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state)); }
       break;
     }
+    case 'PersistModelPreference': localStorage.setItem('selvedge-model-preference', JSON.stringify({ profile: effect.profile, reasoning: effect.reasoning })); break;
     case 'BrowserEffect': await browserEffect(effect.effect); break;
     case 'RenderingFailed': console.error('Bend browser failure', JSON.stringify(encodeBendValue(effect))); break;
     default: throw new TypeError(`Unknown browser effect ${effect.$}`);
@@ -721,6 +722,14 @@ window.addEventListener('pagehide', () => {
   for (const resource of resources) URL.revokeObjectURL(resource);
 });
 const bootEffects = [];
+let storedModelPreference;
+try { storedModelPreference = JSON.parse(localStorage.getItem('selvedge-model-preference')); } catch {}
+if (storedModelPreference && typeof storedModelPreference.profile === 'string' && typeof storedModelPreference.reasoning === 'string') {
+  const input = bendValue('browser/runtime/SEMANTICS.Native', { input: bendValue('browser/MODEL.PlatformInput', { input: bendValue('browser/runtime/PLATFORM.ProductInput', { input: bendValue('interaction/MODEL.InterfaceInput', { input: bendValue('interaction/TYPES.ApplicationInput', { input: bendValue('interaction/session/MODEL.ModelPreferenceRestored', storedModelPreference) }) }) }) }) });
+  const decision = Bend.step(input, state);
+  state = decision.state;
+  bootEffects.push(...list(decision.effects));
+}
 for (const input of [
   environmentInput(),
   bendValue('browser/MODEL.PlatformInput', { input: bendValue('browser/runtime/PLATFORM.MotionPreference', { reduced: bool(motion.matches) }) }),

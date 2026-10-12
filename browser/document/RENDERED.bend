@@ -219,6 +219,7 @@ def owner_tabs(entries: +List<NativeFocus>, +owner: String) -> +List<String>:
 
 def content_tabs(meaning: SurfaceTypes.Meaning, entries: +List<NativeFocus>, key: String) -> +List<String>:
   match meaning:
+    case SurfaceTypes.InformationText{role}: owner_tabs(entries, key)
     case SurfaceTypes.ReadOnly{text}: owner_tabs(entries, key)
     case SurfaceTypes.RichText{source, value}: owner_tabs(entries, key)
     case _: Nil{}

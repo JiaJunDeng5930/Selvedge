@@ -15,19 +15,25 @@ import ../../bendlib/equality-proof.bend as EqualityProof
 
 def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
   {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext}:
-  D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+  D.Task{parent_id, lineage,
+    D.Contract{creation_model, tools, max_fork, max_descendants, plugins, D.TaskContext{workspace, creation_sandbox, creation_approval, project_id}},
+    D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval},
+    status, history, queued, phase, operations, notified} = parent
   {==}
 
 def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
   {D.task_operations(Commands.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<D.Operation()>}:
-  D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+  D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified} = parent
   {==}
 
 def override_context(+context:D.TaskContext, guidance:D.ProjectContext, task:D.Task) ->
   {D.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : D.TaskContext}:
-  D.Task{id, lineage, D.Contract{D.Model{profile, reasoning, previous}, tools, max_fork, max_descendants, plugins, old_context},
-    status, history, queued, phase, operations, notified} = task
-  {==}
+  match context task:
+    case D.TaskContext{workspace, sandbox, approval, project}
+         D.Task{id, lineage, D.Contract{creation_model, tools, max_fork, max_descendants, plugins,
+           D.TaskContext{old_workspace, old_sandbox, old_approval, old_project}},
+           D.ExecutionConfiguration{current_profile, current_reasoning, D.Model{profile, reasoning, previous}, current_sandbox, current_approval},
+           status, history, queued, phase, operations, notified}: {==}
 
 def project_frame(registry:D.Projects, +world:M.World()) ->
   {Commands.entries(Projects.store(F.State(), registry, world)) == Commands.entries(world) : +List<D.Task>}:

@@ -72,6 +72,7 @@ type Input is Data:
   Rejected{ticket: Nat, error: String}
 
 type Effect is Data:
+  PersistModelPreference{profile: String, reasoning: String}
   BrowserEffect{effect: Web.Effect}
   Command{ticket: Nat, command: J.Json}
   Service{effect: Services.Effect}
@@ -344,6 +345,7 @@ def collect_one(effect: E.Effect, origin: String, +state: State) -> Decision:
     case E.RequestCommand{command, completion}:
       +wire = request_payload(command)
       request_ready(contains_command(pending_of(state), wire), wire, completion, origin, state)
+    case E.PersistModelPreference{profile, reasoning}: Decision{state, [PersistModelPreference{profile, reasoning}]}
     case E.ObserveDirectories{ticket, entered}: Decision{state, [Directories{ticket, entered}]}
     case _: Decision{state, Nil{}}
 

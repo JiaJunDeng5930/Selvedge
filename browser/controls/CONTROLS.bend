@@ -1,3 +1,5 @@
+import ../../interaction/presentation/INFORMATION.bend as Information
+import ./SURFACES.bend as Surfaces
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -20,6 +22,22 @@ import ../../interaction/services/CONTEXT.bend as Context
 import ../../harness/DOMAIN.bend as Domain
 import ../../features/board/MODEL.bend as Board
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+
+type FocusOwnership is Data:
+  IndependentFocus{}
+  AggregateFocus{}
+  EmbeddedFocus{}
+
+def focus_attributes(ownership: FocusOwnership) -> +List<Source.Attribute>:
+  match ownership:
+    case IndependentFocus{}: Nil{}
+    case AggregateFocus{}: [Source.DataAttribute{"focus-owner", "aggregate"}]
+    case EmbeddedFocus{}: [Source.DataAttribute{"focus-owner", "embedded"}]
+
+def widget_focus(widget: Controls.Widget) -> FocusOwnership:
+  match widget:
+    case Controls.MessageInput{}: EmbeddedFocus{}
+    case _: IndependentFocus{}
 
 def filter_search(value: Board.Filter) -> String:
   match value:
@@ -60,10 +78,16 @@ def context_field_text(field: Forms.Field, origin: Context.Origin, workspace: Co
     case Forms.ApprovalPolicy{}: approval_text(approval)
     case _: ""
 
+def model_field_text(field: Forms.Field, profile: String, reasoning: String) -> String:
+  match field:
+    case Forms.ReasoningEffort{}: reasoning
+    case _: profile
+
 def field_text(field: Forms.Field, value: Forms.Observed) -> String:
   match value:
     case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: context_field_text(field, origin, workspace, sandbox, approval)
     case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: workspace_field_text(field, roots, primary)
+    case Forms.ModelValue{profile, reasoning}: model_field_text(field, profile, reasoning)
     case other: FieldOptions.observed(other)
 
 type CreationParts is Data:
@@ -93,6 +117,43 @@ def glyph(key: UIIdentity.Key, icon: Controls.Icon, parent: Design.Style, +size:
 def caption(key: UIIdentity.Key, text: String, parent: Design.Style, wrapping: T.Wrapping) -> Source.Node:
   Factory.text(key, text, Source.ExplicitFont{parent_font(parent)}, wrapping)
 
+def information_key(owner: UIIdentity.Key, role: Information.TextRole) -> UIIdentity.Key:
+  UIIdentity.part(owner, "@information/" ++ Information.name(role))
+
+def information_secondary(role: Information.TextRole) -> Bool:
+  match role:
+    case Information.Description{}: True{}
+    case Information.Status{}: True{}
+    case _: False{}
+
+def information_foreground(secondary: Bool, style: Source.Style) -> Source.Style:
+  match secondary:
+    case True{}:
+      Source.Style{layout, font, Design.Chrome{foreground, background, border, width, radius, shadow}, states} = style
+      Source.Style{layout, font, Design.Chrome{Design.TextForeground{Surfaces.SecondaryText{}}, background, border, width, radius, shadow}, states}
+    case False{}: style
+
+def information_chrome_style(+role: Information.TextRole, +parent: Design.Style) -> Source.Style:
+  information_foreground(information_secondary(role), Factory.with_font(Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Source.ExplicitFont{T.information(role, parent_font(parent))}))
+
+def information_alignment(role: Information.TextRole) -> Spatial.Alignment:
+  match role:
+    case Information.IntroductionTitle{}: Spatial.Centered{}
+    case _: Spatial.Leading{}
+
+def information_style(+role: Information.TextRole, parent: Design.Style) -> Source.Style:
+  Factory.with_alignments(information_chrome_style(role, parent), information_alignment(role), Spatial.Leading{})
+
+def owned_text(+owner: UIIdentity.Key, +role: Information.TextRole, value: String, +visual: Design.Style) -> Source.Node:
+  +key = information_key(owner, role)
+  Source.Box{key, Source.Span{}, information_style(role, visual), [Source.IdAttribute{UIIdentity.encode(key)}, Source.DataAttribute{"information-owner", UIIdentity.encode(owner)}, Source.DataAttribute{"information-role", Information.name(role)}], [Factory.text(UIIdentity.part(key, "text"), value, Source.ExplicitFont{T.information(role, parent_font(visual))}, T.NormalWords{})]}
+
+def choice_association(face: Controls.Face, +key: UIIdentity.Key) -> +List<Source.Attribute>:
+  match face:
+    case Controls.ChoiceFace{text, None{}, icon, selected}: [Source.AriaAttribute{"labelledby", UIIdentity.encode(information_key(key, Information.OptionLabel{}))}]
+    case Controls.ChoiceFace{text, Some{description}, icon, selected}: [Source.AriaAttribute{"labelledby", UIIdentity.encode(information_key(key, Information.OptionLabel{}))}, Source.AriaAttribute{"describedby", UIIdentity.encode(information_key(key, Information.Description{}))}]
+    case _: Nil{}
+
 def leading_icon(value: Maybe<&2, Controls.Icon>, key: UIIdentity.Key, parent: Design.Style, size: Nat) -> +List<Source.Node>:
   match value:
     case None{}: Nil{}
@@ -101,7 +162,7 @@ def leading_icon(value: Maybe<&2, Controls.Icon>, key: UIIdentity.Key, parent: D
 def face_description(value: Maybe<&2, String>, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
   match value:
     case None{}: Nil{}
-    case Some{text}: [Factory.text(UIIdentity.part(key, "description"), text, Source.ExplicitFont{T.supporting(parent_font(parent))}, Controls.description_wrapping())]
+    case Some{text}: [owned_text(key, Information.Description{}, text, parent)]
 
 def selection(checked: Bool, key: UIIdentity.Key, parent: Design.Style, size: Nat) -> +List<Source.Node>:
   match checked:
@@ -138,7 +199,7 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
       [glyph(UIIdentity.part(key, "filesystem"), filesystem, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "network"), network, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "approval"), approval, parent, face_icon_size(geometry))]
     case Controls.ChoiceFace{text, details, icon, checked}:
       List.append(&2, Source.Node, leading_icon(icon, key, parent, face_icon_size(geometry)),
-      [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, parent_gap(parent)), Nil{}, List.append(&2, Source.Node, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))], face_description(details, key, parent))},
+      [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 2n), Nil{}, List.append(&2, Source.Node, [owned_text(key, Information.OptionLabel{}, text, parent)], face_description(details, key, parent))},
        Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
 
 def face(key: UIIdentity.Key, value: Controls.Face, parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
@@ -277,7 +338,7 @@ def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Desi
 def label_attributes(value: Controls.LabelPlacement, key: UIIdentity.Key) -> +List<Source.Attribute>:
   match value:
     case Controls.AccessibleOnly{}: Nil{}
-    case _: [Source.AriaAttribute{"labelledby", UIIdentity.encode(UIIdentity.part(key, "label"))}]
+    case _: [Source.AriaAttribute{"labelledby", UIIdentity.encode(information_key(key, Information.FieldLabel{}))}]
 
 def label_direction(value: Controls.LabelPlacement) -> Model.Direction:
   match value:
@@ -309,7 +370,7 @@ def label_field(+value: Controls.LabelPlacement, +key: UIIdentity.Key, name: Str
     case Controls.AccessibleOnly{}: field
     case +other:
       Source.Box{UIIdentity.part(key, "field-wrapper"), label_tag(other), Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
-        [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, label_width(other), Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
+        [owned_text(key, Information.FieldLabel{}, name, visual), field]}
 
 type FieldBinding is Data:
   FieldBinding{key: UIIdentity.Key, attributes: +List<Source.Attribute>}
@@ -338,7 +399,7 @@ def request_protocol(request: InputFieldRequest) -> FieldProtocol:
 
 def expected_input_attributes(+key: UIIdentity.Key, input: Controls.FormInput) -> +List<Source.Attribute>:
   Controls.FormInput{+meaning, name, widget, label, availability} = input
-  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(label, key), availability_attributes(availability)))))
+  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(label, key), List.append(&2, Source.Attribute, focus_attributes(widget_focus(widget)), availability_attributes(availability))))))
 
 def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, parameters: Design.LayoutParameters) -> InputFieldRequest:
   Controls.FormInput{+meaning, +name, +widget, label, availability} = input

@@ -1,3 +1,4 @@
+import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ../reading/MODEL.bend as ReadingBinding
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -154,12 +155,12 @@ def role_style(+visual: Design.Style, +role: SurfaceTypes.Role) -> Source.Style:
 def section_caption(+empty: Bool, +key: UIIdentity.Key, +label: String, +visual: Design.Style) -> +List<Source.Node>:
   match empty:
     case True{}: Nil{}
-    case False{}: [Source.Box{UIIdentity.part(key, "@title"), Source.Heading2{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [text(UIIdentity.part(UIIdentity.part(key, "@title"), "text"), label, visual, T.Body{}, T.Medium{})]}]
+    case False{}: [Source.Box{UIIdentity.part(key, "@title"), Source.Heading2{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual)]}]
 
 def caption(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style) -> +List<Source.Node>:
   match role:
     case SurfaceTypes.NavigationHeader{}: [Source.Box{UIIdentity.part(key, "@brand"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"navigation-brand", ""}], [text(UIIdentity.part(UIIdentity.part(key, "@brand"), "text"), label, visual, T.Section{}, T.Medium{})]}]
-    case SurfaceTypes.Heading{}: [Factory.text(UIIdentity.part(key, "@title"), label, Source.ExplicitFont{Design.style_text(visual)}, T.NormalAnywhere{})]
+    case SurfaceTypes.Heading{}: [AuthoredControls.owned_text(key, Information.SurfaceTitle{}, label, visual)]
     case SurfaceTypes.Section{}:
       section_caption(String.is_empty(label), key, label, visual)
     case _: Nil{}
@@ -503,7 +504,7 @@ def task_children(+values: +List<Child>, +status: View.TaskStatus, +visual: Desi
         case _: task_status_indicator(key, status, visual) <> task_children(rest, status, visual)
 
 def compound(+key: UIIdentity.Key, +label: String, +field: Forms.Field, +visual: Design.Style, +children: +List<Source.Node>) -> Source.Node:
-  box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], children)
+  box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.FieldLabel{}))}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], AuthoredControls.owned_text(key, Information.FieldLabel{}, label, visual) <> children)
 
 def chooser_selection(+value: Maybe<&2, Nat>) -> +List<Source.Attribute>:
   match value:
@@ -525,6 +526,11 @@ def input_source(key: UIIdentity.Key, representation: Controls.Representation, v
     case Controls.Input{input}: AuthoredControls.constructed_input_node(AuthoredControls.construct_input(key, input, visual, parameters))
     case _: AuthoredControls.invalid(key, visual, "invalid-input-representation")
 
+def layer_title(role: SurfaceTypes.Role, key: UIIdentity.Key, label: String, visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
+  match role:
+    case SurfaceTypes.Dialog{}: content
+    case _: AuthoredControls.owned_text(key, Information.SurfaceTitle{}, label, visual) <> content
+
 def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
     case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: compound(key, label, field, visual, content)
@@ -538,17 +544,18 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.ProjectChooser{selected}: box(key, Source.Div{}, role_style(visual, role), chooser_selection(selected), content)
     case SurfaceTypes.DirectoryRow{path, primary}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"primary", FieldOptions.boolean(primary)}], [box(UIIdentity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)])
     case SurfaceTypes.ContextSummary{observation}: box(key, Source.Div{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"context-kind", context_kind(observation)}], text(UIIdentity.part(key, "provenance"), label, visual, T.Support{}, T.Regular{}) <> content)
-    case SurfaceTypes.ChoiceGroup{}: box(key, Source.Section{}, role_style(visual, role), [Source.RoleAttribute{"radiogroup"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "label"), label, visual, T.Support{}, T.Regular{}) <> content)
+    case SurfaceTypes.ChoiceGroup{}: box(key, Source.Section{}, role_style(visual, role), [Source.RoleAttribute{"radiogroup"}, Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))}], AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual) <> content)
     case SurfaceTypes.PageRegion{region, position}: box(key, Source.Div{}, region_style(visual, region, position), [Source.DataAttribute{"page-position", position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content)
     case SurfaceTypes.BoardGroup{grouping}: box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", board_group_name(grouping)}, Source.AriaAttribute{"label", board_group_label(grouping)}], content)
     case SurfaceTypes.BoardLane{stage, count}: lane(key, label, stage, count, visual, children, parameters)
     case SurfaceTypes.CardArchive{count}: Source.constructed_control_node(Source.construct_control(Source.ControlRequest{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}))
     case SurfaceTypes.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
     case SurfaceTypes.MovableCard{destinations, face}: movable_source(key, representation, visual, parameters)
-    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], append(caption(key, label, role, visual), content))
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.SurfaceTitle{}))}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], layer_title(role, key, label, visual, content))
     case SurfaceTypes.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
     case SurfaceTypes.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
     case SurfaceTypes.Fact{value}: fact(key, label, value, visual)
+    case SurfaceTypes.InformationText{text_role}: box(key, role_tag(role), role_style(visual, role), Nil{}, [AuthoredControls.owned_text(key, text_role, label, visual)])
     case SurfaceTypes.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
     case SurfaceTypes.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case SurfaceTypes.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
@@ -637,14 +644,21 @@ def dialog_optional(+key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.S
 def dialog_content(+key: UIIdentity.Key, +label: String, +visual: Design.Style, +children: +List<Child>) -> +List<Source.Node>:
   +parts = dialog_parts(children)
   dialog_partition(UIIdentity.part(key, "@dialog-header"), Source.Header{}, visual, Model.Vertical{}, Enclosure.Header{}, Enclosure.EmbeddedContent{0n},
-    [box(UIIdentity.part(key, "@title"), Source.Heading2{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [text(UIIdentity.part(UIIdentity.part(key, "@title"), "text"), label, visual, T.Body{}, T.Medium{})])]) <>
+    [box(UIIdentity.part(key, "@title"), Source.Heading2{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [AuthoredControls.owned_text(key, Information.SurfaceTitle{}, label, visual)])]) <>
   append(dialog_optional(UIIdentity.part(key, "@dialog-body"), Source.Div{}, visual, Model.Vertical{}, Enclosure.Body{}, Enclosure.SeparateFrames{Enclosure.DialogSections{}}, dialog_part_body(parts)),
     dialog_optional(UIIdentity.part(key, "@dialog-footer"), Source.Footer{}, visual, Model.ResponsiveHorizontal{}, Enclosure.Footer{}, Enclosure.SeparateFrames{Enclosure.DialogActions{}}, dialog_part_actions(parts)))
+
+# Only the composer aggregate delegates its focus appearance to message fields.
+def composer_focus(role: SurfaceTypes.Role, node: Source.Node) -> Source.Node:
+  match role node:
+    case SurfaceTypes.Composer{} Source.Box{key, tag, style, attributes, children}:
+      Source.Box{key, tag, style, List.append(&2, Source.Attribute, attributes, AuthoredControls.focus_attributes(AuthoredControls.AggregateFocus{})), children}
+    case _ other: other
 
 def regular(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
     case SurfaceTypes.Dialog{}: regular_content(key, label, role, meaning, visual, representation, children, parameters, dialog_content(key, label, visual, children))
-    case _: regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))
+    case _: composer_focus(role, regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children))))
 
 def read_only_role(+role: SurfaceTypes.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Authorship:
   match role:

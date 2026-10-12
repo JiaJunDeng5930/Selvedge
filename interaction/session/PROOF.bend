@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/categories.bend as Categories
 import ../../harness/INVARIANTS.bend as I
 import ../../features/board/MODEL.bend as B
+import ../../features/board/STATE.bend as Board
 import ../../harness/MODEL.bend as M
 import ../../harness/PROGRAM.bend as Program
 import ../../bendlib/association-map.bend as Finite
@@ -21,41 +22,41 @@ import ../submission/PROOF.bend as SubmissionProof
 def open_allocation(+application: E.Application, +panel: U.Panel, +trigger: String) ->
   {E.open_panel(panel, trigger, application) == Rule.opened_application(application, panel, trigger) : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-    now, next, pending, previews, code_blocks, next_layer}} = application
+    now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def open_residence(application: E.Application, panel: U.Panel, trigger: String) ->
   {Rule.residence(Rule.post(E.open_panel(panel, trigger, application))) == Rule.residence(application) : Rule.Residence}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def open_attention(application: E.Application, panel: U.Panel, trigger: String) ->
   {Rule.attention(Rule.post(E.open_panel(panel, trigger, application))) == E.panel_target(panel) : String}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def open_effects(application: E.Application, panel: U.Panel, trigger: String) ->
   {Rule.interaction_effects(E.open_panel(panel, trigger, application)) == [E.Attend{E.panel_target(panel)}] : +List<E.Effect>}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def close_residence(application: E.Application) ->
   {Rule.residence(Rule.post(E.close_panel(application))) == Rule.residence(application) : Rule.Residence}:
-  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   match layers:
     case Nil{}: {==}
     case Con{E.Layer{panel, trigger, initial, query, layer_occurrence}, rest}: {==}
 
 def sequence_attention(application: E.Application, +panel: U.Panel, +trigger: String) ->
   {Rule.attention(Rule.post(E.close_panel(Rule.post(E.open_panel(panel, trigger, application))))) == trigger : String}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def native_without_submission_keeps_content(decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.session_content(Rule.post(E.native_result(decision, session, None{}, durable))) ==
     Rule.session_content(E.Application{Rule.runtime_program(decision), session}) : Rule.SessionContent}:
   C.Decision{program, result, effects} = decision
-  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def runtime_keeps_content(+input: M.Input, application: E.Application) ->
@@ -67,24 +68,24 @@ def native_without_submission_keeps_frame(decision: M.Decision(), session: E.Ses
   {Rule.native_frame(Rule.post(E.native_result(decision, session, None{}, durable))) ==
     Rule.native_frame(E.Application{Rule.runtime_program(decision), session}) : Rule.NativeFrame}:
   C.Decision{program, result, effects} = decision
-  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def native_without_submission_retains_previews(decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.previews(Rule.post(E.native_result(decision, session, None{}, durable))) ==
     Live.retained(Rule.previews(E.Application{Rule.runtime_program(decision), session}), Rule.runtime_program(decision)) : +List<Live.Output>}:
   C.Decision{program, result, effects} = decision
-  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def preview_observation_keeps_content(observation: Live.Observation, application: E.Application) ->
   {Rule.session_content(Rule.post(ExperienceProgram.step(E.PreviewObserved{observation}, application))) == Rule.session_content(application) : Rule.SessionContent}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def navigate_keeps_drafts(route: U.Route, application: E.Application) ->
   {Rule.drafts(Rule.post(E.navigate(route, application))) == Rule.drafts(application) : +List<U.Draft>}:
-  E.Application{program, E.Session{old, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{old, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   {==}
 
 def visit_preserves_location(reader: E.Reader) ->
@@ -106,7 +107,7 @@ def reading_checked_refinement(owned: Bool, +task: Nat, generation: Nat, +intent
 def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +application: E.Application,
   not_owner: {Rule.reading_owner(application, task, generation) == False{} : Bool}) ->
   {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   Equal.trans(E.Decision,
     E.read_current(task, generation, intent, application),
     reading_spec(Rule.reading_owner(application, task, generation), task, intent, application), E.unchanged(application),
@@ -117,50 +118,86 @@ def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +ap
 def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
   +trigger: String, initial: String, query: String, layer_occurrence: Nat, rest: +List<E.Layer>, old_attention: String,
   navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
-  previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, revision: Nat, text: U.Text,
+  previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, E.ModelPreference>, draft_model_manual: Bool, revision: Nat, text: U.Text,
   old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback, +directory_entry: String,
   +new_profile: String, +new_reasoning: String,
+  valid: {E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool},
   found: {E.find_draft(drafts, U.NewTaskEditor{}) ==
     Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
   {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
       E.Application{program, E.Session{route, drafts, readers,
         E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest,
-        old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}}) ==
-    E.Decision{E.Application{program, E.Session{route,
+        old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}) ==
+    E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route,
       U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
         E.without_draft(drafts, U.NewTaskEditor{}),
-      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer}},
-      D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}:
+      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}},
+      D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}:
   session: E.Session = E.Session{route, drafts, readers,
     E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest,
-    old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}
-  Equal.cong(Maybe<&2, U.Draft>, E.Decision,
-    (found_draft => E.close_selected_choice(U.ChooseModel{new_profile, new_reasoning}, U.NewTaskEditor{},
-      E.edit_found(found_draft, U.ChooseModel{new_profile, new_reasoning}, program, session))),
-    E.find_draft(drafts, U.NewTaskEditor{}),
-    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}}, found)
+    old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Equal.trans(E.Decision,
+    E.manual_creation_edit(E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning), U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
+    E.manual_creation_edit(True{}, U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
+    E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route,
+      U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
+        E.without_draft(drafts, U.NewTaskEditor{}),
+      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}},
+      D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}),
+    Equal.cong(Bool, E.Decision,
+      valid => E.manual_creation_edit(valid, U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
+      E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning), True{}, valid),
+    Equal.cong(Maybe<&2, U.Draft>, E.Decision,
+      (found_draft => E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.close_selected_choice(U.ChooseModel{new_profile, new_reasoning}, U.NewTaskEditor{},
+        E.edit_found(found_draft, U.ChooseModel{new_profile, new_reasoning}, program, session)))),
+      E.find_draft(drafts, U.NewTaskEditor{}),
+      Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}}, found))
 
-def encapsulated_model_choice(+session: E.Session, +program: M.World(), +trigger: String, initial: String, query: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, revision: Nat, +text: U.Text, old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback, +directory_entry: String, +new_profile: String, +new_reasoning: String, observed_layers: {E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>}, found: {E.find_draft(E.drafts(session), U.NewTaskEditor{}) ==
+def encapsulated_model_choice(+session: E.Session, +program: M.World(), +trigger: String, initial: String, query: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, revision: Nat, +text: U.Text, old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback, +directory_entry: String, +new_profile: String, +new_reasoning: String, valid: {E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool}, observed_layers: {E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>}, found: {E.find_draft(E.drafts(session), U.NewTaskEditor{}) ==
         Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
   {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, session)) ==
-       E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{}), session)))),
-         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer} = session
+         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}:
+  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
   backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest, session),
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest, observed_layers))
   %backwards_layers : {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, _)) ==
-       E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(_), U.NewTaskEditor{}), _)))),
-         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}
-  model_choice(program, route, drafts, readers, trigger, initial, query, layer_occurrence, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, revision, text, old_profile, old_reasoning, context, feedback, directory_entry, new_profile, new_reasoning, found)
+         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}
+  model_choice(program, route, drafts, readers, trigger, initial, query, layer_occurrence, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, revision, text, old_profile, old_reasoning, context, feedback, directory_entry, new_profile, new_reasoning, valid, found)
+
+def model_choice_checked(valid: Bool, +profile: String, +reasoning: String, +application: E.Application) ->
+  {E.manual_creation_edit(valid, U.ChooseModel{profile, reasoning}, application) == Rule.model_choice_spec(valid, profile, reasoning, application) : E.Decision}:
+  match valid:
+    case False{}: {==}
+    case True{}: {==}
+
+def model_choice_complete(+profile: String, +reasoning: String, +application: E.Application) ->
+  {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application) ==
+    Rule.model_choice_spec(E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning), profile, reasoning, application) : E.Decision}:
+  E.Application{program, session} = application
+  model_choice_checked(E.permitted_preference(D.find_profile(Board.profiles(program), profile), reasoning), profile, reasoning, E.Application{program, session})
+
+def invalid_model_choice(+profile: String, +reasoning: String, +application: E.Application,
+  invalid: {E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning) == False{} : Bool}) ->
+  {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application) ==
+    E.Decision{application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."), Nil{}, Nil{}, False{}} : E.Decision}:
+  Equal.trans(E.Decision,
+    ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application),
+    Rule.model_choice_spec(E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning), profile, reasoning, application),
+    E.Decision{application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."), Nil{}, Nil{}, False{}},
+    model_choice_complete(profile, reasoning, application),
+    Equal.cong(Bool, E.Decision, valid => Rule.model_choice_spec(valid, profile, reasoning, application),
+      E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning), False{}, invalid))
 
 def encapsulated_modal_close_empty(+session: E.Session, +program: M.World(), observed_layers: {E.layers(session) == Nil{} : +List<E.Layer>}) ->
   {E.close_panel(E.from_program(program, session)) ==
        E.unchanged(E.from_program(program, session)) : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer} = session
+  E.Session{+route, +drafts, +readers, +stored_layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
   backwards_layers = Equal.sym(E.Session, session, E.with_layers(Nil{}, session),
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), Nil{}, observed_layers))
   %backwards_layers : {E.close_panel(E.from_program(program, _)) ==
@@ -171,13 +208,118 @@ def encapsulated_modal_close_nonempty(+session: E.Session, +program: M.World(), 
   {E.close_panel(E.from_program(program, session)) ==
        E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, session))),
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer} = session
+  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
   backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{panel, trigger, initial, query, layer_occurrence} <> rest, session),
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{panel, trigger, initial, query, layer_occurrence} <> rest, observed_layers))
   %backwards_layers : {E.close_panel(E.from_program(program, _)) ==
        E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, _))),
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}
   {==}
+
+def catalog_selection_if_refinement(valid: Bool, profile: D.Profile, fallback: Sigma<&2, &2, String, (_ => String)>) ->
+  {E.first_valid_profile(valid, profile, fallback) == Rule.catalog_selection_if(valid, profile, fallback) : Sigma<&2, &2, String, (_ => String)>}:
+  match valid profile:
+    case True{} D.Profile{key, provider, name, policy, options}: {==}
+    case False{} _: {==}
+
+def catalog_selection_refinement(+profiles: +List<D.Profile>) ->
+  {E.first_profile(profiles) == Rule.catalog_selection(profiles) : Sigma<&2, &2, String, (_ => String)>}:
+  match profiles:
+    case Nil{}: {==}
+    case Con{+profile, +rest}:
+      Equal.trans(Sigma<&2, &2, String, (_ => String)>, E.first_profile(profiles),
+        E.first_valid_profile(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, Rule.catalog_selection(rest)), Rule.catalog_selection(profiles),
+        Equal.cong(Sigma<&2, &2, String, (_ => String)>, Sigma<&2, &2, String, (_ => String)>,
+          fallback => E.first_valid_profile(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, fallback),
+          E.first_profile(rest), Rule.catalog_selection(rest), catalog_selection_refinement(rest)),
+        catalog_selection_if_refinement(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, Rule.catalog_selection(rest)))
+
+def preference_selection_if_refinement(valid: Bool, value: E.ModelPreference, +profiles: +List<D.Profile>) ->
+  {E.preferred_if(valid, value, profiles) == Rule.preference_selection_if(valid, value, profiles) : Sigma<&2, &2, String, (_ => String)>}:
+  match valid value:
+    case True{} E.ModelPreference{profile, reasoning}: {==}
+    case False{} _: catalog_selection_refinement(profiles)
+
+def preference_selection_refinement(+value: Maybe<&2, E.ModelPreference>, +profiles: +List<D.Profile>) ->
+  {E.preferred_selection(value, profiles) == Rule.preference_selection(value, profiles) : Sigma<&2, &2, String, (_ => String)>}:
+  match value:
+    case None{}: catalog_selection_refinement(profiles)
+    case Some{E.ModelPreference{+profile, +reasoning}}:
+      preference_selection_if_refinement(E.permitted_preference(D.find_profile(profiles, profile), reasoning), E.ModelPreference{profile, reasoning}, profiles)
+
+def selected_model_session_refinement(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, session: E.Session) ->
+  {E.resolved_model_selection(selection, revision, message, context, feedback, directory_entry, session) == Rule.selected_model_session(selection, revision, message, context, feedback, directory_entry, session) : E.Session}:
+  (selected, effort) = selection
+  {==}
+
+def model_resolution_if_refinement(+valid: Bool, +draft: U.Draft, +profiles: +List<D.Profile>, +session: E.Session) ->
+  {E.resolve_model_valid(valid, draft, profiles, session) == Rule.model_resolution_if(valid, draft, profiles, session) : E.Session}:
+  match valid draft:
+    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback, directory_entry}:
+      Equal.trans(E.Session,
+        E.resolved_model_selection(E.preferred_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session),
+        E.resolved_model_selection(Rule.preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session),
+        Rule.selected_model_session(Rule.preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session),
+        Equal.cong(Sigma<&2, &2, String, (_ => String)>, E.Session,
+          selection => E.resolved_model_selection(selection, revision, message, context, feedback, directory_entry, session),
+          E.preferred_selection(E.preference(session), profiles), Rule.preference_selection(E.preference(session), profiles),
+          preference_selection_refinement(E.preference(session), profiles)),
+        selected_model_session_refinement(Rule.preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session))
+    case True{} _: {==}
+    case False{} U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.Project{project, name, workspace}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.Card{card, revision2, value, assist, profile, keep_open}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.Agent{agent, revision2, name, profile, reasoning, instructions, context, concurrency}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.Fork{task, count, messages, context}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.Compact{task, summary}, feedback, directory_entry}: {==}
+
+def model_resolution_found_refinement(+found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: E.Session) ->
+  {E.resolve_model_found(found, profiles, session) == Rule.model_resolution_found(found, profiles, session) : E.Session}:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context}, feedback, directory_entry}}:
+      model_resolution_if_refinement(E.manual_model(session) && E.permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback, directory_entry}, profiles, session)
+    case None{}: {==}
+    case Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.Project{project, name, workspace}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.Card{card, revision2, value, assist, profile, keep_open}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.Agent{agent, revision2, name, profile, reasoning, instructions, context, concurrency}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.Fork{task, count, messages, context}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.Compact{task, summary}, feedback, directory_entry}}: {==}
+
+def model_resolution_complete(+session: E.Session, +world: M.World()) ->
+  {E.resolve_model_draft(session, world) == Rule.model_resolution(session, world) : E.Session}:
+  model_resolution_found_refinement(E.find_draft(E.drafts(session), U.NewTaskEditor{}), Board.profiles(world), session)
+
+def begin_focus_refinement(world: M.World(), session: E.Session) ->
+  {E.navigate_with_attention(U.Start{}, "composer/new-task", E.Application{world, session}) == Rule.begin_focus(world, session) : E.Decision}:
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual} = session
+  {==}
+
+def begin_changed_refinement(+result: Result<&2, &2, String, U.Body>, +revision: Nat, +directory_entry: String, +world: M.World(), +session: E.Session) ->
+  {E.begin_changed(result, revision, directory_entry, E.Application{world, session}) == Rule.begin_changed_spec(result, revision, directory_entry, world, session) : E.Decision}:
+  match result:
+    case Fail{reason}: {==}
+    case Done{body}: begin_focus_refinement(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}, directory_entry}))
+
+def begin_existing_refinement(+found: Maybe<&2, U.Draft>, +origin: Context.Origin, +world: M.World(), +session: E.Session) ->
+  {E.begin_existing(found, origin, E.Application{world, session}) == Rule.begin_existing_spec(found, origin, world, session) : E.Decision}:
+  match found:
+    case None{}: begin_focus_refinement(world, session)
+    case Some{U.Draft{revision, body, feedback, directory_entry}}:
+      begin_changed_refinement(U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, body, world), revision, directory_entry, world, session)
+
+def begin_resolved_refinement(+origin: Context.Origin, +world: M.World(), +session: E.Session) ->
+  {E.begin_resolved(origin, world, session) == Rule.begin_resolved_spec(origin, world, session) : E.Decision}:
+  begin_existing_refinement(E.find_draft(E.drafts(session), U.NewTaskEditor{}), origin, world, session)
+
+def begin_task_complete(+project: Maybe<&2, Nat>, +world: M.World(), +session: E.Session) ->
+  {E.begin_task(project, E.Application{world, session}) == Rule.begin_task_spec(project, world, session) : E.Decision}:
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual} = session
+  Equal.trans(E.Decision, E.begin_task(project, E.Application{world, session}),
+    E.begin_resolved(E.context_project(project), world, Rule.model_resolution(session, world)), Rule.begin_task_spec(project, world, session),
+    Equal.cong(E.Session, E.Decision, resolved => E.begin_resolved(E.context_project(project), world, resolved),
+      E.resolve_model_draft(session, world), Rule.model_resolution(session, world), model_resolution_complete(session, world)),
+    begin_resolved_refinement(E.context_project(project), world, Rule.model_resolution(session, world)))
 
 def Rule.evidence():
   Rule.Requirements{
@@ -201,13 +343,23 @@ def Rule.evidence():
     route => application => navigate_keeps_drafts(route, application),
     reader => visit_preserves_location(reader),
     task => generation => intent => application => not_owner => obsolete_reading(task, generation, intent, application, not_owner),
-    encapsulated_model_choice
+    encapsulated_model_choice,
+    model_choice_complete,
+    invalid_model_choice,
+    profile => reasoning => world => session => reply => runtime => interaction => durable => {==},
+    begin_task_complete,
+    model_resolution_complete,
+    draft => profiles => session => {==},
+    {==},
+    profile => reasoning => world => session => {==},
+    message => profile => reasoning => context => result => world => session => {==},
+    task => profile => reasoning => remember => world => result => previous => session => {==}
   }
 
 def native_decision(+decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.runtime_observation(E.native_result(decision, session, None{}, durable)) == decision : M.Decision()}:
   C.Decision{program, reply, effects} = decision
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def runtime_input(+input: M.Input, +program: M.World(), session: E.Session) ->
@@ -259,11 +411,12 @@ def completed_checked_refinement(valid: Bool, +completion: E.Completion, +progra
     case False{}: {==}
     case True{}:
       match completion:
+        case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
         case E.DirectCompletion{}: {==}
         case E.DraftCompletion{draft}: SubmissionProof.native_session_refinement(Some{draft}, program, result, Nil{}, E.retain_previews(session, program), False{})
         case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-          E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
-          +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}, program)}
+          E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+          +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, program)}
           Equal.trans(E.Decision,
             E.complete_confirmation_current(command, trigger, occurrence, result, destination, updated),
             Rule.confirmation_result_spec(E.confirmation_owned(layers, command, trigger, occurrence), result, destination, updated),
@@ -328,7 +481,7 @@ def Rule.invalid_observed_decision():
 
 def Rule.valid_observed_decision():
   +program => +session => +previous => observed =>
-  Equal.trans(E.Decision, ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)), Rule.observed_spec(program, session, previous), E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}},
+  Equal.trans(E.Decision, ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)), Rule.observed_spec(program, session, previous), E.Decision{E.from_program(program, E.resolve_model_draft(E.retain_previews(session, program), program)), D.success(J.Null{}), Nil{}, Nil{}, False{}},
     observed_checked_refinement(I.world(program), program, session, previous, {==}),
     Equal.cong(Bool, E.Decision, (value => Rule.observed_checked_spec(value, program, session, previous)), I.world(program), True{}, observed))
 

@@ -64,7 +64,8 @@ def execute_start_environment(profile: D.Profile, reasoning: String, message: St
     case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}:
       tasks = D.state_tasks(task_state)
       +next_task = D.state_next_task(task_state)
-      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
+      +contract : D.Contract = D.Contract{D.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context}
+      task : D.Task = D.Task{next_task, Nil{}, contract, D.execution_configuration(contract),
         D.Active{}, D.HistoryNode{D.EmptyHistory{}, D.UserMessage{message}}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
       respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
 
@@ -118,7 +119,7 @@ def summary_request(+task: D.Task, resume: Bool, world: M.World()) -> M.Decision
   +next_ticket = D.state_next_ticket(task_state)
   next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, resume}, task))
   C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, D.success(id_result(D.task_id(task))),
-    [Effects.RequestSummary{D.task_id(task), next_ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
+    [Effects.RequestSummary{D.task_id(task), next_ticket, D.task_model(task), D.context_history(D.task_history(task)), D.task_context(task)}]}
 
 def execute_checkpoint(summary: String, +task: D.Task, world: M.World()) -> M.Decision():
   respond(store(D.append_message(D.ContextCheckpoint{summary}, task), world), id_result(D.task_id(task)))
@@ -149,6 +150,7 @@ def review_result(resolution: Approvals.Resolution, world: M.World()) -> M.Decis
 
 def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case Commands.ConfigureExecution{task, configuration}: Commands.configured_task(task, configuration, world)
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Review{resolution}: review_result(resolution, world)
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
@@ -420,7 +422,7 @@ def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   Commit.checked(decision, previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
-  deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
+  deliver(M.durable(input), checked(Commit.configuration_checked(input, Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world), world)
 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)

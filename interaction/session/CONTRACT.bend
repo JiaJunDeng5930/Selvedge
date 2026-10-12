@@ -10,10 +10,77 @@ import ./MODEL.bend as E
 import ./PROGRAM.bend as ExperienceProgram
 import ../INPUT.bend as U
 import ../../features/board/MODEL.bend as B
+import ../../features/board/STATE.bend as Board
 import ../../bendlib/association-map.bend as Finite
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
 import ../services/CONTEXT.bend as Context
+
+def model_choice_spec(valid: Bool, +profile: String, +reasoning: String, +application: E.Application) -> E.Decision:
+  match valid:
+    case True{}: E.remember_manual(U.ChooseModel{profile, reasoning}, E.close_selected_choice(U.ChooseModel{profile, reasoning}, U.NewTaskEditor{}, E.edit(U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}, application)))
+    case False{}: E.Decision{application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."), Nil{}, Nil{}, False{}}
+
+def catalog_selection_if(valid: Bool, +profile: D.Profile, fallback: Sigma<&2, &2, String, (_ => String)>) -> Sigma<&2, &2, String, (_ => String)>:
+  match valid:
+    case True{}: (D.profile_key(profile), D.profile_default(profile))
+    case False{}: fallback
+
+def catalog_selection(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
+  match profiles:
+    case Nil{}: ("", "")
+    case Con{+profile, rest}: catalog_selection_if(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, catalog_selection(rest))
+
+def preference_selection_if(valid: Bool, value: E.ModelPreference, profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
+  match valid value:
+    case True{} E.ModelPreference{profile, reasoning}: (profile, reasoning)
+    case False{} _: catalog_selection(profiles)
+
+def preference_selection(value: Maybe<&2, E.ModelPreference>, +profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
+  match value:
+    case None{}: catalog_selection(profiles)
+    case Some{+selection}:
+      E.ModelPreference{profile, reasoning} = selection
+      preference_selection_if(E.permitted_preference(D.find_profile(profiles, profile), reasoning), selection, profiles)
+
+def selected_model_session(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, session: E.Session) -> E.Session:
+  (selected, effort) = selection
+  E.with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context}, feedback, directory_entry})
+
+def model_resolution_if(valid: Bool, draft: U.Draft, +profiles: +List<D.Profile>, +session: E.Session) -> E.Session:
+  match valid draft:
+    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback, directory_entry}:
+      selected_model_session(preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session)
+    case _ _: session
+
+def model_resolution_found(found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: E.Session) -> E.Session:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context}, feedback, directory_entry}}:
+      model_resolution_if(E.manual_model(session) && E.permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback, directory_entry}, profiles, session)
+    case _: session
+
+def model_resolution(+session: E.Session, +world: M.World()) -> E.Session:
+  model_resolution_found(E.find_draft(E.drafts(session), U.NewTaskEditor{}), Board.profiles(world), session)
+
+def begin_focus(+world: M.World(), +session: E.Session) -> E.Decision:
+  E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/new-task", E.with_layers(Nil{}, E.with_route(U.Start{}, session)))), [E.Attend{"composer/new-task"}])
+
+def begin_changed_spec(result: Result<&2, &2, String, U.Body>, revision: Nat, directory_entry: String, +world: M.World(), +session: E.Session) -> E.Decision:
+  match result:
+    case Fail{reason}: E.reply(E.from_program(world, session), D.failure("interaction_refused", reason))
+    case Done{body}: begin_focus(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}, directory_entry}))
+
+def begin_existing_spec(found: Maybe<&2, U.Draft>, origin: Context.Origin, +world: M.World(), +session: E.Session) -> E.Decision:
+  match found:
+    case None{}: begin_focus(world, session)
+    case Some{U.Draft{revision, body, feedback, directory_entry}}:
+      begin_changed_spec(U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, body, world), revision, directory_entry, world, session)
+
+def begin_resolved_spec(+origin: Context.Origin, +world: M.World(), +session: E.Session) -> E.Decision:
+  begin_existing_spec(E.find_draft(E.drafts(session), U.NewTaskEditor{}), origin, world, session)
+
+def begin_task_spec(project: Maybe<&2, Nat>, +world: M.World(), session: E.Session) -> E.Decision:
+  begin_resolved_spec(E.context_project(project), world, model_resolution(session, world))
 
 type ReadingLocation is Data:
   ReadingLocation{position: U.ReadingIntent, disclosures: +List<E.Disclosure>}
@@ -162,14 +229,41 @@ type Requirements is Type:
       @+rest:+List<E.Layer> -> @revision:Nat -> @+text:U.Text -> @old_profile:String ->
       @old_reasoning:String -> @context:Context.Configuration -> @feedback:U.Feedback -> @+directory_entry:String ->
       @+new_profile:String -> @+new_reasoning:String ->
+      @valid:{E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool} ->
       @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>} ->
       @found:{E.find_draft(E.drafts(session), U.NewTaskEditor{}) ==
         Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, session)) ==
-       E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{}), session)))),
-         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}
+         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision},
+    model_choice_complete: @+profile:String -> @+reasoning:String -> @+application:E.Application ->
+      {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application) ==
+        model_choice_spec(E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning), profile, reasoning, application) : E.Decision},
+    invalid_model_choice: @+profile:String -> @+reasoning:String -> @+application:E.Application ->
+      @invalid:{E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning) == False{} : Bool} ->
+      {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application) ==
+        E.Decision{application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."), Nil{}, Nil{}, False{}} : E.Decision},
+    manual_preference_persistence: @+profile:String -> @+reasoning:String -> @+world:M.World() -> @+session:E.Session -> @+reply:J.Json -> @+runtime:+List<M.Effect()> -> @+interaction:+List<E.Effect> -> @durable:Bool ->
+      {E.remember_valid(True{}, profile, reasoning, E.Decision{E.from_program(world, session), reply, runtime, interaction, durable}) ==
+        E.Decision{E.from_program(world, E.with_preference(Some{E.ModelPreference{profile, reasoning}}, session)), reply, runtime, E.PersistModelPreference{profile, reasoning} <> interaction, durable} : E.Decision},
+    begin_task_complete: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+session:E.Session ->
+      {E.begin_task(project, E.from_program(world, session)) == begin_task_spec(project, world, session) : E.Decision},
+    model_resolution_complete: @+session:E.Session -> @+world:M.World() ->
+      {E.resolve_model_draft(session, world) == model_resolution(session, world) : E.Session},
+    manual_draft_priority: @draft:U.Draft -> @profiles:+List<D.Profile> -> @+session:E.Session ->
+      {E.resolve_model_valid(True{}, draft, profiles, session) == session : E.Session},
+    unavailable_catalog: {E.first_profile(Nil{}) == ("", "") : Sigma<&2, &2, String, (_ => String)>},
+    preference_keeps_tasks: @profile:String -> @reasoning:String -> @+world:M.World() -> @session:E.Session ->
+      {E.program(post(E.restore_preference(profile, reasoning, E.from_program(world, session)))) == world : M.World()},
+    completed_creation_resets_manual: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @+result:J.Json -> @+world:M.World() -> @+session:E.Session ->
+      {E.finish_body(U.NewTask{message, profile, reasoning, context}, U.Start{}, Nil{}, result, E.from_program(world, session)) ==
+        E.follow_created(J.natural(J.get(J.get(result, "result"), "task_id")), E.from_program(world, E.with_manual_model(False{}, session))) : E.Decision},
+    rejected_execution_keeps_preference: @task:Nat -> @profile:String -> @reasoning:String -> @remember:Bool -> @+world:M.World() -> @+result:J.Json -> @previous:M.World() -> @+session:E.Session ->
+      {E.finish_execution(False{}, task, profile, reasoning, remember, world, result, E.from_program(previous, session)) ==
+        E.reply(E.from_program(world, session), result) : E.Decision}
+
   }
 
 law evidence:
@@ -201,6 +295,7 @@ def confirmation_result_spec(owned: Bool, +result: J.Json, destination: U.Route,
 
 def valid_completion_spec(completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session) -> E.Decision:
   match completion:
+    case E.ExecutionCompletion{task, profile, reasoning, remember}: E.finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, E.from_program(program, session))
     case E.DirectCompletion{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}
     case E.DraftCompletion{+draft}:
       E.with_native(SubmissionRule.finish_submission_spec(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
@@ -219,7 +314,7 @@ def completion_spec(completion: E.Completion, +program: M.World(), result: J.Jso
 
 def observed_checked_spec(valid: Bool, +program: M.World(), session: E.Session, previous: M.World()) -> E.Decision:
   match valid:
-    case True{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}}
+    case True{}: E.Decision{E.from_program(program, E.resolve_model_draft(E.retain_previews(session, program), program)), D.success(J.Null{}), Nil{}, Nil{}, False{}}
     case False{}: E.refuse(E.from_program(previous, session), "The observed program violates a world invariant")
 
 def observed_spec(+program: M.World(), session: E.Session, previous: M.World()) -> E.Decision:
@@ -267,7 +362,7 @@ law invalid_observed_decision:
 law valid_observed_decision:
   @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
   @observed:{I.world(program) == True{} : Bool} ->
-  {ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision}
+  {ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.resolve_model_draft(E.retain_previews(session, program), program)), D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision}
 
 law invalid_completion_decision:
   @+completion:E.Completion -> @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->

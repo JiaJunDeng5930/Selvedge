@@ -116,16 +116,47 @@ def workspace_menu_observation(+editor: U.Editor, config: Context.Configuration,
   InteractionTypes.State{E.Application{world, session}, services} = state
   {==}
 
+def committed_permission_observation(+found: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State, +rest: +List<SurfaceTypes.Node>) ->
+  {Rule.first_context(List.append(&2, SurfaceTypes.Node, InterfaceView.committed_permission_summary(found, parent, state), rest)) == View.committed_observation(found) : Maybe<&2, Context.Observation>}:
+  match found:
+    case None{}: {==}
+    case Some{context}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+
 def permissions_menu_observation(+editor: U.Editor, config: Context.Configuration, +origin: Context.Origin, +project: Maybe<&2, Nat>, +workspace: Context.WorkspaceValue,
   +sandbox: Context.SandboxValue, +approval: Context.ApprovalValue, +guidance: Context.GuidancePreview,
-  controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, parent: Identity.Key, state: InteractionTypes.State) ->
+  controls: V.WorkspaceControls, projects: +List<V.ProjectChoice>, reviewers: +List<D.Profile>, +parent: Identity.Key, state: InteractionTypes.State) ->
   Rule.permissions_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state):
-  InteractionTypes.State{E.Application{world, session}, services} = state
-  {==}
+  match editor:
+    case U.MessageEditor{+task}:
+      InteractionTypes.State{E.Application{+world, +session}, +services} = state
+      committed_permission_observation(View.committed_context(Tasks.find(Commands.entries(world), task)), parent, InteractionTypes.State{E.Application{world, session}, services},
+        InterfaceView.sandbox_choices(Context.unwrap_sandbox(sandbox), U.MessageEditor{task}, parent, InteractionTypes.State{E.Application{world, session}, services}) <>
+        InterfaceView.network_choices(Context.unwrap_sandbox(sandbox), U.MessageEditor{task}, parent, InteractionTypes.State{E.Application{world, session}, services}) <>
+        InterfaceView.approval_choices(Context.observed_approval(approval), reviewers, U.MessageEditor{task}, parent, InteractionTypes.State{E.Application{world, session}, services}) <> Nil{})
+    case U.NewTaskEditor{}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.ProjectEditor{id}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.CardEditor{id}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.AgentEditor{id}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.ForkEditor{id}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.CompactEditor{id}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
 
 def admitted_task_identity(+task: D.Task) ->
   {Rule.effective_task(Context.effective(task)) == D.task_id(task) : Nat}:
-  D.Task{id, lineage, D.Contract{model, tools, max_fork, max_descendants, plugins, context}, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, D.Contract{model, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def network_group_selection(mode: D.SandboxMode, +network: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) ->
@@ -193,7 +224,7 @@ def Rule.context_evidence():
     task => admitted_task_identity(task), path => primary => gesture => {==}, value => gesture => {==},
     selected => description => input => {==}, selected => description => input => reason => {==},
     +editor => +observation => +profiles => {==},
-    +task => +observation => +profiles => {==},
+    +task => +observation => +world => {==},
     editor => config => origin => project => workspace => sandbox => approval => guidance => controls => projects => reviewers => parent => state => workspace_menu_observation(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     editor => config => origin => project => workspace => sandbox => approval => guidance => controls => projects => reviewers => parent => state => permissions_menu_observation(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     reason => config => controls => projects => reviewers => editor => parent => state => unavailable_workspace(reason, config, controls, projects, reviewers, editor, parent, state),

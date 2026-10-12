@@ -1,4 +1,5 @@
 import Base
+import ../../interaction/presentation/INFORMATION.bend as Information
 import ../layout/natural-size.bend as NaturalSize
 
 # One scale constructs adjacent text sizes; prominence remains independent.
@@ -248,3 +249,19 @@ def resolved_font(value: TextStyle) -> Font:
 def resolved_weight(value: TextStyle) -> Nat:
   TextStyle{family, size, line_height, weight} = value
   weight
+
+# Text purpose determines tier and emphasis; scale remains the caller's choice.
+def information_role(+role: Information.TextRole, scale: Scale) -> Presentation:
+  match role:
+    case Information.IntroductionTitle{}: Presentation{Display{}, Strong{}, scale}
+    case Information.SurfaceTitle{}: Presentation{Title{}, Medium{}, scale}
+    case Information.GroupTitle{}: Presentation{Section{}, Medium{}, scale}
+    case Information.FieldLabel{}: Presentation{Body{}, Medium{}, scale}
+    case Information.FieldValue{}: Presentation{Body{}, Regular{}, scale}
+    case Information.OptionLabel{}: Presentation{Body{}, Medium{}, scale}
+    case Information.Description{}: Presentation{Support{}, Regular{}, scale}
+    case Information.Status{}: Presentation{Support{}, Regular{}, scale}
+
+def information(+role: Information.TextRole, parent: Presentation) -> Presentation:
+  Presentation{tier, emphasis, scale} = parent
+  information_role(role, scale)

@@ -98,6 +98,20 @@ async function fixture(t, review = () => answer(JSON.stringify({ decision: 'allo
   return f;
 }
 
+test('execution configuration cannot change a task while accepted work awaits approval', { timeout: 20_000 }, async t => {
+  const f = await fixture(t);
+  await f.create();
+  const { page: before } = await pending(f.site.service);
+  const result = await f.post({ op: 'configure_task_execution', task_id: 0, profile: 'reviewer', reasoning: 'medium',
+    sandbox: { mode: 'read-only', network_access: false }, approval: { mode: 'full-access' } });
+  assert.equal(result.body.reply.ok, false, JSON.stringify(result));
+  const after = await f.site.service.command({ op: 'read', task_id: 0 });
+  assert.equal(after.reply.ok, true);
+  assert.deepEqual(after.reply.result, before);
+  assert.equal(f.upstream.requests.length, 1, 'Reconfiguration must not invoke the reviewer or restart the model');
+  await assert.rejects(readFile(f.marker), error => error.code === 'ENOENT');
+});
+
 test('HTTP approval UI commits a one-use grant before a real outside-workspace process and rejects stale clicks', { timeout: 20_000 }, async t => {
   const f = await fixture(t);
   await f.create();

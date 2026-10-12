@@ -143,6 +143,18 @@ def parameter_values(values: Maybe<&2, +List<Nat>>) -> Maybe<&2, LayoutParameter
       Some{LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane}}
     case _: None{}
 
+def editable_min_columns() -> Nat:
+  40n
+
+def reading_min_columns() -> Nat:
+  64n
+
+def editable_minimum_calculation(advance: Nat, scale: T.Scale) -> NaturalSize.Calculation:
+  NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{editable_min_columns()}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}}
+
+def reading_minimum_calculation(advance: Nat, scale: T.Scale) -> NaturalSize.Calculation:
+  NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{reading_min_columns()}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}}
+
 def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> +List<NaturalSize.Calculation>:
   +leading: NaturalSize.Calculation = NaturalSize.Maximum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Body{}, T.Regular{}, scale))}, NaturalSize.Value{height}}
   +toolbar: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(46n, scale), NaturalSize.Sum{leading, T.scaling_calculation(26n, scale)}}
@@ -152,7 +164,7 @@ def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advanc
       NaturalSize.Sum{input_minimum, NaturalSize.Sum{T.scaling_calculation(32n, scale), NaturalSize.Product{NaturalSize.Value{3n}, T.scaling_calculation(16n, scale)}}}}}}
   [
     T.scaling_calculation(275n, scale),
-    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{64n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}},
+    editable_minimum_calculation(advance, scale),
     T.scaling_calculation(360n, scale),
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},

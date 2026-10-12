@@ -18,8 +18,15 @@ import ../workspace/WORKSPACE.bend as Workspace
 import ../approval/MODEL.bend as Approvals
 import ../CONTRACT.bend as A
 import ../execution/OPERATIONS.bend as Ops
+import ../transport/command-contract.bend as CodecContract
 
 # Local proof obligations for the protocol boundary. No runtime policy lives here.
+def CodecContract.approval_input_closed_shape(policy):
+  {==}
+
+def CodecContract.configure_approval_input(id, profile, reasoning, sandbox, policy):
+  {==}
+
 def delegated_calculation_checked(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext,
   accepted: Bool, observed: {Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}) == accepted : Bool}) ->
   {Protocol.delegated_admitted(Categories.admit_checked(Protocol.DelegatedRequest, Protocol.delegated_accepts,
@@ -97,6 +104,7 @@ def Laws.operation_semantics(operation, world):
     case Commands.FeatureOperation{operation} _:
       FeatureLaws.meaning(P.execute_start, Commands.start,
         +profile => +reasoning => +message => +selection => +state => spawn_semantics(profile, reasoning, message, selection, state), operation, world)
+    case Commands.ConfigureExecution{task, configuration} _: {==}
     case Commands.Refuse{code, reason} _: {==}
     case Commands.Start{profile, reasoning, message, Workspace.Selection{context, guidance}}
          C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +board}: {==}
@@ -192,7 +200,7 @@ def Laws.accepted_summary_settlement(outcome, resume, task, world):
 
 def control_frame(+task: D.Task, operation: D.Operation()) ->
   {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def A.result_boundary():

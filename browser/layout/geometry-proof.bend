@@ -31,8 +31,8 @@ def Rule.backward_backward(left, top, width, height, viewport_width, viewport_he
 
 def Rule.negative_top_regression(): {==}
 
-def positive(+profile: E.Profile) ->
-  {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, 1n) : (Nat & Nat)}:
+def profile_edges(+profile: E.Profile) ->
+  {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (1n, E.block_presence(profile)) : (Nat & Nat)}:
   match profile:
     case E.IconControl{}: {==}
     case E.TextControl{}: {==}
@@ -41,6 +41,7 @@ def positive(+profile: E.Profile) ->
     case E.Field{}: {==}
     case E.SearchField{}: {==}
     case E.Composer{}: {==}
+    case E.EmbeddedEditor{}: {==}
     case E.Card{}: {==}
     case E.Menu{}: {==}
     case E.UserMessage{}: {==}
@@ -87,7 +88,7 @@ def state_allocation(+value: D.Style, +space: E.ContentArea) ->
 def page_content() -> Rule.page_content(): {==}
 
 def Rule.enclosure_evidence():
-  Rule.EnclosureRequirements{page_content(), positive, +width => +height => +border => +space => {==}, +width => +height => +profile => {==}, action_insets, layout_copied, +value => +face => +geometry =>
+  Rule.EnclosureRequirements{page_content(), profile_edges, +width => +height => +border => +space => {==}, +width => +height => +profile => {==}, action_insets, layout_copied, +value => +face => +geometry =>
       Equal.trans(E.ContentArea, Rule.area(A.action_style(value, face, geometry)),
         Rule.area(A.action_content_style(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, D.style_text(value), geometry))), C.layout_content_area(C.content_layout(face)),
         flow_preserves_area(A.action_content_style(value, C.content_layout(face), geometry, A.intrinsic_content_height(face, D.style_text(value), geometry)), A.action_flow(face, C.content_layout(face))),
@@ -106,7 +107,7 @@ def Rule.enclosure_evidence():
     +typography => +meaning => {==},
     +typography => +meaning => canvas(meaning, typography),
     +typography => {==}, {==}, {==}, {==}, state_allocation, +text => {==}, +text => +selected => {==},
-    +typography => {==}}
+    +typography => {==}, {==}, {==}}
 
 def content_preserves_arrangement(+value: D.Style, content: E.ContentArea) ->
   {E.frame_gap(D.style_frame(A.with_content_area(value, content))) == E.frame_gap(D.style_frame(value)) : Nat}:
@@ -169,6 +170,9 @@ def actual_choice_normalization(+key: Identity.Key, +selected: Bool, +descriptio
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.MenuArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.ChoiceGroupArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.choice_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.DialogArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family}:

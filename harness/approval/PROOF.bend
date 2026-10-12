@@ -49,7 +49,7 @@ def human_waits(call:D.Call, remaining:+List<D.Attempt>, task:D.Task, world:M.Wo
 
 def context_frame(operation:D.Operation(), reviewer:D.ApprovalReviewer, reason:String, +task:D.Task) ->
   {D.task_context(A.permitted(operation, reviewer, reason, task)) == D.task_context(task) : D.TaskContext}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def Boundary.approval_boundary():
@@ -61,7 +61,7 @@ def Boundary.approval_boundary():
     ((profile => operation => task => outcome => {==}), (operation => task => outcome => {==})),
     (reviewer => origin => operation => task => outcome => {==}),
     (id => call => announced => reviewer => task => value => error => {==}),
-    (id => lineage => contract => history => queued => phase => operations => notified => {==})}
+    (id => lineage => contract => current => history => queued => phase => operations => notified => {==})}
 
 def Laws.hook_gateway(tool, attempt, remaining, task, world):
   {==}

@@ -81,6 +81,7 @@ type Area is Data:
   ActivityArea{}
   ApprovalArea{}
   MenuArea{}
+  ChoiceGroupArea{}
   DialogArea{}
   CollectionArea{}
   CardArea{}
@@ -272,7 +273,7 @@ type Purpose is Data:
 def composer_execution(value: Maybe<&2, View.ComposerScene>) -> Maybe<&2, Workspace.Observation>:
   match value:
     case None{}: None{}
-    case Some{View.ComposerScene{identity, revision, message, footer, observation, submit, feedback, pending}}: observation
+    case Some{View.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: context
 
 def page_execution(page: View.Page) -> Maybe<&2, Workspace.Observation>:
   match page:
@@ -344,6 +345,7 @@ def area_for_node(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, inheri
     case SurfaceTypes.BoardGroup{SurfaceTypes.SecondaryActions{}}: ToolbarArea{}
     case SurfaceTypes.BoardGroup{SurfaceTypes.PrimaryAction{}}: ToolbarArea{}
     case SurfaceTypes.BoardLane{stage, count}: BoardLaneArea{}
+    case SurfaceTypes.ChoiceGroup{}: ChoiceGroupArea{}
     case _: area_for(role, inherited)
 
 def source_scope(role: SurfaceTypes.Role, inherited: SourceFamily) -> SourceFamily:
@@ -931,8 +933,8 @@ def label_placement(widget: Widget) -> LabelPlacement:
     case MessageInput{}: AccessibleOnly{}
     case ToggleInput{}: BesideInput{}
     case SearchInput{}: AccessibleOnly{}
-    case FileChooser{face}: AccessibleOnly{}
-    case DirectoryChooser{face}: AccessibleOnly{}
+    case FileChooser{face}: AboveInput{}
+    case DirectoryChooser{face}: AboveInput{}
     case _: AboveInput{}
 
 def make_input(meaning: SurfaceTypes.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:

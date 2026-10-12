@@ -54,7 +54,7 @@ def symbol(icon: Controls.Icon) -> Symbol:
     case Controls.Pencil{}: Symbol{"m12.5 3 4.5 4.5-9 9-5 1 1-5ZM10.5 5l4.5 4.5", Source.StrokedDrawing{14n}}
     case Controls.Branch{}: Symbol{"M6 4v12M6 11h4a4 4 0 0 0 4-4V4M4 2h4v4H4ZM4 14h4v4H4ZM12 2h4v4h-4Z", Source.StrokedDrawing{14n}}
     case Controls.Compact{}: Symbol{"M3 5h14M3 10h10M3 15h7m3-2 3 3 3-3M16 10v6", Source.StrokedDrawing{14n}}
-    case Controls.Settings{}: Symbol{"m8 2-.5 2-2 .9-1.8-.5-1.5 2.5 1.4 1.4v2.4l-1.4 1.4L3.7 15l1.8-.5 2 .9.5 2.1h3l.5-2.1 2-.9 1.8.5 1.5-2.5-1.4-1.4V8.7l1.4-1.4-1.5-2.5-1.8.5-2-.9L11 2Zm4.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z", Source.StrokedDrawing{14n}}
+    case Controls.Settings{}: Symbol{"M8.4 2h3.2l.5 2.1 1.7 1 2.1-.6 1.6 2.8-1.6 1.5v2.4l1.6 1.5-1.6 2.8-2.1-.6-1.7 1-.5 2.1H8.4l-.5-2.1-1.7-1-2.1.6-1.6-2.8 1.6-1.5V8.8L2.5 7.3l1.6-2.8 2.1.6 1.7-1L8.4 2ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z", Source.StrokedDrawing{14n}}
     case Controls.FilterFunnel{}: Symbol{"M3 4h14l-5.3 6.1v5.1l-3.4 1.8v-6.9L3 4Z", Source.StrokedDrawing{14n}}
     case Controls.Inspector{}: Symbol{"M3 3h14v14H3ZM12 3v14M5.5 6h4M5.5 10h4M5.5 14h4", Source.StrokedDrawing{14n}}
     case Controls.InspectorClose{}: Symbol{"M3 3h14v14H3ZM12 3v14M5.5 6h4M5.5 10h4M5.5 14h4 M7 7l3 3-3 3", Source.StrokedDrawing{14n}}

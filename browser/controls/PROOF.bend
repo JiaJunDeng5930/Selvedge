@@ -1,3 +1,4 @@
+import ../../interaction/presentation/INFORMATION.bend as Information
 import ./authored-proof.bend as AuthoredProof
 import ../document/MODEL.bend as Doc
 import ./authored-primitives.bend as Factory
@@ -134,6 +135,7 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
     case SurfaceTypes.PageRegion{region, position}: {==}
     case SurfaceTypes.Region{}: {==}
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: {==}
+    case SurfaceTypes.InformationText{role}: {==}
     case SurfaceTypes.ReadOnly{text}: {==}
     case SurfaceTypes.Fact{value}: {==}
     case SurfaceTypes.RichText{source, value}: {==}
@@ -373,6 +375,7 @@ def native_attribute_other(+key: UIIdentity.Key, +attribute: Source.Attribute) -
     case Source.DataAttribute{name, value}: True{}
     case Source.ReadingAttribute{binding}: {==}
     case Source.EditorBindingAttribute{owner}: {==}
+    case Source.IdAttribute{value}: {==}
     case Source.AriaAttribute{name, value}: {==}
     case Source.RoleAttribute{value}: {==}
     case Source.TitleAttribute{value}: {==}
@@ -415,6 +418,7 @@ def classification_meaning(+category: Filter.Classification) -> Rule.GlyphMeanin
 def selection_roles(+kind: SurfaceTypes.ChoiceKind, +area: Controls.Area, +selected: Bool) ->
   {A.behavior(Controls.choice_behavior(kind, area, selected)) == [Source.RoleAttribute{Rule.selection_role(kind, area)}, Source.AriaAttribute{"checked", Fields.boolean(selected)}] : +List<Source.Attribute>}:
   match kind area:
+    case SurfaceTypes.SingleChoice{} Controls.ChoiceGroupArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.MenuArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.PageArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.NavigationArea{}: {==}
@@ -428,6 +432,7 @@ def selection_roles(+kind: SurfaceTypes.ChoiceKind, +area: Controls.Area, +selec
     case SurfaceTypes.SingleChoice{} Controls.CardArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.BoardViewArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.BoardLaneArea{}: {==}
+    case SurfaceTypes.MultipleChoice{} Controls.ChoiceGroupArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.MenuArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.PageArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.NavigationArea{}: {==}
@@ -489,14 +494,23 @@ def Rule.picker_face_caption(key,text,parent,leading,geometry):
 
 def Rule.disclosure_face_caption(key,text,parent,expanded,geometry): {==}
 
+def choice_description_source(+key: UIIdentity.Key, +text: String, +parent: Design.Style) ->
+  {A.face_description(Some{text},key,parent) ==
+        [Source.Box{A.information_key(key, Information.Description{}), Source.Span{}, A.information_style(Information.Description{}, parent), [Source.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, Source.DataAttribute{"information-owner", UIIdentity.encode(key)}, Source.DataAttribute{"information-role", "description"}], [Source.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, Source.ExplicitFont{T.with_emphasis(T.with_tier(A.parent_font(parent), T.Support{}), T.Regular{})}, T.NormalWords{}}]}] : +List<Source.Node>}:
+  Design.Style{font, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = parent
+  T.Presentation{tier, emphasis, scale} = font
+  {==}
+
 def Rule.control_content_evidence():
   Rule.ControlContentRequirements{
+    +profile => reasoning => {==},
+    profile => +reasoning => {==},
     +availability => {==},
     text => description => icon => checked => {==},
     {==},
     text => {==},
     +key => +text => +parent => description => icon => checked => {==},
-    +key => +text => +parent => {==},
+    choice_description_source,
     filesystem => network => approval => {==},
     icon => {==},
     +leading => label => {==},
@@ -1167,7 +1181,7 @@ def conversation_header(+key: UIIdentity.Key, +style: Source.Style, title: Sourc
 def task_action_flow(+visual: Design.Style, position: Composition.Position) -> Rule.task_action_flow(visual, position): {==}
 
 def Rule.authored_shell_evidence():
-  Rule.AuthoredShellRequirements{conversation_title_font, conversation_title_style, conversation_title_text, conversation_title_box, conversation_title_children, conversation_title_other, other_heading_children, chronological_main_frame, chronological_main_cross(), chronological_main_leading, chronological_reading_width, conversation_header_frame, conversation_main, conversation_header, task_action_flow, navigation_projection, assembly_placement, beside_box_floor, beside_main_style, compact_main_style, main_population, main_placement_input, measure_width, recipe_structure, available_children, page_frame, front_layer_last, events, interaction, children, wrapper, no_wrapper_events, reading_policy, reading_layout, reading_stretch_width, creation_population, creation_group, creation_group_spacing, creation_reading_width, creation_assembly, creation_child_layout, creation_main, other_main, navigation_box, settings_classification, footer}
+  Rule.AuthoredShellRequirements{conversation_title_font, conversation_title_style, conversation_title_text, conversation_title_box, conversation_title_children, conversation_title_other, other_heading_children, chronological_main_frame, chronological_main_cross(), chronological_main_leading, chronological_reading_width, conversation_header_frame, conversation_main, conversation_header, task_action_flow, navigation_projection, assembly_placement, beside_box_floor, beside_main_style, compact_main_style, main_population, capacity => +scale => height => +advance => {==}, +advance => +scale => {==}, main_placement_input, measure_width, recipe_structure, available_children, page_frame, front_layer_last, events, interaction, children, wrapper, no_wrapper_events, reading_policy, reading_layout, reading_stretch_width, creation_population, creation_group, creation_group_spacing, creation_reading_width, creation_assembly, creation_child_layout, creation_main, other_main, navigation_box, settings_classification, footer}
 
 def Rule.modal_navigation_geometry(node, capacity, parameters, layers, base, overlays, anchors, docked, floating):
   View.Capacity{navigation_beside, details_beside} = capacity
@@ -1307,3 +1321,12 @@ def Rule.context_control_evidence():
     {==},
     {==},
     +profile => {==}}
+
+
+def Rule.focus_ownership_evidence():
+  Rule.FocusOwnershipRequirements{
+    {==},
+    {==},
+    {==},
+    {==},
+    +key => +tag => +style => +attributes => +children => {==}}

@@ -1,5 +1,6 @@
 import Base
 import ../../harness/DOMAIN.bend as D
+import ../../features/board/STATE.bend as Board
 import ./CONTEXT.bend as Context
 import ../presentation/PROGRAM.bend as InterfaceView
 import ../presentation/VIEW.bend as View
@@ -40,7 +41,7 @@ law permissions_evidence:
 def composer_context(value: Maybe<&2, V.ComposerScene>) -> Maybe<&2, Context.Observation>:
   match value:
     case None{}: None{}
-    case Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}: context
+    case Some{V.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, submit, feedback, pending}}: context
 
 def node_context(value: SurfaceTypes.Node) -> Maybe<&2, Context.Observation>:
   match value:
@@ -85,6 +86,12 @@ def workspace_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
   {first_context(InterfaceView.workspace_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
     Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
 
+def expected_permission_observation(editor: U.Editor, preview: Context.Preview, state: InteractionTypes.State) -> Maybe<&2, Context.Observation>:
+  match editor:
+    case U.MessageEditor{task}:
+      View.committed_observation(View.committed_context(Tasks.find(Commands.entries(E.program(Core.application(state))), task)))
+    case _: Some{Context.DraftExecution{preview}}
+
 def permissions_menu_source_law(-editor: U.Editor, -config: Context.Configuration,
   -origin: Context.Origin, -project: Maybe<&2, Nat>, -workspace: Context.WorkspaceValue,
   -sandbox: Context.SandboxValue, -approval: Context.ApprovalValue,
@@ -92,7 +99,7 @@ def permissions_menu_source_law(-editor: U.Editor, -config: Context.Configuratio
   -projects: +List<V.ProjectChoice>, -reviewers: +List<D.Profile>, -parent: Identity.Key,
   -state: InteractionTypes.State) -> Type:
   {first_context(InterfaceView.permission_menu_group(editor, V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}, parent, state)) ==
-    Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}} : Maybe<&2, Context.Observation>}
+    expected_permission_observation(editor, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, state) : Maybe<&2, Context.Observation>}
 
 def effective_task(value: Context.EffectiveContext) -> Nat:
   Context.EffectiveContext{task, context, guidance, access} = value
@@ -144,16 +151,12 @@ type ContextRequirements is Type:
     unavailable_choice: @selected:Bool -> @description:String -> @input:InteractionTypes.Input -> @reason:String -> {InterfaceView.bind(SurfaceTypes.Choice{SurfaceTypes.SingleChoice{}, None{}, selected, description, input, V.Unavailable{reason}}, SurfaceTypes.Press{}) == None{} : Maybe<&2, InteractionTypes.Input>},
     draft_footer: @+editor:U.Editor -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
       {View.draft_context_footer(editor, observation, profiles) ==
-        [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/" ++ U.editor_key(editor), View.observation_workspace(observation), V.Secondary{},
-          U.Activate{U.OpenPanel{U.WorkspaceConfiguration{editor}, "composer/workspace/" ++ U.editor_key(editor)}}, V.Available{}}},
-         V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), View.observation_permissions(observation, profiles), V.Secondary{},
+        [V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/" ++ U.editor_key(editor), View.observation_permissions(observation, profiles), V.Secondary{},
           U.Activate{U.OpenPanel{U.PermissionsConfiguration{editor}, "composer/permissions/" ++ U.editor_key(editor)}}, V.Available{}}}] : +List<V.ComposerControl>},
-    committed_footer: @+task:Nat -> @+observation:Context.Observation -> @+profiles:+List<D.Profile> ->
-      {View.committed_context_footer(task, Some{observation}, profiles) ==
-        [V.ComposerControl{V.WorkspaceSubject{}, V.ControlDeclaration{"composer/workspace/message/" ++ Nat.show(task), View.observation_workspace(observation), V.Secondary{},
-          U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/workspace/message/" ++ Nat.show(task)}}, V.Available{}}},
-         V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), View.observation_permissions(observation, profiles), V.Secondary{},
-          U.Activate{U.OpenPanel{U.TaskContext{task}, "composer/permissions/message/" ++ Nat.show(task)}}, V.Available{}}}] : +List<V.ComposerControl>},
+    committed_footer: @+task:Nat -> @+observation:Context.Observation -> @+world:M.World() ->
+      {View.committed_context_footer(task, Some{observation}, world) ==
+        [V.ComposerControl{V.PermissionsSubject{}, V.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), View.observation_permissions(observation, Board.profiles(world)), V.Secondary{},
+          U.Activate{U.OpenPanel{U.PermissionsConfiguration{U.MessageEditor{task}}, "composer/permissions/message/" ++ Nat.show(task)}}, View.task_execution_availability(Tasks.find(Commands.entries(world), task), world)}}] : +List<V.ComposerControl>},
     workspace_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent: Identity.Key -> @state:InteractionTypes.State ->
       workspace_menu_source_law(editor, config, origin, project, workspace, sandbox, approval, guidance, controls, projects, reviewers, parent, state),
     permissions_menu_source: @+editor:U.Editor -> @config:Context.Configuration -> @+origin:Context.Origin -> @+project:Maybe<&2, Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @parent: Identity.Key -> @state:InteractionTypes.State ->
