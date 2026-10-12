@@ -35,8 +35,7 @@ logs, benchmark measurements, and investigation notes belong in `.workpad/`.
 
 ## Persistent data
 
-A journal belongs to one compiler/source identity. Use a fresh temporary home
-for changed kernels. Do not add migration adapters, obsolete-format fallbacks,
+Use a fresh temporary home for tests. Do not add migration adapters, obsolete-format fallbacks,
 or compatibility layers unless explicitly requested. Preserve existing user data
 rather than changing it to make a development run succeed.
 
