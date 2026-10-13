@@ -427,6 +427,7 @@ def synchronize_retained_entry(found: Maybe<&2, U.Draft>, editor: Editor.Editor,
     case None{} Unit{}: {==}
     case Some{U.Draft{revision, body, U.Editing{}, directory_entry}} Unit{}: {==}
     case Some{U.Draft{revision, body, U.Rejected{revision, reason}, directory_entry}} Unit{}: {==}
+    case Some{U.Draft{revision, body, U.WorkspaceRejected{revision, reason}, directory_entry}} Unit{}: {==}
     case Some{U.Draft{revision, body, U.Accepted{revision, reply}, directory_entry}} impossible:
       match impossible:
 

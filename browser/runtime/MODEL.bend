@@ -1267,7 +1267,7 @@ def measured_pending(+receipts: +List<String>, +state: State) -> Decision:
   match state:
     case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic, +round}, displayed}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
-      receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}, semantic, (round + 1n : Nat))
+      utility_if_needed(receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}, semantic, (round + 1n : Nat)))
     case State{legacy, serial, anchors, UtilityMeasuring{purpose, +engine, +round, glyph_only}, displayed}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
       utility_receipt(World.receipt_status(next), purpose, next, (round + 1n : Nat), glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed})

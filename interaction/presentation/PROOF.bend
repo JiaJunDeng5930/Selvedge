@@ -198,6 +198,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ForkTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorkspace{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ControlTask{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CancelOperation{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ReviewApproval{p0, p1, p2, p3}}}}: {==}
@@ -212,6 +213,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.SetDisclosure{p0, p1, p2, p3}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.TogglePropertySource{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.RuntimeInput{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.ProgramObserved{p0}}: {==}

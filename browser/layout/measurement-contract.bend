@@ -27,9 +27,9 @@ def authored_claim(+model_state: Browser.State, +source: Source.Node, +index: Na
 
 def measurement_claim(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +tokens: +List<String>, +semantic: SurfaceTypes.Surface, +round: Nat) -> Type:
   {Browser.measured_pending(tokens, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
-    Browser.receipt_selection(World.receipt_status(World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine)),
+    Browser.utility_if_needed(Browser.receipt_selection(World.receipt_status(World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine)),
       index, capacity, World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine),
-      Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic, (round + 1n : Nat)) : Browser.Decision}
+      Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic, (round + 1n : Nat))) : Browser.Decision}
 
 type Requirements is Type:
   Requirements{

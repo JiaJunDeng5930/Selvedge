@@ -198,6 +198,10 @@ def observation_permissions(observation: Context.Observation, profiles: +List<D.
     case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, +access}}:
       Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ policy_approval_summary(approval)
 
+def context_task(context: Context.EffectiveContext) -> Nat:
+  Context.EffectiveContext{task, value, guidance, access} = context
+  task
+
 def committed_context(found: Maybe<&2, D.Task>) -> Maybe<&2, Context.EffectiveContext>:
   match found:
     case None{}: None{}
@@ -470,10 +474,10 @@ def assessment_availability(+assessment: Experience.Assessment) -> ViewTypes.Ava
   assessment_state_availability(UX.assessment_state(assessment), assessment)
 
 def editor_scene(draft: U.Draft, pending: +List<E.Pending>, now: U32, +world: M.World()) -> ViewTypes.EditorScene:
-  U.Draft{+revision, +body, feedback, directory_entry} = draft
+  U.Draft{+revision, +body, +feedback, directory_entry} = draft
   +identity = U.owner(body)
   +waiting = E.busy(pending, identity)
-  +assessment = UX.assessed_requirements(UX.requirements(body, waiting, world), body, revision, now, world)
+  +assessment = UX.assessed_requirements(UX.draft_requirements(U.Draft{revision, body, feedback, directory_entry}, waiting, world), body, revision, now, world)
   ViewTypes.EditorScene{identity, revision, input_groups(body, world), Forms.structure(body), assessment,
     ViewTypes.ControlDeclaration{"submit/" ++ U.editor_key(identity), submit_label(body), ViewTypes.Primary{}, U.Activate{U.Submit{identity}},
       assessment_availability(assessment)}, feedback, waiting}
@@ -972,7 +976,7 @@ def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<ViewTypes.Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence}, rest}:
+    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded}, rest}:
       ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:

@@ -105,7 +105,7 @@ type FeedbackRequirements is Type:
         SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
           SurfaceTypes.Edit{editor, field, InterfaceView.actual_entry(field, entry, InterfaceView.field_value(state, editor, field), state), InterfaceView.field_value(state, editor, field),
             expected_property_choices(InterfaceView.actual_entry(field, entry, InterfaceView.field_value(state, editor, field), state), field, InterfaceView.field_value(state, editor, field), editor, groups)},
-          InterfaceView.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)} : SurfaceTypes.Node},
+          List.append(&2, SurfaceTypes.Node, InterfaceView.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state), InterfaceView.subject_repair(editor, field, Identity.Part{parent, Forms.key(field)}, state))} : SurfaceTypes.Node},
     rejected_feedback: @+parent: Identity.Key -> @revision:Nat -> @+reason:String ->
       {InterfaceView.feedback_nodes(parent, U.Rejected{revision, reason}) ==
     [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{reason}, Nil{}}] : +List<SurfaceTypes.Node>},

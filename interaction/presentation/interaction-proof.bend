@@ -586,14 +586,14 @@ def Rule.surface_evidence():
           Model.resolve(ProductUI.observe(capacity, state), key, SurfaceTypes.Press{}), Some{input},
           resolve_available(ProductUI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +rest => present =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +rest => present =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence} <> rest,
+        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded} <> rest,
         Model.layer_present(previous, E.panel_target(panel)), True{}, present)
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +rest => absent =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +rest => absent =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence} <> rest,
+        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded} <> rest,
         Model.layer_present(previous, E.panel_target(panel)), False{}, absent)
     }
 
@@ -730,3 +730,17 @@ def Rule.composition_evidence():
     task => message => delivery => scene => world => conversation_phase(scene, task, message, delivery, world),
     task => message => delivery => scene => world => conversation_context_empty(scene, task, message, delivery, world),
     message => profile => reasoning => context => scene => world => creation_controls(scene, message, profile, reasoning, context, world)}
+
+def Rule.passive_obstruction_has_no_paragraph(obstruction, assessment, parent, passive):
+  Equal.cong(Bool, +List<SurfaceTypes.Node>, (hidden => Model.visible_action_obstruction_selected(hidden, obstruction, assessment, parent)), UX.passive_obstruction(obstruction), True{}, passive)
+def Rule.workspace_failure_is_not_global_feedback(editor, revision, reason, parent): {==}
+def Rule.property_source_hidden_until_requested(property, parent): {==}
+def Rule.requested_property_source_is_owner_observation(property, parent): {==}
+def Rule.property_source_uses_actual_top_layer(property, parent, state): {==}
+
+def Rule.property_source_toggle_uses_actual_control(editor, parent, state): {==}
+def Rule.property_source_toggle_exposes_expansion(identity, label, prominence, input, availability, expanded, parent): {==}
+
+def Rule.property_source_controls_use_actual_top_layer(property, parent, state): {==}
+def Rule.workspace_current_retains_context_observation(preview, parent): {==}
+def Rule.permission_scope_retains_context_observation(editor, observation, parent, state): {==}

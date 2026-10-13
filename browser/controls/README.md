@@ -82,3 +82,17 @@ Physical browser layout, focus and interaction still require external evidence.
 source styles of responsive toolbar and composer action groups. These groups use
 layout's horizontal-or-vertical allocation. `property_current_values` and
 `property_caption_wraps` bind property face text to its measured wrapping modes.
+
+The actual native input request uses `CONTROLS.native_field_policy`: message
+inputs start with the activity grammar's two writing lines, while other inputs
+retain one line. The source policy factory retains positive ordered line bounds.
+`layout/SOURCE.field_natural_height_at` combines that minimum, the resolved font
+and bounded native measurements; appearance does not resolve a second writing
+height. Property faces similarly reserve their operable glyph floor while
+`layout/SOURCE.text_natural_demand` owns actual text demand.
+
+Property summaries retain complete recognition units. Permission summaries place
+filesystem, network and approval consequence phrases together when they fit and
+stack the complete phrases in smaller content areas. Other summaries, including
+model and reasoning, remain one complete caption. Their surrounding icons and
+chevrons keep their authored dimensions.

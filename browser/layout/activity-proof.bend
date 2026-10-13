@@ -1,4 +1,10 @@
 import ../controls/PROGRAM.bend as Controls
+import ../../interaction/presentation/SURFACE.bend as Surface
+import ../../interaction/conversation/CODE.bend as Code
+import ../../interaction/services/MODEL.bend as Services
+import ../../interaction/services/CONTEXT.bend as Workspace
+import ../../interaction/presentation/MODEL.bend as View
+import ../appearance/MODEL.bend as Appearance
 import ../../interaction/experience/MODEL.bend as UX
 import ../appearance/DESIGN.bend as Design
 import Base
@@ -6,7 +12,6 @@ import ../editor/MODEL.bend as EditorLayout
 import ./ACTIVITY.bend as A
 import ./enclosure.bend as E
 import ./activity-contract.bend as Rule
-import ../../bendlib/algebra-proof.bend as Algebra
 
 # Successor cancellation makes the positive increment explicit.
 def positive_extension(+base: Nat, +extra: Nat) ->
@@ -18,30 +23,36 @@ def positive_extension(+base: Nat, +extra: Nat) ->
         case 1n+rest: {==}
     case 1n+rest: positive_extension(rest, extra)
 
-def primary_separation(+grammar: A.Grammar) ->
-  {Nat.is_lt(A.supporting_minimum(grammar), A.primary_minimum(grammar)) == True{} : Bool}:
-  A.Grammar{+extra, clearance} = grammar
-  +support = A.supporting_minimum(grammar)
-  +equation = Algebra.nat_add_assoc(support, extra, 1n)
-  +proof = positive_extension(support, extra)
-  %equation : {Nat.is_lt(support, _) == True{} : Bool}
-  proof
+def positive_motor_target(grammar: A.Grammar) ->
+  {Nat.is_lt(0n, A.supporting_minimum(grammar)) == True{} : Bool}:
+  A.Grammar{support, writing, clearance} = grammar
+  positive_extension(0n, support)
+
+def positive_writing_lines(grammar: A.Grammar) ->
+  {Nat.is_lt(0n, A.writing_lines(grammar)) == True{} : Bool}:
+  A.Grammar{support, writing, clearance} = grammar
+  positive_extension(0n, writing)
 
 def positive_clearance(grammar: A.Grammar) ->
   {Nat.is_lt(0n, A.clearance(grammar)) == True{} : Bool}:
-  A.Grammar{support, clearance} = grammar
+  A.Grammar{support, writing, clearance} = grammar
   positive_extension(0n, clearance)
 
 def production_frame(+visual: Design.Style) -> Rule.action_frame(visual):
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
   {==}
 
-def production_message(capacity: Nat, +visual: Design.Style) -> Rule.message_minimum(capacity, visual):
+def production_message(+capacity: Nat, +visual: Design.Style) -> Rule.message_minimum(capacity, visual):
   Design.Style{text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
   Design.Chrome{foreground, background, border_paint, border, radius, shadow} = chrome
   {==}
 
-def production_message_selection(capacity: Nat, kind: EditorLayout.FieldKind, +visual: Design.Style) -> Rule.message_selection(capacity, kind, visual):
+def production_message_selection(+capacity: Nat, kind: EditorLayout.FieldKind, +visual: Design.Style) -> Rule.message_selection(capacity, kind, visual):
+  {==}
+
+def supporting_flow(+visual: Design.Style, selection: Controls.Selection, code: Maybe<&2, Code.Scene>, appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>, execution: Maybe<&2, Workspace.Observation>, family: Controls.SourceFamily) ->
+  {Appearance.activity_controls(Surface.Toolbar{}, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}, visual) == Rule.supporting_style(visual) : Design.Style}:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
   {==}
 
 def composer_footer(+visual: Design.Style, context: Controls.Context) -> Rule.composer_footer(visual, context):
@@ -67,7 +78,7 @@ def property_minimum(+property: UX.Property, area: Controls.Area) ->
     case Controls.BoardLaneArea{}: {==}
 
 def Rule.evidence():
-  Rule.Requirements{primary_separation,
-    +grammar => Nat.ge_refl(A.primary_minimum(grammar)),
+  Rule.Requirements{positive_motor_target, positive_writing_lines,
+    {==}, {==},
     positive_clearance, +grammar => {==},
-    production_frame, production_message, production_message_selection, +visual => selection => code => appearance => access => open => layers => execution => family => {==}, composer_footer, property_minimum}
+    production_frame, production_message, production_message_selection, supporting_flow, composer_footer, property_minimum}

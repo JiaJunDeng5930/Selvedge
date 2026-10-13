@@ -19,7 +19,13 @@ The property factories consume context observations and world resource lookups.
 Their getters expose the current value, provenance, owner and field identities;
 `property_support` applies the actual action scope to those identities.
 
-`requirements`, `can_prepare` and `assess` share the production command guards.
+`property_summary` derives the compact current choice. `property_source_description`
+provides readable provenance; `property_help` retains full accessible help.
+`attention_obstruction` selects the next repair from the complete assessment, and
+`property_obstruction` correlates it with the actual property fields and editor.
+
+`draft_requirements` and `draft_can_prepare` share the production command guards
+and revision-correlated workspace failures with presentation and admission.
 Assessment getters retain individual obstructions and the original action identity.
 Directory observation is an explicit next step in the assessment, before actual
 command resolution. The complete observation and guard equations are assembled
@@ -28,3 +34,6 @@ by the owning production evidence in [PROOF.bend](PROOF.bend).
 Permission observations track filesystem/network and approval provenance separately.
 Project selection changes directory provenance; permissions inherit environment
 defaults or the parent task unless that individual permission choice is overridden.
+
+The session owns source intent in its actual open layer; presentation consumes
+that intent together with these observations through `property_source_nodes`.

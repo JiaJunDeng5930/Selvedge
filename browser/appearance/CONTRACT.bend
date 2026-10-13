@@ -15,6 +15,7 @@ import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../../interaction/TYPES.bend as InteractionTypes
 import ./FONT.bend as F
 import ./PROGRAM.bend as Paint
+import ../../interaction/experience/MODEL.bend as UXTypes
 import ../document/MODEL.bend as Doc
 
 law stale:
@@ -452,3 +453,10 @@ type Requirements is Type:
 
 law evidence:
   Requirements
+
+# Glyph floor is distinct from the source text demand measured by layout.
+law property_glyph_minimum:
+  for property: UXTypes.Property
+  for text: T.Presentation
+  for +geometry: Controls.Geometry
+  {Appearance.intrinsic_content_height(Controls.PropertyFace{property}, text, geometry) == Appearance.geometry_icon_size(geometry) : Nat}

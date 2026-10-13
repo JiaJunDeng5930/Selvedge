@@ -747,7 +747,7 @@ def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +pare
 
 def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match context:
-    case Some{value}: [Model.context_summary_node(Context.CommittedExecution{value}, parent, state)]
+    case Some{+value}: [Model.permission_context_summary(U.MessageEditor{View.context_task(value)}, Context.CommittedExecution{value}, parent, state)]
     case None{}: Model.unavailable_context("Task execution context is unavailable", parent)
 
 def expected_permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -1020,9 +1020,9 @@ type ProjectInteractionRequirements is Type:
         V.ControlDeclaration{"composer/project", View.project_choice_label(View.creation_selected_project(context, world)), V.Secondary{},
           U.Activate{U.OpenPanel{U.ProjectPicker{}, "composer/project"}}, V.Available{}} : V.ControlDeclaration},
     picker_search_preserves_session: @+session:E.Session -> @+query:String -> @+world:M.World() -> @+trigger:String -> @+initial:String -> @previous:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
-      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest : +List<E.Layer>} ->
+      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}} <> rest : +List<E.Layer>} ->
        {E.search_choices(query, E.from_program(world, session)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest, session), Nil{}) : E.Decision},
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}} <> rest, session), Nil{}) : E.Decision},
     project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskEntry> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_entries([V.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectGroup{id, selected, expanded},
@@ -1137,15 +1137,15 @@ type SurfaceRequirements is Type:
         Some{SurfaceTypes.Node{node_key, semantic, label, role, SurfaceTypes.Activate{input, V.Available{}}, children}} : Maybe<&2, SurfaceTypes.Node>} ->
       {receipt(ModelModel.step(ModelModel.Element{capacity, key, SurfaceTypes.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt},
     existing_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+rest:+List<E.Layer> ->
       @present:{Model.layer_present(previous, E.panel_target(panel)) == True{} : Bool} ->
-      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence} <> rest, previous, origin) ==
-        E.Layer{panel, trigger, initial_attention, query, layer_occurrence} <> rest : +List<E.Layer>},
+      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded} <> rest, previous, origin) ==
+        E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded} <> rest : +List<E.Layer>},
     new_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+rest:+List<E.Layer> ->
       @absent:{Model.layer_present(previous, E.panel_target(panel)) == False{} : Bool} ->
-      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence} <> rest, previous, origin) ==
-        E.Layer{panel, origin, initial_attention, query, layer_occurrence} <> rest : +List<E.Layer>}}
+      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded} <> rest, previous, origin) ==
+        E.Layer{panel, origin, initial_attention, query, layer_occurrence, source_expanded} <> rest : +List<E.Layer>}}
 
 law surface_evidence:
   SurfaceRequirements
@@ -1630,7 +1630,7 @@ type ExperienceRequirements is Type:
     object_group_owner: @+title:String -> @+entries:+List<Forms.FieldScene> -> @+rest:+List<Forms.Section> -> @+editor:U.Editor -> @+parent:Identity.Key -> @+ordinal:Nat -> @+state:InteractionTypes.State -> @+groups:+List<V.InputGroup> ->
       {Model.sections(Forms.Section{title, entries} <> rest, editor, parent, ordinal, state, groups) == SurfaceTypes.Node{Identity.Entity{parent, "section", Nat.show(ordinal)}, "section/" ++ Nat.show(ordinal), title, SurfaceTypes.Section{}, SurfaceTypes.ObjectGroup{UX.group_owner(editor, Model.section_fields(entries))}, Model.fields(entries, editor, Identity.Entity{parent, "section", Nat.show(ordinal)}, state, groups)} <> Model.sections(rest, editor, parent, (ordinal + 1n : Nat), state, groups) : +List<SurfaceTypes.Node>},
     supporting_action: @+property:Experience.Property -> @+declaration:V.ControlDeclaration -> @+rest:+List<V.ComposerControl> -> @+action:Experience.ActionUnit -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-      {Model.supporting_controls(V.ComposerControl{property, declaration} <> rest, action, parent, state) == List.append(&2, SurfaceTypes.Node, Model.supporting_control_owned(UX.property_support(action, property), property, parent, Core.control(state, declaration), state), Model.supporting_controls(rest, action, parent, state)) : +List<SurfaceTypes.Node>},
+      {Model.supporting_controls(V.ComposerControl{property, declaration} <> rest, action, parent, state) == List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.supporting_control_owned(UX.property_support(action, property), property, parent, Core.control(state, declaration), state), Model.supporting_property_repair(UX.support_visible(UX.property_support(action, property)), property, parent, state)), Model.supporting_controls(rest, action, parent, state)) : +List<SurfaceTypes.Node>},
     admitted_model_mapping: @+subject:Experience.Subject -> @+observed:Forms.Observed -> @+profile:D.Profile -> @+rest:+List<D.Profile> ->
       {Model.admitted_model_alternatives(subject, observed, profile <> rest) == List.append(&2, Experience.Alternative, UX.decision_alternatives(UX.decision(subject, observed, "Model", Model.profile_alternatives([profile]))), Model.admitted_model_alternatives(subject, observed, rest)) : +List<Experience.Alternative>},
     decision_construction: @+decision:Experience.Decision -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
@@ -1649,9 +1649,9 @@ type ExperienceRequirements is Type:
 law experience_evidence:
   ExperienceRequirements
 
-def expected_assessed_editor_scene(+revision: Nat, +body: U.Body, feedback: U.Feedback, +waiting: Bool, now: U32, +world: M.World()) -> V.EditorScene:
+def expected_assessed_editor_scene(+revision: Nat, +body: U.Body, +feedback: U.Feedback, entry: String, +waiting: Bool, now: U32, +world: M.World()) -> V.EditorScene:
   +identity = U.owner(body)
-  +assessment = UX.assessed_requirements(UX.requirements(body, waiting, world), body, revision, now, world)
+  +assessment = UX.assessed_requirements(UX.draft_requirements(U.Draft{revision, body, feedback, entry}, waiting, world), body, revision, now, world)
   V.EditorScene{identity, revision, View.input_groups(body, world), Forms.structure(body), assessment,
     V.ControlDeclaration{"submit/" ++ U.editor_key(identity), View.submit_label(body), V.Primary{}, U.Activate{U.Submit{identity}},
       View.assessment_availability(assessment)}, feedback, waiting}
@@ -1659,7 +1659,7 @@ def expected_assessed_editor_scene(+revision: Nat, +body: U.Body, feedback: U.Fe
 law assessed_editor_scene:
   @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @entry:String -> @+pending:+List<E.Pending> -> @+now:U32 -> @+world:M.World() ->
   {View.editor_scene(U.Draft{revision, body, feedback, entry}, pending, now, world) ==
-    expected_assessed_editor_scene(revision, body, feedback, E.busy(pending, U.owner(body)), now, world) : V.EditorScene}
+    expected_assessed_editor_scene(revision, body, feedback, entry, E.busy(pending, U.owner(body)), now, world) : V.EditorScene}
 
 law available_assessment_preserved:
   @+assessment:Experience.Assessment ->
@@ -1697,3 +1697,50 @@ law context_summary_labels:
     SurfaceTypes.Node{Identity.Part{parent, "source"}, "context/source", "Execution context", SurfaceTypes.Content{}, SurfaceTypes.ContextSummary{observation},
       [SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "source"}, "workspace-source"}, "context/workspace-source", "Working directories · " ++ View.execution_source_summary(observation, E.program(Core.application(state))), SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Working directories · " ++ View.execution_source_summary(observation, E.program(Core.application(state)))}, Nil{}},
        SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "source"}, "permissions"}, "context/permissions", Model.observation_facts(observation), SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{Model.observation_facts(observation)}, Nil{}}]} : SurfaceTypes.Node}
+
+law passive_obstruction_has_no_paragraph:
+  @+obstruction:Experience.Obstruction -> @+assessment:Experience.Assessment -> @+parent:Identity.Key -> @passive:{UX.passive_obstruction(obstruction) == True{} : Bool} ->
+  {Model.visible_action_obstruction_selected(UX.passive_obstruction(obstruction), obstruction, assessment, parent) == Nil{} : +List<SurfaceTypes.Node>}
+
+law workspace_failure_is_not_global_feedback:
+  @editor:U.Editor -> @revision:Nat -> @reason:String -> @parent:Identity.Key ->
+  {Model.action_feedback_nodes(editor, U.WorkspaceRejected{revision, reason}, parent) == Nil{} : +List<SurfaceTypes.Node>}
+
+law property_source_hidden_until_requested:
+  @property:Experience.Property -> @parent:Identity.Key ->
+  {Model.property_source_details(False{}, property, parent) == Nil{} : +List<SurfaceTypes.Node>}
+
+law requested_property_source_is_owner_observation:
+  @+property:Experience.Property -> @+parent:Identity.Key ->
+  {Model.property_source_details(True{}, property, parent) == [Model.approval_fact(parent, "property-source/details", "Source", UX.property_source_description(property))] : +List<SurfaceTypes.Node>}
+
+law property_source_uses_actual_top_layer:
+  @+property:Experience.Property -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.property_source_nodes(property, parent, state) ==
+    Model.approval_fact(parent, "property-scope", "Scope", Model.property_scope(UX.property_editor(property))) <>
+      Model.property_source_controls(property, parent, state) : +List<SurfaceTypes.Node>}
+
+law property_source_controls_use_actual_top_layer:
+  @+property:Experience.Property -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.property_source_controls(property, parent, state) ==
+    Model.property_source_toggle(UX.property_editor(property), parent, state) <>
+      Model.property_source_details(E.property_source_expanded(E.layers(E.session(Core.application(state))), UX.property_editor(property)), property, parent) : +List<SurfaceTypes.Node>}
+
+law workspace_current_retains_context_observation:
+  @+preview:Context.Preview -> @+parent:Identity.Key ->
+  {Model.workspace_current_context(preview, parent) == SurfaceTypes.Node{Identity.Part{parent, "workspace/current"}, "workspace/current", UX.workspace_paths(Model.context_workspace(preview)), SurfaceTypes.Content{}, SurfaceTypes.ContextSummary{Context.DraftExecution{preview}}, Nil{}} : SurfaceTypes.Node}
+
+law permission_scope_retains_context_observation:
+  @+editor:U.Editor -> @+observation:Context.Observation -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.permission_context_summary(editor, observation, parent, state) == SurfaceTypes.Node{Identity.Part{parent, "property-scope"}, "property-scope", Model.property_scope(editor), SurfaceTypes.Content{}, SurfaceTypes.ContextSummary{observation}, Model.property_source_controls(UX.permissions_property(editor, observation), parent, state)} : SurfaceTypes.Node}
+
+law property_source_toggle_uses_actual_control:
+  @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.property_source_toggle(editor, parent, state) ==
+    Model.property_source_toggle_control(E.property_source_expanded(E.layers(E.session(Core.application(state))), editor), parent,
+      Core.control(state, V.ControlDeclaration{"property-source/" ++ U.editor_key(editor), "Source of these settings", V.Secondary{}, U.TogglePropertySource{editor}, V.Available{}})) : SurfaceTypes.Node}
+
+law property_source_toggle_exposes_expansion:
+  @+identity:String -> @label:String -> @+prominence:V.Prominence -> @input:InteractionTypes.Input -> @availability:V.Availability -> @expanded:Bool -> @+parent:Identity.Key ->
+  {Model.property_source_toggle_control(expanded, parent, InteractionTypes.Control{identity, label, prominence, input, availability}) ==
+    SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, Model.action_role(prominence), SurfaceTypes.PanelToggle{expanded, input, availability}, Nil{}} : SurfaceTypes.Node}

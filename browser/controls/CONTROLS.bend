@@ -13,6 +13,7 @@ import ../appearance/DESIGN.bend as Design
 import ../layout/physical-space.bend as Model
 import ../layout/GEOMETRY.bend as Spatial
 import ../layout/enclosure.bend as Enclosure
+import ../layout/ACTIVITY.bend as Activity
 import ../appearance/TYPOGRAPHY.bend as T
 import ../document/MODEL.bend as Doc
 import ../editor/MODEL.bend as EditorLayout
@@ -184,10 +185,15 @@ def face_leading_slot(value: Controls.Geometry) -> Nat:
   Controls.Geometry{demand, size, radius, slot} = value
   slot
 
+def property_part_captions(parts: +List<String>, +key: UIIdentity.Key, +parent: Design.Style, +index: Nat) -> +List<Source.Node>:
+  match parts:
+    case Nil{}: Nil{}
+    case Con{part, rest}:
+      caption(UIIdentity.entity(key, "part", Nat.show(index)), part, parent, T.UnbrokenLine{}) <> property_part_captions(rest, key, parent, Nat.add(index, 1n))
+
 def property_text(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
-  [Source.Text{UIIdentity.part(key, "property-title"), UX.property_title(property), Source.ExplicitFont{T.supporting(parent_font(parent))}, T.NormalWords{}},
-         caption(UIIdentity.part(key, "property-value"), UX.property_value(property), parent, T.UnbrokenLine{}),
-         Source.Text{UIIdentity.part(key, "property-detail"), UX.property_detail(property), Source.ExplicitFont{T.supporting(parent_font(parent))}, T.NormalWords{}}]
+  +parts_key = UIIdentity.part(key, "property-value")
+  [Source.Box{parts_key, Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, property_part_captions(UX.property_summary_parts(property), parts_key, parent, 0n)}]
 
 def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   match value:
@@ -199,7 +205,7 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.UnbrokenIconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.PropertyFace{+property}:
       List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
-      [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 2n), Nil{},
+      [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{},
         property_text(property, key, parent)},
        glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
     case Controls.PickerFace{leading, text}:
@@ -353,6 +359,19 @@ def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Desi
     case Controls.DirectoryList{}: Nat.max(1n, Nat.div(Design.input_maximum_height(parameters), Nat.max(1n, T.resolved_line_height(T.resolved(parent_font(visual))))))
     case _: 1n
 
+def native_minimum_lines(widget: Controls.Widget) -> Nat:
+  match widget:
+    case Controls.MessageInput{}: Activity.writing_lines(Activity.initial())
+    case _: 1n
+
+def native_field_policy(widget: Controls.Widget, maximum_lines: Nat) -> Source.FieldPolicy:
+  +minimum = native_minimum_lines(widget)
+  Source.field_policy(0n, Nat.sub(minimum, 1n), Nat.sub(Nat.max(minimum, maximum_lines), minimum))
+
+def policy_minimum_lines(policy: Source.FieldPolicy) -> Nat:
+  Source.FieldPolicy{columns, minimum, maximum} = policy
+  minimum
+
 def label_attributes(value: Controls.LabelPlacement, key: UIIdentity.Key) -> +List<Source.Attribute>:
   match value:
     case Controls.AccessibleOnly{}: Nil{}
@@ -411,6 +430,10 @@ def request_content(request: InputFieldRequest) -> FieldContent:
   InputFieldRequest{binding, content, protocol} = request
   content
 
+def request_policy(request: InputFieldRequest) -> Source.FieldPolicy:
+  InputFieldRequest{binding, FieldContent{kind, style, value, placeholder, options, policy, name}, protocol} = request
+  policy
+
 def request_protocol(request: InputFieldRequest) -> FieldProtocol:
   InputFieldRequest{binding, content, protocol} = request
   protocol
@@ -422,7 +445,7 @@ def expected_input_attributes(+key: UIIdentity.Key, input: Controls.FormInput) -
 def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, parameters: Design.LayoutParameters) -> InputFieldRequest:
   Controls.FormInput{+meaning, +name, +widget, label, availability} = input
   InputFieldRequest{FieldBinding{key, expected_input_attributes(key, input)},
-    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(widget, visual, parameters), 1n)), name},
+    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), native_field_policy(widget, maximum_lines(widget, visual, parameters)), name},
     FieldProtocol{enabled(availability), field_first_event(widget, key), field_remaining_events(widget, key)}}
 
 def interpret_input_field(label: Controls.LabelPlacement, key: UIIdentity.Key, name: String, visual: Design.Style, request: InputFieldRequest) -> Source.Node:

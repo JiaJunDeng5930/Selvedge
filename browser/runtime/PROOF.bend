@@ -1177,7 +1177,7 @@ def Rule.request_evidence():
     state_stale_evidence,
     +pending => +ticket => consumed_ticket(pending, ticket),
     unrelated_pending,
-    revision => body => feedback => directory_entry => submitted => reason => {==},
+    revision => +body => feedback => directory_entry => submitted => +reason => {==},
     state_uncertain_evidence,
     id => message => {==}}
 

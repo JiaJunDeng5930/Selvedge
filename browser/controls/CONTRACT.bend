@@ -19,6 +19,7 @@ import ../appearance/DESIGN.bend as Design
 import ../appearance/MODEL.bend as Appearance
 import ../reading/MODEL.bend as Reading
 import ../layout/enclosure.bend as E
+import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/VIEW.bend as View2
@@ -1073,7 +1074,7 @@ type ContextControlRequirements is Type:
     property_contents: @+property:UXTypes.Property -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
       {A.face_members(Controls.PropertyFace{property}, key, parent, geometry) ==
         List.append(&2, S.Node, A.leading_icon(Controls.property_icon(property), key, parent, A.face_icon_size(geometry)),
-        [S.Box{UIIdentity.part(key, "value"), S.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 2n), Nil{}, A.property_text(property, key, parent)},
+        [S.Box{UIIdentity.part(key, "value"), S.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, A.property_text(property, key, parent)},
          A.glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, A.face_icon_size(geometry))]) : +List<S.Node>},
     initial_execution: @+content:InteractionTypes.Scene -> {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2,Context.Observation>},
     draft_permission_face: @+origin:Context.Origin -> @+project:Maybe<&2,Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> {Controls.permission_face(Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}) == Controls.permission_values_face(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : Controls.Face},
@@ -1422,15 +1423,51 @@ law focus_ownership_evidence:
   FocusOwnershipRequirements
 
 
+law property_part_captions_empty:
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  for index: Nat
+  {A.property_part_captions(Nil{}, key, parent, index) == Nil{} : +List<S.Node>}
+
+law property_part_captions_complete:
+  for part: String
+  for rest: +List<String>
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  for +index: Nat
+  {A.property_part_captions(part <> rest, key, parent, index) ==
+    A.caption(UIIdentity.entity(key, "part", Nat.show(index)), part, parent, T.UnbrokenLine{}) <> A.property_part_captions(rest, key, parent, Nat.add(index, 1n)) : +List<S.Node>}
+
 law property_current_values:
   for +property: UXTypes.Property
   for +key: UIIdentity.Key
   for +parent: Design.Style
   {A.property_text(property, key, parent) ==
-    [S.Text{UIIdentity.part(key, "property-title"), UX.property_title(property), S.ExplicitFont{T.supporting(A.parent_font(parent))}, T.NormalWords{}},
-     A.caption(UIIdentity.part(key, "property-value"), UX.property_value(property), parent, T.UnbrokenLine{}),
-     S.Text{UIIdentity.part(key, "property-detail"), UX.property_detail(property), S.ExplicitFont{T.supporting(A.parent_font(parent))}, T.NormalWords{}}] : +List<S.Node>}
+    [S.Box{UIIdentity.part(key, "property-value"), S.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, A.property_part_captions(UX.property_summary_parts(property), UIIdentity.part(key, "property-value"), parent, 0n)}] : +List<S.Node>}
 
 law property_caption_wraps:
   for property: UXTypes.Property
   {Controls.caption_wrapping(Controls.PropertyFace{property}) == T.UnbrokenLine{} : T.Wrapping}
+
+# Native policy owns the writing-line count; layout resolves its measured height.
+law native_field_policy_correspondence:
+  for +widget: Controls.Widget
+  for +maximum_lines: Nat
+  {A.native_field_policy(widget, maximum_lines) ==
+    S.field_policy(0n, Nat.sub(A.native_minimum_lines(widget), 1n), Nat.sub(Nat.max(A.native_minimum_lines(widget), maximum_lines), A.native_minimum_lines(widget))) : S.FieldPolicy}
+
+law native_message_minimum_lines:
+  for maximum_lines: Nat
+  {A.policy_minimum_lines(A.native_field_policy(Controls.MessageInput{}, maximum_lines)) == Activity.writing_lines(Activity.initial()) : Nat}
+
+law native_input_policy:
+  for +key: UIIdentity.Key
+  for meaning: SurfaceTypes.Meaning
+  for name: String
+  for +widget: Controls.Widget
+  for label: Controls.LabelPlacement
+  for availability: View.Availability
+  for +visual: Design.Style
+  for +parameters: Design.LayoutParameters
+  {A.request_policy(A.native_input_request(key, Controls.FormInput{meaning, name, widget, label, availability}, visual, parameters)) ==
+    A.native_field_policy(widget, A.maximum_lines(widget, visual, parameters)) : S.FieldPolicy}

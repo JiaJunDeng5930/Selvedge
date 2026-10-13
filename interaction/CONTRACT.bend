@@ -79,6 +79,7 @@ type Requirements is Type:
 def original_submission_blocked_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Bool:
   match input:
     case E.UserInput{U.Activate{U.Submit{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{U.RetryWorkspace{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
     case E.UserInput{U.Activate{U.ConfirmAction{}}}: Bool.not(Services.connected(access))
     case E.UserInput{U.Activate{action}}: Core.command_offline(U.direct_command(action), access)
     case _: False{}

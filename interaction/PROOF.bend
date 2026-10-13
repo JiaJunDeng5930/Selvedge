@@ -157,6 +157,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.ForkTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ForkTask{p0}), access))
     case E.UserInput{U.Activate{U.CompactTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CompactTask{p0}), access))
     case E.UserInput{U.Activate{U.Submit{+p0}}}: Contract.service_submit_obstruction(Services.connected(access), Services.blocks(p0, transfers))
+    case E.UserInput{U.Activate{U.RetryWorkspace{+p0}}}: Contract.service_submit_obstruction(Services.connected(access), Services.blocks(p0, transfers))
     case E.UserInput{U.Activate{U.ControlTask{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ControlTask{p0, p1}), access))
     case E.UserInput{U.Activate{U.CancelOperation{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CancelOperation{p0, p1}), access))
     case E.UserInput{U.Activate{U.ReviewApproval{+p0, +p1, +p2, +p3}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ReviewApproval{p0, p1, p2, p3}), access))
@@ -171,6 +172,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.SetDisclosure{+p0, +p1, +p2, +p3}}: {==}
     case E.UserInput{U.SetNavigation{+p0}}: {==}
     case E.UserInput{U.SearchChoices{+p0}}: {==}
+    case E.UserInput{U.TogglePropertySource{+p0}}: {==}
     case E.UserInput{U.FilterBoard{+p0}}: {==}
     case E.RuntimeInput{+p0}: {==}
     case E.ProgramObserved{+p0}: {==}

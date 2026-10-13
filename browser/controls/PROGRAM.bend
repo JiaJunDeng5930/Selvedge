@@ -468,6 +468,7 @@ def board_command(command: Board.Command) -> Purpose:
 def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Selection, +layers: +List<View.Layer>) -> Purpose:
   match action:
     case UserInput.Submit{editor}: submit_purpose(editor)
+    case UserInput.RetryWorkspace{editor}: NamedAction{}
     case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
     case UserInput.BeginTask{None{}}: CreateItem{}
     case UserInput.BeginTask{Some{project}}: ProjectTaskCreation{}

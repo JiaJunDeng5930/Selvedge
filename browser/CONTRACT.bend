@@ -71,6 +71,7 @@ def RetainedEntry(found: Maybe<&2, U.Draft>) -> Type:
     case None{}: Unit
     case Some{U.Draft{revision, body, U.Editing{}, directory_entry}}: Unit
     case Some{U.Draft{revision, body, U.Rejected{revision, reason}, directory_entry}}: Unit
+    case Some{U.Draft{revision, body, U.WorkspaceRejected{revision, reason}, directory_entry}}: Unit
     case Some{U.Draft{revision, body, U.Accepted{revision, reply}, directory_entry}}: Empty
 
 def Retained(drafts: +List<U.Draft>, editors: +List<Editor.Editor>) -> Type:

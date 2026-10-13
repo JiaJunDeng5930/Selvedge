@@ -590,10 +590,10 @@ type RequestRequirements is Type:
     other_pending: @+entry:Legacy.Pending -> @+rest:+List<Legacy.Pending> -> @+ticket:Nat ->
       @distinct:{Nat.is_eq(Legacy.ticket_of(entry), ticket) == False{} : Bool} ->
       {Legacy.remove(entry <> rest, ticket) == entry <> Legacy.remove(rest, ticket) : +List<Legacy.Pending>},
-    rejected_draft: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @directory_entry:String -> @submitted:Nat -> @reason:String ->
+    rejected_draft: @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @directory_entry:String -> @submitted:Nat -> @+reason:String ->
       {E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted,
           D.failure("command_not_submitted", reason)) ==
-          U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft},
+          U.Draft{revision, body, E.command_rejection_feedback(body, submitted, D.failure("command_not_submitted", reason)), directory_entry} : U.Draft},
     uncertain: @+model_state:Legacy.State ->  @ticket:Nat -> @reason:String -> {Legacy.failed_completion(ticket, reason, Legacy.with_receipt(None{}, model_state)) ==
         Legacy.Decision{Legacy.with_receipt(None{}, Legacy.with_pending(Legacy.uncertain_pending(Legacy.pending(model_state), ticket, reason), model_state)), Nil{}} : Legacy.Decision},
     other_command: @id:Nat -> @message:String -> {Legacy.request_payload(M.Send{id, message}) == Codec.command_json(M.Send{id, message}) : J.Json}}

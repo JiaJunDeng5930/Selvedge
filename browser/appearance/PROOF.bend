@@ -479,3 +479,5 @@ def Rule.evidence():
     +typography => meaning => {==},
     +typography => meaning => {==},
     +typography => meaning => {==}}
+
+def Rule.property_glyph_minimum(property, text, geometry): {==}

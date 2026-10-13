@@ -502,6 +502,14 @@ def property_fields(property: M.Property) -> +List<Forms.Field>:
 def property_subjects(+property: M.Property) -> +List<M.Subject>:
   subjects(property_fields(property), property_editor(property))
 
+def first_property_field(fields: +List<Forms.Field>) -> Forms.Field:
+  match fields:
+    case Con{field, rest}: field
+    case Nil{}: Forms.MessageText{}
+
+def property_repair_field(property: M.Property) -> Forms.Field:
+  first_property_field(property_fields(property))
+
 def property_owner(+property: M.Property) -> M.Object:
   group_owner(property_editor(property), property_fields(property))
 
@@ -612,6 +620,56 @@ def property_value(property: M.Property) -> String:
     case M.PermissionsObservation{editor, observation}: permission_value(observation)
     case M.ModelObservation{editor, profile, effort, found}: model_value(profile, found)
     case M.DeliveryObservation{editor, delivery}: U.delivery_caption(delivery)
+
+def summary_network_parts(enabled: Bool) -> +List<String>:
+  match enabled:
+    case True{}: ["Network on"]
+    case False{}: Nil{}
+
+def summary_approval_parts(choice: Context.ApprovalChoice) -> +List<String>:
+  match choice:
+    case Context.Unrestricted{}: ["Unrestricted"]
+    case _: Nil{}
+
+def summary_parts_join(parts: +List<String>) -> String:
+  match parts:
+    case Nil{}: ""
+    case Con{part, Nil{}}: part
+    case Con{part, rest}: part ++ " · " ++ summary_parts_join(rest)
+
+def sandbox_summary_parts(sandbox: D.Sandbox, choice: Context.ApprovalChoice) -> +List<String>:
+  D.Sandbox{mode, network} = sandbox
+  D.sandbox_mode_name(mode) <> List.append(&2, String, summary_network_parts(network), summary_approval_parts(choice))
+
+def committed_summary_parts(access: D.ExecutionAccess, sandbox: D.Sandbox, choice: Context.ApprovalChoice) -> +List<String>:
+  match access:
+    case D.Unrestricted{}: "Full access" <> List.append(&2, String, summary_network_parts(True{}), summary_approval_parts(choice))
+    case D.Sandboxed{}: sandbox_summary_parts(sandbox, choice)
+
+def permission_summary_parts(observation: Context.Observation) -> +List<String>:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: ["Unavailable"]
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      sandbox_summary_parts(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval))
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}:
+      committed_summary_parts(access, sandbox, Context.approval_choice(approval))
+
+def summary_permissions(sandbox: D.Sandbox, choice: Context.ApprovalChoice) -> String:
+  summary_parts_join(sandbox_summary_parts(sandbox, choice))
+
+def permission_summary(observation: Context.Observation) -> String:
+  summary_parts_join(permission_summary_parts(observation))
+
+def property_summary_parts(property: M.Property) -> +List<String>:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: [project_value(selected, found)]
+    case M.WorkspaceObservation{editor, observation, source}: [primary_value(observed_workspace(observation))]
+    case M.PermissionsObservation{editor, observation}: permission_summary_parts(observation)
+    case M.ModelObservation{editor, profile, effort, found}: [model_value(profile, found) ++ " · " ++ effort]
+    case M.DeliveryObservation{editor, delivery}: [U.delivery_caption(delivery)]
+
+def property_summary(property: M.Property) -> String:
+  summary_parts_join(property_summary_parts(property))
 
 def origin_detail(origin: Context.Origin) -> String:
   match origin:
@@ -757,10 +815,36 @@ def source_name(source: Maybe<&2, D.Project>) -> String:
     case None{}: ""
     case Some{D.Project{name, workspace, guidance}}: " · " ++ name
 
+def permission_source_description(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: reason
+    case Context.DraftExecution{Context.ProspectiveContext{+origin, project, workspace, sandbox, approval, guidance}}:
+      "Filesystem and network: " ++ sandbox_source_label(origin, sandbox) ++ "\nApproval: " ++ approval_source_label(origin, approval)
+    case Context.CommittedExecution{Context.EffectiveContext{+task, context, guidance, access}}:
+      "Filesystem and network: Task " ++ Nat.show(task) ++ "\nApproval: Task " ++ Nat.show(task)
+
+def model_source_description(editor: U.Editor) -> String:
+  match editor:
+    case U.NewTaskEditor{}: "Configured model list for this new task"
+    case U.MessageEditor{task}: "Configured model list for this task"
+    case U.AgentEditor{agent}: "Configured model list for this agent profile"
+    case U.ForkEditor{task}: "Configured model list for the new fork"
+    case _: "Configured model list for this editor"
+
+def property_source_description(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, None{}, found}: "Environment defaults"
+    case M.ProjectObservation{editor, Some{id}, None{}}: "The selected project is no longer available"
+    case M.ProjectObservation{editor, Some{id}, Some{project}}: "Project configuration"
+    case M.WorkspaceObservation{editor, observation, source}: workspace_detail(observation) ++ source_name(source)
+    case M.PermissionsObservation{editor, observation}: permission_source_description(observation)
+    case M.ModelObservation{editor, profile, effort, found}: model_source_description(editor)
+    case M.DeliveryObservation{editor, delivery}: "Message delivery for this task"
+
 def property_help(+property: M.Property) -> String:
   match property:
     case M.WorkspaceObservation{editor, +observation, source}:
-      workspace_detail(observation) ++ source_name(source) ++ " · " ++ observation_source(observation) ++ "\n" ++ workspace_paths(observed_workspace(observation))
+      property_source_description(M.WorkspaceObservation{editor, observation, source}) ++ "\n" ++ workspace_paths(observed_workspace(observation))
     case M.PermissionsObservation{editor, +observation}:
       "Permissions: " ++ permission_value(observation) ++ " · " ++ permission_detail(observation) ++ "\n" ++ permission_source_detail(observation)
     case _: property_title(property) ++ ": " ++ property_value(property) ++ " · " ++ property_detail(property)
@@ -863,6 +947,30 @@ def requirements_empty(requirements: +List<M.Obstruction>) -> Bool:
     case Nil{}: True{}
     case Con{obstruction, rest}: False{}
 
+def workspace_rejection_current(feedback: U.Feedback, revision: Nat) -> Bool:
+  match feedback:
+    case U.WorkspaceRejected{submitted, reason}: Nat.is_eq(submitted, revision)
+    case _: False{}
+
+def workspace_rejection_reason(feedback: U.Feedback) -> String:
+  match feedback:
+    case U.WorkspaceRejected{revision, reason}: reason
+    case _: ""
+
+def known_workspace_requirement(current: Bool, editor: U.Editor, reason: String) -> +List<M.Obstruction>:
+  match current:
+    case True{}: [obstruction(editor, Forms.WorkspaceDirectories{}, "workspace_observation_failed", reason)]
+    case False{}: Nil{}
+
+def draft_requirements(draft: U.Draft, pending: Bool, world: World.World()) -> +List<M.Obstruction>:
+  U.Draft{revision, +body, +feedback, entry} = draft
+  List.append(&2, M.Obstruction,
+    known_workspace_requirement(workspace_rejection_current(feedback, revision), U.owner(body), workspace_rejection_reason(feedback)),
+    requirements(body, pending, world))
+
+def draft_can_prepare(draft: U.Draft, pending: Bool, world: World.World()) -> Bool:
+  requirements_empty(draft_requirements(draft, pending, world))
+
 def can_prepare(body: U.Body, pending: Bool, world: World.World()) -> Bool:
   requirements_empty(requirements(body, pending, world))
 
@@ -926,6 +1034,67 @@ def first_field(obstructions: +List<M.Obstruction>) -> Maybe<&2, M.Subject>:
   match obstructions:
     case Nil{}: None{}
     case Con{first, rest}: obstruction_field(first)
+
+def field_member(fields: +List<Forms.Field>, +field: Forms.Field) -> Bool:
+  match fields:
+    case Nil{}: False{}
+    case Con{current, rest}: String.eq(Forms.key(current), Forms.key(field)) || field_member(rest, field)
+
+def property_subject_matches(+property: M.Property, subject: Maybe<&2, M.Subject>) -> Bool:
+  match subject:
+    case None{}: False{}
+    case Some{M.Subject{editor, field}}: U.same_editor(property_editor(property), editor) && field_member(property_fields(property), field)
+
+def obstruction_has_field(field: Maybe<&2, M.Subject>) -> Bool:
+  match field:
+    case None{}: False{}
+    case Some{subject}: True{}
+
+def passive_obstruction(obstruction: M.Obstruction) -> Bool:
+  M.Obstruction{target, field, +code, message} = obstruction
+  String.eq(code, "empty_message") || String.eq(code, "pending")
+
+def attention_obstruction_select(passive: Bool, obstruction: M.Obstruction, rest: Maybe<&2, M.Obstruction>) -> Maybe<&2, M.Obstruction>:
+  match passive:
+    case True{}: rest
+    case False{}: Some{obstruction}
+
+def attention_obstruction_list(obstructions: +List<M.Obstruction>) -> Maybe<&2, M.Obstruction>:
+  match obstructions:
+    case Nil{}: None{}
+    case Con{+obstruction, rest}: attention_obstruction_select(passive_obstruction(obstruction), obstruction, attention_obstruction_list(rest))
+
+def attention_obstruction(assessment: M.Assessment) -> Maybe<&2, M.Obstruction>:
+  attention_obstruction_list(assessment_obstructions(assessment))
+
+def matched_obstruction(matches: Bool, obstruction: M.Obstruction) -> Maybe<&2, M.Obstruction>:
+  match matches:
+    case True{}: Some{obstruction}
+    case False{}: None{}
+
+def property_obstruction_found(property: M.Property, found: Maybe<&2, M.Obstruction>) -> Maybe<&2, M.Obstruction>:
+  match found:
+    case None{}: None{}
+    case Some{+obstruction}: matched_obstruction(property_subject_matches(property, obstruction_field(obstruction)), obstruction)
+
+def property_obstruction(property: M.Property, assessment: M.Assessment) -> Maybe<&2, M.Obstruction>:
+  property_obstruction_found(property, attention_obstruction(assessment))
+
+def same_subject(+left: M.Subject, +right: M.Subject) -> Bool:
+  String.eq(subject_key(left), subject_key(right))
+
+def subject_obstruction_matches(subject: M.Subject, field: Maybe<&2, M.Subject>) -> Bool:
+  match field:
+    case None{}: False{}
+    case Some{field}: same_subject(subject, field)
+
+def subject_obstruction_found(subject: M.Subject, found: Maybe<&2, M.Obstruction>) -> Maybe<&2, M.Obstruction>:
+  match found:
+    case None{}: None{}
+    case Some{+obstruction}: matched_obstruction(subject_obstruction_matches(subject, obstruction_field(obstruction)), obstruction)
+
+def subject_obstruction(subject: M.Subject, assessment: M.Assessment) -> Maybe<&2, M.Obstruction>:
+  subject_obstruction_found(subject, attention_obstruction(assessment))
 
 def assessment_reason(assessment: M.Assessment) -> String:
   first_reason(assessment_obstructions(assessment))

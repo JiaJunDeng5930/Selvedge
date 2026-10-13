@@ -44,6 +44,22 @@ def property_value_meaning(property: M.Property) -> String:
     case M.PermissionsObservation{editor, observation}: P.permission_value(observation)
     case M.ModelObservation{editor, profile, effort, found}: P.model_value(profile, found)
     case M.DeliveryObservation{editor, delivery}: U.delivery_caption(delivery)
+def property_summary_meaning(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: P.project_value(selected, found)
+    case M.WorkspaceObservation{editor, observation, source}: P.primary_value(P.observed_workspace(observation))
+    case M.PermissionsObservation{editor, observation}: P.permission_summary(observation)
+    case M.ModelObservation{editor, profile, effort, found}: P.model_value(profile, found) ++ " · " ++ effort
+    case M.DeliveryObservation{editor, delivery}: U.delivery_caption(delivery)
+
+def property_summary_parts_meaning(property: M.Property) -> +List<String>:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: [P.project_value(selected, found)]
+    case M.WorkspaceObservation{editor, observation, source}: [P.primary_value(P.observed_workspace(observation))]
+    case M.PermissionsObservation{editor, observation}: P.permission_summary_parts(observation)
+    case M.ModelObservation{editor, profile, effort, found}: [P.model_value(profile, found) ++ " · " ++ effort]
+    case M.DeliveryObservation{editor, delivery}: [U.delivery_caption(delivery)]
+
 def property_detail_meaning(property: M.Property) -> String:
   match property:
     case M.ProjectObservation{editor, None{}, found}: "Optional"
@@ -61,10 +77,20 @@ def property_source_key_meaning(property: M.Property) -> String:
     case M.PermissionsObservation{editor, observation}: P.permission_source_key(observation)
     case M.ModelObservation{editor, profile, effort, found}: "model/" ++ profile
     case M.DeliveryObservation{editor, delivery}: U.editor_key(editor)
+def property_source_description_meaning(property: M.Property) -> String:
+  match property:
+    case M.ProjectObservation{editor, None{}, found}: "Environment defaults"
+    case M.ProjectObservation{editor, Some{id}, None{}}: "The selected project is no longer available"
+    case M.ProjectObservation{editor, Some{id}, Some{project}}: "Project configuration"
+    case M.WorkspaceObservation{editor, observation, source}: P.workspace_detail(observation) ++ P.source_name(source)
+    case M.PermissionsObservation{editor, observation}: P.permission_source_description(observation)
+    case M.ModelObservation{editor, profile, effort, found}: P.model_source_description(editor)
+    case M.DeliveryObservation{editor, delivery}: "Message delivery for this task"
+
 def property_help_meaning(+property: M.Property) -> String:
   match property:
     case M.WorkspaceObservation{editor, +observation, source}:
-      P.workspace_detail(observation) ++ P.source_name(source) ++ " · " ++ P.observation_source(observation) ++ "\n" ++ P.workspace_paths(P.observed_workspace(observation))
+      P.property_source_description(M.WorkspaceObservation{editor, observation, source}) ++ "\n" ++ P.workspace_paths(P.observed_workspace(observation))
     case M.PermissionsObservation{editor, +observation}:
       "Permissions: " ++ P.permission_value(observation) ++ " · " ++ P.permission_detail(observation) ++ "\n" ++ P.permission_source_detail(observation)
     case _: P.property_title(property) ++ ": " ++ P.property_value(property) ++ " · " ++ P.property_detail(property)
@@ -99,11 +125,31 @@ type SharedRequirements is Type:
     property_kind: @+property:M.Property -> {P.property_kind(property) == property_kind_meaning(property) : M.PropertyKind},
     property_state: @+property:M.Property -> {P.property_state(property) == property_state_meaning(property) : M.PropertyState},
     property_value: @+property:M.Property -> {P.property_value(property) == property_value_meaning(property) : String},
+    property_summary: @+property:M.Property -> {P.property_summary(property) == property_summary_meaning(property) : String},
+    sandbox_summary_parts: @mode:D.SandboxMode -> @network:Bool -> @choice:Context.ApprovalChoice ->
+      {P.sandbox_summary_parts(D.Sandbox{mode, network}, choice) == D.sandbox_mode_name(mode) <> List.append(&2, String, P.summary_network_parts(network), P.summary_approval_parts(choice)) : +List<String>},
+    committed_unrestricted_parts: @sandbox:D.Sandbox -> @choice:Context.ApprovalChoice ->
+      {P.committed_summary_parts(D.Unrestricted{}, sandbox, choice) == "Full access" <> List.append(&2, String, ["Network on"], P.summary_approval_parts(choice)) : +List<String>},
+    committed_sandboxed_parts: @sandbox:D.Sandbox -> @choice:Context.ApprovalChoice ->
+      {P.committed_summary_parts(D.Sandboxed{}, sandbox, choice) == P.sandbox_summary_parts(sandbox, choice) : +List<String>},
+    unavailable_permission_parts: @reason:String ->
+      {P.permission_summary_parts(Context.DraftExecution{Context.ContextUnavailable{reason}}) == ["Unavailable"] : +List<String>},
+    draft_permission_parts: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
+      {P.permission_summary_parts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}) == P.sandbox_summary_parts(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : +List<String>},
+    committed_permission_parts: @task:Nat -> @workspace:D.Workspace -> @+sandbox:D.Sandbox -> @+approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @guidance:D.ProjectContext -> @+access:D.ExecutionAccess ->
+      {P.permission_summary_parts(Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}) == P.committed_summary_parts(access, sandbox, Context.approval_choice(approval)) : +List<String>},
+    property_summary_parts: @+property:M.Property -> {P.property_summary_parts(property) == property_summary_parts_meaning(property) : +List<String>},
+    summary_network_enabled: {P.summary_network_parts(True{}) == ["Network on"] : +List<String>},
+    summary_network_disabled: {P.summary_network_parts(False{}) == Nil{} : +List<String>},
+    summary_unrestricted: {P.summary_approval_parts(Context.Unrestricted{}) == ["Unrestricted"] : +List<String>},
+    summary_ask: {P.summary_approval_parts(Context.Ask{}) == Nil{} : +List<String>},
+    summary_review: @profile:String -> {P.summary_approval_parts(Context.AutomaticReview{profile}) == Nil{} : +List<String>},
     property_detail: @+property:M.Property -> {P.property_detail(property) == property_detail_meaning(property) : String},
     permission_draft_sources: @+editor:U.Editor -> @+origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
       {P.property_source_key(P.permissions_property(editor, Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}})) == permission_draft_source_meaning(origin, sandbox, approval) : String},
     permission_committed_source: @editor:U.Editor -> @+task:Nat -> @context:D.TaskContext -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess ->
       {P.property_source_key(P.permissions_property(editor, Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}})) == "task/" ++ Nat.show(task) : String},
+    property_source_description: @+property:M.Property -> {P.property_source_description(property) == property_source_description_meaning(property) : String},
     property_source_key: @+property:M.Property -> {P.property_source_key(property) == property_source_key_meaning(property) : String},
     property_help: @+property:M.Property -> {P.property_help(property) == property_help_meaning(property) : String},
     property_fields: @+property:M.Property -> {P.property_fields(property) == P.kind_fields(P.property_kind(property)) : +List<Forms.Field>},
@@ -298,3 +344,56 @@ def identity_editor(identity: M.ActionIdentity) -> U.Editor:
 
 law experience_evidence:
   Requirements
+
+law draft_workspace_requirement:
+  @+revision:Nat -> @+submitted:Nat -> @+body:U.Body -> @+reason:String -> @entry:String -> @pending:Bool -> @world:World.World() ->
+  {P.draft_requirements(U.Draft{revision, body, U.WorkspaceRejected{submitted, reason}, entry}, pending, world) ==
+    List.append(&2, M.Obstruction, P.known_workspace_requirement(Nat.is_eq(submitted, revision), U.owner(body), reason), P.requirements(body, pending, world)) : +List<M.Obstruction>}
+
+law editing_draft_requirements:
+  @revision:Nat -> @+body:U.Body -> @entry:String -> @pending:Bool -> @world:World.World() ->
+  {P.draft_requirements(U.Draft{revision, body, U.Editing{}, entry}, pending, world) == P.requirements(body, pending, world) : +List<M.Obstruction>}
+
+law draft_preparation_requirements:
+  @draft:U.Draft -> @pending:Bool -> @world:World.World() ->
+  {P.draft_can_prepare(draft, pending, world) == P.requirements_empty(P.draft_requirements(draft, pending, world)) : Bool}
+
+law property_repair_observation:
+  @property:M.Property -> @assessment:M.Assessment ->
+  {P.property_obstruction(property, assessment) == P.property_obstruction_found(property, P.attention_obstruction(assessment)) : Maybe<&2, M.Obstruction>}
+
+law empty_message_obstruction_is_passive:
+  @target:M.Object -> @field:Maybe<&2, M.Subject> -> @reason:String ->
+  {P.passive_obstruction(M.Obstruction{target, field, "empty_message", reason}) == True{} : Bool}
+
+law permission_summary_retains_consequences:
+  @+mode:D.SandboxMode ->
+  {P.summary_permissions(D.Sandbox{mode, True{}}, Context.Unrestricted{}) == D.sandbox_mode_name(mode) ++ " · Network on" ++ " · Unrestricted" : String}
+
+law ordinary_permission_summary_is_compact:
+  @+mode:D.SandboxMode ->
+  {P.summary_permissions(D.Sandbox{mode, False{}}, Context.Ask{}) == D.sandbox_mode_name(mode) ++ "" ++ "" : String}
+
+def workspace_operation_meaning(body: U.Body) -> Bool:
+  match body:
+    case U.NewTask{message, profile, reasoning, context}: True{}
+    case U.Project{id, name, workspace}: True{}
+    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
+    case U.Fork{task, count, messages, context}: True{}
+    case U.Message{task, message, delivery}: False{}
+    case U.Card{id, revision, value, assist, profile, keep_open}: False{}
+    case U.Compact{task, summary}: False{}
+
+law workspace_operation_classification:
+  @+body:U.Body -> {U.workspace_operation(body) == workspace_operation_meaning(body) : Bool}
+
+law assessment_attention_uses_all_obstructions:
+  @assessment:M.Assessment -> {P.attention_obstruction(assessment) == P.attention_obstruction_list(P.assessment_obstructions(assessment)) : Maybe<&2, M.Obstruction>}
+
+law attention_keeps_first_repair:
+  @+obstruction:M.Obstruction -> @rest:+List<M.Obstruction> -> @repair:{P.passive_obstruction(obstruction) == False{} : Bool} ->
+  {P.attention_obstruction_list(obstruction <> rest) == Some{obstruction} : Maybe<&2, M.Obstruction>}
+
+law attention_skips_passive_obstruction:
+  @+obstruction:M.Obstruction -> @+rest:+List<M.Obstruction> -> @passive:{P.passive_obstruction(obstruction) == True{} : Bool} ->
+  {P.attention_obstruction_list(obstruction <> rest) == P.attention_obstruction_list(rest) : Maybe<&2, M.Obstruction>}

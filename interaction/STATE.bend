@@ -180,6 +180,7 @@ def action_obstruction(blocked: Bool) -> Maybe<&2, String>:
 def submission_obstruction_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Maybe<&2, String>:
   match input:
     case E.UserInput{U.Activate{U.Submit{editor}}}: submit_obstruction(Services.connected(access), Services.blocks(editor, transfers))
+    case E.UserInput{U.Activate{U.RetryWorkspace{editor}}}: submit_obstruction(Services.connected(access), Services.blocks(editor, transfers))
     case E.UserInput{U.Activate{U.ConfirmAction{}}}: action_obstruction(Bool.not(Services.connected(access)))
     case E.UserInput{U.Activate{action}}: action_obstruction(command_offline(U.direct_command(action), access))
     case _: None{}

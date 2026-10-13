@@ -104,10 +104,39 @@ def property_detail_equation(+property: M.Property) ->
     case M.DeliveryObservation{editor, U.Send{}}: {==}
     case M.DeliveryObservation{editor, U.Steer{}}: {==}
 
+def property_summary_equation(+property: M.Property) ->
+  {P.property_summary(property) == Rule.property_summary_meaning(property) : String}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_summary_parts_equation(+property: M.Property) ->
+  {P.property_summary_parts(property) == Rule.property_summary_parts_meaning(property) : +List<String>}:
+  match property:
+    case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
 def property_source_key_equation(+property: M.Property) ->
   {P.property_source_key(property) == Rule.property_source_key_meaning(property) : String}:
   match property:
     case M.ProjectObservation{editor, selected, found}: {==}
+    case M.WorkspaceObservation{editor, observation, source}: {==}
+    case M.PermissionsObservation{editor, observation}: {==}
+    case M.ModelObservation{editor, profile, effort, found}: {==}
+    case M.DeliveryObservation{editor, delivery}: {==}
+
+def property_source_description_equation(+property: M.Property) ->
+  {P.property_source_description(property) == Rule.property_source_description_meaning(property) : String}:
+  match property:
+    case M.ProjectObservation{editor, None{}, found}: {==}
+    case M.ProjectObservation{editor, Some{id}, None{}}: {==}
+    case M.ProjectObservation{editor, Some{id}, Some{project}}: {==}
     case M.WorkspaceObservation{editor, observation, source}: {==}
     case M.PermissionsObservation{editor, observation}: {==}
     case M.ModelObservation{editor, profile, effort, found}: {==}
@@ -164,9 +193,23 @@ def shared_evidence() -> Rule.SharedRequirements:
     +property => property_kind_equation(property),
     +property => property_state_equation(property),
     +property => property_value_equation(property),
+    +property => property_summary_equation(property),
+    mode => network => choice => {==},
+    sandbox => choice => {==},
+    sandbox => choice => {==},
+    reason => {==},
+    origin => project => workspace => +sandbox => +approval => guidance => {==},
+    task => workspace => +sandbox => +approval => project => guidance => +access => {==},
+    +property => property_summary_parts_equation(property),
+    {==},
+    {==},
+    {==},
+    {==},
+    profile => {==},
     +property => property_detail_equation(property),
     +editor => +origin => project => workspace => +sandbox => +approval => guidance => permission_draft_sources_equation(editor, origin, project, workspace, sandbox, approval, guidance),
     editor => +task => context => guidance => access => {==},
+    +property => property_source_description_equation(property),
     +property => property_source_key_equation(property),
     +property => property_help_equation(property),
     +property => {==},
@@ -314,3 +357,35 @@ def Rule.experience_evidence():
     {==},
     shared_evidence(),
     +editor => +revision => +reason => {==}}
+
+def Rule.draft_workspace_requirement(revision, submitted, body, reason, entry, pending, world): {==}
+def Rule.editing_draft_requirements(revision, body, entry, pending, world): {==}
+def Rule.draft_preparation_requirements(draft, pending, world): {==}
+def Rule.property_repair_observation(property, assessment): {==}
+
+def Rule.empty_message_obstruction_is_passive(target, field, reason): {==}
+
+def Rule.permission_summary_retains_consequences(mode):
+  match mode:
+    case D.WorkspaceWrite{}: {==}
+    case D.ReadOnly{}: {==}
+def Rule.ordinary_permission_summary_is_compact(mode):
+  match mode:
+    case D.WorkspaceWrite{}: {==}
+    case D.ReadOnly{}: {==}
+
+def Rule.workspace_operation_classification(body):
+  match body:
+    case U.NewTask{message, profile, reasoning, context}: {==}
+    case U.Project{id, name, workspace}: {==}
+    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: {==}
+    case U.Fork{task, count, messages, context}: {==}
+    case U.Message{task, message, delivery}: {==}
+    case U.Card{id, revision, value, assist, profile, keep_open}: {==}
+    case U.Compact{task, summary}: {==}
+
+def Rule.assessment_attention_uses_all_obstructions(assessment): {==}
+def Rule.attention_keeps_first_repair(obstruction, rest, repair):
+  Equal.cong(Bool, Maybe<&2, M.Obstruction>, passive => P.attention_obstruction_select(passive, obstruction, P.attention_obstruction_list(rest)), P.passive_obstruction(obstruction), False{}, repair)
+def Rule.attention_skips_passive_obstruction(obstruction, rest, passive):
+  Equal.cong(Bool, Maybe<&2, M.Obstruction>, hidden => P.attention_obstruction_select(hidden, obstruction, P.attention_obstruction_list(rest)), P.passive_obstruction(obstruction), True{}, passive)

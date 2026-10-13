@@ -24,3 +24,8 @@ order satisfies the pinned compiler's live-reference checks. Formal acceptance
 and focused construction checks completed; their scope is recorded in
 [the exploration notes](../../docs/bend2-exploration.md). Physical browser behavior
 and external effects remain separate verification boundaries.
+
+Normal physical receipts continue the production display calculation. A terminal
+failure uses the same recovery producer as the initial build, making its reason
+available through the existing recovery view. Utility measurement retains its
+own bounded fallback.

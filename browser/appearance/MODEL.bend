@@ -205,9 +205,9 @@ def work_description_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
   field_values(NaturalSize.limit(), value, 0n, 110n, radius)
 
-def message_field(capacity: Nat, +value: Design.Style) -> Design.Style:
+def message_field(+capacity: Nat, +value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
-  field_values(capacity, value, 0n, Activity.primary_minimum(Activity.initial()), radius)
+  field_values(capacity, value, 0n, 0n, radius)
 
 def normalize_text_field(kind: EditorLayout.FieldKind, value: Design.Style) -> Design.Style:
   match kind:
@@ -372,7 +372,8 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.SingleLineFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.UnbrokenIconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
-    case Controls.PropertyFace{property}: Nat.add(text_line_height(NaturalSize.limit(), text), Nat.add(text_line_height(NaturalSize.limit(), T.supporting(text)), Nat.add(text_line_height(NaturalSize.limit(), T.supporting(text)), 4n)))
+    # Property text demand is measured by layout/SOURCE; this is only the glyph floor.
+    case Controls.PropertyFace{property}: geometry_icon_size(geometry)
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
@@ -604,7 +605,9 @@ def alert_style(role: SurfaceTypes.Role, value: Design.Style) -> Design.Style:
 
 def activity_controls(role: SurfaceTypes.Role, context: Controls.Context, value: Design.Style) -> Design.Style:
   match role context:
-    case SurfaceTypes.Toolbar{} Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}: modeled_container(value, SpatialModel.SplitRowFlow{}, Activity.clearance(Activity.initial()))
+    case SurfaceTypes.Toolbar{} Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      modeled_container(Design.Style{text, chrome, SpatialModel.Leading{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.RowFlow{}, Activity.clearance(Activity.initial()))
     case SurfaceTypes.ComposerActions{} _:
       Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
       modeled_container(Design.Style{text, chrome, SpatialModel.Trailing{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.SplitRowFlow{}, Activity.clearance(Activity.initial()))

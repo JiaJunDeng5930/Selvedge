@@ -244,7 +244,8 @@
       "interaction/TYPES.bend",
       "browser/appearance/FONT.bend",
       "browser/appearance/PROGRAM.bend",
-      "browser/document/MODEL.bend"
+      "browser/document/MODEL.bend",
+      "interaction/experience/MODEL.bend"
     ],
     "browser/appearance/DESIGN.bend": [
       "browser/layout/natural-size.bend",
@@ -368,7 +369,8 @@
       "browser/runtime/SEMANTICS.bend",
       "browser/controls/SURFACES.bend",
       "browser/appearance/PROGRAM.bend",
-      "browser/editor/MODEL.bend"
+      "browser/editor/MODEL.bend",
+      "browser/layout/ACTIVITY.bend"
     ],
     "browser/controls/CONTROLS.bend": [
       "interaction/experience/PROGRAM.bend",
@@ -395,7 +397,8 @@
       "interaction/services/CONTEXT.bend",
       "harness/DOMAIN.bend",
       "features/board/MODEL.bend",
-      "interaction/presentation/SURFACE.bend"
+      "interaction/presentation/SURFACE.bend",
+      "browser/layout/ACTIVITY.bend"
     ],
     "browser/controls/GEOMETRY.bend": [],
     "browser/controls/MODEL.bend": [
@@ -2806,7 +2809,13 @@
       "browser/layout/ACTIVITY.bend",
       "browser/layout/enclosure.bend",
       "browser/layout/activity-contract.bend",
-      "bendlib/algebra-proof.bend"
+      "bendlib/algebra-proof.bend",
+      "interaction/presentation/SURFACE.bend",
+      "interaction/conversation/CODE.bend",
+      "interaction/services/MODEL.bend",
+      "interaction/services/CONTEXT.bend",
+      "interaction/presentation/MODEL.bend",
+      "browser/appearance/MODEL.bend"
     ],
     "browser/layout/activity-contract.bend": [
       "interaction/presentation/SURFACE.bend",

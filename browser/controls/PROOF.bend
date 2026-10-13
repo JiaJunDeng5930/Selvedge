@@ -1368,6 +1368,16 @@ def Rule.focus_ownership_evidence():
     {==},
     +key => +tag => +style => +attributes => +children => {==}}
 
+def Rule.property_part_captions_empty(key, parent, index): {==}
+
+def Rule.property_part_captions_complete(part, rest, key, parent, index): {==}
+
 def Rule.property_current_values(property, key, parent): {==}
 
 def Rule.property_caption_wraps(property): {==}
+
+def Rule.native_field_policy_correspondence(widget, maximum_lines): {==}
+
+def Rule.native_message_minimum_lines(maximum_lines): {==}
+
+def Rule.native_input_policy(key, meaning, name, widget, label, availability, visual, parameters): {==}

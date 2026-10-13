@@ -432,11 +432,60 @@ def scoped_entry_choices(entry: OperationParameters.Entry, field: OperationParam
     case OperationParameters.WorkspacePrimary{} OperationParameters.ContextValue{preview}: observed_primary_choices(context_workspace(preview), editor)
     case _ _: entry_choices(entry, field, observed, groups)
 
+def approval_fact(+parent: Identity.Key, +key: String, +label: String, text: String) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, key}, key, label, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}}
+
+def restrict_different_reason(same: Bool, assessment: Experience.Assessment, reason: String) -> Experience.Assessment:
+  match same:
+    case True{}: assessment
+    case False{}: UX.restricted(assessment, reason)
+
+def final_assessment(availability: V.Availability, +assessment: Experience.Assessment) -> Experience.Assessment:
+  match availability:
+    case V.Unavailable{+reason}: restrict_different_reason(String.eq(reason, UX.assessment_reason(assessment)), assessment, reason)
+    case _: assessment
+
+def current_control_assessment(assessment: Experience.Assessment, control: InteractionTypes.Control) -> Maybe<&2, Experience.Assessment>:
+  InteractionTypes.Control{key, label, prominence, input, availability} = control
+  Some{final_assessment(availability, assessment)}
+
+def current_editor_assessment(scene: V.EditorScene, state: InteractionTypes.State) -> Maybe<&2, Experience.Assessment>:
+  V.EditorScene{identity, revision, groups, structure, assessment, declaration, feedback, waiting} = scene
+  current_control_assessment(assessment, Core.control(state, declaration))
+
+def current_draft_assessment(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U32, world: M.World(), state: InteractionTypes.State) -> Maybe<&2, Experience.Assessment>:
+  match found:
+    case None{}: None{}
+    case Some{draft}: current_editor_assessment(View.editor_scene(draft, pending, now, world), state)
+
+def editor_current_assessment(editor: U.Editor, +state: InteractionTypes.State) -> Maybe<&2, Experience.Assessment>:
+  +application = Core.application(state)
+  +session = E.session(application)
+  current_draft_assessment(E.find_draft(E.drafts(session), editor), E.pending(session), E.now(session), E.program(application), state)
+
+def subject_repair_display(empty: Bool, +obstruction: Experience.Obstruction, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: [approval_fact(parent, "field-repair", "Repair", UX.obstruction_message(obstruction))]
+
+def subject_repair_found(found: Maybe<&2, Experience.Obstruction>, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: Nil{}
+    case Some{+obstruction}: subject_repair_display(String.eq(UX.obstruction_code(obstruction), "empty_message"), obstruction, parent)
+
+def subject_repair_assessment(assessment: Maybe<&2, Experience.Assessment>, subject: Experience.Subject, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match assessment:
+    case None{}: Nil{}
+    case Some{assessment}: subject_repair_found(UX.subject_obstruction(subject, assessment), parent)
+
+def subject_repair(+editor: U.Editor, field: OperationParameters.Field, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  subject_repair_assessment(editor_current_assessment(editor, state), Experience.Subject{editor, field}, parent)
+
 def field_node(+field: OperationParameters.FieldScene, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, groups: +List<V.InputGroup>) -> SurfaceTypes.Node:
   OperationParameters.FieldScene{+field, label, entry} = field
   +observed = field_value(state, editor, field)
   +resolved_entry = actual_entry(field, entry, observed, state)
-  SurfaceTypes.Node{Identity.Part{parent, OperationParameters.key(field)}, OperationParameters.key(field), label, SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, resolved_entry, observed, scoped_entry_choices(resolved_entry, field, observed, editor, groups)}, field_children(field, editor, Identity.Part{parent, OperationParameters.key(field)}, state)}
+  SurfaceTypes.Node{Identity.Part{parent, OperationParameters.key(field)}, OperationParameters.key(field), label, SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, resolved_entry, observed, scoped_entry_choices(resolved_entry, field, observed, editor, groups)}, List.append(&2, SurfaceTypes.Node, field_children(field, editor, Identity.Part{parent, OperationParameters.key(field)}, state), subject_repair(editor, field, Identity.Part{parent, OperationParameters.key(field)}, state))}
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
@@ -510,19 +559,20 @@ def feedback_surface(found: Maybe<&2, Experience.Feedback>, +parent: Identity.Ke
 def action_feedback_nodes(editor: U.Editor, feedback: U.Feedback, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   feedback_surface(UX.feedback(editor, feedback), parent)
 
-def restrict_different_reason(same: Bool, assessment: Experience.Assessment, reason: String) -> Experience.Assessment:
-  match same:
-    case True{}: assessment
-    case False{}: UX.restricted(assessment, reason)
+def visible_action_obstruction_selected(passive: Bool, obstruction: Experience.Obstruction, assessment: Experience.Assessment, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match passive:
+    case True{}: Nil{}
+    case False{}: [SurfaceTypes.Node{Identity.Part{parent, "action-explanation"}, "action-explanation", UX.obstruction_message(obstruction), SurfaceTypes.Content{}, SurfaceTypes.ActionExplanation{assessment}, Nil{}}]
 
-def final_assessment(availability: V.Availability, +assessment: Experience.Assessment) -> Experience.Assessment:
-  match availability:
-    case V.Unavailable{+reason}: restrict_different_reason(String.eq(reason, UX.assessment_reason(assessment)), assessment, reason)
-    case _: assessment
+def visible_action_obstruction(found: Maybe<&2, Experience.Obstruction>, +assessment: Experience.Assessment, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: Nil{}
+    case Some{+obstruction}:
+      visible_action_obstruction_selected(UX.passive_obstruction(obstruction) || UX.obstruction_has_field(UX.obstruction_field(obstruction)), obstruction, assessment, parent)
 
 def action_state_explanation(state: Experience.AssessmentState, +assessment: Experience.Assessment, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match state:
-    case Experience.Blocked{}: [SurfaceTypes.Node{Identity.Part{parent, "action-explanation"}, "action-explanation", UX.assessment_reason(assessment), SurfaceTypes.Content{}, SurfaceTypes.ActionExplanation{assessment}, Nil{}}]
+    case Experience.Blocked{}: visible_action_obstruction(UX.attention_obstruction(assessment), assessment, parent)
     case _: Nil{}
 
 
@@ -551,12 +601,38 @@ def supporting_control_owned(+support: Experience.Support, +property: Experience
       supporting_project(UX.support_visible(support), support, property, parent, control, View.active_project(E.route(session), session, world))
     case _: supporting_node(UX.support_visible(support), support, property, parent, control)
 
+def workspace_retry_control(needed: Bool, +editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match needed:
+    case False{}: Nil{}
+    case True{}: [declared(parent, View.control("workspace/retry/" ++ U.editor_key(editor), "Retry", U.RetryWorkspace{editor}), state)]
+
+def property_repair_found(found: Maybe<&2, Experience.Obstruction>, +property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: Nil{}
+    case Some{+obstruction}:
+      +key: Identity.Key = Identity.Entity{parent, "repair", UX.subject_key(Experience.Subject{UX.property_editor(property), UX.property_repair_field(property)})}
+      SurfaceTypes.Node{key, "property-repair/" ++ UX.subject_key(Experience.Subject{UX.property_editor(property), UX.property_repair_field(property)}), UX.obstruction_message(obstruction), SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{UX.obstruction_message(obstruction)}, Nil{}} <>
+        workspace_retry_control(String.eq(UX.obstruction_code(obstruction), "workspace_observation_failed"), UX.property_editor(property), key, state)
+
+def property_repair_assessment(assessment: Maybe<&2, Experience.Assessment>, +property: Experience.Property, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match assessment:
+    case None{}: Nil{}
+    case Some{assessment}: property_repair_found(UX.property_obstruction(property, assessment), property, parent, state)
+
+def property_repair(+property: Experience.Property, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  property_repair_assessment(editor_current_assessment(UX.property_editor(property), state), property, parent, state)
+
+def supporting_property_repair(visible: Bool, property: Experience.Property, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match visible:
+    case False{}: Nil{}
+    case True{}: property_repair(property, parent, state)
+
 def supporting_controls(values: +List<V.ComposerControl>, +action: Experience.ActionUnit, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.ComposerControl{+property, declaration}, rest}:
       +support = UX.property_support(action, property)
-      List.append(&2, SurfaceTypes.Node, supporting_control_owned(support, property, parent, Core.control(state, declaration), state), supporting_controls(rest, action, parent, state))
+      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, supporting_control_owned(support, property, parent, Core.control(state, declaration), state), supporting_property_repair(UX.support_visible(support), property, parent, state)), supporting_controls(rest, action, parent, state))
 
 def composer_creation_context(controls: +List<V.ComposerControl>, action: Experience.ActionUnit, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match controls:
@@ -608,9 +684,6 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: In
         [SurfaceTypes.Node{composer_key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, composer_key, state), action_feedback_nodes(identity, feedback, composer_key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, composer_key, state)])}])
-
-def approval_fact(+parent: Identity.Key, +key: String, +label: String, text: String) -> SurfaceTypes.Node:
-  SurfaceTypes.Node{Identity.Part{parent, key}, key, label, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}}
 
 def approval_serialized(result: Result<&2, &2, String, String>) -> String:
   match result:
@@ -1323,12 +1396,60 @@ def network_choice(+mode: D.SandboxMode, current: Bool, +target: Bool, +editor: 
 def network_choices(sandbox: D.Sandbox, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
   decision_surface(UX.decision(Experience.Subject{editor, OperationParameters.NetworkAccess{}}, field_value(state, editor, OperationParameters.NetworkAccess{}), "Network access", [network_alternative(False{}), network_alternative(True{})]), parent, state)
 
+def property_scope(editor: U.Editor) -> String:
+  match editor:
+    case U.NewTaskEditor{}: "Applies to this new task"
+    case U.MessageEditor{task}: "Applies to this task"
+    case U.ForkEditor{task}: "Applies to the new fork"
+    case U.ProjectEditor{project}: "Applies to this project"
+    case U.AgentEditor{agent}: "Applies to this agent profile"
+    case _: "Applies to this editor"
+
+def property_source_details(expanded: Bool, +property: Experience.Property, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match expanded:
+    case False{}: Nil{}
+    case True{}: [approval_fact(parent, "property-source/details", "Source", UX.property_source_description(property))]
+
+def property_source_toggle_control(expanded: Bool, parent: Identity.Key, control: InteractionTypes.Control) -> SurfaceTypes.Node:
+  InteractionTypes.Control{+identity, label, prominence, input, availability} = control
+  SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, action_role(prominence), SurfaceTypes.PanelToggle{expanded, input, availability}, Nil{}}
+
+def property_source_toggle(+editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  property_source_toggle_control(E.property_source_expanded(E.layers(E.session(Core.application(state))), editor), parent,
+    Core.control(state, V.ControlDeclaration{"property-source/" ++ U.editor_key(editor), "Source of these settings", V.Secondary{}, U.TogglePropertySource{editor}, V.Available{}}))
+
+def property_source_controls(+property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +editor = UX.property_editor(property)
+  expanded = E.property_source_expanded(E.layers(E.session(Core.application(state))), editor)
+  property_source_toggle(editor, parent, state) <> property_source_details(expanded, property, parent)
+
+def property_source_nodes(+property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  approval_fact(parent, "property-scope", "Scope", property_scope(UX.property_editor(property))) <>
+    property_source_controls(property, parent, state)
+
+# NOTE: Keep the complete context observable without making every fact visible.
+def workspace_current_context(+preview: Context.Preview, +parent: Identity.Key) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, "workspace/current"}, "workspace/current", UX.workspace_paths(context_workspace(preview)),
+    SurfaceTypes.Content{}, SurfaceTypes.ContextSummary{Context.DraftExecution{preview}}, Nil{}}
+
+def permission_context_summary(+editor: U.Editor, +observation: Context.Observation, +parent: Identity.Key, state: InteractionTypes.State) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, "property-scope"}, "property-scope", property_scope(editor),
+    SurfaceTypes.Content{}, SurfaceTypes.ContextSummary{observation}, property_source_controls(UX.permissions_property(editor, observation), parent, state)}
+
+def model_source(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match groups:
+    case Nil{}: Nil{}
+    case Con{V.ModelInput{profile, reasoning, choices}, rest}:
+      property_source_nodes(UX.model_property(editor, profile, reasoning, E.program(Core.application(state))), parent, state)
+    case Con{other, rest}: model_source(rest, editor, parent, state)
+
 def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match group:
     case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
     case V.ExecutionInput{config, +preview, V.WorkspaceControls{identity, roots, inherit}, projects, reviewers}:
-      context_summary_node(Context.DraftExecution{preview}, parent, state) <>
-      workspace_collection_menu(context_workspace(preview), editor, inherit, parent, state)
+      workspace_current_context(preview, parent) <>
+      List.append(&2, SurfaceTypes.Node, workspace_collection_menu(context_workspace(preview), editor, inherit, parent, state),
+        property_source_nodes(UX.workspace_property(editor, Context.DraftExecution{preview}, E.program(Core.application(state))), parent, state))
     case _: Nil{}
 
 def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -1338,7 +1459,7 @@ def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Iden
 
 def committed_permission_summary(found: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match found:
-    case Some{context}: [context_summary_node(Context.CommittedExecution{context}, parent, state)]
+    case Some{+context}: [permission_context_summary(U.MessageEditor{View.context_task(context)}, Context.CommittedExecution{context}, parent, state)]
     case None{}: unavailable_context("Task execution context is unavailable", parent)
 
 def permission_summary(editor: U.Editor, preview: Context.Preview, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -1346,7 +1467,7 @@ def permission_summary(editor: U.Editor, preview: Context.Preview, +parent: Iden
     case U.MessageEditor{task}:
       world = E.program(Core.application(state))
       committed_permission_summary(View.committed_context(T.find(Commands.entries(world), task)), parent, state)
-    case _: [context_summary_node(Context.DraftExecution{preview}, parent, state)]
+    case _: [permission_context_summary(editor, Context.DraftExecution{preview}, parent, state)]
 
 def permission_resets(+editor: U.Editor, +config: Context.Configuration, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match editor:
@@ -1460,8 +1581,8 @@ def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: Interacti
     case V.WorkspaceSettings{identity, values}: workspace_menu(values, identity, parent, state)
     case V.PermissionSettings{identity, values}: permission_menu(values, identity, parent, state)
     case V.CommittedContext{context}: committed_context_nodes(context, parent, state)
-    case V.ModelSelection{identity, query, values}:
-      SurfaceTypes.Node{Identity.Part{parent, "search"}, "search", "Search models", SurfaceTypes.Field{}, SurfaceTypes.SearchChoices{query}, Nil{}} <> picker_fields(values, identity, parent, state)
+    case V.ModelSelection{+identity, query, +values}:
+      SurfaceTypes.Node{Identity.Part{parent, "search"}, "search", "Search models", SurfaceTypes.Field{}, SurfaceTypes.SearchChoices{query}, Nil{}} <> List.append(&2, SurfaceTypes.Node, picker_fields(values, identity, parent, state), model_source(values, identity, parent, state))
     case V.DeliverySelection{identity, values}: picker_fields(values, identity, parent, state)
     case V.ExecutionDetails{value}: execution_details(value, parent)
     case V.Confirmation{title, confirm, cancel}: [dialog_actions(parent, [declared(parent, confirm, state), declared(parent, cancel, state)])]
@@ -1768,7 +1889,7 @@ def apply_input(input: Maybe<&2, InteractionTypes.Input>, +state: InteractionTyp
 
 def origin(layers: +List<E.Layer>, key: String) -> String:
   match layers:
-    case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: trigger
+    case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded}, rest}: trigger
     case _: key
 
 def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
@@ -1779,14 +1900,14 @@ def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
 def layer_present(layers: +List<E.Layer>, +target: String) -> Bool:
   match layers:
     case Nil{}: False{}
-    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence}, rest}:
+    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded}, rest}:
       String.eq(E.panel_target(panel), target) || layer_present(rest, target)
 
 def record_layer(layers: +List<E.Layer>, previous: +List<E.Layer>, origin: String) -> +List<E.Layer>:
   match layers:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, trigger, initial, query, layer_occurrence}, rest}:
-      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query, layer_occurrence} <> rest
+    case Con{E.Layer{+panel, trigger, initial, query, layer_occurrence, source_expanded}, rest}:
+      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query, layer_occurrence, source_expanded} <> rest
 
 def source_session(+session: E.Session, previous: +List<E.Layer>, origin: String) -> E.Session:
   layers = E.layers(session)
