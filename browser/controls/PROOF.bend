@@ -1,3 +1,4 @@
+import ./NAVIGATION.bend as Navigation
 import ../../interaction/services/CONTEXT.bend as Workspace
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
@@ -53,20 +54,20 @@ def action_retains_binding(+key: UIIdentity.Key, +input: InteractionTypes.Input,
   {Rule.binding(Controls.make_action(key, input, availability, label, role, context)) ==
     SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth}: {==}
 
 def panel_toggle_retains_binding(+key: UIIdentity.Key, expanded: Bool, +input: InteractionTypes.Input, +availability: View.Availability,
   label: String, role: SurfaceTypes.Role, context: Controls.Context) ->
   {Rule.binding(Controls.make_panel_toggle(key, expanded, input, availability, label, role, context)) == SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth}: {==}
 
 def choice_retains_binding(+key: UIIdentity.Key, kind: SurfaceTypes.ChoiceKind, icon: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: InteractionTypes.Input, +availability: View.Availability,
   label: String, role: SurfaceTypes.Role, context: Controls.Context) ->
   {Rule.binding(Controls.make_choice(key, kind, icon, selected, description, input, availability, label, role, context)) ==
     SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
   match context:
-    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth}: {==}
 
 def presented_action_retains_binding(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: Controls.ActionPresentation, placement: Controls.Placement, feedback: Controls.Feedback) ->
   {Rule.binding(Controls.presented_action(input, availability, name, projection, placement, feedback)) == SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
@@ -79,13 +80,15 @@ def source_action_retains_binding(area: Controls.Area, family: Controls.SourceFa
     case Controls.Action{Controls.Button{+input, availability, +name, face, behavior, geometry, placement, feedback}}:
       presented_action_retains_binding(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, feedback)
     case Controls.NoControl{}: {==}
+    case Controls.NavigationGroup{depth}: {==}
+    case Controls.NavigationRow{owner, depth, visible}: {==}
     case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: {==}
     case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: {==}
 
 def represented_action_retains_binding(+key: UIIdentity.Key, +input: InteractionTypes.Input, +availability: View.Availability,
   +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) ->
   {Rule.binding(Controls.represent_action(key, input, availability, label, role, context)) == SurfaceTypes.Activate{input, availability} : SurfaceTypes.Meaning}:
-  Controls.Context{+area, selection, code, appearance, access, open, layers, execution, +family} = context
+  Controls.Context{+area, selection, code, appearance, access, open, layers, execution, +family, supporting_form, attention, navigation_depth} = context
   Equal.trans(SurfaceTypes.Meaning,
     Rule.binding(Controls.represent_action(key, input, availability, label, role, context)),
     Rule.binding(Controls.make_action(key, input, availability, label, role, context)), SurfaceTypes.Activate{input, availability},
@@ -99,18 +102,100 @@ def supporting_fields_retains_binding(+property: UXTypes.Property, area: Control
     case Controls.Input{input}: {==}
     case Controls.Movable{value}: {==}
     case Controls.NoControl{}: {==}
+    case Controls.NavigationGroup{depth}: {==}
+    case Controls.NavigationRow{owner, depth, visible}: {==}
+
+def supporting_fields_at_retains_binding(+form: Controls.SupportingForm, +property: UXTypes.Property, area: Controls.Area, +value: Controls.Representation) ->
+  {Rule.binding(Controls.supporting_fields_at(form, property, area, value)) == Rule.binding(value) : SurfaceTypes.Meaning}:
+  match form value:
+    case Controls.FullSupporting{} other: supporting_fields_retains_binding(property, area, other)
+    case Controls.CompactSupporting{} Controls.Action{Controls.Button{input, View.Available{}, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.CompactSupporting{} Controls.Action{Controls.Button{input, View.NeedsDirectoryObservation{}, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.CompactSupporting{} Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.CompactSupporting{} Controls.Input{input}: {==}
+    case Controls.CompactSupporting{} Controls.Movable{value}: {==}
+    case Controls.CompactSupporting{} Controls.NoControl{}: {==}
+    case Controls.CompactSupporting{} Controls.NavigationGroup{depth}: {==}
+    case Controls.CompactSupporting{} Controls.NavigationRow{owner, depth, visible}: {==}
 
 def make_support_retains_binding(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +input: InteractionTypes.Input, +availability: View.Availability, +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) ->
   {Rule.binding(Controls.make_support_visible(visible, key, support, property, input, availability, label, role, context)) == Rule.source_support_binding(visible, input, availability) : SurfaceTypes.Meaning}:
   match visible:
     case False{}: {==}
     case True{}:
-      Controls.Context{+area, selection, code, appearance, access, settings_open, layers, +execution, source_family} = context
+      Controls.Context{+area, selection, code, appearance, access, settings_open, layers, +execution, source_family, +supporting_form, attention, navigation_depth} = context
       Equal.trans(SurfaceTypes.Meaning,
-        Rule.binding(Controls.supporting_fields(property, area, Controls.represent_action(key, input, availability, label, role, context))),
+        Rule.binding(Controls.supporting_fields_at(supporting_form, property, area, Controls.represent_action(key, input, availability, label, role, context))),
         Rule.binding(Controls.represent_action(key, input, availability, label, role, context)), SurfaceTypes.Activate{input, availability},
-        supporting_fields_retains_binding(property, area, Controls.represent_action(key, input, availability, label, role, context)),
+        supporting_fields_at_retains_binding(supporting_form, property, area, Controls.represent_action(key, input, availability, label, role, context)),
         represented_action_retains_binding(key, input, availability, label, role, context))
+
+def navigation_header_binding(matches: Bool, owner: UIIdentity.Key, project: Nat, depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>) ->
+  {Rule.binding(Controls.navigation_header(matches, owner, project, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
+  match matches:
+    case False{}: {==}
+    case True{}: {==}
+
+def navigation_region_meaning_binding(+key: UIIdentity.Key, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +children: +List<SurfaceTypes.Node>, +depth: Nat, +attention: Navigation.Attention, +layers: +List<View.Layer>) ->
+  {Rule.binding(Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, meaning, children}}, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
+  match meaning:
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: navigation_header_binding(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers)
+    case SurfaceTypes.DecisionGroup{decision}: {==}
+    case SurfaceTypes.WorkspaceCollection{collection}: {==}
+    case SurfaceTypes.WorkspaceMember{collection, path}: {==}
+    case SurfaceTypes.ActionUnit{action}: {==}
+    case SurfaceTypes.ActionFeedback{feedback}: {==}
+    case SurfaceTypes.ActionExplanation{assessment}: {==}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: {==}
+    case SurfaceTypes.ObjectGroup{object}: {==}
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: {==}
+    case SurfaceTypes.InformationText{role}: {==}
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: {==}
+    case SurfaceTypes.DirectoryBrowserLocation{value}: {==}
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: {==}
+    case SurfaceTypes.CardContent{face}: {==}
+    case SurfaceTypes.MovableCard{destinations, face}: {==}
+    case SurfaceTypes.Region{}: {==}
+    case SurfaceTypes.PageContext{conversation}: {==}
+    case SurfaceTypes.ActivityContent{expanded, audit}: {==}
+    case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.ProjectChooser{selected}: {==}
+    case SurfaceTypes.DirectoryRow{path, primary}: {==}
+    case SurfaceTypes.ContextSummary{observation}: {==}
+    case SurfaceTypes.ChoiceGroup{}: {==}
+    case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: {==}
+    case SurfaceTypes.PageRegion{region, position}: {==}
+    case SurfaceTypes.BoardLane{stage, count}: {==}
+    case SurfaceTypes.CardArchive{count}: {==}
+    case SurfaceTypes.BoardSearch{filter}: {==}
+    case SurfaceTypes.BoardGroup{grouping}: {==}
+    case SurfaceTypes.ReadOnly{text}: {==}
+    case SurfaceTypes.Fact{value}: {==}
+    case SurfaceTypes.RichText{source, value}: {==}
+    case SurfaceTypes.TaskFacts{details}: {==}
+    case SurfaceTypes.CodeFacts{view}: {==}
+    case SurfaceTypes.Activate{input, availability}: {==}
+    case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
+    case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
+    case SurfaceTypes.EnterDirectory{editor, text}: {==}
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
+
+def navigation_region_node_binding(+key: UIIdentity.Key, +node: SurfaceTypes.Node, +depth: Nat, +attention: Navigation.Attention, +layers: +List<View.Layer>) ->
+  {Rule.binding(Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{node}, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
+  match node:
+    case SurfaceTypes.Node{owner, semantic, label, role, meaning, children}: navigation_region_meaning_binding(key, owner, semantic, label, role, meaning, children, depth, attention, layers)
+
+def navigation_region_fields_binding(+key: UIIdentity.Key, +family: Controls.SourceFamily, +depth: Nat, +attention: Navigation.Attention, +layers: +List<View.Layer>) ->
+  {Rule.binding(Controls.navigation_fields(key, SurfaceTypes.Region{}, family, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
+  match family:
+    case Controls.Unscoped{}: {==}
+    case Controls.SourceFamily{node}: navigation_region_node_binding(key, node, depth, attention, layers)
+
+def navigation_region_binding(+key: UIIdentity.Key, +context: Controls.Context) ->
+  {Rule.binding(Controls.navigation_representation(key, SurfaceTypes.Region{}, context, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
+  match context:
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth}: navigation_region_fields_binding(key, family, depth, attention, layers)
 
 def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, label: String,
   role: SurfaceTypes.Role, context: Controls.Context) ->
@@ -157,7 +242,7 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
     case SurfaceTypes.CardArchive{count}: {==}
     case SurfaceTypes.BoardGroup{grouping}: {==}
     case SurfaceTypes.PageRegion{region, position}: {==}
-    case SurfaceTypes.Region{}: {==}
+    case SurfaceTypes.Region{}: navigation_region_binding(key, context)
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: {==}
     case SurfaceTypes.InformationText{role}: {==}
     case SurfaceTypes.ReadOnly{text}: {==}
@@ -310,7 +395,7 @@ def directory_removal_uses_cross(+parent: UIIdentity.Key, +editor: User.Editor, 
   {Rule.workspace_removal_faces(View2.workspace_controls(Domain.Workspace{[path], primary}, editor, None{}),
     parent, state, context) == [Some{Controls.IconFace{Controls.CloseCross{}}}] : +List<Maybe<&2, Controls.Face>>}:
   match state context:
-    case InteractionTypes.State{application, services} Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family}: {==}
+    case InteractionTypes.State{application, services} Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth}: {==}
 
 def approval_keeps_label(key: UIIdentity.Key, task: Nat, operation: Nat, allow: Bool, reason: String,
   availability: View.Availability, +label: String, role: SurfaceTypes.Role, selection: Controls.Selection,
@@ -409,6 +494,7 @@ def native_attribute_other(+key: UIIdentity.Key, +attribute: Source.Attribute) -
     case Source.OpenAttribute{}: {==}
     case Source.DraggableAttribute{value}: {==}
     case Source.InertAttribute{}: {==}
+    case Source.ExposureAttribute{exposure}: {==}
 
 def native_attributes_nil(+key: UIIdentity.Key) -> Rule.native_attributes_nil(key):
   {==}
@@ -472,7 +558,7 @@ def selection_roles(+kind: SurfaceTypes.ChoiceKind, +area: Controls.Area, +selec
     case SurfaceTypes.MultipleChoice{} Controls.BoardLaneArea{}: {==}
 
 def semantic_face(+key: UIIdentity.Key, +kind: SurfaceTypes.ChoiceKind, +classification: Maybe<&2, Filter.Classification>, +selected: Bool, +description: String, +input: InteractionTypes.Input, +availability: View.Availability, +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) -> Rule.actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def selected_measured_glyph(+text: String, description: Maybe<&2, String>, icon: Maybe<&2, Controls.Icon>, +selected: Bool, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) ->
@@ -505,6 +591,7 @@ def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alig
     case Controls.PickerFace{leading, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, slot}: {==}
     case Controls.ChoiceFace{text, description, icon, checked} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.DisclosureFace{text, expanded} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
+    case Controls.CompactPropertyFace{property} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.PropertyFace{property} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.PermissionFace{filesystem, network, approval} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
 
@@ -1381,3 +1468,59 @@ def Rule.native_field_policy_correspondence(widget, maximum_lines): {==}
 def Rule.native_message_minimum_lines(maximum_lines): {==}
 
 def Rule.native_input_policy(key, meaning, name, widget, label, availability, visual, parameters): {==}
+
+def network_permission_excluded(+mode: Domain.SandboxMode, +approval: Workspace.ApprovalChoice) ->
+  {UX.compact_permission_values(Domain.Sandbox{mode, True{}}, approval) == False{} : Bool}:
+  match mode:
+    case Domain.WorkspaceWrite{}: {==}
+    case Domain.ReadOnly{}: {==}
+
+def unrestricted_approval_excluded(+mode: Domain.SandboxMode, +network: Bool) ->
+  {UX.compact_permission_values(Domain.Sandbox{mode, network}, Workspace.Unrestricted{}) == False{} : Bool}:
+  match mode network:
+    case Domain.WorkspaceWrite{} False{}: {==}
+    case Domain.WorkspaceWrite{} True{}: {==}
+    case Domain.ReadOnly{} False{}: {==}
+    case Domain.ReadOnly{} True{}: {==}
+
+def Rule.adaptive_supporting_evidence():
+  Rule.AdaptiveSupportingRequirements{
+    +property => +area => +value => {==},
+    +property => area => input => name => face => behavior => geometry => placement => feedback => {==},
+    +property => +area => +input => +reason => +name => +face => +behavior => +geometry => +placement => +feedback => {==},
+    {==},
+    +network => +approval => {==},
+    network_permission_excluded,
+    unrestricted_approval_excluded,
+    +reason => {==},
+    task => workspace => sandbox => approval => project => guidance => {==},
+    +property => +availability => +feedback => name => {==},
+    key => tag => +style => attributes => children => form => {==}}
+
+def Rule.supporting_region_content_slot(direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states): {==}
+
+def navigation_context_interest(+node: SurfaceTypes.Node, +context: Controls.Context) ->
+  {Controls.navigation_attention(Controls.enter(node, context)) == Controls.navigation_attention(context) : Navigation.Attention}:
+  match node context:
+    case SurfaceTypes.Node{key, semantic, label, role, meaning, children} Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth}: {==}
+
+def navigation_context_depth(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +children: +List<SurfaceTypes.Node>, +context: Controls.Context) ->
+  {Controls.navigation_depth(Controls.enter(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, context)) == Navigation.descend(meaning, Controls.navigation_depth(context)) : Nat}:
+  match context:
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth}: {==}
+
+def Rule.navigation_evidence():
+  Rule.NavigationRequirements{
+    Rule.NavigationPolicyRequirements{
+      +hovered => +focused => +capable => +owner => +menu => {==},
+      +project => +selected => +expanded => +depth => {==},
+      +nodes => {==}},
+    navigation_context_interest,
+    navigation_context_depth,
+    {==},
+    +owner => +project => +depth => +attention => +layers => +fallback => {==},
+    +key => +role => +width => +visual => +children => {==},
+    +key => +role => +width => +visual => +children => {==},
+    direction => main => cross => frame => width => height => minimum => scroll => position => font => chrome => states => {==},
+    +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => {==},
+    +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => +width => {==}}

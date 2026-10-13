@@ -461,7 +461,7 @@ function frame() {
   const elements = nodes.map(node => {
     const bounds = rect(node); const geometry = frameGeometry(node, bounds);
     const enabled = !node.disabled && !node.closest('[inert]') && node.getAttribute('aria-disabled') !== 'true';
-    const tab = enabled && node.tabIndex >= 0;
+    const tab = enabled && node.tabIndex >= 0 && (geometry.visible || geometry.scrollReachable);
     return bendValue('browser/document/RENDERED.Element', { key: node.getAttribute('data-frame-key') ?? focusIdentity(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
       center_hit_owner: geometry.hitOwner, paint_bounds: geometry.paintBounds });
   });
@@ -861,3 +861,26 @@ root.addEventListener('scroll', event => {
 }, true);
 for (const node of root.querySelectorAll('[data-reading-scroll],[data-reading-content],[data-reading-dock]')) { observed.add(node); resizeObserver.observe(node); }
 observeReadingLayout();
+
+// Declared owners describe presentation interest; Bend decides action exposure.
+const navigationOwner = node => node?.closest?.('[data-navigation-owner]')?.getAttribute('data-navigation-owner') ?? null;
+const navigationOwnerValue = value => value === null ? bendValue('None') : bendValue('Some', { value });
+let observedNavigationPointer = null;
+let observedNavigationFocus = null;
+function observeNavigationPointer(owner) {
+  if (observedNavigationPointer === owner) return;
+  observedNavigationPointer = owner;
+  commit(Bend.navigation_pointer_observed(navigationOwnerValue(owner), state));
+}
+function observeNavigationFocus(owner) {
+  if (observedNavigationFocus === owner) return;
+  observedNavigationFocus = owner;
+  commit(Bend.navigation_focus_observed(navigationOwnerValue(owner), state));
+}
+root.addEventListener('pointerover', event => observeNavigationPointer(navigationOwner(event.target)));
+root.addEventListener('pointerout', event => observeNavigationPointer(navigationOwner(event.relatedTarget)));
+root.addEventListener('focusin', event => observeNavigationFocus(navigationOwner(event.target)));
+root.addEventListener('focusout', event => observeNavigationFocus(navigationOwner(event.relatedTarget)));
+const navigationHover = matchMedia('(hover: hover)');
+navigationHover.addEventListener('change', () => commit(Bend.navigation_hover_observed(bool(navigationHover.matches), state)));
+commit(Bend.navigation_hover_observed(bool(navigationHover.matches), state));

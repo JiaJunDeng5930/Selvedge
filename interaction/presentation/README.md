@@ -43,3 +43,7 @@ bind these constructions to the actual producers.
 `CompositionRequirements` also binds the expanded and collapsed navigation
 placement selected by `VIEW.navigation_placement`; the shell consumes that scene
 placement through its authored assembly obligations.
+
+Navigation distinguishes project membership from the collection of tasks without
+a project. Project members remain children of their project group; independent
+tasks retain their existing task identities inside a separately titled collection.

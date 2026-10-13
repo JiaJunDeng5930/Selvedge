@@ -1125,3 +1125,28 @@ def restriction_obstructions(+assessment: M.Assessment, reason: String) -> +List
 # including backend refusal, survive in the same ordered observation list.
 def restricted(+assessment: M.Assessment, reason: String) -> M.Assessment:
   M.Assessment{assessment_identity(assessment), restriction_obstructions(assessment, reason), M.Blocked{}, None{}}
+
+def compact_permission_parts(icon_only: Bool, observation: Context.Observation) -> +List<String>:
+  match icon_only:
+    case True{}: Nil{}
+    case False{}: permission_summary_parts(observation)
+
+def compact_permission_values(sandbox: D.Sandbox, approval: Context.ApprovalChoice) -> Bool:
+  match sandbox approval:
+    case D.Sandbox{D.WorkspaceWrite{}, False{}} Context.Ask{}: True{}
+    case _ _: False{}
+
+def compact_permission_observation(observation: Context.Observation) -> Bool:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      compact_permission_values(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval))
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, D.Sandboxed{}}}:
+      compact_permission_values(sandbox, Context.approval_choice(approval))
+    case _: False{}
+
+def compact_property_summary_parts(property: M.Property) -> +List<String>:
+  match property:
+    case M.ModelObservation{editor, profile, effort, found}: [model_value(profile, found)]
+    case M.PermissionsObservation{editor, +observation}:
+      compact_permission_parts(compact_permission_observation(observation), observation)
+    case _: property_summary_parts(property)

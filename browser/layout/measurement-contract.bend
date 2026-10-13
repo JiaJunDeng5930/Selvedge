@@ -50,7 +50,7 @@ type Requirements is Type:
       {Browser.remeasure(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
         Browser.refreeze(index, capacity, engine, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic) : Browser.Decision},
     ready: @world:Content.AllocatedWorld -> @index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @state:Browser.State -> @semantic:SurfaceTypes.Surface -> @round:Nat ->
-      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.Stopped{Browser.admit(world, capacity, engine, state, semantic)} : Browser.Search}}
+      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.selected_supporting(Browser.supporting_admitted(index, world), world, index, capacity, engine, state, semantic) : Browser.Search}}
 
 law evidence:
   Requirements

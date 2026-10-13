@@ -195,6 +195,18 @@ def property_text(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: De
   +parts_key = UIIdentity.part(key, "property-value")
   [Source.Box{parts_key, Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, property_part_captions(UX.property_summary_parts(property), parts_key, parent, 0n)}]
 
+def compact_property_text(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  +parts_key = UIIdentity.part(key, "property-value")
+  [Source.Box{parts_key, Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, property_part_captions(UX.compact_property_summary_parts(property), parts_key, parent, 0n)}]
+
+def compact_property_members(icon_only: Bool, +property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+  match icon_only:
+    case True{}: [glyph(UIIdentity.part(key, "icon"), Controls.Shield{}, parent, face_icon_size(geometry))]
+    case False{}:
+      List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
+        [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, compact_property_text(property, key, parent)},
+          glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+
 def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   match value:
     case Controls.TextFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
@@ -203,6 +215,7 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
     case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.UnbrokenIconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
+    case Controls.CompactPropertyFace{+property}: compact_property_members(Controls.compact_permission_icon(property), property, key, parent, geometry)
     case Controls.PropertyFace{+property}:
       List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{},
@@ -265,6 +278,7 @@ def action_alignment(value: Controls.Face) -> Spatial.Alignment:
   match value:
     case Controls.ChoiceFace{text, description, icon, checked}: Spatial.Leading{}
     case Controls.PropertyFace{property}: Spatial.Leading{}
+    case Controls.CompactPropertyFace{property}: Spatial.Leading{}
     case Controls.PickerFace{leading, text}: Spatial.Leading{}
     case _: Spatial.Centered{}
 
@@ -493,7 +507,6 @@ def movable_choices(+key: UIIdentity.Key, control: Controls.MovableControl, +vis
     Factory.binding_attributes(key), "", "Move to…",
     Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations),
     Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{UIIdentity.encode(key)}, Nil{}}
-
 
 type InputObservation is Data:
   InputObservation{key: UIIdentity.Key, input: Controls.FormInput, visual: Design.Style,

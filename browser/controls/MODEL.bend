@@ -1,3 +1,6 @@
+import ../layout/ACTIVITY.bend as Activity
+import ../layout/natural-size.bend as NaturalSize
+import ./NAVIGATION.bend as Navigation
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../layout/HIERARCHY.bend as Hierarchy
@@ -765,10 +768,121 @@ def meaning_focus(meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, node: 
     case SurfaceTypes.ActionUnit{action}: node
     case _: composer_focus(role, node)
 
-def regular(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+def navigation_exposure(visible: Bool) -> Source.Exposure:
+  match visible:
+    case True{}: Source.Exposed{}
+    case False{}: Source.Concealed{}
+
+
+
+def navigation_length(nominal: Nat, visual: Design.Style) -> Nat:
+  Design.Style{T.Presentation{tier, emphasis, scale}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+  T.scaled(NaturalSize.limit(), nominal, scale)
+
+def navigation_target(+visual: Design.Style) -> Nat:
+  Nat.max(Activity.supporting_minimum(Activity.initial()), navigation_length(32n, visual))
+
+def navigation_gap(visual: Design.Style) -> Nat:
+  navigation_length(6n, visual)
+
+def indentation(depth: Nat, visual: Design.Style) -> Nat:
+  Design.Style{T.Presentation{tier, emphasis, scale}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+  Nat.mul(depth, T.scaled(NaturalSize.limit(), 16n, scale))
+
+def sized_style(value: Source.Style, width: Model.AxisSize) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, old_width, height, minimum, scroll, position}, font, chrome, states} = value
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}
+
+def sized(+node: Source.Node, width: Model.AxisSize) -> Source.Node:
+  match node:
+    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, sized_style(style, width), attrs, children}
+    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}: Source.Control{key, tag, sized_style(style, width), attrs, name, enabled, first, remaining, children}
+    case _: node
+
+def row_style_fields(value: Source.Style, gap: Nat) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
+  Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(8n, 4n), Enclosure.EmbeddedContent{gap}}, width, height, minimum, scroll, position}, font, chrome, states}
+
+def row_style(+visual: Design.Style, depth: Nat) -> Source.Style:
+  row_style_fields(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), navigation_gap(visual))
+
+# Conceal only a slot's paint and exposure; its command fields and allocation stay.
+def slot(key: UIIdentity.Key, +name: String, width: Model.AxisSize, visible: Bool, +visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
+  Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ name}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}),
+    [Source.DataAttribute{"navigation-slot", name}, Source.ExposureAttribute{navigation_exposure(visible)}], children}
+
+def navigation_leading(+key: UIIdentity.Key, role: Navigation.ContentRole, depth: Nat, +visual: Design.Style, child: Source.Node) -> Source.Node:
+  +target = navigation_target(visual)
+  +offset = indentation(depth, visual)
+  Source.Box{UIIdentity.part(key, "@leading-position"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{Nat.add(offset, target)}, Model.ExactSize{target}, 0n), Nil{},
+    [Source.Box{UIIdentity.part(key, "@membership-indent"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{offset}, Model.ExactSize{target}, 0n), Nil{}, Nil{}},
+     Source.Box{UIIdentity.part(key, "@leading-target"), Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{target}, Model.ExactSize{target}, 0n), Spatial.Centered{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}], [sized(child, Model.ExactSize{target})]}]}
+
+def navigation_title_style(value: Source.Style) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
+  Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
+
+def navigation_title(node: Source.Node) -> Source.Node:
+  match node:
+    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}:
+      add_attributes(Source.Control{key, tag, navigation_title_style(style), attrs, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}])
+    case _: add_attributes(sized(node, Model.StretchSize{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}])
+
+def navigation_row(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
+  Source.Box{key, Source.Div{}, row_style(visual, depth), [Source.DataAttribute{"navigation-owner", UIIdentity.encode(owner)}, Source.DataAttribute{"navigation-depth", Nat.show(depth)}], children}
+
+def navigation_project_header(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, visible: Bool, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  match content:
+    case Con{leading, Con{title, Con{create, Con{more, Nil{}}}}}:
+      navigation_row(key, owner, depth, visual,
+        [navigation_leading(key, Navigation.DisclosureSlot{}, depth, visual, leading),
+         navigation_title(title),
+         slot(key, Navigation.role_name(Navigation.AuxiliarySlot{}), Model.ExactSize{Nat.add(Nat.mul(2n, navigation_target(visual)), navigation_gap(visual))}, visible, visual, [sized(create, Model.ExactSize{navigation_target(visual)}), sized(more, Model.ExactSize{navigation_target(visual)})])])
+    case other: navigation_row(key, owner, depth, visual, other)
+
+def navigation_task_row(+key: UIIdentity.Key, owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  match content:
+    case Con{title, Con{status, Nil{}}}:
+      navigation_row(key, owner, depth, visual,
+        [navigation_leading(key, Navigation.IdentitySlot{}, depth, visual, AuthoredControls.glyph(UIIdentity.part(key, "identity"), Controls.Conversation{}, visual, 16n)),
+         navigation_title(title),
+         slot(key, Navigation.role_name(Navigation.StatusSlot{}), Model.ExactSize{16n}, True{}, visual, [status])])
+    case other: navigation_row(key, owner, depth, visual, other)
+
+def navigation_group(+key: UIIdentity.Key, depth: Nat, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  match content:
+    case Nil{}: box(key, Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 4n), [Source.DataAttribute{"navigation-depth", Nat.show(depth)}], Nil{})
+    case Con{header, tasks}: box(key, Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 4n), [Source.DataAttribute{"navigation-depth", Nat.show(depth)}], header <> [box(UIIdentity.part(key, "children"), Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 4n), [Source.DataAttribute{"navigation-members", UIIdentity.encode(key)}], tasks)])
+
+
+def navigation_row_meaning(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key, owner: UIIdentity.Key, +depth: Nat, visible: Bool, +visual: Design.Style, +children: +List<Child>) -> Source.Node:
+  match meaning:
+    case SurfaceTypes.TaskRow{+task, +status, selected}: add_attributes(navigation_task_row(key, owner, depth, visual, task_children(children, status, visual)), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", View2.task_status_label(status)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}])
+    case _: navigation_project_header(key, owner, depth, visible, visual, ordinary(all_nodes(children)))
+
+
+def navigation_group_meaning(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key, depth: Nat, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
+  match meaning:
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: add_attributes(navigation_group(key, depth, visual, children), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}])
+    case _: navigation_group(key, depth, visual, children)
+
+def regular_plain(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
     case SurfaceTypes.Dialog{}: regular_content(key, label, role, meaning, visual, representation, children, parameters, dialog_content(key, label, visual, children))
     case _: grouped_menu(role, children, meaning_focus(meaning, role, regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))))
+
+def regular_navigation(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+  match representation:
+    case Controls.NavigationGroup{depth}: navigation_group_meaning(meaning, key, depth, visual, ordinary(all_nodes(children)))
+    case Controls.NavigationRow{owner, depth, visible}: navigation_row_meaning(meaning, key, owner, depth, visible, visual, children)
+    case _: regular_plain(key, label, role, meaning, visual, representation, children, parameters)
+
+
+
+def regular(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+  match role:
+    case SurfaceTypes.Section{}: regular_navigation(key, label, role, meaning, visual, representation, children, parameters)
+    case _: regular_plain(key, label, role, meaning, visual, representation, children, parameters)
 
 def read_only_role(+role: SurfaceTypes.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Authorship:
   match role:
@@ -776,6 +890,7 @@ def read_only_role(+role: SurfaceTypes.Role, +key: UIIdentity.Key, +label: Strin
     case other: rich(key, other, value, visual, code_visual, children, source)
 
 # Native attachments remain the same nodes while passing through ordinary parents.
+
 
 def authored_node_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match meaning:
@@ -919,3 +1034,68 @@ def layout_of_lane(node: Source.Node) -> Maybe<&2, Source.Style>:
   match node:
     case Source.Control{key, tag, style, attributes, label, enabled, event, events, children}: Some{style}
     case _: None{}
+
+# The supporting slot owns residual room, independent of its current text demand.
+def supporting_region_key(key: UIIdentity.Key) -> Bool:
+  match key:
+    case UIIdentity.Part{parent, part}: String.eq(part, "supporting-controls")
+    case _: False{}
+
+def supporting_form_name(form: Controls.SupportingForm) -> String:
+  match form:
+    case Controls.FullSupporting{}: "full"
+    case Controls.CompactSupporting{}: "compact"
+
+def supporting_region_style(style: Source.Style) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
+
+def supporting_region_box(selected: Bool, key: UIIdentity.Key, tag: Source.BoxTag, style: Source.Style, attributes: +List<Source.Attribute>, children: +List<Source.Node>, form: Controls.SupportingForm) -> Source.Node:
+  match selected:
+    case True{}: Source.Box{key, tag, supporting_region_style(style), List.append(&2, Source.Attribute, attributes, [Source.DataAttribute{"allocated-region", "supporting-controls"}, Source.DataAttribute{"supporting-form", supporting_form_name(form)}]), children}
+    case False{}: Source.Box{key, tag, style, attributes, children}
+
+def supporting_region_nodes(nodes: +List<Source.Node>, +form: Controls.SupportingForm) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Box{+key, tag, style, attributes, children}, rest}:
+      supporting_region_box(supporting_region_key(key), key, tag, style, attributes, supporting_region_nodes(children, form), form) <> supporting_region_nodes(rest, form)
+    case Con{Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, rest}:
+      Source.Control{key, tag, style, attributes, name, enabled, first, remaining, supporting_region_nodes(children, form)} <> supporting_region_nodes(rest, form)
+    case Con{Source.NativeAttachment{key, target, attributes, style, children}, rest}:
+      Source.NativeAttachment{key, target, attributes, style, supporting_region_nodes(children, form)} <> supporting_region_nodes(rest, form)
+    case Con{other, rest}: other <> supporting_region_nodes(rest, form)
+
+def only_supporting_node(nodes: +List<Source.Node>, fallback: Source.Node) -> Source.Node:
+  match nodes:
+    case Con{node, rest}: node
+    case Nil{}: fallback
+
+def supporting_region_node(+node: Source.Node, form: Controls.SupportingForm) -> Source.Node:
+  only_supporting_node(supporting_region_nodes(node <> Nil{}, form), node)
+
+def first_supporting_form(first: Maybe<&2, Controls.SupportingForm>, rest: Maybe<&2, Controls.SupportingForm>) -> Maybe<&2, Controls.SupportingForm>:
+  match first:
+    case Some{form}: Some{form}
+    case None{}: rest
+
+def form_attribute(attributes: +List<Source.Attribute>) -> Maybe<&2, Controls.SupportingForm>:
+  match attributes:
+    case Nil{}: None{}
+    case Con{Source.DataAttribute{"supporting-form", "full"}, rest}: Some{Controls.FullSupporting{}}
+    case Con{Source.DataAttribute{"supporting-form", "compact"}, rest}: Some{Controls.CompactSupporting{}}
+    case Con{other, rest}: form_attribute(rest)
+
+def supporting_region_form_nodes(nodes: +List<Source.Node>) -> Maybe<&2, Controls.SupportingForm>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      first_supporting_form(form_attribute(attributes), first_supporting_form(supporting_region_form_nodes(children), supporting_region_form_nodes(rest)))
+    case Con{Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, rest}:
+      first_supporting_form(supporting_region_form_nodes(children), supporting_region_form_nodes(rest))
+    case Con{Source.NativeAttachment{key, target, attributes, style, children}, rest}:
+      first_supporting_form(supporting_region_form_nodes(children), supporting_region_form_nodes(rest))
+    case Con{other, rest}: supporting_region_form_nodes(rest)
+
+def supporting_region_form(node: Source.Node) -> Maybe<&2, Controls.SupportingForm>:
+  supporting_region_form_nodes(node <> Nil{})

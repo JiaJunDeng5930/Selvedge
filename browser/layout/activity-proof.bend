@@ -1,3 +1,4 @@
+import ../controls/NAVIGATION.bend as Navigation
 import ../controls/PROGRAM.bend as Controls
 import ../../interaction/presentation/SURFACE.bend as Surface
 import ../../interaction/conversation/CODE.bend as Code
@@ -51,7 +52,7 @@ def production_message_selection(+capacity: Nat, kind: EditorLayout.FieldKind, +
   {==}
 
 def supporting_flow(+visual: Design.Style, selection: Controls.Selection, code: Maybe<&2, Code.Scene>, appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>, execution: Maybe<&2, Workspace.Observation>, family: Controls.SourceFamily) ->
-  {Appearance.activity_controls(Surface.Toolbar{}, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}, visual) == Rule.supporting_style(visual) : Design.Style}:
+  {Appearance.activity_controls(Surface.Toolbar{}, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family, Controls.FullSupporting{}, Navigation.initial(), 0n}, visual) == Rule.supporting_style(visual) : Design.Style}:
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
   {==}
 

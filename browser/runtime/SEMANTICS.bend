@@ -860,3 +860,7 @@ def operation_receipt(state: State) -> Maybe<&2, Receipt.Receipt>:
 def decision_receipt(decision: Decision) -> Maybe<&2, Receipt.Receipt>:
   Decision{state, effects} = decision
   operation_receipt(state)
+
+def observe_frame_with(received: Nat, surface: SurfaceTypes.Surface, frame: Rendered.Frame, state: State, expectations: Rendered.FrameExpectations) -> Decision:
+  State{web, sequence, next, pending, receipt} = state
+  finish(Web.observe_frame_with(received, surface, frame, web, expectations), sequence, next, pending, "", receipt)

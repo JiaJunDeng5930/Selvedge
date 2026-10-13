@@ -13,6 +13,13 @@ Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend) and
 separate groups. Its production geometry evidence is part of
 [geometry-proof.bend](geometry-proof.bend).
 
+[ADAPTATION.bend](ADAPTATION.bend) observes the actual allocated inner width of
+identified regions; [adaptation-proof.bend](adaptation-proof.bend) binds its
+complete traversal and attribute membership equations to production. Inert
+regions remain in this geometry query because disabling interaction does not
+remove their allocated space. Opening a foreground dialog must therefore retain
+the background supporting region's width observation and presentation form.
+
 [ACTIVITY.bend](ACTIVITY.bend) owns the independent positive motor-target minimum, initial writing-line count
 and shared composer clearance. [activity-contract.bend](activity-contract.bend)
 binds these relations to the actual property geometry, message normalization and

@@ -1,3 +1,4 @@
+import ./SOURCE.bend as Source
 import ../../interaction/experience/PROGRAM.bend as UX
 import Base
 import ../../bendlib/categories.bend as Categories
@@ -31,6 +32,26 @@ type Violation is Data:
   FocusOutsideScope{}
   MissingModalFocus{}
   WrongTabOrder{}
+
+type ControlExposure is Data:
+  ControlExposure{key: String, exposure: Source.Exposure, command_enabled: Maybe<&2, Bool>}
+
+type FrameExpectations is Data:
+  FrameExpectations{controls: +List<ControlExposure>}
+
+def empty_expectations() -> FrameExpectations:
+  FrameExpectations{Nil{}}
+
+def choose_exposure(same: Bool, current: Source.Exposure, fallback: Source.Exposure) -> Source.Exposure:
+  match same:
+    case True{}: current
+    case False{}: fallback
+
+def declared_exposure(controls: +List<ControlExposure>, +key: String) -> Source.Exposure:
+  match controls:
+    case Nil{}: Source.Exposed{}
+    case Con{ControlExposure{owner, exposure, command_enabled}, rest}:
+      choose_exposure(String.eq(owner, key), exposure, declared_exposure(rest, key))
 
 type State is Data:
   AwaitingFrame{generation: Nat}
@@ -129,10 +150,25 @@ def dialog_geometry(role: SurfaceTypes.Role, key: String, found: Maybe<&2, Eleme
     case SurfaceTypes.Menu{}: bounded_dialog(key, found, viewport)
     case _: Nil{}
 
-def node_controls(is_control: Bool, meaning: SurfaceTypes.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+def concealed_control(+required: Bool, +key: String, found: Maybe<&2, Element>) -> +List<Violation>:
+  match found:
+    case None{}: [MissingElement{key}]
+    case Some{Element{observed, visible, +enabled, tab, keyboard, scroll, bounds, hit, paint}}:
+      List.append(&2, Violation, issue(Bool.not(((required && enabled) || (Bool.not(required) && Bool.not(enabled)))), DisabledAppearance{key}),
+        issue(visible || tab || keyboard || Bool.not(String.eq(hit, "")), UnreachableControl{key}))
+
+def exposed_control(exposure: Source.Exposure, meaning: SurfaceTypes.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+  match exposure:
+    case Source.Exposed{}: control_geometry(required_enabled(meaning), key, found, persistent, viewport)
+    case Source.Concealed{}: concealed_control(required_enabled(meaning), key, found)
+
+def node_controls_with(is_control: Bool, meaning: SurfaceTypes.Meaning, +key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect, controls: +List<ControlExposure>) -> +List<Violation>:
   match is_control:
     case False{}: Nil{}
-    case True{}: control_geometry(required_enabled(meaning), key, found, persistent, viewport)
+    case True{}: exposed_control(declared_exposure(controls, key), meaning, key, found, persistent, viewport)
+
+def node_controls(is_control: Bool, meaning: SurfaceTypes.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+  node_controls_with(is_control, meaning, key, found, persistent, viewport, Nil{})
 
 def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation>:
   match found:
@@ -161,18 +197,24 @@ def code_in_view(role: SurfaceTypes.Role, found: Maybe<&2, Element>, viewport: G
     case SurfaceTypes.CodeBlock{} Some{Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}}: visible && overlaps(paint_bounds, viewport)
     case _ _: False{}
 
-def node_geometry(found: Maybe<&2, Element>, +meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, +key: String, persistent: Bool, +viewport: Geometry.Rect) -> +List<Violation>:
+def node_geometry_with(found: Maybe<&2, Element>, +meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, +key: String, persistent: Bool, +viewport: Geometry.Rect, controls: +List<ControlExposure>) -> +List<Violation>:
   match found:
     case None{}: [MissingElement{key}]
     case Some{+element}:
-      List.append(&2, Violation, node_controls(interactive(meaning), meaning, key, Some{element}, persistent, viewport), region_geometry(role, key, Some{element}, viewport))
+      List.append(&2, Violation, node_controls_with(interactive(meaning), meaning, key, Some{element}, persistent, viewport, controls), region_geometry(role, key, Some{element}, viewport))
 
-def nodes(entries: +List<SurfaceTypes.Node>, +inherited: Bool, +elements: +List<Element>, +viewport: Geometry.Rect) -> +List<Violation>:
+def nodes_with(entries: +List<SurfaceTypes.Node>, +inherited: Bool, +elements: +List<Element>, +viewport: Geometry.Rect, +controls: +List<ControlExposure>) -> +List<Violation>:
   match entries:
     case Nil{}: Nil{}
     case Con{SurfaceTypes.Node{+key, semantic, label, +role, meaning, children}, rest}:
-      List.append(&2, Violation, node_geometry(find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), inherited || persistent(role), viewport),
-        List.append(&2, Violation, nodes(children, inherited || persistent(role) || code_in_view(role, find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport), nodes(rest, inherited, elements, viewport)))
+      List.append(&2, Violation, node_geometry_with(find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), inherited || persistent(role), viewport, controls),
+        List.append(&2, Violation, nodes_with(children, inherited || persistent(role) || code_in_view(role, find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport, controls), nodes_with(rest, inherited, elements, viewport, controls)))
+
+def node_geometry(found: Maybe<&2, Element>, meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, key: String, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
+  node_geometry_with(found, meaning, role, key, persistent, viewport, Nil{})
+
+def nodes(entries: +List<SurfaceTypes.Node>, inherited: Bool, elements: +List<Element>, viewport: Geometry.Rect) -> +List<Violation>:
+  nodes_with(entries, inherited, elements, viewport, Nil{})
 
 def tab_stop(found: Maybe<&2, Element>) -> Bool:
   match found:
@@ -293,12 +335,15 @@ def independent_targets(elements: +List<Element>) -> +List<Violation>:
     case Nil{}: Nil{}
     case Con{first, +rest}: List.append(&2, Violation, against(first, rest), independent_targets(rest))
 
-def layout_check(+active: +List<SurfaceTypes.Node>, frame: Frame) -> +List<Violation>:
+def layout_check_with(+active: +List<SurfaceTypes.Node>, frame: Frame, controls: +List<ControlExposure>) -> +List<Violation>:
   Frame{+viewport, +elements, focused, tab_order, +native_focus} = frame
-  List.append(&2, Violation, nodes(active, False{}, elements, viewport),
+  List.append(&2, Violation, nodes_with(active, False{}, elements, viewport, controls),
     List.append(&2, Violation, focus_checks(focused, active, elements, viewport, native_focus),
       List.append(&2, Violation, issue(Bool.not(tabs_valid(active, elements, native_focus, tab_order)), WrongTabOrder{}),
         independent_targets(actionable_elements(active, elements)))))
+
+def layout_check(active: +List<SurfaceTypes.Node>, frame: Frame) -> +List<Violation>:
+  layout_check_with(active, frame, Nil{})
 
 # Visible paint must be a positive region inside both the layout and viewport.
 # The DOM adapter owns correspondence with actual ancestor clipping.
@@ -354,3 +399,39 @@ def received(result: Maybe<&1, Categories.Membership<FrameReceipt, correlated_re
 
 def observe(+current: Nat, received_generation: Nat, surface: SurfaceTypes.Surface, frame: Frame, previous: State) -> State:
   received(Categories.admit(FrameReceipt, frame_correlated, FrameReceipt{current, received_generation, surface, frame}), previous)
+
+
+def enabled_expectation(expected: Maybe<&2, Bool>, +actual: Bool) -> Bool:
+  match expected:
+    case None{}: True{}
+    case Some{+value}: (value && actual) || (Bool.not(value) && Bool.not(actual))
+
+def source_concealment(exposure: Source.Exposure, +key: String, command_enabled: Maybe<&2, Bool>, found: Maybe<&2, Element>) -> +List<Violation>:
+  match exposure found:
+    case Source.Exposed{} _: Nil{}
+    case Source.Concealed{} None{}: [MissingElement{key}]
+    case Source.Concealed{} Some{Element{observed, visible, enabled, tab, keyboard, scroll, bounds, hit, paint}}:
+      List.append(&2, Violation, issue(Bool.not(enabled_expectation(command_enabled, enabled)), DisabledAppearance{key}),
+        issue(visible || tab || keyboard || Bool.not(String.eq(hit, "")), UnreachableControl{key}))
+
+def source_exposure_checks(controls: +List<ControlExposure>, +elements: +List<Element>) -> +List<Violation>:
+  match controls:
+    case Nil{}: Nil{}
+    case Con{ControlExposure{+key, exposure, enabled}, rest}:
+      List.append(&2, Violation, source_concealment(exposure, key, enabled, find_element(elements, key)), source_exposure_checks(rest, elements))
+
+def violations_with(+surface: SurfaceTypes.Surface, +frame: Frame, expectations: FrameExpectations) -> +List<Violation>:
+  SurfaceTypes.Surface{content, base, overlays, +scope} = surface
+  Frame{+viewport, +elements, +focused, tab_order, +native_focus} = frame
+  FrameExpectations{+controls} = expectations
+  List.append(&2, Violation, source_exposure_checks(controls, elements),
+    List.append(&2, Violation, paint_geometry(elements, viewport),
+      List.append(&2, Violation, layout_check_with(InterfaceView.active_nodes(surface), frame, controls), required_focus(scope, focused))))
+
+def observed_with(correlated: Bool, current: Nat, surface: SurfaceTypes.Surface, +frame: Frame, previous: State, expectations: FrameExpectations) -> State:
+  match correlated:
+    case False{}: previous
+    case True{}: accepted(violations_with(surface, frame, expectations), current, frame)
+
+def observe_with(+current: Nat, received: Nat, surface: SurfaceTypes.Surface, frame: Frame, previous: State, expectations: FrameExpectations) -> State:
+  observed_with(Nat.is_eq(current, received), current, surface, frame, previous, expectations)

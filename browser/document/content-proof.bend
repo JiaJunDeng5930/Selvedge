@@ -21,6 +21,8 @@ def panel_header_matches_specification(representation: Controls.Representation) 
   {Controls.panel_header(representation) == Rule.specified_header_representation(representation) : Bool}:
   match representation:
     case Controls.NoControl{}: {==}
+    case Controls.NavigationGroup{depth}: {==}
+    case Controls.NavigationRow{owner, depth, visible}: {==}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       match placement:
         case Controls.InFlow{}: {==}
@@ -682,15 +684,15 @@ def chooser_draft_observation(+id: Nat, +fallback: Design.Style) -> Rule.chooser
   {==}
 
 def project_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +children: +List<SurfaceTypes.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> Rule.project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +children: +List<SurfaceTypes.Node>, +context: Controls.Context, +task: Nat, +status: View.TaskStatus, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def chooser_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +children: +List<SurfaceTypes.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +project: Nat, +selected: Bool, +expanded: Bool, +children: +List<SurfaceTypes.Node>, +input: InteractionTypes.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->

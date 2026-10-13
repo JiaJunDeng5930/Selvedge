@@ -96,3 +96,16 @@ filesystem, network and approval consequence phrases together when they fit and
 stack the complete phrases in smaller content areas. Other summaries, including
 model and reasoning, remain one complete caption. Their surrounding icons and
 chevrons keep their authored dimensions.
+
+[NAVIGATION.bend](NAVIGATION.bend) owns transient row attention, exact owner
+admission, menu ownership and navigation content roles. `PROGRAM.Context` carries
+that vocabulary and derives descendant depth when entering a project group.
+Authored rows and slots remain in `MODEL`; keeping their source and design types
+out of the policy entry avoids a dependency cycle through `PROGRAM`.
+`CONTRACT.NavigationRequirements` binds the production context, exposure and
+command-preservation calculations; `PROOF` supplies its provider.
+
+Navigation titles retain their complete accessible text and command binding while
+their stretch targets align captions at the leading edge. Project membership
+controls indentation; the separate collection of tasks without a project keeps
+its own heading and does not acquire project depth.

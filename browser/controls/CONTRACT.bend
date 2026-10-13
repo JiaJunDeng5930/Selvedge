@@ -1,3 +1,5 @@
+import ../document/SOURCE.bend as Source
+import ./NAVIGATION.bend as Navigation
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/presentation/INFORMATION.bend as Information
@@ -78,7 +80,7 @@ def selected_drawing(selected: Bool, size: Nat) -> Maybe<&2, S.Drawing>:
     case False{}: None{}
 
 def actual_face_law(-key: UIIdentity.Key, -kind: SurfaceTypes.ChoiceKind, -classification: Maybe<&2, Filter.Classification>, -selected: Bool, -description: String, -input: InteractionTypes.Input, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, +context: Controls.Context) -> Type:
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   {actual_face(Controls.make_choice(key, kind, classification, selected, description, input, availability, label, role, context)) ==
     Some{Controls.ChoiceFace{Controls.name_for(Controls.purpose_fields(key, input, selection, code, appearance, access, open, layers), label), Controls.choice_description(description), Controls.classification_icon(classification), selected}} : Maybe<&2, Controls.Face>}
 
@@ -665,7 +667,7 @@ law authored_containment_evidence:
   AuthoredContainmentRequirements
 
 def execution_observation(context: Controls.Context) -> Maybe<&2, Context.Observation>:
-  Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
+  Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   execution
 
 def page_observation(content: InteractionTypes.Scene) -> Maybe<&2, Context.Observation>:
@@ -1057,6 +1059,8 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
 def binding(representation: Controls.Representation) -> SurfaceTypes.Meaning:
   match representation:
     case Controls.NoControl{}: SurfaceTypes.Region{}
+    case Controls.NavigationGroup{depth}: SurfaceTypes.Region{}
+    case Controls.NavigationRow{owner, depth, visible}: SurfaceTypes.Region{}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       SurfaceTypes.Activate{input, availability}
     case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: meaning
@@ -1133,12 +1137,12 @@ def expected_message(+editor: User.Editor, +availability: View.Availability, +la
 
 def message_uses_arrow_law(-key: UIIdentity.Key, -task: Nat, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
-      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
+      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n}) ==
       expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation}
 
 def creation_uses_arrow_law(-key: UIIdentity.Key, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
-      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
+      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n}) ==
       expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation}
 
 def menu_text(face: Controls.Face) -> Maybe<&2, String>:
@@ -1153,6 +1157,7 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
     case Controls.ChoiceFace{text, description, icon, checked}: Some{text}
     case Controls.DisclosureFace{text, expanded}: Some{text}
     case Controls.PropertyFace{property}: Some{UX.property_value(property)}
+    case Controls.CompactPropertyFace{property}: Some{UX.property_value(property)}
     case Controls.PermissionFace{filesystem, network, approval}: None{}
 
 def required_menu_text(purpose: Controls.Purpose, label: String) -> Maybe<&2, String>:
@@ -1198,7 +1203,7 @@ def workspace_removal_faces(workspace: View.WorkspaceControls, parent: UIIdentit
 def approval_keeps_label_law(-key: UIIdentity.Key, -task: Nat, -operation: Nat, -allow: Bool, -reason: String, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {action_text(Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{
       User.Activate{User.ReviewApproval{task, operation, allow, reason}}}}, availability}, label, role,
-      Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+      Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n})) ==
       Some{label} : Maybe<&2, String>}
 
 type HelpAccess is Data:
@@ -1235,14 +1240,14 @@ type Requirements is Type:
       @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{
           User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
-          Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+          Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n})) ==
           Some{Choice{Controls.ChoiceFace{label, None{}, None{}, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
     delivery_option_marks_current: @+key:UIIdentity.Key -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:SurfaceTypes.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{
           User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
-          Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+          Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n})) ==
           Some{Choice{Controls.ChoiceFace{label, None{}, None{}, Controls.same_delivery(delivery, current)},
             Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
     approval_keeps_label: @key:UIIdentity.Key -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
@@ -1471,3 +1476,78 @@ law native_input_policy:
   for +parameters: Design.LayoutParameters
   {A.request_policy(A.native_input_request(key, Controls.FormInput{meaning, name, widget, label, availability}, visual, parameters)) ==
     A.native_field_policy(widget, A.maximum_lines(widget, visual, parameters)) : S.FieldPolicy}
+
+# Presentation form is independent of the semantic command and complete help.
+type AdaptiveSupportingRequirements is Type:
+  AdaptiveSupportingRequirements{
+    full: @+property:UXTypes.Property -> @+area:Controls.Area -> @+value:Controls.Representation ->
+      {Controls.supporting_fields_at(Controls.FullSupporting{}, property, area, value) == Controls.supporting_fields(property, area, value) : Controls.Representation},
+    compact_action: @+property:UXTypes.Property -> @area:Controls.Area -> @input:InteractionTypes.Input -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, View.Available{}, name, face, behavior, geometry, placement, feedback}}) ==
+        Controls.Action{Controls.Button{input, View.Available{}, UX.property_help(property), Controls.CompactPropertyFace{property}, behavior, Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.CompactPropertyFace{property}, area), placement, feedback}} : Controls.Representation},
+    unavailable_action: @+property:UXTypes.Property -> @+area:Controls.Area -> @+input:InteractionTypes.Input -> @+reason:String -> @+name:String -> @+face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+feedback:Controls.Feedback ->
+      {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}) ==
+        Controls.supporting_fields(property, area, Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}) : Controls.Representation},
+    normal_permission_icon: {UX.compact_permission_values(Domain.Sandbox{Domain.WorkspaceWrite{}, False{}}, Context.Ask{}) == True{} : Bool},
+    readonly_permission: @+network:Bool -> @+approval:Context.ApprovalChoice -> {UX.compact_permission_values(Domain.Sandbox{Domain.ReadOnly{}, network}, approval) == False{} : Bool},
+    network_permission: @+mode:Domain.SandboxMode -> @+approval:Context.ApprovalChoice -> {UX.compact_permission_values(Domain.Sandbox{mode, True{}}, approval) == False{} : Bool},
+    unrestricted_approval: @+mode:Domain.SandboxMode -> @+network:Bool -> {UX.compact_permission_values(Domain.Sandbox{mode, network}, Context.Unrestricted{}) == False{} : Bool},
+    unavailable_permission: @+reason:String -> {UX.compact_permission_observation(Context.DraftExecution{Context.ContextUnavailable{reason}}) == False{} : Bool},
+    full_access: @task:Nat -> @workspace:Domain.Workspace -> @sandbox:Domain.Sandbox -> @approval:Domain.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @guidance:Domain.ProjectContext ->
+      {UX.compact_permission_observation(Context.CommittedExecution{Context.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, Domain.Unrestricted{}}}) == False{} : Bool},
+    accessible_help: @+property:UXTypes.Property -> @+availability:View.Availability -> @+feedback:Controls.Feedback -> @name:String ->
+      {Controls.help_for(Controls.CompactPropertyFace{property}, availability, feedback, name) == Controls.tooltip(Controls.help_text(availability, feedback, UX.property_help(property))) : Controls.Help},
+    region_stretch: @key:UIIdentity.Key -> @tag:S.BoxTag -> @+style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @form:Controls.SupportingForm ->
+      {Authored.supporting_region_box(True{}, key, tag, style, attributes, children, form) ==
+        S.Box{key, tag, Authored.supporting_region_style(style), List.append(&2, S.Attribute, attributes, [S.DataAttribute{"allocated-region", "supporting-controls"}, S.DataAttribute{"supporting-form", Authored.supporting_form_name(form)}]), children} : S.Node}}
+
+law adaptive_supporting_evidence:
+  AdaptiveSupportingRequirements
+
+law supporting_region_content_slot:
+  for direction: Model.Direction
+  for main: Spatial.Alignment
+  for cross: Spatial.Alignment
+  for frame: E.Frame
+  for width: Model.AxisSize
+  for height: Model.AxisSize
+  for minimum: E.Extent
+  for scroll: Model.Scroll
+  for position: Spatial.Position
+  for font: S.FontChoice
+  for chrome: Design.Chrome
+  for states: Design.ControlStates
+  {Authored.supporting_region_style(S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) ==
+    S.Style{S.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : S.Style}
+
+type NavigationPolicyRequirements is Type:
+  NavigationPolicyRequirements{
+    interest: @+hovered:Maybe<&2, String> -> @+focused:Maybe<&2, String> -> @+capable:Bool -> @+owner:String -> @+menu:Bool ->
+      {Navigation.revealed(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Bool.not(capable) || Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool},
+    project_depth: @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+depth:Nat ->
+      {Navigation.descend(SurfaceTypes.ProjectGroup{project, selected, expanded}, depth) == (depth + 1n : Nat) : Nat},
+    nullable_owner: @+nodes:+List<SurfaceTypes.Node> -> {Navigation.admitted(None{}, nodes) == True{} : Bool}}
+
+type NavigationRequirements is Type:
+  NavigationRequirements{
+    policy: NavigationPolicyRequirements,
+    context_interest: @+node:SurfaceTypes.Node -> @+context:Controls.Context ->
+      {Controls.navigation_attention(Controls.enter(node, context)) == Controls.navigation_attention(context) : Navigation.Attention},
+    context_depth: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+context:Controls.Context ->
+      {Controls.navigation_depth(Controls.enter(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, context)) == Navigation.descend(meaning, Controls.navigation_depth(context)) : Nat},
+    idle_truth: {Controls.task_status_glyph(View.TaskStatus{Domain.Active{}, False{}}) == Controls.IdleCircle{} : Controls.Icon},
+    actual_visibility: @+owner:UIIdentity.Key -> @+project:Nat -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+      {Controls.navigation_header(True{}, owner, project, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
+    exposed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
+      {Authored.slot(key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Authored.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
+    concealed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
+      {Authored.slot(key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Authored.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
+    title_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:Source.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
+      {Authored.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
+    title_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> ->
+      {Authored.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Authored.add_attributes(Source.Control{key, tag, Authored.navigation_title_style(style), attributes, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}]) : Source.Node},
+    complete_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> -> @+width:Model.AxisSize ->
+      {Authored.sized(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, width) == Source.Control{key, tag, Authored.sized_style(style, width), attributes, name, enabled, first, remaining, children} : Source.Node}}
+
+law navigation_evidence:
+  NavigationRequirements

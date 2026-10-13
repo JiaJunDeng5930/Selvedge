@@ -1,5 +1,8 @@
+import ../controls/NAVIGATION.bend as Navigation
 import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
+import ../layout/ADAPTATION.bend as Adaptation
+import ../layout/natural-size.bend as NaturalSize
 import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
@@ -289,7 +292,7 @@ law forwarded_frame_uses_published_surface:
   for +old: Maybe<&2, Rendered.Frame>
   for +frame: Rendered.Frame
   {Browser.frame_forward_calculation(Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state), frame) ==
-    Browser.accept(False{}, Legacy.observe_frame(Browser.semantic_generation(Browser.legacy(model_state)), semantic, frame, Browser.legacy(model_state)),
+    Browser.accept(False{}, Legacy.observe_frame_with(Browser.semantic_generation(Browser.legacy(model_state)), semantic, frame, Browser.legacy(model_state), SourceFrame.expectations(world, frame)),
       Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state)) : Browser.Decision}
 
 law failed_font_candidate_blocked:
@@ -896,7 +899,7 @@ law selected_infeasible:
   for +semantic: SurfaceTypes.Surface
   for +round: Nat
   {Browser.selected(Plan.Infeasible{failure}, index, capacity, engine, state, semantic, round) ==
-    Browser.infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure) : Browser.Search}
+    Browser.infeasible_candidate(Nat.is_lt(index, 7n), index, state, failure) : Browser.Search}
 
 type RecoveryRequirements is Type:
   RecoveryRequirements{
@@ -1009,3 +1012,51 @@ law supporting_mask_evidence:
   for +input: InteractionTypes.Input
   for +availability: View.Availability
   supporting_mask(blocked, support, property, input, availability)
+
+# Every ready physical candidate resolves its independent presentation form.
+type SupportingAdmissionRequirements is Type:
+  SupportingAdmissionRequirements{
+    threshold: @+capacity:Nat -> @generation:Nat -> @source:Source.Node -> @+font:T.Presentation ->
+      {Browser.supporting_threshold(capacity, Content.Snapshot{generation, source, font}) == T.scaled(capacity, 475n, T.presentation_scale(font)) : Nat},
+    missing_full: @threshold:Nat -> {Browser.supporting_width_admitted(Controls2.FullSupporting{}, None{}, threshold) == True{} : Bool},
+    missing_compact: @threshold:Nat -> {Browser.supporting_width_admitted(Controls2.CompactSupporting{}, None{}, threshold) == False{} : Bool},
+    full_room: @+width:Nat -> @+threshold:Nat -> {Browser.supporting_width_admitted(Controls2.FullSupporting{}, Some{width}, threshold) == Nat.is_lt(threshold, width) : Bool},
+    compact_room: @+width:Nat -> @+threshold:Nat -> {Browser.supporting_width_admitted(Controls2.CompactSupporting{}, Some{width}, threshold) == Nat.is_le(width, threshold) : Bool},
+    complete_observation: @+index:Nat -> @+snapshot:Content.Snapshot -> @+tree:Allocation.AllocatedTree<Content.Value, Doc.DOMEvent> -> @+roots:+List<Content.AllocatedNative> -> @+policies:+List<Content.NativePolicy> ->
+      {Browser.supporting_admitted(index, Content.AllocatedWorld{snapshot, tree, roots, policies}) ==
+        Browser.supporting_width_admitted(Browser.candidate_form(index), Adaptation.region_width(tree, Adaptation.RegionAttribute{"allocated-region", "supporting-controls"}), Browser.supporting_threshold(Browser.supporting_capacity(snapshot), snapshot)) : Bool},
+    ready: @+world:Content.AllocatedWorld -> @+index:Nat -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+state:Browser.State -> @+semantic:SurfaceTypes.Surface -> @round:Nat ->
+      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.selected_supporting(Browser.supporting_admitted(index, world), world, index, capacity, engine, state, semantic) : Browser.Search},
+    admitted: @+world:Content.AllocatedWorld -> @index:Nat -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+state:Browser.State -> @+semantic:SurfaceTypes.Surface ->
+      {Browser.selected_supporting(True{}, world, index, capacity, engine, state, semantic) == Browser.Stopped{Browser.admit(world, capacity, engine, state, semantic)} : Browser.Search},
+    rejected: @world:Content.AllocatedWorld -> @+index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @+state:Browser.State -> @semantic:SurfaceTypes.Surface ->
+      {Browser.selected_supporting(False{}, world, index, capacity, engine, state, semantic) == Browser.supporting_retry(Nat.is_lt(index, 7n), index, state) : Browser.Search},
+    terminal: @+index:Nat -> @+state:Browser.State -> {Browser.supporting_retry(False{}, index, state) == Browser.Stopped{Browser.no_candidate(state)} : Browser.Search}}
+
+law supporting_admission_evidence:
+  SupportingAdmissionRequirements
+
+def retained_attention_phase(phase: Browser.Lifecycle, +state: Browser.State) -> Type:
+  match phase:
+    case Browser.Displaying{capacity, engine, semantic}:
+      {Browser.attention_refresh(state) == Browser.finish_search(Browser.one_candidate(Browser.source_candidate_index(capacity, World.snapshot(engine)), state)) : Browser.Decision}
+    case Browser.Measuring{index, capacity, engine, semantic, round}:
+      {Browser.attention_refresh(state) == Browser.finish_search(Browser.one_candidate(index, state)) : Browser.Decision}
+    case _:
+      {Browser.attention_refresh(state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+def retained_attention_candidate(+state: Browser.State) -> Type:
+  retained_attention_phase(Browser.presentation_phase(state), state)
+
+type NavigationRequirements is Type:
+  NavigationRequirements{
+    interest_keeps_legacy: @+attention:Navigation.Attention -> @+state:Browser.State ->
+      {Browser.legacy(Browser.with_attention(attention, state)) == Browser.legacy(state) : Legacy.State},
+    invalid_owner: @+attention:Navigation.Attention -> @+state:Browser.State ->
+      {Browser.attention_change(False{}, attention, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
+    identical_interest: @+attention:Navigation.Attention -> @+state:Browser.State ->
+      {Browser.attention_changed(False{}, attention, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
+    fixed_display_candidate: @+state:Browser.State -> retained_attention_candidate(state)}
+
+law navigation_evidence:
+  NavigationRequirements

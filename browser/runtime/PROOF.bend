@@ -1,3 +1,4 @@
+import ../controls/NAVIGATION.bend as Navigation
 import Base
 import ../../interaction/session/PROOF.bend as SessionProof
 import ../../harness/INVARIANTS.bend as WorldInvariant
@@ -614,8 +615,8 @@ def stale_measurements(+received: BrowserModel.MeasurementTicket, +tokens: +List
       (owned => {measured_current_spec(owned, received, tokens, state) == BrowserModel.Decision{state, Nil{}} : BrowserModel.Decision}),
       {==}, BrowserModel.measurement_owned(received, state), proof))
 
-def ready_document(+rendering_capacity: Nat, +legacy: Browser.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface) ->
-  Rule.ready_document_claim(BrowserModel.State{legacy, serial, anchors, BrowserModel.Displaying{layout_capacity, engine, semantic}, Some{BrowserModel.published(world, layout_capacity, legacy, semantic)}}, rendering_capacity, layout_capacity, engine, world, semantic):
+def ready_document(+rendering_capacity: Nat, +legacy: Browser.State, +serial: Nat, +anchors: +List<Shell.Anchor>, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface, +attention: Navigation.Attention) ->
+  Rule.ready_document_claim(BrowserModel.State{legacy, serial, anchors, BrowserModel.Displaying{layout_capacity, engine, semantic}, Some{BrowserModel.published(world, layout_capacity, legacy, semantic)}, attention}, rendering_capacity, layout_capacity, engine, world, semantic):
   match legacy:
     case Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}:
       match world:
@@ -624,7 +625,7 @@ def ready_document(+rendering_capacity: Nat, +legacy: Browser.State, +serial: Na
 def anchor_preserves_program(+key: String, +left: AnchorGeometry.Origin, +top: AnchorGeometry.Origin, +width: Nat, +height: Nat, +state: BrowserModel.State) ->
   Rule.anchor_preserves_program_claim(key, left, top, width, height, state):
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match legacy:
         case Browser.State{web, sequence, ticket, pending, receipt}:
           match web:
@@ -668,7 +669,7 @@ def pending_predicate(+capacity: Nat, +last: Nat, +state: BrowserModel.State,
   waiting: {Rule.publication_pending(state) == True{} : Bool}) ->
   {BrowserModel.publication_policy_predicate(BrowserModel.PublicationCandidate{capacity, last, state}) == Bool.not(Nat.is_eq(last, 0n)) : Bool}:
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match lifecycle:
         case BrowserModel.WaitingEnvironment{}: boolean_pending(Bool.not(Nat.is_eq(last, 0n)), Nat.is_eq(BrowserModel.displayed_generation(state), last))
         case BrowserModel.WaitingFont{}: boolean_pending(Bool.not(Nat.is_eq(last, 0n)), Nat.is_eq(BrowserModel.displayed_generation(state), last))
@@ -695,7 +696,7 @@ def publication_preserves_pending_at(+capacity: Nat, +last: Nat, +state: Browser
   existing: {Bool.not(Nat.is_eq(last, 0n)) == True{} : Bool},
   waiting: {Rule.publication_pending(state) == True{} : Bool}) -> Rule.publication_preserves_pending_claim_at(capacity, last, state):
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match lifecycle:
         case BrowserModel.WaitingEnvironment{}: pending_publication_at(capacity, last, state, existing, waiting)
         case BrowserModel.WaitingFont{}: pending_publication_at(capacity, last, state, existing, waiting)
@@ -707,7 +708,7 @@ def publication_preserves_pending_at(+capacity: Nat, +last: Nat, +state: Browser
         case BrowserModel.Blocked{problem}: Logic.impossible(Rule.publication_preserves_pending_claim_at(capacity, last, state), waiting)
 
 def blocked_publication_at(+capacity: Nat, +last_published: Nat, +legacy: Browser.State, +serial: Nat,
-  +anchors: +List<Shell.Anchor>, +problem: String, +displayed: Maybe<&2, BrowserModel.Published>) -> Rule.blocked_publication_claim_at(BrowserModel.State{legacy, serial, anchors, BrowserModel.Blocked{problem}, displayed}, capacity, last_published, problem):
+  +anchors: +List<Shell.Anchor>, +problem: String, +displayed: Maybe<&2, BrowserModel.Published>, +attention: Navigation.Attention) -> Rule.blocked_publication_claim_at(BrowserModel.State{legacy, serial, anchors, BrowserModel.Blocked{problem}, displayed, attention}, capacity, last_published, problem):
   {==}
 
 def current_predicate(+capacity: Nat, +last: Nat, +state: BrowserModel.State,
@@ -729,7 +730,7 @@ def publication_current_at(+capacity: Nat, +last: Nat, +state: BrowserModel.Stat
   +ready: {BrowserModel.display_ready(state) == True{} : Bool},
   current: {Nat.is_eq(BrowserModel.displayed_generation(state), last) == True{} : Bool}) -> Rule.publication_current_claim_at(capacity, last, state):
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match lifecycle:
         case BrowserModel.UtilityDisplaying{purpose, engine}: keep_policy(capacity, last, state, current_predicate(capacity, last, state, existing, ready, current))
         case BrowserModel.Displaying{layout_capacity, engine, semantic}: keep_policy(capacity, last, state, current_predicate(capacity, last, state, existing, ready, current))
@@ -742,21 +743,21 @@ def publication_current_at(+capacity: Nat, +last: Nat, +state: BrowserModel.Stat
 
 def frame_capture_program(+frame: Rendered.Frame, +state: BrowserModel.State) -> Rule.frame_capture_program_claim(frame, state):
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match displayed:
         case None{}: {==}
         case Some{BrowserModel.Published{world, semantic, scope, basis, old}}: {==}
 
 def Rule.forwarded_frame_uses_published_surface(model_state, world, semantic, scope, basis, old, frame):
-  BrowserModel.State{+stored, +serial, +anchors, +lifecycle, +original_1} = model_state
+  BrowserModel.State{+stored, +serial, +anchors, +lifecycle, +original_1, attention} = model_state
   {==}
 
 def Rule.failed_font_candidate_blocked(model_state, font_generation, scale, index):
-  BrowserModel.State{Browser.State{Web.State{+application, +generation, +realization, +environment, +original_1}, +sequence, +ticket, +pending, +original_2}, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{Browser.State{Web.State{+application, +generation, +realization, +environment, +original_1}, +sequence, +ticket, +pending, +original_2}, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def Rule.unmet_frame_status(model_state, semantic, frame_generation, frame, violations, capacity, engine):
-  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +original_2}, +serial, +anchors, +original_3, +displayed} = model_state
+  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +original_2}, +serial, +anchors, +original_3, +displayed, attention} = model_state
   {==}
 
 def eligible_fields(+enabled: Bool, +visible: Bool, +scroll: Bool,
@@ -790,7 +791,7 @@ def stale_native_focus_spec(+generation: Nat, +owner: String, +identity: String,
   stale: {BrowserModel.frame_owned(generation, state) == False{} : Bool}) ->
   {native_focus_if_owned_spec(BrowserModel.native_observation_owned(generation, owner, identity, state), generation, owner, identity, state) == BrowserModel.Decision{state, Nil{}} : BrowserModel.Decision}:
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match displayed:
         case None{}: {==}
         case Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
@@ -822,7 +823,7 @@ def Rule.measurement_ownership_only_measuring(ticket, state, owned):
   match ticket:
     case BrowserModel.MeasurementTicket{generation, received_round}:
       match state:
-        case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+        case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
           match lifecycle:
             case BrowserModel.Measuring{index, capacity, engine, semantic, round}: {==}
             case BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}: {==}
@@ -835,7 +836,7 @@ def Rule.measurement_ownership_only_measuring(ticket, state, owned):
 
 def Rule.measurement_request_unavailable(state, inactive):
   match state:
-    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed}:
+    case BrowserModel.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match lifecycle:
         case BrowserModel.WaitingEnvironment{}: {==}
         case BrowserModel.WaitingFont{}: {==}
@@ -844,14 +845,14 @@ def Rule.measurement_request_unavailable(state, inactive):
         case BrowserModel.UtilityDisplaying{purpose, engine}: {==}
         case BrowserModel.UtilityRejected{problem}: {==}
         case BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}:
-          Logic.impossible({BrowserModel.measurement_request(BrowserModel.State{legacy, serial, anchors, BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}) == None{} : Maybe<&2, BrowserModel.MeasurementRequest>}, Equal.sym(Bool, True{}, False{}, inactive))
+          Logic.impossible({BrowserModel.measurement_request(BrowserModel.State{legacy, serial, anchors, BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention}) == None{} : Maybe<&2, BrowserModel.MeasurementRequest>}, Equal.sym(Bool, True{}, False{}, inactive))
         case BrowserModel.Measuring{index, capacity, engine, semantic, round}:
           Logic.impossible(
-            {BrowserModel.measurement_request(BrowserModel.State{legacy, serial, anchors, BrowserModel.Measuring{index, capacity, engine, semantic, round}, displayed}) == None{} : Maybe<&2, BrowserModel.MeasurementRequest>},
+            {BrowserModel.measurement_request(BrowserModel.State{legacy, serial, anchors, BrowserModel.Measuring{index, capacity, engine, semantic, round}, displayed, attention}) == None{} : Maybe<&2, BrowserModel.MeasurementRequest>},
             Equal.sym(Bool, True{}, False{}, inactive))
 
 def Rule.measurement_wrong_round(model_state, generation, received_round, round, index, capacity, engine, semantic, same_generation, stale_round):
-  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed, attention} = model_state
   Std.transport(Bool, True{},
     (same => {same && Nat.is_eq(received_round, round) == False{} : Bool}),
     Std.transport(Bool, False{},
@@ -860,39 +861,39 @@ def Rule.measurement_wrong_round(model_state, generation, received_round, round,
     Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))), same_generation)
 
 def Rule.measurement_request_canonical(model_state, index, capacity, engine, semantic, round, generation, first, remaining, awaiting):
-  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed, attention} = model_state
   Std.transport(Plan.Plan, Plan.Awaiting{generation, first, remaining},
     (plan => {BrowserModel.measurement_request_plan(plan, World.snapshot_generation(World.snapshot(engine)), round) ==
       Some{BrowserModel.MeasurementRequest{BrowserModel.MeasurementTicket{World.snapshot_generation(World.snapshot(engine)), round}, Plan.Awaiting{generation, first, remaining}}} : Maybe<&2, BrowserModel.MeasurementRequest>}),
     {==}, World.plan(engine), awaiting)
 
 def Rule.render_violations_unmet(model_state, observed_generation, frame, violations):
-  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def Rule.render_violations_awaiting(model_state, observed_generation):
-  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def Rule.render_violations_realized(model_state, observed_generation, frame):
-  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{Browser.State{Web.State{+application, +generation, +original_1, +environment, +font}, +sequence, +ticket, +pending, +receipt}, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def Rule.pending_frame_effects(state):
   match state:
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityRejected{problem}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityDisplaying{purpose, engine}, None{}}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityDisplaying{purpose, engine}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, semantic, scope, basis, None{}}}}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityDisplaying{purpose, engine}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, semantic, scope, basis, Some{frame}}}}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.WaitingEnvironment{}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.WaitingFont{}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Measuring{index, capacity, engine, semantic, round}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Blocked{problem}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.Realized{observed_generation, frame}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.Unmet{observed_generation, frame, violations}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, displayed}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, None{}}: {==}
-    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, published_semantic, scope, basis, frame}}}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityRejected{problem}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityDisplaying{purpose, engine}, None{}, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityDisplaying{purpose, engine}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, semantic, scope, basis, None{}}}, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.UtilityDisplaying{purpose, engine}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, semantic, scope, basis, Some{frame}}}, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.WaitingEnvironment{}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.WaitingFont{}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Measuring{index, capacity, engine, semantic, round}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, realization, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Blocked{problem}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.Realized{observed_generation, frame}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.Unmet{observed_generation, frame, violations}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, displayed, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, None{}, attention}: {==}
+    case BrowserModel.State{Browser.State{Web.State{application, generation, Rendered.AwaitingFrame{observed_generation}, environment, font}, sequence, ticket, pending, receipt}, serial, anchors, BrowserModel.Displaying{capacity, engine, semantic}, Some{BrowserModel.Published{Content.AllocatedWorld{Content.Snapshot{physical_generation, source, observed_font}, tree, roots, policies}, published_semantic, scope, basis, frame}}, attention}: {==}
 
 def Rule.retained_frame_decision(first, state):
   Std.transport(+List<Browser.Effect>, BrowserModel.pending_frame_effects(state),
@@ -930,18 +931,18 @@ def inspection_owned(+utility: Bool, +stored: Browser.State, +displayed: Maybe<&
     case False{}: inspection_product(stored, displayed)
 
 def Rule.render_inspection(model_state):
-  BrowserModel.State{+stored, +serial, +anchors, +lifecycle, +displayed} = model_state
-  inspection_owned(BrowserModel.auxiliary_owned(BrowserModel.State{stored, serial, anchors, lifecycle, displayed}), stored, displayed)
+  BrowserModel.State{+stored, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
+  inspection_owned(BrowserModel.auxiliary_owned(BrowserModel.State{stored, serial, anchors, lifecycle, displayed, attention}), stored, displayed)
 
 def state_ready_document_evidence(+model_state: BrowserModel.State, +rendering_capacity: Nat, +layout_capacity: View.Capacity, +engine: World.Engine, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface) ->
   Rule.ready_document_claim(BrowserModel.with_displayed(Some{BrowserModel.published(world, layout_capacity, BrowserModel.legacy(model_state), semantic)}, BrowserModel.with_lifecycle(BrowserModel.Displaying{layout_capacity, engine, semantic}, model_state)), rendering_capacity, layout_capacity, engine, world, semantic):
-  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +original_2} = model_state
-  ready_document(rendering_capacity, legacy, serial, anchors, layout_capacity, engine, world, semantic)
+  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +original_2, attention} = model_state
+  ready_document(rendering_capacity, legacy, serial, anchors, layout_capacity, engine, world, semantic, attention)
 
 def state_blocked_publication_at_evidence(+model_state: BrowserModel.State, +capacity: Nat, +last_published: Nat, +problem: String) ->
   Rule.blocked_publication_claim_at(BrowserModel.with_lifecycle(BrowserModel.Blocked{problem}, model_state), capacity, last_published, problem):
-  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
-  blocked_publication_at(capacity, last_published, legacy, serial, anchors, problem, displayed)
+  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed, attention} = model_state
+  blocked_publication_at(capacity, last_published, legacy, serial, anchors, problem, displayed, attention)
 
 def Rule.evidence():
   Rule.Requirements{
@@ -1004,7 +1005,7 @@ def Rule.failure_message(key, axis, required, available, reason):
 def Rule.infeasible_candidate_retries(index, state, failure): {==}
 
 def Rule.infeasible_candidate_reports(model_state, index, failure):
-  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def Rule.selected_infeasible(failure, index, capacity, engine, state, semantic, round): {==}
@@ -1012,25 +1013,25 @@ def Rule.selected_infeasible(failure, index, capacity, engine, state, semantic, 
 def state_utility_publication_evidence(+model_state: BrowserModel.State, +world: Content.AllocatedWorld, +purpose: Utility.Purpose, +engine: World.Engine) ->
   {BrowserModel.utility_publish(world, purpose, engine, model_state) ==
         BrowserModel.Decision{BrowserModel.with_displayed(Some{BrowserModel.Published{world, BrowserModel.current_legacy_surface(BrowserModel.legacy(model_state)), Focus.Document{}, Native.Basis{Nil{}, Nil{}}, None{}}}, BrowserModel.with_lifecycle(BrowserModel.UtilityDisplaying{purpose, engine}, model_state)), Nil{}} : BrowserModel.Decision}:
-  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def state_correlated_frame_evidence(+model_state: BrowserModel.State, +frame: Rendered.Frame, +world: Content.AllocatedWorld, +semantic: SurfaceTypes.Surface, +scope: Focus.Scope, +basis: Native.Basis, +old: Maybe<&2, Rendered.Frame>) ->
   {BrowserModel.correlated_frame_owned(True{}, frame, BrowserModel.with_displayed(Some{BrowserModel.Published{world, semantic, scope, basis, old}}, model_state)) ==
         BrowserModel.utility_frame_result(world, frame, BrowserModel.with_displayed(Some{BrowserModel.Published{world, semantic, scope, basis, old}}, model_state)) : BrowserModel.Decision}:
-  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +original_1} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +original_1, attention} = model_state
   {==}
 
 def state_correlated_measurement_failure_evidence(+model_state: BrowserModel.State, +purpose: Utility.Purpose, +engine: World.Engine, +round: Nat, +reason: String) ->
   {BrowserModel.utility_measurement_failure(reason, BrowserModel.with_lifecycle(BrowserModel.UtilityMeasuring{purpose, engine, round, False{}}, model_state)) ==
         BrowserModel.utility_fallback(reason, BrowserModel.with_lifecycle(BrowserModel.UtilityMeasuring{purpose, engine, round, False{}}, model_state)) : BrowserModel.Decision}:
-  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +original_1, +displayed, attention} = model_state
   {==}
 
 def state_rejected_frame_evidence(+model_state: BrowserModel.State, +first: Rendered.Violation, +rest: +List<Rendered.Violation>, +frame: Rendered.Frame) ->
   {BrowserModel.utility_frame_rejection(model_state) ==
         BrowserModel.Decision{BrowserModel.with_displayed(None{}, BrowserModel.with_lifecycle(BrowserModel.UtilityRejected{"Frontend utility frame does not match its admitted source"}, model_state)), Nil{}} : BrowserModel.Decision}:
-  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
+  BrowserModel.State{+legacy, +serial, +anchors, +lifecycle, +displayed, attention} = model_state
   {==}
 
 def Rule.recovery_evidence():
@@ -1257,3 +1258,41 @@ def Rule.supporting_mask_evidence(blocked, support, property, input, availabilit
   match blocked:
     case True{}: {==}
     case False{}: {==}
+
+def Rule.supporting_admission_evidence():
+  Rule.SupportingAdmissionRequirements{
+    +capacity => generation => source => +font => {==},
+    threshold => {==},
+    threshold => {==},
+    +width => +threshold => {==},
+    +width => +threshold => {==},
+    +index => +snapshot => +tree => +roots => +policies => {==},
+    +world => +index => +capacity => +engine => +state => +semantic => round => {==},
+    +world => index => +capacity => +engine => +state => +semantic => {==},
+    world => +index => capacity => engine => +state => semantic => {==},
+    +index => +state => {==}}
+
+def navigation_interest_keeps_legacy(+attention: Navigation.Attention, +state: BrowserModel.State) ->
+  {BrowserModel.legacy(BrowserModel.with_attention(attention, state)) == BrowserModel.legacy(state) : Browser.State}:
+  match state:
+    case BrowserModel.State{legacy, generation, anchors, lifecycle, displayed, previous}: {==}
+
+def retained_attention_candidate(+state: BrowserModel.State) -> Rule.retained_attention_candidate(state):
+  match state:
+    case BrowserModel.State{legacy, generation, anchors, lifecycle, displayed, attention}:
+      match lifecycle:
+        case BrowserModel.WaitingEnvironment{}: {==}
+        case BrowserModel.WaitingFont{}: {==}
+        case BrowserModel.Measuring{index, capacity, engine, semantic, round}: {==}
+        case BrowserModel.Displaying{capacity, engine, semantic}: {==}
+        case BrowserModel.UtilityMeasuring{purpose, engine, round, glyph_only}: {==}
+        case BrowserModel.UtilityDisplaying{purpose, engine}: {==}
+        case BrowserModel.UtilityRejected{problem}: {==}
+        case BrowserModel.Blocked{problem}: {==}
+
+def Rule.navigation_evidence():
+  Rule.NavigationRequirements{
+    navigation_interest_keeps_legacy,
+    +attention => +state => {==},
+    +attention => +state => {==},
+    retained_attention_candidate}

@@ -1030,6 +1030,21 @@ type ProjectInteractionRequirements is Type:
             [Model.declared(Identity.Entity{parent, "project", Nat.show(id)}, toggle, state), Model.selected_node(selected, Model.declared(Identity.Entity{parent, "project", Nat.show(id)}, open, state)),
              Model.declared(Identity.Entity{parent, "project", Nat.show(id)}, create, state), Model.declared(Identity.Entity{parent, "project", Nat.show(id)}, more, state)]) <>
           Model.disclosed_tasks(expanded, tasks, Identity.Entity{parent, "project", Nat.show(id)}, state)}] : +List<SurfaceTypes.Node>},
+    independent_source: @+expanded:Bool -> @+route:U.Route -> @+world:M.World() -> @+session:E.Session ->
+      {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新任务", U.BeginTask{None{}}),
+        [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}})],
+        View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_entries(View.project_tasks(Commands.entries(world), None{}), route),
+        V.ControlDeclaration{"navigation/toggle", "Toggle sidebar", V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
+    independent_empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.independent_task_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    independent_populated: @+first:V.TaskEntry -> @+rest:+List<V.TaskEntry> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.independent_task_entries(Con{first, rest}, parent, state) == [Model.region(parent, "independent-tasks", "", SurfaceTypes.Section{},
+        SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.GroupTitle{}}, Nil{}} <>
+        Model.task_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
+    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+      {Model.navigation_contents(False{}, route, create, destinations, projects, tasks, state) == Nil{} : +List<SurfaceTypes.Node>},
+    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+      {Model.navigation_contents(True{}, route, create, destinations, projects, tasks, state) == Model.selected_declaration(route, Identity.Place{"/navigation"}, create, state) <> List.append(&2, SurfaceTypes.Node, Model.selected_controls(route, destinations, Identity.Place{"/navigation"}, state), List.append(&2, SurfaceTypes.Node, Model.project_entries(projects, Identity.Place{"/navigation"}, state), Model.independent_task_entries(tasks, Identity.Place{"/navigation"}, state))) : +List<SurfaceTypes.Node>},
     committed_is_not_draft: @context:Context.EffectiveContext ->
       {View.draft_preview(Some{Context.CommittedExecution{context}}) == None{} : Maybe<&2, Context.Preview>},
     empty_project_collection: @+parent: Identity.Key -> @state:InteractionTypes.State ->

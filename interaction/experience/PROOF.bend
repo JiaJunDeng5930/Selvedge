@@ -389,3 +389,13 @@ def Rule.attention_keeps_first_repair(obstruction, rest, repair):
   Equal.cong(Bool, Maybe<&2, M.Obstruction>, passive => P.attention_obstruction_select(passive, obstruction, P.attention_obstruction_list(rest)), P.passive_obstruction(obstruction), False{}, repair)
 def Rule.attention_skips_passive_obstruction(obstruction, rest, passive):
   Equal.cong(Bool, Maybe<&2, M.Obstruction>, hidden => P.attention_obstruction_select(hidden, obstruction, P.attention_obstruction_list(rest)), P.passive_obstruction(obstruction), True{}, passive)
+
+def Rule.compact_property_evidence():
+  Rule.CompactPropertyRequirements{
+    editor => +profile => effort => +found => {==},
+    editor => +observation => {==},
+    +observation => {==},
+    observation => {==},
+    +editor => +selected => +found => {==},
+    +editor => +observation => +source => {==},
+    +editor => +delivery => {==}}

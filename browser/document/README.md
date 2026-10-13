@@ -16,3 +16,9 @@ The corresponding evidence is organized in [source-proof.bend](source-proof.bend
 for cross-concept clients. The repository [PROOF.bend](../../PROOF.bend) imports all
 production providers. Read observations and intended updates before private
 representations; contracts define the obligations rather than this reading guide.
+
+`SOURCE.ExposureAttribute` declares presentation exposure independently of command
+availability. `FRAME` propagates it through the allocated tree. Utility frames
+retain their exact allocation checks; normal frames consume keyed exposure
+expectations alongside the existing semantic, native-content and focus checks.
+The generic host paint projection retains concealed allocation space.

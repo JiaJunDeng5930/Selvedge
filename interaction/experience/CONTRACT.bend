@@ -397,3 +397,23 @@ law attention_keeps_first_repair:
 law attention_skips_passive_obstruction:
   @+obstruction:M.Obstruction -> @+rest:+List<M.Obstruction> -> @passive:{P.passive_obstruction(obstruction) == True{} : Bool} ->
   {P.attention_obstruction_list(obstruction <> rest) == P.attention_obstruction_list(rest) : Maybe<&2, M.Obstruction>}
+
+# Compact display omits only already accessible model detail or baseline permissions.
+type CompactPropertyRequirements is Type:
+  CompactPropertyRequirements{
+    model_identity: @editor:U.Editor -> @+profile:String -> @effort:String -> @+found:Maybe<&2, D.Profile> ->
+      {P.compact_property_summary_parts(M.ModelObservation{editor, profile, effort, found}) == [P.model_value(profile, found)] : +List<String>},
+    permission_observation: @editor:U.Editor -> @+observation:Context.Observation ->
+      {P.compact_property_summary_parts(M.PermissionsObservation{editor, observation}) == P.compact_permission_parts(P.compact_permission_observation(observation), observation) : +List<String>},
+    consequential_permissions: @+observation:Context.Observation ->
+      {P.compact_permission_parts(False{}, observation) == P.permission_summary_parts(observation) : +List<String>},
+    baseline_permissions: @observation:Context.Observation -> {P.compact_permission_parts(True{}, observation) == Nil{} : +List<String>},
+    project_identity: @+editor:U.Editor -> @+selected:Maybe<&2, Nat> -> @+found:Maybe<&2, D.Project> ->
+      {P.compact_property_summary_parts(M.ProjectObservation{editor, selected, found}) == P.property_summary_parts(M.ProjectObservation{editor, selected, found}) : +List<String>},
+    workspace_identity: @+editor:U.Editor -> @+observation:Context.Observation -> @+source:Maybe<&2, D.Project> ->
+      {P.compact_property_summary_parts(M.WorkspaceObservation{editor, observation, source}) == P.property_summary_parts(M.WorkspaceObservation{editor, observation, source}) : +List<String>},
+    delivery_identity: @+editor:U.Editor -> @+delivery:U.Delivery ->
+      {P.compact_property_summary_parts(M.DeliveryObservation{editor, delivery}) == P.property_summary_parts(M.DeliveryObservation{editor, delivery}) : +List<String>}}
+
+law compact_property_evidence:
+  CompactPropertyRequirements

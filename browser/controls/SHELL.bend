@@ -1,4 +1,5 @@
 import Base
+import ./PROGRAM.bend as Controls
 import ../document/presentation-order.bend as Order
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./MODEL.bend as Authored
@@ -475,3 +476,11 @@ def assemble(base_result: Authored.Authorship, overlay_result: Authored.Authorsh
 
 def source(+surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation) -> ShellAuthorship:
   assemble(Authored.base(surface, parameters), Authored.overlays(surface, parameters), surface, capacity, parameters, layers, anchors, font)
+
+def supporting_authorship(result: ShellAuthorship, form: Controls.SupportingForm) -> ShellAuthorship:
+  match result:
+    case Rejected{key, problem}: Rejected{key, problem}
+    case Ready{node}: Ready{Authored.supporting_region_node(node, form)}
+
+def source_supporting(+surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation, form: Controls.SupportingForm) -> ShellAuthorship:
+  supporting_authorship(source(surface, parameters, capacity, layers, anchors, font), form)

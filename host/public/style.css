@@ -35,3 +35,6 @@ pre, code { font-family: var(--rich-code-font); }
 .markdown h4, .markdown h5, .markdown h6 { font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
 .markdown pre, .markdown code { font-family: var(--rich-code-font); font-size: var(--rich-code-size); line-height: var(--rich-code-line); font-weight: var(--rich-code-weight); }
 .code-toolbar { font-size: var(--rich-support-size); line-height: var(--rich-support-line); }
+
+[data-presentation-visibility="hidden"],
+[data-presentation-visibility="hidden"] * { visibility: hidden !important; }

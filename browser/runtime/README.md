@@ -29,3 +29,15 @@ Normal physical receipts continue the production display calculation. A terminal
 failure uses the same recovery producer as the initial build, making its reason
 available through the existing recovery view. Utility measurement retains its
 own bounded fallback.
+
+The physical runtime retains navigation attention alongside its render lifecycle.
+Native owner and hover-capability observations enter through `PLATFORM`; the
+runtime validates owners against the current semantic navigation. Interest-only
+publication uses the current candidate and supporting form. The runtime's
+navigation contract binds its transient-state update and candidate reuse.
+
+Normal frame forwarding carries `FRAME.expectations` from the published
+allocation into the semantic observation. This projection retains effective
+exposure and optional command availability while omitting inert subtrees. It
+shares exposure meaning with the utility frame contract; native content,
+scrolling and focus remain responsibilities of the normal semantic observer.

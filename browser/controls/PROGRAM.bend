@@ -2,6 +2,7 @@ import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
+import ./NAVIGATION.bend as Navigation
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/GEOMETRY.bend as SpatialModel
 import ../layout/enclosure.bend as Enclosure
@@ -62,6 +63,7 @@ type Icon is Data:
   CopySheets{}
   WrapLines{}
   Check{}
+  IdleCircle{}
   Warning{}
   Spinner{}
   Trash{}
@@ -100,7 +102,7 @@ def task_status_glyph(value: View.TaskStatus) -> Icon:
   View.TaskStatus{lifecycle, working} = value
   match lifecycle working:
     case Domain.Active{} True{}: PlayTriangle{}
-    case Domain.Active{} False{}: Check{}
+    case Domain.Active{} False{}: IdleCircle{}
     case Domain.Frozen{} _: PauseBars{}
     case Domain.Stopped{} _: StopSquare{}
     case Domain.Archived{} _: ArchiveBox{}
@@ -109,10 +111,18 @@ type SourceFamily is Data:
   Unscoped{}
   SourceFamily{node: SurfaceTypes.Node}
 
+type SupportingForm is Data:
+  FullSupporting{}
+  CompactSupporting{}
+
 type Context is Data:
   Context{area: Area, selection: Selection, code: Maybe<&2, Code.Scene>,
     appearance: Services.Appearance, access: Services.Access, settings_open: Bool,
-    layers: +List<View.Layer>, execution: Maybe<&2, Workspace.Observation>, source_family: SourceFamily}
+    layers: +List<View.Layer>, execution: Maybe<&2, Workspace.Observation>, source_family: SourceFamily, supporting_form: SupportingForm, attention: Navigation.Attention, navigation_depth: Nat}
+
+def with_supporting_form(context: Context, form: SupportingForm) -> Context:
+  Context{area, selection, code, appearance, access, open, layers, execution, source_family, previous, attention, navigation_depth} = context
+  Context{area, selection, code, appearance, access, open, layers, execution, source_family, form, attention, navigation_depth}
 
 type Face is Data:
   IconFace{icon: Icon}
@@ -123,6 +133,7 @@ type Face is Data:
   UnbrokenIconTextFace{icon: Icon, text: String}
   # Render the value and a trailing chevron, with room reserved for both.
   PropertyFace{property: UXTypes.Property}
+  CompactPropertyFace{property: UXTypes.Property}
   PickerFace{leading: Maybe<&2, Icon>, text: String}
   # Every option reserves the check column, including unselected options.
   ChoiceFace{text: String, description: Maybe<&2, String>, icon: Maybe<&2, Icon>, checked: Bool}
@@ -138,6 +149,7 @@ def caption_wrapping(face: Face) -> Typography.Wrapping:
     case IconTextFace{icon, text}: Typography.SingleLine{}
     case UnbrokenIconTextFace{icon, text}: Typography.UnbrokenLine{}
     case PropertyFace{property}: Typography.UnbrokenLine{}
+    case CompactPropertyFace{property}: Typography.UnbrokenLine{}
     case PickerFace{leading, text}: Typography.SingleLine{}
     case DisclosureFace{text, expanded}: Typography.SingleLine{}
     case ChoiceFace{text, description, icon, checked}: Typography.NormalWords{}
@@ -228,6 +240,8 @@ type MovableControl is Data:
 
 type Representation is Data:
   NoControl{}
+  NavigationGroup{depth: Nat}
+  NavigationRow{owner: UIIdentity.Key, depth: Nat, auxiliary_visible: Bool}
   Action{button: Button}
   Input{input: FormInput}
   # The grip opens the same destination list for keyboard users that supplies
@@ -290,7 +304,7 @@ def initial(content: InteractionTypes.Scene) -> Context:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention},
     InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect},
     transfers, preview, code, directory_picker} = content
-  Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main), Unscoped{}}
+  Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main), Unscoped{}, FullSupporting{}, Navigation.initial(), 0n}
 
 def area_for(role: SurfaceTypes.Role, inherited: Area) -> Area:
   match role:
@@ -377,14 +391,14 @@ def source_family_at(+node: SurfaceTypes.Node, inherited: SourceFamily) -> Sourc
     case _: source_scope(role, inherited)
 
 def source_reference(context: Context) -> SourceFamily:
-  Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
+  Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   source_family
 
 def enter(+node: SurfaceTypes.Node, context: Context) -> Context:
   SurfaceTypes.Node{+key, semantic, label, +role, +meaning, children} = node
-  Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, source_family} = context
+  Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
-    code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(node, source_family)}
+    code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(node, source_family), supporting_form, attention, Navigation.descend(meaning, navigation_depth)}
 
 def panel_open(layers: +List<View.Layer>, +trigger: String) -> Bool:
   match layers:
@@ -729,6 +743,7 @@ def help_for(face: Face, availability: View.Availability, feedback: Feedback, na
   match face:
     case IconFace{icon}: tooltip(help_text(availability, feedback, name))
     case PropertyFace{property}: tooltip(help_text(availability, feedback, UX.property_help(property)))
+    case CompactPropertyFace{property}: tooltip(help_text(availability, feedback, UX.property_help(property)))
     case PermissionFace{filesystem, network, approval}: tooltip(help_text(availability, feedback, name))
     case _: labelled_help(feedback, availability)
 
@@ -741,6 +756,7 @@ def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
     case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}
     case ProjectTaskCreation{} IconFace{icon} NavigationArea{}: Geometry{Space.fixed_demand(24n, 24n), 16n, 6n, 0n}
     case _ IconFace{icon} _: Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}
+    case _ CompactPropertyFace{property} _: Geometry{Space.fixed_demand(0n, Activity.supporting_minimum(Activity.initial())), 16n, 6n, 0n}
     case _ PropertyFace{property} _: Geometry{Space.fixed_demand(0n, Activity.supporting_minimum(Activity.initial())), 16n, 6n, 0n}
     case _ _ NavigationArea{}: Geometry{Space.fixed_demand(0n, 29n), 16n, 6n, 20n}
     case _ _ MenuArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
@@ -801,7 +817,7 @@ def action_for_purpose(+intent: Purpose, +area: Area, +input: InteractionTypes.I
 
 def make_action(+key: UIIdentity.Key, +input: InteractionTypes.Input, +availability: View.Availability, label: String,
   role: SurfaceTypes.Role, +context: Context) -> Representation:
-  Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
+  Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   action_for_purpose(intent, area, input, availability, label, role)
 
@@ -860,7 +876,7 @@ def choice_action(kind: SurfaceTypes.ChoiceKind, icon: Maybe<&2, Icon>, +selecte
 
 def make_choice(+key: UIIdentity.Key, kind: SurfaceTypes.ChoiceKind, classification: Maybe<&2, Filter.Classification>, selected: Bool, description: String, +input: InteractionTypes.Input, availability: View.Availability,
   label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
-  Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
+  Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   choice_action(kind, classification_icon(classification), selected, choice_description(description), intent, area, action_for_purpose(intent, area, input, availability, label, role))
 
@@ -1085,7 +1101,7 @@ def source_representation_content(value: Representation, area: Area, family: Sou
     case _: OrdinaryContent{}
 
 def representation_content(context: Context, value: Representation) -> SourceContent:
-  Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   source_representation_content(value, area, family)
 
 def presented_action(input: InteractionTypes.Input, availability: View.Availability, name: String, projection: ActionPresentation, placement: Placement, feedback: Feedback) -> Representation:
@@ -1099,7 +1115,7 @@ def source_action(area: Area, source_family: SourceFamily, value: Representation
     case _: value
 
 def represent_action(key: UIIdentity.Key, +input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
-  Context{+area, selection, code, appearance, access, open, layers, execution, +source_family} = context
+  Context{+area, selection, code, appearance, access, open, layers, execution, +source_family, supporting_form, attention, navigation_depth} = context
   source_action(area, source_family, make_action(key, input, availability, label, role, context))
 
 def property_kind_icon(kind: UXTypes.PropertyKind) -> Maybe<&2, Icon>:
@@ -1120,12 +1136,26 @@ def supporting_fields(+property: UXTypes.Property, area: Area, value: Representa
       Action{Button{input, availability, UX.property_help(property), shown, behavior, geometry_for(ChooseValue{False{}}, shown, area), placement, feedback}}
     case _: value
 
+def supporting_fields_at(form: SupportingForm, +property: UXTypes.Property, area: Area, value: Representation) -> Representation:
+  match form:
+    case FullSupporting{}: supporting_fields(property, area, value)
+    case CompactSupporting{}:
+      match value:
+        case Action{Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}:
+          supporting_fields(property, area, Action{Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}})
+        case Action{Button{input, View.NeedsDirectoryObservation{}, name, face, behavior, geometry, placement, feedback}}:
+          supporting_fields(property, area, Action{Button{input, View.NeedsDirectoryObservation{}, name, face, behavior, geometry, placement, feedback}})
+        case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
+          +shown: Face = CompactPropertyFace{property}
+          Action{Button{input, availability, UX.property_help(property), shown, behavior, geometry_for(ChooseValue{False{}}, shown, area), placement, feedback}}
+        case other: other
+
 def make_support_visible(visible: Bool, key: UIIdentity.Key, support: UXTypes.Support, +property: UXTypes.Property, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match visible:
     case False{}: NoControl{}
     case True{}:
-      Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
-      supporting_fields(property, area, represent_action(key, input, availability, label, role, context))
+      Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family, +supporting_form, attention, navigation_depth} = context
+      supporting_fields_at(supporting_form, property, area, represent_action(key, input, availability, label, role, context))
 
 def make_support(key: UIIdentity.Key, +support: UXTypes.Support, property: UXTypes.Property, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
   make_support_visible(UX.support_visible(support), key, support, property, input, availability, label, role, context)
@@ -1144,7 +1174,7 @@ def assessment_help(obstructions: +List<UXTypes.Obstruction>) -> String:
     case Con{obstruction, Nil{}}: UX.obstruction_message(obstruction)
     case Con{obstruction, rest}: UX.obstruction_message(obstruction) ++ " · " ++ assessment_help(rest)
 
-def represent(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
+def represent_plain(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
     case SurfaceTypes.SupportingControl{support, property, input, availability}: make_support(key, support, property, input, availability, label, role, context)
     case SurfaceTypes.ActionCommit{assessment, input, availability}: represent_action(key, input, assessment_availability(assessment, availability), label, role, context)
@@ -1180,3 +1210,55 @@ def geometry_minimum_height(value: Geometry) -> Nat:
 def geometry_preferred_height(value: Geometry) -> Nat:
   Geometry{Space.Demand{minimum, Enclosure.Extent{width, height}}, icon, radius, leading} = value
   height
+
+
+
+def compact_parts_icon(parts: +List<String>) -> Bool:
+  match parts:
+    case Nil{}: True{}
+    case _: False{}
+
+
+def compact_permission_icon(property: UXTypes.Property) -> Bool:
+  compact_parts_icon(UX.compact_property_summary_parts(property))
+
+
+
+def with_navigation(context: Context, value: Navigation.Attention) -> Context:
+  Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context
+  Context{area, selection, code, appearance, access, open, layers, execution, family, form, value, depth}
+
+def navigation_header(matches: Bool, +owner: UIIdentity.Key, +project: Nat, depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
+  match matches:
+    case False{}: fallback
+    case True{}: NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))}
+
+def navigation_fields(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: SourceFamily, +depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
+  match meaning family:
+    case SurfaceTypes.ProjectGroup{project, selected, expanded} _: NavigationGroup{Nat.sub(depth, 1n)}
+    case SurfaceTypes.TaskRow{task, status, selected} _: NavigationRow{key, depth, True{}}
+    case SurfaceTypes.Region{} SourceFamily{SurfaceTypes.Node{+owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}:
+      navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers, fallback)
+    case _ _: fallback
+
+
+def navigation_representation(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, context: Context, fallback: Representation) -> Representation:
+  Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context
+  navigation_fields(key, meaning, family, depth, attention, layers, fallback)
+
+
+
+def navigation_attention(context: Context) -> Navigation.Attention:
+  Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context
+  attention
+
+def navigation_depth(context: Context) -> Nat:
+  Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context
+  depth
+
+def represent(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, +role: SurfaceTypes.Role, +context: Context) -> Representation:
+  match meaning:
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: NavigationGroup{Nat.sub(navigation_depth(context), 1n)}
+    case SurfaceTypes.TaskRow{task, status, selected}: NavigationRow{key, navigation_depth(context), True{}}
+    case SurfaceTypes.Region{}: navigation_representation(key, SurfaceTypes.Region{}, context, NoControl{})
+    case _: represent_plain(key, meaning, label, role, context)

@@ -1,3 +1,4 @@
+import ../controls/NAVIGATION.bend as Navigation
 import ../layout/ACTIVITY.bend as Activity
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -335,7 +336,7 @@ def style_in_context(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning,
 
 def navigation_context(context: Controls.Context) -> Bool:
   match context:
-    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution, source_family}: True{}
+    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth}: True{}
     case _: False{}
 
 def rounded_chrome(value: Design.Chrome, radius: Nat) -> Design.Chrome:
@@ -374,6 +375,7 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.UnbrokenIconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     # Property text demand is measured by layout/SOURCE; this is only the glyph floor.
     case Controls.PropertyFace{property}: geometry_icon_size(geometry)
+    case Controls.CompactPropertyFace{property}: geometry_icon_size(geometry)
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
@@ -605,7 +607,7 @@ def alert_style(role: SurfaceTypes.Role, value: Design.Style) -> Design.Style:
 
 def activity_controls(role: SurfaceTypes.Role, context: Controls.Context, value: Design.Style) -> Design.Style:
   match role context:
-    case SurfaceTypes.Toolbar{} Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}:
+    case SurfaceTypes.Toolbar{} Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth}:
       Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
       modeled_container(Design.Style{text, chrome, SpatialModel.Leading{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.RowFlow{}, Activity.clearance(Activity.initial()))
     case SurfaceTypes.ComposerActions{} _:
@@ -649,3 +651,12 @@ def present_fields(+content: InteractionTypes.Scene, base: +List<SurfaceTypes.No
 def present(surface: SurfaceTypes.Surface, system_dark: Bool, scale: T.Scale) -> Design.Surface:
   SurfaceTypes.Surface{+content, base, overlays, active_scope} = surface
   present_fields(content, base, overlays, Controls.initial(content), system_dark, active_scope, scale)
+
+
+def present_supporting(surface: SurfaceTypes.Surface, system_dark: Bool, scale: T.Scale, form: Controls.SupportingForm) -> Design.Surface:
+  SurfaceTypes.Surface{+content, base, overlays, active_scope} = surface
+  present_fields(content, base, overlays, Controls.with_supporting_form(Controls.initial(content), form), system_dark, active_scope, scale)
+
+def present_supporting_navigation(surface: SurfaceTypes.Surface, system_dark: Bool, scale: T.Scale, form: Controls.SupportingForm, attention: Navigation.Attention) -> Design.Surface:
+  SurfaceTypes.Surface{+content, base, overlays, active_scope} = surface
+  present_fields(content, base, overlays, Controls.with_navigation(Controls.with_supporting_form(Controls.initial(content), form), attention), system_dark, active_scope, scale)

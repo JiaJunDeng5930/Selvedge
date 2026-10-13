@@ -14,7 +14,7 @@ import ../runtime/SEMANTICS.bend as Legacy
 
 def RuleCodeObservationRules.published_qualification(generation, observations, state):
   match state:
-    case Browser.State{legacy, serial, anchors, lifecycle, displayed}:
+    case Browser.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match displayed:
         case None{}: {==}
         case Some{Browser.Published{world, semantic, scope, basis, frame}}:
@@ -53,7 +53,7 @@ def RuleCodeObservationRules.qualified_batch(generation, observations, state, qu
 
 def RuleCodeObservationRules.empty_batch(generation, state):
   match state:
-    case Browser.State{legacy, serial, anchors, lifecycle, displayed}:
+    case Browser.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match displayed:
         case None{}: {==}
         case Some{Browser.Published{world, semantic, scope, basis, frame}}:
@@ -62,14 +62,14 @@ def RuleCodeObservationRules.empty_batch(generation, state):
 
 def RuleCodeObservationRules.invalid_published_batch(generation, observations, state, invalid):
   match state:
-    case Browser.State{legacy, serial, anchors, lifecycle, displayed}:
+    case Browser.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match displayed:
         case None{}: {==}
         case Some{Browser.Published{world, semantic, scope, basis, frame}}:
           match world:
             case Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}:
               RuleCodeObservationRules.rejected_batch(generation, observations,
-                Browser.State{legacy, serial, anchors, lifecycle, Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}}, invalid)
+                Browser.State{legacy, serial, anchors, lifecycle, Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}, attention}, invalid)
 
 def RuleCodeObservationRules.stale_batch(generation, observations, state, stale):
   RuleCodeObservationRules.invalid_published_batch(generation, observations, state, stale)
@@ -107,7 +107,7 @@ def RuleCodeObservationRules.direct_web_rejected(generation, observations, state
 
 def RuleCodeObservationRules.missing_publication(generation, observations, state):
   match state:
-    case Browser.State{legacy, serial, anchors, lifecycle, displayed}: {==}
+    case Browser.State{legacy, serial, anchors, lifecycle, displayed, attention}: {==}
 
 def RuleCodeObservationRules.all_entries(identity, text, source_value, rest, source): {==}
 
@@ -121,7 +121,7 @@ def RuleCodeObservationRules.undeclared_content(identity, value, source_value, p
 
 def RuleCodeObservationRules.generation_independent(first, second, observations, state):
   match state:
-    case Browser.State{legacy, serial, anchors, lifecycle, displayed}:
+    case Browser.State{legacy, serial, anchors, lifecycle, displayed, attention}:
       match displayed:
         case None{}: {==}
         case Some{Browser.Published{world, semantic, scope, basis, frame}}:
@@ -196,16 +196,26 @@ def RuleCodeObservationRules.movement_enabled_by_offered_input(destinations, fac
 
 def RuleCodeObservationRules.source_frame_evidence():
   RuleCodeObservationRules.SourceFrameRequirements{
+    +snapshot => +tree => +roots => +policies => +frame => {==},
+    +own => +rest => {==},
+    +current => +surface => +frame => +previous => +expectations => {==},
+    +current => +surface => +frame => +previous => +expectations => {==},
+    +key => +expected => +observed => +visible => +enabled => +tab => +keyboard => +scroll => +bounds => +hit => +paint => {==},
+    +own => {==},
+    +visible => +tab => +keyboard => +hit => +bounds => +paint => +viewport => {==},
+    +visible => +tab => +keyboard => +hit => +bounds => +paint => +viewport => {==},
+    +parent => +physical => +value => +interaction => +rule => +demand => +height => +bounds => +canvas => +rest => {==},
+    +parent => +physical => +value => +interaction => +rule => +bounds => +canvas => +direction => +children => +rest => {==},
     +snapshot => +tree => +roots => +policies => {==},
-    +key => +bounds => +interaction => +rest => +elements => +viewport => {==},
-    +key => +bounds => +interaction => +rest => {==},
+    +exposure => +key => +bounds => +interaction => +rest => +elements => +viewport => {==},
+    +exposure => +key => +bounds => +interaction => +rest => {==},
     +physical => +value => +interaction => +rule => +demand => +height => +bounds => +canvas => +rest => {==},
     +physical => +value => +interaction => +rule => +bounds => +canvas => +direction => +children => +rest => {==},
     +world => +viewport => +elements => +focused => +tab_order => +native_focus => {==},
     +left => +top => +width => +height => {==},
-    +key => +bounds => +interaction => +viewport => +observed => +visible => +enabled => +tab => +keyboard => +scroll => +measured => +hit => +paint => {==},
+    +exposure => +key => +bounds => +interaction => +viewport => +observed => +visible => +enabled => +tab => +keyboard => +scroll => +measured => +hit => +paint => {==},
     +focused => +entries => +elements => +viewport => {==},
-    +key => +element => +viewport => {==}}
+    +exposure => +key => +element => +viewport => {==}}
 
 def RuleCodeObservationRules.supporting_is_interactive(support, property, input, availability):
   {==}

@@ -1,3 +1,4 @@
+import ../controls/NAVIGATION.bend as Navigation
 import ../../interaction/presentation/SURFACE.bend as Surface
 import ./GEOMETRY.bend as Spatial
 import ../../interaction/conversation/CODE.bend as Code
@@ -49,7 +50,7 @@ type Requirements is Type:
     production_message: @+capacity:Nat -> @+visual:Design.Style -> message_minimum(capacity, visual),
     production_message_selection: @+capacity:Nat -> @kind:EditorLayout.FieldKind -> @+visual:Design.Style -> message_selection(capacity, kind, visual),
     supporting_flow: @+visual:Design.Style -> @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> -> @execution:Maybe<&2, Workspace.Observation> -> @family:Controls.SourceFamily ->
-      {Appearance.activity_controls(Surface.Toolbar{}, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family}, visual) == supporting_style(visual) : Design.Style},
+      {Appearance.activity_controls(Surface.Toolbar{}, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family, Controls.FullSupporting{}, Navigation.initial(), 0n}, visual) == supporting_style(visual) : Design.Style},
     composer_footer: @+visual:Design.Style -> @context:Controls.Context -> composer_footer(visual, context),
     property_minimum: @+property:UX.Property -> @area:Controls.Area -> {Controls.geometry_minimum_height(Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.PropertyFace{property}, area)) == A.supporting_minimum(A.initial()) : Nat}}
 
