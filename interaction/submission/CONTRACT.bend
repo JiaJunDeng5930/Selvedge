@@ -95,7 +95,7 @@ def expected_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observ
 def expected_property_choices(entry: Forms.Entry, field: Forms.Field, +value: Forms.Observed, editor: U.Editor, groups: +List<View.InputGroup>) -> +List<Forms.ChoiceValue>:
   match field value:
     case Forms.WorkspacePrimary{} Forms.WorkspaceValue{workspace}: InterfaceView.primary_choices(UX.decision_alternatives(UX.primary_decision(UX.collection(editor, workspace))))
-    case Forms.WorkspacePrimary{} Forms.ContextValue{preview}: InterfaceView.observed_primary_choices(InterfaceView.context_workspace(preview), editor)
+    case Forms.WorkspacePrimary{} Forms.ContextValue{preview, reviewers}: InterfaceView.observed_primary_choices(InterfaceView.context_workspace(preview), editor)
     case _ _: expected_choices(entry, field, value, groups)
 
 type FeedbackRequirements is Type:
@@ -113,13 +113,14 @@ type FeedbackRequirements is Type:
       {InterfaceView.feedback_nodes(parent, U.Editing{}) == Nil{} : +List<SurfaceTypes.Node>},
     accepted_no_stale: @parent: Identity.Key -> @revision:Nat -> @reply:J.Json ->
       {InterfaceView.feedback_nodes(parent, U.Accepted{revision, reply}) == Nil{} : +List<SurfaceTypes.Node>},
-    editor_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @groups:+List<View.InputGroup> -> @+structure:+List<Forms.Section> -> @+assessment:Experience.Assessment -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
+    editor_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @+groups:+List<View.InputGroup> -> @+structure:+List<Forms.Section> -> @+assessment:Experience.Assessment -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {InterfaceView.editor(Some{View.EditorScene{identity, revision, groups, structure, assessment, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
+        InterfaceView.activity_or_content(InterfaceView.project_activity_scene(Some{View.EditorScene{identity, revision, groups, structure, assessment, submit, U.Rejected{submitted, reason}, pending}}, state), "", parent, state,
         List.append(&2, SurfaceTypes.Node, InterfaceView.sections(structure, identity, parent, 0n, state, groups),
           List.append(&2, SurfaceTypes.Node,
             List.append(&2, SurfaceTypes.Node, InterfaceView.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state),
               [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ActionFeedback{Experience.Feedback{identity, submitted, reason}}, [SurfaceTypes.Node{Identity.Part{parent, "reason"}, "submission-feedback/reason", reason, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{reason}, Nil{}}]}]),
-            [InterfaceView.dialog_actions(parent, [InterfaceView.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])) : +List<SurfaceTypes.Node>},
+            [InterfaceView.dialog_actions(parent, [InterfaceView.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])]))) : +List<SurfaceTypes.Node>},
     composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> -> @context:Maybe<&2, Context.Observation> -> @+assessment:Experience.Assessment -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {InterfaceView.composer(Some{View.ComposerScene{identity, revision, message, View.Creation{}, Nil{}, footer, context, assessment, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},

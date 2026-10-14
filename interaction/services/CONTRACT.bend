@@ -1,3 +1,4 @@
+import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../submission/FIELDS.bend as Forms
@@ -242,3 +243,20 @@ type ContextRequirements is Type:
 
 law context_evidence:
   ContextRequirements
+
+# A prospective access observation is not a committed task or reviewer resolution.
+type PreviewAccessRequirements is Type:
+  PreviewAccessRequirements{
+    policy_bridge: @workspace:D.Workspace -> @sandbox:D.Sandbox -> @+approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> ->
+      {Context.approval_access(Context.approval_choice(approval)) == Workspace.default_access(D.TaskContext{workspace, sandbox, approval, project}) : D.ExecutionAccess},
+    unavailable: @reason:String -> {Context.preview_access(Context.ContextUnavailable{reason}) == None{} : Maybe<&2, D.ExecutionAccess>},
+    prospective: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
+      {Context.preview_access(Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}) == Some{Context.approval_access(Context.observed_approval(approval))} : Maybe<&2, D.ExecutionAccess>},
+    chosen_full_summary: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @guidance:Context.GuidancePreview ->
+      {UX.permission_summary_parts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, Context.ChosenApproval{Context.Unrestricted{}}, guidance}}) == ["Full access", "Network available", "No approval"] : +List<String>},
+    inherited_full_summary: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @guidance:Context.GuidancePreview ->
+      {UX.permission_summary_parts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, Context.InheritedApproval{D.FullAccess{}}, guidance}}) == ["Full access", "Network available", "No approval"] : +List<String>},
+    draft_observation: @+preview:Context.Preview -> {UX.permission_summary_parts(Context.DraftExecution{preview}) == UX.preview_permission_parts(preview) : +List<String>}}
+
+law preview_access_evidence:
+  PreviewAccessRequirements

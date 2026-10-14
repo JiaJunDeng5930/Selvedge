@@ -573,14 +573,14 @@ def encapsulated_select_focus_and_input(+session: E.Session, +project: Maybe<&2,
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}
   known_select_focus_and_input(session, project, world, revision, message, profile, reasoning, old, workspace, sandbox, approval, feedback, directory_entry, rest, valid_manual)
 
-def encapsulated_picker_search_preserves_session(+session: E.Session, +query: String, +world: M.World(), +trigger: String, +initial: String, previous: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, observed_layers: {E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}} <> rest : +List<E.Layer>}) ->
+def encapsulated_picker_search_preserves_session(+session: E.Session, +query: String, +world: M.World(), +trigger: String, +initial: String, previous: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, observed_layers: {E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}} <> rest : +List<E.Layer>}) ->
   {E.search_choices(query, E.from_program(world, session)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}} <> rest, session), Nil{}) : E.Decision}:
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}} <> rest, session), Nil{}) : E.Decision}:
   E.Session{+route, +drafts, +readers, +stored_layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, model_preference, draft_model_manual} = session
-  backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}} <> rest, session),
-    Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}} <> rest, observed_layers))
+  backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}} <> rest, session),
+    Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}} <> rest, observed_layers))
   %backwards_layers : {E.search_choices(query, E.from_program(world, _)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}} <> rest, _), Nil{}) : E.Decision}
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}} <> rest, _), Nil{}) : E.Decision}
   {==}
 
 def encapsulated_toggle_keeps_location(+session: E.Session, +project: Nat, +world: M.World()) ->

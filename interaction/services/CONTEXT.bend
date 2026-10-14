@@ -91,6 +91,18 @@ def observed_approval(value: ApprovalValue) -> ApprovalChoice:
     case InheritedApproval{policy}: approval_choice(policy)
     case ChosenApproval{choice}: choice
 
+# This view projection is bound to the execution resolver for every actual policy.
+def approval_access(choice: ApprovalChoice) -> D.ExecutionAccess:
+  match choice:
+    case Unrestricted{}: D.Unrestricted{}
+    case _: D.Sandboxed{}
+
+def preview_access(preview: Preview) -> Maybe<&2, D.ExecutionAccess>:
+  match preview:
+    case ContextUnavailable{reason}: None{}
+    case ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}:
+      Some{approval_access(observed_approval(approval))}
+
 def approval_option(choice: ApprovalChoice) -> String:
   match choice:
     case Ask{}: "ask"

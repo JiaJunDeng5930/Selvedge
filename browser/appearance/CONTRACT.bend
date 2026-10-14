@@ -402,23 +402,23 @@ type Requirements is Type:
         Some{Design.style_text(Appearance.prepared_style(key,semantic,role,meaning,Controls.enter(SurfaceTypes.Node{key,semantic,label,role,meaning,Nil{}},context),
           Controls.represent(key,meaning,label,role,Controls.enter(SurfaceTypes.Node{key,semantic,label,role,meaning,Nil{}},context)),
           Appearance.information_role(role,meaning,inherited,Appearance.enters_main(role,in_main),start)))} : Maybe<&2,T.Presentation>},
-    multiline_field_role: @editor:U.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
-      {Appearance.information_role(SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, Forms.Multiline{}, value, choices}, inherited, in_main, start) == T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
-    code_surface_role: @text:String -> @inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
-      {Appearance.information_role(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{text}, inherited, in_main, start) == T.Presentation{T.CodeBody{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation},
-    start_heading_role: @inherited:T.Presentation -> @text:String ->
-      {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,True{},True{}) == T.Presentation{T.Display{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
-    regular_heading_role: @inherited:T.Presentation -> @text:String -> @in_main:Bool ->
-      {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+    multiline_field_role: @editor:U.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
+      {Appearance.information_role(SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, Forms.Multiline{}, value, choices}, inherited, in_main, start) == T.inherit_activity(inherited, T.Presentation{T.Body{}, T.Regular{}, T.presentation_scale(inherited)}) : T.Presentation},
+    code_surface_role: @text:String -> @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool ->
+      {Appearance.information_role(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{text}, inherited, in_main, start) == T.inherit_activity(inherited, T.Presentation{T.CodeBody{}, T.Regular{}, T.presentation_scale(inherited)}) : T.Presentation},
+    start_heading_role: @+inherited:T.Presentation -> @text:String ->
+      {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,True{},True{}) == T.inherit_activity(inherited, T.Presentation{T.Display{},T.Medium{},T.presentation_scale(inherited)}) : T.Presentation},
+    regular_heading_role: @+inherited:T.Presentation -> @text:String -> @in_main:Bool ->
+      {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,in_main,False{}) == T.inherit_activity(inherited, T.Presentation{primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)}) : T.Presentation},
     heading_tier_total: @in_main:Bool -> @start:Bool ->
       {Appearance.heading_tier(in_main,start) == heading_tier(in_main,start) : T.Tier},
-    secondary_heading_role: @inherited:T.Presentation -> @text:String -> @start:Bool ->
-      {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation},
+    secondary_heading_role: @+inherited:T.Presentation -> @text:String -> @start:Bool ->
+      {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,False{},start) == T.inherit_activity(inherited, T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)}) : T.Presentation},
     lane_style_output: @value:Design.Style ->
       {Appearance.lane_style(value) == lane_output(value) : Design.Style},
     board_lane_production: @key:UIIdentity.Key -> @stage:Board.Stage -> @count:Nat -> @context:Controls.Context -> @representation:Controls.Representation -> @value:Design.Style -> @typography:T.Presentation ->
       {Appearance.final_style(key,SurfaceTypes.BoardLane{stage,count},context,representation,value,typography) == lane_output(value) : Design.Style},
-    content_inherits: @inherited:T.Presentation -> @text:String -> @in_main:Bool -> @start:Bool ->
+    content_inherits: @+inherited:T.Presentation -> @text:String -> @in_main:Bool -> @start:Bool ->
       {Appearance.information_role(SurfaceTypes.Content{},SurfaceTypes.ReadOnly{text},inherited,in_main,start) == inherited : T.Presentation},
     nodes_preserve_semantics: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @values:+List<SurfaceTypes.Node> -> @context:Controls.Context ->
       {Design.semantic_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == values : +List<SurfaceTypes.Node>},
@@ -467,7 +467,7 @@ law navigation_caption_typography:
   @+scale:T.Scale -> {T.information_role(Information.NavigationCaption{}, scale) == T.Presentation{T.Support{}, T.Regular{}, scale} : T.Presentation}
 
 law navigation_caption_assignment:
-  @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool -> {Appearance.information_role(SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, inherited, in_main, start) == T.Presentation{T.Support{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation}
+  @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool -> {Appearance.information_role(SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, inherited, in_main, start) == T.inherit_activity(inherited, T.Presentation{T.Support{}, T.Regular{}, T.presentation_scale(inherited)}) : T.Presentation}
 
 law navigation_entry_style:
   @+selected:Bool -> @meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> {Appearance.style(SurfaceTypes.NavigationEntry{selected}, meaning, typography) == Appearance.navigation_family_style(selected, 6n, 5n, typography) : Design.Style}

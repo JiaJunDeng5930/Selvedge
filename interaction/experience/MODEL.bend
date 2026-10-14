@@ -16,7 +16,14 @@ type Object is Data:
   WorkspaceOf{editor: U.Editor}
   ExecutionConfigurationOf{editor: U.Editor}
 
+# Strategy is a view of the existing approval choice, not persisted configuration.
+type Strategy is Data:
+  Ask{}
+  AutomaticReview{}
+  FullAccess{}
+
 type Value is Data:
+  ExecutionStrategy{strategy: Strategy}
   Filesystem{mode: D.SandboxMode}
   Network{enabled: Bool}
   Approval{choice: Context.ApprovalChoice}
@@ -88,3 +95,13 @@ type AssessmentState is Data:
 type Assessment is Data:
   Assessment{identity: ActionIdentity, requirements: +List<Obstruction>, state: AssessmentState,
     refusal: Maybe<&2, Obstruction>}
+
+# The original resource and all uncommitted input remain in the action observation.
+type ProjectEdit is Data:
+  ProjectEdit{original: Maybe<&2, D.Project>, draft: U.Draft, pending: Bool,
+    dirty: Bool, assessment: Assessment}
+
+# Each alternative retains its own production admission; one refusal is not a list verdict.
+type CandidateObservation is Data:
+  CandidateObservation{decision: Decision, alternative: Alternative,
+    canonical: Maybe<&2, U.Input>, admission: Decision, input: Maybe<&2, U.Input>}

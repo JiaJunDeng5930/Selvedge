@@ -5,6 +5,7 @@ import ./SIDEBAR.bend as Sidebar
 import ./navigation-proof.bend as NavigationProof
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
+import ../../interaction/experience/ACTIVITY.bend as UXActivity
 import ../layout/HIERARCHY.bend as Hierarchy
 import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
@@ -82,7 +83,7 @@ def native(+values: +List<Source.Node>) -> +List<Source.Node>:
     case Con{node, rest}: native(rest)
 
 def text(+key: UIIdentity.Key, +value: String, +visual: Design.Style, +tier: T.Tier, +emphasis: T.Emphasis) -> Source.Node:
-  Source.constructed_text_node(Source.construct_text(Source.TextRequest{key, value, Source.ExplicitFont{T.with_emphasis(T.with_tier(Design.style_text(visual), tier), emphasis)}, T.NormalAnywhere{}}))
+  Source.constructed_text_node(Source.construct_text(Source.TextRequest{key, value, Source.ExplicitFont{T.inherit_activity(Design.style_text(visual), T.with_emphasis(T.with_tier(Design.style_text(visual), tier), emphasis))}, T.NormalAnywhere{}}))
 
 def group(+key: UIIdentity.Key, +visual: Design.Style, +direction: Model.Direction, +width: Model.AxisSize,
   +height: Model.AxisSize, +children: +List<Source.Node>) -> Source.Node:
@@ -518,7 +519,7 @@ def compound_owned(key: UIIdentity.Key, label: String, +field: Forms.Field, visu
 def compound_directory(field: Forms.Field, value: Forms.Observed, key: UIIdentity.Key, label: String, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
   match field value:
     case Forms.WorkspaceDirectories{} Forms.WorkspaceValue{workspace}: compound_owned(key, label, field, visual, children)
-    case Forms.WorkspaceDirectories{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: compound_owned(key, label, field, visual, children)
+    case Forms.WorkspaceDirectories{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: compound_owned(key, label, field, visual, children)
     case _ _: compound(key, label, field, visual, children)
 
 def chooser_selection(+value: Maybe<&2, Nat>) -> +List<Source.Attribute>:
@@ -541,6 +542,31 @@ def input_source(key: UIIdentity.Key, representation: Controls.Representation, v
     case Controls.Input{input}: AuthoredControls.constructed_input_node(AuthoredControls.construct_input(key, input, visual, parameters))
     case _: AuthoredControls.invalid(key, visual, "invalid-input-representation")
 
+def input_style_width(style: Source.Style) -> Model.AxisSize:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  width
+
+def input_node_width(node: Source.Node) -> Model.AxisSize:
+  match node:
+    case Source.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}: input_style_width(style)
+    case Source.Box{key, tag, style, attributes, children}: input_style_width(style)
+    case _: Model.StretchSize{}
+
+def supported_input_source(capacity: Nat, +key: UIIdentity.Key, +native: Source.Node, +visual: Design.Style, first: Source.Node, rest: +List<Source.Node>) -> Source.Node:
+  box(UIIdentity.part(key, "@input-support"), Source.Div{},
+    Factory.content_style(visual, Model.Vertical{}, input_node_width(native), Model.NaturalSize{}, Hierarchy.member_gap(Hierarchy.for_text(capacity, Design.style_text(visual)))),
+    Nil{}, native <> first <> rest)
+
+def input_support_content(capacity: Nat, content: +List<Source.Node>, +key: UIIdentity.Key, representation: Controls.Representation, +visual: Design.Style, parameters: Design.LayoutParameters) -> Source.Node:
+  match content:
+    case Nil{}: input_source(key, representation, visual, parameters)
+    case Con{first, rest}: supported_input_source(capacity, key, input_source(key, representation, visual, parameters), visual, first, rest)
+
+def input_with_support(capacity: Nat, +key: UIIdentity.Key, +representation: Controls.Representation, visual: Design.Style, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Source.Node:
+  match representation:
+    case Controls.Input{input}: input_support_content(capacity, content, key, representation, visual, parameters)
+    case _: input_source(key, representation, visual, parameters)
+
 def layer_title(role: SurfaceTypes.Role, key: UIIdentity.Key, label: String, visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
   match role:
     case SurfaceTypes.Dialog{}: content
@@ -550,25 +576,25 @@ def subject_attributes(+subject: UXTypes.Subject) -> +List<Source.Attribute>:
   UXTypes.Subject{editor, field} = subject
   [Source.DataAttribute{"property", UX.subject_key(subject)}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(subject))}, Source.DataAttribute{"field", Forms.key(field)}]
 
-def owned_members(+key: UIIdentity.Key, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
-  box(UIIdentity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.member_frame(Hierarchy.initial())), Nil{}, content)
+def owned_members(+capacity: Nat, +key: UIIdentity.Key, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(UIIdentity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.member_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))), Nil{}, content)
 
-def owned_group(+key: UIIdentity.Key, label: String, +visual: Design.Style, attributes: +List<Source.Attribute>, content: +List<Source.Node>) -> Source.Node:
-  box(key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.initial())), Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))} <> attributes,
-    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), owned_members(key, visual, content)])
+def owned_group(+capacity: Nat, +key: UIIdentity.Key, label: String, +visual: Design.Style, attributes: +List<Source.Attribute>, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))), Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))} <> attributes,
+    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), owned_members(capacity, key, visual, content)])
 
-def decision_group(key: UIIdentity.Key, +decision: UXTypes.Decision, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
-  owned_group(key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> subject_attributes(UX.decision_subject(decision)), content)
+def decision_group(+capacity: Nat, key: UIIdentity.Key, +decision: UXTypes.Decision, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  owned_group(capacity, key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> subject_attributes(UX.decision_subject(decision)), content)
 
-def object_group(+key: UIIdentity.Key, object: UXTypes.Object, label: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
-  box(key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.initial())), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))}, Source.DataAttribute{"object-owner", UX.object_key(object)}],
-    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), box(UIIdentity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(Hierarchy.member_frame(Hierarchy.initial())))), Nil{}, content)])
+def object_group(+capacity: Nat, +key: UIIdentity.Key, object: UXTypes.Object, label: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))}, Source.DataAttribute{"object-owner", UX.object_key(object)}],
+    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), box(UIIdentity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Design.style_text(visual)), Enclosure.frame_content(Hierarchy.member_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))))), Nil{}, content)])
 
 def collection_subject(collection: UXTypes.Collection) -> UXTypes.Subject:
   UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}
 
-def workspace_collection(key: UIIdentity.Key, +collection: UXTypes.Collection, label: String, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
-  owned_group(key, label, visual, Source.TabIndexAttribute{"-1"} <> subject_attributes(collection_subject(collection)), content)
+def workspace_collection(+capacity: Nat, key: UIIdentity.Key, +collection: UXTypes.Collection, label: String, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  owned_group(capacity, key, label, visual, Source.TabIndexAttribute{"-1"} <> subject_attributes(collection_subject(collection)), content)
 
 def workspace_member(+key: UIIdentity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
   box(key, Source.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
@@ -623,21 +649,36 @@ def grouped_children(values: +List<Child>) -> Bool:
         case SurfaceTypes.WorkspaceCollection{collection}: True{}
         case _: grouped_children(rest)
 
-def grouped_menu_visible(role: SurfaceTypes.Role, grouped: Bool, node: Source.Node) -> Source.Node:
+def layer_attributes_found(found: Maybe<&2, SurfaceTypes.LayerBehavior>, +key: UIIdentity.Key) -> +List<Source.Attribute>:
+  match found:
+    case None{}: Nil{}
+    case Some{SurfaceTypes.LayerBehavior{dismiss, outside, escape}}:
+      [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.SurfaceTitle{}))}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}]
+
+def layer_attributes(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning) -> +List<Source.Attribute>:
+  layer_attributes_found(SurfaceTypes.layer_region(meaning), key)
+
+def activity_group(+capacity: Nat, +key: UIIdentity.Key, label: String, +role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, activity: UXActivity.Activity, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, role_tag(role), Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+    Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Design.style_text(visual)), Enclosure.ambient(Activity.length(capacity, Design.style_text(visual), 8n), Activity.length(capacity, Design.style_text(visual), 8n)))),
+    List.append(&2, Source.Attribute, layer_attributes(key, meaning), [Source.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}]), layer_title(role, key, label, visual, content))
+
+def grouped_menu_visible(+capacity: Nat, role: SurfaceTypes.Role, grouped: Bool, node: Source.Node) -> Source.Node:
   match role grouped node:
     case SurfaceTypes.Menu{} True{} Source.Box{key, tag, +style, attributes, nodes}:
       Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
-      Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(frame))), attributes, nodes}
+      Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Source.resolve_font(font, T.Presentation{T.Body{}, T.Regular{}, T.Scale{0n}})), Enclosure.frame_content(frame))), attributes, nodes}
     case _ _ other: other
 
-def grouped_menu(role: SurfaceTypes.Role, children: +List<Child>, node: Source.Node) -> Source.Node:
-  grouped_menu_visible(role, grouped_children(children), node)
+def grouped_menu(+capacity: Nat, role: SurfaceTypes.Role, children: +List<Child>, node: Source.Node) -> Source.Node:
+  grouped_menu_visible(capacity, role, grouped_children(children), node)
 
-def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
+def regular_content(capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
-    case SurfaceTypes.DecisionGroup{decision}: decision_group(key, decision, visual, content)
-    case SurfaceTypes.ObjectGroup{object}: object_group(key, object, label, visual, content)
-    case SurfaceTypes.WorkspaceCollection{collection}: workspace_collection(key, collection, label, visual, content)
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: activity_group(capacity, key, label, role, meaning, activity, visual, content)
+    case SurfaceTypes.DecisionGroup{decision}: decision_group(capacity, key, decision, visual, content)
+    case SurfaceTypes.ObjectGroup{object}: object_group(capacity, key, object, label, visual, content)
+    case SurfaceTypes.WorkspaceCollection{collection}: workspace_collection(capacity, key, collection, label, visual, content)
     case SurfaceTypes.WorkspaceMember{collection, path}: workspace_member(key, collection, path, visual, content)
     case SurfaceTypes.ActionUnit{action}: action_unit(key, action, visual, content)
     case SurfaceTypes.SupportingControl{support, property, input, availability}: supporting_control(key, support, property, label, visual, representation)
@@ -661,7 +702,7 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.CardArchive{count}: Source.constructed_control_node(Source.construct_control(Source.ControlRequest{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}))
     case SurfaceTypes.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
     case SurfaceTypes.MovableCard{destinations, face}: movable_source(key, representation, visual, parameters)
-    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"labelledby", UIIdentity.encode(AuthoredControls.information_key(key, Information.SurfaceTitle{}))}, Source.DataAttribute{"layer-key", UIIdentity.encode(key)}, Source.DataAttribute{"layer-outside", FieldOptions.boolean(outside)}, Source.DataAttribute{"layer-escape", FieldOptions.boolean(escape)}, Source.TabIndexAttribute{"-1"}], layer_title(role, key, label, visual, content))
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), layer_attributes(key, meaning), layer_title(role, key, label, visual, content))
     case SurfaceTypes.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
     case SurfaceTypes.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
     case SurfaceTypes.Fact{value}: fact(key, label, value, visual)
@@ -669,7 +710,7 @@ def regular_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Ro
     case SurfaceTypes.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
     case SurfaceTypes.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case SurfaceTypes.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
-    case other: input_source(key, representation, visual, parameters)
+    case other: input_with_support(capacity, key, representation, visual, parameters, content)
 
 def dialog_operation(+role: SurfaceTypes.Role) -> Bool:
   match role:
@@ -742,21 +783,29 @@ def dialog_partition_style(part: Enclosure.Part, value: Source.Style) -> Source.
       Source.Style{Source.Layout{direction, main, cross, frame, width, Model.StretchSize{}, minimum, Model.ScrollVertically{}, position}, font, chrome, states}
     case _: value
 
-def dialog_partition(+key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: Enclosure.Part, +arrangement: Enclosure.Arrangement, +content: +List<Source.Node>) -> Source.Node:
-  +style = Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), Enclosure.Frame{Enclosure.partition(part), arrangement})
+def dialog_partition_frame_when(+capacity: Nat, enabled: Bool, visual: Design.Style, part: Enclosure.Part, arrangement: Enclosure.Arrangement) -> Enclosure.Frame:
+  match enabled:
+    case False{}: Enclosure.Frame{Enclosure.partition(part), arrangement}
+    case True{}: Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Design.style_text(visual)), Enclosure.ambient(0n, 0n))
+
+def dialog_partition_frame(+capacity: Nat, +visual: Design.Style, part: Enclosure.Part, arrangement: Enclosure.Arrangement) -> Enclosure.Frame:
+  dialog_partition_frame_when(capacity, T.is_activity(Design.style_text(visual)), visual, part, arrangement)
+
+def dialog_partition(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: Enclosure.Part, +arrangement: Enclosure.Arrangement, +content: +List<Source.Node>) -> Source.Node:
+  +style = Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), dialog_partition_frame(capacity, visual, part, arrangement))
   box(key, tag, dialog_partition_style(part, style), Nil{}, content)
 
-def dialog_optional(+key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: Enclosure.Part, +arrangement: Enclosure.Arrangement, +content: +List<Source.Node>) -> +List<Source.Node>:
+def dialog_optional(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: Enclosure.Part, +arrangement: Enclosure.Arrangement, +content: +List<Source.Node>) -> +List<Source.Node>:
   match content:
     case Nil{}: Nil{}
-    case values: [dialog_partition(key, tag, visual, direction, part, arrangement, values)]
+    case values: [dialog_partition(capacity, key, tag, visual, direction, part, arrangement, values)]
 
-def dialog_content(+key: UIIdentity.Key, +label: String, +visual: Design.Style, +children: +List<Child>) -> +List<Source.Node>:
+def dialog_content(+capacity: Nat, +key: UIIdentity.Key, +label: String, +visual: Design.Style, +children: +List<Child>) -> +List<Source.Node>:
   +parts = dialog_parts(children)
-  dialog_partition(UIIdentity.part(key, "@dialog-header"), Source.Header{}, visual, Model.Vertical{}, Enclosure.Header{}, Enclosure.EmbeddedContent{0n},
+  dialog_partition(capacity, UIIdentity.part(key, "@dialog-header"), Source.Header{}, visual, Model.Vertical{}, Enclosure.Header{}, Enclosure.EmbeddedContent{0n},
     [box(UIIdentity.part(key, "@title"), Source.Heading2{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [AuthoredControls.owned_text(key, Information.SurfaceTitle{}, label, visual)])]) <>
-  append(dialog_optional(UIIdentity.part(key, "@dialog-body"), Source.Div{}, visual, Model.Vertical{}, Enclosure.Body{}, Enclosure.SeparateFrames{Enclosure.DialogSections{}}, dialog_part_body(parts)),
-    dialog_optional(UIIdentity.part(key, "@dialog-footer"), Source.Footer{}, visual, Model.ResponsiveHorizontal{}, Enclosure.Footer{}, Enclosure.SeparateFrames{Enclosure.DialogActions{}}, dialog_part_actions(parts)))
+  append(dialog_optional(capacity, UIIdentity.part(key, "@dialog-body"), Source.Div{}, visual, Model.Vertical{}, Enclosure.Body{}, Enclosure.SeparateFrames{Enclosure.DialogSections{}}, dialog_part_body(parts)),
+    dialog_optional(capacity, UIIdentity.part(key, "@dialog-footer"), Source.Footer{}, visual, Model.ResponsiveHorizontal{}, Enclosure.Footer{}, Enclosure.SeparateFrames{Enclosure.DialogActions{}}, dialog_part_actions(parts)))
 
 # Only the composer aggregate delegates its focus appearance to message fields.
 def composer_focus(role: SurfaceTypes.Role, node: Source.Node) -> Source.Node:
@@ -822,53 +871,53 @@ def navigation_group_meaning(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key,
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: add_attributes(navigation_group(key, depth, visual, children), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}])
     case _: navigation_group(key, depth, visual, children)
 
-def regular_plain(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+def regular_plain(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
-    case SurfaceTypes.Dialog{}: regular_content(key, label, role, meaning, visual, representation, children, parameters, dialog_content(key, label, visual, children))
-    case _: grouped_menu(role, children, meaning_focus(meaning, role, regular_content(key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))))
+    case SurfaceTypes.Dialog{}: regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, dialog_content(capacity, key, label, visual, children))
+    case _: grouped_menu(capacity, role, children, meaning_focus(meaning, role, regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))))
 
-def regular_navigation(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+def regular_navigation(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
     case Controls.NavigationGroup{depth}: navigation_group_meaning(meaning, key, depth, visual, ordinary(all_nodes(children)))
     case Controls.NavigationRow{owner, depth, visible, feedback_active}: navigation_row_meaning(meaning, key, owner, depth, visible, visual, children)
-    case _: regular_plain(key, label, role, meaning, visual, representation, children, parameters)
+    case _: regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters)
 
 
 
-def regular(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
+def regular(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
     case SurfaceTypes.NavigationEntry{selected}:
       +primary = button_source(key, visual, representation)
       navigation_single_command(UIIdentity.part(key, "@navigation-entry"), key, 0n, visual, Sidebar.capture(primary), Nil{}, primary)
     case SurfaceTypes.NavigationCollection{}: sidebar_collection(key, Sidebar.Collection{}, visual, ordinary(all_nodes(children)))
     case SurfaceTypes.NavigationSection{}: navigation_section(key, visual, children)
-    case SurfaceTypes.Section{}: regular_navigation(key, label, role, meaning, visual, representation, children, parameters)
-    case _: regular_plain(key, label, role, meaning, visual, representation, children, parameters)
+    case SurfaceTypes.Section{}: regular_navigation(capacity, key, label, role, meaning, visual, representation, children, parameters)
+    case _: regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters)
 
-def read_only_role(+role: SurfaceTypes.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Authorship:
+def read_only_role(+capacity: Nat, +role: SurfaceTypes.Role, +key: UIIdentity.Key, +label: String, +value: String, +visual: Design.Style, +code_visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +source: Maybe<&2, Code.Source>) -> Authorship:
   match role:
-    case SurfaceTypes.Alert{}: Authored{regular(key, label, role, SurfaceTypes.ReadOnly{value}, visual, control, children, parameters) <> native(all_nodes(children))}
+    case SurfaceTypes.Alert{}: Authored{regular(capacity, key, label, role, SurfaceTypes.ReadOnly{value}, visual, control, children, parameters) <> native(all_nodes(children))}
     case other: rich(key, other, value, visual, code_visual, children, source)
 
 # Native attachments remain the same nodes while passing through ordinary parents.
 
 
-def authored_node_content(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
+def authored_node_content(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match meaning:
     case SurfaceTypes.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}}: Authored{code_children(key, identity, wrap, visual, children)}
-    case SurfaceTypes.ReadOnly{value}: read_only_role(role, key, label, value, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, None{})
-    case SurfaceTypes.RichText{source, value}: read_only_role(role, key, label, value, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, Some{source})
-    case other: Authored{regular(key, label, role, other, visual, control, children, parameters) <> native(all_nodes(children))}
+    case SurfaceTypes.ReadOnly{value}: read_only_role(capacity, role, key, label, value, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, None{})
+    case SurfaceTypes.RichText{source, value}: read_only_role(capacity, role, key, label, value, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, Some{source})
+    case other: Authored{regular(capacity, key, label, role, other, visual, control, children, parameters) <> native(all_nodes(children))}
 
-def authored_node_ordered(ordered: Bool, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
+def authored_node_ordered(+capacity: Nat, ordered: Bool, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match ordered:
     case False{}: Rejected{key, InvalidDialogOrder{}}
-    case True{}: authored_node_content(key, label, role, meaning, visual, control, children, parameters)
+    case True{}: authored_node_content(capacity, key, label, role, meaning, visual, control, children, parameters)
 
-def authored_node(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
+def authored_node(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match role:
-    case SurfaceTypes.Dialog{}: authored_node_ordered(dialog_ordered(children), key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters)
-    case other: authored_node_content(key, label, other, meaning, visual, control, children, parameters)
+    case SurfaceTypes.Dialog{}: authored_node_ordered(capacity, dialog_ordered(children), key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters)
+    case other: authored_node_content(capacity, key, label, other, meaning, visual, control, children, parameters)
 
 def decorate_nodes(+values: +List<Source.Node>, +attrs: +List<Source.Attribute>) -> +List<Source.Node>:
   match values:
@@ -910,13 +959,13 @@ def reading_root(+context: Maybe<&2, ReadingBinding.Context>, +key: UIIdentity.K
     case Some{context} Authored{nodes}: Authored{reading_nodes(nodes, context, key, role, visual)}
     case _ other: other
 
-def construct_in_context(+children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, ReadingBinding.Context>) -> Forest:
+def construct_in_context(+capacity: Nat, +children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, ReadingBinding.Context>) -> Forest:
   match children:
     case Failed{key, problem}: Failed{key, problem}
-    case Ready{children}: finish_node(reading_root(context, key, role, authored_node(key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control)
+    case Ready{children}: finish_node(reading_root(context, key, role, authored_node(capacity, key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control)
 
-def construct(+children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters) -> Forest:
-  construct_in_context(children, key, semantic, label, role, meaning, visual, control, parameters, None{})
+def construct(+capacity: Nat, +children: Forest, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters) -> Forest:
+  construct_in_context(capacity, children, key, semantic, label, role, meaning, visual, control, parameters, None{})
 
 def combine(+first: Forest, +rest: Forest) -> Forest:
   match first:
@@ -928,17 +977,17 @@ def combine(+first: Forest, +rest: Forest) -> Forest:
 
 # A page context scopes its descendants; siblings retain their enclosing context.
 
-def forest_in_context(+values: +List<Design.Node>, +parameters: Design.LayoutParameters, +context: Maybe<&2, ReadingBinding.Context>) -> Forest:
+def forest_in_context(+capacity: Nat, +values: +List<Design.Node>, +parameters: Design.LayoutParameters, +context: Maybe<&2, ReadingBinding.Context>) -> Forest:
   match values:
     case Nil{}: Ready{Nil{}}
     case Con{node, rest}:
       match node:
         case Design.Node{key, semantic, label, role, meaning, visual, control, children}:
           +current = context_from_meaning(context, meaning)
-          combine(construct_in_context(forest_in_context(children, parameters, current), key, semantic, label, role, meaning, visual, control, parameters, current), forest_in_context(rest, parameters, context))
+          combine(construct_in_context(capacity, forest_in_context(capacity, children, parameters, current), key, semantic, label, role, meaning, visual, control, parameters, current), forest_in_context(capacity, rest, parameters, context))
 
-def forest(+values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Forest:
-  forest_in_context(values, parameters, None{})
+def forest(+capacity: Nat, +values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Forest:
+  forest_in_context(capacity, values, parameters, None{})
 
 def finish_forest(+value: Forest) -> Authorship:
   match value:
@@ -947,8 +996,8 @@ def finish_forest(+value: Forest) -> Authorship:
       +values = all_nodes(children)
       orphan(values, values)
 
-def nodes(+values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Authorship:
-  finish_forest(forest(values, parameters))
+def nodes(+capacity: Nat, +values: +List<Design.Node>, +parameters: Design.LayoutParameters) -> Authorship:
+  finish_forest(forest(capacity, values, parameters))
 
 def background_attributes(+active: Maybe<&2, String>) -> +List<Source.Attribute>:
   match active:
@@ -983,13 +1032,13 @@ def background(+result: Authorship, +active: Maybe<&2, String>) -> Authorship:
     case Rejected{key, problem}: Rejected{key, problem}
     case Authored{values}: Authored{decorate_nodes(values, background_attributes(active))}
 
-def base(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Authorship:
+def base(+capacity: Nat, +surface: Design.Surface, +parameters: Design.LayoutParameters) -> Authorship:
   Design.Surface{content, theme, base, overlays, active_scope} = surface
-  background(nodes(base, parameters), active_scope)
+  background(nodes(capacity, base, parameters), active_scope)
 
-def overlays(+surface: Design.Surface, +parameters: Design.LayoutParameters) -> Authorship:
+def overlays(+capacity: Nat, +surface: Design.Surface, +parameters: Design.LayoutParameters) -> Authorship:
   Design.Surface{content, theme, base, overlays, active_scope} = surface
-  overlay_forest(forest(overlays, parameters), active_scope)
+  overlay_forest(forest(capacity, overlays, parameters), active_scope)
 
 def layout_of_lane(node: Source.Node) -> Maybe<&2, Source.Style>:
   match node:

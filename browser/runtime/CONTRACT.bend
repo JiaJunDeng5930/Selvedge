@@ -1060,3 +1060,7 @@ type NavigationRequirements is Type:
 
 law navigation_evidence:
   NavigationRequirements
+
+law reviewer_field_gesture:
+  @editor:U.Editor -> @entry:Forms.Entry -> @value:Forms.Observed -> @+text:String -> @state:Legacy.State ->
+    {Legacy.field_text(editor, Forms.ApprovalReviewer{}, entry, value, text, state) == Legacy.approval_gesture(text) : Maybe<&2, SurfaceTypes.Gesture>}

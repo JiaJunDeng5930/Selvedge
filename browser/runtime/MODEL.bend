@@ -677,7 +677,7 @@ def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, +index
       +layers = surface_layers(semantic)
       +surface = Web.appearance_surface_supporting_navigation(semantic, environment, font, candidate_form(index), attention)
       +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
-      authored(Shell.source_supporting(surface, parameters, capacity, layers, anchors, presentation, candidate_form(index)),
+      authored(Shell.source_supporting(NaturalSize.limit(), surface, parameters, capacity, layers, anchors, presentation, candidate_form(index)),
         index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed, attention}, semantic)
 
 def calibrated_body(metric: T.Metric, +index: Nat, +state: State) -> Search:

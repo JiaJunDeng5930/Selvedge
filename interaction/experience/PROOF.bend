@@ -10,6 +10,7 @@ import ../../bendlib/json.bend as J
 import ./CONTRACT.bend as Rule
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
+import ./ACTIVITY.bend as Activity
 import ../INPUT.bend as U
 import ../submission/FIELDS.bend as Forms
 import ../services/CONTEXT.bend as Context
@@ -182,6 +183,11 @@ def permission_draft_sources_equation(+editor: U.Editor, +origin: Context.Origin
     case Context.ProjectForParent{task, id} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: {==}
     case Context.ProjectForParent{task, id} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: {==}
 
+def committed_unrestricted_parts_agreement(sandbox: D.Sandbox, choice: Context.ApprovalChoice) ->
+  {P.committed_summary_parts(D.Unrestricted{}, sandbox, choice) == ["Full access", "Network available", "No approval"] : +List<String>}:
+  match sandbox:
+    case D.Sandbox{mode, network}: {==}
+
 def shared_evidence() -> Rule.SharedRequirements:
   Rule.SharedRequirements{
     editor => +selected => world => {==},
@@ -195,7 +201,7 @@ def shared_evidence() -> Rule.SharedRequirements:
     +property => property_value_equation(property),
     +property => property_summary_equation(property),
     mode => network => choice => {==},
-    sandbox => choice => {==},
+    sandbox => choice => committed_unrestricted_parts_agreement(sandbox, choice),
     sandbox => choice => {==},
     reason => {==},
     origin => project => workspace => +sandbox => +approval => guidance => {==},
@@ -316,12 +322,12 @@ def Rule.experience_evidence():
     +editor => {==},
     +editor => {==},
     +editor => {==},
-    origin => project => workspace => +sandbox => approval => guidance => +mode => {==},
-    origin => project => workspace => +sandbox => approval => guidance => +enabled => {==},
-    origin => project => workspace => sandbox => approval => guidance => +choice => {==},
-    origin => project => workspace => +sandbox => approval => guidance => +mode => {==},
-    origin => project => workspace => +sandbox => approval => guidance => +network => {==},
-    origin => project => workspace => sandbox => +approval => guidance => +choice => {==},
+    origin => project => workspace => +sandbox => approval => guidance => +mode => reviewers => {==},
+    origin => project => workspace => +sandbox => approval => guidance => +enabled => reviewers => {==},
+    origin => project => workspace => sandbox => approval => guidance => +choice => reviewers => {==},
+    origin => project => workspace => +sandbox => approval => guidance => +mode => reviewers => {==},
+    origin => project => workspace => +sandbox => approval => guidance => +network => reviewers => {==},
+    origin => project => workspace => sandbox => +approval => guidance => +choice => reviewers => {==},
     +current => effort => +key => provider => name => policy => options => {==},
     profile => +current => +effort => {==},
     roots => +primary => +path => {==},
@@ -399,3 +405,113 @@ def Rule.compact_property_evidence():
     +editor => +selected => +found => {==},
     +editor => +observation => +source => {==},
     +editor => +delivery => {==}}
+
+def editing_reading_from_draft(+edit: M.ProjectEdit, draft: U.Draft) ->
+  {Activity.reading_units(Activity.editing_from_draft(edit, draft)) == 24n : Nat}:
+  U.Draft{revision, body, feedback, entry} = draft
+  {==}
+
+def editing_reading_agreement(+edit: M.ProjectEdit) ->
+  {Activity.reading_units(Activity.editing(edit)) == 24n : Nat}:
+  editing_reading_from_draft(edit, P.project_edit_draft(edit))
+
+def project_edit_agreement(+draft: U.Draft, +pending: Bool, +now: U32, +world: World.World()) ->
+  {P.project_edit(draft, pending, now, world) == Rule.project_edit_meaning(draft, pending, now, world) : M.ProjectEdit}:
+  match draft:
+    case U.Draft{revision, body, feedback, entry}: {==}
+
+def Rule.activity_evidence():
+  Rule.ActivityRequirements{
+    parent => prerequisite => child => {==},
+    parent => prerequisite => child => {==},
+    decision => children => {==},
+    property => decision => children => facts => catalog => {==},
+    property => decision => children => facts => catalog => {==},
+    property => rest => {==},
+    action => assessment => rest => {==},
+    property => rest => {==},
+    collection => {==},
+    property => decision => children => facts => catalog => {==},
+    property => decision => children => facts => catalog => {==},
+    property => decision => children => facts => catalog => {==},
+    property => decision => children => facts => catalog => {==},
+    edit => editing_reading_agreement(edit),
+    draft => pending => now => world => project_edit_agreement(draft, pending, now, world),
+    revision => body => feedback => entry => pending => world => {==},
+    id => name => workspace => entry => world => {==},
+    origin => project => workspace => sandbox => approval => guidance => choice => reviewers => {==}}
+
+
+def editing_purpose_from_draft(+edit: M.ProjectEdit, draft: U.Draft) ->
+  {Activity.purpose(Activity.editing_from_draft(edit, draft)) == Activity.ObjectEditing{} : Activity.Purpose}:
+  U.Draft{revision, body, feedback, entry} = draft
+  {==}
+
+def editing_purpose_agreement(+edit: M.ProjectEdit) ->
+  {Activity.purpose(Activity.editing(edit)) == Activity.ObjectEditing{} : Activity.Purpose}:
+  editing_purpose_from_draft(edit, P.project_edit_draft(edit))
+
+def Rule.decision_disclosure_evidence():
+  Rule.DecisionDisclosureRequirements{
+    property => decision => children => facts => catalog => {==},
+    property => decision => children => facts => catalog => {==},
+    edit => editing_purpose_agreement(edit),
+    activity => decision => focused => {==},
+    purpose => focused => {==},
+    focused => {==},
+    {==}, {==}, {==}, {==},
+    decision => {==},
+    decision => subject => {==},
+    parent => prerequisite => child => rest => subject => {==}}
+
+def Rule.candidate_evidence():
+  Rule.CandidateRequirements{
+    parent => alternative => {==},
+    parent => alternative => {==},
+    parent => label => explanation => value => {==},
+    admission => label => explanation => value => {==},
+    observation => {==},
+    observation => {==},
+    parent => first => rest => {==},
+    activity => parent => {==},
+    activity => parent => query => {==}}
+
+def Rule.relation_view_evidence():
+  Rule.RelationViewRequirements{
+    decision => children => {==},
+    parent => prerequisite => decision => {==},
+    property => {==}, property => {==}, collection => {==},
+    action => assessment => {==},
+    parent => subject => entry => profile => {==}}
+
+def Rule.field_specification_evidence():
+  Rule.FieldSpecificationRequirements{
+    parent => profiles => {==},
+    parent => profile => {==},
+    editor => parent => profile => {==},
+    parent => children => catalog => {==},
+    parent => subject => entry => profile => {==},
+    parent => {==}}
+
+def Rule.reviewer_catalogue_evidence():
+  Rule.ReviewerCatalogueRequirements{
+    profile => reviewers => {==}, profile => {==}, key => {==},
+    {==}, profile => {==}, parent => alternative => {==}}
+
+def Rule.strategy_evidence():
+  Rule.StrategyRequirements{
+    {==}, {==}, profile => {==},
+    profile => reviewers => {==}, reviewers => {==},
+    strategy => current => reviewers => {==},
+    origin => project => workspace => sandbox => approval => guidance => strategy => reviewers => {==},
+    origin => project => workspace => sandbox => approval => guidance => strategy => reviewers => {==},
+    {==}}
+
+def Rule.relation_fold_evidence(Context, Result, handler, context):
+  Rule.RelationFoldRequirements{
+    {==},
+    decision => children => rest => {==},
+    parent => prerequisite => decision => rest => {==},
+    property => rest => {==}, property => rest => {==},
+    collection => rest => {==}, action => assessment => rest => {==},
+    parent => subject => entry => profile => rest => {==}}

@@ -1,3 +1,4 @@
+import ../layout/natural-size.bend as NaturalSize
 import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
@@ -184,6 +185,17 @@ def content_layout(face: Face) -> ContentLayout:
     case SingleLineFace{text}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.ambient(0n, 0n), 0n}
     case ChoiceFace{text, description, icon, checked}: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 8n}
     case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
+
+def content_layout_activity(enabled: Bool, +text: Typography.Presentation, face: Face) -> ContentLayout:
+  match enabled:
+    case False{}: content_layout(face)
+    case True{}:
+      match face:
+        case IconFace{icon}: ContentLayout{SpatialModel.CenterContents{}, Enclosure.ambient(0n, 0n), 0n}
+        case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.frame_content(Activity.row_frame(NaturalSize.limit(), text)), Activity.length(NaturalSize.limit(), text, 8n)}
+
+def content_layout_at(+text: Typography.Presentation, face: Face) -> ContentLayout:
+  content_layout_activity(Typography.is_activity(text), text, face)
 
 type Placement is Data:
   InFlow{}
@@ -1213,6 +1225,22 @@ def geometry_preferred_height(value: Geometry) -> Nat:
   height
 
 
+
+def motor_width(enabled: Bool, text: Typography.Presentation, minimum: Nat) -> Nat:
+  match enabled:
+    case True{}: Activity.target(NaturalSize.limit(), text, minimum)
+    case False{}: 0n
+
+def geometry_activity(enabled: Bool, +text: Typography.Presentation, +geometry: Geometry) -> Geometry:
+  match enabled:
+    case False{}: geometry
+    case True{}:
+      Geometry{demand, icon, radius, leading} = geometry
+      Geometry{Space.fixed_demand(motor_width(Nat.is_lt(0n, geometry_minimum_width(geometry)), text, geometry_minimum_width(geometry)), Activity.target(NaturalSize.limit(), text, geometry_minimum_height(geometry))),
+        Activity.icon(NaturalSize.limit(), text), Activity.length(NaturalSize.limit(), text, radius), Activity.slot(NaturalSize.limit(), text)}
+
+def geometry_at(+text: Typography.Presentation, geometry: Geometry) -> Geometry:
+  geometry_activity(Typography.is_activity(text), text, geometry)
 
 def compact_parts_icon(parts: +List<String>) -> Bool:
   match parts:

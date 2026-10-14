@@ -1,5 +1,6 @@
 import Base
 import ../experience/MODEL.bend as Experience
+import ../experience/ACTIVITY.bend as Activity
 import ./INFORMATION.bend as Information
 import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
@@ -62,6 +63,7 @@ type ChoiceKind is Data:
   MultipleChoice{}
 
 type Meaning is Data:
+  ActivityGroup{activity: Activity.Activity, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DecisionGroup{decision: Experience.Decision}
   WorkspaceCollection{collection: Experience.Collection}
   WorkspaceMember{collection: Experience.Collection, path: String}
@@ -123,3 +125,30 @@ type Gesture is Data:
 
 type PersistentTrigger is Data:
   PersistentTrigger{task: Nat, trigger: String}
+
+# A layer's interaction is independent of the activity organizing its content.
+type LayerBehavior is Data:
+  LayerBehavior{dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
+
+def layer_region(meaning: Meaning) -> Maybe<&2, LayerBehavior>:
+  match meaning:
+    case LayerRegion{dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case ActivityGroup{activity, dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case _: None{}
+
+def layer_region_meaning(meaning: Meaning) -> Maybe<&2, LayerBehavior>:
+  match meaning:
+    case LayerRegion{dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case ActivityGroup{activity, dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case _: None{}
+
+type LayerRegionRequirements is Type:
+  LayerRegionRequirements{
+    complete: @+meaning:Meaning -> {layer_region(meaning) == layer_region_meaning(meaning) : Maybe<&2, LayerBehavior>},
+    layer: @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool ->
+      {layer_region(LayerRegion{dismiss, outside, escape}) == Some{LayerBehavior{dismiss, outside, escape}} : Maybe<&2, LayerBehavior>},
+    activity: @activity:Activity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool ->
+      {layer_region(ActivityGroup{activity, dismiss, outside, escape}) == Some{LayerBehavior{dismiss, outside, escape}} : Maybe<&2, LayerBehavior>}}
+
+law layer_region_evidence:
+  LayerRegionRequirements

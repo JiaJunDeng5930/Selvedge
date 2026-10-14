@@ -34,6 +34,7 @@ def configuration_field(field: Forms.Field) -> Bool:
     case Forms.SandboxMode{}: True{}
     case Forms.NetworkAccess{}: True{}
     case Forms.ApprovalPolicy{}: True{}
+    case Forms.ApprovalReviewer{}: True{}
     case _: False{}
 
 def scalar_owner(editor: U.Editor, field: Forms.Field) -> M.Object:
@@ -103,8 +104,24 @@ def editable_workspace(editor: U.Editor) -> Bool:
     case U.ForkEditor{task}: True{}
     case _: False{}
 
+def strategy_key(strategy: M.Strategy) -> String:
+  match strategy:
+    case M.Ask{}: "strategy/ask"
+    case M.AutomaticReview{}: "strategy/automatic-review"
+    case M.FullAccess{}: "strategy/full-access"
+
+def observed_strategy(choice: Context.ApprovalChoice) -> M.Strategy:
+  match choice:
+    case Context.Ask{}: M.Ask{}
+    case Context.Unrestricted{}: M.FullAccess{}
+    case Context.AutomaticReview{profile}: M.AutomaticReview{}
+
+def strategy_same(left: M.Strategy, right: M.Strategy) -> Bool:
+  String.eq(strategy_key(left), strategy_key(right))
+
 def value_key(value: M.Value) -> String:
   match value:
+    case M.ExecutionStrategy{strategy}: strategy_key(strategy)
     case M.Filesystem{mode}: "filesystem/" ++ D.sandbox_mode_name(mode)
     case M.Network{False{}}: "network/disabled"
     case M.Network{True{}}: "network/enabled"
@@ -158,13 +175,59 @@ def network_selected(sandbox: D.Sandbox, enabled: Bool) -> Bool:
     case False{} False{}: True{}
     case _ _: False{}
 
+def reviewer_present(found: Maybe<&2, D.Profile>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{profile}: True{}
+
+def approval_intent(choice: Context.ApprovalChoice, reviewers: +List<D.Profile>) -> Maybe<&2, U.Edit>:
+  match choice:
+    case Context.AutomaticReview{+profile}: member_edit(reviewer_present(D.find_profile(reviewers, profile)), U.ConfigureContext{Context.SetApproval{Context.AutomaticReview{profile}}})
+    case _: Some{U.ConfigureContext{Context.SetApproval{choice}}}
+
+def first_reviewer(reviewers: +List<D.Profile>) -> Maybe<&2, Context.ApprovalChoice>:
+  match reviewers:
+    case Nil{}: None{}
+    case Con{profile, rest}: Some{Context.AutomaticReview{D.profile_key(profile)}}
+
+def current_reviewer(found: Maybe<&2, D.Profile>, reviewers: +List<D.Profile>) -> Maybe<&2, Context.ApprovalChoice>:
+  match found:
+    case None{}: first_reviewer(reviewers)
+    case Some{profile}: Some{Context.AutomaticReview{D.profile_key(profile)}}
+
+def automatic_strategy(current: Context.ApprovalChoice, +reviewers: +List<D.Profile>) -> Maybe<&2, Context.ApprovalChoice>:
+  match current:
+    case Context.AutomaticReview{profile}: current_reviewer(D.find_profile(reviewers, profile), reviewers)
+    case _: first_reviewer(reviewers)
+
+def strategy_approval(strategy: M.Strategy, current: Context.ApprovalChoice, reviewers: +List<D.Profile>) -> Maybe<&2, Context.ApprovalChoice>:
+  match strategy:
+    case M.Ask{}: Some{Context.Ask{}}
+    case M.FullAccess{}: Some{Context.Unrestricted{}}
+    case M.AutomaticReview{}: automatic_strategy(current, reviewers)
+
+def resolved_strategy(choice: Maybe<&2, Context.ApprovalChoice>) -> Maybe<&2, U.Edit>:
+  match choice:
+    case None{}: None{}
+    case Some{choice}: Some{U.ConfigureContext{Context.SetApproval{choice}}}
+
+def strategy_intent(strategy: M.Strategy, current: Context.ApprovalChoice, reviewers: +List<D.Profile>) -> Maybe<&2, U.Edit>:
+  resolved_strategy(strategy_approval(strategy, current, reviewers))
+
+def reviewer_intent(current: Context.ApprovalChoice, choice: Context.ApprovalChoice, reviewers: +List<D.Profile>) -> Maybe<&2, U.Edit>:
+  match current choice:
+    case Context.AutomaticReview{old} Context.AutomaticReview{profile}: approval_intent(Context.AutomaticReview{profile}, reviewers)
+    case _ _: None{}
+
 def property_intent(field: Forms.Field, observation: Forms.Observed, value: M.Value) -> Maybe<&2, U.Edit>:
   match field observation value:
-    case Forms.SandboxMode{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}} M.Filesystem{mode}:
+    case Forms.SandboxMode{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Filesystem{mode}:
       filesystem_intent(Context.unwrap_sandbox(sandbox), mode)
-    case Forms.NetworkAccess{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}} M.Network{enabled}:
+    case Forms.NetworkAccess{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Network{enabled}:
       network_intent(Context.unwrap_sandbox(sandbox), enabled)
-    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}} M.Approval{choice}: Some{U.ConfigureContext{Context.SetApproval{choice}}}
+    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.ExecutionStrategy{strategy}: strategy_intent(strategy, Context.observed_approval(approval), reviewers)
+    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Approval{choice}: approval_intent(choice, reviewers)
+    case Forms.ApprovalReviewer{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Approval{choice}: reviewer_intent(Context.observed_approval(approval), choice, reviewers)
     case Forms.ModelProfile{} Forms.ModelValue{current, effort} M.Model{profile}: model_intent(profile, effort)
     case Forms.ReasoningEffort{} Forms.ModelValue{profile, old} M.Effort{effort}: Some{U.ChooseModel{profile, effort}}
     case Forms.WorkspacePrimary{} Forms.WorkspaceValue{D.Workspace{+roots, primary}} M.PrimaryDirectory{+path}:
@@ -199,6 +262,7 @@ def editable_property(editor: U.Editor, field: Forms.Field) -> Bool:
     case Forms.SandboxMode{}: editable_configuration(editor)
     case Forms.NetworkAccess{}: editable_configuration(editor)
     case Forms.ApprovalPolicy{}: editable_configuration(editor)
+    case Forms.ApprovalReviewer{}: editable_configuration(editor)
     case _: False{}
 
 def scoped_intent(+editor: U.Editor, +field: Forms.Field, observation: Forms.Observed, value: M.Value) -> Maybe<&2, U.Edit>:
@@ -276,11 +340,13 @@ def decision_availability(value: M.Decision) -> M.Availability:
 
 def observed_selection(field: Forms.Field, observation: Forms.Observed, value: M.Value) -> Bool:
   match field observation value:
-    case Forms.SandboxMode{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}} M.Filesystem{mode}:
+    case Forms.SandboxMode{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Filesystem{mode}:
       filesystem_selected(Context.unwrap_sandbox(sandbox), mode)
-    case Forms.NetworkAccess{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}} M.Network{enabled}:
+    case Forms.NetworkAccess{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Network{enabled}:
       network_selected(Context.unwrap_sandbox(sandbox), enabled)
-    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}} M.Approval{choice}: value_same(M.Approval{Context.observed_approval(approval)}, M.Approval{choice})
+    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.ExecutionStrategy{strategy}: strategy_same(observed_strategy(Context.observed_approval(approval)), strategy)
+    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Approval{choice}: value_same(M.Approval{Context.observed_approval(approval)}, M.Approval{choice})
+    case Forms.ApprovalReviewer{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers} M.Approval{choice}: value_same(M.Approval{Context.observed_approval(approval)}, M.Approval{choice})
     case Forms.ModelProfile{} Forms.ModelValue{current, effort} M.Model{D.Profile{key, provider, name, policy, options}}: String.eq(current, key)
     case Forms.ReasoningEffort{} Forms.ModelValue{profile, current} M.Effort{effort}: String.eq(current, effort)
     case Forms.WorkspacePrimary{} Forms.WorkspaceValue{D.Workspace{roots, Some{primary}}} M.PrimaryDirectory{path}: String.eq(primary, path)
@@ -492,7 +558,7 @@ def kind_fields(kind: M.PropertyKind) -> +List<Forms.Field>:
   match kind:
     case M.ProjectProperty{}: [Forms.ContextOrigin{}]
     case M.WorkspaceProperty{}: [Forms.WorkspaceDirectories{}, Forms.WorkspacePrimary{}]
-    case M.PermissionsProperty{}: [Forms.SandboxMode{}, Forms.NetworkAccess{}, Forms.ApprovalPolicy{}]
+    case M.PermissionsProperty{}: [Forms.SandboxMode{}, Forms.NetworkAccess{}, Forms.ApprovalPolicy{}, Forms.ApprovalReviewer{}]
     case M.ModelProperty{}: [Forms.ModelProfile{}, Forms.ReasoningEffort{}]
     case M.DeliveryProperty{}: [Forms.DeliveryIntent{}]
 
@@ -641,16 +707,31 @@ def sandbox_summary_parts(sandbox: D.Sandbox, choice: Context.ApprovalChoice) ->
   D.Sandbox{mode, network} = sandbox
   D.sandbox_mode_name(mode) <> List.append(&2, String, summary_network_parts(network), summary_approval_parts(choice))
 
+def unrestricted_execution_parts(sandbox: D.Sandbox) -> +List<String>:
+  D.Sandbox{mode, network} = sandbox
+  [Context.filesystem_summary(D.Unrestricted{}, mode), "Network " ++ String.to_lower(Context.network_summary(D.Unrestricted{}, network)), "No approval"]
+
 def committed_summary_parts(access: D.ExecutionAccess, sandbox: D.Sandbox, choice: Context.ApprovalChoice) -> +List<String>:
   match access:
-    case D.Unrestricted{}: "Full access" <> List.append(&2, String, summary_network_parts(True{}), summary_approval_parts(choice))
+    case D.Unrestricted{}: unrestricted_execution_parts(sandbox)
     case D.Sandboxed{}: sandbox_summary_parts(sandbox, choice)
+
+def preview_summary_access(access: Maybe<&2, D.ExecutionAccess>, sandbox: D.Sandbox, choice: Context.ApprovalChoice) -> +List<String>:
+  match access:
+    case None{}: ["Unavailable"]
+    case Some{D.Unrestricted{}}: unrestricted_execution_parts(sandbox)
+    case Some{D.Sandboxed{}}: sandbox_summary_parts(sandbox, choice)
+
+def preview_permission_parts(+preview: Context.Preview) -> +List<String>:
+  match preview:
+    case Context.ContextUnavailable{reason}: ["Unavailable"]
+    case Context.ProspectiveContext{origin, project, workspace, +sandbox, +approval, guidance}:
+      preview_summary_access(Context.preview_access(preview), Context.unwrap_sandbox(sandbox), Context.observed_approval(approval))
 
 def permission_summary_parts(observation: Context.Observation) -> +List<String>:
   match observation:
     case Context.DraftExecution{Context.ContextUnavailable{reason}}: ["Unavailable"]
-    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
-      sandbox_summary_parts(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval))
+    case Context.DraftExecution{preview}: preview_permission_parts(preview)
     case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}:
       committed_summary_parts(access, sandbox, Context.approval_choice(approval))
 
@@ -962,11 +1043,56 @@ def known_workspace_requirement(current: Bool, editor: U.Editor, reason: String)
     case True{}: [obstruction(editor, Forms.WorkspaceDirectories{}, "workspace_observation_failed", reason)]
     case False{}: Nil{}
 
-def draft_requirements(draft: U.Draft, pending: Bool, world: World.World()) -> +List<M.Obstruction>:
+def same_paths(left: +List<String>, right: +List<String>) -> Bool:
+  match left right:
+    case Nil{} Nil{}: True{}
+    case Con{first, rest} Con{other, remaining}: String.eq(first, other) && same_paths(rest, remaining)
+    case _ _: False{}
+
+def same_primary(left: Maybe<&2, String>, right: Maybe<&2, String>) -> Bool:
+  match left right:
+    case None{} None{}: True{}
+    case Some{first} Some{other}: String.eq(first, other)
+    case _ _: False{}
+
+def same_workspace(left: D.Workspace, right: D.Workspace) -> Bool:
+  D.Workspace{roots, primary} = left
+  D.Workspace{other, selected} = right
+  same_paths(roots, other) && same_primary(primary, selected)
+
+def project_original(body: U.Body, world: World.World()) -> Maybe<&2, D.Project>:
+  match body:
+    case U.Project{id, name, workspace}: selected_project(id, world)
+    case _: None{}
+
+def project_changed(original: Maybe<&2, D.Project>, +name: String, workspace: D.Workspace) -> Bool:
+  match original:
+    case None{}: True{}
+    case Some{D.Project{other, previous, guidance}}: Bool.not(String.eq(name, other) && same_workspace(workspace, previous))
+
+def project_draft_changed(original: Maybe<&2, D.Project>, name: String, workspace: D.Workspace, +entry: String) -> Bool:
+  Bool.not(String.eq(entry, "")) || project_changed(original, name, workspace)
+
+def draft_changed(+draft: U.Draft, world: World.World()) -> Bool:
+  U.Draft{revision, +body, feedback, entry} = draft
+  match body:
+    case U.Project{id, name, workspace}: project_draft_changed(project_original(body, world), name, workspace, entry)
+    case _: True{}
+
+def project_edit_requirements(+body: U.Body, +entry: String, +world: World.World()) -> +List<M.Obstruction>:
+  match body:
+    case U.Project{+id, name, workspace}:
+      List.append(&2, M.Obstruction,
+        failed_requirement(String.eq(entry, ""), obstruction(U.ProjectEditor{id}, Forms.WorkspaceDirectories{}, "unadded_directory", "Add or clear the directory before saving")),
+        failed_requirement(project_draft_changed(project_original(body, world), name, workspace, entry),
+          M.Obstruction{root_object(U.ProjectEditor{id}), None{}, "unchanged_project", "No project changes to save"}))
+    case _: Nil{}
+
+def draft_requirements(draft: U.Draft, pending: Bool, +world: World.World()) -> +List<M.Obstruction>:
   U.Draft{revision, +body, +feedback, entry} = draft
   List.append(&2, M.Obstruction,
     known_workspace_requirement(workspace_rejection_current(feedback, revision), U.owner(body), workspace_rejection_reason(feedback)),
-    requirements(body, pending, world))
+    List.append(&2, M.Obstruction, project_edit_requirements(body, entry, world), requirements(body, pending, world)))
 
 def draft_can_prepare(draft: U.Draft, pending: Bool, world: World.World()) -> Bool:
   requirements_empty(draft_requirements(draft, pending, world))
@@ -1150,3 +1276,143 @@ def compact_property_summary_parts(property: M.Property) -> +List<String>:
     case M.PermissionsObservation{editor, +observation}:
       compact_permission_parts(compact_permission_observation(observation), observation)
     case _: property_summary_parts(property)
+
+def project_edit(+draft: U.Draft, +pending: Bool, now: U32, +world: World.World()) -> M.ProjectEdit:
+  U.Draft{+revision, +body, feedback, entry} = draft
+  M.ProjectEdit{project_original(body, world), draft, pending, draft_changed(draft, world),
+    assessed_requirements(draft_requirements(draft, pending, world), body, revision, now, world)}
+
+def project_edit_original(edit: M.ProjectEdit) -> Maybe<&2, D.Project>:
+  M.ProjectEdit{original, draft, pending, dirty, assessment} = edit
+  original
+
+def project_edit_draft(edit: M.ProjectEdit) -> U.Draft:
+  M.ProjectEdit{original, draft, pending, dirty, assessment} = edit
+  draft
+
+def project_edit_pending(edit: M.ProjectEdit) -> Bool:
+  M.ProjectEdit{original, draft, pending, dirty, assessment} = edit
+  pending
+
+def project_edit_changed(edit: M.ProjectEdit) -> Bool:
+  M.ProjectEdit{original, draft, pending, dirty, assessment} = edit
+  dirty
+
+def project_edit_assessment(edit: M.ProjectEdit) -> M.Assessment:
+  M.ProjectEdit{original, draft, pending, dirty, assessment} = edit
+  assessment
+
+def project_edit_property_from_body(body: U.Body, edit: M.ProjectEdit) -> M.Property:
+  match body:
+    case U.Project{+id, name, workspace}: M.ProjectObservation{U.ProjectEditor{id}, id, project_edit_original(edit)}
+    case _: M.ProjectObservation{U.owner(body), None{}, None{}}
+
+def project_edit_property_from_draft(draft: U.Draft, edit: M.ProjectEdit) -> M.Property:
+  U.Draft{revision, body, feedback, entry} = draft
+  project_edit_property_from_body(body, edit)
+
+def project_edit_property(+edit: M.ProjectEdit) -> M.Property:
+  project_edit_property_from_draft(project_edit_draft(edit), edit)
+
+def candidate_admission(+parent: M.Decision, +alternative: M.Alternative) -> M.Decision:
+  decision(decision_subject(parent), decision_observation(parent), decision_question(parent), [alternative])
+
+def candidate_input(admission: M.Decision, alternative: M.Alternative) -> Maybe<&2, U.Input>:
+  M.Alternative{label, explanation, value} = alternative
+  choose(admission, value)
+
+def candidate_canonical(+decision: M.Decision, alternative: M.Alternative) -> Maybe<&2, U.Input>:
+  M.Alternative{label, explanation, value} = alternative
+  canonical(decision_subject(decision), decision_observation(decision), value)
+
+def candidate(+decision: M.Decision, +alternative: M.Alternative) -> M.CandidateObservation:
+  +admission: M.Decision = candidate_admission(decision, alternative)
+  M.CandidateObservation{decision, alternative, candidate_canonical(decision, alternative), admission, candidate_input(admission, alternative)}
+
+def candidate_decision(observation: M.CandidateObservation) -> M.Decision:
+  M.CandidateObservation{decision, alternative, canonical, admission, input} = observation
+  decision
+
+def candidate_alternative(observation: M.CandidateObservation) -> M.Alternative:
+  M.CandidateObservation{decision, alternative, canonical, admission, input} = observation
+  alternative
+
+def candidate_canonical_result(observation: M.CandidateObservation) -> Maybe<&2, U.Input>:
+  M.CandidateObservation{decision, alternative, canonical, admission, input} = observation
+  canonical
+
+def candidate_admitted_decision(observation: M.CandidateObservation) -> M.Decision:
+  M.CandidateObservation{decision, alternative, canonical, admission, input} = observation
+  admission
+
+def missing_reviewer_reason(found: Maybe<&2, D.Profile>) -> Maybe<&2, String>:
+  match found:
+    case None{}: Some{"The automatic review model is not available"}
+    case Some{profile}: None{}
+
+def reviewer_catalog_reason(+reviewers: +List<D.Profile>, key: String) -> Maybe<&2, String>:
+  match reviewers:
+    case Nil{}: Some{"No automatic review models are available"}
+    case Con{first, rest}: missing_reviewer_reason(D.find_profile(reviewers, key))
+
+def automatic_strategy_reason(reviewers: +List<D.Profile>) -> Maybe<&2, String>:
+  match reviewers:
+    case Nil{}: Some{"No automatic review models are available"}
+    case Con{first, rest}: None{}
+
+def approval_value_reason(value: M.Value, reviewers: +List<D.Profile>) -> Maybe<&2, String>:
+  match value:
+    case M.ExecutionStrategy{M.AutomaticReview{}}: automatic_strategy_reason(reviewers)
+    case M.Approval{Context.AutomaticReview{key}}: reviewer_catalog_reason(reviewers, key)
+    case _: None{}
+
+def candidate_field_reason(field: Forms.Field, observation: Forms.Observed, value: M.Value) -> Maybe<&2, String>:
+  match field observation:
+    case Forms.ApprovalPolicy{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: approval_value_reason(value, reviewers)
+    case Forms.ApprovalReviewer{} Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: approval_value_reason(value, reviewers)
+    case _ _: None{}
+
+def candidate_subject_reason(subject: M.Subject, observation: Forms.Observed, value: M.Value) -> Maybe<&2, String>:
+  M.Subject{editor, field} = subject
+  candidate_field_reason(field, observation, value)
+
+def candidate_alternative_reason(+decision: M.Decision, alternative: M.Alternative) -> Maybe<&2, String>:
+  M.Alternative{label, explanation, value} = alternative
+  candidate_subject_reason(decision_subject(decision), decision_observation(decision), value)
+
+def reasoned_refusal(reason: Maybe<&2, String>, fallback: String) -> M.Availability:
+  match reason:
+    case None{}: M.Unavailable{fallback}
+    case Some{reason}: M.Unavailable{reason}
+
+def candidate_reasoned_availability(availability: M.Availability, decision: M.Decision, alternative: M.Alternative) -> M.Availability:
+  match availability:
+    case M.Available{}: M.Available{}
+    case M.Unavailable{reason}: reasoned_refusal(candidate_alternative_reason(decision, alternative), reason)
+
+def candidate_availability(+observation: M.CandidateObservation) -> M.Availability:
+  candidate_reasoned_availability(decision_availability(candidate_admitted_decision(observation)), candidate_decision(observation), candidate_alternative(observation))
+
+def candidate_reason_from_availability(availability: M.Availability) -> Maybe<&2, String>:
+  match availability:
+    case M.Available{}: None{}
+    case M.Unavailable{reason}: Some{reason}
+
+def candidate_reason(observation: M.CandidateObservation) -> Maybe<&2, String>:
+  candidate_reason_from_availability(candidate_availability(observation))
+
+def candidate_selection_input(observation: M.CandidateObservation) -> Maybe<&2, U.Input>:
+  M.CandidateObservation{decision, alternative, canonical, admission, input} = observation
+  input
+
+def candidate_selected_from_alternative(decision: M.Decision, alternative: M.Alternative) -> Bool:
+  M.Alternative{label, explanation, value} = alternative
+  selected(decision, value)
+
+def candidate_selected(+observation: M.CandidateObservation) -> Bool:
+  candidate_selected_from_alternative(candidate_decision(observation), candidate_alternative(observation))
+
+def candidate_observations(+decision: M.Decision, alternatives: +List<M.Alternative>) -> +List<M.CandidateObservation>:
+  match alternatives:
+    case Nil{}: Nil{}
+    case Con{alternative, rest}: candidate(decision, alternative) <> candidate_observations(decision, rest)

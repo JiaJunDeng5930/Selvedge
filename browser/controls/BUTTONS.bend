@@ -19,7 +19,7 @@ type Observation is Data:
 
 def source(+key: UIIdentity.Key, +visual: Design.Style, +button: Controls.Button) -> Source.Node:
   Controls.Button{input, +availability, +name, +value, +state, +geometry, placement, +response} = button
-  Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), A.action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, A.choice_association(value, key), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(state), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, value, state, geometry, placement, response})), A.feedback(response)))))), name, A.enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, A.face(key, value, visual, geometry)}
+  Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(Controls.geometry_at(A.parent_font(visual), geometry)), Controls.geometry_minimum_height(Controls.geometry_at(A.parent_font(visual), geometry))}), Model.Horizontal{}), A.action_alignment(value), A.action_cross_alignment(value, visual)), List.append(&2, Source.Attribute, A.choice_association(value, key), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(state), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, value, state, geometry, placement, response})), A.feedback(response)))))), name, A.enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, A.face(key, value, visual, geometry)}
 
 def native_tag(node: Source.Node) -> Maybe<&2, Source.ControlTag>:
   match node:
@@ -56,7 +56,7 @@ def expected_attributes(+key: UIIdentity.Key, +button: Controls.Button) -> +List
 
 def expected_style(+visual: Design.Style, button: Controls.Button) -> Source.Style:
   Controls.Button{input, availability, name, +face, behavior, +geometry, placement, feedback} = button
-  Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(face, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), A.action_alignment(face), Spatial.Centered{})
+  Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(face, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(Controls.geometry_at(A.parent_font(visual), geometry)), Controls.geometry_minimum_height(Controls.geometry_at(A.parent_font(visual), geometry))}), Model.Horizontal{}), A.action_alignment(face), A.action_cross_alignment(face, visual))
 
 def native(observation: Observation) -> Type:
   Observation{key, visual, button, node} = observation

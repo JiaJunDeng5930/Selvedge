@@ -1,3 +1,4 @@
+import ../layout/natural-size.bend as NaturalSize
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/presentation/INFORMATION.bend as Information
@@ -79,6 +80,7 @@ def context_field_text(field: Forms.Field, origin: Context.Origin, workspace: Co
     case Forms.SandboxMode{}: FieldOptions.sandbox_text(sandbox)
     case Forms.NetworkAccess{}: network_text(sandbox)
     case Forms.ApprovalPolicy{}: approval_text(approval)
+    case Forms.ApprovalReviewer{}: approval_text(approval)
     case _: ""
 
 def model_field_text(field: Forms.Field, profile: String, reasoning: String) -> String:
@@ -88,7 +90,7 @@ def model_field_text(field: Forms.Field, profile: String, reasoning: String) -> 
 
 def field_text(field: Forms.Field, value: Forms.Observed) -> String:
   match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: context_field_text(field, origin, workspace, sandbox, approval)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: context_field_text(field, origin, workspace, sandbox, approval)
     case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: workspace_field_text(field, roots, primary)
     case Forms.ModelValue{profile, reasoning}: model_field_text(field, profile, reasoning)
     case other: FieldOptions.observed(other)
@@ -186,6 +188,21 @@ def face_leading_slot(value: Controls.Geometry) -> Nat:
   Controls.Geometry{demand, size, radius, slot} = value
   slot
 
+def choice_leading_activity(enabled: Bool, value: Maybe<&2, Controls.Icon>, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+  match enabled value:
+    case True{} Some{icon}:
+      [Source.Box{UIIdentity.part(key, "leading-slot"), Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Spatial.Centered{}, Spatial.Centered{}), Nil{}, [glyph(UIIdentity.part(key, "leading"), icon, parent, face_icon_size(geometry))]}]
+    case _ other: leading_icon(other, key, parent, face_icon_size(geometry))
+
+
+def choice_text_gap_activity(enabled: Bool, parent: Design.Style) -> Nat:
+  match enabled:
+    case True{}: Activity.length(NaturalSize.limit(), parent_font(parent), 2n)
+    case False{}: 2n
+
+def choice_text_gap(+parent: Design.Style) -> Nat:
+  choice_text_gap_activity(T.is_activity(parent_font(parent)), parent)
+
 def property_part_captions(parts: +List<String>, +key: UIIdentity.Key, +parent: Design.Style, +index: Nat) -> +List<Source.Node>:
   match parts:
     case Nil{}: Nil{}
@@ -207,6 +224,12 @@ def compact_property_members(icon_only: Bool, +property: UXTypes.Property, +key:
       List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
         [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, compact_property_text(property, key, parent)},
           glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+
+def choice_members(enabled: Bool, text: String, details: Maybe<&2, String>, icon: Maybe<&2, Controls.Icon>, checked: Bool, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+  List.append(&2, Source.Node, choice_leading_activity(enabled, icon, key, parent, geometry),
+  [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, choice_text_gap(parent)), Nil{}, List.append(&2, Source.Node, [owned_text(key, Information.OptionLabel{}, text, parent)], face_description(details, key, parent))},
+   Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
+
 
 def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   match value:
@@ -230,12 +253,10 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.PermissionFace{filesystem, network, approval}:
       [glyph(UIIdentity.part(key, "filesystem"), filesystem, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "network"), network, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "approval"), approval, parent, face_icon_size(geometry))]
     case Controls.ChoiceFace{text, details, icon, checked}:
-      List.append(&2, Source.Node, leading_icon(icon, key, parent, face_icon_size(geometry)),
-      [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 2n), Nil{}, List.append(&2, Source.Node, [owned_text(key, Information.OptionLabel{}, text, parent)], face_description(details, key, parent))},
-       Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
+      choice_members(T.is_activity(parent_font(parent)), text, details, icon, checked, key, parent, geometry)
 
-def face(key: UIIdentity.Key, value: Controls.Face, parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
-  face_members(value, key, parent, geometry)
+def face(key: UIIdentity.Key, value: Controls.Face, +parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
+  face_members(value, key, parent, Controls.geometry_at(parent_font(parent), geometry))
 
 def enabled(value: View.Availability) -> Bool:
   InterfaceView.available(value)
@@ -283,6 +304,14 @@ def action_alignment(value: Controls.Face) -> Spatial.Alignment:
     case Controls.PickerFace{leading, text}: Spatial.Leading{}
     case _: Spatial.Centered{}
 
+def action_cross_activity(value: Controls.Face, enabled: Bool) -> Spatial.Alignment:
+  match value enabled:
+    case Controls.ChoiceFace{text, description, icon, checked} True{}: Spatial.Leading{}
+    case _ _: Spatial.Centered{}
+
+def action_cross_alignment(value: Controls.Face, visual: Design.Style) -> Spatial.Alignment:
+  action_cross_activity(value, T.is_activity(parent_font(visual)))
+
 def invalid(+key: UIIdentity.Key, +visual: Design.Style, +diagnostic: String) -> Source.Node:
   Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"invalid-source", diagnostic}], [caption(UIIdentity.part(key, "diagnostic"), diagnostic, visual, T.NormalAnywhere{})]}
 
@@ -290,8 +319,8 @@ def field_checked(value: SurfaceTypes.Meaning) -> Bool:
   match value:
     case SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: enabled
     case SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: enabled
-    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
-    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
     case _: False{}
 
 def checked_attributes(checked: Bool) -> +List<Source.Attribute>:

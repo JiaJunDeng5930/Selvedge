@@ -4,9 +4,12 @@ import ../../bendlib/categories.bend as Categories
 import ../../harness/COMMANDS.bend as Commands
 import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
+import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../features/board/MODEL.bend as B
 import ../INPUT.bend as U
 import ../services/CONTEXT.bend as Context
+import ../../features/board/STATE.bend as Board
+import ../../harness/workspace/WORKSPACE.bend as Workspace
 
 type ChoiceValue is Data:
   ChoiceValue{value: String, label: String}
@@ -20,6 +23,7 @@ type Field is Data:
   SandboxMode{}
   NetworkAccess{}
   ApprovalPolicy{}
+  ApprovalReviewer{}
   ModelProfile{}
   ReasoningEffort{}
   DeliveryIntent{}
@@ -83,7 +87,7 @@ type Observed is Data:
   CountValue{count: Nat}
   TextsValue{values: +List<String>}
   WorkspaceValue{workspace: D.Workspace}
-  ContextValue{preview: Context.Preview}
+  ContextValue{preview: Context.Preview, reviewers: +List<D.Profile>}
   ModelValue{profile: String, reasoning: String}
   DeliveryValue{delivery: U.Delivery}
   StageValue{stage: B.Stage}
@@ -95,13 +99,23 @@ type Observed is Data:
   OptionalTextValue{text: Maybe<&2, String>}
   NotApplicable{}
 
+def policy_entry(policy: Reasoning.Policy) -> Entry:
+  match policy:
+    case Reasoning.Fixed{}: SingleLine{}
+    case _: DisplayOnly{}
+
+def profile_effort_entry(profile: D.Profile) -> Entry:
+  match profile:
+    case D.Profile{key, provider, name, Reasoning.Fixed{}, Some{options}}: Choice{}
+    case D.Profile{key, provider, name, policy, options}: policy_entry(policy)
+
 def execution() -> Section:
   Section{"Execution context", [FieldScene{ContextOrigin{}, "Defaults from", Choice{}},
     FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}},
     FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}},
     FieldScene{SandboxMode{}, "Filesystem access", Choice{}},
     FieldScene{NetworkAccess{}, "Network access", Choice{}},
-    FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}]}
+    FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}
 
 def model() -> Section:
   Section{"Model", [FieldScene{ModelProfile{}, "Model", Choice{}}, FieldScene{ReasoningEffort{}, "Reasoning effort", Choice{}}]}
@@ -116,10 +130,10 @@ def structure(body: U.Body) -> +List<Section>:
     case U.NewTask{message, profile, reasoning, context}:
       [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution()]
     case U.Message{task, message, delivery}:
-      [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}]}]
+      [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}]
     case U.Project{id, name, workspace}:
       [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}]},
-       Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}, FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}}]}]
+       Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}]}]
     case U.Card{id, revision, draft, assist, profile, keep_open}:
       List.append(&2, Section, [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
        Section{"Organization", [FieldScene{CardStage{}, "Stage", Choice{}}, FieldScene{CardPriority{}, "Priority", Choice{}},
@@ -144,6 +158,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case SandboxMode{} ContextChange{Context.SetSandbox{sandbox}}: Some{U.ConfigureContext{Context.SetSandbox{sandbox}}}
     case NetworkAccess{} ContextChange{Context.SetSandbox{sandbox}}: Some{U.ConfigureContext{Context.SetSandbox{sandbox}}}
     case ApprovalPolicy{} ContextChange{Context.SetApproval{approval}}: Some{U.ConfigureContext{Context.SetApproval{approval}}}
+    case ApprovalReviewer{} ContextChange{Context.SetApproval{Context.AutomaticReview{profile}}}: Some{U.ConfigureContext{Context.SetApproval{Context.AutomaticReview{profile}}}}
     case ModelProfile{} Model{profile, reasoning}: Some{U.ChooseModel{profile, reasoning}}
     case ReasoningEffort{} Model{profile, reasoning}: Some{U.ChooseModel{profile, reasoning}}
     case DeliveryIntent{} Delivery{delivery}: Some{U.ChooseDelivery{delivery}}
@@ -174,6 +189,7 @@ def key(field: Field) -> String:
     case SandboxMode{}: "sandbox-mode"
     case NetworkAccess{}: "network-access"
     case ApprovalPolicy{}: "approval-policy"
+    case ApprovalReviewer{}: "approval-reviewer"
     case ModelProfile{}: "model-profile"
     case ReasoningEffort{}: "reasoning-effort"
     case DeliveryIntent{}: "delivery-intent"
@@ -195,6 +211,17 @@ def key(field: Field) -> String:
     case ForkMessages{}: "fork-messages"
     case CompactionSummary{}: "compaction-summary"
 
+def choice_field_by_key(value: String) -> Maybe<&2, Field>:
+  match value:
+    case "model-profile": Some{ModelProfile{}}
+    case "reasoning-effort": Some{ReasoningEffort{}}
+    case "sandbox-mode": Some{SandboxMode{}}
+    case "network-access": Some{NetworkAccess{}}
+    case "approval-policy": Some{ApprovalPolicy{}}
+    case "approval-reviewer": Some{ApprovalReviewer{}}
+    case "workspace-primary": Some{WorkspacePrimary{}}
+    case _: None{}
+
 def field_present(fields: +List<FieldScene>, +wanted: Field) -> Bool:
   match fields:
     case Nil{}: False{}
@@ -208,14 +235,18 @@ def section_present(sections: +List<Section>, +wanted: Field) -> Bool:
 def exposed(body: U.Body, field: Field) -> Bool:
   section_present(structure(body), field)
 
-def context_value(field: Field, config: Context.Configuration, world: M.World()) -> Observed:
+def reviewers(world: M.World()) -> +List<D.Profile>:
+  List.filter(~D.Profile, (profile => Workspace.valid_reviewer_profile(profile)), Board.profiles(world))
+
+def context_value(field: Field, config: Context.Configuration, +world: M.World()) -> Observed:
   match field:
-    case ContextOrigin{}: ContextValue{Context.preview(config, world)}
-    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world)}
-    case WorkspacePrimary{}: ContextValue{Context.preview(config, world)}
-    case SandboxMode{}: ContextValue{Context.preview(config, world)}
-    case NetworkAccess{}: ContextValue{Context.preview(config, world)}
-    case ApprovalPolicy{}: ContextValue{Context.preview(config, world)}
+    case ContextOrigin{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case WorkspacePrimary{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case SandboxMode{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case NetworkAccess{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case ApprovalPolicy{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case ApprovalReviewer{}: ContextValue{Context.preview(config, world), reviewers(world)}
     case _: NotApplicable{}
 
 def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:

@@ -167,6 +167,8 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.TogglePanel{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.TogglePanel{p0, p1}), access))
     case E.UserInput{U.Activate{U.ClosePanel{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ClosePanel{}), access))
     case E.UserInput{U.Activate{U.ConfirmAction{}}}: Contract.service_action_obstruction(Bool.not(Services.connected(access)))
+    case E.UserInput{U.EnterDecision{+editor, +field_key}}: {==}
+    case E.UserInput{U.LeaveDecision{+editor}}: {==}
     case E.UserInput{U.EditDraft{+p0, +p1}}: {==}
     case E.UserInput{U.ReadTimeline{+p0, +p1, +p2}}: {==}
     case E.UserInput{U.SetDisclosure{+p0, +p1, +p2, +p3}}: {==}

@@ -386,7 +386,7 @@ def execution_group(+identity: U.Editor, +config: Context.Configuration, +world:
   ViewTypes.ExecutionInput{config, observed,
     workspace_controls(preview_workspace(observed), identity,
       workspace_inheritance(configuration_workspace(config), identity)),
-    projects(world), List.filter(~D.Profile, (profile => Workspace.valid_reviewer_profile(profile)), Board.profiles(world))}
+    projects(world), Forms.reviewers(world)}
 
 def delivery_controls(+task: Nat, selected: U.Delivery) -> ViewTypes.InputGroup:
   ViewTypes.DeliveryInput{selected,
@@ -965,7 +965,7 @@ def matching_projects(projects: +List<ViewTypes.ProjectChoice>, +query: String) 
 def search_content(content: ViewTypes.LayerContent, +query: String) -> ViewTypes.LayerContent:
   match content:
     case ViewTypes.ProjectSelection{old, selected, projects}: ViewTypes.ProjectSelection{query, selected, matching_projects(projects, query)}
-    case ViewTypes.ModelSelection{editor, old, fields}: ViewTypes.ModelSelection{editor, query, search_fields(fields, query)}
+    case ViewTypes.ModelSelection{editor, old, fields}: ViewTypes.ModelSelection{editor, query, fields}
     case other: other
 
 def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
@@ -976,7 +976,7 @@ def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<ViewTypes.Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded}, rest}:
+    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded, decision_field}, rest}:
       ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:

@@ -1,6 +1,7 @@
 import ../submission/field-options.bend as FieldOptions
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
+import ../experience/ACTIVITY.bend as Activity
 import ./INFORMATION.bend as Information
 import Base
 import ../../harness/COMMANDS.bend as Commands
@@ -1020,9 +1021,9 @@ type ProjectInteractionRequirements is Type:
         V.ControlDeclaration{"composer/project", View.project_choice_label(View.creation_selected_project(context, world)), V.Secondary{},
           U.Activate{U.OpenPanel{U.ProjectPicker{}, "composer/project"}}, V.Available{}} : V.ControlDeclaration},
     picker_search_preserves_session: @+session:E.Session -> @+query:String -> @+world:M.World() -> @+trigger:String -> @+initial:String -> @previous:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
-      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}} <> rest : +List<E.Layer>} ->
+      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}} <> rest : +List<E.Layer>} ->
        {E.search_choices(query, E.from_program(world, session)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}} <> rest, session), Nil{}) : E.Decision},
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}} <> rest, session), Nil{}) : E.Decision},
     project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskEntry> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_entries([V.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectGroup{id, selected, expanded},
@@ -1169,15 +1170,15 @@ type SurfaceRequirements is Type:
         Some{SurfaceTypes.Node{node_key, semantic, label, role, SurfaceTypes.Activate{input, V.Available{}}, children}} : Maybe<&2, SurfaceTypes.Node>} ->
       {receipt(ModelModel.step(ModelModel.Element{capacity, key, SurfaceTypes.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt},
     existing_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> ->
       @present:{Model.layer_present(previous, E.panel_target(panel)) == True{} : Bool} ->
-      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded} <> rest, previous, origin) ==
-        E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded} <> rest : +List<E.Layer>},
+      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest, previous, origin) ==
+        E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest : +List<E.Layer>},
     new_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> ->
       @absent:{Model.layer_present(previous, E.panel_target(panel)) == False{} : Bool} ->
-      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded} <> rest, previous, origin) ==
-        E.Layer{panel, origin, initial_attention, query, layer_occurrence, source_expanded} <> rest : +List<E.Layer>}}
+      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest, previous, origin) ==
+        E.Layer{panel, origin, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest : +List<E.Layer>}}
 
 law surface_evidence:
   SurfaceRequirements
@@ -1397,7 +1398,7 @@ law editor_submit_region:
   for pending: Bool
   for +parent: Identity.Key
   for +state: InteractionTypes.State
-  {Model.editor(Some{V.EditorScene{identity, revision, groups, structure, assessment, submit, feedback, pending}}, parent, state) ==
+  {Model.ordinary_editor(Some{V.EditorScene{identity, revision, groups, structure, assessment, submit, feedback, pending}}, parent, state) ==
     List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
       List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), Model.action_feedback_nodes(identity, feedback, parent)), [Model.dialog_actions(parent, [Model.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])) : +List<SurfaceTypes.Node>}
 
@@ -1776,3 +1777,45 @@ law property_source_toggle_exposes_expansion:
   @+identity:String -> @label:String -> @+prominence:V.Prominence -> @input:InteractionTypes.Input -> @availability:V.Availability -> @expanded:Bool -> @+parent:Identity.Key ->
   {Model.property_source_toggle_control(expanded, parent, InteractionTypes.Control{identity, label, prominence, input, availability}) ==
     SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, Model.action_role(prominence), SurfaceTypes.PanelToggle{expanded, input, availability}, Nil{}} : SurfaceTypes.Node}
+
+law model_search_retains_complete_catalog:
+  @+editor:U.Editor -> @old:String -> @+groups:+List<V.InputGroup> -> @+query:String ->
+  {View.search_content(V.ModelSelection{editor, old, groups}, query) == V.ModelSelection{editor, query, groups} : V.LayerContent}
+
+law model_layer_uses_actual_activity:
+  @+editor:U.Editor -> @+query:String -> @+groups:+List<V.InputGroup> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.layer_content(V.ModelSelection{editor, query, groups}, parent, state) ==
+    Model.activity_or_content(Model.model_activity_groups(groups, editor, state), query, parent, state, Nil{}) : +List<SurfaceTypes.Node>}
+
+law policy_layer_uses_actual_activity:
+  @+editor:U.Editor -> @+groups:+List<V.InputGroup> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.layer_content(V.PermissionSettings{editor, groups}, parent, state) ==
+    Model.activity_or_content(Model.policy_activity_groups(groups, editor, state), "", parent, state, Model.permission_menu(groups, editor, parent, state)) : +List<SurfaceTypes.Node>}
+
+law object_editor_uses_actual_editing_activity:
+  @+scene:Maybe<&2, V.EditorScene> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.editor(scene, parent, state) ==
+    Model.activity_or_content(Model.project_activity_scene(scene, state), "", parent, state, Model.ordinary_editor(scene, parent, state)) : +List<SurfaceTypes.Node>}
+
+law activity_layer_preserves_outside_and_escape:
+  @+activity:Activity.Activity -> @+action:U.Action ->
+  {Model.layer_meaning(Some{activity}, V.OutsideOrEscape{action}) ==
+    SurfaceTypes.ActivityGroup{activity, InteractionTypes.ApplicationInput{E.UserInput{U.Activate{action}}}, True{}, True{}} : SurfaceTypes.Meaning}
+
+law activity_layer_preserves_trigger_dismissal:
+  @+activity:Activity.Activity -> @+action:U.Action ->
+  {Model.layer_meaning(Some{activity}, V.ByTrigger{action}) ==
+    SurfaceTypes.ActivityGroup{activity, InteractionTypes.ApplicationInput{E.UserInput{U.Activate{action}}}, False{}, False{}} : SurfaceTypes.Meaning}
+
+law activity_interpreter_consumes_actual_relation_fold:
+  @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_nodes(activity, query, parent, state) ==
+    List.append(&2, SurfaceTypes.Node, Model.activity_search(Activity.purpose(activity), query, parent),
+      Model.activity_flatten(Activity.fold_relations(~Model.ActivityRenderContext, ~(+List<SurfaceTypes.Node>), ~Model.activity_relation_handler,
+        Model.ActivityRenderContext{activity, query, Model.activity_focus_layers(E.layers(E.session(Core.application(state))), Activity.scope(activity)), parent, state},
+        Activity.relations(activity)))) : +List<SurfaceTypes.Node>}
+
+law persistent_details_trigger_uses_actual_layer_behavior:
+  @+found:Maybe<&2, Activity.Activity> -> @+task:Nat -> @+trigger:String -> @+key:Identity.Key -> @+semantic:String -> @+label:String -> @+children:+List<SurfaceTypes.Node> ->
+  {Model.persistent_details_trigger([SurfaceTypes.Node{key, semantic, label, SurfaceTypes.Dialog{},
+    Model.layer_meaning(found, V.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}}), children}]) == Some{SurfaceTypes.PersistentTrigger{task, trigger}} : Maybe<&2, SurfaceTypes.PersistentTrigger>}

@@ -21,6 +21,8 @@ type Tier is Data:
   Support{}
   CodeBody{}
   CodeSupport{}
+  ActivityPrimary{}
+  ActivitySupport{}
 
 type Emphasis is Data:
   Regular{}
@@ -68,6 +70,8 @@ def size(+capacity: Nat, tier: Tier, scale: Scale) -> Nat:
     case Support{}: support_size(capacity, scale)
     case CodeBody{}: body_size(capacity, scale)
     case CodeSupport{}: support_size(capacity, scale)
+    case ActivityPrimary{}: scaled(capacity, 14n, scale)
+    case ActivitySupport{}: support_size(capacity, scale)
 
 def nominal_leading(tier: Tier) -> Nat:
   match tier:
@@ -78,6 +82,8 @@ def nominal_leading(tier: Tier) -> Nat:
     case Support{}: 18n
     case CodeBody{}: 20n
     case CodeSupport{}: 18n
+    case ActivityPrimary{}: 20n
+    case ActivitySupport{}: 18n
 
 def font(tier: Tier) -> Font:
   match tier:
@@ -123,9 +129,32 @@ def presentation_scale(value: Presentation) -> Scale:
   Presentation{tier, emphasis, scale} = value
   scale
 
-def supporting(value: Presentation) -> Presentation:
+def is_activity(value: Presentation) -> Bool:
   Presentation{tier, emphasis, scale} = value
-  Presentation{Support{}, Regular{}, scale}
+  match tier:
+    case ActivityPrimary{}: True{}
+    case ActivitySupport{}: True{}
+    case _: False{}
+
+def activity(value: Presentation) -> Presentation:
+  Presentation{tier, emphasis, scale} = value
+  match tier:
+    case Support{}: Presentation{ActivitySupport{}, emphasis, scale}
+    case CodeSupport{}: Presentation{ActivitySupport{}, emphasis, scale}
+    case ActivitySupport{}: Presentation{ActivitySupport{}, emphasis, scale}
+    case _: Presentation{ActivityPrimary{}, emphasis, scale}
+
+def activity_when(enabled: Bool, value: Presentation) -> Presentation:
+  match enabled:
+    case True{}: activity(value)
+    case False{}: value
+
+def inherit_activity(parent: Presentation, value: Presentation) -> Presentation:
+  activity_when(is_activity(parent), value)
+
+def supporting(+value: Presentation) -> Presentation:
+  Presentation{tier, emphasis, scale} = value
+  inherit_activity(value, Presentation{Support{}, Regular{}, scale})
 
 def font_family(value: Font) -> String:
   match value:
@@ -263,6 +292,5 @@ def information_role(+role: Information.TextRole, scale: Scale) -> Presentation:
     case Information.Description{}: Presentation{Support{}, Regular{}, scale}
     case Information.Status{}: Presentation{Support{}, Regular{}, scale}
 
-def information(+role: Information.TextRole, parent: Presentation) -> Presentation:
-  Presentation{tier, emphasis, scale} = parent
-  information_role(role, scale)
+def information(+role: Information.TextRole, +parent: Presentation) -> Presentation:
+  inherit_activity(parent, information_role(role, presentation_scale(parent)))

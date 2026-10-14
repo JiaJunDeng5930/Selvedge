@@ -20,6 +20,7 @@ import ../../bendlib/json.bend as J
 import ../../harness/transport/command-codec.bend as CommandCodec
 import ../services/CONTEXT.bend as Context
 import ../INPUT.bend as U
+import ../submission/FIELDS.bend as Forms
 
 type Disclosure is Data:
   Disclosure{group: Nat, occurrence: Nat, expanded: Bool}
@@ -28,7 +29,7 @@ type Reader is Data:
   Reader{generation: Nat, position: U.ReadingIntent, disclosures: +List<Disclosure>}
 
 type Layer is Data:
-  Layer{panel: U.Panel, trigger: String, initial_attention: String, query: String, occurrence: Nat, source_expanded: Bool}
+  Layer{panel: U.Panel, trigger: String, initial_attention: String, query: String, occurrence: Nat, source_expanded: Bool, decision_field: Maybe<&2, Forms.Field>}
 
 type Pending is Data:
   Pending{ticket: Nat, draft: U.Draft, now: U32}
@@ -202,8 +203,8 @@ def first_profile(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => Str
 
 def chooser_owns(layers: +List<Layer>, editor: U.Editor) -> Bool:
   match layers:
-    case Con{Layer{U.ModelPicker{owner}, trigger, initial, query, layer_occurrence, source_expanded}, rest}: U.same_editor(owner, editor)
-    case Con{Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded}, rest}: U.same_editor(U.MessageEditor{task}, editor)
+    case Con{Layer{U.ModelPicker{owner}, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}: U.same_editor(owner, editor)
+    case Con{Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}: U.same_editor(U.MessageEditor{task}, editor)
     case _: False{}
 
 def reply(application: Application, result: J.Json) -> Decision:
@@ -218,7 +219,7 @@ def local(program: M.World(), session: Session, effects: +List<Effect>) -> Decis
 def close_layers(layers: +List<Layer>, program: M.World(), session: Session) -> Decision:
   match layers:
     case Nil{}: unchanged(Application{program, session})
-    case Con{Layer{panel, +trigger, initial, query, layer_occurrence, source_expanded}, rest}:
+    case Con{Layer{panel, +trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}:
       Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
       local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, [Attend{trigger}])
 
@@ -335,7 +336,7 @@ def found_task(program: M.World(), task: Nat) -> Maybe<&2, D.Task>:
 def permitted_reviewer(found: Maybe<&2, D.Profile>) -> Bool:
   match found:
     case None{}: False{}
-    case Some{profile}: D.profile_valid(profile)
+    case Some{profile}: W.valid_reviewer_profile(profile)
 
 def valid_task_change(+change: Maybe<&2, Context.Change>, +profiles: +List<D.Profile>) -> Bool:
   match change:
@@ -397,8 +398,16 @@ def configure_task(+found: Maybe<&2, D.Task>, +task: Nat, +profile: String, +rea
     case None{}: refuse(application, "The task no longer exists")
     case Some{value}: configure_checked(valid_task_change(change, Board.profiles(program(application))), D.task_execution(value), task, profile, reasoning, change, remember, application)
 
+def edit_approval_checked(valid: Bool, +editor: U.Editor, choice: Context.ApprovalChoice, +application: Application) -> Decision:
+  match valid editor:
+    case False{} _: refuse(application, "The reviewing model is unavailable for automatic review")
+    case True{} U.MessageEditor{+task}: configure_task(found_task(program(application), task), task, "", "", Some{Context.SetApproval{choice}}, False{}, application)
+    case True{} other: edit_local(other, U.ConfigureContext{Context.SetApproval{choice}}, application)
+
 def edit(+editor: U.Editor, change: U.Edit, +application: Application) -> Decision:
   match editor change:
+    case editor U.ConfigureContext{Context.SetApproval{Context.AutomaticReview{+profile}}}:
+      edit_approval_checked(valid_task_change(Some{Context.SetApproval{Context.AutomaticReview{profile}}}, Forms.reviewers(program(application))), editor, Context.AutomaticReview{profile}, application)
     case U.MessageEditor{+task} U.ChooseModel{profile, reasoning}: configure_task(found_task(program(application), task), task, profile, reasoning, None{}, True{}, application)
     case U.MessageEditor{+task} U.ConfigureContext{change}: configure_task(found_task(program(application), task), task, "", "", Some{change}, False{}, application)
     case _ other: edit_local(editor, other, application)
@@ -557,19 +566,19 @@ def keep_layer(same: Bool, layer: Layer, rest: +List<Layer>) -> +List<Layer>:
 def without_panel(layers: +List<Layer>, +identity: String) -> +List<Layer>:
   match layers:
     case Nil{}: Nil{}
-    case Con{Layer{+panel, trigger, initial, query, layer_occurrence, source_expanded}, rest}:
-      keep_layer(String.eq(panel_target(panel), identity), Layer{panel, trigger, initial, query, layer_occurrence, source_expanded}, without_panel(rest, identity))
+    case Con{Layer{+panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}:
+      keep_layer(String.eq(panel_target(panel), identity), Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, without_panel(rest, identity))
 
 def open_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, +next_layer, model_preference, draft_model_manual}} = application
   +target = panel_target(panel)
-  local(program, Session{route, drafts, readers, Layer{panel, trigger, target, "", next_layer, False{}} <> without_panel(layers, panel_target(panel)),
+  local(program, Session{route, drafts, readers, Layer{panel, trigger, target, "", next_layer, False{}, None{}} <> without_panel(layers, panel_target(panel)),
     target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat), model_preference, draft_model_manual}, [Attend{target}])
 
 def panel_present(layers: +List<Layer>, +target: String) -> Bool:
   match layers:
     case Nil{}: False{}
-    case Con{Layer{panel, trigger, initial, query, layer_occurrence, source_expanded}, rest}:
+    case Con{Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}:
       String.eq(panel_target(panel), target) || panel_present(rest, target)
 
 def toggle_panel_selected(present: Bool, +panel: U.Panel, +trigger: String, application: Application) -> Decision:
@@ -834,13 +843,13 @@ def finish_at_location(editor: U.Editor, route: U.Route, layers: +List<Layer>, r
   match editor route layers:
     case U.NewTaskEditor{} U.Start{} _:
       follow_created(J.natural(J.get(J.get(result, "result"), "task_id")), application)
-    case editor _ Con{Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded}, rest}:
+    case editor _ Con{Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}:
       finish_layer(U.same_editor(editor, current), application)
     case _ _ _: unchanged(application)
 
 def capture_open(layers: +List<Layer>) -> Bool:
   match layers:
-    case Con{Layer{U.EditObject{U.CardEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded}, rest}: True{}
+    case Con{Layer{U.EditObject{U.CardEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}: True{}
     case _: False{}
 
 def capture_attention(open: Bool, application: Application) -> Decision:
@@ -1029,8 +1038,9 @@ def retry_workspace_current(current: Bool, +draft: U.Draft, +application: Applic
   match current:
     case False{}: refuse(application, "There is no current workspace failure to retry")
     case True{}:
-      U.Draft{revision, +body, feedback, entry} = draft
-      retry_workspace_allowed(UX.can_prepare(body, busy(pending(session(application)), U.owner(body)), program(application)), draft, application)
+      U.Draft{+revision, +body, feedback, +entry} = draft
+      +candidate: U.Draft = U.Draft{revision, body, U.Editing{}, entry}
+      retry_workspace_allowed(UX.draft_can_prepare(candidate, busy(pending(session(application)), U.owner(body)), program(application)), draft, application)
 
 def retry_workspace_found(found: Maybe<&2, U.Draft>, application: Application) -> Decision:
   match found:
@@ -1080,7 +1090,7 @@ def confirmation_outcome(ok: Bool, destination: U.Route, application: Applicatio
 
 def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: String, occurrence: Nat) -> Bool:
   match layers:
-    case Con{Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence, source_expanded}, rest}:
+    case Con{Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence, source_expanded, decision_field}, rest}:
       Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
@@ -1177,7 +1187,7 @@ def complete_command(program: M.World(), result: J.Json, completion: Completion,
 
 def confirm(layers: +List<Layer>, application: Application) -> Decision:
   match layers:
-    case Con{Layer{U.Confirm{+command, title, destination}, trigger, target, query, layer_occurrence, source_expanded}, rest}: request_command(command, ConfirmationCompletion{command, trigger, destination, layer_occurrence}, application)
+    case Con{Layer{U.Confirm{+command, title, destination}, trigger, target, query, layer_occurrence, source_expanded, decision_field}, rest}: request_command(command, ConfirmationCompletion{command, trigger, destination, layer_occurrence}, application)
     case _: refuse(application, "No confirmation is open")
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
@@ -1238,35 +1248,71 @@ def property_source_panel(panel: U.Panel, editor: U.Editor) -> Bool:
     case U.WorkspaceConfiguration{owner}: U.same_editor(owner, editor)
     case U.PermissionsConfiguration{owner}: U.same_editor(owner, editor)
     case U.ModelPicker{owner}: U.same_editor(owner, editor)
+    case U.EditObject{owner}: U.same_editor(owner, editor)
     case _: False{}
 
-def toggle_source_layers(allowed: Bool, panel: U.Panel, trigger: String, initial: String, query: String, occurrence: Nat, source_expanded: Bool, rest: +List<Layer>, +application: Application) -> Decision:
+def toggle_source_layers(allowed: Bool, panel: U.Panel, trigger: String, initial: String, query: String, occurrence: Nat, source_expanded: Bool, decision_field: Maybe<&2, Forms.Field>, rest: +List<Layer>, +application: Application) -> Decision:
   match allowed:
     case False{}: refuse(application, "The property source is not open for this editor")
     case True{}:
       +session = session(application)
-      local(program(application), with_layers(Layer{panel, trigger, initial, query, occurrence, Bool.not(source_expanded)} <> rest, session), Nil{})
+      local(program(application), with_layers(Layer{panel, trigger, initial, query, occurrence, Bool.not(source_expanded), decision_field} <> rest, session), Nil{})
 
 def toggle_property_source_layers(layers: +List<Layer>, +editor: U.Editor, +application: Application) -> Decision:
   match layers:
     case Nil{}: refuse(application, "The property source is not open")
-    case Con{Layer{+panel, trigger, initial, query, occurrence, source_expanded}, rest}:
-      toggle_source_layers(property_source_panel(panel, editor), panel, trigger, initial, query, occurrence, source_expanded, rest, application)
+    case Con{Layer{+panel, trigger, initial, query, occurrence, source_expanded, decision_field}, rest}:
+      toggle_source_layers(property_source_panel(panel, editor), panel, trigger, initial, query, occurrence, source_expanded, decision_field, rest, application)
 
 def toggle_property_source(+editor: U.Editor, +application: Application) -> Decision:
   toggle_property_source_layers(layers(session(application)), editor, application)
 
 def property_source_expanded(layers: +List<Layer>, editor: U.Editor) -> Bool:
   match layers:
-    case Con{Layer{panel, trigger, initial, query, occurrence, source_expanded}, rest}: property_source_panel(panel, editor) && source_expanded
+    case Con{Layer{panel, trigger, initial, query, occurrence, source_expanded, decision_field}, rest}: property_source_panel(panel, editor) && source_expanded
     case _: False{}
+
+def decision_panel_editor(panel: U.Panel) -> Maybe<&2, U.Editor>:
+  match panel:
+    case U.WorkspaceConfiguration{editor}: Some{editor}
+    case U.PermissionsConfiguration{editor}: Some{editor}
+    case U.ModelPicker{editor}: Some{editor}
+    case U.EditObject{editor}: Some{editor}
+    case _: None{}
+
+def decision_editor_matches(found: Maybe<&2, U.Editor>, editor: U.Editor) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{owner}: U.same_editor(owner, editor)
+
+def decision_layer_update(owned: Bool, panel: U.Panel, trigger: String, initial: String, query: String, occurrence: Nat, source_expanded: Bool, field: Maybe<&2, Forms.Field>, rest: +List<Layer>, +application: Application) -> Decision:
+  match owned:
+    case False{}: unchanged(application)
+    case True{}: local(program(application), with_layers(Layer{panel, trigger, initial, query, occurrence, source_expanded, field} <> rest, session(application)), Nil{})
+
+def decision_focus_layers(layers: +List<Layer>, +editor: U.Editor, field: Maybe<&2, Forms.Field>, +application: Application) -> Decision:
+  match layers:
+    case Nil{}: unchanged(application)
+    case Con{Layer{+panel, trigger, initial, query, occurrence, source_expanded, previous}, rest}:
+      decision_layer_update(decision_editor_matches(decision_panel_editor(panel), editor), panel, trigger, initial, query, occurrence, source_expanded, field, rest, application)
+
+def enter_known_decision(field: Maybe<&2, Forms.Field>, editor: U.Editor, +application: Application) -> Decision:
+  match field:
+    case None{}: unchanged(application)
+    case Some{field}: decision_focus_layers(layers(session(application)), editor, Some{field}, application)
+
+def enter_decision(editor: U.Editor, field_key: String, application: Application) -> Decision:
+  enter_known_decision(Forms.choice_field_by_key(field_key), editor, application)
+
+def leave_decision(editor: U.Editor, +application: Application) -> Decision:
+  decision_focus_layers(layers(session(application)), editor, None{}, application)
 
 def search_choices(query: String, application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   match layers:
     case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
-    case Con{Layer{panel, trigger, initial, previous, layer_occurrence, source_expanded}, rest}:
-      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence, source_expanded} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+    case Con{Layer{panel, trigger, initial, previous, layer_occurrence, source_expanded, decision_field}, rest}:
+      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
 
 def action_leaves_menu(action: U.Action) -> Bool:
   match action:
@@ -1277,7 +1323,7 @@ def action_leaves_menu(action: U.Action) -> Bool:
 
 def remove_action_menu(layers: +List<Layer>) -> +List<Layer>:
   match layers:
-    case Con{Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded}, rest}: rest
+    case Con{Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}: rest
     case other: other
 
 def dismiss_action_menu(leaves: Bool, application: Application) -> Application:
@@ -1322,6 +1368,8 @@ def manual_edit(+editor: U.Editor, +change: U.Edit, +application: Application) -
 
 def user(input: U.Input, application: Application) -> Decision:
   match input:
+    case U.EnterDecision{editor, field_key}: enter_decision(editor, field_key, application)
+    case U.LeaveDecision{editor}: leave_decision(editor, application)
     case U.TogglePropertySource{editor}: toggle_property_source(editor, application)
     case U.Activate{action}: activate(action, application)
     case U.EditDraft{+editor, +change}: manual_edit(editor, change, application)

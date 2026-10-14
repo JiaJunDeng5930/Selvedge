@@ -1,3 +1,4 @@
+import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../submission/FIELDS.bend as Forms
@@ -276,3 +277,30 @@ def Rule.permissions_evidence():
     +task => +workspace => +mode => +network => +approval => +project => +guidance => +access => {==},
     origin => project => workspace => sandbox => approval => guidance => profiles => {==},
     +origin => +project => +workspace => +sandbox => +approval => +guidance => {==}}
+
+def preview_policy_access_bridge(workspace: D.Workspace, sandbox: D.Sandbox, +approval: D.ApprovalPolicy, project: Maybe<&2, Nat>) ->
+  {Context.approval_access(Context.approval_choice(approval)) == Workspace.default_access(D.TaskContext{workspace, sandbox, approval, project}) : D.ExecutionAccess}:
+  match approval:
+    case D.AskForApproval{}: {==}
+    case D.FullAccess{}: {==}
+    case D.ApprovalForMe{D.Profile{key, provider, name, reasoning, options}}: {==}
+
+def unrestricted_execution_parts_agreement(sandbox: D.Sandbox) ->
+  {UX.unrestricted_execution_parts(sandbox) == ["Full access", "Network available", "No approval"] : +List<String>}:
+  match sandbox:
+    case D.Sandbox{mode, network}: {==}
+
+def draft_permission_observation_agreement(+preview: Context.Preview) ->
+  {UX.permission_summary_parts(Context.DraftExecution{preview}) == UX.preview_permission_parts(preview) : +List<String>}:
+  match preview:
+    case Context.ContextUnavailable{reason}: {==}
+    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: {==}
+
+def Rule.preview_access_evidence():
+  Rule.PreviewAccessRequirements{
+    workspace => sandbox => approval => project => preview_policy_access_bridge(workspace, sandbox, approval, project),
+    reason => {==},
+    origin => project => workspace => sandbox => approval => guidance => {==},
+    origin => project => workspace => sandbox => guidance => unrestricted_execution_parts_agreement(Context.unwrap_sandbox(sandbox)),
+    origin => project => workspace => sandbox => guidance => unrestricted_execution_parts_agreement(Context.unwrap_sandbox(sandbox)),
+    preview => draft_permission_observation_agreement(preview)}

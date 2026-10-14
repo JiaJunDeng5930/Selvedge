@@ -21,6 +21,7 @@ export async function browserUI(t) {
     const modules = {
       ProductUI: 'interaction/MODEL.bend', Core: 'interaction/STATE.bend', CoreTypes: 'interaction/TYPES.bend', Services: 'interaction/services/MODEL.bend', E: 'interaction/session/MODEL.bend',
       U: 'interaction/INPUT.bend', View: 'interaction/presentation/MODEL.bend', InterfaceView: 'interaction/presentation/SURFACE.bend',
+      SurfaceProof: 'interaction/presentation/surface-proof.bend',
       Identity: 'interaction/IDENTITY.bend', Cmd: 'harness/transport/command-codec.bend', J: 'bendlib/json.bend', M: 'harness/MODEL.bend',
     };
     const imports = Object.entries(modules).map(([name, file]) =>

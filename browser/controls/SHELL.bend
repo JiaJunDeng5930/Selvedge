@@ -1,4 +1,5 @@
 import Base
+import ../layout/natural-size.bend as NaturalSize
 import ./PROGRAM.bend as Controls
 import ../document/presentation-order.bend as Order
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -13,6 +14,8 @@ import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/presentation/COMPOSITION.bend as Composition
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/experience/ACTIVITY.bend as UXActivity
+import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/VIEW.bend as View2
 
@@ -392,6 +395,22 @@ def floating_scroll(role: SurfaceTypes.Role) -> Model.Scroll:
     case SurfaceTypes.Dialog{}: Model.Confined{}
     case _: Model.ScrollVertically{}
 
+def activity_width(capacity: Nat, meaning: SurfaceTypes.Meaning, visual: Design.Style, fallback: Model.AxisSize) -> Model.AxisSize:
+  match meaning:
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: Model.CappedStretchSize{Activity.reading_width(capacity, Design.style_text(visual), UXActivity.reading_units(activity))}
+    case _: fallback
+
+def outer_width_found(+coordinate_capacity: Nat, found: Bool, meaning: SurfaceTypes.Meaning, visual: Design.Style, fallback: Model.AxisSize) -> Model.AxisSize:
+  match found:
+    case True{}: activity_width(coordinate_capacity, meaning, visual, fallback)
+    case False{}: fallback
+
+def outer_width(+coordinate_capacity: Nat, +key: UIIdentity.Key, values: +List<Design.Node>, +fallback: Model.AxisSize) -> Model.AxisSize:
+  match values:
+    case Nil{}: fallback
+    case Con{Design.Node{current, semantic, label, role, meaning, visual, control, children}, rest}:
+      outer_width_found(coordinate_capacity, UIIdentity.same(key, current), meaning, visual, outer_width(coordinate_capacity, key, rest, fallback))
+
 def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
   OverlayParts{resize(node, Model.LimitedSize{0n, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating}
@@ -399,19 +418,19 @@ def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked:
 def outside_insets(+unit: Nat) -> Enclosure.Insets:
   Enclosure.Insets{Nat.mul(2n, unit), Nat.mul(2n, unit)}
 
-def float_overlay(+role: SurfaceTypes.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def float_overlay(coordinate_capacity: Nat, +role: SurfaceTypes.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, +overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, +line_height, creation_height, lane_width} = parameters
   +dialog_width = dialog_reading_span(reading_width, line_height)
   +unit = Nat.max(1n, Nat.div(line_height, 4n))
   +outside = outside_insets(unit)
-  OverlayParts{docked, resize(node, floating_width(role, reading_width, dialog_width), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
+  OverlayParts{docked, resize(node, outer_width(coordinate_capacity, Source.key_of(node), overlays, floating_width(role, reading_width, dialog_width)), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
 
 def standard_overlay_layout(+role: SurfaceTypes.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   match role details_beside:
     case SurfaceTypes.Details{} True{}:
       dock_overlay(parameters, node, docked, floating)
     case _ _:
-      float_overlay(role, parameters, node, layers, base, overlays, anchors, docked, floating)
+      float_overlay(NaturalSize.limit(), role, parameters, node, layers, base, overlays, anchors, docked, floating)
 
 def overlay_layout(+role: SurfaceTypes.Role, +details_beside: Bool, +placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   match role placement:
@@ -474,13 +493,13 @@ def assemble(base_result: Authored.Authorship, overlay_result: Authored.Authorsh
     case Authored.Authored{base_nodes} Authored.Authored{overlay_nodes}:
       assemble_surface(surface, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font)
 
-def source(+surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation) -> ShellAuthorship:
-  assemble(Authored.base(surface, parameters), Authored.overlays(surface, parameters), surface, capacity, parameters, layers, anchors, font)
+def source(+physical_capacity: Nat, +surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation) -> ShellAuthorship:
+  assemble(Authored.base(physical_capacity, surface, parameters), Authored.overlays(physical_capacity, surface, parameters), surface, capacity, parameters, layers, anchors, font)
 
 def supporting_authorship(result: ShellAuthorship, form: Controls.SupportingForm) -> ShellAuthorship:
   match result:
     case Rejected{key, problem}: Rejected{key, problem}
     case Ready{node}: Ready{Authored.supporting_region_node(node, form)}
 
-def source_supporting(+surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation, form: Controls.SupportingForm) -> ShellAuthorship:
-  supporting_authorship(source(surface, parameters, capacity, layers, anchors, font), form)
+def source_supporting(physical_capacity: Nat, +surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation, form: Controls.SupportingForm) -> ShellAuthorship:
+  supporting_authorship(source(physical_capacity, surface, parameters, capacity, layers, anchors, font), form)

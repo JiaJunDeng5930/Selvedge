@@ -90,7 +90,7 @@ This file is for coding agents working in this repository.
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend,utility-proof.bend}
 |docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,task-board.md}
-|docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md,0038-capability-based-native-tool-construction.md,0039-local-browser-sessions-and-stable-journals.md,0040-executable-ui-relationships.md,0041-operational-user-experience-relations.md,0042-observable-properties-and-action-causes.md,0043-information-needs-and-progressive-disclosure.md,0044-adaptive-presentation-and-navigation-relationships.md,0045-whole-sidebar-construction.md}
+|docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md,0038-capability-based-native-tool-construction.md,0039-local-browser-sessions-and-stable-journals.md,0040-executable-ui-relationships.md,0041-operational-user-experience-relations.md,0042-observable-properties-and-action-causes.md,0043-information-needs-and-progressive-disclosure.md,0044-adaptive-presentation-and-navigation-relationships.md,0045-whole-sidebar-construction.md,0046-observation-backed-activity-construction.md}
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
 |features:{README.md,board/,chatgpt/}
@@ -114,8 +114,8 @@ This file is for coding agents working in this repository.
 |host/public/vendor:{README.md,desktop-source.json,desktop-tokens.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
 |interaction:{CONTRACT.bend,IDENTITY.bend,INPUT.bend,MODEL.bend,PROOF.bend,README.md,STATE.bend,TYPES.bend,conversation/,experience/,identity-laws.bend,presentation/,services/,session/,submission/}
 |interaction/conversation:{CODE.bend,CONTRACT.bend,MODEL.bend,OUTPUT.bend,PROOF.bend,README.md}
-|interaction/experience:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
-|interaction/presentation:{COMPOSITION.bend,CONTRACT.bend,INFORMATION.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SURFACE.bend,VIEW.bend,interaction-proof.bend,scene-proof.bend}
+|interaction/experience:{ACTIVITY.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
+|interaction/presentation:{COMPOSITION.bend,CONTRACT.bend,INFORMATION.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SURFACE.bend,VIEW.bend,interaction-proof.bend,scene-proof.bend,surface-proof.bend}
 |interaction/services:{CONTEXT.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |interaction/session:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |interaction/submission:{CONTRACT.bend,FIELDS.bend,MODEL.bend,PROOF.bend,README.md,field-options.bend}

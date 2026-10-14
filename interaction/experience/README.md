@@ -37,3 +37,22 @@ defaults or the parent task unless that individual permission choice is overridd
 
 The session owns source intent in its actual open layer; presentation consumes
 that intent together with these observations through `property_source_nodes`.
+
+[ACTIVITY.bend](ACTIVITY.bend) constructs comparison, explanation and object-editing
+activities from the owning observations. Start at `comparison`, `explanation` or
+`editing`, then read `scope`, `object`, `relations`, `required_evidence`,
+`support_evidence`, `catalog` and `reading_units`. A dependent decision is admitted
+by its actual parent's selected prerequisite and common ownership; a workspace
+relation reads members from the retained collection. `ActivityRequirements` binds
+these producers and their necessary observations to the concept's production proof.
+
+`project_edit` retains the original resource, complete draft, pending submission,
+change observation and action assessment. `draft_requirements` also consumes
+unadded directory input and project changes, so every submission caller must pass
+the complete draft instead of replacing this operation with `can_prepare(body, ...)`.
+
+`candidate` observes each actual alternative through the existing canonical input,
+single-candidate decision admission and choose operations. Read its identity,
+selected state, availability, original rejection reason and selection input through
+`candidate_*` getters. Activities derive these observations from their complete
+catalogue; search projects observations and never reinterprets admission.

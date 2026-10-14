@@ -1,3 +1,4 @@
+import ../../bendlib/stdlib.bend as Std
 import ../../interaction/services/CONTEXT.bend as Workspace
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/INPUT.bend as User
@@ -129,13 +130,13 @@ def parameter_source(+capacity: Nat, scale: T.Scale, key: String, minimum: Nat, 
 
 def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> RuleSourceRules.parameter_calculations(capacity, scale, height, advance): {==}
 
-def page_region(key: UIIdentity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.page_region(key, region, position, visual, control, children, parameters, content): {==}
+def page_region(+capacity: Nat, key: UIIdentity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.page_region(capacity, key, region, position, visual, control, children, parameters, content): {==}
 
-def board_group(key: UIIdentity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.board_group(key, label, grouping, visual, control, children, parameters, content): {==}
+def board_group(+capacity: Nat, key: UIIdentity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.board_group(capacity, key, label, grouping, visual, control, children, parameters, content): {==}
 
 def confined_content_minimum(width: Nat, height: Nat) -> RuleSourceRules.confined_content_minimum(width, height): {==}
 
-def board_group_content_minimum(key: UIIdentity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>, width: Nat, height: Nat) -> RuleSourceRules.board_group_content_minimum(key, label, grouping, visual, control, children, parameters, content, width, height):
+def board_group_content_minimum(+capacity: Nat, key: UIIdentity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>, width: Nat, height: Nat) -> RuleSourceRules.board_group_content_minimum(capacity, key, label, grouping, visual, control, children, parameters, content, width, height):
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} = visual
   {==}
 
@@ -156,7 +157,7 @@ def fact_content(+key: UIIdentity.Key, +label: String, +value: String, +visual: 
     (displayed => Authored.group(key, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(UIIdentity.part(key, "label"), label, visual, T.Body{}, T.Strong{}), Authored.text(UIIdentity.part(key, "value"), displayed, visual, T.Body{}, T.Regular{})])),
     Authored.fact_display_value(value), RuleSourceRules.expected_fact_value(String.eq(value, ""), value), fact_display_value(value))
 
-def fact_source_dispatch(key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, value: String, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.fact_source_dispatch(key, label, role, value, visual, representation, children, parameters, content): {==}
+def fact_source_dispatch(+capacity: Nat, key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, value: String, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.fact_source_dispatch(capacity, key, label, role, value, visual, representation, children, parameters, content): {==}
 
 def user_width_choice(+full_width: Bool, +percent: Nat) -> {Factory.adaptive_width_cap(full_width, percent) == RuleSourceRules.adaptive_user_width_choice(full_width, percent) : Model.AxisSize}:
   match full_width:
@@ -177,32 +178,51 @@ def RuleSourceRules.movement_field_has_own_identity(key, destinations, face, nam
 
 def RuleSourceRules.movement_child_is_authored(key, role, destinations, face, control, nodes, rest): {==}
 
-def RuleSourceRules.card_source_dispatch(key, label, role, face, visual, representation, children, parameters, content): {==}
+def RuleSourceRules.card_source_dispatch(capacity, key, label, role, face, visual, representation, children, parameters, content): {==}
 
-def RuleSourceRules.movement_source_dispatch(key, label, role, destinations, face, visual, representation, children, parameters, content): {==}
+def RuleSourceRules.movement_source_dispatch(capacity, key, label, role, destinations, face, visual, representation, children, parameters, content): {==}
 
 
-def scalar_information(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +text_role: Information.TextRole, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.scalar_information(key, label, role, text_role, visual, representation, children, parameters, content):
+def scalar_information(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +text_role: Information.TextRole, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.scalar_information(capacity, key, label, role, text_role, visual, representation, children, parameters, content):
   owned_information(key, text_role, label, visual)
 
 def field_label(+key: UIIdentity.Key, +label: String, +visual: Design.Style, field: Source.Node) -> RuleSourceRules.field_label(key, label, visual, field):
   owned_information(key, Information.FieldLabel{}, label, visual)
 
+def choice_leading_information(+enabled: Bool, +key: UIIdentity.Key, +label: String, +description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, +selected: Bool, +visual: Design.Style, +geometry: Controls.Geometry) ->
+  {RuleSourceRules.option_text(AuthoredControls.choice_members(enabled, label, description, icon, selected, key, visual, geometry)) ==
+    RuleSourceRules.information_observation(AuthoredControls.owned_text(key, Information.OptionLabel{}, label, visual)) : RuleSourceRules.InformationObservation}:
+  match enabled:
+    case True{}:
+      match icon:
+        case None{}: {==}
+        case Some{glyph}: {==}
+    case False{}:
+      match icon:
+        case None{}: {==}
+        case Some{glyph}: {==}
+
 def option_label(+key: UIIdentity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry) -> RuleSourceRules.option_label(key, label, description, icon, selected, visual, geometry):
-  match icon:
-    case None{}: owned_information(key, Information.OptionLabel{}, label, visual)
-    case Some{glyph}: owned_information(key, Information.OptionLabel{}, label, visual)
+  +owned_description: Maybe<&2, String> = description
+  +owned_selected: Bool = selected
+  +owned_geometry: Controls.Geometry = geometry
+  Std.transport(RuleSourceRules.InformationObservation,
+    RuleSourceRules.information_observation(AuthoredControls.owned_text(key, Information.OptionLabel{}, label, visual)),
+    (observation => {observation == RuleSourceRules.required_information(key, Information.OptionLabel{}, label, visual) : RuleSourceRules.InformationObservation}),
+    owned_information(key, Information.OptionLabel{}, label, visual),
+    RuleSourceRules.option_text(AuthoredControls.face(key, Controls.ChoiceFace{label, owned_description, icon, owned_selected}, visual, owned_geometry)),
+    choice_leading_information(T.is_activity(AuthoredControls.parent_font(visual)), key, label, owned_description, icon, owned_selected, visual, Controls.geometry_at(AuthoredControls.parent_font(visual), owned_geometry)))
 
 def option_description(+key: UIIdentity.Key, +value: String, +visual: Design.Style) -> RuleSourceRules.option_description(key, value, visual):
   owned_information(key, Information.Description{}, value, visual)
 
-def group_title(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.group_title(key, label, role, visual, representation, children, parameters, content):
+def group_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.group_title(capacity, key, label, role, visual, representation, children, parameters, content):
   owned_information(key, Information.GroupTitle{}, label, visual)
 
-def panel_title(+key: UIIdentity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.panel_title(key, label, dismiss, outside, escape, visual, representation, children, parameters, content):
+def panel_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content):
   owned_information(key, Information.SurfaceTitle{}, label, visual)
 
-def dialog_title(+key: UIIdentity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> RuleSourceRules.dialog_title(key, label, visual, children):
+def dialog_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> RuleSourceRules.dialog_title(capacity, key, label, visual, children):
   owned_information(key, Information.SurfaceTitle{}, label, visual)
 
 def owned_alignment(+owner: UIIdentity.Key, +role: Information.TextRole, value: String, visual: Design.Style) -> RuleSourceRules.owned_alignment(owner, role, value, visual):
@@ -303,8 +323,9 @@ def owned_foreground(+owner: UIIdentity.Key, +role: Information.TextRole, value:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
 
-def experience_source(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.experience_source(key, label, role, meaning, visual, representation, children, parameters, content):
+def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.experience_source(capacity, key, label, role, meaning, visual, representation, children, parameters, content):
   match meaning:
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {==}
     case SurfaceTypes.DecisionGroup{decision}: {==}
     case SurfaceTypes.ObjectGroup{object}: {==}
     case SurfaceTypes.WorkspaceCollection{collection}: {==}
@@ -347,7 +368,7 @@ def experience_source(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
 
-def owned_group_source(+key: UIIdentity.Key, +label: String, +visual: Design.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> RuleSourceRules.owned_group_source(key, label, visual, attributes, content):
+def owned_group_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +visual: Design.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> RuleSourceRules.owned_group_source(capacity, key, label, visual, attributes, content):
   {==}
 
 def property_source(+editor: User.Editor, +field: Forms.Field, +key: UIIdentity.Key, entry: Forms.Entry, observed: Forms.Observed, choices: +List<Forms.ChoiceValue>) -> RuleSourceRules.property_source(editor, field, key, entry, observed, choices):
@@ -379,7 +400,7 @@ def aggregate_focus(+visual: Design.Style) -> RuleSourceRules.aggregate_focus(vi
   Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
   {==}
 
-def grouped_menu_source(+key: UIIdentity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> RuleSourceRules.grouped_menu_source(key, tag, style, attributes, content):
+def grouped_menu_source(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> RuleSourceRules.grouped_menu_source(capacity, key, tag, style, attributes, content):
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
   {==}
 
@@ -405,7 +426,7 @@ def alternative_rest(+typography: T.Presentation) -> RuleSourceRules.alternative
 def alternative_states(+typography: T.Presentation) -> RuleSourceRules.alternative_states(typography):
   {==}
 
-def object_source(+key: UIIdentity.Key, +object: UXTypes.Object, +label: String, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.object_source(key, object, label, visual, content):
+def object_source(+capacity: Nat, +key: UIIdentity.Key, +object: UXTypes.Object, +label: String, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.object_source(capacity, key, object, label, visual, content):
   {==}
 
 def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key: UIIdentity.Key, +label: String, +visual: Design.Style, +children: +List<Source.Node>) -> RuleSourceRules.compound_directory_source(field, value, key, label, visual, children):
@@ -413,7 +434,7 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
     case Forms.WorkspaceDirectories{}:
       match value:
         case Forms.WorkspaceValue{workspace}: {==}
-        case Forms.ContextValue{preview}:
+        case Forms.ContextValue{preview, reviewers}:
           match preview:
             case Workspace.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: {==}
             case Workspace.ContextUnavailable{reason}: {==}
@@ -438,6 +459,7 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
     case Forms.SandboxMode{}: {==}
     case Forms.NetworkAccess{}: {==}
     case Forms.ApprovalPolicy{}: {==}
+    case Forms.ApprovalReviewer{}: {==}
     case Forms.ModelProfile{}: {==}
     case Forms.ReasoningEffort{}: {==}
     case Forms.DeliveryIntent{}: {==}
@@ -459,7 +481,7 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
     case Forms.ForkMessages{}: {==}
     case Forms.CompactionSummary{}: {==}
 
-def directory_source(+editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.directory_source(editor, field, value, choices, key, label, role, visual, representation, children, parameters, content):
+def directory_source(+capacity: Nat, +editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.directory_source(capacity, editor, field, value, choices, key, label, role, visual, representation, children, parameters, content):
   {==}
 
 def RuleSourceRules.evidence():

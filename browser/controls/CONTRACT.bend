@@ -1,3 +1,5 @@
+import ../layout/HIERARCHY.bend as Hierarchy
+import ../../interaction/experience/ACTIVITY.bend as UXActivity
 import ../document/SOURCE.bend as Source
 import ./NAVIGATION.bend as Navigation
 import ./SIDEBAR.bend as Sidebar
@@ -67,6 +69,7 @@ def actual_face(value: Controls.Representation) -> Maybe<&2, Controls.Face>:
 def first_drawing(values: +List<S.Node>) -> Maybe<&2, S.Drawing>:
   match values:
     case Con{S.Glyph{key, drawing, style}, rest}: Some{drawing}
+    case Con{S.Box{key, tag, style, attributes, children}, rest}: first_drawing(children)
     case _: None{}
 
 def selection_drawing(values: +List<S.Node>) -> Maybe<&2, S.Drawing>:
@@ -534,18 +537,20 @@ def dialog_clearance(parameters: Design.LayoutParameters) -> E.Insets:
   Shell.outside_insets(Nat.max(1n, Nat.div(line_height, 4n)))
 
 law dialog_floating_geometry:
+  for +coordinate_capacity: Nat
   for +node: S.Node
   for +parameters: Design.LayoutParameters
   for layers: +List<View.Layer>
   for base: +List<Design.Node>
-  for overlays: +List<Design.Node>
+  for +overlays: +List<Design.Node>
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.float_overlay(SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, Shell.resize(node, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}, Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
+  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
+    Shell.OverlayParts{docked, Shell.resize(node, Shell.outer_width(coordinate_capacity, S.key_of(node), overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
 
 law dialog_floating_box_preserved:
+  for +coordinate_capacity: Nat
   for +key: UIIdentity.Key
   for +tag: S.BoxTag
   for +direction: Model.Direction
@@ -565,12 +570,12 @@ law dialog_floating_box_preserved:
   for +parameters: Design.LayoutParameters
   for layers: +List<View.Layer>
   for base: +List<Design.Node>
-  for overlays: +List<Design.Node>
+  for +overlays: +List<Design.Node>
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.float_overlay(SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}, Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
+  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
+    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.outer_width(coordinate_capacity, key, overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
 
 def reading_encoding(+task: Nat, +generation: Nat, +part: Reading.Part) -> Type:
   {S.attribute_properties(S.ReadingAttribute{Reading.Binding{Reading.Context{task, generation}, part}}) ==
@@ -587,16 +592,16 @@ def cleared_context(+previous: Maybe<&2, Reading.Context>) -> Type:
 
 # This equation binds the context propagation to the production forest descent.
 
-def scoped_node(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Design.Node>, +rest: +List<Design.Node>, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
-  {Authored.forest_in_context(Design.Node{key, semantic, label, role, meaning, visual, control, children} <> rest, parameters, context) ==
-    Authored.combine(Authored.construct_in_context(Authored.forest_in_context(children, parameters, Authored.context_from_meaning(context, meaning)), key, semantic, label, role, meaning, visual, control, parameters, Authored.context_from_meaning(context, meaning)), Authored.forest_in_context(rest, parameters, context)) : Authored.Forest}
+def scoped_node(+capacity: Nat, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Design.Node>, +rest: +List<Design.Node>, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
+  {Authored.forest_in_context(capacity, Design.Node{key, semantic, label, role, meaning, visual, control, children} <> rest, parameters, context) ==
+    Authored.combine(Authored.construct_in_context(capacity, Authored.forest_in_context(capacity, children, parameters, Authored.context_from_meaning(context, meaning)), key, semantic, label, role, meaning, visual, control, parameters, Authored.context_from_meaning(context, meaning)), Authored.forest_in_context(capacity, rest, parameters, context)) : Authored.Forest}
 
-def partition_frame(+key: UIIdentity.Key, +tag: S.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: E.Part, +arrangement: E.Arrangement, +content: +List<S.Node>) -> Type:
-  {Authored.dialog_partition(key, tag, visual, direction, part, arrangement, content) ==
-    S.Box{key, tag, Authored.dialog_partition_style(part, Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), E.Frame{E.partition(part), arrangement})), Nil{}, content} : S.Node}
+def partition_frame(+capacity: Nat, +key: UIIdentity.Key, +tag: S.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: E.Part, +arrangement: E.Arrangement, +content: +List<S.Node>) -> Type:
+  {Authored.dialog_partition(capacity, key, tag, visual, direction, part, arrangement, content) ==
+    S.Box{key, tag, Authored.dialog_partition_style(part, Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), Authored.dialog_partition_frame(capacity, visual, part, arrangement))), Nil{}, content} : S.Node}
 
-def dialog_construction(+key: UIIdentity.Key, +label: String, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters) -> Type:
-  {Authored.regular(key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) == Authored.regular_content(key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters, Authored.dialog_content(key, label, visual, children)) : S.Node}
+def dialog_construction(+capacity: Nat, +key: UIIdentity.Key, +label: String, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters) -> Type:
+  {Authored.regular(capacity, key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) == Authored.regular_content(capacity, key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters, Authored.dialog_content(capacity, key, label, visual, children)) : S.Node}
 
 def timeline_root(+context: Reading.Context, +key: UIIdentity.Key, +tag: S.BoxTag, +style: S.Style, +attributes: +List<S.Attribute>, +children: +List<S.Node>, +visual: Design.Style) -> Type:
   {Authored.reading_box(context, SurfaceTypes.Timeline{}, S.Box{key, tag, style, attributes, children}, visual) ==
@@ -607,9 +612,9 @@ def composer_root(+context: Reading.Context, +key: UIIdentity.Key, +tag: S.BoxTa
   {Authored.reading_box(context, SurfaceTypes.Composer{}, S.Box{key, tag, style, attributes, children}, visual) ==
     S.Box{key, tag, style, List.append(&2, S.Attribute, attributes, [S.ReadingAttribute{Reading.Binding{context, Reading.Dock{}}}]), children} : S.Node}
 
-def bound_construction(+children: +List<Authored.Child>, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
-  {Authored.construct_in_context(Authored.Ready{children}, key, semantic, label, role, meaning, visual, control, parameters, context) ==
-    Authored.finish_node(Authored.reading_root(context, key, role, Authored.authored_node(key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control) : Authored.Forest}
+def bound_construction(+capacity: Nat, +children: +List<Authored.Child>, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
+  {Authored.construct_in_context(capacity, Authored.Ready{children}, key, semantic, label, role, meaning, visual, control, parameters, context) ==
+    Authored.finish_node(Authored.reading_root(context, key, role, Authored.authored_node(capacity, key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control) : Authored.Forest}
 
 def body_scroll_allocation(value: S.Style) -> Bool:
   S.Style{layout, font, chrome, states} = value
@@ -706,7 +711,7 @@ def expected_workspace_picker(found: Maybe<&2, Domain.Workspace>, +editor: User.
       +collection = UX.collection(editor, workspace)
       [SurfaceTypes.Node{UIIdentity.Part{parent, "workspace"}, "workspace/collection", "Working directories", SurfaceTypes.Section{}, SurfaceTypes.WorkspaceCollection{collection},
         SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Add directories and choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
-        SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, Nil{}} <>
+        SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, InterfaceView.unadded_directory_status(String.eq(InterfaceView.pending_directory(state, editor), ""), UIIdentity.Part{parent, "add"})} <>
         InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <>
         InterfaceView.collection_rows(UX.collection_members(collection), collection, parent, state)}]
 
@@ -788,6 +793,7 @@ law dialog_ordinary_activation:
     Authored.BodyAndActions{List.append(&2, S.Node, Authored.ordinary(nodes), Authored.dialog_body(rest)), Authored.dialog_actions(rest)} : Authored.DialogParts}
 
 law dialog_rejects_invalid_order:
+  for +capacity: Nat
   for key: UIIdentity.Key
   for label: String
   for meaning: SurfaceTypes.Meaning
@@ -796,7 +802,7 @@ law dialog_rejects_invalid_order:
   for +children: +List<Authored.Child>
   for parameters: Design.LayoutParameters
   for invalid: {Authored.dialog_ordered(children) == False{} : Bool}
-  {Authored.authored_node(key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) ==
+  {Authored.authored_node(capacity, key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) ==
     Authored.Rejected{key, Authored.InvalidDialogOrder{}} : Authored.Authorship}
 
 def selected_background_wash_percent(background: Surfaces.Color) -> Nat:
@@ -977,7 +983,7 @@ type ControlContentRequirements is Type:
         S.Text{key,text,S.ExplicitFont{A.parent_font(parent)},T.NormalWords{}} : S.Node},
     choice_description_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style ->
       {A.face_description(Some{text},key,parent) ==
-        [S.Box{A.information_key(key, Information.Description{}), S.Span{}, A.information_style(Information.Description{}, parent), [S.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, S.DataAttribute{"information-owner", UIIdentity.encode(key)}, S.DataAttribute{"information-role", "description"}], [S.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, S.ExplicitFont{T.with_emphasis(T.with_tier(A.parent_font(parent), T.Support{}), T.Regular{})}, T.NormalWords{}}]}] : +List<S.Node>},
+        [S.Box{A.information_key(key, Information.Description{}), S.Span{}, A.information_style(Information.Description{}, parent), [S.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, S.DataAttribute{"information-owner", UIIdentity.encode(key)}, S.DataAttribute{"information-role", "description"}], [S.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, S.ExplicitFont{T.information(Information.Description{}, A.parent_font(parent))}, T.NormalWords{}}]}] : +List<S.Node>},
     permission_layout: @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
       {Controls.content_layout(Controls.PermissionFace{filesystem, network, approval}) == Controls.ContentLayout{Spatial.LeadingContents{}, E.area(E.TextControl{}), 6n} : Controls.ContentLayout},
     icon_layout: @icon:Controls.Icon ->
@@ -1024,6 +1030,7 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.PageRegion{region, position}: SurfaceTypes.Region{}
     case SurfaceTypes.Region{}: SurfaceTypes.Region{}
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: SurfaceTypes.Region{}
     case SurfaceTypes.PanelToggle{expanded, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: SurfaceTypes.Region{}
     case SurfaceTypes.TaskRow{task, status, selected}: SurfaceTypes.Region{}
@@ -1572,3 +1579,53 @@ law navigation_fields_project_feedback:
 law navigation_fields_task_feedback:
   @+key:UIIdentity.Key -> @task:Nat -> @status:View.TaskStatus -> @selected:Bool -> @family:Controls.SourceFamily -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
     {Controls.navigation_fields(key, SurfaceTypes.TaskRow{task, status, selected}, family, depth, attention, layers, fallback) == Controls.NavigationRow{key, depth, True{}, Navigation.feedback_active(attention, UIIdentity.encode(key), False{})} : Controls.Representation}
+
+# Activity geometry is bound to the observed outer surface and its actual children.
+type ActivityRequirements is Type:
+  ActivityRequirements{
+    typography: @role:SurfaceTypes.Role -> @activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+inherited:T.Presentation -> @inside:Bool -> @start:Bool ->
+      {Appearance.information_role(role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, inherited, inside, start) ==
+        T.activity(Appearance.information_role_fields(role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, inherited, inside, start, T.presentation_scale(inherited))) : T.Presentation},
+    reading: @+capacity:Nat -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @visual:Design.Style -> @fallback:Model.AxisSize ->
+      {Shell.activity_width(capacity, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, fallback) ==
+        Model.CappedStretchSize{Activity.reading_width(capacity, Design.style_text(visual), UXActivity.reading_units(activity))} : Model.AxisSize},
+    outer: @+capacity:Nat -> @+key:UIIdentity.Key -> @+current:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @control:Controls.Representation -> @children:+List<Design.Node> -> @rest:+List<Design.Node> -> @fallback:Model.AxisSize -> @same:{UIIdentity.same(key, current) == True{} : Bool} ->
+      {Shell.outer_width(capacity, key, Design.Node{current, semantic, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, control, children} <> rest, fallback) ==
+        Model.CappedStretchSize{Activity.reading_width(capacity, Design.style_text(visual), UXActivity.reading_units(activity))} : Model.AxisSize},
+    source: @+capacity:Nat -> @+key:UIIdentity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @+content:+List<S.Node> ->
+      {Authored.regular_content(capacity, key, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, representation, children, parameters, content) ==
+        Authored.box(key, Authored.role_tag(role), Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+          Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Design.style_text(visual)), E.ambient(Activity.length(capacity, Design.style_text(visual), 8n), Activity.length(capacity, Design.style_text(visual), 8n)))),
+          [S.AriaAttribute{"labelledby", UIIdentity.encode(A.information_key(key, Information.SurfaceTitle{}))}, S.DataAttribute{"layer-key", UIIdentity.encode(key)}, S.DataAttribute{"layer-outside", Fields.boolean(outside)}, S.DataAttribute{"layer-escape", Fields.boolean(escape)}, S.TabIndexAttribute{"-1"}, S.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}], Authored.layer_title(role, key, label, visual, content)) : S.Node},
+    row: @+value:Design.Style -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Appearance.activity_control_style_when(True{}, value, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
+        Appearance.with_flow(Appearance.action_content_style(value, Controls.content_layout_at(Design.style_text(value), face), Controls.geometry_at(Design.style_text(value), geometry), Appearance.activity_content_height(face, Design.style_text(value), Controls.geometry_at(Design.style_text(value), geometry))),
+          Appearance.action_flow(face, Controls.content_layout_at(Design.style_text(value), face))) : Design.Style},
+    production: @+value:Design.Style -> @+representation:Controls.Representation -> @active:{T.is_activity(Design.style_text(value)) == True{} : Bool} ->
+      {Appearance.activity_control_style(value, representation) == Appearance.activity_control_style_when(True{}, value, representation) : Design.Style},
+    minimum: @+value:Design.Style -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Design.style_minimum_height(Appearance.activity_control_style_when(True{}, value, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}})) ==
+        Nat.max(Controls.geometry_minimum_height(Controls.geometry_at(Design.style_text(value), geometry)), E.extent_height(E.required_extent(0n,
+          Appearance.activity_content_height(face, Design.style_text(value), Controls.geometry_at(Design.style_text(value), geometry)), Appearance.style_border_width(value),
+          Controls.layout_content_area(Controls.content_layout_at(Design.style_text(value), face))))) : Nat},
+    decoration: @+key:UIIdentity.Key -> @+visual:Design.Style -> @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+geometry:Controls.Geometry ->
+      {selection_drawing(A.face(key, Controls.ChoiceFace{text, description, icon, selected}, visual, geometry)) ==
+        selected_drawing(selected, A.face_icon_size(Controls.geometry_at(A.parent_font(visual), geometry))) : Maybe<&2, S.Drawing>}}
+
+law activity_evidence:
+  ActivityRequirements
+
+# Native field ownership survives enclosing its real supporting content.
+type InputSupportRequirements is Type:
+  InputSupportRequirements{
+    empty: @+capacity:Nat -> @+key:UIIdentity.Key -> @+input:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters ->
+      {Authored.input_with_support(capacity, key, Controls.Input{input}, visual, parameters, Nil{}) == Authored.input_source(key, Controls.Input{input}, visual, parameters) : S.Node},
+    content: @+capacity:Nat -> @+key:UIIdentity.Key -> @+input:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+first:S.Node -> @+rest:+List<S.Node> ->
+      {Authored.input_with_support(capacity, key, Controls.Input{input}, visual, parameters, first <> rest) ==
+        Authored.box(UIIdentity.part(key, "@input-support"), S.Div{}, Factory.content_style(visual, Model.Vertical{}, Authored.input_node_width(Authored.input_source(key, Controls.Input{input}, visual, parameters)), Model.NaturalSize{}, Hierarchy.member_gap(Hierarchy.for_text(capacity, Design.style_text(visual)))),
+          Nil{}, Authored.input_source(key, Controls.Input{input}, visual, parameters) <> first <> rest) : S.Node},
+    other: @+capacity:Nat -> @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @content:+List<S.Node> ->
+      {Authored.input_with_support(capacity, key, Controls.NoControl{}, visual, parameters, content) == Authored.input_source(key, Controls.NoControl{}, visual, parameters) : S.Node}}
+
+law input_support_evidence:
+  InputSupportRequirements

@@ -262,3 +262,5 @@ def Rule.retained_content_no_focus_transition(previous, current, owner, identity
 def Rule.content_observation_preserves_core(platform, owner, identity, core):
   match platform:
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}: {==}
+
+def Rule.activity_dismiss_target(activity, key, semantic, label, role, input, outside, escape, children, rest): {==}

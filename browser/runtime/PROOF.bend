@@ -1296,3 +1296,5 @@ def Rule.navigation_evidence():
     +attention => +state => {==},
     +attention => +state => {==},
     retained_attention_candidate}
+
+def Rule.reviewer_field_gesture(editor, entry, value, text, state): {==}

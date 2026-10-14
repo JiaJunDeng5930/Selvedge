@@ -1,3 +1,4 @@
+import ./surface-proof.bend as SurfaceProof
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../INPUT.bend as U
@@ -214,6 +215,8 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.TogglePropertySource{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.EnterDecision{p0, p1}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.LeaveDecision{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.RuntimeInput{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.ProgramObserved{p0}}: {==}
@@ -274,3 +277,29 @@ def Rule.commit_explanation_observes_same_assessment(assessment, parent, identit
 
 def Rule.context_permission_facts(observation): {==}
 def Rule.context_summary_labels(observation, parent, state): {==}
+
+def Rule.model_search_retains_complete_catalog(editor, old, groups, query):
+  {==}
+
+def Rule.model_layer_uses_actual_activity(editor, query, groups, parent, state):
+  {==}
+
+def Rule.policy_layer_uses_actual_activity(editor, groups, parent, state):
+  {==}
+
+def Rule.object_editor_uses_actual_editing_activity(scene, parent, state):
+  {==}
+
+def Rule.activity_layer_preserves_outside_and_escape(activity, action):
+  {==}
+
+def Rule.activity_layer_preserves_trigger_dismissal(activity, action):
+  {==}
+
+def Rule.activity_interpreter_consumes_actual_relation_fold(activity, query, parent, state):
+  {==}
+
+def Rule.persistent_details_trigger_uses_actual_layer_behavior(found, task, trigger, key, semantic, label, children):
+  match found:
+    case None{}: {==}
+    case Some{activity}: {==}

@@ -1,5 +1,6 @@
 import ../controls/NAVIGATION.bend as Navigation
 import ../layout/ACTIVITY.bend as Activity
+import ../layout/HIERARCHY.bend as Hierarchy
 import Base
 import ../../interaction/presentation/INFORMATION.bend as Information
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -437,6 +438,29 @@ def control_style(value: Design.Style, representation: Controls.Representation, 
       action_style(feedback_style(selection_style(value, behavior, typography), feedback, typography), face, geometry)
     case _: value
 
+def activity_content_height(face: Controls.Face, +text: T.Presentation, +geometry: Controls.Geometry) -> Nat:
+  match face:
+    case Controls.ChoiceFace{label, description, icon, checked}:
+      choice_intrinsic_height(description, text, Controls.ChoiceContentLayout{Activity.length(NaturalSize.limit(), text, 2n), Activity.slot(NaturalSize.limit(), text), Activity.icon(NaturalSize.limit(), text)})
+    case _: intrinsic_content_height(face, text, geometry)
+
+def activity_control_style_when(enabled: Bool, +value: Design.Style, representation: Controls.Representation) -> Design.Style:
+  match enabled representation:
+    case True{} Controls.Action{Controls.Button{input, availability, name, +face, behavior, +geometry, placement, feedback}}:
+      +text = Design.style_text(value)
+      +scaled = Controls.geometry_at(text, geometry)
+      +layout = Controls.content_layout_at(text, face)
+      with_flow(action_content_style(value, layout, scaled, activity_content_height(face, text, scaled)), action_flow(face, layout))
+    case True{} Controls.Input{Controls.FormInput{meaning, name, Controls.ToggleInput{}, label, availability}}: value
+    case True{} Controls.Input{input}:
+      +text = Design.style_text(value)
+      field_values(NaturalSize.limit(), with_content_area(value, Enclosure.frame_content(Activity.row_frame(NaturalSize.limit(), text))),
+        style_border_width(value), Activity.target(NaturalSize.limit(), text, Design.style_minimum_height(value)), Activity.length(NaturalSize.limit(), text, 6n))
+    case _ _: value
+
+def activity_control_style(+value: Design.Style, representation: Controls.Representation) -> Design.Style:
+  activity_control_style_when(T.is_activity(Design.style_text(value)), value, representation)
+
 def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
   match semantic:
     case "creation/title":
@@ -513,6 +537,24 @@ def action_unit_style(value: Design.Style) -> Design.Style:
   Design.Style{text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
   Design.Style{text, chrome, alignment, flow, overflow, Activity.frame(Activity.initial()), minimum, maximum, action_focus_states(chrome, states)}
 
+def activity_action_unit_style_when(enabled: Bool, value: Design.Style) -> Design.Style:
+  match enabled:
+    case False{}: action_unit_style(value)
+    case True{}:
+      Design.Style{+text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      Design.Style{text, chrome, alignment, flow, overflow, Hierarchy.heading_frame(Hierarchy.for_text(NaturalSize.limit(), text)), minimum, maximum, action_focus_states(chrome, states)}
+
+def activity_action_unit_style(+value: Design.Style) -> Design.Style:
+  activity_action_unit_style_when(T.is_activity(Design.style_text(value)), value)
+
+def activity_member_style_when(enabled: Bool, +value: Design.Style) -> Design.Style:
+  match enabled:
+    case False{}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
+    case True{}: modeled_container(value, SpatialModel.RowFlow{}, Activity.length(NaturalSize.limit(), Design.style_text(value), 8n))
+
+def activity_member_style(+value: Design.Style) -> Design.Style:
+  activity_member_style_when(T.is_activity(Design.style_text(value)), value)
+
 def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
     case SurfaceTypes.BoardLane{stage, count}: lane_style(value)
@@ -521,11 +563,11 @@ def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Co
     case SurfaceTypes.InformationText{Information.NavigationCaption{}}: fields(T.information_role(Information.NavigationCaption{}, T.presentation_scale(typography)), chrome(Design.TextForeground{Surfaces.SecondaryText{}}, transparent(), transparent(), 0n, 0n, False{}), SpatialModel.Leading{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, T.scaled(NaturalSize.limit(), 8n, T.presentation_scale(typography)), 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
-    case SurfaceTypes.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
+    case SurfaceTypes.DirectoryRow{path, primary}: activity_member_style(value)
     case SurfaceTypes.ChoiceGroup{}: choice_group_style(value)
     case SurfaceTypes.DecisionGroup{decision}: choice_group_style(value)
-    case SurfaceTypes.WorkspaceMember{collection, path}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
-    case SurfaceTypes.ActionUnit{action}: action_unit_style(value)
+    case SurfaceTypes.WorkspaceMember{collection, path}: activity_member_style(value)
+    case SurfaceTypes.ActionUnit{action}: activity_action_unit_style(value)
     case SurfaceTypes.Region{}: source_header_style(key, family, value, typography)
     case SurfaceTypes.PageContext{conversation}: source_header_style(key, family, value, typography)
     case SurfaceTypes.ActivityContent{expanded, audit}: source_header_style(key, family, value, typography)
@@ -616,8 +658,13 @@ def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Mean
     case SurfaceTypes.ComposerActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case _ _: inherited
 
-def information_role(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
-  information_role_fields(role, meaning, inherited, in_main, start, T.presentation_scale(inherited))
+def information_activity(meaning: SurfaceTypes.Meaning, inherited: T.Presentation, resolved: T.Presentation) -> T.Presentation:
+  match meaning:
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: T.activity(resolved)
+    case _: T.inherit_activity(inherited, resolved)
+
+def information_role(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
+  information_activity(meaning, inherited, information_role_fields(role, meaning, inherited, in_main, start, T.presentation_scale(inherited)))
 
 def alert_style(role: SurfaceTypes.Role, value: Design.Style) -> Design.Style:
   match role:
@@ -639,7 +686,7 @@ def activity_controls(role: SurfaceTypes.Role, context: Controls.Context, value:
 
 def prepared_style(+key: UIIdentity.Key, semantic: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
-  activity_controls(role, local, alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography)))
+  activity_control_style(activity_controls(role, local, alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))), control)
 
 def nodes_at(values: +List<SurfaceTypes.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
   match values:

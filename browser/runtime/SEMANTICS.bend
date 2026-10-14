@@ -274,7 +274,7 @@ def sandbox_mode(sandbox: D.Sandbox, text: String) -> Maybe<&2, SurfaceTypes.Ges
 
 def sandbox_gesture(value: Forms.Observed, text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
   match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: sandbox_mode(Context.unwrap_sandbox(sandbox), text)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: sandbox_mode(Context.unwrap_sandbox(sandbox), text)
     case _: None{}
 
 def model_field(profile: String, reasoning: String, text: String, effort: Bool) -> Maybe<&2, SurfaceTypes.Gesture>:
@@ -330,7 +330,7 @@ def network_gesture(sandbox: D.Sandbox, enabled: Bool) -> Maybe<&2, SurfaceTypes
 def toggle_gesture(found: Maybe<&2, SurfaceTypes.Node>, enabled: Bool) -> Maybe<&2, SurfaceTypes.Gesture>:
   match found:
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{previous, profile}, choices}, children}}: Some{SurfaceTypes.Change{Forms.Assistance{enabled, profile}}}
-    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, choices}, children}}: network_gesture(Context.unwrap_sandbox(sandbox), enabled)
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, choices}, children}}: network_gesture(Context.unwrap_sandbox(sandbox), enabled)
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{previous}, choices}, children}}: Some{SurfaceTypes.Change{Forms.Toggle{enabled}}}
     case _: None{}
 
@@ -643,6 +643,7 @@ def field_text(editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: 
     case Forms.WorkspacePrimary{}: Some{SurfaceTypes.Change{Forms.WorkspaceChange{Context.ChoosePrimary{text}}}}
     case Forms.SandboxMode{}: sandbox_gesture(value, text)
     case Forms.ApprovalPolicy{}: approval_gesture(text)
+    case Forms.ApprovalReviewer{}: approval_gesture(text)
     case Forms.ModelProfile{}: model_gesture(value, text, False{})
     case Forms.ReasoningEffort{}: model_gesture(value, text, True{})
     case Forms.DeliveryIntent{}: delivery_gesture(text)
@@ -703,13 +704,16 @@ def first_dismiss_target(found: Maybe<&2, DismissTarget>, fallback: Maybe<&2, Di
     case Some{target}: Some{target}
     case None{}: fallback
 
+def declared_dismiss_target(found: Maybe<&2, SurfaceTypes.LayerBehavior>, key: UIIdentity.Key, fallback: Maybe<&2, DismissTarget>) -> Maybe<&2, DismissTarget>:
+  match found:
+    case Some{SurfaceTypes.LayerBehavior{input, outside, escape}}: Some{DismissTarget{UIIdentity.encode(key), input, outside, escape}}
+    case None{}: fallback
+
 def dismiss_target(values: +List<SurfaceTypes.Node>) -> Maybe<&2, DismissTarget>:
   match values:
     case Nil{}: None{}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.LayerRegion{input, outside, escape}, children}, rest}:
-      Some{DismissTarget{UIIdentity.encode(key), input, outside, escape}}
     case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}:
-      first_dismiss_target(dismiss_target(children), dismiss_target(rest))
+      declared_dismiss_target(SurfaceTypes.layer_region(meaning), key, first_dismiss_target(dismiss_target(children), dismiss_target(rest)))
 
 def dismiss_permitted(allowed: Bool, input: InteractionTypes.Input, state: State) -> Decision:
   match allowed:

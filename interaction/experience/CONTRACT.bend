@@ -8,6 +8,7 @@ import ../../features/board/MODEL.bend as Board
 import ../../bendlib/json.bend as J
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
+import ./ACTIVITY.bend as Activity
 import ../INPUT.bend as U
 import ../submission/FIELDS.bend as Forms
 import ../services/CONTEXT.bend as Context
@@ -129,13 +130,13 @@ type SharedRequirements is Type:
     sandbox_summary_parts: @mode:D.SandboxMode -> @network:Bool -> @choice:Context.ApprovalChoice ->
       {P.sandbox_summary_parts(D.Sandbox{mode, network}, choice) == D.sandbox_mode_name(mode) <> List.append(&2, String, P.summary_network_parts(network), P.summary_approval_parts(choice)) : +List<String>},
     committed_unrestricted_parts: @sandbox:D.Sandbox -> @choice:Context.ApprovalChoice ->
-      {P.committed_summary_parts(D.Unrestricted{}, sandbox, choice) == "Full access" <> List.append(&2, String, ["Network on"], P.summary_approval_parts(choice)) : +List<String>},
+      {P.committed_summary_parts(D.Unrestricted{}, sandbox, choice) == ["Full access", "Network available", "No approval"] : +List<String>},
     committed_sandboxed_parts: @sandbox:D.Sandbox -> @choice:Context.ApprovalChoice ->
       {P.committed_summary_parts(D.Sandboxed{}, sandbox, choice) == P.sandbox_summary_parts(sandbox, choice) : +List<String>},
     unavailable_permission_parts: @reason:String ->
       {P.permission_summary_parts(Context.DraftExecution{Context.ContextUnavailable{reason}}) == ["Unavailable"] : +List<String>},
     draft_permission_parts: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
-      {P.permission_summary_parts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}) == P.sandbox_summary_parts(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : +List<String>},
+      {P.permission_summary_parts(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}) == P.preview_summary_access(Some{Context.approval_access(Context.observed_approval(approval))}, Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : +List<String>},
     committed_permission_parts: @task:Nat -> @workspace:D.Workspace -> @+sandbox:D.Sandbox -> @+approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @guidance:D.ProjectContext -> @+access:D.ExecutionAccess ->
       {P.permission_summary_parts(Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}) == P.committed_summary_parts(access, sandbox, Context.approval_choice(approval)) : +List<String>},
     property_summary_parts: @+property:M.Property -> {P.property_summary_parts(property) == property_summary_parts_meaning(property) : +List<String>},
@@ -271,18 +272,18 @@ type Requirements is Type:
     model_owner: @+editor:U.Editor -> {P.owner(M.Subject{editor, Forms.ModelProfile{}}) == M.ExecutionConfigurationOf{editor} : M.Object},
     workspace_owner: @+editor:U.Editor -> {P.owner(M.Subject{editor, Forms.WorkspaceDirectories{}}) == M.WorkspaceOf{editor} : M.Object},
     configuration_parent: @+editor:U.Editor -> {P.parent(M.ExecutionConfigurationOf{editor}) == Some{P.root_object(editor)} : Maybe<&2, M.Object>},
-    property_filesystem: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+mode:D.SandboxMode ->
-      {P.property_intent(Forms.SandboxMode{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, M.Filesystem{mode}) == P.filesystem_intent(Context.unwrap_sandbox(sandbox), mode) : Maybe<&2, U.Edit>},
-    property_network: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+enabled:Bool ->
-      {P.property_intent(Forms.NetworkAccess{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, M.Network{enabled}) == P.network_intent(Context.unwrap_sandbox(sandbox), enabled) : Maybe<&2, U.Edit>},
-    property_approval: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+choice:Context.ApprovalChoice ->
-      {P.property_intent(Forms.ApprovalPolicy{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, M.Approval{choice}) == Some{U.ConfigureContext{Context.SetApproval{choice}}} : Maybe<&2, U.Edit>},
-    selected_filesystem: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+mode:D.SandboxMode ->
-      {P.observed_selection(Forms.SandboxMode{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, M.Filesystem{mode}) == P.filesystem_selected(Context.unwrap_sandbox(sandbox), mode) : Bool},
-    selected_network: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+network:Bool ->
-      {P.observed_selection(Forms.NetworkAccess{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, M.Network{network}) == P.network_selected(Context.unwrap_sandbox(sandbox), network) : Bool},
-    selected_approval: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+choice:Context.ApprovalChoice ->
-      {P.observed_selection(Forms.ApprovalPolicy{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, M.Approval{choice}) == P.value_same(M.Approval{Context.observed_approval(approval)}, M.Approval{choice}) : Bool},
+    property_filesystem: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+mode:D.SandboxMode -> @+reviewers:+List<D.Profile> ->
+      {P.property_intent(Forms.SandboxMode{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Filesystem{mode}) == P.filesystem_intent(Context.unwrap_sandbox(sandbox), mode) : Maybe<&2, U.Edit>},
+    property_network: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+enabled:Bool -> @+reviewers:+List<D.Profile> ->
+      {P.property_intent(Forms.NetworkAccess{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Network{enabled}) == P.network_intent(Context.unwrap_sandbox(sandbox), enabled) : Maybe<&2, U.Edit>},
+    property_approval: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+choice:Context.ApprovalChoice -> @+reviewers:+List<D.Profile> ->
+      {P.property_intent(Forms.ApprovalPolicy{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Approval{choice}) == P.approval_intent(choice, reviewers) : Maybe<&2, U.Edit>},
+    selected_filesystem: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+mode:D.SandboxMode -> @+reviewers:+List<D.Profile> ->
+      {P.observed_selection(Forms.SandboxMode{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Filesystem{mode}) == P.filesystem_selected(Context.unwrap_sandbox(sandbox), mode) : Bool},
+    selected_network: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+network:Bool -> @+reviewers:+List<D.Profile> ->
+      {P.observed_selection(Forms.NetworkAccess{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Network{network}) == P.network_selected(Context.unwrap_sandbox(sandbox), network) : Bool},
+    selected_approval: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+choice:Context.ApprovalChoice -> @+reviewers:+List<D.Profile> ->
+      {P.observed_selection(Forms.ApprovalPolicy{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Approval{choice}) == P.value_same(M.Approval{Context.observed_approval(approval)}, M.Approval{choice}) : Bool},
     selected_model: @+current:String -> @effort:String -> @+key:String -> @provider:String -> @name:String -> @policy:Reasoning.Policy -> @options:Maybe<&2, D.ReasoningOptions> ->
       {P.observed_selection(Forms.ModelProfile{}, Forms.ModelValue{current, effort}, M.Model{D.Profile{key, provider, name, policy, options}}) == String.eq(current, key) : Bool},
     selected_effort: @profile:String -> @+current:String -> @+effort:String -> {P.observed_selection(Forms.ReasoningEffort{}, Forms.ModelValue{profile, current}, M.Effort{effort}) == String.eq(current, effort) : Bool},
@@ -348,11 +349,11 @@ law experience_evidence:
 law draft_workspace_requirement:
   @+revision:Nat -> @+submitted:Nat -> @+body:U.Body -> @+reason:String -> @entry:String -> @pending:Bool -> @world:World.World() ->
   {P.draft_requirements(U.Draft{revision, body, U.WorkspaceRejected{submitted, reason}, entry}, pending, world) ==
-    List.append(&2, M.Obstruction, P.known_workspace_requirement(Nat.is_eq(submitted, revision), U.owner(body), reason), P.requirements(body, pending, world)) : +List<M.Obstruction>}
+    List.append(&2, M.Obstruction, P.known_workspace_requirement(Nat.is_eq(submitted, revision), U.owner(body), reason), List.append(&2, M.Obstruction, P.project_edit_requirements(body, entry, world), P.requirements(body, pending, world))) : +List<M.Obstruction>}
 
 law editing_draft_requirements:
   @revision:Nat -> @+body:U.Body -> @entry:String -> @pending:Bool -> @world:World.World() ->
-  {P.draft_requirements(U.Draft{revision, body, U.Editing{}, entry}, pending, world) == P.requirements(body, pending, world) : +List<M.Obstruction>}
+  {P.draft_requirements(U.Draft{revision, body, U.Editing{}, entry}, pending, world) == List.append(&2, M.Obstruction, P.project_edit_requirements(body, entry, world), P.requirements(body, pending, world)) : +List<M.Obstruction>}
 
 law draft_preparation_requirements:
   @draft:U.Draft -> @pending:Bool -> @world:World.World() ->
@@ -417,3 +418,177 @@ type CompactPropertyRequirements is Type:
 
 law compact_property_evidence:
   CompactPropertyRequirements
+
+# Activities expose observations, never caller-supplied selection or layout flags.
+def project_edit_meaning(+draft: U.Draft, +pending: Bool, now: U32, +world: World.World()) -> M.ProjectEdit:
+  U.Draft{+revision, +body, feedback, entry} = draft
+  M.ProjectEdit{P.project_original(body, world), draft, pending, P.draft_changed(draft, world),
+    P.assessed_requirements(P.draft_requirements(draft, pending, world), body, revision, now, world)}
+
+type ActivityRequirements is Type:
+  ActivityRequirements{
+    dependent_decision: @+parent:M.Decision -> @+prerequisite:M.Value -> @+child:M.Decision ->
+      {Activity.dependent_decision(parent, prerequisite, child) == Activity.admitted_dependency(P.selected(parent, prerequisite) && Activity.same_owner(parent, child) && U.same_editor(Activity.decision_editor(parent), Activity.decision_editor(child)), parent, prerequisite, child) : +List<Activity.Relation>},
+    dependency_rejected: @parent:M.Decision -> @prerequisite:M.Value -> @child:M.Decision ->
+      {Activity.admitted_dependency(False{}, parent, prerequisite, child) == Nil{} : +List<Activity.Relation>},
+    root_owned_dependencies: @+decision:M.Decision -> @children:+List<Activity.Dependency> ->
+      {Activity.root_decision(decision, children) == Activity.RootDecision{decision, Activity.dependencies(decision, children)} : Activity.Relation},
+    comparison_construction: @+property:M.Property -> @+decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
+      {Activity.comparison(property, decision, children, facts, catalog) == Activity.ComparisonActivity{property, Activity.RequiredValue{property} <> List.append(&2, Activity.Relation, Activity.decision_relations(U.same_editor(P.property_editor(property), Activity.decision_editor(decision)), decision, children, catalog), List.append(&2, Activity.Relation, Activity.required_values(facts, P.property_editor(property)), [Activity.SupportingValue{property}])), catalog} : Activity.Activity},
+    explanation_construction: @+property:M.Property -> @+decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
+      {Activity.explanation(property, decision, children, facts, catalog) == Activity.ExplanationActivity{property, Activity.RequiredValue{property} <> List.append(&2, Activity.Relation, Activity.decision_relations(U.same_editor(P.property_editor(property), Activity.decision_editor(decision)), decision, children, catalog), List.append(&2, Activity.Relation, Activity.required_values(facts, P.property_editor(property)), [Activity.SupportingValue{property}])), catalog} : Activity.Activity},
+    required_value_retained: @+property:M.Property -> @+rest:+List<Activity.Relation> ->
+      {Activity.required_relations(Activity.RequiredValue{property} <> rest) == Activity.RequiredValue{property} <> Activity.required_relations(rest) : +List<Activity.Relation>},
+    blocked_action_retained: @+action:M.ActionUnit -> @+assessment:M.Assessment -> @+rest:+List<Activity.Relation> ->
+      {Activity.required_relations(Activity.AssessedAction{action, assessment} <> rest) == Activity.AssessedAction{action, assessment} <> Activity.required_relations(rest) : +List<Activity.Relation>},
+    source_not_required: @property:M.Property -> @rest:+List<Activity.Relation> ->
+      {Activity.required_relations(Activity.SupportingValue{property} <> rest) == Activity.required_relations(rest) : +List<Activity.Relation>},
+    members_observed: @collection:M.Collection ->
+      {Activity.collection_members(collection) == P.collection_members(collection) : +List<String>},
+    comparison_reading: @property:M.Property -> @decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @catalog:+List<D.Profile> ->
+      {Activity.reading_units(Activity.comparison(property, decision, children, facts, catalog)) == 12n : Nat},
+    explanation_reading: @property:M.Property -> @decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @catalog:+List<D.Profile> ->
+      {Activity.reading_units(Activity.explanation(property, decision, children, facts, catalog)) == 16n : Nat},
+    comparison_catalog: @property:M.Property -> @decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
+      {Activity.catalog(Activity.comparison(property, decision, children, facts, catalog)) == catalog : +List<D.Profile>},
+    explanation_catalog: @property:M.Property -> @decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
+      {Activity.catalog(Activity.explanation(property, decision, children, facts, catalog)) == catalog : +List<D.Profile>},
+    editing_reading: @edit:M.ProjectEdit ->
+      {Activity.reading_units(Activity.editing(edit)) == 24n : Nat},
+    project_observation: @+draft:U.Draft -> @+pending:Bool -> @+now:U32 -> @+world:World.World() ->
+      {P.project_edit(draft, pending, now, world) == project_edit_meaning(draft, pending, now, world) : M.ProjectEdit},
+    draft_complete: @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @+entry:String -> @+pending:Bool -> @+world:World.World() ->
+      {P.draft_requirements(U.Draft{revision, body, feedback, entry}, pending, world) == List.append(&2, M.Obstruction, P.known_workspace_requirement(P.workspace_rejection_current(feedback, revision), U.owner(body), P.workspace_rejection_reason(feedback)), List.append(&2, M.Obstruction, P.project_edit_requirements(body, entry, world), P.requirements(body, pending, world))) : +List<M.Obstruction>},
+    unchanged_project: @+id:Maybe<&2, Nat> -> @+name:String -> @+workspace:D.Workspace -> @+entry:String -> @+world:World.World() ->
+      {P.project_edit_requirements(U.Project{id, name, workspace}, entry, world) == List.append(&2, M.Obstruction, P.failed_requirement(String.eq(entry, ""), P.obstruction(U.ProjectEditor{id}, Forms.WorkspaceDirectories{}, "unadded_directory", "Add or clear the directory before saving")), P.failed_requirement(P.project_draft_changed(P.project_original(U.Project{id, name, workspace}, world), name, workspace, entry), M.Obstruction{P.root_object(U.ProjectEditor{id}), None{}, "unchanged_project", "No project changes to save"})) : +List<M.Obstruction>},
+    reviewer_intent: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+choice:Context.ApprovalChoice -> @+reviewers:+List<D.Profile> ->
+      {P.property_intent(Forms.ApprovalReviewer{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Approval{choice}) == P.reviewer_intent(Context.observed_approval(approval), choice, reviewers) : Maybe<&2, U.Edit>}}
+
+law activity_evidence:
+  ActivityRequirements
+
+# Candidate disclosure follows the activity and its retained decision identities.
+type DecisionDisclosureRequirements is Type:
+  DecisionDisclosureRequirements{
+    comparison_purpose: @property:M.Property -> @decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @catalog:+List<D.Profile> ->
+      {Activity.purpose(Activity.comparison(property, decision, children, facts, catalog)) == Activity.Comparison{} : Activity.Purpose},
+    explanation_purpose: @property:M.Property -> @decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @catalog:+List<D.Profile> ->
+      {Activity.purpose(Activity.explanation(property, decision, children, facts, catalog)) == Activity.EffectExplanation{} : Activity.Purpose},
+    editing_purpose: @edit:M.ProjectEdit ->
+      {Activity.purpose(Activity.editing(edit)) == Activity.ObjectEditing{} : Activity.Purpose},
+    disclosure_complete: @+activity:Activity.Activity -> @+decision:M.Decision -> @+focused:Maybe<&2, M.Subject> ->
+      {Activity.decision_disclosure(activity, decision, focused) == Activity.retained_disclosure(Activity.retained_decisions(Activity.relations(activity), P.decision_subject(decision)), Activity.purpose(activity), Activity.focused_decision(decision, focused)) : Activity.DecisionDisclosure},
+    absent_relation: @purpose:Activity.Purpose -> @focused:Bool ->
+      {Activity.retained_disclosure(False{}, purpose, focused) == Activity.Summary{} : Activity.DecisionDisclosure},
+    direct_comparison: @focused:Bool ->
+      {Activity.retained_disclosure(True{}, Activity.Comparison{}, focused) == Activity.Candidates{} : Activity.DecisionDisclosure},
+    explanation_closed: {Activity.retained_disclosure(True{}, Activity.EffectExplanation{}, False{}) == Activity.Summary{} : Activity.DecisionDisclosure},
+    editing_closed: {Activity.retained_disclosure(True{}, Activity.ObjectEditing{}, False{}) == Activity.Summary{} : Activity.DecisionDisclosure},
+    explanation_focused: {Activity.retained_disclosure(True{}, Activity.EffectExplanation{}, True{}) == Activity.Candidates{} : Activity.DecisionDisclosure},
+    editing_focused: {Activity.retained_disclosure(True{}, Activity.ObjectEditing{}, True{}) == Activity.Candidates{} : Activity.DecisionDisclosure},
+    focus_absent: @decision:M.Decision -> {Activity.focused_decision(decision, None{}) == False{} : Bool},
+    focus_identity: @+decision:M.Decision -> @+subject:M.Subject ->
+      {Activity.focused_decision(decision, Some{subject}) == Activity.same_subject(P.decision_subject(decision), subject) : Bool},
+    inactive_dependency: @+parent:M.Decision -> @+prerequisite:M.Value -> @+child:M.Decision -> @+rest:+List<Activity.Relation> -> @+subject:M.Subject ->
+      {Activity.retained_decisions(Activity.DependentDecision{parent, prerequisite, child} <> rest, subject) == (Activity.dependency_applies(parent, prerequisite, child) && Activity.decision_subject_matches(child, subject)) || Activity.retained_decisions(rest, subject) : Bool}}
+
+law decision_disclosure_evidence:
+  DecisionDisclosureRequirements
+
+type CandidateRequirements is Type:
+  CandidateRequirements{
+    admission: @+parent:M.Decision -> @+alternative:M.Alternative ->
+      {P.candidate_admission(parent, alternative) == P.decision(P.decision_subject(parent), P.decision_observation(parent), P.decision_question(parent), [alternative]) : M.Decision},
+    construction: @+parent:M.Decision -> @+alternative:M.Alternative ->
+      {P.candidate(parent, alternative) == M.CandidateObservation{parent, alternative, P.candidate_canonical(parent, alternative), P.candidate_admission(parent, alternative), P.candidate_input(P.candidate_admission(parent, alternative), alternative)} : M.CandidateObservation},
+    canonical: @+parent:M.Decision -> @label:String -> @explanation:String -> @+value:M.Value ->
+      {P.candidate_canonical(parent, M.Alternative{label, explanation, value}) == P.canonical(P.decision_subject(parent), P.decision_observation(parent), value) : Maybe<&2, U.Input>},
+    selection: @+admission:M.Decision -> @label:String -> @explanation:String -> @+value:M.Value ->
+      {P.candidate_input(admission, M.Alternative{label, explanation, value}) == P.choose(admission, value) : Maybe<&2, U.Input>},
+    availability: @+observation:M.CandidateObservation ->
+      {P.candidate_availability(observation) == P.candidate_reasoned_availability(P.decision_availability(P.candidate_admitted_decision(observation)), P.candidate_decision(observation), P.candidate_alternative(observation)) : M.Availability},
+    reason: @+observation:M.CandidateObservation ->
+      {P.candidate_reason(observation) == P.candidate_reason_from_availability(P.candidate_availability(observation)) : Maybe<&2, String>},
+    independent_candidates: @+parent:M.Decision -> @+first:M.Alternative -> @+rest:+List<M.Alternative> ->
+      {P.candidate_observations(parent, first <> rest) == P.candidate(parent, first) <> P.candidate_observations(parent, rest) : +List<M.CandidateObservation>},
+    retained_catalog: @+activity:Activity.Activity -> @+parent:M.Decision ->
+      {Activity.decision_candidates(activity, parent) == Activity.retained_candidates(Activity.retains_decision(activity, parent), activity, parent) : +List<M.CandidateObservation>},
+    search_projection: @+activity:Activity.Activity -> @+parent:M.Decision -> @query:String ->
+      {Activity.visible_candidate_observations(activity, parent, query) == Activity.project_candidate_observations(Activity.decision_candidates(activity, parent), query) : +List<M.CandidateObservation>}}
+
+law candidate_evidence:
+  CandidateRequirements
+
+type RelationViewRequirements is Type:
+  RelationViewRequirements{
+    root: @+decision:M.Decision -> @+children:+List<Activity.Relation> -> {Activity.relation_view(Activity.RootDecision{decision, children}) == Activity.RootDecisionView{decision, children} : Activity.RelationView},
+    dependent: @+parent:M.Decision -> @+prerequisite:M.Value -> @+decision:M.Decision -> {Activity.relation_view(Activity.DependentDecision{parent, prerequisite, decision}) == Activity.DependentDecisionView{parent, prerequisite, decision} : Activity.RelationView},
+    required: @+property:M.Property -> {Activity.relation_view(Activity.RequiredValue{property}) == Activity.RequiredValueView{property} : Activity.RelationView},
+    supporting: @+property:M.Property -> {Activity.relation_view(Activity.SupportingValue{property}) == Activity.SupportingValueView{property} : Activity.RelationView},
+    collection: @+collection:M.Collection -> {Activity.relation_view(Activity.CollectionMembers{collection}) == Activity.CollectionMembersView{collection} : Activity.RelationView},
+    action: @+action:M.ActionUnit -> @+assessment:M.Assessment -> {Activity.relation_view(Activity.AssessedAction{action, assessment}) == Activity.AssessedActionView{action, assessment} : Activity.RelationView},
+    field: @+parent:M.Decision -> @+subject:M.Subject -> @+entry:Forms.Entry -> @+profile:D.Profile -> {Activity.relation_view(Activity.FieldSpecification{parent, subject, entry, profile}) == Activity.FieldSpecificationView{parent, subject, entry, profile} : Activity.RelationView}}
+
+law relation_view_evidence:
+  RelationViewRequirements
+
+type FieldSpecificationRequirements is Type:
+  FieldSpecificationRequirements{
+    actual_catalog: @+parent:M.Decision -> @profiles:+List<D.Profile> -> {Activity.effort_field_specification(parent, profiles) == Activity.effort_field_for_observation(P.decision_observation(parent), profiles, parent) : +List<Activity.Relation>},
+    actual_entry: @+parent:M.Decision -> @+profile:D.Profile -> {Activity.effort_field_for_profile(Some{profile}, parent) == Activity.effort_field_for_subject(P.decision_subject(parent), parent, profile, Forms.profile_effort_entry(profile)) : +List<Activity.Relation>},
+    current_model_singleline: @+editor:U.Editor -> @+parent:M.Decision -> @+profile:D.Profile -> {Activity.effort_field_for_subject(M.Subject{editor, Forms.ModelProfile{}}, parent, profile, Forms.SingleLine{}) == Activity.admitted_effort_field(P.selected(parent, M.Model{profile}) && Activity.field_owner_matches(parent, M.Subject{editor, Forms.ReasoningEffort{}}), parent, M.Subject{editor, Forms.ReasoningEffort{}}, Forms.SingleLine{}, profile) : +List<Activity.Relation>},
+    catalog_root: @+parent:M.Decision -> @children:+List<Activity.Dependency> -> @catalog:+List<D.Profile> -> {Activity.root_decision_for_catalog(parent, children, catalog) == Activity.RootDecision{parent, List.append(&2, Activity.Relation, Activity.dependencies(parent, children), Activity.effort_field_specification(parent, catalog))} : Activity.Relation},
+    inactive_field: @parent:M.Decision -> @subject:M.Subject -> @entry:Forms.Entry -> @profile:D.Profile -> {Activity.admitted_effort_field(False{}, parent, subject, entry, profile) == Nil{} : +List<Activity.Relation>},
+    missing_profile: @parent:M.Decision -> {Activity.effort_field_for_profile(None{}, parent) == Nil{} : +List<Activity.Relation>}}
+
+law field_specification_evidence:
+  FieldSpecificationRequirements
+
+type ReviewerCatalogueRequirements is Type:
+  ReviewerCatalogueRequirements{
+    automatic: @+profile:String -> @+reviewers:+List<D.Profile> -> {P.approval_intent(Context.AutomaticReview{profile}, reviewers) == P.member_edit(P.reviewer_present(D.find_profile(reviewers, profile)), U.ConfigureContext{Context.SetApproval{Context.AutomaticReview{profile}}}) : Maybe<&2, U.Edit>},
+    empty_rejection: @profile:String -> {P.approval_intent(Context.AutomaticReview{profile}, Nil{}) == None{} : Maybe<&2, U.Edit>},
+    empty_reason: @key:String -> {P.reviewer_catalog_reason(Nil{}, key) == Some{"No automatic review models are available"} : Maybe<&2, String>},
+    missing_reason: {P.missing_reviewer_reason(None{}) == Some{"The automatic review model is not available"} : Maybe<&2, String>},
+    existing_reason: @profile:D.Profile -> {P.missing_reviewer_reason(Some{profile}) == None{} : Maybe<&2, String>},
+    admitted_has_no_refusal: @parent:M.Decision -> @alternative:M.Alternative -> {P.candidate_reasoned_availability(M.Available{}, parent, alternative) == M.Available{} : M.Availability}}
+
+law reviewer_catalogue_evidence:
+  ReviewerCatalogueRequirements
+
+type StrategyRequirements is Type:
+  StrategyRequirements{
+    ask_view: {P.observed_strategy(Context.Ask{}) == M.Ask{} : M.Strategy},
+    full_view: {P.observed_strategy(Context.Unrestricted{}) == M.FullAccess{} : M.Strategy},
+    automatic_view: @profile:String -> {P.observed_strategy(Context.AutomaticReview{profile}) == M.AutomaticReview{} : M.Strategy},
+    current_reviewer: @+profile:D.Profile -> @reviewers:+List<D.Profile> -> {P.current_reviewer(Some{profile}, reviewers) == Some{Context.AutomaticReview{D.profile_key(profile)}} : Maybe<&2, Context.ApprovalChoice>},
+    fallback_reviewer: @+reviewers:+List<D.Profile> -> {P.current_reviewer(None{}, reviewers) == P.first_reviewer(reviewers) : Maybe<&2, Context.ApprovalChoice>},
+    automatic_resolution: @+strategy:M.Strategy -> @+current:Context.ApprovalChoice -> @+reviewers:+List<D.Profile> -> {P.strategy_intent(strategy, current, reviewers) == P.resolved_strategy(P.strategy_approval(strategy, current, reviewers)) : Maybe<&2, U.Edit>},
+    strategy_canonical: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+strategy:M.Strategy -> @+reviewers:+List<D.Profile> -> {P.property_intent(Forms.ApprovalPolicy{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.ExecutionStrategy{strategy}) == P.strategy_intent(strategy, Context.observed_approval(approval), reviewers) : Maybe<&2, U.Edit>},
+    strategy_selection: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+strategy:M.Strategy -> @reviewers:+List<D.Profile> -> {P.observed_selection(Forms.ApprovalPolicy{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.ExecutionStrategy{strategy}) == P.strategy_same(P.observed_strategy(Context.observed_approval(approval)), strategy) : Bool},
+    empty_reason: {P.automatic_strategy_reason(Nil{}) == Some{"No automatic review models are available"} : Maybe<&2, String>}}
+
+law strategy_evidence:
+  StrategyRequirements
+
+# The actual recursive carrier is traversed before a view is supplied to a client.
+type RelationFoldRequirements<-Context: Data, -Result: Data, -handler: Context -> Activity.RelationView -> +List<Result> -> Result, -context: Context> is Type:
+  RelationFoldRequirements{
+    empty: {Activity.fold_relations(~Context, ~Result, ~handler, context, Nil{}) == Nil{} : +List<Result>},
+    root: @+decision:M.Decision -> @+children:+List<Activity.Relation> -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.RootDecision{decision, children} <> rest) == handler(context, Activity.relation_view(Activity.RootDecision{decision, children}), Activity.fold_relations(~Context, ~Result, ~handler, context, children)) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>},
+    dependent: @+parent:M.Decision -> @+prerequisite:M.Value -> @+decision:M.Decision -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.DependentDecision{parent, prerequisite, decision} <> rest) == handler(context, Activity.relation_view(Activity.DependentDecision{parent, prerequisite, decision}), Nil{}) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>},
+    required: @+property:M.Property -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.RequiredValue{property} <> rest) == handler(context, Activity.relation_view(Activity.RequiredValue{property}), Nil{}) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>},
+    supporting: @+property:M.Property -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.SupportingValue{property} <> rest) == handler(context, Activity.relation_view(Activity.SupportingValue{property}), Nil{}) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>},
+    collection: @+collection:M.Collection -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.CollectionMembers{collection} <> rest) == handler(context, Activity.relation_view(Activity.CollectionMembers{collection}), Nil{}) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>},
+    action: @+action:M.ActionUnit -> @+assessment:M.Assessment -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.AssessedAction{action, assessment} <> rest) == handler(context, Activity.relation_view(Activity.AssessedAction{action, assessment}), Nil{}) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>},
+    field: @+parent:M.Decision -> @+subject:M.Subject -> @+entry:Forms.Entry -> @+profile:D.Profile -> @+rest:+List<Activity.Relation> ->
+      {Activity.fold_relations(~Context, ~Result, ~handler, context, Activity.FieldSpecification{parent, subject, entry, profile} <> rest) == handler(context, Activity.relation_view(Activity.FieldSpecification{parent, subject, entry, profile}), Nil{}) <> Activity.fold_relations(~Context, ~Result, ~handler, context, rest) : +List<Result>}}
+
+law relation_fold_evidence:
+  @-Context:Data -> @-Result:Data -> @-handler:(Context -> Activity.RelationView -> +List<Result> -> Result) -> @-context:Context -> RelationFoldRequirements<Context, Result, handler, context>

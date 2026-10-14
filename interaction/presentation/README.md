@@ -55,3 +55,11 @@ outside that collection. The independent-task section uses `NavigationCaption`
 and preserves the original task parents, so its title does not introduce project
 membership. `ProjectInteractionRequirements` binds these complete production
 constructions, including empty independent-task collections and collapsed navigation.
+
+The model menu, execution policy menu and project editor are produced through
+`PROGRAM.activity_nodes`. Their domain factories supply the complete observations
+to the controlled `experience/ACTIVITY` constructors; the interpreter consumes the
+original relation tree through its public fold. The outer menu or dialog retains
+both that activity and its real dismissal behavior. Decision focus belongs to the
+session layer, separately from search and source disclosure, and the activity
+checks the focused subject against its retained decisions before expanding choices.

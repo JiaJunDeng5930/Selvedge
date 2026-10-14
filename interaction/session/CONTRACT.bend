@@ -1,6 +1,7 @@
 import ../experience/PROGRAM.bend as UX
 import ../../bendlib/categories.bend as Categories
 import Base
+import ../submission/FIELDS.bend as Forms
 import ../submission/CONTRACT.bend as SubmissionRule
 import ../../harness/INVARIANTS.bend as I
 import ../../harness/MODEL.bend as M
@@ -183,7 +184,7 @@ def opened_application(+application: E.Application, +panel: U.Panel, trigger: St
   layers = E.layers(observed_session)
   +next_layer = E.next_layer(observed_session)
   +target = E.panel_target(panel)
-  E.Decision{E.from_program(program, E.with_next_layer((next_layer + 1n : Nat), E.with_attention(target, E.with_layers(E.Layer{panel, trigger, target, "", next_layer, False{}} <> E.without_panel(layers, E.panel_target(panel)), observed_session)))),
+  E.Decision{E.from_program(program, E.with_next_layer((next_layer + 1n : Nat), E.with_attention(target, E.with_layers(E.Layer{panel, trigger, target, "", next_layer, False{}, None{}} <> E.without_panel(layers, E.panel_target(panel)), observed_session)))),
     D.success(J.Null{}), Nil{}, [E.Attend{target}], False{}}
 
 type Requirements is Type:
@@ -197,8 +198,8 @@ type Requirements is Type:
     modal_open_effects: @+application:E.Application -> @+panel:U.Panel -> @trigger:String ->
       {interaction_effects(E.open_panel(panel, trigger, application)) == [E.Attend{E.panel_target(panel)}] : +List<E.Effect>},
     modal_close_nonempty: @+session:E.Session -> @+program:M.World() -> @+panel:U.Panel -> @+trigger:String -> @initial:String ->
-      @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+rest:+List<E.Layer> ->
-      @observed_layers:{E.layers(session) == E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded} <> rest : +List<E.Layer>} ->
+      @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> ->
+      @observed_layers:{E.layers(session) == E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field} <> rest : +List<E.Layer>} ->
        {E.close_panel(E.from_program(program, session)) ==
        E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, session))),
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision},
@@ -227,12 +228,12 @@ type Requirements is Type:
     obsolete_reading: @+task:Nat -> @+generation:Nat -> @+intent:U.ReadingIntent -> @+application:E.Application ->
       @not_owner:{reading_owner(application, task, generation) == False{} : Bool} ->
       {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision},
-    model_choice: @+session:E.Session -> @+program:M.World() -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool ->
+    model_choice: @+session:E.Session -> @+program:M.World() -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> ->
       @+rest:+List<E.Layer> -> @revision:Nat -> @+text:U.Text -> @old_profile:String ->
       @old_reasoning:String -> @context:Context.Configuration -> @feedback:U.Feedback -> @+directory_entry:String ->
       @+new_profile:String -> @+new_reasoning:String ->
       @valid:{E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool} ->
-      @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded} <> rest : +List<E.Layer>} ->
+      @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded, decision_field} <> rest : +List<E.Layer>} ->
       @found:{E.find_draft(E.drafts(session), U.NewTaskEditor{}) ==
         Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
@@ -281,7 +282,7 @@ def runtime_observation(decision: E.Decision) -> M.Decision():
 
 def confirmation_spec(layers: +List<E.Layer>, +command: M.Command, +trigger: String, occurrence: Nat) -> Bool:
   match layers:
-    case Con{E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence, source_expanded}, rest}:
+    case Con{E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence, source_expanded, decision_field}, rest}:
       Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
@@ -350,7 +351,7 @@ type CommandRequirements is Type:
       {confirmation_result_spec(False{}, result, destination, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision},
     stale_occurrence: @+current:M.Command -> @title:String -> @destination:U.Route -> @+current_trigger:String -> @target:String -> @query:String -> @+current_occurrence:Nat -> @rest:+List<E.Layer> -> @+command:M.Command -> @+trigger:String -> @+occurrence:Nat ->
       @stale:{Nat.is_eq(current_occurrence, occurrence) == False{} : Bool} ->
-      {E.confirmation_owned(E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, current_occurrence, False{}} <> rest, command, trigger, occurrence) == False{} : Bool}
+      {E.confirmation_owned(E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, current_occurrence, False{}, None{}} <> rest, command, trigger, occurrence) == False{} : Bool}
   }
 
 law command_evidence:
@@ -406,13 +407,13 @@ law rejected_command_uses_actual_code_and_workspace:
     E.rejected_feedback(String.eq(J.text(J.get(J.get(result, "error"), "code")), "command_not_submitted") && U.workspace_operation(body), revision, J.text(J.get(J.get(result, "error"), "message"))) : U.Feedback}
 
 law property_source_toggle_preserves_application:
-  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+expanded:Bool -> @+rest:+List<E.Layer> -> @+application:E.Application ->
-  {E.toggle_source_layers(True{}, panel, trigger, initial, query, occurrence, expanded, rest, application) ==
-    E.local(E.program(application), E.with_layers(E.Layer{panel, trigger, initial, query, occurrence, Bool.not(expanded)} <> rest, E.session(application)), Nil{}) : E.Decision}
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+expanded:Bool -> @+field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.toggle_source_layers(True{}, panel, trigger, initial, query, occurrence, expanded, field, rest, application) ==
+    E.local(E.program(application), E.with_layers(E.Layer{panel, trigger, initial, query, occurrence, Bool.not(expanded), field} <> rest, E.session(application)), Nil{}) : E.Decision}
 
 law property_source_toggle_refuses_wrong_owner:
-  @panel:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @expanded:Bool -> @rest:+List<E.Layer> -> @+application:E.Application ->
-  {E.toggle_source_layers(False{}, panel, trigger, initial, query, occurrence, expanded, rest, application) == E.refuse(application, "The property source is not open for this editor") : E.Decision}
+  @panel:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @expanded:Bool -> @field:Maybe<&2, Forms.Field> -> @rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.toggle_source_layers(False{}, panel, trigger, initial, query, occurrence, expanded, field, rest, application) == E.refuse(application, "The property source is not open for this editor") : E.Decision}
 
 law invalid_workspace_retry_preserves_application:
   @draft:U.Draft -> @+application:E.Application ->
@@ -435,3 +436,24 @@ law accepted_workspace_retry_uses_normal_admission:
 law workspace_command_not_submitted_feedback:
   @+body:U.Body -> @+revision:Nat -> @+reason:String ->
   {E.command_rejection_feedback(body, revision, D.failure("command_not_submitted", reason)) == E.rejected_feedback(U.workspace_operation(body), revision, reason) : U.Feedback}
+
+law unknown_decision_focus_preserves_application:
+  @editor:U.Editor -> @+application:E.Application ->
+  {E.enter_known_decision(None{}, editor, application) == E.unchanged(application) : E.Decision}
+
+law unrelated_decision_focus_preserves_application:
+  @panel:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @source:Bool ->
+  @field:Maybe<&2, Forms.Field> -> @rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.decision_layer_update(False{}, panel, trigger, initial, query, occurrence, source, field, rest, application) == E.unchanged(application) : E.Decision}
+
+law decision_focus_preserves_query_and_source:
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+source:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.decision_layer_update(True{}, panel, trigger, initial, query, occurrence, source, field, rest, application) ==
+    E.local(E.program(application), E.with_layers(E.Layer{panel, trigger, initial, query, occurrence, source, field} <> rest, E.session(application)), Nil{}) : E.Decision}
+
+law workspace_retry_assesses_complete_candidate:
+  @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @+entry:String -> @+application:E.Application ->
+  {E.retry_workspace_current(True{}, U.Draft{revision, body, feedback, entry}, application) ==
+    E.retry_workspace_allowed(UX.draft_can_prepare(U.Draft{revision, body, U.Editing{}, entry}, E.busy(E.pending(E.session(application)), U.owner(body)), E.program(application)),
+      U.Draft{revision, body, feedback, entry}, application) : E.Decision}

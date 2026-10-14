@@ -126,9 +126,9 @@ def required_information_font_role(+role: Information.TextRole, scale: T.Scale) 
     case Information.Description{}: T.Presentation{T.Support{}, T.Regular{}, scale}
     case Information.Status{}: T.Presentation{T.Support{}, T.Regular{}, scale}
 
-def required_information_font(+role: Information.TextRole, parent: T.Presentation) -> T.Presentation:
+def required_information_font(+role: Information.TextRole, +parent: T.Presentation) -> T.Presentation:
   T.Presentation{tier, emphasis, scale} = parent
-  required_information_font_role(role, scale)
+  T.inherit_activity(parent, required_information_font_role(role, scale))
 
 def required_information(+owner: Identity.Key, +role: Information.TextRole, value: String, visual: Design.Style) -> InformationObservation:
   +key = Identity.part(owner, "@information/" ++ Information.name(role))
@@ -174,16 +174,22 @@ def owned_foreground(+owner: Identity.Key, +role: Information.TextRole, value: S
 def owned_information(+owner: Identity.Key, +role: Information.TextRole, +value: String, +visual: Design.Style) -> Type:
   {information_observation(AuthoredControls.owned_text(owner, role, value, visual)) == required_information(owner, role, value, visual) : InformationObservation}
 
-def scalar_information(+key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +text_role: Information.TextRole, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {first_information(Source.children_of(Authored.regular_content(key, label, role, SurfaceTypes.InformationText{text_role}, visual, representation, children, parameters, content))) == required_information(key, text_role, label, visual) : InformationObservation}
+def scalar_information(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +text_role: Information.TextRole, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(capacity, key, label, role, SurfaceTypes.InformationText{text_role}, visual, representation, children, parameters, content))) == required_information(key, text_role, label, visual) : InformationObservation}
 
 def field_label(+key: Identity.Key, +label: String, +visual: Design.Style, field: Source.Node) -> Type:
   {first_information(Source.children_of(AuthoredControls.label_field(Controls.AboveInput{}, key, label, visual, field))) == required_information(key, Information.FieldLabel{}, label, visual) : InformationObservation}
 
+def option_information_or_next(observed: InformationObservation, next: InformationObservation) -> InformationObservation:
+  match observed:
+    case MissingInformation{}: next
+    case information: information
+
 def option_text(nodes: +List<Source.Node>) -> InformationObservation:
   match nodes:
     case Con{Source.Glyph{key, drawing, style}, rest}: option_text(rest)
-    case Con{Source.Box{key, tag, style, attributes, children}, rest}: first_information(children)
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      option_information_or_next(first_information(children), option_text(rest))
     case _: MissingInformation{}
 
 def option_label(+key: Identity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry) -> Type:
@@ -192,14 +198,14 @@ def option_label(+key: Identity.Key, +label: String, description: Maybe<&2, Stri
 def option_description(+key: Identity.Key, +value: String, +visual: Design.Style) -> Type:
   {first_information(AuthoredControls.face_description(Some{value}, key, visual)) == required_information(key, Information.Description{}, value, visual) : InformationObservation}
 
-def group_title(+key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {first_information(Source.children_of(Authored.regular_content(key, label, role, SurfaceTypes.ChoiceGroup{}, visual, representation, children, parameters, content))) == required_information(key, Information.GroupTitle{}, label, visual) : InformationObservation}
+def group_title(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(capacity, key, label, role, SurfaceTypes.ChoiceGroup{}, visual, representation, children, parameters, content))) == required_information(key, Information.GroupTitle{}, label, visual) : InformationObservation}
 
-def panel_title(+key: Identity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {first_information(Source.children_of(Authored.regular_content(key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
+def panel_title(+capacity: Nat, +key: Identity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
 
-def dialog_title(+key: Identity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> Type:
-  {dialog_information(Authored.dialog_content(key, label, visual, children)) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
+def dialog_title(+capacity: Nat, +key: Identity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> Type:
+  {dialog_information(Authored.dialog_content(capacity, key, label, visual, children)) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
 
 def dialog_information(nodes: +List<Source.Node>) -> InformationObservation:
   match nodes:
@@ -244,11 +250,11 @@ def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advanc
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
     toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}}] : +List<NaturalSize.Calculation>}
 
-def page_region(key: Identity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {Authored.regular_content(key, "", SurfaceTypes.Section{}, SurfaceTypes.PageRegion{region, position}, visual, control, children, parameters, content) == Authored.box(key, Source.Div{}, Authored.region_style(visual, region, position), [Source.DataAttribute{"page-position", Authored.position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content) : Source.Node}
+def page_region(+capacity: Nat, key: Identity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {Authored.regular_content(capacity, key, "", SurfaceTypes.Section{}, SurfaceTypes.PageRegion{region, position}, visual, control, children, parameters, content) == Authored.box(key, Source.Div{}, Authored.region_style(visual, region, position), [Source.DataAttribute{"page-position", Authored.position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content) : Source.Node}
 
-def board_group(key: Identity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {Authored.regular_content(key, label, SurfaceTypes.Toolbar{}, SurfaceTypes.BoardGroup{grouping}, visual, control, children, parameters, content) == Authored.box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", Authored.board_group_name(grouping)}, Source.AriaAttribute{"label", Authored.board_group_label(grouping)}], content) : Source.Node}
+def board_group(+capacity: Nat, key: Identity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {Authored.regular_content(capacity, key, label, SurfaceTypes.Toolbar{}, SurfaceTypes.BoardGroup{grouping}, visual, control, children, parameters, content) == Authored.box(key, Source.Div{}, Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}), Model.Horizontal{}), [Source.DataAttribute{"board-group", Authored.board_group_name(grouping)}, Source.AriaAttribute{"label", Authored.board_group_label(grouping)}], content) : Source.Node}
 
 def confined_content_minimum(width: Nat, height: Nat) -> Type:
   {Model.viewport_content_minimum(Enclosure.Extent{width, height}, Model.Confined{}) == Enclosure.Extent{width, height} : Enclosure.Extent}
@@ -258,8 +264,8 @@ def container_scroll(node: Source.Node) -> Model.Scroll:
     case Source.Box{key, tag, Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}: scroll
     case _: Model.Confined{}
 
-def board_group_content_minimum(key: Identity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>, width: Nat, height: Nat) -> Type:
-  {Model.viewport_content_minimum(Enclosure.Extent{width, height}, container_scroll(Authored.regular_content(key, label, SurfaceTypes.Toolbar{}, SurfaceTypes.BoardGroup{grouping}, visual, control, children, parameters, content))) == Enclosure.Extent{width, height} : Enclosure.Extent}
+def board_group_content_minimum(+capacity: Nat, key: Identity.Key, label: String, grouping: SurfaceTypes.BoardGrouping, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>, width: Nat, height: Nat) -> Type:
+  {Model.viewport_content_minimum(Enclosure.Extent{width, height}, container_scroll(Authored.regular_content(capacity, key, label, SurfaceTypes.Toolbar{}, SurfaceTypes.BoardGroup{grouping}, visual, control, children, parameters, content))) == Enclosure.Extent{width, height} : Enclosure.Extent}
 
 def card_regions(+key: Identity.Key, +face: View.CardFace, +visual: Design.Style, +children: +List<Authored.Child>, +representation: Controls.Representation, +parameters: Design.LayoutParameters, +movable: Bool) -> Type:
   View.CardFace{+id, +title, description, priority, pinned_value, +status, project, labels, owner, updated} = face
@@ -305,6 +311,7 @@ law movement_child_is_authored:
   {Authored.card_movement_nodes(Authored.Child{key, role, SurfaceTypes.MovableCard{destinations, face}, control, nodes} <> rest) == nodes : +List<Source.Node>}
 
 law card_source_dispatch:
+  for +capacity: Nat
   for +key: Identity.Key
   for label: String
   for role: SurfaceTypes.Role
@@ -314,10 +321,11 @@ law card_source_dispatch:
   for +children: +List<Authored.Child>
   for +parameters: Design.LayoutParameters
   for content: +List<Source.Node>
-  {Authored.regular_content(key, label, role, SurfaceTypes.CardContent{face}, visual, representation, children, parameters, content) ==
+  {Authored.regular_content(capacity, key, label, role, SurfaceTypes.CardContent{face}, visual, representation, children, parameters, content) ==
       Authored.card(key, face, visual, children, Authored.card_movement_control(children), parameters, Authored.card_movement_available(children)) : Source.Node}
 
 law movement_source_dispatch:
+  for +capacity: Nat
   for +key: Identity.Key
   for label: String
   for role: SurfaceTypes.Role
@@ -328,7 +336,7 @@ law movement_source_dispatch:
   for +children: +List<Authored.Child>
   for +parameters: Design.LayoutParameters
   for content: +List<Source.Node>
-  {Authored.regular_content(key, label, role, SurfaceTypes.MovableCard{destinations, face}, visual, representation, children, parameters, content) == Authored.movable_source(key, representation, visual, parameters) : Source.Node}
+  {Authored.regular_content(capacity, key, label, role, SurfaceTypes.MovableCard{destinations, face}, visual, representation, children, parameters, content) == Authored.movable_source(key, representation, visual, parameters) : Source.Node}
 
 def expected_fact_value(empty: Bool, value: String) -> String:
   match empty:
@@ -342,25 +350,26 @@ def fact_content(+key: Identity.Key, +label: String, +value: String, +visual: De
   +displayed: String = expected_fact_value(String.eq(value, ""), value)
   {Authored.fact(key, label, value, visual) == Authored.group(key, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(Identity.part(key, "label"), label, visual, T.Body{}, T.Strong{}), Authored.text(Identity.part(key, "value"), displayed, visual, T.Body{}, T.Regular{})]) : Source.Node}
 
-def fact_source_dispatch(key: Identity.Key, label: String, role: SurfaceTypes.Role, value: String, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {Authored.regular_content(key, label, role, SurfaceTypes.Fact{value}, visual, representation, children, parameters, content) == Authored.fact(key, label, value, visual) : Source.Node}
+def fact_source_dispatch(+capacity: Nat, key: Identity.Key, label: String, role: SurfaceTypes.Role, value: String, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {Authored.regular_content(capacity, key, label, role, SurfaceTypes.Fact{value}, visual, representation, children, parameters, content) == Authored.fact(key, label, value, visual) : Source.Node}
 
-def experience_source(+key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Type:
+def experience_source(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Type:
   match meaning:
-    case SurfaceTypes.DecisionGroup{decision}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> Authored.subject_attributes(UX.decision_subject(decision)), content) : Source.Node}
-    case SurfaceTypes.ObjectGroup{object}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.object_group(key, object, label, visual, content) : Source.Node}
-    case SurfaceTypes.WorkspaceCollection{collection}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(key, label, visual, Source.TabIndexAttribute{"-1"} <> Authored.subject_attributes(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}), content) : Source.Node}
-    case SurfaceTypes.WorkspaceMember{collection, path}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.workspace_member(key, collection, path, visual, content) : Source.Node}
-    case SurfaceTypes.ActionUnit{action}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_unit(key, action, visual, content) : Source.Node}
-    case SurfaceTypes.SupportingControl{support, property, input, availability}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.supporting_control_visible(UX.support_visible(support), key, support, property, label, visual, representation) : Source.Node}
-    case SurfaceTypes.ActionExplanation{assessment}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_explanation(key, assessment, visual) : Source.Node}
-    case SurfaceTypes.ActionCommit{assessment, input, availability}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.button_source(key, visual, representation), [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}]) : Source.Node}
-    case SurfaceTypes.ActionFeedback{feedback}: {Authored.regular_content(key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_feedback(key, feedback, visual, content) : Source.Node}
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.activity_group(capacity, key, label, role, meaning, activity, visual, content) : Source.Node}
+    case SurfaceTypes.DecisionGroup{decision}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(capacity, key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> Authored.subject_attributes(UX.decision_subject(decision)), content) : Source.Node}
+    case SurfaceTypes.ObjectGroup{object}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.object_group(capacity, key, object, label, visual, content) : Source.Node}
+    case SurfaceTypes.WorkspaceCollection{collection}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(capacity, key, label, visual, Source.TabIndexAttribute{"-1"} <> Authored.subject_attributes(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}), content) : Source.Node}
+    case SurfaceTypes.WorkspaceMember{collection, path}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.workspace_member(key, collection, path, visual, content) : Source.Node}
+    case SurfaceTypes.ActionUnit{action}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_unit(key, action, visual, content) : Source.Node}
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.supporting_control_visible(UX.support_visible(support), key, support, property, label, visual, representation) : Source.Node}
+    case SurfaceTypes.ActionExplanation{assessment}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_explanation(key, assessment, visual) : Source.Node}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.button_source(key, visual, representation), [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}]) : Source.Node}
+    case SurfaceTypes.ActionFeedback{feedback}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_feedback(key, feedback, visual, content) : Source.Node}
     case _: {content == content : +List<Source.Node>}
 
-def owned_group_source(+key: Identity.Key, +label: String, +visual: Design.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> Type:
-  {Authored.owned_group(key, label, visual, attributes, content) == Source.Box{key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.initial())), Source.AriaAttribute{"labelledby", Identity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))} <> attributes,
-    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), Source.Box{Identity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.member_frame(Hierarchy.initial())), Nil{}, content}]} : Source.Node}
+def owned_group_source(+capacity: Nat, +key: Identity.Key, +label: String, +visual: Design.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> Type:
+  {Authored.owned_group(capacity, key, label, visual, attributes, content) == Source.Box{key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))), Source.AriaAttribute{"labelledby", Identity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))} <> attributes,
+    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), Source.Box{Identity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.member_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))), Nil{}, content}]} : Source.Node}
 
 def property_source(+editor: User.Editor, +field: Forms.Field, +key: Identity.Key, entry: Forms.Entry, observed: Forms.Observed, choices: +List<Forms.ChoiceValue>) -> Type:
   {AuthoredControls.field_metadata(key, SurfaceTypes.Edit{editor, field, entry, observed, choices}) == List.append(&2, Source.Attribute, [Source.DataAttribute{"field", Forms.key(field)}, Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}], AuthoredControls.message_binding(field, key)) : +List<Source.Attribute>}
@@ -394,9 +403,9 @@ def aggregate_focus(+visual: Design.Style) -> Type:
   Design.Style{+text, +chrome, +alignment, +flow, +overflow, +frame, +minimum, +maximum, +states} = visual
   {Appearance.action_unit_style(visual) == Design.Style{text, chrome, alignment, flow, overflow, Activity.frame(Activity.initial()), minimum, maximum, Appearance.action_focus_states(chrome, states)} : Design.Style}
 
-def grouped_menu_source(+key: Identity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> Type:
+def grouped_menu_source(+capacity: Nat, +key: Identity.Key, +tag: Source.BoxTag, +style: Source.Style, +attributes: +List<Source.Attribute>, +content: +List<Source.Node>) -> Type:
   Source.Style{Source.Layout{direction, main, cross, +frame, width, height, minimum, scroll, position}, font, chrome, states} = style
-  {Authored.grouped_menu_visible(SurfaceTypes.Menu{}, True{}, Source.Box{key, tag, style, attributes, content}) == Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(frame))), attributes, content} : Source.Node}
+  {Authored.grouped_menu_visible(capacity, SurfaceTypes.Menu{}, True{}, Source.Box{key, tag, style, attributes, content}) == Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Source.resolve_font(font, T.Presentation{T.Body{}, T.Regular{}, T.Scale{0n}})), Enclosure.frame_content(frame))), attributes, content} : Source.Node}
 
 def support_source(visible: Bool, +key: Identity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> Type:
   match visible:
@@ -404,7 +413,7 @@ def support_source(visible: Bool, +key: Identity.Key, +support: UXTypes.Support,
     case True{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation) == Authored.add_attributes(Authored.button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{UX.property_help(property)}], List.append(&2, Source.Attribute, [Source.DataAttribute{"support-properties", Authored.support_property_keys(UX.support_subjects(support))}], [Source.DataAttribute{"object-owner", UX.object_key(UX.property_owner(property))}, Source.DataAttribute{"source-owner", UX.property_source_key(property)}]))) : Source.Node}
 
 def typed_action_style(+key: Identity.Key, +action: UXTypes.ActionUnit, family: Controls.SourceFamily, representation: Controls.Representation, +visual: Design.Style, typography: T.Presentation) -> Type:
-  {Appearance.family_style(key, SurfaceTypes.ActionUnit{action}, family, representation, visual, typography) == Appearance.action_unit_style(visual) : Design.Style}
+  {Appearance.family_style(key, SurfaceTypes.ActionUnit{action}, family, representation, visual, typography) == Appearance.activity_action_unit_style_when(T.is_activity(Design.style_text(visual)), visual) : Design.Style}
 
 def action_focus_states(+chrome: Design.Chrome, +states: Design.ControlStates) -> Type:
   Design.Chrome{+foreground, +background, +border, width, radius, shadow} = chrome
@@ -427,24 +436,24 @@ def alternative_rest(+typography: T.Presentation) -> Type:
 def alternative_states(+typography: T.Presentation) -> Type:
   {style_states(Appearance.alternative_button(True{}, typography)) == style_states(Appearance.choice_button(True{}, typography)) : Design.ControlStates}
 
-def object_source(+key: Identity.Key, +object: UXTypes.Object, +label: String, +visual: Design.Style, +content: +List<Source.Node>) -> Type:
-  {Authored.object_group(key, object, label, visual, content) == Source.Box{key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.initial())), [Source.AriaAttribute{"labelledby", Identity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))}, Source.DataAttribute{"object-owner", UX.object_key(object)}],
-    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), Source.Box{Identity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.frame_content(Hierarchy.member_frame(Hierarchy.initial())))), Nil{}, content}]} : Source.Node}
+def object_source(+capacity: Nat, +key: Identity.Key, +object: UXTypes.Object, +label: String, +visual: Design.Style, +content: +List<Source.Node>) -> Type:
+  {Authored.object_group(capacity, key, object, label, visual, content) == Source.Box{key, Source.Section{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.heading_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))), [Source.AriaAttribute{"labelledby", Identity.encode(AuthoredControls.information_key(key, Information.GroupTitle{}))}, Source.DataAttribute{"object-owner", UX.object_key(object)}],
+    [AuthoredControls.owned_text(key, Information.GroupTitle{}, label, visual), Source.Box{Identity.part(key, "@members"), Source.Div{}, Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Design.style_text(visual)), Enclosure.frame_content(Hierarchy.member_frame(Hierarchy.for_text(capacity, Design.style_text(visual)))))), Nil{}, content}]} : Source.Node}
 
 def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key: Identity.Key, +label: String, +visual: Design.Style, +children: +List<Source.Node>) -> Type:
   match field value:
     case Forms.WorkspaceDirectories{} Forms.WorkspaceValue{workspace}: {Authored.compound_directory(field, value, key, label, visual, children) == Source.Box{key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], children} : Source.Node}
-    case Forms.WorkspaceDirectories{} Forms.ContextValue{Workspace.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: {Authored.compound_directory(field, value, key, label, visual, children) == Source.Box{key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], children} : Source.Node}
+    case Forms.WorkspaceDirectories{} Forms.ContextValue{Workspace.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: {Authored.compound_directory(field, value, key, label, visual, children) == Source.Box{key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"field", Forms.key(field)}, Source.TabIndexAttribute{"-1"}], children} : Source.Node}
     case _ _: {Authored.compound_directory(field, value, key, label, visual, children) == Authored.compound(key, label, field, visual, children) : Source.Node}
 
-def directory_source(+editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: Identity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {Authored.regular_content(key, label, role, SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.compound_directory(field, value, key, label, visual, content), [Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}]) : Source.Node}
+def directory_source(+capacity: Nat, +editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: Identity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+  {Authored.regular_content(capacity, key, label, role, SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.compound_directory(field, value, key, label, visual, content), [Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}]) : Source.Node}
 
 type Requirements is Type:
   Requirements{
     compound_directory_source: @+field:Forms.Field -> @+value:Forms.Observed -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @+children:+List<Source.Node> -> compound_directory_source(field, value, key, label, visual, children),
-    directory_source: @+editor:User.Editor -> @+field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @+key:Identity.Key -> @label:String -> @role:SurfaceTypes.Role -> @visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> directory_source(editor, field, value, choices, key, label, role, visual, representation, children, parameters, content),
-    object_source: @+key:Identity.Key -> @+object:UXTypes.Object -> @+label:String -> @+visual:Design.Style -> @+content:+List<Source.Node> -> object_source(key, object, label, visual, content),
+    directory_source: @+capacity:Nat -> @+editor:User.Editor -> @+field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @+key:Identity.Key -> @label:String -> @role:SurfaceTypes.Role -> @visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> directory_source(capacity, editor, field, value, choices, key, label, role, visual, representation, children, parameters, content),
+    object_source: @+capacity:Nat -> @+key:Identity.Key -> @+object:UXTypes.Object -> @+label:String -> @+visual:Design.Style -> @+content:+List<Source.Node> -> object_source(capacity, key, object, label, visual, content),
     support_source: @visible:Bool -> @+key:Identity.Key -> @+support:UXTypes.Support -> @+property:UXTypes.Property -> @+label:String -> @+visual:Design.Style -> @+representation:Controls.Representation -> support_source(visible, key, support, property, label, visual, representation),
     typed_action_style: @+key:Identity.Key -> @+action:UXTypes.ActionUnit -> @family:Controls.SourceFamily -> @representation:Controls.Representation -> @+visual:Design.Style -> @typography:T.Presentation -> typed_action_style(key, action, family, representation, visual, typography),
     action_focus_states: @+chrome:Design.Chrome -> @+states:Design.ControlStates -> action_focus_states(chrome, states),
@@ -454,9 +463,9 @@ type Requirements is Type:
     action_source: @+key: Identity.Key -> @+action: UXTypes.ActionUnit -> @+visual: Design.Style -> @+content: +List<Source.Node> -> action_source(key, action, visual, content),
     feedback_source: @+key: Identity.Key -> @+feedback: UXTypes.Feedback -> @+visual: Design.Style -> @+content: +List<Source.Node> -> feedback_source(key, feedback, visual, content),
     aggregate_focus: @+visual:Design.Style -> aggregate_focus(visual),
-    grouped_menu_source: @+key:Identity.Key -> @+tag:Source.BoxTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+content:+List<Source.Node> -> grouped_menu_source(key, tag, style, attributes, content),
-    experience_source: @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+visual:Design.Style -> @+representation:Controls.Representation -> @+children:+List<Authored.Child> -> @+parameters:Design.LayoutParameters -> @+content:+List<Source.Node> -> experience_source(key, label, role, meaning, visual, representation, children, parameters, content),
-    owned_group_source: @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @+attributes:+List<Source.Attribute> -> @+content:+List<Source.Node> -> owned_group_source(key, label, visual, attributes, content),
+    grouped_menu_source: @+capacity:Nat -> @+key:Identity.Key -> @+tag:Source.BoxTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+content:+List<Source.Node> -> grouped_menu_source(capacity, key, tag, style, attributes, content),
+    experience_source: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+visual:Design.Style -> @+representation:Controls.Representation -> @+children:+List<Authored.Child> -> @+parameters:Design.LayoutParameters -> @+content:+List<Source.Node> -> experience_source(capacity, key, label, role, meaning, visual, representation, children, parameters, content),
+    owned_group_source: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @+attributes:+List<Source.Attribute> -> @+content:+List<Source.Node> -> owned_group_source(capacity, key, label, visual, attributes, content),
     property_source: @+editor:User.Editor -> @+field:Forms.Field -> @+key:Identity.Key -> @entry:Forms.Entry -> @observed:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> property_source(editor, field, key, entry, observed, choices),
     subject_source: @+subject:UXTypes.Subject -> subject_source(subject),
     selected_marker: @+selected:Bool -> @+key:Identity.Key -> @+visual:Design.Style -> @+size:Nat -> selected_marker(selected, key, visual, size),
@@ -466,13 +475,13 @@ type Requirements is Type:
     owned_foreground: @+owner:Identity.Key -> @+role:Information.TextRole -> @value:String -> @+visual:Design.Style -> owned_foreground(owner, role, value, visual),
     id_property: @+value:String -> {Source.attribute_properties(Source.IdAttribute{value}) == [Doc.Property{"id", value}] : +List<Doc.Property>},
     owned_information: @+owner:Identity.Key -> @+role:Information.TextRole -> @+value:String -> @+visual:Design.Style -> owned_information(owner, role, value, visual),
-    scalar_information: @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+text_role:Information.TextRole -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> scalar_information(key, label, role, text_role, visual, representation, children, parameters, content),
+    scalar_information: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+text_role:Information.TextRole -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> scalar_information(capacity, key, label, role, text_role, visual, representation, children, parameters, content),
     field_label: @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @field:Source.Node -> field_label(key, label, visual, field),
     option_label: @+key:Identity.Key -> @+label:String -> @description:Maybe<&2, String> -> @+icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> @+visual:Design.Style -> @geometry:Controls.Geometry -> option_label(key, label, description, icon, selected, visual, geometry),
     option_description: @+key:Identity.Key -> @+value:String -> @+visual:Design.Style -> option_description(key, value, visual),
-    group_title: @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> group_title(key, label, role, visual, representation, children, parameters, content),
-    panel_title: @+key:Identity.Key -> @+label:String -> @dismiss:InteractionTypes.Input -> @outside:Bool -> @escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> panel_title(key, label, dismiss, outside, escape, visual, representation, children, parameters, content),
-    dialog_title: @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @children:+List<Authored.Child> -> dialog_title(key, label, visual, children),
+    group_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> group_title(capacity, key, label, role, visual, representation, children, parameters, content),
+    panel_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @dismiss:InteractionTypes.Input -> @outside:Bool -> @escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content),
+    dialog_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @children:+List<Authored.Child> -> dialog_title(capacity, key, label, visual, children),
     visible_label_reference: @+key:Identity.Key -> visible_label_reference(key),
     option_reference: @+key:Identity.Key -> @+label:String -> @+description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> option_reference(key, label, description, icon, selected),
     compound_label: @+key:Identity.Key -> @+label:String -> @field:Forms.Field -> @+visual:Design.Style -> @children:+List<Source.Node> -> compound_label(key, label, field, visual, children),
@@ -482,13 +491,13 @@ type Requirements is Type:
     user_message_width: @+visual:Design.Style -> user_message_width(visual),
     fact_display_value: @+value:String -> fact_display_value(value),
     fact_content: @+key:Identity.Key -> @+label:String -> @+value:String -> @+visual:Design.Style -> fact_content(key, label, value, visual),
-    fact_source_dispatch: @key:Identity.Key -> @label:String -> @role:SurfaceTypes.Role -> @value:String -> @visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> fact_source_dispatch(key, label, role, value, visual, representation, children, parameters, content),
+    fact_source_dispatch: @+capacity:Nat -> @key:Identity.Key -> @label:String -> @role:SurfaceTypes.Role -> @value:String -> @visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> fact_source_dispatch(capacity, key, label, role, value, visual, representation, children, parameters, content),
     native_field_footprint: @+kind:Source.NativeFieldKind -> @+style:Source.ResolvedStyle -> native_field_footprint(kind, style),
     card_regions: @+key:Identity.Key -> @+face:View.CardFace -> @+visual:Design.Style -> @+children:+List<Authored.Child> -> @+representation:Controls.Representation -> @+parameters:Design.LayoutParameters -> @+movable:Bool -> card_regions(key, face, visual, children, representation, parameters, movable),
-    board_group_content_minimum: @key:Identity.Key -> @label:String -> @grouping:SurfaceTypes.BoardGrouping -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> @width:Nat -> @height:Nat -> board_group_content_minimum(key, label, grouping, visual, control, children, parameters, content, width, height),
-    board_group: @key:Identity.Key -> @label:String -> @grouping:SurfaceTypes.BoardGrouping -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> board_group(key, label, grouping, visual, control, children, parameters, content),
+    board_group_content_minimum: @+capacity:Nat -> @key:Identity.Key -> @label:String -> @grouping:SurfaceTypes.BoardGrouping -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> @width:Nat -> @height:Nat -> board_group_content_minimum(capacity, key, label, grouping, visual, control, children, parameters, content, width, height),
+    board_group: @+capacity:Nat -> @key:Identity.Key -> @label:String -> @grouping:SurfaceTypes.BoardGrouping -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> board_group(capacity, key, label, grouping, visual, control, children, parameters, content),
     confined_content_minimum: @width:Nat -> @height:Nat -> confined_content_minimum(width, height),
-    page_region: @key:Identity.Key -> @region:Composition.Region -> @position:Composition.Position -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> page_region(key, region, position, visual, control, children, parameters, content),
+    page_region: @+capacity:Nat -> @key:Identity.Key -> @region:Composition.Region -> @position:Composition.Position -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> page_region(capacity, key, region, position, visual, control, children, parameters, content),
     parameter_calculations: @+capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> parameter_calculations(capacity, scale, height, advance),
     board_controls: @visual:Design.Style -> @position:Composition.Position -> board_controls(visual, position),
     board_stages: @visual:Design.Style -> @position:Composition.Position -> board_stages(visual, position),

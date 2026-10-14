@@ -131,6 +131,8 @@ type Action is Data:
   ConfirmAction{}
 
 type Input is Data:
+  EnterDecision{editor: Editor, field_key: String}
+  LeaveDecision{editor: Editor}
   TogglePropertySource{editor: Editor}
   Activate{action: Action}
   EditDraft{editor: Editor, edit: Edit}

@@ -586,14 +586,14 @@ def Rule.surface_evidence():
           Model.resolve(ProductUI.observe(capacity, state), key, SurfaceTypes.Press{}), Some{input},
           resolve_available(ProductUI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +rest => present =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +decision_field => +rest => present =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded} <> rest,
+        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest,
         Model.layer_present(previous, E.panel_target(panel)), True{}, present)
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +rest => absent =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +decision_field => +rest => absent =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded} <> rest,
+        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest,
         Model.layer_present(previous, E.panel_target(panel)), False{}, absent)
     }
 
