@@ -1,5 +1,6 @@
 import ../document/SOURCE.bend as Source
 import ./NAVIGATION.bend as Navigation
+import ./SIDEBAR.bend as Sidebar
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/presentation/INFORMATION.bend as Information
@@ -1060,7 +1061,7 @@ def binding(representation: Controls.Representation) -> SurfaceTypes.Meaning:
   match representation:
     case Controls.NoControl{}: SurfaceTypes.Region{}
     case Controls.NavigationGroup{depth}: SurfaceTypes.Region{}
-    case Controls.NavigationRow{owner, depth, visible}: SurfaceTypes.Region{}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: SurfaceTypes.Region{}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       SurfaceTypes.Activate{input, availability}
     case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: meaning
@@ -1537,17 +1538,37 @@ type NavigationRequirements is Type:
       {Controls.navigation_depth(Controls.enter(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, context)) == Navigation.descend(meaning, Controls.navigation_depth(context)) : Nat},
     idle_truth: {Controls.task_status_glyph(View.TaskStatus{Domain.Active{}, False{}}) == Controls.IdleCircle{} : Controls.Icon},
     actual_visibility: @+owner:UIIdentity.Key -> @+project:Nat -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
-      {Controls.navigation_header(True{}, owner, project, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
+      {Controls.navigation_header(True{}, owner, project, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)}))), Navigation.feedback_active(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
     exposed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
-      {Authored.slot(key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Authored.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
+      {Sidebar.slot(key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
     concealed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
-      {Authored.slot(key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Authored.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
+      {Sidebar.slot(key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
     title_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:Source.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
-      {Authored.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
+      {Sidebar.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
     title_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> ->
-      {Authored.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Authored.add_attributes(Source.Control{key, tag, Authored.navigation_title_style(style), attributes, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}]) : Source.Node},
+      {Sidebar.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Sidebar.attributes(Source.Control{key, tag, Sidebar.navigation_title_style(style), attributes, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}]) : Source.Node},
     complete_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> -> @+width:Model.AxisSize ->
-      {Authored.sized(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, width) == Source.Control{key, tag, Authored.sized_style(style, width), attributes, name, enabled, first, remaining, children} : Source.Node}}
+      {Sidebar.sized(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, width) == Source.Control{key, tag, Sidebar.sized_style(style, width), attributes, name, enabled, first, remaining, children} : Source.Node}}
 
 law navigation_evidence:
   NavigationRequirements
+
+
+law navigation_entry_selected:
+  @selected:Bool -> {Controls.selected_role(SurfaceTypes.NavigationEntry{selected}) == selected : Bool}
+
+law navigation_caption_secondary:
+  {A.information_secondary(Information.NavigationCaption{}) == True{} : Bool}
+
+
+law navigation_feedback_active:
+  @+hovered:Maybe<&2, String> -> @+focused:Maybe<&2, String> -> @capable:Bool -> @+owner:String -> @+menu:Bool ->
+    {Navigation.feedback_active(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool}
+
+law navigation_fields_project_feedback:
+  @+key:UIIdentity.Key -> @+owner:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+project:Nat -> @selected:Bool -> @expanded:Bool -> @children:+List<SurfaceTypes.Node> -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+    {Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}, depth, attention, layers, fallback) == Controls.navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.part(owner, "actions"))), owner, project, depth, attention, layers, fallback) : Controls.Representation}
+
+law navigation_fields_task_feedback:
+  @+key:UIIdentity.Key -> @task:Nat -> @status:View.TaskStatus -> @selected:Bool -> @family:Controls.SourceFamily -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+    {Controls.navigation_fields(key, SurfaceTypes.TaskRow{task, status, selected}, family, depth, attention, layers, fallback) == Controls.NavigationRow{key, depth, True{}, Navigation.feedback_active(attention, UIIdentity.encode(key), False{})} : Controls.Representation}

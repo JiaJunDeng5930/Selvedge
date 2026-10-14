@@ -1,6 +1,8 @@
 import ../layout/ACTIVITY.bend as Activity
 import ../layout/natural-size.bend as NaturalSize
 import ./NAVIGATION.bend as Navigation
+import ./SIDEBAR.bend as Sidebar
+import ./navigation-proof.bend as NavigationProof
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
 import ../layout/HIERARCHY.bend as Hierarchy
@@ -775,85 +777,39 @@ def navigation_exposure(visible: Bool) -> Source.Exposure:
 
 
 
-def navigation_length(nominal: Nat, visual: Design.Style) -> Nat:
-  Design.Style{T.Presentation{tier, emphasis, scale}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
-  T.scaled(NaturalSize.limit(), nominal, scale)
+def sidebar_entry(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, +entry: Sidebar.Entry) -> Source.Node:
+  Sidebar.constructed_node(Sidebar.construct(key, owner, depth, visual, entry))
 
-def navigation_target(+visual: Design.Style) -> Nat:
-  Nat.max(Activity.supporting_minimum(Activity.initial()), navigation_length(32n, visual))
-
-def navigation_gap(visual: Design.Style) -> Nat:
-  navigation_length(6n, visual)
-
-def indentation(depth: Nat, visual: Design.Style) -> Nat:
-  Design.Style{T.Presentation{tier, emphasis, scale}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
-  Nat.mul(depth, T.scaled(NaturalSize.limit(), 16n, scale))
-
-def sized_style(value: Source.Style, width: Model.AxisSize) -> Source.Style:
-  Source.Style{Source.Layout{direction, main, cross, frame, old_width, height, minimum, scroll, position}, font, chrome, states} = value
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}
-
-def sized(+node: Source.Node, width: Model.AxisSize) -> Source.Node:
-  match node:
-    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, sized_style(style, width), attrs, children}
-    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}: Source.Control{key, tag, sized_style(style, width), attrs, name, enabled, first, remaining, children}
-    case _: node
-
-def row_style_fields(value: Source.Style, gap: Nat) -> Source.Style:
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
-  Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(8n, 4n), Enclosure.EmbeddedContent{gap}}, width, height, minimum, scroll, position}, font, chrome, states}
-
-def row_style(+visual: Design.Style, depth: Nat) -> Source.Style:
-  row_style_fields(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), navigation_gap(visual))
-
-# Conceal only a slot's paint and exposure; its command fields and allocation stay.
-def slot(key: UIIdentity.Key, +name: String, width: Model.AxisSize, visible: Bool, +visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
-  Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ name}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}),
-    [Source.DataAttribute{"navigation-slot", name}, Source.ExposureAttribute{navigation_exposure(visible)}], children}
-
-def navigation_leading(+key: UIIdentity.Key, role: Navigation.ContentRole, depth: Nat, +visual: Design.Style, child: Source.Node) -> Source.Node:
-  +target = navigation_target(visual)
-  +offset = indentation(depth, visual)
-  Source.Box{UIIdentity.part(key, "@leading-position"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{Nat.add(offset, target)}, Model.ExactSize{target}, 0n), Nil{},
-    [Source.Box{UIIdentity.part(key, "@membership-indent"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{offset}, Model.ExactSize{target}, 0n), Nil{}, Nil{}},
-     Source.Box{UIIdentity.part(key, "@leading-target"), Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{target}, Model.ExactSize{target}, 0n), Spatial.Centered{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}], [sized(child, Model.ExactSize{target})]}]}
-
-def navigation_title_style(value: Source.Style) -> Source.Style:
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
-  Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
-
-def navigation_title(node: Source.Node) -> Source.Node:
-  match node:
-    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}:
-      add_attributes(Source.Control{key, tag, navigation_title_style(style), attrs, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}])
-    case _: add_attributes(sized(node, Model.StretchSize{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}])
-
-def navigation_row(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
-  Source.Box{key, Source.Div{}, row_style(visual, depth), [Source.DataAttribute{"navigation-owner", UIIdentity.encode(owner)}, Source.DataAttribute{"navigation-depth", Nat.show(depth)}], children}
+def navigation_project_commands(+key:UIIdentity.Key, +owner:UIIdentity.Key, +depth:Nat, visible:Bool, +visual:Design.Style, toggled:Maybe<&2, Sidebar.Command>, opened:Maybe<&2, Sidebar.Command>, created:Maybe<&2, Sidebar.Command>, mored:Maybe<&2, Sidebar.Command>, fallback:+List<Source.Node>) -> Source.Node:
+  match toggled opened created mored:
+    case Some{toggle} Some{open} Some{create} Some{more}: sidebar_entry(key, owner, depth, visual, Sidebar.ProjectActions{toggle, open, create, more, visible})
+    case _ _ _ _: box(key, Source.Div{}, role_style(visual, SurfaceTypes.Section{}), Nil{}, fallback)
 
 def navigation_project_header(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, visible: Bool, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
   match content:
-    case Con{leading, Con{title, Con{create, Con{more, Nil{}}}}}:
-      navigation_row(key, owner, depth, visual,
-        [navigation_leading(key, Navigation.DisclosureSlot{}, depth, visual, leading),
-         navigation_title(title),
-         slot(key, Navigation.role_name(Navigation.AuxiliarySlot{}), Model.ExactSize{Nat.add(Nat.mul(2n, navigation_target(visual)), navigation_gap(visual))}, visible, visual, [sized(create, Model.ExactSize{navigation_target(visual)}), sized(more, Model.ExactSize{navigation_target(visual)})])])
-    case other: navigation_row(key, owner, depth, visual, other)
+    case Con{+toggle, Con{+open, Con{+create, Con{+more, Nil{}}}}}: navigation_project_commands(key, owner, depth, visible, visual, Sidebar.capture(toggle), Sidebar.capture(open), Sidebar.capture(create), Sidebar.capture(more), [toggle, open, create, more])
+    case other: box(key, Source.Div{}, role_style(visual, SurfaceTypes.Section{}), Nil{}, other)
 
-def navigation_task_row(+key: UIIdentity.Key, owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+def navigation_single_command(+key:UIIdentity.Key, +owner:UIIdentity.Key, +depth:Nat, +visual:Design.Style, captured:Maybe<&2, Sidebar.Command>, status:+List<Source.Node>, fallback:Source.Node) -> Source.Node:
+  match captured:
+    case Some{command}: sidebar_entry(key, owner, depth, visual, Sidebar.SingleAction{command, status})
+    case None{}: fallback
+
+def navigation_task_row(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
   match content:
-    case Con{title, Con{status, Nil{}}}:
-      navigation_row(key, owner, depth, visual,
-        [navigation_leading(key, Navigation.IdentitySlot{}, depth, visual, AuthoredControls.glyph(UIIdentity.part(key, "identity"), Controls.Conversation{}, visual, 16n)),
-         navigation_title(title),
-         slot(key, Navigation.role_name(Navigation.StatusSlot{}), Model.ExactSize{16n}, True{}, visual, [status])])
-    case other: navigation_row(key, owner, depth, visual, other)
+    case Con{+primary, Con{+status, Nil{}}}: navigation_single_command(key, owner, depth, visual, Sidebar.capture(primary), [status], box(key, Source.Div{}, role_style(visual, SurfaceTypes.Section{}), Nil{}, [primary, status]))
+    case other: box(key, Source.Div{}, role_style(visual, SurfaceTypes.Section{}), Nil{}, other)
 
-def navigation_group(+key: UIIdentity.Key, depth: Nat, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
-  match content:
-    case Nil{}: box(key, Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 4n), [Source.DataAttribute{"navigation-depth", Nat.show(depth)}], Nil{})
-    case Con{header, tasks}: box(key, Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 4n), [Source.DataAttribute{"navigation-depth", Nat.show(depth)}], header <> [box(UIIdentity.part(key, "children"), Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 4n), [Source.DataAttribute{"navigation-members", UIIdentity.encode(key)}], tasks)])
+def sidebar_collection(+key:UIIdentity.Key, +kind:Sidebar.CollectionKind, +visual:Design.Style, +content:+List<Source.Node>) -> Source.Node:
+  Sidebar.constructed_collection_node(Sidebar.construct_collection(Sidebar.CollectionRequest{key, kind, visual, content}))
 
+def navigation_section(+key:UIIdentity.Key, +visual:Design.Style, +children:+List<Child>) -> Source.Node:
+  match children:
+    case Con{Child{caption_key, caption_role, SurfaceTypes.InformationText{Information.NavigationCaption{}}, caption_control, caption_nodes}, rest}: sidebar_collection(key, Sidebar.Section{}, visual, List.append(&2, Source.Node, ordinary(caption_nodes), ordinary(all_nodes(rest))))
+    case other: sidebar_collection(key, Sidebar.Members{}, visual, ordinary(all_nodes(other)))
+
+def navigation_group(+key: UIIdentity.Key, depth: Nat, visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  add_attributes(sidebar_collection(key, Sidebar.Section{}, visual, content), [Source.DataAttribute{"navigation-depth", Nat.show(depth)}])
 
 def navigation_row_meaning(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key, owner: UIIdentity.Key, +depth: Nat, visible: Bool, +visual: Design.Style, +children: +List<Child>) -> Source.Node:
   match meaning:
@@ -874,13 +830,18 @@ def regular_plain(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role
 def regular_navigation(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
     case Controls.NavigationGroup{depth}: navigation_group_meaning(meaning, key, depth, visual, ordinary(all_nodes(children)))
-    case Controls.NavigationRow{owner, depth, visible}: navigation_row_meaning(meaning, key, owner, depth, visible, visual, children)
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: navigation_row_meaning(meaning, key, owner, depth, visible, visual, children)
     case _: regular_plain(key, label, role, meaning, visual, representation, children, parameters)
 
 
 
 def regular(+key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
+    case SurfaceTypes.NavigationEntry{selected}:
+      +primary = button_source(key, visual, representation)
+      navigation_single_command(UIIdentity.part(key, "@navigation-entry"), key, 0n, visual, Sidebar.capture(primary), Nil{}, primary)
+    case SurfaceTypes.NavigationCollection{}: sidebar_collection(key, Sidebar.Collection{}, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.NavigationSection{}: navigation_section(key, visual, children)
     case SurfaceTypes.Section{}: regular_navigation(key, label, role, meaning, visual, representation, children, parameters)
     case _: regular_plain(key, label, role, meaning, visual, representation, children, parameters)
 

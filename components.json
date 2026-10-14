@@ -19,6 +19,13 @@
       "constructors": {
         "construct_recovery": "recovery_constructor_correspondence"
       }
+    },
+    "browser/controls/navigation-proof.bend": {
+      "contract": "browser/controls/SIDEBAR.bend",
+      "constructors": {
+        "construct": "constructor_correspondence",
+        "construct_collection": "collection_constructor_correspondence"
+      }
     }
   },
   "core_modules": [
@@ -248,7 +255,8 @@
       "browser/appearance/FONT.bend",
       "browser/appearance/PROGRAM.bend",
       "browser/document/MODEL.bend",
-      "interaction/experience/MODEL.bend"
+      "interaction/experience/MODEL.bend",
+      "interaction/presentation/INFORMATION.bend"
     ],
     "browser/appearance/DESIGN.bend": [
       "browser/layout/natural-size.bend",
@@ -284,7 +292,8 @@
       "interaction/presentation/COMPOSITION.bend",
       "interaction/presentation/SURFACE.bend",
       "interaction/TYPES.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "interaction/presentation/INFORMATION.bend"
     ],
     "browser/appearance/PROOF.bend": [
       "browser/layout/geometry-proof.bend",
@@ -375,7 +384,8 @@
       "browser/appearance/PROGRAM.bend",
       "browser/editor/MODEL.bend",
       "browser/layout/ACTIVITY.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "browser/controls/SIDEBAR.bend"
     ],
     "browser/controls/CONTROLS.bend": [
       "interaction/experience/PROGRAM.bend",
@@ -445,7 +455,9 @@
       "interaction/presentation/VIEW.bend",
       "browser/layout/natural-size.bend",
       "browser/controls/NAVIGATION.bend",
-      "browser/layout/ACTIVITY.bend"
+      "browser/layout/ACTIVITY.bend",
+      "browser/controls/SIDEBAR.bend",
+      "browser/controls/navigation-proof.bend"
     ],
     "browser/controls/PROGRAM.bend": [
       "browser/layout/ACTIVITY.bend",
@@ -520,7 +532,8 @@
       "interaction/TYPES.bend",
       "interaction/presentation/SURFACE.bend",
       "interaction/presentation/VIEW.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "browser/controls/navigation-proof.bend"
     ],
     "browser/controls/SHELL.bend": [
       "browser/document/presentation-order.bend",
@@ -2886,6 +2899,32 @@
       "interaction/IDENTITY.bend",
       "interaction/presentation/SURFACE.bend",
       "interaction/presentation/MODEL.bend"
+    ],
+    "browser/controls/SIDEBAR.bend": [
+      "bendlib/categories.bend",
+      "interaction/IDENTITY.bend",
+      "interaction/presentation/INFORMATION.bend",
+      "browser/document/SOURCE.bend",
+      "browser/document/MODEL.bend",
+      "browser/appearance/DESIGN.bend",
+      "browser/appearance/TYPOGRAPHY.bend",
+      "browser/layout/ACTIVITY.bend",
+      "browser/layout/natural-size.bend",
+      "browser/layout/HIERARCHY.bend",
+      "browser/layout/physical-space.bend",
+      "browser/layout/GEOMETRY.bend",
+      "browser/layout/enclosure.bend",
+      "browser/controls/PROGRAM.bend",
+      "browser/controls/CONTROLS.bend",
+      "browser/controls/authored-primitives.bend",
+      "browser/controls/NAVIGATION.bend"
+    ],
+    "browser/controls/navigation-proof.bend": [
+      "interaction/IDENTITY.bend",
+      "browser/appearance/DESIGN.bend",
+      "browser/document/SOURCE.bend",
+      "bendlib/categories.bend",
+      "browser/controls/SIDEBAR.bend"
     ]
   },
   "feature_alphabet": "harness/features/MODEL.bend",

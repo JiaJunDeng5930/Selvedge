@@ -27,6 +27,9 @@ def member_inset(grammar: Grammar) -> Nat:
 def member_frame(+grammar: Grammar) -> E.Frame:
   E.Frame{E.ambient(member_inset(grammar), 0n), E.EmbeddedContent{member_gap(grammar)}}
 
+def flat_member_frame(grammar: Grammar) -> E.Frame:
+  E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{member_gap(grammar)}}
+
 def heading_frame(grammar: Grammar) -> E.Frame:
   E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{heading_gap(grammar)}}
 

@@ -179,6 +179,9 @@ def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation
 def region_geometry(role: SurfaceTypes.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match role:
     case SurfaceTypes.Navigation{}: bounded_dialog(key, found, viewport)
+    case SurfaceTypes.NavigationEntry{selected}: Nil{}
+    case SurfaceTypes.NavigationCollection{}: Nil{}
+    case SurfaceTypes.NavigationSection{}: Nil{}
     case SurfaceTypes.NavigationHeader{}: bounded_dialog(key, found, viewport)
     case SurfaceTypes.Main{}: bounded_dialog(key, found, viewport)
     case SurfaceTypes.Composer{}: bounded_dialog(key, found, viewport)

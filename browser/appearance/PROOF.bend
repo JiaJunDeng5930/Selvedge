@@ -481,3 +481,25 @@ def Rule.evidence():
     +typography => meaning => {==}}
 
 def Rule.property_glyph_minimum(property, text, geometry): {==}
+
+
+def Rule.navigation_caption_typography(scale): {==}
+
+def Rule.navigation_caption_assignment(inherited, in_main, start):
+  T.Presentation{tier, emphasis, scale} = inherited
+  {==}
+
+def Rule.navigation_entry_style(selected, meaning, typography): {==}
+
+
+def Rule.project_feedback_preserves_fields(text, foreground, old_background, border, border_width, radius, shadow, alignment, flow, overflow, frame, minimum, maximum, states, background): {==}
+
+def resolved_feedback_background(+value:Design.Style, +background:Design.Paint) ->
+  {Appearance.style_background(Appearance.resolved_feedback_chrome(value, background)) == background : Design.Paint}:
+  Design.Style{text, Design.Chrome{foreground, old_background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  {==}
+
+def Rule.project_feedback_final_background(key, context, owner, depth, visible, active, value, typography):
+  resolved_feedback_background(
+    Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography),
+    Appearance.phase_background(Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography), Appearance.feedback_phase(active)))

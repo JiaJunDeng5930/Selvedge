@@ -1,4 +1,5 @@
 import Base
+import ../../interaction/presentation/INFORMATION.bend as Information
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/GEOMETRY.bend as SpatialModel
 import ./TYPOGRAPHY.bend as T
@@ -460,3 +461,22 @@ law property_glyph_minimum:
   for text: T.Presentation
   for +geometry: Controls.Geometry
   {Appearance.intrinsic_content_height(Controls.PropertyFace{property}, text, geometry) == Appearance.geometry_icon_size(geometry) : Nat}
+
+
+law navigation_caption_typography:
+  @+scale:T.Scale -> {T.information_role(Information.NavigationCaption{}, scale) == T.Presentation{T.Support{}, T.Regular{}, scale} : T.Presentation}
+
+law navigation_caption_assignment:
+  @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool -> {Appearance.information_role(SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, inherited, in_main, start) == T.Presentation{T.Support{}, T.Regular{}, T.presentation_scale(inherited)} : T.Presentation}
+
+law navigation_entry_style:
+  @+selected:Bool -> @meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> {Appearance.style(SurfaceTypes.NavigationEntry{selected}, meaning, typography) == Appearance.navigation_family_style(selected, 6n, 5n, typography) : Design.Style}
+
+
+law project_feedback_preserves_fields:
+  @+text:T.Presentation -> @+foreground:Design.Paint -> @old_background:Design.Paint -> @+border:Design.Paint -> @+border_width:Nat -> @+radius:Nat -> @+shadow:Bool -> @+alignment:SpatialModel.Alignment -> @+flow:SpatialModel.Flow -> @+overflow:SpatialModel.Overflow -> @+frame:Enclosure.Frame -> @+minimum:Nat -> @+maximum:Nat -> @+states:Design.ControlStates -> @+background:Design.Paint ->
+    {Appearance.resolved_feedback_chrome(Design.Style{text, Design.Chrome{foreground, old_background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}, background) == Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} : Design.Style}
+
+law project_feedback_final_background:
+  @+key:UIIdentity.Key -> @+context:Controls.Context -> @+owner:UIIdentity.Key -> @+depth:Nat -> @+visible:Bool -> @+active:Bool -> @+value:Design.Style -> @+typography:T.Presentation ->
+    {Appearance.style_background(Appearance.final_style(key, SurfaceTypes.Region{}, context, Controls.NavigationRow{owner, depth, visible, active}, value, typography)) == Appearance.phase_background(Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography), Appearance.feedback_phase(active)) : Design.Paint}

@@ -256,6 +256,7 @@ def information_role(+role: Information.TextRole, scale: Scale) -> Presentation:
     case Information.IntroductionTitle{}: Presentation{Display{}, Strong{}, scale}
     case Information.SurfaceTitle{}: Presentation{Title{}, Medium{}, scale}
     case Information.GroupTitle{}: Presentation{Section{}, Strong{}, scale}
+    case Information.NavigationCaption{}: Presentation{Support{}, Regular{}, scale}
     case Information.FieldLabel{}: Presentation{Body{}, Medium{}, scale}
     case Information.FieldValue{}: Presentation{Body{}, Regular{}, scale}
     case Information.OptionLabel{}: Presentation{Body{}, Medium{}, scale}

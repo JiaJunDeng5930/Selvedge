@@ -119,6 +119,7 @@ def required_information_font_role(+role: Information.TextRole, scale: T.Scale) 
     case Information.IntroductionTitle{}: T.Presentation{T.Display{}, T.Strong{}, scale}
     case Information.SurfaceTitle{}: T.Presentation{T.Title{}, T.Medium{}, scale}
     case Information.GroupTitle{}: T.Presentation{T.Section{}, T.Strong{}, scale}
+    case Information.NavigationCaption{}: T.Presentation{T.Support{}, T.Regular{}, scale}
     case Information.FieldLabel{}: T.Presentation{T.Body{}, T.Medium{}, scale}
     case Information.FieldValue{}: T.Presentation{T.Body{}, T.Regular{}, scale}
     case Information.OptionLabel{}: T.Presentation{T.Body{}, T.Medium{}, scale}
@@ -162,6 +163,7 @@ def parent_foreground(visual: Design.Style) -> Design.Paint:
 
 def required_foreground(role: Information.TextRole, visual: Design.Style) -> Design.Paint:
   match role:
+    case Information.NavigationCaption{}: Design.TextForeground{Surfaces.SecondaryText{}}
     case Information.Description{}: Design.TextForeground{Surfaces.SecondaryText{}}
     case Information.Status{}: Design.TextForeground{Surfaces.SecondaryText{}}
     case _: parent_foreground(visual)

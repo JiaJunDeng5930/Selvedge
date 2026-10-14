@@ -241,7 +241,7 @@ type MovableControl is Data:
 type Representation is Data:
   NoControl{}
   NavigationGroup{depth: Nat}
-  NavigationRow{owner: UIIdentity.Key, depth: Nat, auxiliary_visible: Bool}
+  NavigationRow{owner: UIIdentity.Key, depth: Nat, auxiliary_visible: Bool, feedback_active: Bool}
   Action{button: Button}
   Input{input: FormInput}
   # The grip opens the same destination list for keyboard users that supplies
@@ -694,6 +694,7 @@ def contextual_behavior(purpose: Purpose, selected: Bool, area: Area) -> Behavio
 def selected_role(role: SurfaceTypes.Role) -> Bool:
   match role:
     case SurfaceTypes.SelectedButton{}: True{}
+    case SurfaceTypes.NavigationEntry{selected}: selected
     case _: False{}
 
 def name_for(purpose: Purpose, label: String) -> String:
@@ -1228,15 +1229,17 @@ def with_navigation(context: Context, value: Navigation.Attention) -> Context:
   Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context
   Context{area, selection, code, appearance, access, open, layers, execution, family, form, value, depth}
 
-def navigation_header(matches: Bool, +owner: UIIdentity.Key, +project: Nat, depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
+def navigation_header(matches: Bool, +owner: UIIdentity.Key, +project: Nat, depth: Nat, +attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
   match matches:
     case False{}: fallback
-    case True{}: NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))}
+    case True{}:
+      +menu = Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)}))
+      NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), menu), Navigation.feedback_active(attention, UIIdentity.encode(owner), menu)}
 
 def navigation_fields(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: SourceFamily, +depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
   match meaning family:
     case SurfaceTypes.ProjectGroup{project, selected, expanded} _: NavigationGroup{Nat.sub(depth, 1n)}
-    case SurfaceTypes.TaskRow{task, status, selected} _: NavigationRow{key, depth, True{}}
+    case SurfaceTypes.TaskRow{task, status, selected} _: NavigationRow{key, depth, True{}, Navigation.feedback_active(attention, UIIdentity.encode(key), False{})}
     case SurfaceTypes.Region{} SourceFamily{SurfaceTypes.Node{+owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}:
       navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers, fallback)
     case _ _: fallback
@@ -1259,6 +1262,6 @@ def navigation_depth(context: Context) -> Nat:
 def represent(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, +role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: NavigationGroup{Nat.sub(navigation_depth(context), 1n)}
-    case SurfaceTypes.TaskRow{task, status, selected}: NavigationRow{key, navigation_depth(context), True{}}
+    case SurfaceTypes.TaskRow{task, status, selected}: NavigationRow{key, navigation_depth(context), True{}, Navigation.feedback_active(navigation_attention(context), UIIdentity.encode(key), False{})}
     case SurfaceTypes.Region{}: navigation_representation(key, SurfaceTypes.Region{}, context, NoControl{})
     case _: represent_plain(key, meaning, label, role, context)

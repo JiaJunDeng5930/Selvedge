@@ -54,6 +54,10 @@ def menu_owned(layers: +List<View.Layer>, +create: String, +more: String) -> Boo
     case Con{View.Layer{kind, content, initial, +trigger, dismissal}, rest}:
       String.eq(trigger, create) || String.eq(trigger, more) || menu_owned(rest, create, more)
 
+def feedback_active(attention: Attention, +owner: String, menu: Bool) -> Bool:
+  Attention{hovered, focused, capable} = attention
+  owns(hovered, owner) || owns(focused, owner) || menu
+
 def revealed(attention: Attention, +owner: String, menu: Bool) -> Bool:
   Attention{hovered, focused, capable} = attention
   Bool.not(capable) || owns(hovered, owner) || owns(focused, owner) || menu

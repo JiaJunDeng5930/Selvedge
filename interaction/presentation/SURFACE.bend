@@ -18,6 +18,9 @@ import ../TYPES.bend as InteractionTypes
 type Role is Data:
   Navigation{}
   NavigationHeader{}
+  NavigationEntry{selected: Bool}
+  NavigationCollection{}
+  NavigationSection{}
   Main{}
   Heading{}
   PrimaryButton{}

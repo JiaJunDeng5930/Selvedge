@@ -3,6 +3,7 @@ type TextRole is Data:
   IntroductionTitle{}
   SurfaceTitle{}
   GroupTitle{}
+  NavigationCaption{}
   FieldLabel{}
   FieldValue{}
   OptionLabel{}
@@ -14,6 +15,7 @@ def name(role: TextRole) -> String:
     case IntroductionTitle{}: "introduction-title"
     case SurfaceTitle{}: "surface-title"
     case GroupTitle{}: "group-title"
+    case NavigationCaption{}: "navigation-caption"
     case FieldLabel{}: "field-label"
     case FieldValue{}: "field-value"
     case OptionLabel{}: "option-label"

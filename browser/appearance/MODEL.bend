@@ -1,6 +1,7 @@
 import ../controls/NAVIGATION.bend as Navigation
 import ../layout/ACTIVITY.bend as Activity
 import Base
+import ../../interaction/presentation/INFORMATION.bend as Information
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/GEOMETRY.bend as SpatialModel
 import ../layout/enclosure.bend as Enclosure
@@ -246,6 +247,13 @@ def field_style(meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> D
       normalize_field(EditorLayout.field_kind(meaning), Controls.widget_for(entry, field, value), widget_field_style(Controls.widget_for(entry, field, value), entry, typography))
     case _: editable_field(typography)
 
+def navigation_family_style(selected: Bool, gap: Nat, radius: Nat, +typography: T.Presentation) -> Design.Style:
+  +role: Surfaces.Role = Surfaces.Choice{selected}
+  +foreground: Design.Paint = Design.TextForeground{Surfaces.PrimaryText{}}
+  with_content_area(fields(T.with_tier(typography, T.Support{}), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
+    SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
+    Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
+
 def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Design.Style:
   match role:
     case SurfaceTypes.Navigation{}:
@@ -253,6 +261,9 @@ def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T
         surface(Surfaces.Navigation{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 8n, 8n, 4n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{})), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
+    case SurfaceTypes.NavigationEntry{selected}: navigation_family_style(selected, 6n, 5n, typography)
+    case SurfaceTypes.NavigationCollection{}: base_style(typography)
+    case SurfaceTypes.NavigationSection{}: base_style(typography)
     case SurfaceTypes.NavigationHeader{}:
       fields(typography, base_chrome(),
         SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 4n, 8n,
@@ -443,13 +454,6 @@ def modeled_container(value: Design.Style, flow: SpatialModel.Flow, gap: Nat) ->
   Design.Style{text, chrome, alignment, old_flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
   Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content, Enclosure.EmbeddedContent{gap}}, minimum, maximum, states}
 
-def navigation_family_style(selected: Bool, gap: Nat, radius: Nat, +typography: T.Presentation) -> Design.Style:
-  +role: Surfaces.Role = Surfaces.Choice{selected}
-  +foreground: Design.Paint = Design.TextForeground{Surfaces.PrimaryText{}}
-  with_content_area(fields(T.with_tier(typography, T.Support{}), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
-    SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
-    Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
-
 def embedded_control(value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
   +chrome = chrome(foreground, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, radius, shadow)
@@ -514,6 +518,7 @@ def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Co
     case SurfaceTypes.BoardLane{stage, count}: lane_style(value)
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: project_group_style(typography)
     case SurfaceTypes.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
+    case SurfaceTypes.InformationText{Information.NavigationCaption{}}: fields(T.information_role(Information.NavigationCaption{}, T.presentation_scale(typography)), chrome(Design.TextForeground{Surfaces.SecondaryText{}}, transparent(), transparent(), 0n, 0n, False{}), SpatialModel.Leading{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, T.scaled(NaturalSize.limit(), 8n, T.presentation_scale(typography)), 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
     case SurfaceTypes.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
@@ -545,9 +550,24 @@ def source_action_style(meaning: SurfaceTypes.Meaning, context: Controls.Context
     case SurfaceTypes.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case _: value
 
+def feedback_phase(active:Bool) -> Surfaces.Phase:
+  match active:
+    case True{}: Surfaces.Hovered{}
+    case False{}: Surfaces.Rest{}
+
+def resolved_feedback_chrome(value:Design.Style, background:Design.Paint) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, old_background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}
+
+# NOTE: Project headers are regions; native-control state channels alone cannot paint their whole row.
+def project_row_feedback(meaning:SurfaceTypes.Meaning, representation:Controls.Representation, +value:Design.Style) -> Design.Style:
+  match meaning representation:
+    case SurfaceTypes.Region{} Controls.NavigationRow{owner, depth, visible, active}: resolved_feedback_chrome(value, phase_background(value, feedback_phase(active)))
+    case _ _: value
+
 def final_style(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   +family_style_value = family_style(key, meaning, Controls.source_reference(context), representation, value, typography)
-  source_action_style(meaning, context, representation, family_style_value)
+  source_action_style(meaning, context, representation, project_row_feedback(meaning, representation, family_style_value))
 
 def start_page(content: InteractionTypes.Scene) -> Bool:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -575,6 +595,8 @@ def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Mean
   match role meaning:
     case SurfaceTypes.Navigation{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.NavigationHeader{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case SurfaceTypes.NavigationEntry{selected} _: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case _ SurfaceTypes.InformationText{Information.NavigationCaption{}}: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.Heading{} _: T.Presentation{heading_tier(in_main, start), T.Medium{}, scale}
     case SurfaceTypes.Activity{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.UserMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}

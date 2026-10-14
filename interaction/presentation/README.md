@@ -47,3 +47,11 @@ placement through its authored assembly obligations.
 Navigation distinguishes project membership from the collection of tasks without
 a project. Project members remain children of their project group; independent
 tasks retain their existing task identities inside a separately titled collection.
+`navigation_declaration` retains each resolved declaration's identity, meaning and
+availability while assigning `NavigationEntry` its route-derived selection.
+`navigation_contents` assembles these destinations in a `NavigationSection` and
+places navigation groups in a `NavigationCollection`; the header toggle remains
+outside that collection. The independent-task section uses `NavigationCaption`
+and preserves the original task parents, so its title does not introduce project
+membership. `ProjectInteractionRequirements` binds these complete production
+constructions, including empty independent-task collections and collapsed navigation.

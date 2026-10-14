@@ -533,6 +533,11 @@ law hierarchy_heading_frame:
   {Hierarchy.heading_frame(grammar) == E.Frame{E.ambient(0n, 0n),
     E.EmbeddedContent{Hierarchy.heading_gap(grammar)}} : E.Frame}
 
+law hierarchy_flat_member_frame:
+  for +grammar: Hierarchy.Grammar
+  {Hierarchy.flat_member_frame(grammar) == E.Frame{E.ambient(0n, 0n),
+    E.EmbeddedContent{Hierarchy.member_gap(grammar)}} : E.Frame}
+
 law hierarchy_grouped_frame:
   for +grammar: Hierarchy.Grammar
   for +area: E.ContentArea

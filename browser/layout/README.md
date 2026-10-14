@@ -12,6 +12,8 @@ Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend) and
 [HIERARCHY.bend](HIERARCHY.bend) constructs frames for members, headings and
 separate groups. Its production geometry evidence is part of
 [geometry-proof.bend](geometry-proof.bend).
+Its flat member frame keeps same-level member spacing without adding physical
+indentation; the nested member frame retains the owning hierarchy's inset.
 
 [ADAPTATION.bend](ADAPTATION.bend) observes the actual allocated inner width of
 identified regions; [adaptation-proof.bend](adaptation-proof.bend) binds its

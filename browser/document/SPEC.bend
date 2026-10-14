@@ -48,6 +48,9 @@ def reachable_toolbar(found: Maybe<&2, Rendered.Element>) -> Bool:
 def region_geometry_valid(role: SurfaceTypes.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   match role:
     case SurfaceTypes.Navigation{}: bounded_region(found, viewport)
+    case SurfaceTypes.NavigationEntry{selected}: True{}
+    case SurfaceTypes.NavigationCollection{}: True{}
+    case SurfaceTypes.NavigationSection{}: True{}
     case SurfaceTypes.NavigationHeader{}: bounded_region(found, viewport)
     case SurfaceTypes.Main{}: bounded_region(found, viewport)
     case SurfaceTypes.Heading{}: True{}

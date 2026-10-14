@@ -1333,4 +1333,6 @@ def Rule.hierarchy_member_frame(grammar): {==}
 
 def Rule.hierarchy_heading_frame(grammar): {==}
 
+def Rule.hierarchy_flat_member_frame(grammar): {==}
+
 def Rule.hierarchy_grouped_frame(grammar, area): {==}

@@ -106,6 +106,10 @@ def owned_information(+owner: UIIdentity.Key, +role: Information.TextRole, +valu
       Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       T.Presentation{tier, emphasis, scale} = text
       {==}
+    case Information.NavigationCaption{}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      T.Presentation{tier, emphasis, scale} = text
+      {==}
     case Information.Description{}:
       Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       T.Presentation{tier, emphasis, scale} = text
@@ -221,6 +225,9 @@ def owned_alignment(+owner: UIIdentity.Key, +role: Information.TextRole, value: 
     case Information.OptionLabel{}:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
+    case Information.NavigationCaption{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
     case Information.Description{}:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
@@ -256,6 +263,9 @@ def owned_width(owner: UIIdentity.Key, role: Information.TextRole, value: String
     case Information.OptionLabel{}:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
+    case Information.NavigationCaption{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
     case Information.Description{}:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
@@ -281,6 +291,9 @@ def owned_foreground(+owner: UIIdentity.Key, +role: Information.TextRole, value:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
     case Information.OptionLabel{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
+      {==}
+    case Information.NavigationCaption{}:
       Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = visual
       {==}
     case Information.Description{}:

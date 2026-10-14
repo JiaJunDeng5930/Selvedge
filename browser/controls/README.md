@@ -100,8 +100,16 @@ chevrons keep their authored dimensions.
 [NAVIGATION.bend](NAVIGATION.bend) owns transient row attention, exact owner
 admission, menu ownership and navigation content roles. `PROGRAM.Context` carries
 that vocabulary and derives descendant depth when entering a project group.
-Authored rows and slots remain in `MODEL`; keeping their source and design types
-out of the policy entry avoids a dependency cycle through `PROGRAM`.
+`PROGRAM.NavigationRow` carries independent auxiliary exposure and owner feedback
+values; the latter excludes the always-visible auxiliary rule for touch devices.
+[SIDEBAR.bend](SIDEBAR.bend) owns authored rows, slots and hierarchy collections.
+`MODEL` loads [navigation-proof.bend](navigation-proof.bend) before consuming
+`construct` and `construct_collection`; the policy entry remains independent of
+source and design types to avoid a dependency cycle through `PROGRAM`.
+Its observation predicates bind complete source correspondence, original native
+command fields, full row allocation and shared leading, caption and trailing axes
+to the actual constructors. `SingleAction` carries one captured native command;
+`ProjectActions` retains the four independently captured project commands.
 `CONTRACT.NavigationRequirements` binds the production context, exposure and
 command-preservation calculations; `PROOF` supplies its provider.
 

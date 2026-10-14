@@ -127,6 +127,7 @@ def information_secondary(role: Information.TextRole) -> Bool:
   match role:
     case Information.Description{}: True{}
     case Information.Status{}: True{}
+    case Information.NavigationCaption{}: True{}
     case _: False{}
 
 def information_foreground(secondary: Bool, style: Source.Style) -> Source.Style:

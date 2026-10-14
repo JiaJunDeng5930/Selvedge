@@ -1,4 +1,5 @@
 import ./NAVIGATION.bend as Navigation
+import ./navigation-proof.bend as NavigationEvidence
 import ../../interaction/services/CONTEXT.bend as Workspace
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
@@ -81,7 +82,7 @@ def source_action_retains_binding(area: Controls.Area, family: Controls.SourceFa
       presented_action_retains_binding(input, availability, name, Controls.source_presentation(area, family, input, name, face, behavior, geometry), placement, feedback)
     case Controls.NoControl{}: {==}
     case Controls.NavigationGroup{depth}: {==}
-    case Controls.NavigationRow{owner, depth, visible}: {==}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: {==}
     case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: {==}
     case Controls.Movable{Controls.MovableControl{destinations, face, name, handle, geometry}}: {==}
 
@@ -103,7 +104,7 @@ def supporting_fields_retains_binding(+property: UXTypes.Property, area: Control
     case Controls.Movable{value}: {==}
     case Controls.NoControl{}: {==}
     case Controls.NavigationGroup{depth}: {==}
-    case Controls.NavigationRow{owner, depth, visible}: {==}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: {==}
 
 def supporting_fields_at_retains_binding(+form: Controls.SupportingForm, +property: UXTypes.Property, area: Controls.Area, +value: Controls.Representation) ->
   {Rule.binding(Controls.supporting_fields_at(form, property, area, value)) == Rule.binding(value) : SurfaceTypes.Meaning}:
@@ -116,7 +117,7 @@ def supporting_fields_at_retains_binding(+form: Controls.SupportingForm, +proper
     case Controls.CompactSupporting{} Controls.Movable{value}: {==}
     case Controls.CompactSupporting{} Controls.NoControl{}: {==}
     case Controls.CompactSupporting{} Controls.NavigationGroup{depth}: {==}
-    case Controls.CompactSupporting{} Controls.NavigationRow{owner, depth, visible}: {==}
+    case Controls.CompactSupporting{} Controls.NavigationRow{owner, depth, visible, feedback_active}: {==}
 
 def make_support_retains_binding(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +input: InteractionTypes.Input, +availability: View.Availability, +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) ->
   {Rule.binding(Controls.make_support_visible(visible, key, support, property, input, availability, label, role, context)) == Rule.source_support_binding(visible, input, availability) : SurfaceTypes.Meaning}:
@@ -1126,6 +1127,9 @@ def settings_classification(+node: Source.Node, +role: SurfaceTypes.Role, +navig
   match role:
     case SurfaceTypes.Main{}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.Main{}, navigation, main, settings, other), belongs)
     case SurfaceTypes.Navigation{}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.Navigation{}, navigation, main, settings, other), belongs)
+    case SurfaceTypes.NavigationEntry{selected}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.NavigationCollection{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.NavigationSection{}: settings_group_found(node, navigation, main, settings, other, identified)
     case SurfaceTypes.NavigationHeader{}: settings_group_found(node, navigation, main, settings, other, identified)
     case SurfaceTypes.Heading{}: settings_group_found(node, navigation, main, settings, other, identified)
     case SurfaceTypes.PrimaryButton{}: settings_group_found(node, navigation, main, settings, other, identified)
@@ -1524,3 +1528,15 @@ def Rule.navigation_evidence():
     direction => main => cross => frame => width => height => minimum => scroll => position => font => chrome => states => {==},
     +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => {==},
     +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => +width => {==}}
+
+
+def Rule.navigation_entry_selected(selected): {==}
+
+def Rule.navigation_caption_secondary(): {==}
+
+
+def Rule.navigation_feedback_active(hovered, focused, capable, owner, menu): {==}
+
+def Rule.navigation_fields_project_feedback(key, owner, semantic, label, role, project, selected, expanded, children, depth, attention, layers, fallback): {==}
+
+def Rule.navigation_fields_task_feedback(key, task, status, selected, family, depth, attention, layers, fallback): {==}

@@ -194,25 +194,34 @@ def selected_declaration(+route: U.Route, +parent: Identity.Key, declaration: V.
   V.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
   selected_node(navigation_action_selected(route, input), declared(parent, declaration, state))
 
-def selected_controls(+route: U.Route, +values: +List<V.ControlDeclaration>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def navigation_declaration(+route: U.Route, +parent: Identity.Key, +declaration: V.ControlDeclaration, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
+  replace_role(selected_declaration(route, parent, declaration, state), SurfaceTypes.NavigationEntry{navigation_action_selected(route, input)})
+
+def navigation_controls(+route: U.Route, +values: +List<V.ControlDeclaration>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{value, rest}: selected_declaration(route, parent, value, state) <> selected_controls(route, rest, parent, state)
+    case Con{value, rest}: navigation_declaration(route, parent, value, state) <> navigation_controls(route, rest, parent, state)
+
+def navigation_destinations(+route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "destinations"}, "navigation-destinations", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
+    navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)}
 
 def independent_task_entries(tasks: +List<V.TaskEntry>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match tasks:
     case Nil{}: Nil{}
     case Con{first, rest}:
-      [region(parent, "independent-tasks", "", SurfaceTypes.Section{},
-        SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.GroupTitle{}}, Nil{}} <>
+      [region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
+        SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
         task_entries(Con{first, rest}, parent, state))]
 
 def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskEntry>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match expanded:
     case False{}: Nil{}
     case True{}:
-      selected_declaration(route, Identity.Place{"/navigation"}, create, state) <> List.append(&2, SurfaceTypes.Node, selected_controls(route, destinations, Identity.Place{"/navigation"}, state),
-        List.append(&2, SurfaceTypes.Node, project_entries(projects, Identity.Place{"/navigation"}, state), independent_task_entries(tasks, Identity.Place{"/navigation"}, state)))
+      [SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "contents"}, "navigation-content", "", SurfaceTypes.NavigationCollection{}, SurfaceTypes.Region{},
+        navigation_destinations(route, create, destinations, state) <> List.append(&2, SurfaceTypes.Node,
+          project_entries(projects, Identity.Place{"/navigation"}, state), independent_task_entries(tasks, Identity.Place{"/navigation"}, state))}]
 
 def navigation(view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTypes.Node:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view

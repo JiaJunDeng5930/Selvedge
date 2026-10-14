@@ -1035,16 +1035,33 @@ type ProjectInteractionRequirements is Type:
         [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}})],
         View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_entries(View.project_tasks(Commands.entries(world), None{}), route),
         V.ControlDeclaration{"navigation/toggle", "Toggle sidebar", V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
+    navigation_entry_fields: @+key:Identity.Key -> @+semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+selected:Bool ->
+      {Model.replace_role(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, SurfaceTypes.NavigationEntry{selected}) ==
+        SurfaceTypes.Node{key, semantic, label, SurfaceTypes.NavigationEntry{selected}, meaning, children} : SurfaceTypes.Node},
+    navigation_declaration_binding: @+route:U.Route -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:U.Input -> @+availability:V.Availability -> @+state:InteractionTypes.State ->
+      {Model.navigation_declaration(route, parent, V.ControlDeclaration{identity, label, prominence, input, availability}, state) ==
+        Model.replace_role(Model.selected_declaration(route, parent, V.ControlDeclaration{identity, label, prominence, input, availability}, state), SurfaceTypes.NavigationEntry{Model.navigation_action_selected(route, input)}) : SurfaceTypes.Node},
+    navigation_controls_empty: @+route:U.Route -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.navigation_controls(route, Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    navigation_controls_complete: @+route:U.Route -> @+first:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.navigation_controls(route, first <> rest, parent, state) == Model.navigation_declaration(route, parent, first, state) <> Model.navigation_controls(route, rest, parent, state) : +List<SurfaceTypes.Node>},
+    navigation_destinations_complete: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+state:InteractionTypes.State ->
+      {Model.navigation_destinations(route, create, destinations, state) ==
+        SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "destinations"}, "navigation-destinations", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
+          Model.navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> Model.navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)} : SurfaceTypes.Node},
     independent_empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
     independent_populated: @+first:V.TaskEntry -> @+rest:+List<V.TaskEntry> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-      {Model.independent_task_entries(Con{first, rest}, parent, state) == [Model.region(parent, "independent-tasks", "", SurfaceTypes.Section{},
-        SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.GroupTitle{}}, Nil{}} <>
+      {Model.independent_task_entries(Con{first, rest}, parent, state) == [Model.region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
+        SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
         Model.task_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
     navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(False{}, route, create, destinations, projects, tasks, state) == Nil{} : +List<SurfaceTypes.Node>},
     navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
-      {Model.navigation_contents(True{}, route, create, destinations, projects, tasks, state) == Model.selected_declaration(route, Identity.Place{"/navigation"}, create, state) <> List.append(&2, SurfaceTypes.Node, Model.selected_controls(route, destinations, Identity.Place{"/navigation"}, state), List.append(&2, SurfaceTypes.Node, Model.project_entries(projects, Identity.Place{"/navigation"}, state), Model.independent_task_entries(tasks, Identity.Place{"/navigation"}, state))) : +List<SurfaceTypes.Node>},
+      {Model.navigation_contents(True{}, route, create, destinations, projects, tasks, state) ==
+        [SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "contents"}, "navigation-content", "", SurfaceTypes.NavigationCollection{}, SurfaceTypes.Region{},
+          Model.navigation_destinations(route, create, destinations, state) <> List.append(&2, SurfaceTypes.Node,
+            Model.project_entries(projects, Identity.Place{"/navigation"}, state), Model.independent_task_entries(tasks, Identity.Place{"/navigation"}, state))}] : +List<SurfaceTypes.Node>},
     committed_is_not_draft: @context:Context.EffectiveContext ->
       {View.draft_preview(Some{Context.CommittedExecution{context}}) == None{} : Maybe<&2, Context.Preview>},
     empty_project_collection: @+parent: Identity.Key -> @state:InteractionTypes.State ->

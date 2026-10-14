@@ -22,7 +22,7 @@ def panel_header_matches_specification(representation: Controls.Representation) 
   match representation:
     case Controls.NoControl{}: {==}
     case Controls.NavigationGroup{depth}: {==}
-    case Controls.NavigationRow{owner, depth, visible}: {==}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: {==}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       match placement:
         case Controls.InFlow{}: {==}
@@ -138,6 +138,9 @@ def ordered_children_matches_specification(+values: +List<SurfaceTypes.Node>, ro
       Equal.cong(Order.DialogParts, +List<SurfaceTypes.Node>, (parts => Order.ordered_dialog_children(parts)),
         Order.partition_dialog_children(values, context), Rule.specified_parts(values, context), parts_evidence)
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.Main{}: {==}
     case SurfaceTypes.Heading{}: {==}
@@ -169,6 +172,9 @@ def non_dialog_order(role: SurfaceTypes.Role, +values: +List<SurfaceTypes.Node>,
   match role:
     case SurfaceTypes.Dialog{}: {==}
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.Main{}: {==}
     case SurfaceTypes.Heading{}: {==}
@@ -642,6 +648,9 @@ def Rule.ordered_surface_base(content, base, overlays, scope): {==}
 def Rule.remaining_role_classification(key, role, belongs):
   match role:
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.Main{}: Logic.impossible({Order.base_region_role(key, SurfaceTypes.Main{}) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}, belongs)
     case SurfaceTypes.Heading{}: {==}
