@@ -467,6 +467,24 @@ type ActivityRequirements is Type:
 law activity_evidence:
   ActivityRequirements
 
+def project_relations_order_requirement(+property:M.Property, +edit:M.ProjectEdit, +revision:Nat, +body:U.Body, +feedback:U.Feedback, +entry:String) -> Type:
+  match body:
+    case U.Project{+id, name, +workspace}:
+      {Activity.project_relations_from_draft(property, edit, U.Draft{revision, body, feedback, entry}) ==
+        [Activity.RequiredValue{property}, Activity.CollectionMembers{P.collection(U.ProjectEditor{id}, workspace)},
+          Activity.SupportingValue{property}, Activity.AssessedAction{P.action(U.ProjectEditor{id}, revision, P.project_edit_pending(edit)), P.project_edit_assessment(edit)}] : +List<Activity.Relation>}
+    case _:
+      {Activity.project_relations_from_draft(property, edit, U.Draft{revision, body, feedback, entry}) ==
+        [Activity.RequiredValue{property}, Activity.SupportingValue{property}, Activity.AssessedAction{P.action(U.owner(body), revision, P.project_edit_pending(edit)), P.project_edit_assessment(edit)}] : +List<Activity.Relation>}
+
+law project_relations_order:
+  @+property:M.Property -> @+edit:M.ProjectEdit -> @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @+entry:String ->
+    project_relations_order_requirement(property, edit, revision, body, feedback, entry)
+
+law editing_relations_order:
+  @+edit:M.ProjectEdit ->
+    {Activity.relations(Activity.editing(edit)) == Activity.project_relations_from_draft(P.project_edit_property(edit), edit, P.project_edit_draft(edit)) : +List<Activity.Relation>}
+
 # Candidate disclosure follows the activity and its retained decision identities.
 type DecisionDisclosureRequirements is Type:
   DecisionDisclosureRequirements{

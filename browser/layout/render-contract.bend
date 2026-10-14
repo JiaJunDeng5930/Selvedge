@@ -218,7 +218,7 @@ def rendered_control_claim(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.Co
   +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, native: Bool) -> Type:
   {Renderer.container_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font},interaction,styles,children,native) ==
     Doc.Element{UIIdentity.encode(key),Source.control_tag_name(tag),Renderer.properties(Renderer.control_attributes(tag,attrs,name,interaction), [Doc.Property{"data-frame-key", Renderer.observation_key(Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font})}]),
-      Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font}),Renderer.control_visual(style))),
+      Renderer.properties(styles,Renderer.properties(Renderer.primitive_styles_at(capacity,Content.Value{Source.Control{key,tag,style,attrs,name,enabled,first,remaining,original_children},font}),Renderer.properties(Renderer.control_visual(style), Renderer.inline_text_styles(style)))),
       Renderer.event_list(interaction),children} : Doc.Node}
 
 law rendered_control_projection:
@@ -394,7 +394,7 @@ def reading_box_claim(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.BoxTag,
   +attrs: +List<Source.Attribute>, +original: +List<Source.Node>, +font: T.Presentation,
   interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, children: +List<Doc.Node>, native: Bool, +content: Bool) -> Type:
   {node_styles(Renderer.container_at(capacity, Content.Value{Source.Box{key, tag, style, attrs, original}, font}, interaction, styles, children, native)) ==
-    Renderer.reading_styles(content, Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, Content.Value{Source.Box{key, tag, style, attrs, original}, font}), Renderer.visual(style)))) : +List<Doc.Property>}
+    Renderer.reading_styles(content, Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, Content.Value{Source.Box{key, tag, style, attrs, original}, font}), Renderer.properties(Renderer.visual(style), Renderer.inline_text_styles(style))))) : +List<Doc.Property>}
 
 def last_attribute(values: +List<Doc.Property>) -> Maybe<&2, Doc.Property>:
   match values:
@@ -533,8 +533,25 @@ def rich_alignment_claim(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: M
     Model.Rule{direction, main, cross, frame, border, width, height, minimum, scroll, position}, children)) ==
     Some{inline_text_alignment(direction, main, cross)} : Maybe<&2, String>}
 
+def container_alignment_claim(+capacity: Nat, +value: Content.Value, +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Type:
+  match value:
+    case Content.Value{Source.Box{+key, +tag, +style, +attrs, +original}, +font}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, source_font, chrome, states} = style
+      {Renderer.container_at(capacity, value, interaction, styles, children, native) ==
+        Renderer.observed(Renderer.observation_key(value), Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), Renderer.attributes(attrs),
+          Renderer.reading_styles(Renderer.reading_content(attrs), Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, value),
+            Renderer.properties(Renderer.visual(style), [Doc.Property{"text-align", inline_text_alignment(direction, main, cross)}])))), Nil{}, children}) : Doc.Node}
+    case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +original}, +font}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, source_font, chrome, states} = style
+      {Renderer.container_at(capacity, value, interaction, styles, children, native) ==
+        Renderer.observed(Renderer.observation_key(value), Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), Renderer.control_attributes(tag, attrs, name, interaction),
+          Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, value),
+            Renderer.properties(Renderer.control_visual(style), [Doc.Property{"text-align", inline_text_alignment(direction, main, cross)}]))), Renderer.event_list(interaction), children}) : Doc.Node}
+    case _: {True{} == True{} : Bool}
+
 type RendererRequirements is Type:
   RendererRequirements{
+    container_alignment: @+capacity:Nat -> @+value:Content.Value -> @+interaction:Model.Interaction<Doc.DOMEvent> -> @+styles:+List<Doc.Property> -> @+children:+List<Doc.Node> -> @+native:Bool -> container_alignment_claim(capacity, value, interaction, styles, children, native),
     rich_alignment: @+key:UIIdentity.Key -> @extent:Enclosure.Extent -> @rule:Model.Rule -> @children:+List<Doc.Node> -> rich_alignment_claim(key, extent, rule, children),
     observed_element: @key:String -> @dom_key:String -> @tag:String -> @attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @events:+List<Doc.DOMEvent> -> @children:+List<Doc.Node> ->
       {Renderer.observed(key, Doc.Element{dom_key, tag, attrs, styles, events, children}) == Doc.Element{dom_key, tag, Renderer.properties(attrs, [Doc.Property{"data-frame-key", key}]), styles, events, children} : Doc.Node},

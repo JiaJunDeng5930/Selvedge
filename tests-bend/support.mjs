@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,14 +19,22 @@ export async function browserUI(t) {
     const entry = path.join(directory, 'fixture.bend');
     const output = path.join(directory, 'fixture.mjs');
     const modules = {
+      Controls: 'browser/controls/PROGRAM.bend', Web: 'browser/MODEL.bend', Shell: 'browser/controls/SHELL.bend', Design: 'browser/appearance/DESIGN.bend',
+      Font: 'browser/appearance/FONT.bend', Typography: 'browser/appearance/TYPOGRAPHY.bend', Limit: 'browser/layout/natural-size.bend',
       ProductUI: 'interaction/MODEL.bend', Core: 'interaction/STATE.bend', CoreTypes: 'interaction/TYPES.bend', Services: 'interaction/services/MODEL.bend', E: 'interaction/session/MODEL.bend',
       U: 'interaction/INPUT.bend', View: 'interaction/presentation/MODEL.bend', InterfaceView: 'interaction/presentation/SURFACE.bend',
       SurfaceProof: 'interaction/presentation/surface-proof.bend',
       Identity: 'interaction/IDENTITY.bend', Cmd: 'harness/transport/command-codec.bend', J: 'bendlib/json.bend', M: 'harness/MODEL.bend',
     };
+    const verificationImports = (await readFile(path.join(repository, '.build/ui-verification.bend'), 'utf8'))
+      .split('\n').filter(line => line.startsWith('import ../')).map(line => {
+        const [, file, alias] = /^import \.\.\/(\S+) as (\S+)$/.exec(line);
+        return `import ${path.relative(directory, path.join(repository, file))} as ${alias}`;
+      }).join('\n');
     const imports = Object.entries(modules).map(([name, file]) =>
       `import ${path.relative(directory, path.join(repository, file))} as ${name}`).join('\n');
     await writeFile(entry, `import Base
+${verificationImports}
 ${imports}
 
 def state_of(decision: CoreTypes.Decision) -> CoreTypes.State:
@@ -54,6 +62,24 @@ def authenticated(program: M.World(), task: Nat) -> Result<&2, &2, String, CoreT
 def surface_state(state: CoreTypes.State) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, state)
 
+def source_admission_parameters(parameters: Maybe<&2, Design.LayoutParameters>, surface: InterfaceView.Surface, capacity: View.Capacity, layers: +List<View.Layer>) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  match parameters:
+    case None{}: Fail{"Fixture font metrics exceed production layout size"}
+    case Some{parameters}:
+      +scale: Typography.Scale = Typography.Scale{0n}
+      +metric: Typography.Metric = Typography.Metric{"@font/body", 8n, 8n, 20n, 8n}
+      +font: Font.State = Font.admit(0n, scale, [metric])
+      +environment: Design.Environment = Design.Environment{Design.Viewport{602n, 664n}, False{}, 16000n}
+      Done{Shell.source_supporting(Limit.limit(), Web.appearance_surface(surface, environment, font), parameters, capacity, layers, Nil{}, Typography.Presentation{Typography.Body{}, Typography.Regular{}, scale}, Controls.FullSupporting{})}
+
+def source_admission_surface(+surface: InterfaceView.Surface, capacity: View.Capacity) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  InterfaceView.Surface{CoreTypes.Scene{View.Scene{navigation, main, +layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
+  source_admission_parameters(Design.parameters(Limit.limit(), Typography.Scale{0n}, Typography.Metric{"@font/body", 8n, 8n, 20n, 8n}), surface, capacity, layers)
+
+def source_admission(state: CoreTypes.State) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  +capacity: View.Capacity = View.Capacity{True{}, False{}}
+  source_admission_surface(ProductUI.observe(capacity, state), capacity)
+
 def key(node: InterfaceView.Node) -> String:
   InterfaceView.Node{key, semantic, label, role, meaning, children} = node
   Identity.encode(key)
@@ -78,7 +104,7 @@ def press(program: M.World(), task: Nat, key: String) -> Result<&2, &2, String, 
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, selected(program, task)))
 `);
     await compileJavaScript({ entry, output, sourceRoot: repository,
-      exports: { surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', activate_state: 'activate_state', press_state: 'press_state' } });
+      exports: { source_admission: 'source_admission', surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', activate_state: 'activate_state', press_state: 'press_state' } });
     return import(pathToFileURL(output).href);
   })();
 }

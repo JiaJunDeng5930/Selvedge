@@ -442,6 +442,24 @@ def Rule.activity_evidence():
     origin => project => workspace => sandbox => approval => guidance => choice => reviewers => {==}}
 
 
+def Rule.project_relations_order(property, edit, revision, body, feedback, entry):
+  match body:
+    case U.NewTask{message, profile, reasoning, context}: {==}
+    case U.Message{task, message, delivery}: {==}
+    case U.Project{id, name, workspace}: {==}
+    case U.Card{card, draft_revision, value, assist, profile, keep_open}: {==}
+    case U.Agent{agent, draft_revision, name, profile, reasoning, instructions, context, concurrency}: {==}
+    case U.Fork{task, count, messages, context}: {==}
+    case U.Compact{task, summary}: {==}
+
+def editing_relations_from_draft_agreement(+edit: M.ProjectEdit, +draft: U.Draft) ->
+  {Activity.relations(Activity.editing_from_draft(edit, draft)) == Activity.project_relations_from_draft(P.project_edit_property(edit), edit, P.project_edit_draft(edit)) : +List<Activity.Relation>}:
+  U.Draft{revision, body, feedback, entry} = draft
+  {==}
+
+def Rule.editing_relations_order(edit):
+  editing_relations_from_draft_agreement(edit, P.project_edit_draft(edit))
+
 def editing_purpose_from_draft(+edit: M.ProjectEdit, draft: U.Draft) ->
   {Activity.purpose(Activity.editing_from_draft(edit, draft)) == Activity.ObjectEditing{} : Activity.Purpose}:
   U.Draft{revision, body, feedback, entry} = draft

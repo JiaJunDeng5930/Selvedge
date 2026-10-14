@@ -461,12 +461,17 @@ def reading_styles(content: Bool, styles: +List<Doc.Property>) -> +List<Doc.Prop
     case True{}: properties(styles, [Paint.property("padding-bottom", "var(--reading-composer-reserve, 0px)")])
     case False{}: styles
 
+# Text inside native controls follows its authored layout instead of browser defaults.
+def inline_text_styles(style: Source.Style) -> +List<Doc.Property>:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  [Paint.property("text-align", text_alignment(drawing_inline_alignment(direction, main, cross)))]
+
 def container_at(+capacity: Nat, +value: Content.Value, +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
   match value:
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +original_children}, +font}:
-      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), reading_styles(reading_content(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style)))), Nil{}, children})
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), reading_styles(reading_content(attrs), properties(styles, properties(primitive_styles_at(capacity, value), properties(visual(style), inline_text_styles(style))))), Nil{}, children})
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +original_children}, +font}:
-      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), control_visual(style))), event_list(interaction), children})
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), properties(control_visual(style), inline_text_styles(style)))), event_list(interaction), children})
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +original_children}, +font}:
       choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", Nil{}, properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: diagnostic(key, "text-as-container")

@@ -332,6 +332,20 @@ test('production activity surfaces retain current decisions and project obstruct
       assert.equal(matches.length, 1);
       return matches[0];
     };
+    const admittedSource = observedState => {
+      const result = ui.source_admission(observedState);
+      assert.equal(bendTag(result), 'Done');
+      assert.equal(bendTag(result.value), 'Ready', `Actual project source admission: ${JSON.stringify(result.value, (_, value) => typeof value === 'bigint' ? value.toString() : value)}`);
+      return result.value.source;
+    };
+    admittedSource(state);
+    const sourceToggle = nodes(state).find(node => carriesInput(node.meaning.input, 'TogglePropertySource'));
+    assert.ok(sourceToggle, 'Project settings must expose their actual source disclosure');
+    const expandedSource = ui.activate_state(state, ui.key(sourceToggle));
+    admittedSource(expandedSource);
+    const sourceDetails = nodes(expandedSource).find(node => node.semantic === 'property-source/details');
+    assert.ok(sourceDetails, 'Expanded project source must retain its actual disclosure content');
+    assert.equal(sourceDetails.meaning.text, 'Project configuration');
     assert.equal(bendTag(commit(state).meaning.availability), 'Unavailable');
     assert.match(surfaceText(nodes(state)), /no project changes|unchanged/i);
     assert.equal(nodes(state).filter(node => isDecision(node, 'WorkspacePrimary')).length, 0,

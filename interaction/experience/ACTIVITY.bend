@@ -118,8 +118,8 @@ def project_relations_from_draft(+property: M.Property, +edit: M.ProjectEdit, dr
   match body:
     case U.Project{+id, name, workspace}:
       [RequiredValue{property}, CollectionMembers{UX.collection(U.ProjectEditor{id}, workspace)},
-        AssessedAction{UX.action(U.ProjectEditor{id}, revision, UX.project_edit_pending(edit)), UX.project_edit_assessment(edit)}, SupportingValue{property}]
-    case _: [RequiredValue{property}, AssessedAction{UX.action(U.owner(body), revision, UX.project_edit_pending(edit)), UX.project_edit_assessment(edit)}, SupportingValue{property}]
+        SupportingValue{property}, AssessedAction{UX.action(U.ProjectEditor{id}, revision, UX.project_edit_pending(edit)), UX.project_edit_assessment(edit)}]
+    case _: [RequiredValue{property}, SupportingValue{property}, AssessedAction{UX.action(U.owner(body), revision, UX.project_edit_pending(edit)), UX.project_edit_assessment(edit)}]
 
 def project_relations(+property: M.Property, +edit: M.ProjectEdit) -> +List<Relation>:
   project_relations_from_draft(property, edit, UX.project_edit_draft(edit))
