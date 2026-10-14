@@ -63,3 +63,46 @@ original relation tree through its public fold. The outer menu or dialog retains
 both that activity and its real dismissal behavior. Decision focus belongs to the
 session layer, separately from search and source disclosure, and the activity
 checks the focused subject against its retained decisions before expanding choices.
+
+`PROGRAM.activity_current_view` admits the session's real requested decision and
+inspection state through `experience/ACTIVITY.view`. The common relation fold
+consumes `relation_view_exposure`; required properties consume
+`coverage_expressions` for each retained subject. Selected subjects construct the
+actual canonical candidates, owned parameters construct their recognizable entry,
+and permission consequences use the retained context and candidate's canonical
+reviewer choice. Inspection facts reuse existing expressions only when the same
+subject is actually presented; equal text is not a coverage criterion.
+
+`activity_nodes` consumes the common completion boundary for Back, open-parameter
+Apply and principal selection. A requested parameter keeps its declared native
+`Edit` entry, reads the session buffer and dispatches whole-value completion through
+the session's canonical model admission. Compound project editing keeps saved
+object identity separate from the full draft Name field and retains collection and
+assessment operations; Cancel uses the owning dismissal operation. Actual
+`ActivityRow` wrappers preserve each descendant's meaning and binding for the
+browser's shared row construction.
+
+`activity_goal_label` consumes the activity's retained purpose. Compound editing
+preserves the actual editor activity title; comparison and inspection express
+owner and parameter through their existing subject coverage without repeating an
+outer title. `OriginalIdentity` emits the retained saved resource as supporting
+context and the independent full-draft Name field. A new object emits no invented
+original identity. The layer/focus equations continue to retain this actual label
+together with the same key, dismissal meaning and children.
+
+Requested facts use `activity_readonly_field`: the retained Subject supplies an
+explicit FieldLabel and the same editor/field owns the existing DisplayOnly Edit
+value. This prevents bare state text from losing the property it describes.
+DisplayOnly parameter views use this same construction; finite requested choices
+receive their actual Subject caption. Principal choices add no requested caption.
+Inspection coverage is only omitted for the same Subject when the actual
+summary/control already supplies its descriptor. Scope and source sentences remain
+supporting context, rather than extra initial property fields.
+
+Terminal rows are constructed only at the actual completion affordance: the
+compound terminal retains canonical commit plus owning dismissal, and the open
+parameter terminal retains whole-value completion. The relation interpreter also
+requires the activity's actual completion boundary before producing a compound
+commit. Collection Add/Clear/Browse remain the owning draft's ordinary toolbar;
+feedback remains supporting information. Back and inspection return are navigation,
+not synthetic commit stages.

@@ -43,7 +43,7 @@ def state_measured_evidence(+model_state: Browser.State, +index: Nat, +capacity:
 
 def state_remeasure_evidence(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +semantic: SurfaceTypes.Surface, +round: Nat) ->
   {Browser.remeasure(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
-        Browser.refreeze(index, capacity, engine, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic) : Browser.Decision}:
+        Browser.build(0n, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) : Browser.Decision}:
   Browser.State{+legacy, +serial, +anchors, +original_1, +displayed, +attention} = model_state
   {==}
 

@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
-import { browserUI, surfaceNodes, taskIdle } from './support.mjs';
+import { browserUI, surfaceNodes, taskIdle, home } from './support.mjs';
 import { bendValue, bendTag } from '../host/public/bend-value.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { startServer } from '../host/server.mjs';
@@ -164,6 +164,15 @@ const isDecision = (node, field) => bendTag(node.meaning) === 'DecisionGroup'
 const carriesInput = (value, tag) => value !== null && typeof value === 'object'
   && (bendTag(value) === tag || Object.values(value).some(child => carriesInput(child, tag)));
 const surfaceText = nodes => nodes.map(node => `${node.label} ${node.meaning.text ?? ''} ${node.meaning.description ?? ''}`).join('\n');
+const actualUIInput = (value, tag) => {
+  if (!value || typeof value !== 'object') return undefined;
+  if (bendTag(value) === tag) return value;
+  for (const child of Object.values(value)) {
+    const found = actualUIInput(child, tag);
+    if (found) return found;
+  }
+  return undefined;
+};
 
 // These observations deliberately stop at the emitted semantic tree. Physical
 // geometry needs the actual browser: this repository has no DOM/measurement fixture.
@@ -193,11 +202,13 @@ test('production activity surfaces retain current decisions and project obstruct
   const activate = (state, action) => apply(state, uiValue('Activate', { action }));
   const nodes = state => surfaceNodes(ui.surface_state(state));
   const enterDecision = (state, field) => {
-    const decision = nodes(state).find(node => isDecision(node, field));
-    assert.ok(decision, `${field} must expose its current decision`);
-    const entrance = subtree(decision).find(node => carriesInput(node.meaning.input, 'EnterDecision'));
-    assert.ok(entrance, `${field} must expose a real current-value entrance`);
-    return ui.activate_state(state, ui.key(entrance));
+    const fieldKey = { ReasoningEffort: 'reasoning-effort', ApprovalReviewer: 'approval-reviewer' }[field];
+    const entrances = nodes(state).filter(node => {
+      const requested = actualUIInput(node.meaning.input, 'EnterDecision');
+      return requested?.field_key === fieldKey && isDeepStrictEqual(requested.editor, editor);
+    });
+    assert.equal(entrances.length, 1, `${field} must expose one actual entrance for its owning editor`);
+    return ui.activate_state(state, ui.key(entrances[0]));
   };
   const editor = uiValue('MessageEditor', { task: 0n });
   const open = (state, name, owner) => activate(state, uiValue('OpenPanel', {
@@ -207,12 +218,12 @@ test('production activity surfaces retain current decisions and project obstruct
   await t.test('searching away from the selected model retains its live reasoning command', async () => {
     let state = open(initial(), 'ModelPicker', editor);
     state = apply(state, uiValue('SearchChoices', { query: 'no-model-matches-this-query' }));
+    state = enterDecision(state, 'ReasoningEffort');
     const emitted = nodes(state);
-    const reasoning = emitted.filter(node => isDecision(node, 'ReasoningEffort'));
-    assert.equal(reasoning.length, 1);
-    const high = subtree(reasoning[0]).find(node => node.semantic === 'effort/high');
+    const high = emitted.find(node => node.semantic === 'effort/high');
     assert.ok(high, 'Search results must not remove the current model reasoning capability');
     assert.equal(bendTag(high.meaning.availability), 'Available');
+    assert.deepEqual(actualUIInput(high.meaning.input, 'EditDraft').editor, editor);
     const pressed = ui.press_state(state, ui.key(high));
     assert.equal(bendTag(pressed), 'Done');
     const commands = JSON.parse(pressed.value);
@@ -242,16 +253,20 @@ test('production activity surfaces retain current decisions and project obstruct
   await t.test('AutomaticReview owns its reviewer selection', async () => {
     assert.equal((await server.service.command({ op: 'configure_task_execution', task_id: 0, profile,
       reasoning: 'high', sandbox: { mode: 'workspace-write', network_access: false }, approval: { mode: 'approval-for-me', reviewer_profile: profile } })).reply.ok, true);
-    const state = open(initial(), 'PermissionsConfiguration', editor);
+    const state = apply(open(initial(), 'PermissionsConfiguration', editor), uiValue('TogglePropertySource', { editor }));
     const emitted = nodes(state);
-    const strategy = emitted.filter(node => isDecision(node, 'ApprovalPolicy'));
-    assert.equal(strategy.length, 1, 'There must be one strategy decision');
-    const reviewers = emitted.filter(node => isDecision(node, 'ApprovalReviewer'));
-    assert.equal(reviewers.length, 1, 'AutomaticReview must introduce a separate reviewer parameter');
-    assert.ok(subtree(strategy[0]).includes(reviewers[0]), 'Reviewer choice must belong to the strategy decision');
-    const expanded = nodes(enterDecision(state, 'ApprovalReviewer'));
-    const reviewerChoice = expanded.find(node => isDecision(node, 'ApprovalReviewer'));
-    assert.ok(subtree(reviewerChoice).some(node => bendTag(node.meaning) === 'Choice' && node.meaning.selected));
+    const reviewerEntrances = emitted.filter(node => {
+      const request = actualUIInput(node.meaning.input, 'EnterDecision');
+      return request?.field_key === 'approval-reviewer' && isDeepStrictEqual(request.editor, editor);
+    });
+    assert.equal(reviewerEntrances.length, 1, 'AutomaticReview must expose its own retained reviewer parameter');
+    const expandedState = enterDecision(state, 'ApprovalReviewer');
+    assert.equal(expandedState.application.session.layers.head.source_expanded, true);
+    const expanded = nodes(expandedState);
+    const selected = expanded.filter(node => bendTag(node.meaning) === 'Choice' && node.meaning.selected);
+    assert.equal(selected.length, 1);
+    assert.equal(actualUIInput(selected[0].meaning.input, 'AutomaticReview').profile, profile);
+    assert.deepEqual(actualUIInput(selected[0].meaning.input, 'EditDraft').editor, editor);
   });
 
 
@@ -259,7 +274,7 @@ test('production activity surfaces retain current decisions and project obstruct
     const authenticated = ui.authenticated(browserModel.empty(), 0n);
     assert.equal(bendTag(authenticated), 'Done');
     const state = open(authenticated.value, 'PermissionsConfiguration', uiValue('NewTaskEditor'));
-    const emitted = nodes(enterDecision(state, 'ApprovalPolicy'));
+    const emitted = nodes(state);
     const automatic = emitted.find(node => bendTag(node.meaning) === 'ReadOnly' && /automatic/i.test(node.label));
     assert.ok(automatic, 'The strategy remains readable without reviewers');
     assert.match(automatic.meaning.text, /no automatic review models are available/i);
@@ -367,5 +382,161 @@ test('production activity surfaces retain current decisions and project obstruct
       'The pending entry must expose its obstruction beside the field');
     edit(uiValue('WriteDirectory', { path: '' }));
     assert.equal(bendTag(commit(state).meaning.availability), 'NeedsDirectoryObservation');
+  });
+});
+
+
+test('production activity choices complete and compound cancellation discards buffers', { timeout: 240_000 }, async t => {
+  const [ui, input] = await Promise.all([browserUI(t), activityInput(t)]);
+  const editor = uiValue('NewTaskEditor');
+  const observe = state => surfaceNodes(ui.surface_state(state));
+  const apply = (state, value) => input.apply(bendValue('interaction/TYPES.ApplicationInput', {
+    input: bendValue('interaction/session/MODEL.UserInput', { input: value }),
+  }), state);
+  const open = (state, panel) => apply(state, uiValue('Activate', { action: uiValue('OpenPanel', {
+    panel: uiValue(panel, { editor }), trigger: 'activity-lifecycle',
+  }) }));
+  const authenticated = server => {
+    const result = ui.authenticated(server.service.browserSnapshot().program, 0n);
+    assert.equal(bendTag(result), 'Done');
+    return result.value;
+  };
+  const draft = state => listValues(state.application.session.drafts).find(item => bendTag(item.body) === 'NewTask').body;
+  const layer = state => listValues(state.application.session.layers)[0];
+  const actualInput = (value, tag) => {
+    if (!value || typeof value !== 'object') return undefined;
+    if (bendTag(value) === tag) return value;
+    for (const child of Object.values(value)) {
+      const found = actualInput(child, tag);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  const modelChoices = state => observe(state).filter(node => bendTag(node.meaning) === 'Choice'
+    && actualInput(node.meaning.input, 'ChooseModel'));
+  const enter = (state, field) => apply(state, uiValue('EnterDecision', { editor, field_key: field }));
+  const back = state => apply(state, uiValue('LeaveDecision', { editor }));
+
+  const oneHome = await home(t);
+  const singleton = await startServer({ home: oneHome, cwd: oneHome,
+    config: validateConfig({ ...defaultConfig, port: 0, chatgpt: false }) });
+  t.after(() => singleton.close());
+  await t.test('one open model is directly selected without an unnecessary search and commits its buffer only on completion', () => {
+    let state = open(authenticated(singleton), 'ModelPicker');
+    const choices = modelChoices(state);
+    assert.equal(choices.length, 1);
+    assert.equal(choices[0].meaning.selected, true);
+    assert.equal(actualInput(choices[0].meaning.input, 'ChooseModel').profile, draft(state).profile);
+    assert.equal(observe(state).some(node => bendTag(node.meaning) === 'SearchChoices'), false);
+    const original = draft(state).reasoning;
+    state = enter(state, 'reasoning-effort');
+    const openField = observe(state).find(node => bendTag(node.meaning) === 'Edit' && bendTag(node.meaning.field) === 'ReasoningEffort');
+    assert.ok(openField, 'An open capability must render its actual parameter field');
+    assert.equal(bendTag(openField.meaning.entry), 'SingleLine');
+    assert.equal(bendTag(layer(state).decision_field), 'Some');
+    state = apply(state, uiValue('WriteDecisionParameter', { editor, value: 'custom-effort' }));
+    assert.equal(draft(state).reasoning, original, 'An open buffer must not apply configuration while typing');
+    assert.equal(layer(state).parameter_buffer.value, 'custom-effort');
+    const complete = observe(state).find(node => actualInput(node.meaning.input, 'CompleteDecisionParameter'));
+    assert.ok(complete, 'The open parameter must expose its actual completion action');
+    state = ui.activate_state(state, ui.key(complete));
+    assert.equal(draft(state).reasoning, 'custom-effort');
+    assert.ok(layer(state), 'Parameter completion returns to its existing parent surface');
+    assert.equal(bendTag(layer(state).decision_field), 'None');
+    assert.equal(bendTag(layer(state).parameter_buffer), 'None');
+    assert.equal(modelChoices(state).some(node => node.meaning.selected), true);
+  });
+
+  const upstream = await chatgptFixture(t, (_, response) => jsonResponse(response, { models:
+    Array.from({ length: 9 }, (_, index) => ({ slug: index === 0 ? 'gpt-6-astra' : `catalog-${index}`,
+      display_name: `Catalog model ${index}`, priority: index, visibility: 'list', supported_in_api: false,
+      default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium', description: 'Normal' }, { effort: 'high', description: 'High' }],
+    })),
+  }));
+  const catalog = await startServer({ home: upstream.directory, cwd: upstream.directory,
+    config: validateConfig({ ...defaultConfig, port: 0, profiles: {}, chatgpt: upstream.profile }) });
+  t.after(() => catalog.close());
+  await t.test('filtering retains the selected finite model and completing its parameter returns to principal choices', () => {
+    let state = open(authenticated(catalog), 'ModelPicker');
+    const current = draft(state).profile;
+    assert.ok(modelChoices(state).some(node => node.meaning.selected
+      && actualInput(node.meaning.input, 'ChooseModel').profile === current));
+    assert.ok(observe(state).some(node => bendTag(node.meaning) === 'SearchChoices'));
+    state = apply(state, uiValue('SearchChoices', { query: 'no-catalog-name-matches-this-query' }));
+    assert.ok(modelChoices(state).some(node => node.meaning.selected
+      && actualInput(node.meaning.input, 'ChooseModel').profile === current));
+    state = enter(state, 'reasoning-effort');
+    const high = observe(state).find(node => bendTag(node.meaning) === 'Choice'
+      && actualInput(node.meaning.input, 'ChooseModel')?.reasoning === 'high');
+    assert.ok(high, 'A declared finite parameter must expose its actual high alternative');
+    state = ui.activate_state(state, ui.key(high));
+    assert.equal(draft(state).reasoning, 'high');
+    assert.ok(layer(state));
+    assert.equal(bendTag(layer(state).decision_field), 'None');
+    assert.ok(modelChoices(state).some(node => node.meaning.selected));
+  });
+  await t.test('adaptive reasoning is readable without an editable parameter entrance', () => {
+    const profiles = listValues(catalog.service.browserSnapshot().program.local.environment.profiles);
+    const automatic = profiles.find(profile => bendTag(profile.reasoning) === 'Adaptive');
+    assert.ok(automatic, 'The actual account catalog must materialize its automatic profile');
+    let state = authenticated(catalog);
+    state = apply(state, uiValue('EditDraft', { editor, edit: uiValue('ChooseModel', { profile: automatic.key, reasoning: 'auto' }) }));
+    state = open(state, 'ModelPicker');
+    state = enter(state, 'reasoning-effort');
+    const automaticValue = observe(state).find(node => bendTag(node.meaning) === 'Edit'
+      && bendTag(node.meaning.field) === 'ReasoningEffort');
+    assert.ok(automaticValue, 'The actual automatic capability must remain observable');
+    assert.equal(bendTag(automaticValue.meaning.entry), 'DisplayOnly');
+    assert.equal(automaticValue.meaning.value.profile, automatic.key);
+    assert.equal(automaticValue.meaning.value.reasoning, 'auto');
+    assert.equal(listValues(automaticValue.meaning.choices).length, 0);
+    assert.equal(observe(state).some(node => actualInput(node.meaning.input, 'WriteDecisionParameter')
+      || actualInput(node.meaning.input, 'CompleteDecisionParameter')), false);
+    const appliedAutomatic = draft(state).reasoning;
+    state = apply(state, uiValue('WriteDecisionParameter', { editor, value: 'high' }));
+    state = apply(state, uiValue('CompleteDecisionParameter', { editor }));
+    assert.equal(draft(state).reasoning, appliedAutomatic, 'A read-only adaptive capability must reject parameter editing');
+  });
+  await t.test('permission principal completion closes while inspection and dependency Back retain their parent', () => {
+    let state = open(authenticated(singleton), 'PermissionsConfiguration');
+    const ask = observe(state).find(node => bendTag(node.meaning) === 'Choice'
+      && actualInput(node.meaning.input, 'SetApproval') && /ask|approval/i.test(node.label));
+    assert.ok(ask, 'A principal permission alternative must be directly operable');
+    state = ui.activate_state(state, ui.key(ask));
+    assert.equal(listValues(state.application.session.layers).length, 0);
+    state = open(state, 'PermissionsConfiguration');
+    state = apply(state, uiValue('TogglePropertySource', { editor }));
+    assert.equal(layer(state).source_expanded, true);
+    state = enter(state, 'sandbox-mode');
+    assert.equal(bendTag(layer(state).decision_field), 'Some');
+    state = back(state);
+    assert.equal(layer(state).source_expanded, true, 'Dependency Back returns to its actual inspection parent');
+    assert.equal(bendTag(layer(state).decision_field), 'None');
+    state = back(state);
+    assert.equal(layer(state).source_expanded, false);
+    assert.ok(observe(state).some(node => bendTag(node.meaning) === 'Choice'));
+  });
+  await t.test('cancelling a compound project discards both its name and pending directory before reopening', async () => {
+    const created = await singleton.service.command({ op: 'create_project', name: 'Saved lifecycle project',
+      workspace: { roots: [oneHome], primary_root: oneHome } });
+    assert.equal(created.reply.ok, true);
+    const project = bendValue('Some', { value: BigInt(created.reply.result.project_id) });
+    const projectEditor = uiValue('ProjectEditor', { project });
+    const editProject = state => apply(state, uiValue('Activate', { action: uiValue('EditProject', { project }) }));
+    const projectDraft = state => listValues(state.application.session.drafts).find(item => bendTag(item.body) === 'Project'
+      && isDeepStrictEqual(item.body.project, project));
+    let state = editProject(authenticated(singleton));
+    const original = projectDraft(state);
+    state = apply(state, uiValue('EditDraft', { editor: projectEditor, edit: uiValue('NameProject', { name: 'Discard this name' }) }));
+    state = apply(state, uiValue('EditDraft', { editor: projectEditor, edit: uiValue('WriteDirectory', { path: '/discard/pending/directory' }) }));
+    const cancel = observe(state).find(node => node.label === 'Cancel' && actualInput(node.meaning.input, 'ClosePanel'));
+    assert.ok(cancel, 'The actual compound surface must expose Cancel');
+    const cancelled = input.press(ui.key(cancel), state);
+    assert.equal(listValues(cancelled.interaction_effects).some(effect => bendTag(effect) === 'RequestCommand'), false);
+    state = editProject(cancelled.state);
+    assert.equal(projectDraft(state).body.name, original.body.name);
+    assert.deepEqual(projectDraft(state).body.workspace, original.body.workspace);
+    assert.equal(projectDraft(state).directory_entry, '');
+    assert.equal(bendTag(layer(state).parameter_buffer), 'None');
   });
 });

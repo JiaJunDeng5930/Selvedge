@@ -192,17 +192,19 @@ def option_text(nodes: +List<Source.Node>) -> InformationObservation:
       option_information_or_next(first_information(children), option_text(rest))
     case _: MissingInformation{}
 
-def option_label(+key: Identity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry) -> Type:
-  {option_text(AuthoredControls.face(key, Controls.ChoiceFace{label, description, icon, selected}, visual, geometry)) == required_information(key, Information.OptionLabel{}, label, visual) : InformationObservation}
+def option_label(+key: Identity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> Type:
+  {option_text(AuthoredControls.face(key, Controls.ChoiceFace{label, description, icon, selected}, visual, geometry, parameters)) == required_information(key, Information.OptionLabel{}, label, visual) : InformationObservation}
 
-def option_description(+key: Identity.Key, +value: String, +visual: Design.Style) -> Type:
-  {first_information(AuthoredControls.face_description(Some{value}, key, visual)) == required_information(key, Information.Description{}, value, visual) : InformationObservation}
+def option_description(+key: Identity.Key, +value: String, +visual: Design.Style, parameters: Design.LayoutParameters) -> Type:
+  {first_information(AuthoredControls.face_description(Some{value}, key, visual, parameters)) == required_information(key, Information.Description{}, value, visual) : InformationObservation}
 
 def group_title(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
   {first_information(Source.children_of(Authored.regular_content(capacity, key, label, role, SurfaceTypes.ChoiceGroup{}, visual, representation, children, parameters, content))) == required_information(key, Information.GroupTitle{}, label, visual) : InformationObservation}
 
 def panel_title(+capacity: Nat, +key: Identity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
-  {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
+  match label:
+    case "": {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == first_information(content) : InformationObservation}
+    case SCon{head, tail}: {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
 
 def dialog_title(+capacity: Nat, +key: Identity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> Type:
   {dialog_information(Authored.dialog_content(capacity, key, label, visual, children)) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
@@ -232,23 +234,26 @@ def heading_caption(key: Identity.Key, label: String, visual: Design.Style) -> T
 def lane_style(key: Identity.Key, label: String, stage: Board.Stage, count: Nat, visual: Design.Style, children: +List<Authored.Child>, parameters: Design.LayoutParameters) -> Type:
   {Authored.layout_of_lane(Authored.lane(key, label, stage, count, visual, children, parameters)) == Some{Factory.with_direction(Factory.style(visual, Model.LimitedSize{Design.lane_minimum_width(parameters), 0n, Design.lane_minimum_width(parameters)}, Model.StretchSize{}, Model.Confined{}), Model.Vertical{})} : Maybe<&2, Source.Style>}
 
-def parameter_source(+capacity: Nat, scale: T.Scale, key: String, minimum: Nat, preferred: Nat, height: Nat, advance: Nat) -> Type:
-  {Design.parameters(capacity, scale, T.Metric{key, minimum, preferred, height, advance}) == Design.parameter_values(NaturalSize.evaluate_all(capacity, Design.parameter_calculations(capacity, scale, height, advance))) : Maybe<&2, Design.LayoutParameters>}
+def parameter_source(+capacity: Nat, scale: T.Scale, key: String, minimum: Nat, preferred: Nat, height: Nat, advance: Nat, +primary: T.Metric, +support: T.Metric) -> Type:
+  T.Metric{primary_key, primary_minimum, primary_preferred, primary_height, primary_advance} = primary
+  T.Metric{support_key, support_minimum, support_preferred, support_height, support_advance} = support
+  {Design.parameters(capacity, scale, T.Metric{key, minimum, preferred, height, advance}, primary, support) == Design.parameter_values(NaturalSize.evaluate_all(capacity, Design.parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance))) : Maybe<&2, Design.LayoutParameters>}
 
-def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> Type:
+def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat, primary_advance: Nat, support_advance: Nat) -> Type:
   +leading: NaturalSize.Calculation = NaturalSize.Maximum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Body{}, T.Regular{}, scale))}, NaturalSize.Value{height}}
   +toolbar: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(46n, scale), NaturalSize.Sum{leading, T.scaling_calculation(26n, scale)}}
   +input_minimum: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(44n, scale), NaturalSize.Sum{leading, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(12n, scale)}}}
   balanced: NaturalSize.Calculation = NaturalSize.Sum{toolbar, NaturalSize.Product{NaturalSize.Value{2n},
     NaturalSize.Sum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Display{}, T.Regular{}, scale))},
       NaturalSize.Sum{input_minimum, NaturalSize.Sum{T.scaling_calculation(32n, scale), NaturalSize.Product{NaturalSize.Value{3n}, T.scaling_calculation(16n, scale)}}}}}}
-  {Design.parameter_calculations(capacity, scale, height, advance) == [
-    T.scaling_calculation(275n, scale),
-    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{40n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}},
+  {Design.parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance) == [
+    T.scaling_calculation(240n, scale),
+    NaturalSize.Maximum{T.scaling_calculation(360n, scale), NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{40n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}}},
     T.scaling_calculation(360n, scale),
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
-    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}}] : +List<NaturalSize.Calculation>}
+    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}},
+    T.scaling_calculation(224n, scale), NaturalSize.Value{primary_advance}, NaturalSize.Value{support_advance}] : +List<NaturalSize.Calculation>}
 
 def page_region(+capacity: Nat, key: Identity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
   {Authored.regular_content(capacity, key, "", SurfaceTypes.Section{}, SurfaceTypes.PageRegion{region, position}, visual, control, children, parameters, content) == Authored.box(key, Source.Div{}, Authored.region_style(visual, region, position), [Source.DataAttribute{"page-position", Authored.position_name(position)}, Source.DataAttribute{"page-region", Composition.region_name(region)}], content) : Source.Node}
@@ -355,15 +360,16 @@ def fact_source_dispatch(+capacity: Nat, key: Identity.Key, label: String, role:
 
 def experience_source(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Type:
   match meaning:
+    case SurfaceTypes.ActivityRow{row}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.activity_row(capacity, key, row, visual, parameters, content) : Source.Node}
     case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.activity_group(capacity, key, label, role, meaning, activity, visual, content) : Source.Node}
     case SurfaceTypes.DecisionGroup{decision}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(capacity, key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> Authored.subject_attributes(UX.decision_subject(decision)), content) : Source.Node}
     case SurfaceTypes.ObjectGroup{object}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.object_group(capacity, key, object, label, visual, content) : Source.Node}
     case SurfaceTypes.WorkspaceCollection{collection}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(capacity, key, label, visual, Source.TabIndexAttribute{"-1"} <> Authored.subject_attributes(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}), content) : Source.Node}
-    case SurfaceTypes.WorkspaceMember{collection, path}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.workspace_member(key, collection, path, visual, content) : Source.Node}
+    case SurfaceTypes.WorkspaceMember{collection, path}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.workspace_member(key, collection, path, visual, parameters, content) : Source.Node}
     case SurfaceTypes.ActionUnit{action}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_unit(key, action, visual, content) : Source.Node}
-    case SurfaceTypes.SupportingControl{support, property, input, availability}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.supporting_control_visible(UX.support_visible(support), key, support, property, label, visual, representation) : Source.Node}
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.supporting_control_visible(UX.support_visible(support), key, support, property, label, visual, representation, parameters) : Source.Node}
     case SurfaceTypes.ActionExplanation{assessment}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_explanation(key, assessment, visual) : Source.Node}
-    case SurfaceTypes.ActionCommit{assessment, input, availability}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.button_source(key, visual, representation), [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}]) : Source.Node}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.add_attributes(Authored.button_source(key, visual, parameters, representation), [Source.DataAttribute{"action-owner", UX.action_key(UX.assessment_identity(assessment))}, Source.TitleAttribute{Controls.assessment_help(UX.assessment_obstructions(assessment))}]) : Source.Node}
     case SurfaceTypes.ActionFeedback{feedback}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.action_feedback(key, feedback, visual, content) : Source.Node}
     case _: {content == content : +List<Source.Node>}
 
@@ -386,10 +392,10 @@ def selected_marker(+selected: Bool, +key: Identity.Key, +visual: Design.Style, 
 def slot_emphasis(+scale: T.Scale) -> Type:
   {T.information_role(Information.GroupTitle{}, scale) == T.Presentation{T.Section{}, T.Strong{}, scale} : T.Presentation}
 
-def member_source(+key: Identity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, +content: +List<Source.Node>) -> Type:
-  {Authored.workspace_member(key, collection, path, visual, content) == Authored.box(key, Source.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+def member_source(+key: Identity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Type:
+  {Authored.workspace_member(key, collection, path, visual, parameters, content) == Authored.box(key, Source.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
     List.append(&2, Source.Attribute, Authored.subject_attributes(Authored.collection_subject(collection)), [Source.AriaAttribute{"label", path}, Source.DataAttribute{"member", path}, Source.DataAttribute{"reference-property", UX.subject_key(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspacePrimary{}})}, Source.DataAttribute{"primary", FieldOptions.boolean(UX.is_primary(collection, path))}]),
-    [Authored.box(Identity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [Authored.text(Identity.part(Identity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), Authored.group(Identity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)]) : Source.Node}
+    [Authored.box(Identity.part(key, "path"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Activity.member_width(Design.activity_primary_advance(parameters)), Model.NaturalSize{}, 0n), [Source.TitleAttribute{path}], [Authored.text(Identity.part(Identity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), Authored.group(Identity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)]) : Source.Node}
 
 def action_source(+key: Identity.Key, +action: UXTypes.ActionUnit, +visual: Design.Style, +content: +List<Source.Node>) -> Type:
   {Authored.action_unit(key, action, visual, content) == Authored.box(key, Source.Section{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
@@ -407,10 +413,10 @@ def grouped_menu_source(+capacity: Nat, +key: Identity.Key, +tag: Source.BoxTag,
   Source.Style{Source.Layout{direction, main, cross, +frame, width, height, minimum, scroll, position}, font, chrome, states} = style
   {Authored.grouped_menu_visible(capacity, SurfaceTypes.Menu{}, True{}, Source.Box{key, tag, style, attributes, content}) == Source.Box{key, tag, Factory.with_frame(style, Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Source.resolve_font(font, T.Presentation{T.Body{}, T.Regular{}, T.Scale{0n}})), Enclosure.frame_content(frame))), attributes, content} : Source.Node}
 
-def support_source(visible: Bool, +key: Identity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> Type:
+def support_source(visible: Bool, +key: Identity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation, +parameters: Design.LayoutParameters) -> Type:
   match visible:
-    case False{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation) == Source.Box{key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}], Nil{}} : Source.Node}
-    case True{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation) == Authored.add_attributes(Authored.button_source(key, visual, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{UX.property_help(property)}], List.append(&2, Source.Attribute, [Source.DataAttribute{"support-properties", Authored.support_property_keys(UX.support_subjects(support))}], [Source.DataAttribute{"object-owner", UX.object_key(UX.property_owner(property))}, Source.DataAttribute{"source-owner", UX.property_source_key(property)}]))) : Source.Node}
+    case False{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation, parameters) == Source.Box{key, Source.Span{}, Factory.style(visual, Model.NaturalSize{}, Model.NaturalSize{}, Model.Confined{}), [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}], Nil{}} : Source.Node}
+    case True{}: {Authored.supporting_control_visible(visible, key, support, property, label, visual, representation, parameters) == Authored.add_attributes(Authored.button_source(key, visual, parameters, representation), List.append(&2, Source.Attribute, [Source.DataAttribute{"action-owner", UX.action_key(UX.support_identity(support))}, Source.TitleAttribute{UX.property_help(property)}], List.append(&2, Source.Attribute, [Source.DataAttribute{"support-properties", Authored.support_property_keys(UX.support_subjects(support))}], [Source.DataAttribute{"object-owner", UX.object_key(UX.property_owner(property))}, Source.DataAttribute{"source-owner", UX.property_source_key(property)}]))) : Source.Node}
 
 def typed_action_style(+key: Identity.Key, +action: UXTypes.ActionUnit, family: Controls.SourceFamily, representation: Controls.Representation, +visual: Design.Style, typography: T.Presentation) -> Type:
   {Appearance.family_style(key, SurfaceTypes.ActionUnit{action}, family, representation, visual, typography) == Appearance.activity_action_unit_style_when(T.is_activity(Design.style_text(visual)), visual) : Design.Style}
@@ -454,12 +460,12 @@ type Requirements is Type:
     compound_directory_source: @+field:Forms.Field -> @+value:Forms.Observed -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @+children:+List<Source.Node> -> compound_directory_source(field, value, key, label, visual, children),
     directory_source: @+capacity:Nat -> @+editor:User.Editor -> @+field:Forms.Field -> @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @+key:Identity.Key -> @label:String -> @role:SurfaceTypes.Role -> @visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> directory_source(capacity, editor, field, value, choices, key, label, role, visual, representation, children, parameters, content),
     object_source: @+capacity:Nat -> @+key:Identity.Key -> @+object:UXTypes.Object -> @+label:String -> @+visual:Design.Style -> @+content:+List<Source.Node> -> object_source(capacity, key, object, label, visual, content),
-    support_source: @visible:Bool -> @+key:Identity.Key -> @+support:UXTypes.Support -> @+property:UXTypes.Property -> @+label:String -> @+visual:Design.Style -> @+representation:Controls.Representation -> support_source(visible, key, support, property, label, visual, representation),
+    support_source: @visible:Bool -> @+key:Identity.Key -> @+support:UXTypes.Support -> @+property:UXTypes.Property -> @+label:String -> @+visual:Design.Style -> @+representation:Controls.Representation -> @+parameters:Design.LayoutParameters -> support_source(visible, key, support, property, label, visual, representation, parameters),
     typed_action_style: @+key:Identity.Key -> @+action:UXTypes.ActionUnit -> @family:Controls.SourceFamily -> @representation:Controls.Representation -> @+visual:Design.Style -> @typography:T.Presentation -> typed_action_style(key, action, family, representation, visual, typography),
     action_focus_states: @+chrome:Design.Chrome -> @+states:Design.ControlStates -> action_focus_states(chrome, states),
     alternative_rest: @+typography:T.Presentation -> alternative_rest(typography),
     alternative_states: @+typography:T.Presentation -> alternative_states(typography),
-    member_source: @+key: Identity.Key -> @+collection: UXTypes.Collection -> @+path: String -> @+visual: Design.Style -> @+content: +List<Source.Node> -> member_source(key, collection, path, visual, content),
+    member_source: @+key: Identity.Key -> @+collection: UXTypes.Collection -> @+path: String -> @+visual: Design.Style -> @parameters:Design.LayoutParameters -> @+content: +List<Source.Node> -> member_source(key, collection, path, visual, parameters, content),
     action_source: @+key: Identity.Key -> @+action: UXTypes.ActionUnit -> @+visual: Design.Style -> @+content: +List<Source.Node> -> action_source(key, action, visual, content),
     feedback_source: @+key: Identity.Key -> @+feedback: UXTypes.Feedback -> @+visual: Design.Style -> @+content: +List<Source.Node> -> feedback_source(key, feedback, visual, content),
     aggregate_focus: @+visual:Design.Style -> aggregate_focus(visual),
@@ -477,8 +483,8 @@ type Requirements is Type:
     owned_information: @+owner:Identity.Key -> @+role:Information.TextRole -> @+value:String -> @+visual:Design.Style -> owned_information(owner, role, value, visual),
     scalar_information: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+text_role:Information.TextRole -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> scalar_information(capacity, key, label, role, text_role, visual, representation, children, parameters, content),
     field_label: @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @field:Source.Node -> field_label(key, label, visual, field),
-    option_label: @+key:Identity.Key -> @+label:String -> @description:Maybe<&2, String> -> @+icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> @+visual:Design.Style -> @geometry:Controls.Geometry -> option_label(key, label, description, icon, selected, visual, geometry),
-    option_description: @+key:Identity.Key -> @+value:String -> @+visual:Design.Style -> option_description(key, value, visual),
+    option_label: @+key:Identity.Key -> @+label:String -> @description:Maybe<&2, String> -> @+icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> @+visual:Design.Style -> @geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters -> option_label(key, label, description, icon, selected, visual, geometry, parameters),
+    option_description: @+key:Identity.Key -> @+value:String -> @+visual:Design.Style -> @parameters:Design.LayoutParameters -> option_description(key, value, visual, parameters),
     group_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> group_title(capacity, key, label, role, visual, representation, children, parameters, content),
     panel_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @dismiss:InteractionTypes.Input -> @outside:Bool -> @escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content),
     dialog_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @children:+List<Authored.Child> -> dialog_title(capacity, key, label, visual, children),
@@ -498,12 +504,12 @@ type Requirements is Type:
     board_group: @+capacity:Nat -> @key:Identity.Key -> @label:String -> @grouping:SurfaceTypes.BoardGrouping -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> board_group(capacity, key, label, grouping, visual, control, children, parameters, content),
     confined_content_minimum: @width:Nat -> @height:Nat -> confined_content_minimum(width, height),
     page_region: @+capacity:Nat -> @key:Identity.Key -> @region:Composition.Region -> @position:Composition.Position -> @visual:Design.Style -> @control:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> page_region(capacity, key, region, position, visual, control, children, parameters, content),
-    parameter_calculations: @+capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> parameter_calculations(capacity, scale, height, advance),
+    parameter_calculations: @+capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> @primary_advance:Nat -> @support_advance:Nat -> parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance),
     board_controls: @visual:Design.Style -> @position:Composition.Position -> board_controls(visual, position),
     board_stages: @visual:Design.Style -> @position:Composition.Position -> board_stages(visual, position),
     heading_caption: @key:Identity.Key -> @label:String -> @visual:Design.Style -> heading_caption(key, label, visual),
     lane_style: @key:Identity.Key -> @label:String -> @stage:Board.Stage -> @count:Nat -> @visual:Design.Style -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> lane_style(key, label, stage, count, visual, children, parameters),
-    parameter_source: @+capacity:Nat -> @scale:T.Scale -> @key:String -> @minimum:Nat -> @preferred:Nat -> @height:Nat -> @advance:Nat -> parameter_source(capacity, scale, key, minimum, preferred, height, advance),
+    parameter_source: @+capacity:Nat -> @scale:T.Scale -> @key:String -> @minimum:Nat -> @preferred:Nat -> @height:Nat -> @advance:Nat -> @+primary:T.Metric -> @+support:T.Metric -> parameter_source(capacity, scale, key, minimum, preferred, height, advance, primary, support),
     position_of_actual_rule: @+style:Source.Style -> @parent:T.Presentation -> position_is_authored(style, parent),
     border_of_actual_rule: @+style:Source.Style -> @parent:T.Presentation -> border_is_chrome(style, parent),
     font_resolution: @choice:Source.FontChoice -> @+parent:T.Presentation -> inherited_font(choice, parent),

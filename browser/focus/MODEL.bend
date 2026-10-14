@@ -62,7 +62,7 @@ def scope_occurrence(scope: Scope, occurrence: Nat) -> Scope:
 def layer_scope(layers: +List<E.Layer>, beside: Bool) -> Scope:
   match layers:
     case Nil{}: Document{}
-    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}: scope_occurrence(panel_scope(panel, initial, trigger, beside), layer_occurrence)
+    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: scope_occurrence(panel_scope(panel, initial, trigger, beside), layer_occurrence)
 
 def settings_scope(open: Bool, fallback: Scope) -> Scope:
   match open:

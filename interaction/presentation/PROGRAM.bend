@@ -1425,16 +1425,204 @@ def property_scope(editor: U.Editor) -> String:
     case U.AgentEditor{agent}: "Applies to this agent profile"
     case _: "Applies to this editor"
 
-# The same semantic relation interpreter owns comparison, effect explanation and editing.
-def activity_project_inputs(edit: Maybe<&2, Experience.ProjectEdit>, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  match edit:
-    case None{}: Nil{}
-    case Some{edit}:
-      [field_node(OperationParameters.FieldScene{OperationParameters.ProjectName{}, "Name", OperationParameters.SingleLine{}}, U.owner(U.contents(UX.project_edit_draft(edit))), parent, state, Nil{})]
+# NOTE: Rows retain original interactive descendants; decoration does not own an action.
+def activity_row(role: SurfaceTypes.ActivityRowRole, node: SurfaceTypes.Node) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{+key, +semantic, label, original_role, meaning, children} = node
+  SurfaceTypes.Node{Identity.Part{key, "activity-row"}, semantic ++ "/row", "", SurfaceTypes.Content{}, SurfaceTypes.ActivityRow{role}, [SurfaceTypes.Node{key, semantic, label, original_role, meaning, children}]}
 
-def activity_required_property(+activity: Activity.Activity, +property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  approval_fact(parent, "required/" ++ UX.property_source_key(property), UX.property_title(property), UX.property_summary(property)) <>
-    List.append(&2, SurfaceTypes.Node, [approval_fact(parent, "scope/" ++ UX.property_source_key(property), "Scope", property_scope(UX.property_editor(property)))], activity_project_inputs(Activity.editing_observation(activity), parent, state))
+def activity_rows(+role: SurfaceTypes.ActivityRowRole, nodes: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{node, rest}: activity_row(role, node) <> activity_rows(role, rest)
+
+def activity_requested_focus(field: Maybe<&2, OperationParameters.Field>, editor: U.Editor) -> Maybe<&2, Experience.Subject>:
+  match field:
+    case None{}: None{}
+    case Some{field}: Some{Experience.Subject{editor, field}}
+
+def activity_current_view(+activity: Activity.Activity, +state: InteractionTypes.State) -> Activity.View:
+  +editor = Activity.scope(activity)
+  +layers = E.layers(E.session(Core.application(state)))
+  Activity.view(activity, activity_requested_focus(E.requested_decision(layers, editor), editor), E.property_source_expanded(layers, editor))
+
+def activity_subject_title(subject: Experience.Subject) -> String:
+  Experience.Subject{editor, field} = subject
+  match field:
+    case OperationParameters.ModelProfile{}: "Model"
+    case OperationParameters.ReasoningEffort{}: "Reasoning parameter"
+    case OperationParameters.ApprovalPolicy{}: "Execution strategy"
+    case OperationParameters.SandboxMode{}: "Filesystem access"
+    case OperationParameters.NetworkAccess{}: "Network access"
+    case OperationParameters.ApprovalReviewer{}: "Reviewing model"
+    case OperationParameters.ProjectName{}: "Name"
+    case _: OperationParameters.key(field)
+
+def activity_permission_sandbox(observation: Context.Observation) -> Maybe<&2, D.Sandbox>:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: Some{Context.unwrap_sandbox(sandbox)}
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}: Some{sandbox}
+    case _: None{}
+
+def activity_permission_approval(observation: Context.Observation) -> Maybe<&2, Context.ApprovalChoice>:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: Some{Context.observed_approval(approval)}
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}: Some{Context.approval_choice(approval)}
+    case _: None{}
+
+def activity_reviewer_value(choice: Maybe<&2, Context.ApprovalChoice>) -> String:
+  match choice:
+    case Some{Context.AutomaticReview{profile}}: profile
+    case _: "No automatic reviewing model"
+
+def activity_permission_sandbox_value(field: OperationParameters.Field, found: Maybe<&2, D.Sandbox>) -> String:
+  match field found:
+    case OperationParameters.SandboxMode{} Some{D.Sandbox{mode, network}}: D.sandbox_mode_name(mode)
+    case OperationParameters.NetworkAccess{} Some{D.Sandbox{mode, network}}: Context.network_summary(D.Sandboxed{}, network)
+    case _ _: "Unavailable"
+
+def activity_permission_policy_value(found: Maybe<&2, Context.ApprovalChoice>) -> String:
+  match found:
+    case Some{choice}: Context.approval_option(choice)
+    case None{}: "Unavailable"
+
+def activity_permission_access(observation: Context.Observation) -> Maybe<&2, D.ExecutionAccess>:
+  match observation:
+    case Context.DraftExecution{preview}: Context.preview_access(preview)
+    case Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}: Some{access}
+
+def activity_permission_effective_value(access: Maybe<&2, D.ExecutionAccess>, +field: OperationParameters.Field, observation: Context.Observation) -> String:
+  match access field:
+    case Some{D.Unrestricted{}} OperationParameters.SandboxMode{}: "Full access"
+    case Some{D.Unrestricted{}} OperationParameters.NetworkAccess{}: "Network available"
+    case _ _: activity_permission_sandbox_value(field, activity_permission_sandbox(observation))
+
+def activity_permission_subject_value(+field: OperationParameters.Field, +observation: Context.Observation) -> String:
+  match field:
+    case OperationParameters.SandboxMode{}: activity_permission_effective_value(activity_permission_access(observation), field, observation)
+    case OperationParameters.NetworkAccess{}: activity_permission_effective_value(activity_permission_access(observation), field, observation)
+    case OperationParameters.ApprovalReviewer{}: activity_reviewer_value(activity_permission_approval(observation))
+    case OperationParameters.ApprovalPolicy{}: activity_permission_policy_value(activity_permission_approval(observation))
+    case _: ""
+
+def activity_model_subject_value(field: OperationParameters.Field, property: Experience.Property, reasoning: String) -> String:
+  match field:
+    case OperationParameters.ModelProfile{}: UX.property_value(property)
+    case OperationParameters.ReasoningEffort{}: reasoning
+    case _: ""
+
+def activity_subject_value_context(model: Maybe<&2, OperationParameters.Observed>, permission: Maybe<&2, Context.Observation>, editor: U.Editor, field: OperationParameters.Field, property: Experience.Property, state: InteractionTypes.State) -> String:
+  match model permission:
+    case Some{OperationParameters.ModelValue{profile, reasoning}} _: activity_model_subject_value(field, property, reasoning)
+    case None{} Some{observation}: activity_permission_subject_value(field, observation)
+    case _ _: FieldOptions.observed(field_value(state, editor, field))
+
+def activity_subject_value_parts(editor: U.Editor, field: OperationParameters.Field, +property: Experience.Property, state: InteractionTypes.State) -> String:
+  activity_subject_value_context(UX.property_model_context(property), UX.property_permission_context(property), editor, field, property, state)
+
+def activity_subject_value(subject: Experience.Subject, property: Experience.Property, +state: InteractionTypes.State) -> String:
+  Experience.Subject{editor, field} = subject
+  activity_subject_value_parts(editor, field, property, state)
+
+def activity_parameter_observed(buffer: Maybe<&2, String>, observed: OperationParameters.Observed) -> OperationParameters.Observed:
+  match buffer observed:
+    case Some{value} OperationParameters.ModelValue{profile, current}: OperationParameters.ModelValue{profile, value}
+    case _ original: original
+
+# NOTE: Read-only controls output the value without their name. The retained
+# subject therefore supplies an explicit caption beside that same observed value.
+def activity_readonly_field(+subject: Experience.Subject, value: OperationParameters.Observed, parent: Identity.Key) -> SurfaceTypes.Node:
+  Experience.Subject{+editor, +field} = subject
+  +key: Identity.Key = Identity.Part{parent, "fact/" ++ UX.subject_key(subject)}
+  +name = activity_subject_title(subject)
+  SurfaceTypes.Node{key, "fact/" ++ UX.subject_key(subject), "", SurfaceTypes.Content{}, SurfaceTypes.Region{},
+    [SurfaceTypes.Node{Identity.Part{key, "label"}, "fact/label", name, SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.FieldLabel{}}, Nil{}},
+     SurfaceTypes.Node{Identity.Part{key, "value"}, "fact/value", name, SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, OperationParameters.DisplayOnly{}, value, Nil{}}, Nil{}}]}
+
+def activity_parameter_editable_field(entry: OperationParameters.Entry, subject: Experience.Subject, value: OperationParameters.Observed, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  Experience.Subject{+editor, +field} = subject
+  activity_row(SurfaceTypes.DependencyRow{}, SurfaceTypes.Node{Identity.Part{parent, OperationParameters.key(field)}, OperationParameters.key(field), "Reasoning parameter", SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, entry, value, Nil{}}, subject_repair(editor, field, Identity.Part{parent, OperationParameters.key(field)}, state)})
+
+def activity_parameter_field_entry(entry: OperationParameters.Entry, +subject: Experience.Subject, value: OperationParameters.Observed, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  match entry:
+    case OperationParameters.DisplayOnly{}: activity_row(SurfaceTypes.DependencyRow{}, activity_readonly_field(subject, value, parent))
+    case other: activity_parameter_editable_field(other, subject, value, parent, state)
+
+def activity_parameter_field(+subject: Experience.Subject, entry: OperationParameters.Entry, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  Experience.Subject{+editor, +field} = subject
+  +observed = field_value(state, editor, field)
+  +value = activity_parameter_observed(E.requested_parameter(E.layers(E.session(Core.application(state))), editor), observed)
+  activity_parameter_field_entry(entry, subject, value, parent, state)
+
+def activity_dependency_summary(+subject: Experience.Subject, value: String, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  Experience.Subject{editor, field} = subject
+  [activity_row(SurfaceTypes.DependencyRow{}, user_action(parent, "decision/" ++ OperationParameters.key(field), activity_subject_title(subject) ++ " · " ++ value ++ " ›", U.EnterDecision{editor, OperationParameters.key(field)}, True{}, state))]
+
+def activity_inline_expression(+subject: Experience.Subject, property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  [activity_row(SurfaceTypes.SupportingRow{}, activity_readonly_field(subject, OperationParameters.TextValue{activity_subject_value(subject, property, state)}, parent))]
+
+def activity_draft_field_node(identity: Activity.DraftFieldIdentity, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  Activity.DraftFieldIdentity{owner, Experience.Subject{+editor, +field}, draft} = identity
+  +value = OperationParameters.observed(U.contents(draft), field, E.program(Core.application(state)))
+  activity_row(SurfaceTypes.DependencyRow{}, SurfaceTypes.Node{Identity.Part{parent, OperationParameters.key(field)}, OperationParameters.key(field), "Name", SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, OperationParameters.SingleLine{}, value, Nil{}}, subject_repair(editor, field, Identity.Part{parent, OperationParameters.key(field)}, state)})
+
+def activity_original_context(found: Maybe<&2, D.Project>, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: Nil{}
+    case Some{D.Project{name, workspace, guidance}}:
+      [activity_row(SurfaceTypes.SupportingRow{}, approval_fact(parent, "object", "Original project", name))]
+
+def activity_original_expression(subject: Experience.Subject, +edit: Experience.ProjectEdit, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  Experience.Subject{editor, field} = subject
+  List.append(&2, SurfaceTypes.Node, activity_original_context(UX.project_edit_original(edit), parent),
+    [activity_draft_field_node(Activity.draft_field_identity(edit, Experience.Subject{editor, OperationParameters.ProjectName{}}), parent, state)])
+
+def activity_inspection_focus(focused: Maybe<&2, OperationParameters.Field>, editor: U.Editor) -> Activity.View:
+  match focused:
+    case Some{field}: Activity.InspectionView{Some{Experience.Subject{editor, field}}}
+    case None{}: Activity.InspectionView{None{}}
+
+def activity_current_view_for_property(+property: Experience.Property, +state: InteractionTypes.State) -> Activity.View:
+  +editor = UX.property_editor(property)
+  activity_inspection_focus(E.requested_decision(E.layers(E.session(Core.application(state))), editor), editor)
+
+def activity_relation_covers_subject(exposure: Activity.Exposure, view: Activity.RelationView, subject: Experience.Subject) -> Bool:
+  match exposure view:
+    case Activity.DependencySummary{} Activity.RootDecisionView{decision, children}: UX.same_subject(UX.decision_subject(decision), subject)
+    case Activity.DependencySummary{} Activity.DependentDecisionView{parent, prerequisite, decision}: UX.same_subject(UX.decision_subject(decision), subject)
+    case Activity.ParameterControl{} Activity.FieldSpecificationView{parent, child, entry, profile}: UX.same_subject(child, subject)
+    case _ _: False{}
+
+type InspectionCoverageContext is Data:
+  InspectionCoverageContext{activity: Activity.Activity, current: Activity.View, subject: Experience.Subject}
+
+def activity_inspection_child_covered(values: +List<Bool>) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{first, rest}: first || activity_inspection_child_covered(rest)
+
+def activity_inspection_coverage_retained(+activity: Activity.Activity, +current: Activity.View, subject: Experience.Subject, +relation: Activity.RelationView, children: +List<Bool>) -> Bool:
+  activity_relation_covers_subject(Activity.relation_view_exposure(activity, current, relation), relation, subject) || activity_inspection_child_covered(children)
+
+def activity_inspection_coverage_handler(context: InspectionCoverageContext, relation: Activity.RelationView, children: +List<Bool>) -> Bool:
+  InspectionCoverageContext{activity, current, subject} = context
+  activity_inspection_coverage_retained(activity, current, subject, relation, children)
+
+def activity_inspection_subject_covered(+activity: Activity.Activity, current: Activity.View, subject: Experience.Subject) -> Bool:
+  activity_inspection_child_covered(Activity.fold_relations(~InspectionCoverageContext, ~Bool, ~activity_inspection_coverage_handler,
+    InspectionCoverageContext{activity, current, subject}, Activity.relations(activity)))
+
+def activity_inspection_uncovered(covered: Bool, subject: Experience.Subject, property: Experience.Property, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match covered:
+    case True{}: Nil{}
+    case False{}: activity_inline_expression(subject, property, parent, state)
+
+def activity_inspection_expression_visible(+current: Activity.View, +activity: Activity.Activity, +subject: Experience.Subject, property: Experience.Property, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match current:
+    case Activity.InspectionView{None{}}: activity_inspection_uncovered(activity_inspection_subject_covered(activity, current, subject), subject, property, parent, state)
+    case _: Nil{}
+
+def activity_inspection_expression(+subject: Experience.Subject, +activity: Activity.Activity, +property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  activity_inspection_expression_visible(activity_current_view_for_property(property, state), activity, subject, property, parent, state)
 
 def activity_candidate_description(same: Bool, explanation: String) -> String:
   match same:
@@ -1456,18 +1644,76 @@ def activity_candidate_consequence(input: U.Input, observed: OperationParameters
     case U.EditDraft{editor, U.ChooseModel{profile, +next}} OperationParameters.ModelValue{current, reasoning}: activity_model_consequence(String.eq(next, reasoning), next, description)
     case _ _: description
 
-def activity_candidate_alternative(input: Maybe<&2, U.Input>, +candidate: Experience.CandidateObservation, alternative: Experience.Alternative, +parent: Identity.Key, state: InteractionTypes.State) -> SurfaceTypes.Node:
-  match input alternative:
-    case Some{+input} Experience.Alternative{+label, +explanation, +value}: declared_choice(UX.candidate_selected(candidate), activity_candidate_consequence(input, UX.decision_observation(UX.candidate_decision(candidate)), activity_candidate_description(String.eq(label, explanation), explanation)), V.ControlDeclaration{UX.value_key(value), label, V.Secondary{}, input, V.Available{}}, parent, state)
-    case None{} Experience.Alternative{label, explanation, value}: approval_fact(parent, UX.value_key(value), label, activity_candidate_reason(UX.candidate_reason(candidate)))
+def activity_permission_effect_value(strategy: Experience.Strategy, field: OperationParameters.Field, observation: Context.Observation) -> String:
+  match strategy field:
+    case Experience.FullAccess{} OperationParameters.SandboxMode{}: "Filesystem: full access"
+    case Experience.FullAccess{} OperationParameters.NetworkAccess{}: "Network available"
+    case Experience.FullAccess{} OperationParameters.ApprovalReviewer{}: "No approval review"
+    case Experience.Ask{} OperationParameters.ApprovalReviewer{}: ""
+    case Experience.AutomaticReview{} OperationParameters.ApprovalReviewer{}: "Reviewer: " ++ activity_permission_subject_value(field, observation)
+    case _ OperationParameters.SandboxMode{}: "Filesystem: " ++ activity_permission_sandbox_value(field, activity_permission_sandbox(observation))
+    case _ OperationParameters.NetworkAccess{}: activity_permission_sandbox_value(field, activity_permission_sandbox(observation))
+    case _ _: ""
 
-def activity_candidate_input(input: Maybe<&2, U.Input>, +candidate: Experience.CandidateObservation, parent: Identity.Key, state: InteractionTypes.State) -> SurfaceTypes.Node:
-  activity_candidate_alternative(input, candidate, UX.candidate_alternative(candidate), parent, state)
+def activity_description_append(empty: Bool, detail: String, description: String) -> String:
+  match empty:
+    case True{}: description
+    case False{}: description ++ " · " ++ detail
 
-def activity_candidate_nodes(candidates: +List<Experience.CandidateObservation>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_candidate_reviewer(input: Maybe<&2, U.Input>, observation: Context.Observation) -> String:
+  match input:
+    case Some{U.EditDraft{editor, U.ConfigureContext{Context.SetApproval{choice}}}}: activity_reviewer_value(Some{choice})
+    case _: activity_reviewer_value(activity_permission_approval(observation))
+
+def activity_permission_candidate_effect(strategy: Experience.Strategy, field: OperationParameters.Field, +observation: Context.Observation, input: Maybe<&2, U.Input>) -> String:
+  match strategy field:
+    case Experience.AutomaticReview{} OperationParameters.ApprovalReviewer{}: "Reviewer: " ++ activity_candidate_reviewer(input, observation)
+    case _ _: activity_permission_effect_value(strategy, field, observation)
+
+def activity_consequence_expression(expression: Activity.SubjectExpression, value: Experience.Value, input: Maybe<&2, U.Input>, description: String) -> String:
+  match expression value:
+    case Activity.PermissionConsequence{Experience.Subject{editor, +field}, observation, decision} Experience.ExecutionStrategy{strategy}:
+      +detail = activity_permission_candidate_effect(strategy, field, observation, input)
+      activity_description_append(String.eq(detail, ""), detail, description)
+    case _ _: description
+
+def activity_consequence_expressions(expressions: +List<Activity.SubjectExpression>, +value: Experience.Value, +input: Maybe<&2, U.Input>, description: String) -> String:
+  match expressions:
+    case Nil{}: description
+    case Con{expression, rest}: activity_consequence_expressions(rest, value, input, activity_consequence_expression(expression, value, input, description))
+
+def activity_candidate_full_description(+activity: Activity.Activity, +candidate: Experience.CandidateObservation, +value: Experience.Value, description: String) -> String:
+  activity_consequence_expressions(Activity.coverage_expressions(Activity.coverage(activity, Activity.PrincipalView{}, Activity.property(activity))), value, UX.candidate_canonical_result(candidate), description)
+
+def activity_candidate_unavailable_values(canonical: Maybe<&2, U.Input>, +candidate: Experience.CandidateObservation, +value: Experience.Value, label: String, description: String, +reason: String, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  match canonical:
+    case Some{input}: declared_choice(UX.candidate_selected(candidate), description ++ " · " ++ reason,
+      V.ControlDeclaration{UX.value_key(value), label, V.Secondary{}, input, V.Unavailable{reason}}, parent, state)
+    case None{}: approval_fact(parent, UX.value_key(value), label, description ++ " · " ++ reason)
+
+def activity_candidate_unavailable(canonical: Maybe<&2, U.Input>, +candidate: Experience.CandidateObservation, +alternative: Experience.Alternative, +activity: Activity.Activity, parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  Experience.Alternative{+label, +explanation, +value} = alternative
+  activity_candidate_unavailable_values(canonical, candidate, value, label,
+    activity_candidate_full_description(activity, candidate, value, activity_candidate_description(String.eq(label, explanation), explanation)),
+    activity_candidate_reason(UX.candidate_reason(candidate)), parent, state)
+
+def activity_candidate_available(+input: U.Input, +candidate: Experience.CandidateObservation, alternative: Experience.Alternative, +activity: Activity.Activity, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  Experience.Alternative{+label, +explanation, +value} = alternative
+  +description = activity_candidate_full_description(activity, candidate, value, activity_candidate_description(String.eq(label, explanation), explanation))
+  declared_choice(UX.candidate_selected(candidate), activity_candidate_consequence(input, UX.decision_observation(UX.candidate_decision(candidate)), description), V.ControlDeclaration{UX.value_key(value), label, V.Secondary{}, input, V.Available{}}, parent, state)
+
+def activity_candidate_alternative(input: Maybe<&2, U.Input>, +candidate: Experience.CandidateObservation, alternative: Experience.Alternative, +activity: Activity.Activity, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  match input:
+    case Some{input}: activity_candidate_available(input, candidate, alternative, activity, parent, state)
+    case None{}: activity_candidate_unavailable(UX.candidate_canonical_result(candidate), candidate, alternative, activity, parent, state)
+
+def activity_candidate_input(input: Maybe<&2, U.Input>, +candidate: Experience.CandidateObservation, activity: Activity.Activity, parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  activity_row(SurfaceTypes.ChoiceRow{}, activity_candidate_alternative(input, candidate, UX.candidate_alternative(candidate), activity, parent, state))
+
+def activity_candidate_nodes(candidates: +List<Experience.CandidateObservation>, +activity: Activity.Activity, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match candidates:
     case Nil{}: Nil{}
-    case Con{+candidate, rest}: activity_candidate_input(UX.candidate_selection_input(candidate), candidate, parent, state) <> activity_candidate_nodes(rest, parent, state)
+    case Con{+candidate, rest}: activity_candidate_input(UX.candidate_selection_input(candidate), candidate, activity, parent, state) <> activity_candidate_nodes(rest, activity, parent, state)
 
 def activity_candidate_input_present(input: Maybe<&2, U.Input>) -> Bool:
   match input:
@@ -1490,10 +1736,41 @@ def activity_candidates_status(full: +List<Experience.CandidateObservation>, vis
     case Con{first, rest} Nil{}: [approval_fact(parent, "candidates/no-match", "Search", "No choices match this search")]
     case +available Con{first, rest}: activity_unusable_candidates(activity_candidates_usable(available), parent)
 
-def activity_decision_candidates(+activity: Activity.Activity, +decision: Experience.Decision, +query: String, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_requested_decision_caption(requested: Bool, subject: Experience.Subject, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match requested:
+    case False{}: Nil{}
+    case True{}: [activity_row(SurfaceTypes.SupportingRow{}, SurfaceTypes.Node{Identity.Part{parent, "subject"}, "decision/subject", activity_subject_title(subject), SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.FieldLabel{}}, Nil{}})]
+
+def activity_decision_candidates(+activity: Activity.Activity, +decision: Experience.Decision, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   List.append(&2, SurfaceTypes.Node,
-    activity_candidates_status(Activity.decision_candidates(activity, decision), Activity.visible_candidate_observations(activity, decision, query), parent),
-    activity_candidate_nodes(Activity.visible_candidate_observations(activity, decision, query), parent, state))
+    activity_requested_decision_caption(Activity.requested_subject(activity_current_view(activity, state), UX.decision_subject(decision)), UX.decision_subject(decision), parent),
+    List.append(&2, SurfaceTypes.Node,
+      activity_candidates_status(Activity.decision_candidates(activity, decision), Activity.visible_candidate_observations(activity, decision, query), parent),
+      activity_candidate_nodes(Activity.visible_candidate_observations(activity, decision, query), activity, parent, state)))
+
+def activity_coverage_parameter(exposure: Activity.Exposure, +subject: Experience.Subject, +activity: Activity.Activity, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match exposure:
+    case Activity.DependencySummary{}: activity_dependency_summary(subject, activity_subject_value(subject, Activity.property(activity), state), parent, state)
+    case _: Nil{}
+
+def activity_coverage_expression(expression: Activity.SubjectExpression, +activity: Activity.Activity, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match expression:
+    case Activity.SelectedSubject{subject, decision}: activity_decision_candidates(activity, decision, query, Identity.Part{parent, UX.subject_key(subject)}, state)
+    case Activity.OwnedParameter{+subject, relation}:
+      activity_coverage_parameter(Activity.relation_exposure(activity, activity_current_view(activity, state), relation), subject, activity, parent, state)
+    case Activity.PermissionConsequence{subject, observation, decision}: Nil{}
+    case Activity.OwnerContext{subject, property}: activity_inline_expression(subject, property, parent, state)
+    case Activity.OriginalIdentity{subject, edit}: activity_original_expression(subject, edit, parent, state)
+    case Activity.InspectionFact{subject, property}: activity_inspection_expression(subject, activity, property, parent, state)
+    case Activity.InlineSubject{subject, property}: activity_inline_expression(subject, property, parent, state)
+
+def activity_coverage_nodes(expressions: +List<Activity.SubjectExpression>, +activity: Activity.Activity, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match expressions:
+    case Nil{}: Nil{}
+    case Con{expression, rest}: List.append(&2, SurfaceTypes.Node, activity_coverage_expression(expression, activity, query, parent, state), activity_coverage_nodes(rest, activity, query, parent, state))
+
+def activity_required_property(+activity: Activity.Activity, +property: Experience.Property, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  activity_coverage_nodes(Activity.coverage_expressions(Activity.coverage(activity, activity_current_view(activity, state), property)), activity, query, parent, state)
 
 def property_source_details(expanded: Bool, +property: Experience.Property, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match expanded:
@@ -1668,19 +1945,13 @@ def activity_focus_owned(owned: Bool, field: Maybe<&2, OperationParameters.Field
 def activity_focus_layers(layers: +List<E.Layer>, +editor: U.Editor) -> Maybe<&2, Experience.Subject>:
   match layers:
     case Nil{}: None{}
-    case Con{E.Layer{+panel, trigger, initial, query, occurrence, source_expanded, field}, rest}:
+    case Con{E.Layer{+panel, trigger, initial, query, occurrence, source_expanded, field, parameter_buffer}, rest}:
       activity_focus_owned(E.decision_editor_matches(E.decision_panel_editor(panel), editor), field, editor)
 
 def activity_current_selected(selected: Bool, label: String, rest: String) -> String:
   match selected:
     case True{}: label
     case False{}: rest
-
-def activity_current_value(alternatives: +List<Experience.Alternative>, +decision: Experience.Decision) -> String:
-  match alternatives:
-    case Nil{}: FieldOptions.observed(UX.decision_observation(decision))
-    case Con{Experience.Alternative{label, explanation, +value}, rest}:
-      activity_current_selected(UX.selected(decision, value), label, activity_current_value(rest, decision))
 
 def activity_current_candidate(selected: Bool, alternative: Experience.Alternative, rest: String) -> String:
   match alternative:
@@ -1691,55 +1962,29 @@ def activity_current_candidates(candidates: +List<Experience.CandidateObservatio
     case Nil{}: fallback
     case Con{+candidate, rest}: activity_current_candidate(UX.candidate_selected(candidate), UX.candidate_alternative(candidate), activity_current_candidates(rest, fallback))
 
-def activity_decision_query(field: OperationParameters.Field, query: String) -> String:
-  match field:
-    case OperationParameters.ModelProfile{}: query
-    case _: ""
+def activity_compound_terminal(+action: Experience.ActionUnit, +assessment: Experience.Assessment, submit: V.ControlDeclaration, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  activity_row(SurfaceTypes.TerminalRow{}, dialog_actions(parent,
+    [user_action(parent, "cancel", "Cancel", U.Activate{U.ClosePanel{}}, True{}, state), canonical_commit(action, assessment, submit, parent, state)]))
 
-def activity_leave(purpose: Activity.Purpose, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  match purpose:
-    case Activity.Comparison{}: Nil{}
-    case _: [user_action(parent, "decision/leave", "Back", U.LeaveDecision{editor}, True{}, state)]
-
-def activity_decision_subject_view(disclosure: Activity.DecisionDisclosure, +activity: Activity.Activity, +decision: Experience.Decision, subject: Experience.Subject, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  match disclosure subject:
-    case Activity.Summary{} Experience.Subject{+editor, +field}:
-      [user_action(parent, "decision/enter", activity_current_candidates(Activity.decision_candidates(activity, decision), FieldOptions.observed(UX.decision_observation(decision))), U.EnterDecision{editor, OperationParameters.key(field)}, True{}, state)]
-    case Activity.Candidates{} Experience.Subject{+editor, +field}:
-      List.append(&2, SurfaceTypes.Node,
-        activity_decision_candidates(activity, decision, activity_decision_query(field, query), parent, state),
-        activity_leave(Activity.purpose(activity), editor, parent, state))
-
-def activity_decision_view(disclosure: Activity.DecisionDisclosure, +activity: Activity.Activity, +decision: Experience.Decision, query: String, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  activity_decision_subject_view(disclosure, activity, decision, UX.decision_subject(decision), query, parent, state)
-
-def activity_decision_nodes(+activity: Activity.Activity, +decision: Experience.Decision, children: +List<SurfaceTypes.Node>, query: String, focused: Maybe<&2, Experience.Subject>, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
-  +key: Identity.Key = Identity.Part{parent, UX.subject_key(UX.decision_subject(decision))}
-  SurfaceTypes.Node{key, "decision/" ++ UX.subject_key(UX.decision_subject(decision)), UX.decision_question(decision), SurfaceTypes.Section{}, SurfaceTypes.DecisionGroup{decision},
-    List.append(&2, SurfaceTypes.Node, activity_decision_view(Activity.decision_disclosure(activity, decision, focused), activity, decision, query, key, state), children)}
-
-def activity_assessment_status_empty(empty: Bool, assessment: Experience.Assessment, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
-  match empty:
-    case True{}: Nil{}
-    case False{}: [approval_fact(parent, "assessment/status", "Save", UX.assessment_reason(assessment))]
-
-def activity_assessment_status(+assessment: Experience.Assessment, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
-  activity_assessment_status_empty(String.eq(UX.assessment_reason(assessment), ""), assessment, parent)
-
-def activity_action_scene(scene: Maybe<&2, V.EditorScene>, +action: Experience.ActionUnit, +assessment: Experience.Assessment, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_action_scene(scene: Maybe<&2, V.EditorScene>, +action: Experience.ActionUnit, +assessment: Experience.Assessment, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match scene:
     case None{}: Nil{}
     case Some{V.EditorScene{identity, revision, groups, structure, old_assessment, submit, feedback, pending}}:
-      List.append(&2, SurfaceTypes.Node, activity_assessment_status(assessment, parent), List.append(&2, SurfaceTypes.Node, action_feedback_nodes(identity, feedback, parent), [dialog_actions(parent, [canonical_commit(action, assessment, submit, parent, state)])]))
+      List.append(&2, SurfaceTypes.Node, activity_rows(SurfaceTypes.SupportingRow{}, action_feedback_nodes(identity, feedback, parent)), [activity_compound_terminal(action, assessment, submit, parent, state)])
 
 def activity_action(+action: Experience.ActionUnit, assessment: Experience.Assessment, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   +application = Core.application(state)
   activity_action_scene(View.editor(UX.action_editor(action), E.session(application), E.program(application)), action, assessment, parent, state)
 
+def activity_compound_completion(completion: Activity.Completion, action: Experience.ActionUnit, assessment: Experience.Assessment, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match completion:
+    case Activity.CommitOrDiscard{}: activity_action(action, assessment, parent, state)
+    case _: Nil{}
+
 def activity_flatten(values: +List<+List<SurfaceTypes.Node>>) -> +List<SurfaceTypes.Node>:
   List.foldr(~&2, ~(+List<SurfaceTypes.Node>), ~(+List<SurfaceTypes.Node>), ~(nodes => tail => List.append(&2, SurfaceTypes.Node, nodes, tail)), values, Nil{})
 
-def activity_support_resets_config(found: Maybe<&2, Context.Configuration>, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_support_resets_config(found: Maybe<&2, Context.Configuration>, editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match found:
     case None{}: Nil{}
     case Some{config}: permission_resets(editor, config, parent, state)
@@ -1757,36 +2002,127 @@ def activity_support_resets_kind(kind: Experience.PropertyKind, +property: Exper
 def activity_support(+property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   List.append(&2, SurfaceTypes.Node, property_source_controls(property, parent, state), activity_support_resets_kind(UX.property_kind(property), property, parent, state))
 
-def activity_collection_obstruction_code(code: String, +obstruction: Experience.Obstruction, +editor: U.Editor, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_collection_obstruction_code(code: String, +obstruction: Experience.Obstruction, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match code:
     case "unadded_directory": Nil{}
     case +other:
       SurfaceTypes.Node{Identity.Part{parent, "workspace/error"}, "assessment/" ++ other, UX.obstruction_message(obstruction), SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{UX.obstruction_message(obstruction)}, Nil{}} <>
         workspace_retry_control(String.eq(other, "workspace_observation_failed"), editor, parent, state)
 
-def activity_collection_obstruction(found: Maybe<&2, Experience.Obstruction>, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_collection_obstruction(found: Maybe<&2, Experience.Obstruction>, editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match found:
     case None{}: Nil{}
     case Some{+obstruction}: activity_collection_obstruction_code(UX.obstruction_code(obstruction), obstruction, editor, parent, state)
 
-def activity_collection_assessment(edit: Maybe<&2, Experience.ProjectEdit>, +editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_collection_assessment(edit: Maybe<&2, Experience.ProjectEdit>, +editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match edit:
     case None{}: Nil{}
     case Some{edit}: activity_collection_obstruction(UX.subject_obstruction(Experience.Subject{editor, OperationParameters.WorkspaceDirectories{}}, UX.project_edit_assessment(edit)), editor, parent, state)
 
-def activity_relation_nodes(view: Activity.RelationView, children: +List<+List<SurfaceTypes.Node>>, +activity: Activity.Activity, query: String, focused: Maybe<&2, Experience.Subject>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  match view:
-    case Activity.RootDecisionView{decision, actual_children}: [activity_decision_nodes(activity, decision, activity_flatten(children), query, focused, parent, state)]
-    case Activity.DependentDecisionView{owner, prerequisite, decision}: [activity_decision_nodes(activity, decision, Nil{}, query, focused, parent, state)]
-    case Activity.RequiredValueView{property}: activity_required_property(activity, property, parent, state)
-    case Activity.SupportingValueView{property}: activity_support(property, Identity.Part{parent, "source"}, state)
-    case Activity.CollectionMembersView{+collection}: List.append(&2, SurfaceTypes.Node, workspace_collection_menu(Some{UX.collection_workspace(collection)}, UX.collection_editor(collection), None{}, parent, state), activity_collection_assessment(Activity.editing_observation(activity), UX.collection_editor(collection), parent, state))
-    case Activity.FieldSpecificationView{owner, Experience.Subject{editor, field}, entry, profile}: [field_node(OperationParameters.FieldScene{field, "Reasoning effort", entry}, editor, parent, state, Nil{})]
-    case Activity.AssessedActionView{action, assessment}: activity_action(action, assessment, parent, state)
+def activity_expression_owns_subject(expressions: +List<Activity.SubjectExpression>, +subject: Experience.Subject) -> Bool:
+  match expressions:
+    case Nil{}: False{}
+    case Con{expression, rest}:
+      match expression:
+        case Activity.OwnedParameter{parameter, relation}: UX.same_subject(parameter, subject) || activity_expression_owns_subject(rest, subject)
+        case _: activity_expression_owns_subject(rest, subject)
 
-def activity_search(purpose: Activity.Purpose, query: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
-  match purpose:
-    case Activity.Comparison{}: [SurfaceTypes.Node{Identity.Part{parent, "search"}, "search", "Search options", SurfaceTypes.Field{}, SurfaceTypes.SearchChoices{query}, Nil{}}]
+def activity_coverage_owns_parameter(+activity: Activity.Activity, current: Activity.View, subject: Experience.Subject) -> Bool:
+  activity_expression_owns_subject(Activity.coverage_expressions(Activity.coverage(activity, current, Activity.property(activity))), subject)
+
+def activity_decision_summary(covered: Bool, +activity: Activity.Activity, +decision: Experience.Decision, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match covered:
+    case True{}: Nil{}
+    case False{}: activity_dependency_summary(UX.decision_subject(decision), activity_current_candidates(Activity.decision_candidates(activity, decision), FieldOptions.observed(UX.decision_observation(decision))), parent, state)
+
+def activity_field_summary(covered: Bool, +activity: Activity.Activity, +subject: Experience.Subject, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match covered:
+    case True{}: Nil{}
+    case False{}: activity_dependency_summary(subject, activity_subject_value(subject, Activity.property(activity), state), parent, state)
+
+def activity_inspection_label(kind: Experience.PropertyKind) -> String:
+  match kind:
+    case Experience.ModelProperty{}: "Model settings…"
+    case Experience.PermissionsProperty{}: "Custom permissions…"
+    case _: "Configuration source…"
+
+def activity_inspection_entry(+property: Experience.Property, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  [activity_row(SurfaceTypes.InspectionRow{}, user_action(parent, "inspection", activity_inspection_label(UX.property_kind(property)), U.TogglePropertySource{UX.property_editor(property)}, True{}, state))]
+
+def activity_requested_support(current: Activity.View, +property: Experience.Property, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match current:
+    case Activity.InspectionView{None{}}:
+      activity_rows(SurfaceTypes.SupportingRow{}, [approval_fact(parent, "property-scope", "Scope", property_scope(UX.property_editor(property))), approval_fact(parent, "property-source", "Source", UX.property_source_description(property))])
+    case Activity.CompoundView{}: activity_rows(SurfaceTypes.InspectionRow{}, activity_support(property, parent, state))
+    case _: Nil{}
+
+def activity_collection_editing_actions(+editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  region(parent, "directory-entry-actions", "", SurfaceTypes.Toolbar{},
+    [directory_confirm(editor, parent, state), user_action(parent, "workspace/clear", "Clear", U.EditDraft{editor, U.WriteDirectory{""}}, True{}, state), directory_browse(editor, parent, state)])
+
+def activity_collection_content(+collection: Experience.Collection, +activity: Activity.Activity, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +editor = UX.collection_editor(collection)
+  List.append(&2, SurfaceTypes.Node, [activity_row(SurfaceTypes.ObjectHeading{}, approval_fact(parent, "workspace-heading", "Working directories", property_scope(editor))),
+    activity_row(SurfaceTypes.DependencyRow{}, SurfaceTypes.Node{Identity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, pending_directory(state, editor)},
+      unadded_directory_status(String.eq(pending_directory(state, editor), ""), Identity.Part{parent, "add"})}),
+    activity_collection_editing_actions(editor, parent, state)], List.append(&2, SurfaceTypes.Node,
+      activity_rows(SurfaceTypes.MemberRow{}, collection_rows(UX.collection_members(collection), collection, parent, state)), activity_rows(SurfaceTypes.SupportingRow{}, activity_collection_assessment(Activity.editing_observation(activity), editor, parent, state))))
+
+def activity_root_candidate_content(current: Activity.View, +activity: Activity.Activity, decision: Experience.Decision, children: +List<+List<SurfaceTypes.Node>>, query: String, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match current:
+    case Activity.PrincipalView{}: activity_flatten(children)
+    case _: List.append(&2, SurfaceTypes.Node, activity_decision_candidates(activity, decision, query, parent, state), activity_flatten(children))
+
+def activity_exposed_relation(exposure: Activity.Exposure, view: Activity.RelationView, children: +List<+List<SurfaceTypes.Node>>, +activity: Activity.Activity, +current: Activity.View, query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match exposure view:
+    case Activity.HiddenRelation{} _: activity_flatten(children)
+    case Activity.RequiredExpression{} Activity.RequiredValueView{property}: activity_required_property(activity, property, query, parent, state)
+    case Activity.CandidateChoices{} Activity.RootDecisionView{decision, actual_children}: activity_root_candidate_content(current, activity, decision, children, query, parent, state)
+    case Activity.CandidateChoices{} Activity.DependentDecisionView{owner, prerequisite, +decision}: activity_decision_candidates(activity, decision, "", Identity.Part{parent, UX.subject_key(UX.decision_subject(decision))}, state)
+    case Activity.DependencySummary{} Activity.RootDecisionView{+decision, actual_children}: List.append(&2, SurfaceTypes.Node, activity_decision_summary(False{}, activity, decision, parent, state), activity_flatten(children))
+    case Activity.DependencySummary{} Activity.DependentDecisionView{owner, prerequisite, +decision}: activity_decision_summary(activity_coverage_owns_parameter(activity, current, UX.decision_subject(decision)), activity, decision, parent, state)
+    case Activity.DependencySummary{} Activity.FieldSpecificationView{owner, +subject, entry, profile}: activity_field_summary(activity_coverage_owns_parameter(activity, current, subject), activity, subject, parent, state)
+    case Activity.ParameterControl{} Activity.FieldSpecificationView{owner, subject, entry, profile}: [activity_parameter_field(subject, entry, parent, state)]
+    case Activity.RequestedInformation{} Activity.SupportingValueView{property}: activity_requested_support(current, property, Identity.Part{parent, "source"}, state)
+    case Activity.CompoundContent{} Activity.CollectionMembersView{collection}: activity_collection_content(collection, activity, parent, state)
+    case Activity.CompoundContent{} Activity.AssessedActionView{action, assessment}: activity_compound_completion(Activity.completion(activity, current), action, assessment, parent, state)
+    case _ _: activity_flatten(children)
+
+def activity_relation_nodes(+view: Activity.RelationView, children: +List<+List<SurfaceTypes.Node>>, +activity: Activity.Activity, query: String, focused: Maybe<&2, Experience.Subject>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +current = activity_current_view(activity, state)
+  activity_exposed_relation(Activity.relation_view_exposure(activity, current, view), view, children, activity, current, query, parent, state)
+
+def activity_search(required: Bool, query: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match required:
+    case True{}: [activity_row(SurfaceTypes.DependencyRow{}, SurfaceTypes.Node{Identity.Part{parent, "search"}, "search", "Search models", SurfaceTypes.Field{}, SurfaceTypes.SearchChoices{query}, Nil{}})]
+    case False{}: Nil{}
+
+def activity_parameter_apply_entry(entry: OperationParameters.Entry, editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match entry:
+    case OperationParameters.SingleLine{}: [activity_row(SurfaceTypes.TerminalRow{}, user_action(parent, "parameter/apply", "Apply", U.CompleteDecisionParameter{editor}, True{}, state))]
+    case _: Nil{}
+
+def activity_parameter_apply(field: Maybe<&2, OperationParameters.Field>, +editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match field:
+    case Some{OperationParameters.ReasoningEffort{}}: activity_parameter_apply_entry(actual_entry(OperationParameters.ReasoningEffort{}, OperationParameters.Choice{}, field_value(state, editor, OperationParameters.ReasoningEffort{}), state), editor, parent, state)
+    case _: Nil{}
+
+def activity_view_completion_controls(completion: Activity.Completion, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match completion:
+    case Activity.ApplyAndDismiss{}: Nil{}
+    case Activity.CommitOrDiscard{}: Nil{}
+    case Activity.ApplyAndReturn{}: [activity_row(SurfaceTypes.InspectionRow{}, user_action(parent, "view/back", "Back", U.LeaveDecision{editor}, True{}, state))]
+    case Activity.ReturnToOwner{}: [activity_row(SurfaceTypes.InspectionRow{}, user_action(parent, "view/back", "Back", U.LeaveDecision{editor}, True{}, state))]
+
+def activity_view_parameter_completion(completion: Activity.Completion, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match completion:
+    case Activity.ApplyAndReturn{}: activity_parameter_apply(E.requested_decision(E.layers(E.session(Core.application(state))), editor), editor, parent, state)
+    case Activity.ReturnToOwner{}: Nil{}
+    case _: Nil{}
+
+def activity_view_inspection_entry(current: Activity.View, property: Experience.Property, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match current:
+    case Activity.PrincipalView{}: activity_inspection_entry(property, parent, state)
     case _: Nil{}
 
 type ActivityRenderContext is Data:
@@ -1796,10 +2132,16 @@ def activity_relation_handler(context: ActivityRenderContext, view: Activity.Rel
   ActivityRenderContext{activity, query, focused, parent, state} = context
   activity_relation_nodes(view, children, activity, query, focused, parent, state)
 
-def activity_nodes(+activity: Activity.Activity, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def activity_content(+activity: Activity.Activity, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   focused = activity_focus_layers(E.layers(E.session(Core.application(state))), Activity.scope(activity))
   context: ActivityRenderContext = ActivityRenderContext{activity, query, focused, parent, state}
-  List.append(&2, SurfaceTypes.Node, activity_search(Activity.purpose(activity), query, parent), activity_flatten(Activity.fold_relations(~ActivityRenderContext, ~(+List<SurfaceTypes.Node>), ~activity_relation_handler, context, Activity.relations(activity))))
+  List.append(&2, SurfaceTypes.Node, activity_search(Activity.search_required(activity, activity_current_view(activity, state)), query, parent), activity_flatten(Activity.fold_relations(~ActivityRenderContext, ~(+List<SurfaceTypes.Node>), ~activity_relation_handler, context, Activity.relations(activity))))
+
+def activity_nodes(+activity: Activity.Activity, +query: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +current = activity_current_view(activity, state)
+  +completion = Activity.completion(activity, current)
+  List.append(&2, SurfaceTypes.Node, activity_view_completion_controls(completion, Activity.scope(activity), parent, state), List.append(&2, SurfaceTypes.Node, activity_content(activity, query, parent, state),
+    List.append(&2, SurfaceTypes.Node, activity_view_parameter_completion(completion, Activity.scope(activity), parent, state), activity_view_inspection_entry(current, Activity.property(activity), parent, state))))
 
 def model_activity_children_entry(entry: OperationParameters.Entry, profile: D.Profile, +observed: OperationParameters.Observed, +editor: U.Editor, groups: +List<V.InputGroup>) -> +List<Activity.Dependency>:
   match entry:
@@ -1881,7 +2223,7 @@ def policy_activity_groups(groups: +List<V.InputGroup>, +editor: U.Editor, +stat
     case Con{V.ExecutionInput{config, preview, controls, projects, reviewers}, rest}: policy_activity_preview(preview, reviewers, editor, state)
     case Con{other, rest}: policy_activity_groups(rest, editor, state)
 
-def activity_or_content(found: Maybe<&2, Activity.Activity>, query: String, parent: Identity.Key, state: InteractionTypes.State, fallback: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+def activity_or_content(found: Maybe<&2, Activity.Activity>, query: String, parent: Identity.Key, +state: InteractionTypes.State, fallback: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
   match found:
     case None{}: fallback
     case Some{activity}: activity_nodes(activity, query, parent, state)
@@ -1942,11 +2284,24 @@ def layer_meaning(found: Maybe<&2, Activity.Activity>, dismissal: V.Dismissal) -
     case None{}: dismissal_meaning(dismissal)
     case Some{activity}: activity_layer_meaning(activity, dismissal)
 
+# NOTE: A compound edit needs its activity title; choosing and inspection already
+# express their owner and parameter through subject coverage inside the surface.
+def activity_goal_label(goal: Activity.Purpose, fallback: String) -> String:
+  match goal:
+    case Activity.ObjectEditing{}: fallback
+    case Activity.Comparison{}: ""
+    case Activity.EffectExplanation{}: ""
+
+def activity_layer_label(found: Maybe<&2, Activity.Activity>, fallback: String) -> String:
+  match found:
+    case None{}: fallback
+    case Some{activity}: activity_goal_label(Activity.purpose(activity), fallback)
+
 def layers(values: +List<V.Layer>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.Layer{kind, +content, +initial, restore, dismissal}, rest}:
-      SurfaceTypes.Node{layer_key(initial), initial, View.layer_title(content), layer_role(kind), layer_meaning(layer_activity(content, state), dismissal),
+      SurfaceTypes.Node{layer_key(initial), initial, activity_layer_label(layer_activity(content, state), View.layer_title(content)), layer_role(kind), layer_meaning(layer_activity(content, state), dismissal),
         layer_content(content, layer_key(initial), state)} <> layers(rest, state)
 
 def settings_visible(open: Bool, close: InteractionTypes.Input, connect: InteractionTypes.Input) -> +List<SurfaceTypes.Node>:
@@ -2223,9 +2578,23 @@ def resolve_source(source: Maybe<&2, SurfaceTypes.Node>, gesture: SurfaceTypes.G
 def resolve(+surface: SurfaceTypes.Surface, key: String, gesture: SurfaceTypes.Gesture) -> Maybe<&2, InteractionTypes.Input>:
   resolve_source(find_node(active_nodes(surface), key), gesture, surface)
 
+def activity_requested_field_bound(requested: Maybe<&2, OperationParameters.Field>, +editor: U.Editor, +field: OperationParameters.Field, value: OperationParameters.Value, input: InteractionTypes.Input) -> InteractionTypes.Input:
+  match requested field value:
+    case Some{OperationParameters.ReasoningEffort{}} OperationParameters.ReasoningEffort{} OperationParameters.Model{profile, reasoning}:
+      InteractionTypes.ApplicationInput{E.UserInput{U.WriteDecisionParameter{editor, reasoning}}}
+    case _ _ _: input
+
+def activity_requested_field_input(+editor: U.Editor, field: OperationParameters.Field, value: OperationParameters.Value, input: InteractionTypes.Input, +state: InteractionTypes.State) -> InteractionTypes.Input:
+  activity_requested_field_bound(E.requested_decision(E.layers(E.session(Core.application(state))), editor), editor, field, value, input)
+
+def activity_requested_input(+input: InteractionTypes.Input, +state: InteractionTypes.State) -> InteractionTypes.Input:
+  match input:
+    case InteractionTypes.EditField{+editor, +field, +value}: activity_requested_field_input(editor, field, value, input, state)
+    case _: input
+
 def apply_input(input: Maybe<&2, InteractionTypes.Input>, +state: InteractionTypes.State) -> InteractionTypes.Decision:
   match input:
-    case Some{input}: Core.step(input, state)
+    case Some{input}: Core.step(activity_requested_input(input, state), state)
     case None{}:
       application = Core.application(state)
       services = Core.services(state)
@@ -2233,7 +2602,7 @@ def apply_input(input: Maybe<&2, InteractionTypes.Input>, +state: InteractionTyp
 
 def origin(layers: +List<E.Layer>, key: String) -> String:
   match layers:
-    case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}: trigger
+    case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: trigger
     case _: key
 
 def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
@@ -2244,14 +2613,14 @@ def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
 def layer_present(layers: +List<E.Layer>, +target: String) -> Bool:
   match layers:
     case Nil{}: False{}
-    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}:
+    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       String.eq(E.panel_target(panel), target) || layer_present(rest, target)
 
 def record_layer(layers: +List<E.Layer>, previous: +List<E.Layer>, origin: String) -> +List<E.Layer>:
   match layers:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field}, rest}:
-      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query, layer_occurrence, source_expanded, decision_field} <> rest
+    case Con{E.Layer{+panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
+      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest
 
 def source_session(+session: E.Session, previous: +List<E.Layer>, origin: String) -> E.Session:
   layers = E.layers(session)

@@ -52,7 +52,7 @@ def navigation_target(+visual: Design.Style) -> Nat:
   Nat.max(Activity.supporting_minimum(Activity.initial()), navigation_length(32n, visual))
 
 def navigation_gap(visual: Design.Style) -> Nat:
-  navigation_length(6n, visual)
+  navigation_length(8n, visual)
 
 def indentation(depth: Nat, visual: Design.Style) -> Nat:
   Design.Style{T.Presentation{tier, emphasis, scale}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
@@ -73,23 +73,66 @@ def row_style_fields(value: Source.Style, gap: Nat, inset: Nat, vertical: Nat) -
   Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(inset, vertical), Enclosure.EmbeddedContent{gap}}, width, height, minimum, scroll, position}, font, chrome, states}
 
 def row_style(+visual: Design.Style, depth: Nat) -> Source.Style:
-  row_style_fields(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), navigation_gap(visual), navigation_length(8n, visual), navigation_length(4n, visual))
+  row_style_fields(Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{0n, navigation_target(visual)}), navigation_gap(visual), navigation_length(8n, visual), 0n)
 
 # Conceal only a slot's paint and exposure; its command fields and allocation stay.
 def slot(key: UIIdentity.Key, +name: String, width: Model.AxisSize, visible: Bool, +visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
   Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ name}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}),
     [Source.DataAttribute{"navigation-slot", name}, Source.ExposureAttribute{navigation_exposure(visible)}], children}
 
-def navigation_leading(+key: UIIdentity.Key, role: Navigation.ContentRole, depth: Nat, +visual: Design.Style, child: Source.Node) -> Source.Node:
-  +target = navigation_target(visual)
-  +offset = indentation(depth, visual)
-  Source.Box{UIIdentity.part(key, "@leading-position"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{Nat.add(offset, target)}, Model.ExactSize{target}, 0n), Nil{},
+def leading_requirement(role: Navigation.ContentRole, +visual: Design.Style) -> Nat:
+  match role:
+    case Navigation.DisclosureSlot{}: navigation_target(visual)
+    case _: Activity.slot(NaturalSize.limit(), Design.style_text(visual))
+
+def navigation_leading_fields(+key: UIIdentity.Key, role: Navigation.ContentRole, +offset: Nat, +required: Nat, +target: Nat, +visual: Design.Style, child: Source.Node) -> Source.Node:
+  Source.Box{UIIdentity.part(key, "@leading-position"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{Nat.add(offset, required)}, Model.ExactSize{target}, 0n), Nil{},
     [Source.Box{UIIdentity.part(key, "@membership-indent"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{offset}, Model.ExactSize{target}, 0n), Nil{}, Nil{}},
-     Source.Box{UIIdentity.part(key, "@leading-target"), Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{target}, Model.ExactSize{target}, 0n), Spatial.Centered{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}], [sized(child, Model.ExactSize{target})]}]}
+     Source.Box{UIIdentity.part(key, "@leading-allocation"), Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{required}, Model.ExactSize{target}, 0n), Spatial.Centered{}, Spatial.Centered{}), Nil{},
+       [Source.Box{UIIdentity.part(key, "@leading-target"), Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, Model.ExactSize{required}, Model.ExactSize{required}, 0n), Spatial.Centered{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}], [child]}]}]}
+
+# The complete sidebar allocates one rail from its actual independent targets.
+def exact_width(style: Source.Style) -> Nat:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  match width:
+    case Model.ExactSize{extent}: extent
+    case _: 0n
+
+def shared_leading_requirement(nodes: +List<Source.Node>) -> Nat:
+  match nodes:
+    case Nil{}: 0n
+    case Con{Source.Box{UIIdentity.Part{key, "@leading-target"}, tag, style, attrs, children}, rest}: Nat.max(exact_width(style), shared_leading_requirement(rest))
+    case Con{Source.Box{key, tag, style, attrs, children}, rest}: Nat.max(shared_leading_requirement(children), shared_leading_requirement(rest))
+    case Con{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, rest}: Nat.max(shared_leading_requirement(children), shared_leading_requirement(rest))
+    case Con{Source.NativeAttachment{key, target, attrs, style, children}, rest}: Nat.max(shared_leading_requirement(children), shared_leading_requirement(rest))
+    case Con{other, rest}: shared_leading_requirement(rest)
+
+def leading_position_width(nodes: +List<Source.Node>, rail: Nat) -> Nat:
+  match nodes:
+    case Con{Source.Box{key, tag, style, attrs, children}, rest}: Nat.add(exact_width(style), rail)
+    case _: rail
+
+def align_leading(nodes: +List<Source.Node>, +rail: Nat) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Box{UIIdentity.Part{key, "@leading-position"}, tag, style, attrs, +children}, rest}:
+      Source.Box{UIIdentity.Part{key, "@leading-position"}, tag, sized_style(style, Model.ExactSize{leading_position_width(children, rail)}), attrs, align_leading(children, rail)} <> align_leading(rest, rail)
+    case Con{Source.Box{UIIdentity.Part{key, "@leading-allocation"}, tag, style, attrs, children}, rest}:
+      Source.Box{UIIdentity.Part{key, "@leading-allocation"}, tag, sized_style(style, Model.ExactSize{rail}), attrs, children} <> align_leading(rest, rail)
+    case Con{Source.Box{key, tag, style, attrs, children}, rest}: Source.Box{key, tag, style, attrs, align_leading(children, rail)} <> align_leading(rest, rail)
+    case Con{Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}, rest}: Source.Control{key, tag, style, attrs, name, enabled, first, remaining, align_leading(children, rail)} <> align_leading(rest, rail)
+    case Con{other, rest}: other <> align_leading(rest, rail)
+
+def aligned_sidebar(+nodes: +List<Source.Node>) -> +List<Source.Node>:
+  align_leading(nodes, shared_leading_requirement(nodes))
+
+def navigation_caption_frame(frame: Enclosure.Frame) -> Enclosure.Frame:
+  Enclosure.Frame{content, arrangement} = frame
+  Enclosure.Frame{Enclosure.ambient(0n, Enclosure.block(content)), arrangement}
 
 def navigation_title_style(value: Source.Style) -> Source.Style:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
-  Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
+  Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, navigation_caption_frame(frame), Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
 
 def navigation_title(node: Source.Node) -> Source.Node:
   match node:
@@ -126,24 +169,36 @@ def title_content(content:+List<Source.Node>) -> +List<Source.Node>:
     case Con{identity, Con{caption, Nil{}}}: [caption]
     case other: other
 
-def identity_title(+key: UIIdentity.Key, +depth: Nat, +visual: Design.Style, +content: +List<Source.Node>) -> +List<Source.Node>:
-  [navigation_leading(key, Navigation.IdentitySlot{}, depth, visual, identity_source(key, visual, content)), title(key, visual, title_content(content))]
+def entry_leading_requirement(entry: Entry, visual: Design.Style) -> Nat:
+  match entry:
+    case SingleAction{primary, status}: leading_requirement(Navigation.IdentitySlot{}, visual)
+    case ProjectActions{toggle, open, create, more, visible}: leading_requirement(Navigation.DisclosureSlot{}, visual)
 
-def single_source(+key: UIIdentity.Key, +depth: Nat, +visual: Design.Style, command: Command, status: +List<Source.Node>) -> Source.Node:
-  Command{command_key, style, attrs, name, enabled, first, remaining, children} = command
+def trailing_width(entry: Entry, +visual: Design.Style) -> Nat:
+  match entry:
+    case SingleAction{primary, status}: navigation_length(16n, visual)
+    case ProjectActions{toggle, open, create, more, visible}: Nat.add(Nat.mul(2n, navigation_target(visual)), navigation_gap(visual))
+
+# Source columns receive calibrated quantities as values at this shared boundary.
+def single_source_fields(+key: UIIdentity.Key, +depth: Nat, +visual: Design.Style, command: Command, status: +List<Source.Node>, offset: Nat, leading: Nat, target: Nat, trailing: Nat) -> Source.Node:
+  Command{command_key, style, attrs, name, enabled, first, remaining, +children} = command
   Source.Control{command_key, Source.Button{}, row_style(visual, depth), attrs, name, enabled, first, remaining,
-    List.append(&2, Source.Node, identity_title(key, depth, visual, children),
-      [slot(key, "status", Model.ExactSize{navigation_length(16n, visual)}, True{}, visual, status)])}
+    [navigation_leading_fields(key, Navigation.IdentitySlot{}, offset, leading, target, visual, identity_source(key, visual, children)),
+     title(key, visual, title_content(children)),
+     slot(key, "status", Model.ExactSize{trailing}, True{}, visual, status)]}
 
-def entry_source(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, entry: Entry) -> Source.Node:
+def entry_source_fields(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, entry: Entry, offset: Nat, leading: Nat, +target: Nat, trailing: Nat) -> Source.Node:
   match entry:
     case SingleAction{primary, status}:
-      Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}), [Source.DataAttribute{"navigation-owner", UIIdentity.encode(owner)}, Source.DataAttribute{"navigation-depth", Nat.show(depth)}], [single_source(key, depth, visual, primary, status)]}
+      Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}), [Source.DataAttribute{"navigation-owner", UIIdentity.encode(owner)}, Source.DataAttribute{"navigation-depth", Nat.show(depth)}], [single_source_fields(key, depth, visual, primary, status, offset, leading, target, trailing)]}
     case ProjectActions{toggle, open, create, more, visible}:
       navigation_row(key, owner, depth, visual,
-        [navigation_leading(key, Navigation.DisclosureSlot{}, depth, visual, original(toggle)),
+        [navigation_leading_fields(key, Navigation.DisclosureSlot{}, offset, leading, target, visual, original(toggle)),
          navigation_title(original(open)),
-         slot(key, "auxiliary", Model.ExactSize{Nat.add(Nat.mul(2n, navigation_target(visual)), navigation_gap(visual))}, visible, visual, [sized(original(create), Model.ExactSize{navigation_target(visual)}), sized(original(more), Model.ExactSize{navigation_target(visual)})])])
+         slot(key, "auxiliary", Model.ExactSize{trailing}, visible, visual, [sized(original(create), Model.ExactSize{target}), sized(original(more), Model.ExactSize{target})])])
+
+def entry_source(+key: UIIdentity.Key, owner: UIIdentity.Key, +depth: Nat, +visual: Design.Style, +entry: Entry) -> Source.Node:
+  entry_source_fields(key, owner, depth, visual, entry, indentation(depth, visual), entry_leading_requirement(entry, visual), navigation_target(visual), trailing_width(entry, visual))
 
 type CollectionKind is Data:
   Collection{}
@@ -205,10 +260,10 @@ def row_layout(node: Source.Node) -> Maybe<&2, Source.Layout>:
 
 def expected_row_layout_fields(value: Source.Style, +visual: Design.Style) -> Source.Layout:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
-  Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(navigation_length(8n, visual), navigation_length(4n, visual)), Enclosure.EmbeddedContent{navigation_length(6n, visual)}}, Model.StretchSize{}, height, minimum, scroll, position}
+  Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(navigation_length(8n, visual), 0n), Enclosure.EmbeddedContent{navigation_length(8n, visual)}}, Model.StretchSize{}, height, minimum, scroll, position}
 
 def expected_row_layout(+visual: Design.Style) -> Source.Layout:
-  expected_row_layout_fields(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), visual)
+  expected_row_layout_fields(Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{0n, navigation_target(visual)}), visual)
 
 def actual_commands(observation: Observation) -> Type:
   Observation{key, owner, depth, visual, entry, node} = observation
@@ -239,14 +294,24 @@ def columns(node:Source.Node) -> +List<Model.AxisSize>:
     case Source.Box{key, tag, style, attrs, children}: column_widths(row_content(children))
     case _: Nil{}
 
-def trailing_width(entry:Entry, +visual:Design.Style) -> Nat:
-  match entry:
-    case SingleAction{primary, status}: navigation_length(16n, visual)
-    case ProjectActions{toggle, open, create, more, visible}: Nat.add(Nat.mul(2n, navigation_target(visual)), navigation_gap(visual))
+def first_aligned_node(node: Source.Node, +rail: Nat) -> Source.Node:
+  match node:
+    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, style, attrs, align_leading(children, rail)}
+    case other: other
 
-def common_axis(observation:Observation) -> Type:
+def local_axis(observation: Observation) -> Type:
   Observation{key, owner, depth, visual, entry, node} = observation
-  {columns(node) == [Model.ExactSize{Nat.add(indentation(depth, visual), navigation_target(visual))}, Model.StretchSize{}, Model.ExactSize{trailing_width(entry, visual)}] : +List<Model.AxisSize>}
+  {columns(node) == [Model.ExactSize{Nat.add(indentation(depth, visual), entry_leading_requirement(entry, visual))}, Model.StretchSize{}, Model.ExactSize{trailing_width(entry, visual)}] : +List<Model.AxisSize>}
+
+def shared_axis(observation: Observation, +rail: Nat) -> Type:
+  Observation{key, owner, depth, visual, entry, node} = observation
+  {columns(first_aligned_node(node, rail)) == [Model.ExactSize{Nat.add(indentation(depth, visual), rail)}, Model.StretchSize{}, Model.ExactSize{trailing_width(entry, visual)}] : +List<Model.AxisSize>}
+
+type Axes<-observation: Observation> is Type:
+  Axes{local: local_axis(observation), shared: @+rail:Nat -> shared_axis(observation, rail)}
+
+def common_axis(observation: Observation) -> Type:
+  Axes<observation>
 
 def source_style_background(style:Source.Style) -> Design.Paint:
   Source.Style{layout, font, Design.Chrome{foreground, background, border, border_width, radius, shadow}, states} = style

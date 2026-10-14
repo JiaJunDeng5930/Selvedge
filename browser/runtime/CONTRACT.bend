@@ -1,3 +1,4 @@
+import ../appearance/DESIGN.bend as Design
 import ../controls/NAVIGATION.bend as Navigation
 import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
@@ -1013,18 +1014,16 @@ law supporting_mask_evidence:
   for +availability: View.Availability
   supporting_mask(blocked, support, property, input, availability)
 
-# Every ready physical candidate resolves its independent presentation form.
+# A full form compares its real one-line demand with its allocated inner room.
 type SupportingAdmissionRequirements is Type:
   SupportingAdmissionRequirements{
-    threshold: @+capacity:Nat -> @generation:Nat -> @source:Source.Node -> @+font:T.Presentation ->
-      {Browser.supporting_threshold(capacity, Content.Snapshot{generation, source, font}) == T.scaled(capacity, 475n, T.presentation_scale(font)) : Nat},
-    missing_full: @threshold:Nat -> {Browser.supporting_width_admitted(Controls2.FullSupporting{}, None{}, threshold) == True{} : Bool},
-    missing_compact: @threshold:Nat -> {Browser.supporting_width_admitted(Controls2.CompactSupporting{}, None{}, threshold) == False{} : Bool},
-    full_room: @+width:Nat -> @+threshold:Nat -> {Browser.supporting_width_admitted(Controls2.FullSupporting{}, Some{width}, threshold) == Nat.is_lt(threshold, width) : Bool},
-    compact_room: @+width:Nat -> @+threshold:Nat -> {Browser.supporting_width_admitted(Controls2.CompactSupporting{}, Some{width}, threshold) == Nat.is_le(width, threshold) : Bool},
-    complete_observation: @+index:Nat -> @+snapshot:Content.Snapshot -> @+tree:Allocation.AllocatedTree<Content.Value, Doc.DOMEvent> -> @+roots:+List<Content.AllocatedNative> -> @+policies:+List<Content.NativePolicy> ->
-      {Browser.supporting_admitted(index, Content.AllocatedWorld{snapshot, tree, roots, policies}) ==
-        Browser.supporting_width_admitted(Browser.candidate_form(index), Adaptation.region_width(tree, Adaptation.RegionAttribute{"allocated-region", "supporting-controls"}), Browser.supporting_threshold(Browser.supporting_capacity(snapshot), snapshot)) : Bool},
+    missing_full: {Browser.supporting_width_admitted(Controls2.FullSupporting{}, None{}) == True{} : Bool},
+    full_room: @+available:Nat -> @+preferred:Nat ->
+      {Browser.supporting_width_admitted(Controls2.FullSupporting{}, Some{Adaptation.RegionDemand{available, preferred}}) == Nat.is_le(preferred, available) : Bool},
+    compact_ready: @requirement:Maybe<&2, Adaptation.RegionDemand> ->
+      {Browser.supporting_width_admitted(Controls2.CompactSupporting{}, requirement) == True{} : Bool},
+    complete_observation: @+index:Nat -> @+world:Content.AllocatedWorld ->
+      {Browser.supporting_admitted(index, world) == Browser.supporting_width_admitted(Browser.candidate_form(index), Adaptation.world_region_demand(world, Adaptation.RegionAttribute{"allocated-region", "supporting-controls"})) : Bool},
     ready: @+world:Content.AllocatedWorld -> @+index:Nat -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+state:Browser.State -> @+semantic:SurfaceTypes.Surface -> @round:Nat ->
       {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.selected_supporting(Browser.supporting_admitted(index, world), world, index, capacity, engine, state, semantic) : Browser.Search},
     admitted: @+world:Content.AllocatedWorld -> @index:Nat -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+state:Browser.State -> @+semantic:SurfaceTypes.Surface ->
@@ -1036,17 +1035,17 @@ type SupportingAdmissionRequirements is Type:
 law supporting_admission_evidence:
   SupportingAdmissionRequirements
 
-def retained_attention_phase(phase: Browser.Lifecycle, +state: Browser.State) -> Type:
+def fresh_attention_phase(phase: Browser.Lifecycle, +state: Browser.State) -> Type:
   match phase:
     case Browser.Displaying{capacity, engine, semantic}:
-      {Browser.attention_refresh(state) == Browser.finish_search(Browser.one_candidate(Browser.source_candidate_index(capacity, World.snapshot(engine)), state)) : Browser.Decision}
+      {Browser.attention_refresh(state) == Browser.build(0n, state) : Browser.Decision}
     case Browser.Measuring{index, capacity, engine, semantic, round}:
-      {Browser.attention_refresh(state) == Browser.finish_search(Browser.one_candidate(index, state)) : Browser.Decision}
+      {Browser.attention_refresh(state) == Browser.build(0n, state) : Browser.Decision}
     case _:
       {Browser.attention_refresh(state) == Browser.Decision{state, Nil{}} : Browser.Decision}
 
-def retained_attention_candidate(+state: Browser.State) -> Type:
-  retained_attention_phase(Browser.presentation_phase(state), state)
+def fresh_attention_candidate(+state: Browser.State) -> Type:
+  fresh_attention_phase(Browser.presentation_phase(state), state)
 
 type NavigationRequirements is Type:
   NavigationRequirements{
@@ -1056,7 +1055,7 @@ type NavigationRequirements is Type:
       {Browser.attention_change(False{}, attention, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
     identical_interest: @+attention:Navigation.Attention -> @+state:Browser.State ->
       {Browser.attention_changed(False{}, attention, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
-    fixed_display_candidate: @+state:Browser.State -> retained_attention_candidate(state)}
+    fresh_layout_derivation: @+state:Browser.State -> fresh_attention_candidate(state)}
 
 law navigation_evidence:
   NavigationRequirements
@@ -1064,3 +1063,16 @@ law navigation_evidence:
 law reviewer_field_gesture:
   @editor:U.Editor -> @entry:Forms.Entry -> @value:Forms.Observed -> @+text:String -> @state:Legacy.State ->
     {Legacy.field_text(editor, Forms.ApprovalReviewer{}, entry, value, text, state) == Legacy.approval_gesture(text) : Maybe<&2, SurfaceTypes.Gesture>}
+
+
+law role_calibration_request:
+  @+capacity:Nat -> @+state:Browser.State ->
+  {Browser.measurement_plan_at(capacity, state) == F.request_at(capacity, Browser.current_font(Browser.legacy(state)), F.activity_specifications(capacity, F.scale(Browser.current_font(Browser.legacy(state))))) : F.Plan}
+
+law missing_activity_calibration_waits:
+  @physical_capacity:Nat -> @body:T.Metric -> @+index:Nat -> @+state:Browser.State ->
+  {Browser.calibrated_activity_metrics_at(physical_capacity, body, None{}, index, state) == Browser.Stopped{Browser.Decision{Browser.set_lifecycle(state, Browser.WaitingFont{}), Nil{}}} : Browser.Search}
+
+law actual_activity_calibration:
+  @+physical_capacity:Nat -> @body:T.Metric -> @primary:T.Metric -> @support:T.Metric -> @+index:Nat -> @+state:Browser.State ->
+  {Browser.calibrated_activity_metrics_at(physical_capacity, body, Some{F.ActivityMetrics{primary, support}}, index, state) == Browser.calibrated_parameters_at(physical_capacity, Design.parameters(physical_capacity, F.scale(Browser.current_font(Browser.legacy(state))), body, primary, support), index, state) : Browser.Search}

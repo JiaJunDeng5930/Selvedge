@@ -21,3 +21,32 @@ these guarantees to the production admission and refusal operations.
 `settle_workspace` retains only correlated directory failures; `retry_workspace`
 uses the same draft through the normal preparation guards. `toggle_property_source`
 changes the matching open layer without changing the work or model preference.
+
+Choice layers carry one requested field and a separate `parameter_buffer`.
+`requested_decision` and `requested_parameter` read them only for the actual
+owning editor. `EnterDecision` admits retained properties, `LeaveDecision`
+returns from a dependency to its inspection parent (or from inspection to the
+principal view), and `TogglePropertySource` requests inspection while clearing a
+competing dependent view and buffer. Full access has no sandbox or network
+parameter; the reviewer parameter belongs only to automatic review.
+
+`WriteDecisionParameter` changes the open parameter buffer without changing the
+applied draft or task. `CompleteDecisionParameter` validates the complete value
+against the actual open profile and invokes the existing canonical model edit.
+Finite dependent choices use the same canonical edit. Completion returns a
+parameter to its parent; a principal choice dismisses its layer and restores its
+trigger. Current-task changes still issue `ConfigureTaskExecution` immediately.
+`ExecutionViewCompletion` associates that accepted command result with its
+requesting view occurrence; a stale result must not dismiss another view. A real
+field or inspection view change allocates a fresh occurrence; ordinary buffer
+text input retains that identity. Returning while a task command is in flight
+therefore cannot let its old completion close the new view.
+
+`ClosePanel` is explicit dismissal. It discards a project's complete uncommitted
+draft, directory entry, feedback and pending directory observations; other
+applied settings survive. Raw `close_panel` remains the success path, retaining a
+saved project result. The shared fresh layer occurrence counter reserves a value
+above the discarded draft revision before reopening a project. That reserved
+occurrence seeds the fresh draft revision, preventing late accepted results from
+settling a different draft with the same editor identity. Already accepted
+kernel commands remain accepted and their persisted results are retained.

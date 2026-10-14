@@ -217,6 +217,8 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.TogglePropertySource{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.EnterDecision{p0, p1}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.LeaveDecision{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.WriteDecisionParameter{p0, p1}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.CompleteDecisionParameter{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.RuntimeInput{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.ProgramObserved{p0}}: {==}
@@ -303,3 +305,77 @@ def Rule.persistent_details_trigger_uses_actual_layer_behavior(found, task, trig
   match found:
     case None{}: {==}
     case Some{activity}: {==}
+
+def Rule.activity_row_preserves_actual_descendant(role, key, semantic, label, original_role, meaning, children):
+  {==}
+
+def Rule.hidden_activity_relation_retains_child_traversal(view, children, activity, current, query, parent, state):
+  {==}
+
+def Rule.selected_subject_uses_actual_canonical_candidates(subject, decision, activity, query, parent, state):
+  {==}
+
+def Rule.required_activity_property_consumes_subject_coverage(activity, property, query, parent, state):
+  {==}
+
+def Rule.principal_choice_has_no_independent_commit(editor, parent, state):
+  {==}
+
+def Rule.requested_open_parameter_writes_only_buffer(editor, profile, reasoning, input):
+  {==}
+
+def Rule.readonly_parameter_has_no_apply_action(editor, parent, state):
+  {==}
+
+def Rule.activity_projection_consumes_completion(activity, query, parent, state):
+  {==}
+
+
+def Rule.activity_layer_label_consumes_actual_goal(activity, fallback):
+  {==}
+
+def Rule.choosing_goal_does_not_repeat_owner_title(fallback):
+  {==}
+
+def Rule.inspection_goal_does_not_repeat_owner_title(fallback):
+  {==}
+
+def Rule.compound_goal_preserves_actual_activity_title(fallback):
+  {==}
+
+def Rule.original_identity_remains_supporting_saved_context(name, workspace, guidance, parent):
+  {==}
+
+def Rule.new_object_has_no_fabricated_original_identity(parent):
+  {==}
+
+
+def Rule.readonly_activity_field_retains_subject_caption_and_value(editor, field, value, parent):
+  {==}
+
+def Rule.readonly_activity_fact_cannot_mutate_its_observation(editor, field, value, next):
+  {==}
+
+def Rule.requested_choice_names_actual_subject(subject, parent):
+  {==}
+
+def Rule.principal_choice_adds_no_requested_caption(subject, parent):
+  {==}
+
+def Rule.owned_collection_actions_do_not_terminate_activity(editor, parent, state):
+  {==}
+
+def Rule.compound_terminal_retains_actual_commit_and_discard(action, assessment, submit, parent, state):
+  {==}
+
+def Rule.compound_action_uses_actual_completion_boundary(activity, current, action, assessment, children, query, parent, state):
+  {==}
+
+def Rule.returning_inspection_has_no_compound_commit(action, assessment, parent, state):
+  {==}
+
+def Rule.returning_inspection_has_no_parameter_apply(editor, parent, state):
+  {==}
+
+def Rule.open_parameter_terminal_retains_whole_value_completion(editor, parent, state):
+  {==}

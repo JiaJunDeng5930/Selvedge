@@ -574,7 +574,7 @@ type PageRegionRequirements is Type:
 
     layer_titles: LayerTitleRequirements,
     layer_name: @+kind:V.LayerKind -> @+content:V.LayerContent -> @+initial:String -> @+restore:String -> @+close:V.Dismissal -> @+state:InteractionTypes.State ->
-      {layer_label(Model.layers([V.Layer{kind, content, initial, restore, close}], state)) == Some{View.layer_title(content)} : Maybe<&2, String>},
+      {layer_label(Model.layers([V.Layer{kind, content, initial, restore, close}], state)) == Some{Model.activity_layer_label(Model.layer_activity(content, state), View.layer_title(content))} : Maybe<&2, String>},
     attention_independent: @+kind:V.LayerKind -> @+content:V.LayerContent -> @+first:String -> @+second:String -> @+restore:String -> @+close:V.Dismissal -> @+state:InteractionTypes.State ->
       {layer_label(Model.layers([V.Layer{kind, content, first, restore, close}], state)) ==
         layer_label(Model.layers([V.Layer{kind, content, second, restore, close}], state)) : Maybe<&2, String>},
@@ -761,10 +761,15 @@ def expected_permission_menu_group(+editor: U.Editor, group: V.InputGroup, +pare
         Model.permission_resets(editor, config, parent, state)))
     case _: Nil{}
 
+def expanded_navigation_placement(beside: Bool) -> V.NavigationPlacement:
+  match beside:
+    case True{}: V.LeadingNavigation{}
+    case False{}: V.ModalNavigation{}
+
 type CompositionRequirements is Type:
   CompositionRequirements{
     production_regions: PageRegionRequirements,
-    expanded_navigation: @beside:Bool -> {View.navigation_placement(beside, True{}) == V.LeadingNavigation{} : V.NavigationPlacement},
+    expanded_navigation: @beside:Bool -> {View.navigation_placement(beside, True{}) == expanded_navigation_placement(beside) : V.NavigationPlacement},
     collapsed_navigation: @beside:Bool -> {View.navigation_placement(beside, False{}) == V.CollapsedNavigation{} : V.NavigationPlacement},
     committed_permission_summary: @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.permission_summary(U.MessageEditor{task}, preview, parent, state) ==
@@ -1021,9 +1026,9 @@ type ProjectInteractionRequirements is Type:
         V.ControlDeclaration{"composer/project", View.project_choice_label(View.creation_selected_project(context, world)), V.Secondary{},
           U.Activate{U.OpenPanel{U.ProjectPicker{}, "composer/project"}}, V.Available{}} : V.ControlDeclaration},
     picker_search_preserves_session: @+session:E.Session -> @+query:String -> @+world:M.World() -> @+trigger:String -> @+initial:String -> @previous:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
-      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}} <> rest : +List<E.Layer>} ->
+      @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest : +List<E.Layer>} ->
        {E.search_choices(query, E.from_program(world, session)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}} <> rest, session), Nil{}) : E.Decision},
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}, None{}} <> rest, session), Nil{}) : E.Decision},
     project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskEntry> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_entries([V.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectGroup{id, selected, expanded},
@@ -1168,17 +1173,17 @@ type SurfaceRequirements is Type:
       @node_key: Identity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+children:+List<SurfaceTypes.Node> ->
       @found:{Model.find_node(Model.active_nodes(ModelModel.observe(capacity, state)), key) ==
         Some{SurfaceTypes.Node{node_key, semantic, label, role, SurfaceTypes.Activate{input, V.Available{}}, children}} : Maybe<&2, SurfaceTypes.Node>} ->
-      {receipt(ModelModel.step(ModelModel.Element{capacity, key, SurfaceTypes.Press{}}, state)) == receipt(Core.step(input, state)) : Receipt},
+      {receipt(ModelModel.step(ModelModel.Element{capacity, key, SurfaceTypes.Press{}}, state)) == receipt(Core.step(Model.activity_requested_input(input, state), state)) : Receipt},
     existing_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> ->
       @present:{Model.layer_present(previous, E.panel_target(panel)) == True{} : Bool} ->
-      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest, previous, origin) ==
-        E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest : +List<E.Layer>},
+      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, previous, origin) ==
+        E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest : +List<E.Layer>},
     new_layer_trigger: @+previous:+List<E.Layer> -> @origin:String -> @+panel:U.Panel -> @trigger:String ->
-      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+rest:+List<E.Layer> ->
+      @initial_attention:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> ->
       @absent:{Model.layer_present(previous, E.panel_target(panel)) == False{} : Bool} ->
-      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest, previous, origin) ==
-        E.Layer{panel, origin, initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest : +List<E.Layer>}}
+      {Model.record_layer(E.Layer{panel, trigger, initial_attention, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, previous, origin) ==
+        E.Layer{panel, origin, initial_attention, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest : +List<E.Layer>}}
 
 law surface_evidence:
   SurfaceRequirements
@@ -1809,8 +1814,8 @@ law activity_layer_preserves_trigger_dismissal:
 
 law activity_interpreter_consumes_actual_relation_fold:
   @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-  {Model.activity_nodes(activity, query, parent, state) ==
-    List.append(&2, SurfaceTypes.Node, Model.activity_search(Activity.purpose(activity), query, parent),
+  {Model.activity_content(activity, query, parent, state) ==
+    List.append(&2, SurfaceTypes.Node, Model.activity_search(Activity.search_required(activity, Model.activity_current_view(activity, state)), query, parent),
       Model.activity_flatten(Activity.fold_relations(~Model.ActivityRenderContext, ~(+List<SurfaceTypes.Node>), ~Model.activity_relation_handler,
         Model.ActivityRenderContext{activity, query, Model.activity_focus_layers(E.layers(E.session(Core.application(state))), Activity.scope(activity)), parent, state},
         Activity.relations(activity)))) : +List<SurfaceTypes.Node>}
@@ -1819,3 +1824,119 @@ law persistent_details_trigger_uses_actual_layer_behavior:
   @+found:Maybe<&2, Activity.Activity> -> @+task:Nat -> @+trigger:String -> @+key:Identity.Key -> @+semantic:String -> @+label:String -> @+children:+List<SurfaceTypes.Node> ->
   {Model.persistent_details_trigger([SurfaceTypes.Node{key, semantic, label, SurfaceTypes.Dialog{},
     Model.layer_meaning(found, V.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}}), children}]) == Some{SurfaceTypes.PersistentTrigger{task, trigger}} : Maybe<&2, SurfaceTypes.PersistentTrigger>}
+
+law activity_row_preserves_actual_descendant:
+  @role:SurfaceTypes.ActivityRowRole -> @+key:Identity.Key -> @+semantic:String -> @label:String -> @original_role:SurfaceTypes.Role -> @meaning:SurfaceTypes.Meaning -> @children:+List<SurfaceTypes.Node> ->
+  {Model.activity_row(role, SurfaceTypes.Node{key, semantic, label, original_role, meaning, children}) ==
+    SurfaceTypes.Node{Identity.Part{key, "activity-row"}, semantic ++ "/row", "", SurfaceTypes.Content{}, SurfaceTypes.ActivityRow{role}, [SurfaceTypes.Node{key, semantic, label, original_role, meaning, children}]} : SurfaceTypes.Node}
+
+law hidden_activity_relation_retains_child_traversal:
+  @view:Activity.RelationView -> @+children:+List<+List<SurfaceTypes.Node>> -> @activity:Activity.Activity -> @current:Activity.View -> @query:String -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_exposed_relation(Activity.HiddenRelation{}, view, children, activity, current, query, parent, state) == Model.activity_flatten(children) : +List<SurfaceTypes.Node>}
+
+law selected_subject_uses_actual_canonical_candidates:
+  @+subject:Experience.Subject -> @+decision:Experience.Decision -> @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_coverage_expression(Activity.SelectedSubject{subject, decision}, activity, query, parent, state) ==
+    Model.activity_decision_candidates(activity, decision, query, Identity.Part{parent, UX.subject_key(subject)}, state) : +List<SurfaceTypes.Node>}
+
+law required_activity_property_consumes_subject_coverage:
+  @+activity:Activity.Activity -> @+property:Experience.Property -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_required_property(activity, property, query, parent, state) ==
+    Model.activity_coverage_nodes(Activity.coverage_expressions(Activity.coverage(activity, Model.activity_current_view(activity, state), property)), activity, query, parent, state) : +List<SurfaceTypes.Node>}
+
+law principal_choice_has_no_independent_commit:
+  @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_view_completion_controls(Activity.ApplyAndDismiss{}, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law requested_open_parameter_writes_only_buffer:
+  @+editor:U.Editor -> @profile:String -> @reasoning:String -> @input:InteractionTypes.Input ->
+  {Model.activity_requested_field_bound(Some{Forms.ReasoningEffort{}}, editor, Forms.ReasoningEffort{}, Forms.Model{profile, reasoning}, input) ==
+    InteractionTypes.ApplicationInput{E.UserInput{U.WriteDecisionParameter{editor, reasoning}}} : InteractionTypes.Input}
+
+law readonly_parameter_has_no_apply_action:
+  @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_parameter_apply_entry(Forms.DisplayOnly{}, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law activity_projection_consumes_completion:
+  @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_nodes(activity, query, parent, state) ==
+    List.append(&2, SurfaceTypes.Node, Model.activity_view_completion_controls(Activity.completion(activity, Model.activity_current_view(activity, state)), Activity.scope(activity), parent, state),
+      List.append(&2, SurfaceTypes.Node, Model.activity_content(activity, query, parent, state),
+        List.append(&2, SurfaceTypes.Node, Model.activity_view_parameter_completion(Activity.completion(activity, Model.activity_current_view(activity, state)), Activity.scope(activity), parent, state), Model.activity_view_inspection_entry(Model.activity_current_view(activity, state), Activity.property(activity), parent, state)))) : +List<SurfaceTypes.Node>}
+
+
+law activity_layer_label_consumes_actual_goal:
+  @+activity:Activity.Activity -> @+fallback:String ->
+  {Model.activity_layer_label(Some{activity}, fallback) == Model.activity_goal_label(Activity.purpose(activity), fallback) : String}
+
+law choosing_goal_does_not_repeat_owner_title:
+  @fallback:String ->
+  {Model.activity_goal_label(Activity.Comparison{}, fallback) == "" : String}
+
+law inspection_goal_does_not_repeat_owner_title:
+  @fallback:String ->
+  {Model.activity_goal_label(Activity.EffectExplanation{}, fallback) == "" : String}
+
+law compound_goal_preserves_actual_activity_title:
+  @+fallback:String ->
+  {Model.activity_goal_label(Activity.ObjectEditing{}, fallback) == fallback : String}
+
+law original_identity_remains_supporting_saved_context:
+  @+name:String -> @workspace:D.Workspace -> @guidance:D.ProjectContext -> @+parent:Identity.Key ->
+  {Model.activity_original_context(Some{D.Project{name, workspace, guidance}}, parent) ==
+    [Model.activity_row(SurfaceTypes.SupportingRow{}, Model.approval_fact(parent, "object", "Original project", name))] : +List<SurfaceTypes.Node>}
+
+law new_object_has_no_fabricated_original_identity:
+  @parent:Identity.Key ->
+  {Model.activity_original_context(None{}, parent) == Nil{} : +List<SurfaceTypes.Node>}
+
+
+law readonly_activity_field_retains_subject_caption_and_value:
+  @+editor:U.Editor -> @+field:Forms.Field -> @value:Forms.Observed -> @+parent:Identity.Key ->
+  {Model.activity_readonly_field(Experience.Subject{editor, field}, value, parent) ==
+    SurfaceTypes.Node{Identity.Part{parent, "fact/" ++ UX.subject_key(Experience.Subject{editor, field})}, "fact/" ++ UX.subject_key(Experience.Subject{editor, field}), "", SurfaceTypes.Content{}, SurfaceTypes.Region{},
+      [SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "fact/" ++ UX.subject_key(Experience.Subject{editor, field})}, "label"}, "fact/label", Model.activity_subject_title(Experience.Subject{editor, field}), SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.FieldLabel{}}, Nil{}},
+       SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "fact/" ++ UX.subject_key(Experience.Subject{editor, field})}, "value"}, "fact/value", Model.activity_subject_title(Experience.Subject{editor, field}), SurfaceTypes.Field{}, SurfaceTypes.Edit{editor, field, Forms.DisplayOnly{}, value, Nil{}}, Nil{}}]} : SurfaceTypes.Node}
+
+law readonly_activity_fact_cannot_mutate_its_observation:
+  @editor:U.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @next:Forms.Value ->
+  {Model.bind(SurfaceTypes.Edit{editor, field, Forms.DisplayOnly{}, value, Nil{}}, SurfaceTypes.Change{next}) == None{} : Maybe<&2,InteractionTypes.Input>}
+
+law requested_choice_names_actual_subject:
+  @+subject:Experience.Subject -> @+parent:Identity.Key ->
+  {Model.activity_requested_decision_caption(True{}, subject, parent) ==
+    [Model.activity_row(SurfaceTypes.SupportingRow{}, SurfaceTypes.Node{Identity.Part{parent, "subject"}, "decision/subject", Model.activity_subject_title(subject), SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.FieldLabel{}}, Nil{}})] : +List<SurfaceTypes.Node>}
+
+law principal_choice_adds_no_requested_caption:
+  @subject:Experience.Subject -> @parent:Identity.Key ->
+  {Model.activity_requested_decision_caption(False{}, subject, parent) == Nil{} : +List<SurfaceTypes.Node>}
+
+law owned_collection_actions_do_not_terminate_activity:
+  @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_collection_editing_actions(editor, parent, state) ==
+    Model.region(parent, "directory-entry-actions", "", SurfaceTypes.Toolbar{},
+      [Model.directory_confirm(editor, parent, state), Model.user_action(parent, "workspace/clear", "Clear", U.EditDraft{editor, U.WriteDirectory{""}}, True{}, state), Model.directory_browse(editor, parent, state)]) : SurfaceTypes.Node}
+
+law compound_terminal_retains_actual_commit_and_discard:
+  @+action:Experience.ActionUnit -> @+assessment:Experience.Assessment -> @+submit:V.ControlDeclaration -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_compound_terminal(action, assessment, submit, parent, state) ==
+    Model.activity_row(SurfaceTypes.TerminalRow{}, Model.dialog_actions(parent,
+      [Model.user_action(parent, "cancel", "Cancel", U.Activate{U.ClosePanel{}}, True{}, state), Model.canonical_commit(action, assessment, submit, parent, state)])) : SurfaceTypes.Node}
+
+law compound_action_uses_actual_completion_boundary:
+  @+activity:Activity.Activity -> @+current:Activity.View -> @+action:Experience.ActionUnit -> @+assessment:Experience.Assessment -> @children:+List<+List<SurfaceTypes.Node>> -> @query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_exposed_relation(Activity.CompoundContent{}, Activity.AssessedActionView{action, assessment}, children, activity, current, query, parent, state) ==
+    Model.activity_compound_completion(Activity.completion(activity, current), action, assessment, parent, state) : +List<SurfaceTypes.Node>}
+
+law returning_inspection_has_no_compound_commit:
+  @action:Experience.ActionUnit -> @assessment:Experience.Assessment -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_compound_completion(Activity.ReturnToOwner{}, action, assessment, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law returning_inspection_has_no_parameter_apply:
+  @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_view_parameter_completion(Activity.ReturnToOwner{}, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law open_parameter_terminal_retains_whole_value_completion:
+  @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_parameter_apply_entry(Forms.SingleLine{}, editor, parent, state) ==
+    [Model.activity_row(SurfaceTypes.TerminalRow{}, Model.user_action(parent, "parameter/apply", "Apply", U.CompleteDecisionParameter{editor}, True{}, state))] : +List<SurfaceTypes.Node>}

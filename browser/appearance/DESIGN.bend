@@ -36,7 +36,8 @@ type LayoutParameters is Data:
   LayoutParameters{navigation_width: Nat, main_minimum_width: Nat, details_width: Nat,
     reading_maximum_width: Nat, overview_maximum_width: Nat, toolbar_height: Nat,
     input_minimum_height: Nat, input_maximum_height: Nat, input_line_height: Nat,
-    creation_balanced_minimum_height: Nat, lane_minimum_width: Nat}
+    creation_balanced_minimum_height: Nat, lane_minimum_width: Nat,
+    navigation_minimum_width: Nat, activity_primary_advance: Nat, activity_support_advance: Nat}
 
 type NodePlacement is Data:
   NodePlacement{key: String, bounds: SpatialModel.Box}
@@ -106,23 +107,23 @@ def semantic_surface(surface: Surface) -> SurfaceTypes.Surface:
   SurfaceTypes.Surface{content, semantic_nodes(base), semantic_nodes(overlays), active_scope}
 
 def navigation_width(value: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = value
   navigation
 
 def main_minimum_width(value: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = value
   main
 
 def reading_maximum_width(+parameters: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = parameters
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = parameters
   reading
 
 def overview_maximum_width(+parameters: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = parameters
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = parameters
   overview
 
 def input_maximum_height(+parameters: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = parameters
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = parameters
   maximum
 
 def style_text(style: Style) -> T.Presentation:
@@ -139,8 +140,8 @@ def style_frame(value: Style) -> Enclosure.Frame:
 
 def parameter_values(values: Maybe<&2, +List<Nat>>) -> Maybe<&2, LayoutParameters>:
   match values:
-    case Some{Con{navigation, Con{main, Con{details, Con{reading, Con{overview, Con{toolbar, Con{minimum, Con{maximum, Con{leading, Con{creation, Con{lane, Nil{}}}}}}}}}}}}}:
-      Some{LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane}}
+    case Some{Con{navigation, Con{main, Con{details, Con{reading, Con{overview, Con{toolbar, Con{minimum, Con{maximum, Con{leading, Con{creation, Con{lane, Con{navigation_minimum, Con{primary_advance, Con{support_advance, Nil{}}}}}}}}}}}}}}}}:
+      Some{LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance}}
     case _: None{}
 
 def editable_min_columns() -> Nat:
@@ -155,7 +156,7 @@ def editable_minimum_calculation(advance: Nat, scale: T.Scale) -> NaturalSize.Ca
 def reading_minimum_calculation(advance: Nat, scale: T.Scale) -> NaturalSize.Calculation:
   NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{reading_min_columns()}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}}
 
-def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> +List<NaturalSize.Calculation>:
+def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat, primary_advance: Nat, support_advance: Nat) -> +List<NaturalSize.Calculation>:
   +leading: NaturalSize.Calculation = NaturalSize.Maximum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Body{}, T.Regular{}, scale))}, NaturalSize.Value{height}}
   +toolbar: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(46n, scale), NaturalSize.Sum{leading, T.scaling_calculation(26n, scale)}}
   +input_minimum: NaturalSize.Calculation = NaturalSize.Maximum{T.scaling_calculation(44n, scale), NaturalSize.Sum{leading, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(12n, scale)}}}
@@ -163,17 +164,32 @@ def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advanc
     NaturalSize.Sum{NaturalSize.Value{T.resolved_line_height(T.resolve(capacity, T.Display{}, T.Regular{}, scale))},
       NaturalSize.Sum{input_minimum, NaturalSize.Sum{T.scaling_calculation(32n, scale), NaturalSize.Product{NaturalSize.Value{3n}, T.scaling_calculation(16n, scale)}}}}}}
   [
-    T.scaling_calculation(275n, scale),
-    editable_minimum_calculation(advance, scale),
+    T.scaling_calculation(240n, scale),
+    NaturalSize.Maximum{T.scaling_calculation(360n, scale), editable_minimum_calculation(advance, scale)},
     T.scaling_calculation(360n, scale),
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{96n}},
     NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{144n}},
-    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}}]
+    toolbar, input_minimum, NaturalSize.Maximum{T.scaling_calculation(240n, scale), input_minimum}, leading, balanced, NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{32n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(Enclosure.inline(Enclosure.area(Enclosure.Lane{})), scale)}},
+    T.scaling_calculation(224n, scale), NaturalSize.Value{primary_advance}, NaturalSize.Value{support_advance}]
 
-def parameters(+capacity: Nat, scale: T.Scale, body: T.Metric) -> Maybe<&2, LayoutParameters>:
+def parameters(+capacity: Nat, scale: T.Scale, body: T.Metric, primary: T.Metric, support: T.Metric) -> Maybe<&2, LayoutParameters>:
   T.Metric{key, minimum, preferred, height, advance} = body
-  parameter_values(NaturalSize.evaluate_all(capacity, parameter_calculations(capacity, scale, height, advance)))
+  T.Metric{primary_key, primary_minimum, primary_preferred, primary_height, primary_advance} = primary
+  T.Metric{support_key, support_minimum, support_preferred, support_height, support_advance} = support
+  parameter_values(NaturalSize.evaluate_all(capacity, parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance)))
 
 def lane_minimum_width(value: LayoutParameters) -> Nat:
-  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane} = value
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = value
   lane
+
+def navigation_minimum_width(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = value
+  navigation_minimum
+
+def activity_primary_advance(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = value
+  primary_advance
+
+def activity_support_advance(value: LayoutParameters) -> Nat:
+  LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation, lane, navigation_minimum, primary_advance, support_advance} = value
+  support_advance

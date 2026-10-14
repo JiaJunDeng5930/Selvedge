@@ -126,9 +126,12 @@ def heading_caption(key: UIIdentity.Key, label: String, visual: Design.Style) ->
 
 def lane_style(key: UIIdentity.Key, label: String, stage: Board.Stage, count: Nat, visual: Design.Style, children: +List<Authored.Child>, parameters: Design.LayoutParameters) -> RuleSourceRules.lane_style(key, label, stage, count, visual, children, parameters): {==}
 
-def parameter_source(+capacity: Nat, scale: T.Scale, key: String, minimum: Nat, preferred: Nat, height: Nat, advance: Nat) -> RuleSourceRules.parameter_source(capacity, scale, key, minimum, preferred, height, advance): {==}
+def parameter_source(+capacity: Nat, scale: T.Scale, key: String, minimum: Nat, preferred: Nat, height: Nat, advance: Nat, +primary: T.Metric, +support: T.Metric) -> RuleSourceRules.parameter_source(capacity, scale, key, minimum, preferred, height, advance, primary, support):
+  T.Metric{primary_key, primary_minimum, primary_preferred, primary_height, primary_advance} = primary
+  T.Metric{support_key, support_minimum, support_preferred, support_height, support_advance} = support
+  {==}
 
-def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> RuleSourceRules.parameter_calculations(capacity, scale, height, advance): {==}
+def parameter_calculations(+capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat, primary_advance: Nat, support_advance: Nat) -> RuleSourceRules.parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance): {==}
 
 def page_region(+capacity: Nat, key: UIIdentity.Key, region: Composition.Region, position: Composition.Position, visual: Design.Style, control: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.page_region(capacity, key, region, position, visual, control, children, parameters, content): {==}
 
@@ -189,8 +192,8 @@ def scalar_information(+capacity: Nat, +key: UIIdentity.Key, +label: String, +ro
 def field_label(+key: UIIdentity.Key, +label: String, +visual: Design.Style, field: Source.Node) -> RuleSourceRules.field_label(key, label, visual, field):
   owned_information(key, Information.FieldLabel{}, label, visual)
 
-def choice_leading_information(+enabled: Bool, +key: UIIdentity.Key, +label: String, +description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, +selected: Bool, +visual: Design.Style, +geometry: Controls.Geometry) ->
-  {RuleSourceRules.option_text(AuthoredControls.choice_members(enabled, label, description, icon, selected, key, visual, geometry)) ==
+def choice_leading_information(+enabled: Bool, +key: UIIdentity.Key, +label: String, +description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, +selected: Bool, +visual: Design.Style, +geometry: Controls.Geometry, parameters: Design.LayoutParameters) ->
+  {RuleSourceRules.option_text(AuthoredControls.choice_members(enabled, label, description, icon, selected, key, visual, geometry, parameters)) ==
     RuleSourceRules.information_observation(AuthoredControls.owned_text(key, Information.OptionLabel{}, label, visual)) : RuleSourceRules.InformationObservation}:
   match enabled:
     case True{}:
@@ -202,7 +205,7 @@ def choice_leading_information(+enabled: Bool, +key: UIIdentity.Key, +label: Str
         case None{}: {==}
         case Some{glyph}: {==}
 
-def option_label(+key: UIIdentity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry) -> RuleSourceRules.option_label(key, label, description, icon, selected, visual, geometry):
+def option_label(+key: UIIdentity.Key, +label: String, description: Maybe<&2, String>, +icon: Maybe<&2, Controls.Icon>, selected: Bool, +visual: Design.Style, geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> RuleSourceRules.option_label(key, label, description, icon, selected, visual, geometry, parameters):
   +owned_description: Maybe<&2, String> = description
   +owned_selected: Bool = selected
   +owned_geometry: Controls.Geometry = geometry
@@ -210,17 +213,19 @@ def option_label(+key: UIIdentity.Key, +label: String, description: Maybe<&2, St
     RuleSourceRules.information_observation(AuthoredControls.owned_text(key, Information.OptionLabel{}, label, visual)),
     (observation => {observation == RuleSourceRules.required_information(key, Information.OptionLabel{}, label, visual) : RuleSourceRules.InformationObservation}),
     owned_information(key, Information.OptionLabel{}, label, visual),
-    RuleSourceRules.option_text(AuthoredControls.face(key, Controls.ChoiceFace{label, owned_description, icon, owned_selected}, visual, owned_geometry)),
-    choice_leading_information(T.is_activity(AuthoredControls.parent_font(visual)), key, label, owned_description, icon, owned_selected, visual, Controls.geometry_at(AuthoredControls.parent_font(visual), owned_geometry)))
+    RuleSourceRules.option_text(AuthoredControls.face(key, Controls.ChoiceFace{label, owned_description, icon, owned_selected}, visual, owned_geometry, parameters)),
+    choice_leading_information(T.is_activity(AuthoredControls.parent_font(visual)), key, label, owned_description, icon, owned_selected, visual, Controls.geometry_at(AuthoredControls.parent_font(visual), owned_geometry), parameters))
 
-def option_description(+key: UIIdentity.Key, +value: String, +visual: Design.Style) -> RuleSourceRules.option_description(key, value, visual):
+def option_description(+key: UIIdentity.Key, +value: String, +visual: Design.Style, parameters: Design.LayoutParameters) -> RuleSourceRules.option_description(key, value, visual, parameters):
   owned_information(key, Information.Description{}, value, visual)
 
 def group_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.group_title(capacity, key, label, role, visual, representation, children, parameters, content):
   owned_information(key, Information.GroupTitle{}, label, visual)
 
 def panel_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content):
-  owned_information(key, Information.SurfaceTitle{}, label, visual)
+  match label:
+    case "": {==}
+    case SCon{head, tail}: owned_information(key, Information.SurfaceTitle{}, label, visual)
 
 def dialog_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> RuleSourceRules.dialog_title(capacity, key, label, visual, children):
   owned_information(key, Information.SurfaceTitle{}, label, visual)
@@ -325,6 +330,7 @@ def owned_foreground(+owner: UIIdentity.Key, +role: Information.TextRole, value:
 
 def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.experience_source(capacity, key, label, role, meaning, visual, representation, children, parameters, content):
   match meaning:
+    case SurfaceTypes.ActivityRow{row}: {==}
     case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {==}
     case SurfaceTypes.DecisionGroup{decision}: {==}
     case SurfaceTypes.ObjectGroup{object}: {==}
@@ -386,7 +392,7 @@ def selected_marker(+selected: Bool, +key: UIIdentity.Key, +visual: Design.Style
 def slot_emphasis(+scale: T.Scale) -> RuleSourceRules.slot_emphasis(scale):
   {==}
 
-def member_source(+key: UIIdentity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.member_source(key, collection, path, visual, content):
+def member_source(+key: UIIdentity.Key, +collection: UXTypes.Collection, +path: String, +visual: Design.Style, parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.member_source(key, collection, path, visual, parameters, content):
   {==}
 
 def action_source(+key: UIIdentity.Key, +action: UXTypes.ActionUnit, +visual: Design.Style, +content: +List<Source.Node>) -> RuleSourceRules.action_source(key, action, visual, content):
@@ -404,7 +410,7 @@ def grouped_menu_source(+capacity: Nat, +key: UIIdentity.Key, +tag: Source.BoxTa
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
   {==}
 
-def support_source(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation) -> RuleSourceRules.support_source(visible, key, support, property, label, visual, representation):
+def support_source(visible: Bool, +key: UIIdentity.Key, +support: UXTypes.Support, +property: UXTypes.Property, +label: String, +visual: Design.Style, +representation: Controls.Representation, +parameters: Design.LayoutParameters) -> RuleSourceRules.support_source(visible, key, support, property, label, visual, representation, parameters):
   match visible:
     case False{}: {==}
     case True{}: {==}

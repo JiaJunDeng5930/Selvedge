@@ -8,6 +8,7 @@ import ../../interaction/presentation/MODEL.bend as View
 import ../editor/MODEL.bend as EditorLayout
 import Base
 import ./ACTIVITY.bend as A
+import ./physical-space.bend as Space
 import ./enclosure.bend as E
 import ../appearance/MODEL.bend as Appearance
 import ../appearance/DESIGN.bend as Design
@@ -52,6 +53,15 @@ type Requirements is Type:
     supporting_flow: @+visual:Design.Style -> @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> -> @execution:Maybe<&2, Workspace.Observation> -> @family:Controls.SourceFamily ->
       {Appearance.activity_controls(Surface.Toolbar{}, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family, Controls.FullSupporting{}, Navigation.initial(), 0n}, visual) == supporting_style(visual) : Design.Style},
     composer_footer: @+visual:Design.Style -> @context:Controls.Context -> composer_footer(visual, context),
+    row_clearance: @+capacity:Nat -> @+text:T.Presentation ->
+      {A.row_frame(capacity, text) == E.Frame{E.ambient(A.length(capacity, text, 8n), 0n), E.EmbeddedContent{A.length(capacity, text, 8n)}} : E.Frame},
+    caption_clearance: @+capacity:Nat -> @+text:T.Presentation ->
+      {A.caption_frame(capacity, text) == E.Frame{E.ambient(A.length(capacity, text, 8n), A.length(capacity, text, 6n)), E.EmbeddedContent{A.length(capacity, text, 8n)}} : E.Frame},
+    measured_surface: @+capacity:Nat -> @+text:T.Presentation -> @+advance:Nat ->
+      {A.surface_width(capacity, text, advance) == A.content_width(A.length(capacity, text, 200n), Nat.add(Nat.mul(advance, 56n), A.length(capacity, text, 16n))) : Space.AxisSize},
+    measured_description: @+advance:Nat -> {A.description_width(advance) == A.content_width(0n, Nat.mul(advance, 38n)) : Space.AxisSize},
+    measured_field: @+advance:Nat -> {A.field_width(advance) == Space.LimitedSize{Nat.mul(advance, 32n), 0n, Nat.mul(advance, 32n)} : Space.AxisSize},
+    measured_member: @+advance:Nat -> {A.member_width(advance) == A.content_width(0n, Nat.mul(advance, 44n)) : Space.AxisSize},
     property_minimum: @+property:UX.Property -> @area:Controls.Area -> {Controls.geometry_minimum_height(Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.PropertyFace{property}, area)) == A.supporting_minimum(A.initial()) : Nat}}
 
 law evidence:

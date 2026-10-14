@@ -150,7 +150,11 @@ def activity_when(enabled: Bool, value: Presentation) -> Presentation:
     case False{}: value
 
 def inherit_activity(parent: Presentation, value: Presentation) -> Presentation:
-  activity_when(is_activity(parent), value)
+  Presentation{tier, emphasis, scale} = parent
+  match tier:
+    case ActivitySupport{}: with_tier(value, ActivitySupport{})
+    case ActivityPrimary{}: activity(value)
+    case _: value
 
 def supporting(+value: Presentation) -> Presentation:
   Presentation{tier, emphasis, scale} = value

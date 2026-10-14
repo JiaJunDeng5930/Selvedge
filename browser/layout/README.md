@@ -43,3 +43,9 @@ Measurement receipt validation belongs to
 [physical-content-measurement.bend](physical-content-measurement.bend), beside the
 production computation that consumes it. The executable contracts remain the
 authority for the obligations, independently of proof-file organization.
+
+`ACTIVITY.bend` supplies common role dimensions and bounded natural-width
+policies. Its reference advances are supplied by callers from the actual
+activity font observations; it neither approximates them from line height nor
+stores another calibration cache. The activity contracts bind these policies
+to the production operations.

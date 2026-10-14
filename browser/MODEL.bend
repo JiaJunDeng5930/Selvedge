@@ -1,3 +1,4 @@
+import ./layout/natural-size.bend as NaturalSize
 import ./controls/NAVIGATION.bend as Navigation
 import Base
 import ./controls/PROGRAM.bend as Controls
@@ -153,9 +154,9 @@ def production_platform_input(input: Platform.Input, application: Platform.State
     case other: other
 
 def production_typography_owned(owned: Bool, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, environment: Design.Environment, font: F.State, observation: F.Observation) -> Decision:
+  realization: Rendered.State, environment: Design.Environment, +font: F.State, observation: F.Observation) -> Decision:
   match owned:
-    case True{}: idle(application, generation, realization, environment, F.accept(font, Nil{}, observation))
+    case True{}: idle(application, generation, realization, environment, F.accept(font, F.activity_specifications(NaturalSize.limit(), F.scale(font)), observation))
     case False{}: idle(application, generation, realization, environment, font)
 
 def production_typography(+state: State, +observation: F.Observation) -> Decision:

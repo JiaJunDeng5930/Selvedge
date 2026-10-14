@@ -62,7 +62,18 @@ type ChoiceKind is Data:
   SingleChoice{}
   MultipleChoice{}
 
+# A physical row preserves the meanings and actions of its actual descendants.
+type ActivityRowRole is Data:
+  ChoiceRow{}
+  DependencyRow{}
+  InspectionRow{}
+  SupportingRow{}
+  MemberRow{}
+  TerminalRow{}
+  ObjectHeading{}
+
 type Meaning is Data:
+  ActivityRow{role: ActivityRowRole}
   ActivityGroup{activity: Activity.Activity, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DecisionGroup{decision: Experience.Decision}
   WorkspaceCollection{collection: Experience.Collection}

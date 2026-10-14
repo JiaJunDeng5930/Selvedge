@@ -62,19 +62,50 @@ def authenticated(program: M.World(), task: Nat) -> Result<&2, &2, String, CoreT
 def surface_state(state: CoreTypes.State) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, state)
 
-def source_admission_parameters(parameters: Maybe<&2, Design.LayoutParameters>, surface: InterfaceView.Surface, capacity: View.Capacity, layers: +List<View.Layer>) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+# Fixture measurements answer each requested role independently; they do not bypass font admission.
+def fixture_reference_advance(key: String) -> Nat:
+  match key:
+    case "@font/body": 8n
+    case "@font/activity-primary": 7n
+    case "@font/activity-support": 6n
+    case _: 0n
+
+def fixture_metric(specification: Typography.MeasurementSpec) -> Typography.Metric:
+  Typography.MeasurementSpec{+key, text, family, size, height, weight, space, wrap, word_break, width, reference} = specification
+  +advance: Nat = fixture_reference_advance(key)
+  Typography.Metric{key, advance, advance, height, advance}
+
+def fixture_metrics(specifications: +List<Typography.MeasurementSpec>) -> +List<Typography.Metric>:
+  match specifications:
+    case Nil{}: Nil{}
+    case Con{specification, rest}: fixture_metric(specification) <> fixture_metrics(rest)
+
+def fixture_font_received(plan: Font.Plan, specifications: +List<Typography.MeasurementSpec>, initial: Font.State) -> Font.State:
+  Font.Plan{generation, requested} = plan
+  Font.accept(initial, specifications, Font.Observation{generation, fixture_metrics(requested)})
+
+def fixture_font() -> Font.State:
+  +initial: Font.State = Font.begin(0n, 16000n)
+  +specifications: +List<Typography.MeasurementSpec> = Font.activity_specifications(Limit.limit(), Font.scale(initial))
+  fixture_font_received(Font.request(initial, specifications), specifications, initial)
+
+def source_admission_parameters(parameters: Maybe<&2, Design.LayoutParameters>, surface: InterfaceView.Surface, capacity: View.Capacity, layers: +List<View.Layer>, +font: Font.State) -> Result<&2, &2, String, Shell.ShellAuthorship>:
   match parameters:
     case None{}: Fail{"Fixture font metrics exceed production layout size"}
     case Some{parameters}:
-      +scale: Typography.Scale = Typography.Scale{0n}
-      +metric: Typography.Metric = Typography.Metric{"@font/body", 8n, 8n, 20n, 8n}
-      +font: Font.State = Font.admit(0n, scale, [metric])
       +environment: Design.Environment = Design.Environment{Design.Viewport{602n, 664n}, False{}, 16000n}
-      Done{Shell.source_supporting(Limit.limit(), Web.appearance_surface(surface, environment, font), parameters, capacity, layers, Nil{}, Typography.Presentation{Typography.Body{}, Typography.Regular{}, scale}, Controls.FullSupporting{})}
+      Done{Shell.source_supporting(Limit.limit(), Web.appearance_surface(surface, environment, font), parameters, capacity, layers, Nil{}, Typography.Presentation{Typography.Body{}, Typography.Regular{}, Font.scale(font)}, Controls.FullSupporting{})}
+
+def source_admission_metrics(body: Maybe<&2, Typography.Metric>, activity: Maybe<&2, Font.ActivityMetrics>, +font: Font.State, surface: InterfaceView.Surface, capacity: View.Capacity, layers: +List<View.Layer>) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  match body activity:
+    case Some{body} Some{Font.ActivityMetrics{primary, support}}:
+      source_admission_parameters(Design.parameters(Limit.limit(), Font.scale(font), body, primary, support), surface, capacity, layers, font)
+    case _ _: Fail{"Fixture did not complete the requested production font measurements"}
 
 def source_admission_surface(+surface: InterfaceView.Surface, capacity: View.Capacity) -> Result<&2, &2, String, Shell.ShellAuthorship>:
   InterfaceView.Surface{CoreTypes.Scene{View.Scene{navigation, main, +layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
-  source_admission_parameters(Design.parameters(Limit.limit(), Typography.Scale{0n}, Typography.Metric{"@font/body", 8n, 8n, 20n, 8n}), surface, capacity, layers)
+  +font: Font.State = fixture_font()
+  source_admission_metrics(Font.body(font), Font.activity_metrics(font), font, surface, capacity, layers)
 
 def source_admission(state: CoreTypes.State) -> Result<&2, &2, String, Shell.ShellAuthorship>:
   +capacity: View.Capacity = View.Capacity{True{}, False{}}

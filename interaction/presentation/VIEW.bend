@@ -976,7 +976,7 @@ def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<ViewTypes.Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded, decision_field}, rest}:
+    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:
@@ -986,9 +986,10 @@ def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:
     case E.ClosedNavigation{}: False{}
 
 def navigation_placement(beside: Bool, expanded: Bool) -> ViewTypes.NavigationPlacement:
-  match expanded:
-    case True{}: ViewTypes.LeadingNavigation{}
-    case False{}: ViewTypes.CollapsedNavigation{}
+  match beside expanded:
+    case True{} True{}: ViewTypes.LeadingNavigation{}
+    case False{} True{}: ViewTypes.ModalNavigation{}
+    case _ False{}: ViewTypes.CollapsedNavigation{}
 
 def has_composer(composer: Maybe<&2, ViewTypes.ComposerScene>) -> Bool:
   match composer:

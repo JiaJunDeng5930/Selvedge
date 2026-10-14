@@ -371,15 +371,6 @@ def Rule.property_repair_observation(property, assessment): {==}
 
 def Rule.empty_message_obstruction_is_passive(target, field, reason): {==}
 
-def Rule.permission_summary_retains_consequences(mode):
-  match mode:
-    case D.WorkspaceWrite{}: {==}
-    case D.ReadOnly{}: {==}
-def Rule.ordinary_permission_summary_is_compact(mode):
-  match mode:
-    case D.WorkspaceWrite{}: {==}
-    case D.ReadOnly{}: {==}
-
 def Rule.workspace_operation_classification(body):
   match body:
     case U.NewTask{message, profile, reasoning, context}: {==}
@@ -400,11 +391,14 @@ def Rule.compact_property_evidence():
   Rule.CompactPropertyRequirements{
     editor => +profile => effort => +found => {==},
     editor => +observation => {==},
-    +observation => {==},
-    observation => {==},
+    origin => project => workspace => sandbox => approval => guidance => {==},
+    task => workspace => sandbox => approval => project => guidance => access => {==},
+    choice => observation => {==},
+    {==}, {==}, {==},
     +editor => +selected => +found => {==},
     +editor => +observation => +source => {==},
     +editor => +delivery => {==}}
+
 
 def editing_reading_from_draft(+edit: M.ProjectEdit, draft: U.Draft) ->
   {Activity.reading_units(Activity.editing_from_draft(edit, draft)) == 24n : Nat}:
@@ -533,3 +527,57 @@ def Rule.relation_fold_evidence(Context, Result, handler, context):
     property => rest => {==}, property => rest => {==},
     collection => rest => {==}, action => assessment => rest => {==},
     parent => subject => entry => profile => rest => {==}}
+
+def compound_completion_agreement(property:M.Property, edit:M.ProjectEdit, relations:+List<Activity.Relation>, current:Activity.View) ->
+  {Activity.completion(Activity.EditingActivity{property,edit,relations},current) == Activity.CommitOrDiscard{} : Activity.Completion}:
+  match current:
+    case Activity.PrincipalView{}: {==}
+    case Activity.DependentView{subject}: {==}
+    case Activity.InspectionView{focused}: {==}
+    case Activity.CompoundView{}: {==}
+
+def Rule.view_construction_evidence():
+  Rule.ViewConstructionRequirements{
+    activity => subject => {==},
+    subject => {==},
+    activity => decision => children => {==},
+    activity => decision => children => {==},
+    property => relations => catalog => {==},
+    property => relations => catalog => {==},
+    property => relations => catalog => subject => {==},
+    property => relations => catalog => {==},
+    property => relations => catalog => subject => {==},
+    activity => decision => subject => children => {==},
+    property => edit => relations => current => compound_completion_agreement(property,edit,relations,current),
+    matches => observation => rest => {==},
+    first => rest => query => {==},
+    activity => current => property => {==},
+    property => {==},
+    fact => decision => children => {==},
+    fact => decision => children => {==},
+    property => {==},
+    edit => subject => {==},
+    activity => focused => property => {==},
+    activity => property => {==},
+    property => edit => relations => {==},
+    property => relations => catalog => {==},
+    property => relations => catalog => focused => {==},
+    property => decision => {==},
+    {==}, {==},
+    activity => subject => {==},
+    subject => property => decision => dependencies => {==},
+    activity => current => value => {==},
+    property => decision => dependencies => {==},
+    subject => property => decision => dependencies => {==},
+    subject => relation => {==},
+    subject => property => {==},
+    subject => rest => property => decision => dependencies => {==},
+    activity => current => parent => prerequisite => decision => {==}}
+
+
+def Rule.property_context_evidence():
+  Rule.PropertyContextRequirements{
+    editor => profile => effort => world => {==},
+    editor => observation => {==},
+    editor => profile => effort => world => {==},
+    editor => observation => {==}}

@@ -1,3 +1,4 @@
+import ./layout/natural-size.bend as NaturalSize
 import Base
 import ../harness/MODEL.bend as M
 import ../interaction/MODEL.bend as Product
@@ -523,11 +524,11 @@ def idle_product(application: Platform.State, generation: Nat, realization: Rend
     case Platform.State{core, platform}: {==}
 
 def production_typography_product(owned: Bool, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, environment: Design.Environment, font: F.State, observation: F.Observation) ->
+  realization: Rendered.State, environment: Design.Environment, +font: F.State, observation: F.Observation) ->
   {Model.product(Model.production_typography_owned(owned, application, generation, realization, environment, font, observation)) ==
     Platform.unchanged(Rule.model_core(application)) : InteractionTypes.Decision}:
   match owned:
-    case True{}: idle_product(application, generation, realization, environment, F.accept(font, Nil{}, observation))
+    case True{}: idle_product(application, generation, realization, environment, F.accept(font, F.activity_specifications(NaturalSize.limit(), F.scale(font)), observation))
     case False{}: idle_product(application, generation, realization, environment, font)
 
 def typography_product(+state: Model.State, +observation: F.Observation) ->

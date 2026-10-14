@@ -517,3 +517,37 @@ def Rule.project_feedback_final_background(key, context, owner, depth, visible, 
   resolved_feedback_background(
     Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography),
     Appearance.phase_background(Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography), Appearance.feedback_phase(active)))
+
+
+def Rule.activity_calibration_specifications(capacity, scale):
+  {==}
+
+def Rule.activity_primary_calibration(capacity, scale):
+  {==}
+
+def Rule.activity_support_calibration(capacity, scale):
+  {==}
+
+def Rule.calibrated_parameter_source(capacity, scale, body, primary, support):
+  T.Metric{body_key, body_minimum, body_preferred, body_height, body_advance} = body
+  T.Metric{primary_key, primary_minimum, primary_preferred, primary_height, primary_advance} = primary
+  T.Metric{support_key, support_minimum, support_preferred, support_height, support_advance} = support
+  {==}
+
+
+def F.activity_request_value_correspondence(capacity, font, constructed):
+  F.ActivityRequest{plan, correspondence} = constructed
+  correspondence
+
+def F.activity_request_correspondence(capacity, font):
+  F.activity_request_value_correspondence(capacity, font, F.activity_request(capacity, font))
+
+def Rule.activity_request_protocol(capacity, font):
+  F.activity_request_correspondence(capacity, font)
+
+
+def Rule.supporting_row_information_role(role, inherited, inside, start):
+  {==}
+
+def Rule.supporting_content_chrome(emphasis, scale):
+  {==}

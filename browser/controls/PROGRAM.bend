@@ -192,7 +192,7 @@ def content_layout_activity(enabled: Bool, +text: Typography.Presentation, face:
     case True{}:
       match face:
         case IconFace{icon}: ContentLayout{SpatialModel.CenterContents{}, Enclosure.ambient(0n, 0n), 0n}
-        case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.frame_content(Activity.row_frame(NaturalSize.limit(), text)), Activity.length(NaturalSize.limit(), text, 8n)}
+        case _: ContentLayout{SpatialModel.LeadingContents{}, Enclosure.frame_content(Activity.caption_frame(NaturalSize.limit(), text)), Activity.length(NaturalSize.limit(), text, 8n)}
 
 def content_layout_at(+text: Typography.Presentation, face: Face) -> ContentLayout:
   content_layout_activity(Typography.is_activity(text), text, face)
@@ -1189,6 +1189,7 @@ def assessment_help(obstructions: +List<UXTypes.Obstruction>) -> String:
 
 def represent_plain(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
+    case SurfaceTypes.ActivityRow{row}: NoControl{}
     case SurfaceTypes.SupportingControl{support, property, input, availability}: make_support(key, support, property, input, availability, label, role, context)
     case SurfaceTypes.ActionCommit{assessment, input, availability}: represent_action(key, input, assessment_availability(assessment, availability), label, role, context)
     case SurfaceTypes.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
@@ -1241,17 +1242,6 @@ def geometry_activity(enabled: Bool, +text: Typography.Presentation, +geometry: 
 
 def geometry_at(+text: Typography.Presentation, geometry: Geometry) -> Geometry:
   geometry_activity(Typography.is_activity(text), text, geometry)
-
-def compact_parts_icon(parts: +List<String>) -> Bool:
-  match parts:
-    case Nil{}: True{}
-    case _: False{}
-
-
-def compact_permission_icon(property: UXTypes.Property) -> Bool:
-  compact_parts_icon(UX.compact_property_summary_parts(property))
-
-
 
 def with_navigation(context: Context, value: Navigation.Attention) -> Context:
   Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context

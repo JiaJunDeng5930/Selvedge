@@ -49,7 +49,7 @@ def property_summary_meaning(property: M.Property) -> String:
   match property:
     case M.ProjectObservation{editor, selected, found}: P.project_value(selected, found)
     case M.WorkspaceObservation{editor, observation, source}: P.primary_value(P.observed_workspace(observation))
-    case M.PermissionsObservation{editor, observation}: P.permission_summary(observation)
+    case M.PermissionsObservation{editor, observation}: P.summary_parts_join(P.permission_property_parts(observation))
     case M.ModelObservation{editor, profile, effort, found}: P.model_value(profile, found) ++ " · " ++ effort
     case M.DeliveryObservation{editor, delivery}: U.delivery_caption(delivery)
 
@@ -57,7 +57,7 @@ def property_summary_parts_meaning(property: M.Property) -> +List<String>:
   match property:
     case M.ProjectObservation{editor, selected, found}: [P.project_value(selected, found)]
     case M.WorkspaceObservation{editor, observation, source}: [P.primary_value(P.observed_workspace(observation))]
-    case M.PermissionsObservation{editor, observation}: P.permission_summary_parts(observation)
+    case M.PermissionsObservation{editor, observation}: P.permission_property_parts(observation)
     case M.ModelObservation{editor, profile, effort, found}: [P.model_value(profile, found) ++ " · " ++ effort]
     case M.DeliveryObservation{editor, delivery}: [U.delivery_caption(delivery)]
 
@@ -367,14 +367,6 @@ law empty_message_obstruction_is_passive:
   @target:M.Object -> @field:Maybe<&2, M.Subject> -> @reason:String ->
   {P.passive_obstruction(M.Obstruction{target, field, "empty_message", reason}) == True{} : Bool}
 
-law permission_summary_retains_consequences:
-  @+mode:D.SandboxMode ->
-  {P.summary_permissions(D.Sandbox{mode, True{}}, Context.Unrestricted{}) == D.sandbox_mode_name(mode) ++ " · Network on" ++ " · Unrestricted" : String}
-
-law ordinary_permission_summary_is_compact:
-  @+mode:D.SandboxMode ->
-  {P.summary_permissions(D.Sandbox{mode, False{}}, Context.Ask{}) == D.sandbox_mode_name(mode) ++ "" ++ "" : String}
-
 def workspace_operation_meaning(body: U.Body) -> Bool:
   match body:
     case U.NewTask{message, profile, reasoning, context}: True{}
@@ -399,16 +391,22 @@ law attention_skips_passive_obstruction:
   @+obstruction:M.Obstruction -> @+rest:+List<M.Obstruction> -> @passive:{P.passive_obstruction(obstruction) == True{} : Bool} ->
   {P.attention_obstruction_list(obstruction <> rest) == P.attention_obstruction_list(rest) : Maybe<&2, M.Obstruction>}
 
-# Compact display omits only already accessible model detail or baseline permissions.
+# Compact display preserves principal mode and omits only secondary detail.
 type CompactPropertyRequirements is Type:
   CompactPropertyRequirements{
     model_identity: @editor:U.Editor -> @+profile:String -> @effort:String -> @+found:Maybe<&2, D.Profile> ->
       {P.compact_property_summary_parts(M.ModelObservation{editor, profile, effort, found}) == [P.model_value(profile, found)] : +List<String>},
     permission_observation: @editor:U.Editor -> @+observation:Context.Observation ->
-      {P.compact_property_summary_parts(M.PermissionsObservation{editor, observation}) == P.compact_permission_parts(P.compact_permission_observation(observation), observation) : +List<String>},
-    consequential_permissions: @+observation:Context.Observation ->
-      {P.compact_permission_parts(False{}, observation) == P.permission_summary_parts(observation) : +List<String>},
-    baseline_permissions: @observation:Context.Observation -> {P.compact_permission_parts(True{}, observation) == Nil{} : +List<String>},
+      {P.compact_property_summary_parts(M.PermissionsObservation{editor, observation}) == P.permission_mode_parts(observation) : +List<String>},
+    draft_permission_mode: @origin:Context.Origin -> @project:Maybe<&2,Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
+      {P.permission_mode_parts(Context.DraftExecution{Context.ProspectiveContext{origin,project,workspace,sandbox,approval,guidance}}) == [P.strategy_caption(P.observed_strategy(Context.observed_approval(approval)))] : +List<String>},
+    committed_permission_mode: @task:Nat -> @workspace:D.Workspace -> @sandbox:D.Sandbox -> @+approval:D.ApprovalPolicy -> @project:Maybe<&2,Nat> -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess ->
+      {P.permission_mode_parts(Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,access}}) == [P.strategy_caption(P.observed_strategy(Context.approval_choice(approval)))] : +List<String>},
+    full_permission_mode: @+choice:Context.ApprovalChoice -> @observation:Context.Observation ->
+      {P.permission_property_parts_for_choice(choice,observation) == P.strategy_caption(P.observed_strategy(choice)) <> P.permission_secondary_parts(P.observed_strategy(choice),P.permission_summary_parts(observation)) : +List<String>},
+    ask_identity: {P.strategy_caption(M.Ask{}) == "Ask" : String},
+    review_identity: {P.strategy_caption(M.AutomaticReview{}) == "Automatic review" : String},
+    unrestricted_identity: {P.strategy_caption(M.FullAccess{}) == "Full access" : String},
     project_identity: @+editor:U.Editor -> @+selected:Maybe<&2, Nat> -> @+found:Maybe<&2, D.Project> ->
       {P.compact_property_summary_parts(M.ProjectObservation{editor, selected, found}) == P.property_summary_parts(M.ProjectObservation{editor, selected, found}) : +List<String>},
     workspace_identity: @+editor:U.Editor -> @+observation:Context.Observation -> @+source:Maybe<&2, D.Project> ->
@@ -434,9 +432,9 @@ type ActivityRequirements is Type:
     root_owned_dependencies: @+decision:M.Decision -> @children:+List<Activity.Dependency> ->
       {Activity.root_decision(decision, children) == Activity.RootDecision{decision, Activity.dependencies(decision, children)} : Activity.Relation},
     comparison_construction: @+property:M.Property -> @+decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
-      {Activity.comparison(property, decision, children, facts, catalog) == Activity.ComparisonActivity{property, Activity.RequiredValue{property} <> List.append(&2, Activity.Relation, Activity.decision_relations(U.same_editor(P.property_editor(property), Activity.decision_editor(decision)), decision, children, catalog), List.append(&2, Activity.Relation, Activity.required_values(facts, P.property_editor(property)), [Activity.SupportingValue{property}])), catalog} : Activity.Activity},
+      {Activity.comparison(property, decision, children, facts, catalog) == Activity.ComparisonActivity{property, Activity.observed_relations(property, decision, children, facts, catalog), catalog} : Activity.Activity},
     explanation_construction: @+property:M.Property -> @+decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
-      {Activity.explanation(property, decision, children, facts, catalog) == Activity.ExplanationActivity{property, Activity.RequiredValue{property} <> List.append(&2, Activity.Relation, Activity.decision_relations(U.same_editor(P.property_editor(property), Activity.decision_editor(decision)), decision, children, catalog), List.append(&2, Activity.Relation, Activity.required_values(facts, P.property_editor(property)), [Activity.SupportingValue{property}])), catalog} : Activity.Activity},
+      {Activity.explanation(property, decision, children, facts, catalog) == Activity.ExplanationActivity{property, Activity.observed_relations(property, decision, children, facts, catalog), catalog} : Activity.Activity},
     required_value_retained: @+property:M.Property -> @+rest:+List<Activity.Relation> ->
       {Activity.required_relations(Activity.RequiredValue{property} <> rest) == Activity.RequiredValue{property} <> Activity.required_relations(rest) : +List<Activity.Relation>},
     blocked_action_retained: @+action:M.ActionUnit -> @+assessment:M.Assessment -> @+rest:+List<Activity.Relation> ->
@@ -495,7 +493,7 @@ type DecisionDisclosureRequirements is Type:
     editing_purpose: @edit:M.ProjectEdit ->
       {Activity.purpose(Activity.editing(edit)) == Activity.ObjectEditing{} : Activity.Purpose},
     disclosure_complete: @+activity:Activity.Activity -> @+decision:M.Decision -> @+focused:Maybe<&2, M.Subject> ->
-      {Activity.decision_disclosure(activity, decision, focused) == Activity.retained_disclosure(Activity.retained_decisions(Activity.relations(activity), P.decision_subject(decision)), Activity.purpose(activity), Activity.focused_decision(decision, focused)) : Activity.DecisionDisclosure},
+      {Activity.decision_disclosure(activity, decision, focused) == Activity.view_disclosure(activity, decision, Activity.view(activity, focused, False{})) : Activity.DecisionDisclosure},
     absent_relation: @purpose:Activity.Purpose -> @focused:Bool ->
       {Activity.retained_disclosure(False{}, purpose, focused) == Activity.Summary{} : Activity.DecisionDisclosure},
     direct_comparison: @focused:Bool ->
@@ -610,3 +608,96 @@ type RelationFoldRequirements<-Context: Data, -Result: Data, -handler: Context -
 
 law relation_fold_evidence:
   @-Context:Data -> @-Result:Data -> @-handler:(Context -> Activity.RelationView -> +List<Result> -> Result) -> @-context:Context -> RelationFoldRequirements<Context, Result, handler, context>
+
+# Evidence expressions retain the observed fact and its real presentation witness.
+type ViewConstructionRequirements is Type:
+  ViewConstructionRequirements{
+    admitted_focus: @+activity:Activity.Activity -> @+subject:M.Subject ->
+      {Activity.requested_focus(activity, Some{subject}) == Activity.admitted_focus(Activity.retained_subject(Activity.relations(activity), subject), subject) : Maybe<&2, M.Subject>},
+    rejected_focus: @subject:M.Subject -> {Activity.admitted_focus(False{}, subject) == None{} : Maybe<&2, M.Subject>},
+    root_initial: @+activity:Activity.Activity -> @decision:M.Decision -> @children:+List<Activity.Relation> ->
+      {Activity.relation_exposure(activity, Activity.PrincipalView{}, Activity.RootDecision{decision, children}) == Activity.CandidateChoices{} : Activity.Exposure},
+    root_inspection: @activity:Activity.Activity -> @decision:M.Decision -> @children:+List<Activity.Relation> ->
+      {Activity.relation_exposure(activity, Activity.InspectionView{None{}}, Activity.RootDecision{decision, children}) == Activity.DependencySummary{} : Activity.Exposure},
+    principal_completion: @property:M.Property -> @relations:+List<Activity.Relation> -> @catalog:+List<D.Profile> ->
+      {Activity.completion(Activity.ComparisonActivity{property, relations, catalog}, Activity.PrincipalView{}) == Activity.ApplyAndDismiss{} : Activity.Completion},
+    permission_completion: @property:M.Property -> @relations:+List<Activity.Relation> -> @catalog:+List<D.Profile> ->
+      {Activity.completion(Activity.ExplanationActivity{property, relations, catalog}, Activity.PrincipalView{}) == Activity.ApplyAndDismiss{} : Activity.Completion},
+    dependent_completion: @property:M.Property -> @relations:+List<Activity.Relation> -> @catalog:+List<D.Profile> -> @subject:M.Subject ->
+      {Activity.completion(Activity.ComparisonActivity{property, relations, catalog}, Activity.DependentView{subject}) == Activity.ApplyAndReturn{} : Activity.Completion},
+    inspection_completion: @property:M.Property -> @relations:+List<Activity.Relation> -> @catalog:+List<D.Profile> ->
+      {Activity.completion(Activity.ExplanationActivity{property, relations, catalog}, Activity.InspectionView{None{}}) == Activity.ReturnToOwner{} : Activity.Completion},
+    inspection_selection_completion: @property:M.Property -> @relations:+List<Activity.Relation> -> @catalog:+List<D.Profile> -> @subject:M.Subject ->
+      {Activity.completion(Activity.ExplanationActivity{property, relations, catalog}, Activity.InspectionView{Some{subject}}) == Activity.ApplyAndReturn{} : Activity.Completion},
+    inspected_root_request: @+activity:Activity.Activity -> @+decision:M.Decision -> @+subject:M.Subject -> @children:+List<Activity.Relation> ->
+      {Activity.relation_exposure(activity,Activity.InspectionView{Some{subject}},Activity.RootDecision{decision,children}) == Activity.candidate_exposure(Activity.retains_decision(activity,decision) && Activity.same_subject(P.decision_subject(decision),subject)) : Activity.Exposure},
+    compound_completion: @property:M.Property -> @edit:M.ProjectEdit -> @relations:+List<Activity.Relation> -> @current:Activity.View ->
+      {Activity.completion(Activity.EditingActivity{property, edit, relations}, current) == Activity.CommitOrDiscard{} : Activity.Completion},
+    selected_preserved: @matches:Bool -> @+observation:M.CandidateObservation -> @rest:+List<M.CandidateObservation> ->
+      {Activity.selected_candidate_projection(True{}, matches, observation, rest) == observation <> rest : +List<M.CandidateObservation>},
+    selected_projection: @+first:M.CandidateObservation -> @rest:+List<M.CandidateObservation> -> @+query:String ->
+      {Activity.project_candidate_observations(first <> rest, query) == Activity.selected_candidate_projection(P.candidate_selected(first), Activity.candidate_matches(P.candidate_alternative(first), query), first, Activity.project_candidate_observations(rest, query)) : +List<M.CandidateObservation>},
+    required_retained: @activity:Activity.Activity -> @current:Activity.View -> @property:M.Property ->
+      {Activity.relation_exposure(activity, current, Activity.RequiredValue{property}) == Activity.RequiredExpression{} : Activity.Exposure},
+    necessary_fallback: @+property:M.Property ->
+      {Activity.expression_or_inline(None{}, property) == Activity.NecessaryInline{Activity.fact_identity(property)} : Activity.Coverage},
+    selection_witness: @+fact:Activity.FactIdentity -> @+decision:M.Decision -> @+children:+List<Activity.Relation> ->
+      {Activity.selected_expression(True{}, fact, decision, children) == Some{Activity.SelectedPrincipal{fact, decision, children}} : Maybe<&2,Activity.Coverage>},
+    rejected_expression: @fact:Activity.FactIdentity -> @decision:M.Decision -> @children:+List<Activity.Relation> ->
+      {Activity.selected_expression(False{}, fact, decision, children) == None{} : Maybe<&2,Activity.Coverage>},
+    current_identity: @+property:M.Property ->
+      {Activity.fact_identity(property) == Activity.FactIdentity{P.property_owner(property), P.property_subjects(property), property, Activity.property_reference(property)} : Activity.FactIdentity},
+    draft_identity: @+edit:M.ProjectEdit -> @+subject:M.Subject ->
+      {Activity.draft_field_identity(edit, subject) == Activity.DraftFieldIdentity{P.owner(subject), subject, P.project_edit_draft(edit)} : Activity.DraftFieldIdentity},
+    requested_inspection: @activity:Activity.Activity -> @focused:Maybe<&2,M.Subject> -> @+property:M.Property ->
+      {Activity.coverage(activity, Activity.InspectionView{focused}, property) == Activity.RequestedInspection{Activity.fact_identity(property)} : Activity.Coverage},
+    initial_coverage: @+activity:Activity.Activity -> @+property:M.Property ->
+      {Activity.coverage(activity, Activity.PrincipalView{}, property) == Activity.expression_or_inline(Activity.expressions_from_relations(activity, property, Activity.PrincipalView{}, Activity.relations(activity)), property) : Activity.Coverage},
+    original_identity: @+property:M.Property -> @+edit:M.ProjectEdit -> @+relations:+List<Activity.Relation> ->
+      {Activity.coverage(Activity.EditingActivity{property, edit, relations}, Activity.CompoundView{}, property) == Activity.OriginalObject{Activity.fact_identity(property), edit} : Activity.Coverage},
+    model_search: @property:M.Property -> @relations:+List<Activity.Relation> -> @+catalog:+List<D.Profile> ->
+      {Activity.search_required(Activity.ComparisonActivity{property, relations, catalog}, Activity.PrincipalView{}) == Activity.search_for_kind(P.property_kind(property), Activity.Comparison{}, Activity.PrincipalView{}, catalog) : Bool},
+    inspection_search: @property:M.Property -> @relations:+List<Activity.Relation> -> @catalog:+List<D.Profile> -> @focused:Maybe<&2,M.Subject> ->
+      {Activity.search_required(Activity.ComparisonActivity{property, relations, catalog}, Activity.InspectionView{focused}) == False{} : Bool},
+    observed_owner: @+property:M.Property -> @+decision:M.Decision ->
+      {Activity.property_observation_matches(property,decision) == String.eq(P.object_key(P.property_owner(property)),P.object_key(P.owner(P.decision_subject(decision)))) && Activity.observation_matches(property,P.decision_observation(decision),Activity.decision_editor(decision)) : Bool},
+    comparison_parameter_need: {Activity.initial_dependency_exposure(Activity.Comparison{}) == Activity.DependencySummary{} : Activity.Exposure},
+    explanation_configuration_need: {Activity.initial_dependency_exposure(Activity.EffectExplanation{}) == Activity.HiddenRelation{} : Activity.Exposure},
+    principal_dependency_need: @+activity:Activity.Activity -> @subject:M.Subject ->
+      {Activity.dependency_view_exposure(activity,Activity.PrincipalView{},subject) == Activity.initial_dependency_exposure(Activity.purpose(activity)) : Activity.Exposure},
+    permission_consequence_need: @+subject:M.Subject -> @property:M.Property -> @decision:M.Decision -> @dependencies:+List<Activity.Relation> ->
+      {Activity.remaining_principal_expression(M.PermissionsProperty{},subject,property,decision,dependencies) == Activity.consequence_expression(subject,property,decision) : Activity.SubjectExpression},
+    public_fold_exposure: @+activity:Activity.Activity -> @+current:Activity.View -> @+value:Activity.RelationView ->
+      {Activity.relation_view_exposure(activity,current,value) == Activity.relation_exposure(activity,current,Activity.relation_for_view(value)) : Activity.Exposure},
+    required_subjects: @+property:M.Property -> @+decision:M.Decision -> @+dependencies:+List<Activity.Relation> ->
+      {Activity.coverage_expressions(Activity.SelectedPrincipal{Activity.fact_identity(property),decision,dependencies}) == Activity.principal_expressions(P.property_subjects(property),property,decision,dependencies) : +List<Activity.SubjectExpression>},
+    subject_choice: @+subject:M.Subject -> @property:M.Property -> @+decision:M.Decision -> @dependencies:+List<Activity.Relation> ->
+      {Activity.principal_subject_expression(True{},subject,property,decision,dependencies) == Activity.SelectedSubject{subject,decision} : Activity.SubjectExpression},
+    admitted_parameter: @+subject:M.Subject -> @+relation:Activity.Relation ->
+      {Activity.admitted_parameter_expression(True{},subject,relation) == Some{Activity.OwnedParameter{subject,relation}} : Maybe<&2,Activity.SubjectExpression>},
+    unexpressed_subject: @+subject:M.Subject -> @+property:M.Property ->
+      {Activity.inline_expressions(subject <> Nil{},property) == Activity.InlineSubject{subject,property} <> Nil{} : +List<Activity.SubjectExpression>},
+    subject_sequence: @+subject:M.Subject -> @rest:+List<M.Subject> -> @+property:M.Property -> @+decision:M.Decision -> @+dependencies:+List<Activity.Relation> ->
+      {Activity.principal_expressions(subject <> rest,property,decision,dependencies) == Activity.principal_subject_expression(Activity.same_subject(subject,P.decision_subject(decision)),subject,property,decision,dependencies) <> Activity.principal_expressions(rest,property,decision,dependencies) : +List<Activity.SubjectExpression>},
+    dependency_admission: @+activity:Activity.Activity -> @+current:Activity.View -> @+parent:M.Decision -> @+prerequisite:M.Value -> @+decision:M.Decision ->
+      {Activity.relation_exposure(activity,current,Activity.DependentDecision{parent,prerequisite,decision}) ==
+        Activity.admitted_exposure(Activity.dependency_applies(parent,prerequisite,decision) && Activity.retains_decision(activity,decision), Activity.dependency_view_exposure(activity,current,P.decision_subject(decision))) : Activity.Exposure}}
+
+law view_construction_evidence:
+  ViewConstructionRequirements
+
+
+# Read-only context access is bound to the actual owning observation producers.
+type PropertyContextRequirements is Type:
+  PropertyContextRequirements{
+    model_producer: @editor:U.Editor -> @+profile:String -> @+effort:String -> @world:World.World() ->
+      {P.property_model_context(P.model_property(editor,profile,effort,world)) == Some{Forms.ModelValue{profile,effort}} : Maybe<&2,Forms.Observed>},
+    permission_producer: @editor:U.Editor -> @+observation:Context.Observation ->
+      {P.property_permission_context(P.permissions_property(editor,observation)) == Some{observation} : Maybe<&2,Context.Observation>},
+    model_has_no_permissions: @editor:U.Editor -> @profile:String -> @effort:String -> @world:World.World() ->
+      {P.property_permission_context(P.model_property(editor,profile,effort,world)) == None{} : Maybe<&2,Context.Observation>},
+    permission_has_no_model: @editor:U.Editor -> @observation:Context.Observation ->
+      {P.property_model_context(P.permissions_property(editor,observation)) == None{} : Maybe<&2,Forms.Observed>}}
+
+law property_context_evidence:
+  PropertyContextRequirements

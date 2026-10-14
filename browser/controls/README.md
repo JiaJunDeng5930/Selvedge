@@ -117,3 +117,10 @@ Navigation titles retain their complete accessible text and command binding whil
 their stretch targets align captions at the leading edge. Project membership
 controls indentation; the separate collection of tasks without a project keeps
 its own heading and does not acquire project depth.
+
+`SURFACE.ActivityRow` preserves descendant decision, field and command meanings
+while `MODEL.activity_row` supplies their common physical organization.
+`SHELL.activity_width` and the actual button/input constructors consume observed
+activity font parameters, so preferred surface demand comes from authored
+content rather than the activity's name. `SIDEBAR.aligned_sidebar` derives the
+shared leading allocation from the complete sidebar's real target requirements.

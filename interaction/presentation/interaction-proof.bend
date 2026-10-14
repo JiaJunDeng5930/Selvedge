@@ -579,21 +579,21 @@ def Rule.surface_evidence():
       Equal.trans(Rule.Receipt,
         Rule.receipt(ProductUI.step(ProductUI.Element{capacity, key, SurfaceTypes.Press{}}, state)),
         Rule.receipt(Model.apply_input(Model.resolve(ProductUI.observe(capacity, state), key, SurfaceTypes.Press{}), state)),
-        Rule.receipt(Core.step(input, state)),
+        Rule.receipt(Core.step(Model.activity_requested_input(input, state), state)),
         element_receipt(capacity, state, key, SurfaceTypes.Press{}),
         Equal.cong(Maybe<&2, InteractionTypes.Input>, Rule.Receipt,
           resolved => Rule.receipt(Model.apply_input(resolved, state)),
           Model.resolve(ProductUI.observe(capacity, state), key, SurfaceTypes.Press{}), Some{input},
           resolve_available(ProductUI.observe(capacity, state), key, input, node_key, semantic, label, role, children, found)))
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +decision_field => +rest => present =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +decision_field => +parameter_buffer => +rest => present =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest,
+        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest,
         Model.layer_present(previous, E.panel_target(panel)), True{}, present)
     ,
-    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +decision_field => +rest => absent =>
+    +previous => origin => +panel => trigger => initial_attention => query => +layer_occurrence => +source_expanded => +decision_field => +parameter_buffer => +rest => absent =>
       Equal.cong(Bool, +List<E.Layer>,
-        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded, decision_field} <> rest,
+        unchanged => E.Layer{panel, Model.layer_trigger(unchanged, trigger, origin), initial_attention, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest,
         Model.layer_present(previous, E.panel_target(panel)), False{}, absent)
     }
 
@@ -701,11 +701,23 @@ def workspace_description_agreement(+found: Maybe<&2, D.Workspace>, editor: U.Ed
     case None{}: {==}
     case Some{workspace}: {==}
 
+def expanded_navigation_agreement(beside: Bool) ->
+  {View.navigation_placement(beside, True{}) == Rule.expanded_navigation_placement(beside) : V.NavigationPlacement}:
+  match beside:
+    case True{}: {==}
+    case False{}: {==}
+
+def collapsed_navigation_agreement(beside: Bool) ->
+  {View.navigation_placement(beside, False{}) == V.CollapsedNavigation{} : V.NavigationPlacement}:
+  match beside:
+    case True{}: {==}
+    case False{}: {==}
+
 def Rule.composition_evidence():
   Rule.CompositionRequirements{
     Rule.page_region_evidence(),
-    beside => {==},
-    beside => {==},
+    beside => expanded_navigation_agreement(beside),
+    beside => collapsed_navigation_agreement(beside),
     task => preview => parent => state => Rule.committed_permission_summary_agreement(task, preview, parent, state),
     task => config => parent => state => Rule.task_permission_resets_absent(task, config, parent, state),
     editor => group => parent => state => Rule.permission_menu_agreement(editor, group, parent, state),

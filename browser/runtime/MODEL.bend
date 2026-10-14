@@ -478,10 +478,17 @@ def program(+state: State) -> M.World(): Legacy.program(legacy(state))
 
 def code_key(+source: Code.Source, +ordinal: Nat) -> String: Legacy.code_key(source, ordinal)
 
+def activity_font_budget(metrics: Maybe<&2, F.ActivityMetrics>) -> Nat:
+  match metrics:
+    case None{}: 1n
+    case Some{metrics}: 0n
+
 def font_budget(+font: F.State) -> Nat:
   match font:
     case F.Pending{generation, scale}: 1n
-    case _: 0n
+    case F.Ready{generation, scale, body, content}:
+      activity_font_budget(F.activity_metrics(F.Ready{generation, scale, body, content}))
+    case F.Failed{generation, scale}: 0n
 
 def source_changed(+input: Web.Input) -> Bool:
   match input:
@@ -505,8 +512,11 @@ def current_font(+state: Legacy.State) -> F.State:
   +font = Web.typography(observed_web_1)
   font
 
+def measurement_plan_at(capacity: Nat, +state: State) -> F.Plan:
+  F.activity_request_plan(capacity, current_font(legacy(state)))
+
 def measurement_plan(+state: State) -> F.Plan:
-  F.request(current_font(legacy(state)), Nil{})
+  measurement_plan_at(NaturalSize.limit(), state)
 
 def measurement_budget(+state: State) -> Nat:
   font_budget(current_font(legacy(state)))
@@ -549,27 +559,16 @@ def infeasible_candidate(+more: Bool, +index: Nat, +state: State, failure: Alloc
     case True{}: Searching{(index + 1n : Nat), state}
     case False{}: Stopped{Decision{set_lifecycle(state, Blocked{failure_message(failure)}), Nil{}}}
 
-# NOTE: The pinned proof checker must keep the closed capacity calculation
-# suspended while the snapshot is abstract; every concrete snapshot uses the
-# same layout limit.
-def supporting_capacity(snapshot: Content.Snapshot) -> Nat:
-  Content.Snapshot{generation, source, font} = snapshot
-  NaturalSize.limit()
-
-def supporting_threshold(capacity: Nat, snapshot: Content.Snapshot) -> Nat:
-  Content.Snapshot{generation, source, font} = snapshot
-  T.scaled(capacity, 475n, T.presentation_scale(font))
-
-def supporting_width_admitted(form: Controls.SupportingForm, room: Maybe<&2, Nat>, threshold: Nat) -> Bool:
-  match form room:
+def supporting_width_admitted(form: Controls.SupportingForm, requirement: Maybe<&2, Adaptation.RegionDemand>) -> Bool:
+  match form requirement:
     case Controls.FullSupporting{} None{}: True{}
-    case Controls.CompactSupporting{} None{}: False{}
-    case Controls.FullSupporting{} Some{width}: Nat.is_lt(threshold, width)
-    case Controls.CompactSupporting{} Some{width}: Nat.is_le(width, threshold)
+    case Controls.FullSupporting{} Some{Adaptation.RegionDemand{available, preferred}}:
+      Nat.is_le(preferred, available)
+    case Controls.CompactSupporting{} _: True{}
 
-def supporting_admitted(index: Nat, +world: Content.AllocatedWorld) -> Bool:
-  Content.AllocatedWorld{+snapshot, tree, roots, policies} = world
-  supporting_width_admitted(candidate_form(index), Adaptation.world_region_width(world, Adaptation.RegionAttribute{"allocated-region", "supporting-controls"}), supporting_threshold(supporting_capacity(snapshot), snapshot))
+def supporting_admitted(index: Nat, world: Content.AllocatedWorld) -> Bool:
+  supporting_width_admitted(candidate_form(index), Adaptation.world_region_demand(world,
+    Adaptation.RegionAttribute{"allocated-region", "supporting-controls"}))
 
 def supporting_retry(more: Bool, index: Nat, state: State) -> Search:
   match more:
@@ -662,7 +661,7 @@ def authored(+result: Shell.ShellAuthorship, +index: Nat, +capacity: View.Capaci
     case Shell.Rejected{key, problem}: Stopped{Decision{set_lifecycle(state, Blocked{"Unsupported authored content: " ++ UIIdentity.encode(key)}), Nil{}}}
     case Shell.Ready{source}: frozen(source, index, capacity, font, viewport, state, semantic)
 
-def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, +index: Nat, +state: State) -> Search:
+def calibrated_parameters_at(physical_capacity: Nat, parameters: Maybe<&2, Design.LayoutParameters>, +index: Nat, +state: State) -> Search:
   match parameters:
     case None{}: Stopped{Decision{set_lifecycle(state, Blocked{"Font metrics exceed supported layout size."}), Nil{}}}
     case Some{parameters}:
@@ -677,11 +676,26 @@ def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, +index
       +layers = surface_layers(semantic)
       +surface = Web.appearance_surface_supporting_navigation(semantic, environment, font, candidate_form(index), attention)
       +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
-      authored(Shell.source_supporting(NaturalSize.limit(), surface, parameters, capacity, layers, anchors, presentation, candidate_form(index)),
+      authored(Shell.source_supporting(physical_capacity, surface, parameters, capacity, layers, anchors, presentation, candidate_form(index)),
         index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed, attention}, semantic)
 
-def calibrated_body(metric: T.Metric, +index: Nat, +state: State) -> Search:
-  calibrated_parameters(Design.parameters(NaturalSize.limit(), F.scale(current_font(legacy(state))), metric), index, state)
+def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, index: Nat, state: State) -> Search:
+  calibrated_parameters_at(NaturalSize.limit(), parameters, index, state)
+
+def calibrated_activity_metrics_at(+physical_capacity: Nat, body: T.Metric, metrics: Maybe<&2, F.ActivityMetrics>, +index: Nat, +state: State) -> Search:
+  match metrics:
+    case None{}: Stopped{Decision{set_lifecycle(state, WaitingFont{}), Nil{}}}
+    case Some{F.ActivityMetrics{primary, support}}:
+      calibrated_parameters_at(physical_capacity, Design.parameters(physical_capacity, F.scale(current_font(legacy(state))), body, primary, support), index, state)
+
+def calibrated_activity_metrics(body: T.Metric, metrics: Maybe<&2, F.ActivityMetrics>, index: Nat, state: State) -> Search:
+  calibrated_activity_metrics_at(NaturalSize.limit(), body, metrics, index, state)
+
+def calibrated_body_at(+physical_capacity: Nat, metric: T.Metric, +index: Nat, +state: State) -> Search:
+  calibrated_activity_metrics_at(physical_capacity, metric, F.activity_metrics_at(physical_capacity, current_font(legacy(state))), index, state)
+
+def calibrated_body(metric: T.Metric, index: Nat, state: State) -> Search:
+  calibrated_body_at(NaturalSize.limit(), metric, index, state)
 
 def calibrated(+body: Maybe<&2, T.Metric>, +index: Nat, +state: State) -> Search:
   match body:
@@ -1363,40 +1377,10 @@ def physical_measurement_failed_admitted(admission: Maybe<&1, Categories.Members
 def physical_measurement_failed(+ticket: MeasurementTicket, +reason: String, +state: State) -> Decision:
   physical_measurement_failed_admitted(Categories.admit(MeasurementFailureCandidate, physical_measurement_failed_predicate, MeasurementFailureCandidate{ticket, reason, state}), state)
 
-def capacity_index(capacity: View.Capacity) -> Nat:
-  match capacity:
-    case View.Capacity{True{}, True{}}: 0n
-    case View.Capacity{True{}, False{}}: 1n
-    case View.Capacity{False{}, True{}}: 2n
-    case _: 3n
-
-def supporting_form_index(form: Maybe<&2, Controls.SupportingForm>) -> Nat:
-  match form:
-    case Some{Controls.CompactSupporting{}}: 1n
-    case _: 0n
-
-def source_candidate_index(capacity: View.Capacity, snapshot: Content.Snapshot) -> Nat:
-  Content.Snapshot{generation, source, font} = snapshot
-  Nat.add(Nat.mul(2n, capacity_index(capacity)), supporting_form_index(Authored.supporting_region_form(source)))
-
-def refrozen_source(source: Source.Node, font: T.Presentation, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  State{legacy, +serial, anchors, lifecycle, displayed, attention} = state
-  +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), source, font}, viewport)
-  finish_search(search_run(8n, selected(World.plan(engine), index, capacity, engine,
-    State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed, attention}, semantic, 0n)))
-
-def refrozen(snapshot: Content.Snapshot, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  Content.Snapshot{old, source, font} = snapshot
-  refrozen_source(source, font, viewport, index, capacity, state, semantic)
-
-def refreeze(+index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  State{legacy, +serial, anchors, lifecycle, displayed, attention} = state
-  refrozen(World.snapshot(engine), World.viewport(engine), index, capacity, State{legacy, serial, anchors, lifecycle, displayed, attention}, semantic)
-
 def remeasure(+state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}: refreeze(index, capacity, engine, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}, semantic)
-    case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention}: refreeze(source_candidate_index(capacity, World.snapshot(engine)), capacity, engine, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention}, semantic)
+    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}: build(0n, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention})
+    case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention}: build(0n, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention})
     case State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention}:
       utility_start(purpose, glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention})
     case State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention}:
@@ -1424,8 +1408,8 @@ def with_attention(value: Navigation.Attention, state: State) -> State:
 def attention_refresh(+state: State) -> Decision:
   State{legacy, generation, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
-    case Displaying{capacity, +engine, semantic}: finish_search(one_candidate(source_candidate_index(capacity, World.snapshot(engine)), state))
-    case Measuring{index, capacity, engine, semantic, round}: finish_search(one_candidate(index, state))
+    case Displaying{capacity, +engine, semantic}: build(0n, state)
+    case Measuring{index, capacity, engine, semantic, round}: build(0n, state)
     case _: Decision{state, Nil{}}
 
 def attention_changed(changed: Bool, value: Navigation.Attention, state: State) -> Decision:

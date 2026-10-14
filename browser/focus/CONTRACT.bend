@@ -310,7 +310,7 @@ type DismissalRequirements is Type:
     transient_policy: @action:U.Action -> {InterfaceView.dismissal_meaning(View.OutsideOrEscape{action}) == SurfaceTypes.LayerRegion{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{action}}}, True{}, True{}} : SurfaceTypes.Meaning},
     layer_children: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @restore:String -> @dismissal:View.Dismissal -> @+state:InteractionTypes.State ->
       {InterfaceView.layers([View.Layer{kind, content, initial, restore, dismissal}], state) ==
-          [SurfaceTypes.Node{InterfaceView.layer_key(initial), initial, View2.layer_title(content), InterfaceView.layer_role(kind), InterfaceView.layer_meaning(InterfaceView.layer_activity(content, state), dismissal),
+          [SurfaceTypes.Node{InterfaceView.layer_key(initial), initial, InterfaceView.activity_layer_label(InterfaceView.layer_activity(content, state), View2.layer_title(content)), InterfaceView.layer_role(kind), InterfaceView.layer_meaning(InterfaceView.layer_activity(content, state), dismissal),
             InterfaceView.layer_content(content, InterfaceView.layer_key(initial), state)}] : +List<SurfaceTypes.Node>},
     observed_policy: @+key:Identity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+input:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @children:+List<SurfaceTypes.Node> -> @rest:+List<SurfaceTypes.Node> ->
       {Browser.dismiss_target(SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.LayerRegion{input, outside, escape}, children} <> rest) == Some{Browser.DismissTarget{Identity.encode(key), input, outside, escape}} : Maybe<&2, Browser.DismissTarget>},

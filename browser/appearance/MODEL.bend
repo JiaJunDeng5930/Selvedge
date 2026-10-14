@@ -89,8 +89,14 @@ def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
     default_focus_indicator()
   }
 
+def content_chrome(typography: T.Presentation) -> Design.Chrome:
+  T.Presentation{tier, emphasis, scale} = typography
+  match tier:
+    case T.ActivitySupport{}: chrome(Design.TextForeground{Surfaces.SecondaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{})
+    case _: base_chrome()
+
 def base_style(+typography: T.Presentation) -> Design.Style:
-  fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
+  fields(typography, content_chrome(typography), SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
     SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
 
 def surface_style(flow: SpatialModel.Flow, overflow: SpatialModel.Overflow, padding_inline: Nat,
@@ -251,7 +257,7 @@ def field_style(meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> D
 def navigation_family_style(selected: Bool, gap: Nat, radius: Nat, +typography: T.Presentation) -> Design.Style:
   +role: Surfaces.Role = Surfaces.Choice{selected}
   +foreground: Design.Paint = Design.TextForeground{Surfaces.PrimaryText{}}
-  with_content_area(fields(T.with_tier(typography, T.Support{}), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
+  with_content_area(fields(T.activity(typography), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
     SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
     Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
 
@@ -337,7 +343,7 @@ def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T
 
 def navigation_row(style_value: Design.Style) -> Design.Style:
   Design.Style{text, style_chrome, alignment, flow, overflow, +content_frame, minimum_height, maximum_width_percent, states} = style_value
-  Design.Style{T.with_tier(text, T.Support{}), style_chrome, alignment, flow, overflow, content_frame, 29n, maximum_width_percent, states}
+  Design.Style{T.activity(text), style_chrome, alignment, flow, overflow, content_frame, Activity.supporting_minimum(Activity.initial()), maximum_width_percent, states}
 
 def style_in_context(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning,
   inside_navigation: Bool, +typography: T.Presentation) -> Design.Style:
@@ -550,7 +556,9 @@ def activity_action_unit_style(+value: Design.Style) -> Design.Style:
 def activity_member_style_when(enabled: Bool, +value: Design.Style) -> Design.Style:
   match enabled:
     case False{}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
-    case True{}: modeled_container(value, SpatialModel.RowFlow{}, Activity.length(NaturalSize.limit(), Design.style_text(value), 8n))
+    case True{}:
+      Design.Style{+text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      Design.Style{text, chrome, alignment, SpatialModel.RowFlow{}, overflow, Activity.row_frame(NaturalSize.limit(), text), Nat.max(minimum, Activity.length(NaturalSize.limit(), text, 32n)), maximum, states}
 
 def activity_member_style(+value: Design.Style) -> Design.Style:
   activity_member_style_when(T.is_activity(Design.style_text(value)), value)
@@ -635,10 +643,10 @@ def field_tier(meaning: SurfaceTypes.Meaning) -> T.Tier:
 
 def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, inherited: T.Presentation, in_main: Bool, start: Bool, +scale: T.Scale) -> T.Presentation:
   match role meaning:
-    case SurfaceTypes.Navigation{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case SurfaceTypes.Navigation{} _: T.Presentation{T.ActivityPrimary{}, T.Regular{}, scale}
     case SurfaceTypes.NavigationHeader{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
-    case SurfaceTypes.NavigationEntry{selected} _: T.Presentation{T.Support{}, T.Regular{}, scale}
-    case _ SurfaceTypes.InformationText{Information.NavigationCaption{}}: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case SurfaceTypes.NavigationEntry{selected} _: T.Presentation{T.ActivityPrimary{}, T.Regular{}, scale}
+    case _ SurfaceTypes.InformationText{Information.NavigationCaption{}}: T.Presentation{T.ActivitySupport{}, T.Regular{}, scale}
     case SurfaceTypes.Heading{} _: T.Presentation{heading_tier(in_main, start), T.Medium{}, scale}
     case SurfaceTypes.Activity{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.UserMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
@@ -661,6 +669,8 @@ def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Mean
 def information_activity(meaning: SurfaceTypes.Meaning, inherited: T.Presentation, resolved: T.Presentation) -> T.Presentation:
   match meaning:
     case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: T.activity(resolved)
+    case SurfaceTypes.ActivityRow{SurfaceTypes.SupportingRow{}}: T.supporting(T.activity(resolved))
+    case SurfaceTypes.ActivityRow{row}: T.activity(resolved)
     case _: T.inherit_activity(inherited, resolved)
 
 def information_role(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:

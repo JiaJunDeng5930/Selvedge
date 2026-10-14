@@ -56,3 +56,50 @@ single-candidate decision admission and choose operations. Read its identity,
 selected state, availability, original rejection reason and selection input through
 `candidate_*` getters. Activities derive these observations from their complete
 catalogue; search projects observations and never reinterprets admission.
+
+`ACTIVITY.view(activity, focus, inspection)` admits the requested subject against
+that activity's retained root, selected-parent dependencies and selected-profile
+fields. Initial root decisions expose candidates. Comparison activities expose compact
+owned parameter entries; effect-explanation activities reserve configuration
+dependencies for requested inspection and express actual access consequences
+with the principal candidates. Requested parameter and inspection views retain their exact
+subject. `completion` supplies the common apply/dismiss, apply/return,
+inspection-return and compound commit/discard boundary; consumers must use it
+without changing the domain's draft-versus-immediate configuration semantics.
+An inspection with a requested retained subject exposes that exact root or child
+selection and completes back to inspection; an inspection without a requested
+selection returns to its owner. A different child request never expands the root.
+
+`relation_exposure` is the production projection policy for the existing relation
+fold. Required facts remain requirements, but `coverage` supplies their actual
+expression witness instead of requiring a duplicate paragraph. Read
+`coverage_expressions` for every required subject: a selected candidate, admitted
+parameter, actual permission consequence, owner context, original identity,
+requested inspection or necessary inline value. The complete property observation
+and applied/draft/original reference remain in `FactIdentity`. Project name input
+uses `draft_field_identity`, retaining the full draft separately from the saved
+object identity. Equal display labels do not establish coverage.
+
+Model search is requested only for an initial model comparison with more than
+eight catalogue entries. Filtering preserves the actual selected candidate,
+including unavailable selection observations, rather than redoing admission.
+Open and automatic reasoning fields retain their actual SingleLine or DisplayOnly
+entry; finite options remain owned dependent decisions. The Ask consequence names
+the existing explicit Bash escalation request rather than claiming automatic
+approval-need detection. `ViewConstructionRequirements` binds these operations and
+expression witnesses to the owner-local production evidence.
+
+Property summaries always retain their actual principal identity. Permission
+summary modes come from the observed execution strategy for both draft and
+committed contexts: Ask, Automatic review or Full access. Compact summaries omit
+secondary access details while preserving that mode; they never reduce ordinary
+permissions to an unnamed shield. Full summaries add the observed consequences.
+The standalone permission consequence operation remains unchanged.
+
+Consumers read model profile/effort through `property_model_context`, which returns
+the shared `Forms.ModelValue` observation, and permission state through
+`property_permission_context`, which returns the real context observation. Other
+property kinds return None. These read-only getters are bound to the owning
+`model_property` and `permissions_property` producers; clients do not match the
+private Property representation. Human-readable model identity remains available
+through `property_value`.

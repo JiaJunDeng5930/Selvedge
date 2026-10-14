@@ -2,6 +2,7 @@ import Base
 import ./enclosure.bend as E
 import ../appearance/TYPOGRAPHY.bend as T
 import ./natural-size.bend as NaturalSize
+import ./physical-space.bend as Space
 
 # Independent positive quantities calibrate motor targets, writing lines and clearance.
 type Grammar is Data:
@@ -39,10 +40,34 @@ def target(+capacity: Nat, +text: T.Presentation, minimum: Nat) -> Nat:
   Nat.max(minimum, Nat.max(supporting_minimum(initial()), length(capacity, text, 32n)))
 
 def row_frame(+capacity: Nat, +text: T.Presentation) -> E.Frame:
-  E.Frame{E.ambient(length(capacity, text, 8n), length(capacity, text, 6n)), E.EmbeddedContent{length(capacity, text, 8n)}}
+  E.Frame{E.ambient(length(capacity, text, 8n), 0n), E.EmbeddedContent{length(capacity, text, 8n)}}
 
 def primary(text: T.Presentation) -> T.Presentation:
   T.activity(T.with_tier(text, T.Body{}))
 
-def reading_width(capacity: Nat, text: T.Presentation, units: Nat) -> Nat:
-  Nat.mul(units, T.resolved_line_height(T.resolve_presentation(capacity, primary(text))))
+# Reading clearance belongs to captions, not to a child motor target.
+def caption_frame(+capacity: Nat, +text: T.Presentation) -> E.Frame:
+  E.Frame{E.ambient(length(capacity, text, 8n), length(capacity, text, 6n)), E.EmbeddedContent{length(capacity, text, 8n)}}
+
+def reference_width(advance: Nat, units: Nat) -> Nat:
+  Nat.mul(advance, units)
+
+def support_width(advance: Nat, units: Nat) -> Nat:
+  Nat.mul(advance, units)
+
+# LimitedSize keeps preferred width dependent on actual child measurement.
+def content_width(+minimum: Nat, maximum: Nat) -> Space.AxisSize:
+  Space.LimitedSize{minimum, 0n, Nat.sub(Nat.max(minimum, maximum), minimum)}
+
+def surface_width(+capacity: Nat, +text: T.Presentation, advance: Nat) -> Space.AxisSize:
+  content_width(length(capacity, text, 200n), Nat.add(reference_width(advance, 56n), length(capacity, text, 16n)))
+
+def description_width(advance: Nat) -> Space.AxisSize:
+  content_width(0n, support_width(advance, 38n))
+
+def field_width(advance: Nat) -> Space.AxisSize:
+  +required = reference_width(advance, 32n)
+  Space.LimitedSize{required, 0n, required}
+
+def member_width(advance: Nat) -> Space.AxisSize:
+  content_width(0n, reference_width(advance, 44n))

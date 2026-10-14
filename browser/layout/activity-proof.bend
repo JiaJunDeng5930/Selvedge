@@ -82,4 +82,6 @@ def Rule.evidence():
   Rule.Requirements{positive_motor_target, positive_writing_lines,
     {==}, {==},
     positive_clearance, +grammar => {==},
-    production_frame, production_message, production_message_selection, supporting_flow, composer_footer, property_minimum}
+    production_frame, production_message, production_message_selection, supporting_flow, composer_footer,
+    capacity => text => {==}, capacity => text => {==},
+    capacity => text => advance => {==}, advance => {==}, advance => {==}, advance => {==}, property_minimum}

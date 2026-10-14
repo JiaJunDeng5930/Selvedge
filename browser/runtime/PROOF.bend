@@ -1,3 +1,6 @@
+import ../layout/natural-size.bend as NaturalSize
+import ../controls/PROGRAM.bend as ControlsProgram
+import ../layout/ADAPTATION.bend as Adaptation
 import ../controls/NAVIGATION.bend as Navigation
 import Base
 import ../../interaction/session/PROOF.bend as SessionProof
@@ -1090,6 +1093,7 @@ def rejected_valid_world(completion: E.Completion, reason: String, +program: M.W
   {Rule.decision_world(SessionRule.valid_completion_spec(completion, program, D.failure("command_not_submitted", reason), session)) == program : M.World()}:
   match completion:
     case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
+    case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: {==}
     case E.DirectCompletion{}: {==}
     case E.DraftCompletion{draft}: {==}
     case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
@@ -1259,14 +1263,18 @@ def Rule.supporting_mask_evidence(blocked, support, property, input, availabilit
     case True{}: {==}
     case False{}: {==}
 
+def supporting_compact_ready(requirement: Maybe<&2, Adaptation.RegionDemand>) ->
+  {BrowserModel.supporting_width_admitted(ControlsProgram.CompactSupporting{}, requirement) == True{} : Bool}:
+  match requirement:
+    case None{}: {==}
+    case Some{Adaptation.RegionDemand{available, preferred}}: {==}
+
 def Rule.supporting_admission_evidence():
   Rule.SupportingAdmissionRequirements{
-    +capacity => generation => source => +font => {==},
-    threshold => {==},
-    threshold => {==},
-    +width => +threshold => {==},
-    +width => +threshold => {==},
-    +index => +snapshot => +tree => +roots => +policies => {==},
+    {==},
+    +available => +preferred => {==},
+    supporting_compact_ready,
+    +index => +world => {==},
     +world => +index => +capacity => +engine => +state => +semantic => round => {==},
     +world => index => +capacity => +engine => +state => +semantic => {==},
     world => +index => capacity => engine => +state => semantic => {==},
@@ -1277,7 +1285,7 @@ def navigation_interest_keeps_legacy(+attention: Navigation.Attention, +state: B
   match state:
     case BrowserModel.State{legacy, generation, anchors, lifecycle, displayed, previous}: {==}
 
-def retained_attention_candidate(+state: BrowserModel.State) -> Rule.retained_attention_candidate(state):
+def fresh_attention_candidate(+state: BrowserModel.State) -> Rule.fresh_attention_candidate(state):
   match state:
     case BrowserModel.State{legacy, generation, anchors, lifecycle, displayed, attention}:
       match lifecycle:
@@ -1295,6 +1303,16 @@ def Rule.navigation_evidence():
     navigation_interest_keeps_legacy,
     +attention => +state => {==},
     +attention => +state => {==},
-    retained_attention_candidate}
+    fresh_attention_candidate}
 
 def Rule.reviewer_field_gesture(editor, entry, value, text, state): {==}
+
+
+def Rule.role_calibration_request(capacity, state):
+  F.activity_request_correspondence(capacity, BrowserModel.current_font(BrowserModel.legacy(state)))
+
+def Rule.missing_activity_calibration_waits(physical_capacity, body, index, state):
+  {==}
+
+def Rule.actual_activity_calibration(physical_capacity, body, primary, support, index, state):
+  {==}

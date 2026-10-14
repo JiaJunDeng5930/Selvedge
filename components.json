@@ -205,7 +205,8 @@
       "interaction/presentation/SURFACE.bend",
       "interaction/TYPES.bend",
       "browser/controls/PROGRAM.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "browser/layout/natural-size.bend"
     ],
     "browser/PROOF.bend": [
       "harness/MODEL.bend",
@@ -235,7 +236,8 @@
       "browser/reading/CONTRACT.bend",
       "browser/runtime/CONTRACT.bend",
       "interaction/TYPES.bend",
-      "interaction/presentation/SURFACE.bend"
+      "interaction/presentation/SURFACE.bend",
+      "browser/layout/natural-size.bend"
     ],
     "browser/appearance/CONTRACT.bend": [
       "interaction/IDENTITY.bend",
@@ -256,7 +258,8 @@
       "browser/appearance/PROGRAM.bend",
       "browser/document/MODEL.bend",
       "interaction/experience/MODEL.bend",
-      "interaction/presentation/INFORMATION.bend"
+      "interaction/presentation/INFORMATION.bend",
+      "browser/layout/natural-size.bend"
     ],
     "browser/appearance/DESIGN.bend": [
       "browser/layout/natural-size.bend",
@@ -1200,7 +1203,8 @@
       "browser/controls/PROGRAM.bend",
       "browser/layout/ADAPTATION.bend",
       "browser/layout/natural-size.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "browser/appearance/DESIGN.bend"
     ],
     "browser/runtime/MODEL.bend": [
       "bendlib/categories.bend",
@@ -1313,7 +1317,10 @@
       "harness/transport/command-codec.bend",
       "interaction/presentation/SURFACE.bend",
       "interaction/TYPES.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "browser/layout/ADAPTATION.bend",
+      "browser/controls/PROGRAM.bend",
+      "browser/layout/natural-size.bend"
     ],
     "browser/runtime/SEMANTICS.bend": [
       "browser/document/presentation-order.bend",
@@ -2868,7 +2875,8 @@
     "browser/layout/ACTIVITY.bend": [
       "browser/layout/enclosure.bend",
       "browser/appearance/TYPOGRAPHY.bend",
-      "browser/layout/natural-size.bend"
+      "browser/layout/natural-size.bend",
+      "browser/layout/physical-space.bend"
     ],
     "browser/layout/activity-proof.bend": [
       "browser/controls/PROGRAM.bend",
@@ -2902,7 +2910,8 @@
       "browser/appearance/TYPOGRAPHY.bend",
       "browser/controls/PROGRAM.bend",
       "interaction/experience/MODEL.bend",
-      "browser/controls/NAVIGATION.bend"
+      "browser/controls/NAVIGATION.bend",
+      "browser/layout/physical-space.bend"
     ],
     "features/board/MODEL.bend": [
       "harness/DOMAIN.bend",
@@ -2956,7 +2965,8 @@
       "browser/appearance/DESIGN.bend",
       "browser/document/SOURCE.bend",
       "bendlib/categories.bend",
-      "browser/controls/SIDEBAR.bend"
+      "browser/controls/SIDEBAR.bend",
+      "browser/layout/physical-space.bend"
     ],
     "interaction/experience/ACTIVITY.bend": [
       "interaction/experience/MODEL.bend",

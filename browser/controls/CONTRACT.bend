@@ -103,10 +103,10 @@ type ChoiceRequirements is Type:
     selection_roles: @+kind:SurfaceTypes.ChoiceKind -> @+area:Controls.Area -> @+selected:Bool ->
       {A.behavior(Controls.choice_behavior(kind, area, selected)) == [S.RoleAttribute{selection_role(kind, area)}, S.AriaAttribute{"checked", Fields.boolean(selected)}] : +List<S.Attribute>},
     semantic_face: @+key:UIIdentity.Key -> @+kind:SurfaceTypes.ChoiceKind -> @+classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @+description:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+label:String -> @+role:SurfaceTypes.Role -> @+context:Controls.Context -> actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context),
-    leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:Controls.Icon -> @selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
-      {first_drawing(A.face_members(Controls.ChoiceFace{text, description, Some{icon}, selected}, key, parent, geometry)) == Some{I.drawing(icon, A.face_icon_size(geometry))} : Maybe<&2, S.Drawing>},
-    selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
-      {selection_drawing(A.face_members(Controls.ChoiceFace{text, description, icon, selected}, key, parent, geometry)) == selected_drawing(selected, A.face_icon_size(geometry)) : Maybe<&2, S.Drawing>}}
+    leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:Controls.Icon -> @selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {first_drawing(A.face_members(Controls.ChoiceFace{text, description, Some{icon}, selected}, key, parent, geometry, parameters)) == Some{I.drawing(icon, A.face_icon_size(geometry))} : Maybe<&2, S.Drawing>},
+    selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {selection_drawing(A.face_members(Controls.ChoiceFace{text, description, icon, selected}, key, parent, geometry, parameters)) == selected_drawing(selected, A.face_icon_size(geometry)) : Maybe<&2, S.Drawing>}}
 
 law choice_evidence:
   ChoiceRequirements
@@ -227,22 +227,22 @@ def measure_width(parameters: Design.LayoutParameters, heading: Composition.Head
 
 def beside_main_style(style: S.Style, +required: Nat) -> Type:
   S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  {Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} : S.Style}
+  {Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{Nat.max(minimum_width, Nat.sub(required, Shell.main_clearance(frame, chrome))), minimum_height}, scroll, position}, font, chrome, states} : S.Style}
 
 def compact_main_style(style: S.Style, required: Nat) -> Type:
   {Shell.beside_style(False{}, required, style) == style : S.Style}
 
 def main_population(key: UIIdentity.Key, tag: S.BoxTag, style: S.Style, attributes: +List<S.Attribute>, children: +List<S.Node>, rest: +List<S.Node>, structure: Design.MainStructure, maximum: Nat, beside: Bool, required: Nat) -> Type:
-  {Shell.main_nodes(S.Box{key, tag, style, attributes, children} <> rest, structure, maximum, beside, required) == Shell.main_box(structure, key, tag, Shell.beside_style(beside, required, style), attributes, children, maximum) <> Shell.main_nodes(rest, structure, maximum, beside, required) : +List<S.Node>}
+  {Shell.main_nodes(S.Box{key, tag, style, attributes, children} <> rest, structure, maximum, beside, required) == Shell.reserved_main_node(beside, required, Shell.main_box(structure, key, tag, style, attributes, children, maximum)) <> Shell.main_nodes(rest, structure, maximum, beside, required) : +List<S.Node>}
 
 def second_calculation(values: +List<NaturalSize.Calculation>) -> Maybe<&2, NaturalSize.Calculation>:
   match values:
     case Con{first, Con{second, rest}}: Some{second}
     case _: None{}
 
-def editable_main_minimum(capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat) -> Type:
-  {second_calculation(Design.parameter_calculations(capacity, scale, height, advance)) ==
-    Some{NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{40n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}}} : Maybe<&2, NaturalSize.Calculation>}
+def editable_main_minimum(capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat, primary_advance: Nat, support_advance: Nat) -> Type:
+  {second_calculation(Design.parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance)) ==
+    Some{NaturalSize.Maximum{T.scaling_calculation(360n, scale), Design.editable_minimum_calculation(advance, scale)}} : Maybe<&2, NaturalSize.Calculation>}
 
 def reading_main_minimum(+advance: Nat, +scale: T.Scale) -> Type:
   {Design.reading_minimum_calculation(advance, scale) ==
@@ -259,9 +259,11 @@ def root_minimum(node: S.Node) -> E.Extent:
     case S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}: minimum
     case _: E.Extent{0n, 0n}
 
-def beside_box_floor(structure: Design.MainStructure, key: UIIdentity.Key, tag: S.BoxTag, style: S.Style, attributes: +List<S.Attribute>, children: +List<S.Node>, maximum: Nat, +required: Nat) -> Type:
-  S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  {root_minimum(Shell.main_box(structure, key, tag, Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}), attributes, children, maximum)) == E.Extent{minimum_width, minimum_height} : E.Extent}
+def beside_box_floor(node: S.Node, +required: Nat) -> Type:
+  match node:
+    case S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}, attributes, children}:
+      {root_minimum(Shell.reserved_main_node(True{}, required, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}, attributes, children})) == E.Extent{Nat.max(minimum_width, Nat.sub(required, Shell.main_clearance(frame, chrome))), minimum_height} : E.Extent}
+    case other: {Shell.reserved_main_node(True{}, required, other) == other : S.Node}
 
 def navigation_projection(content: InteractionTypes.Scene) -> Type:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -381,11 +383,11 @@ type AuthoredShellRequirements is Type:
     composer_actions_responsive: @+meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> composer_actions_responsive(meaning, typography),
     navigation_projection: @content:InteractionTypes.Scene -> navigation_projection(content),
     assembly_placement: @+content:InteractionTypes.Scene -> @+theme:Design.Theme -> @+base:+List<Design.Node> -> @+overlays:+List<Design.Node> -> @scope:Maybe<&2, String> -> @+base_nodes:+List<S.Node> -> @+overlay_nodes:+List<S.Node> -> @+capacity:View.Capacity -> @+parameters:Design.LayoutParameters -> @+layers:+List<View.Layer> -> @+anchors:+List<Shell.Anchor> -> @+font:T.Presentation -> @placement:View.NavigationPlacement -> @projected:{Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement} -> assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement),
-    beside_box_floor: @structure:Design.MainStructure -> @key:UIIdentity.Key -> @tag:S.BoxTag -> @style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @maximum:Nat -> @+required:Nat -> beside_box_floor(structure, key, tag, style, attributes, children, maximum, required),
+    beside_box_floor: @node:S.Node -> @+required:Nat -> beside_box_floor(node, required),
     beside_main_style: @style:S.Style -> @+required:Nat -> beside_main_style(style, required),
     compact_main_style: @style:S.Style -> @required:Nat -> compact_main_style(style, required),
     main_population: @key:UIIdentity.Key -> @tag:S.BoxTag -> @style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @rest:+List<S.Node> -> @structure:Design.MainStructure -> @maximum:Nat -> @beside:Bool -> @required:Nat -> main_population(key, tag, style, attributes, children, rest, structure, maximum, beside, required),
-    editable_main_minimum: @capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> editable_main_minimum(capacity, scale, height, advance),
+    editable_main_minimum: @capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> @primary_advance:Nat -> @support_advance:Nat -> editable_main_minimum(capacity, scale, height, advance, primary_advance, support_advance),
     reading_main_minimum: @+advance:Nat -> @+scale:T.Scale -> reading_main_minimum(advance, scale),
     main_placement_input: @placement:View.NavigationPlacement -> @parameters:Design.LayoutParameters -> @structure:Design.MainStructure -> @reading_width:Nat -> @navigation:+List<S.Node> -> @main:+List<S.Node> -> @settings:+List<S.Node> -> @other:+List<S.Node> -> @docked:+List<S.Node> -> @font:T.Presentation -> main_placement_input(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font),
     measure_width: @parameters:Design.LayoutParameters -> @heading:Composition.Heading -> @organization:Composition.Body -> measure_width(parameters, heading, organization),
@@ -530,10 +532,13 @@ law dialog_reading_span:
   for +line_height: Nat
   for creation_height: Nat
   for lane_width: Nat
-  {Shell.dialog_reading_width(Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width}) == Nat.min(reading_width, Nat.mul(24n, line_height)) : Nat}
+  for navigation_minimum_width: Nat
+  for activity_primary_advance: Nat
+  for activity_support_advance: Nat
+  {Shell.dialog_reading_width(Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance}) == Nat.min(reading_width, Nat.mul(24n, line_height)) : Nat}
 
 def dialog_clearance(parameters: Design.LayoutParameters) -> E.Insets:
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   Shell.outside_insets(Nat.max(1n, Nat.div(line_height, 4n)))
 
 law dialog_floating_geometry:
@@ -547,7 +552,7 @@ law dialog_floating_geometry:
   for docked: +List<S.Node>
   for floating: +List<S.Node>
   {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, Shell.resize(node, Shell.outer_width(coordinate_capacity, S.key_of(node), overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
+    Shell.OverlayParts{docked, Shell.resize(node, Shell.outer_width(coordinate_capacity, parameters, S.key_of(node), overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
 
 law dialog_floating_box_preserved:
   for +coordinate_capacity: Nat
@@ -575,7 +580,7 @@ law dialog_floating_box_preserved:
   for docked: +List<S.Node>
   for floating: +List<S.Node>
   {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.outer_width(coordinate_capacity, key, overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
+    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.outer_width(coordinate_capacity, parameters, key, overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
 
 def reading_encoding(+task: Nat, +generation: Nat, +part: Reading.Part) -> Type:
   {S.attribute_properties(S.ReadingAttribute{Reading.Binding{Reading.Context{task, generation}, part}}) ==
@@ -941,7 +946,8 @@ law picker_face_caption:
   for +parent: Design.Style
   for leading: Maybe<&2,Controls.Icon>
   for geometry: Controls.Geometry
-  {trigger_caption(A.face(key,Controls.PickerFace{leading,text},parent,geometry)) ==
+  for +parameters: Design.LayoutParameters
+  {trigger_caption(A.face(key,Controls.PickerFace{leading,text},parent, geometry, parameters)) ==
     Some{S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.SingleLine{}}} : Maybe<&2,S.Node>}
 
 law disclosure_face_caption:
@@ -950,7 +956,8 @@ law disclosure_face_caption:
   for +parent: Design.Style
   for expanded: Bool
   for geometry: Controls.Geometry
-  {trigger_caption(A.face(key,Controls.DisclosureFace{text,expanded},parent,geometry)) ==
+  for +parameters: Design.LayoutParameters
+  {trigger_caption(A.face(key,Controls.DisclosureFace{text,expanded},parent, geometry, parameters)) ==
     Some{S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.SingleLine{}}} : Maybe<&2,S.Node>}
 
 law unbroken_caption:
@@ -962,7 +969,8 @@ law unbroken_face_caption:
   for +text: String
   for +parent: Design.Style
   for geometry: Controls.Geometry
-  {A.face(key,Controls.UnbrokenFace{text},parent,geometry) ==
+  for +parameters: Design.LayoutParameters
+  {A.face(key,Controls.UnbrokenFace{text},parent, geometry, parameters) ==
     [S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.UnbrokenLine{}}] : +List<S.Node>}
 
 type ControlContentRequirements is Type:
@@ -981,9 +989,9 @@ type ControlContentRequirements is Type:
     choice_caption_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style -> @description:Maybe<&2,String> -> @icon:Maybe<&2,Controls.Icon> -> @checked:Bool ->
       {A.caption(key,text,parent,Controls.caption_wrapping(Controls.ChoiceFace{text,description,icon,checked})) ==
         S.Text{key,text,S.ExplicitFont{A.parent_font(parent)},T.NormalWords{}} : S.Node},
-    choice_description_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style ->
-      {A.face_description(Some{text},key,parent) ==
-        [S.Box{A.information_key(key, Information.Description{}), S.Span{}, A.information_style(Information.Description{}, parent), [S.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, S.DataAttribute{"information-owner", UIIdentity.encode(key)}, S.DataAttribute{"information-role", "description"}], [S.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, S.ExplicitFont{T.information(Information.Description{}, A.parent_font(parent))}, T.NormalWords{}}]}] : +List<S.Node>},
+    choice_description_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style -> @+parameters:Design.LayoutParameters ->
+      {A.face_description(Some{text},key,parent,parameters) ==
+        [S.Box{A.information_key(key, Information.Description{}), S.Span{}, A.description_style(parent, parameters), [S.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, S.DataAttribute{"information-owner", UIIdentity.encode(key)}, S.DataAttribute{"information-role", "description"}], [S.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, S.ExplicitFont{T.information(Information.Description{}, A.parent_font(parent))}, T.NormalWords{}}]}] : +List<S.Node>},
     permission_layout: @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
       {Controls.content_layout(Controls.PermissionFace{filesystem, network, approval}) == Controls.ContentLayout{Spatial.LeadingContents{}, E.area(E.TextControl{}), 6n} : Controls.ContentLayout},
     icon_layout: @icon:Controls.Icon ->
@@ -1007,7 +1015,8 @@ law unbroken_icon_face_caption:
   for +text: String
   for +parent: Design.Style
   for geometry: Controls.Geometry
-  {trigger_caption(A.face(key,Controls.UnbrokenIconTextFace{icon,text},parent,geometry)) ==
+  for +parameters: Design.LayoutParameters
+  {trigger_caption(A.face(key,Controls.UnbrokenIconTextFace{icon,text},parent, geometry, parameters)) ==
     Some{S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.UnbrokenLine{}}} : Maybe<&2,S.Node>}
 
 law named_text_caption:
@@ -1031,6 +1040,7 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.Region{}: SurfaceTypes.Region{}
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: SurfaceTypes.Region{}
     case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActivityRow{row}: SurfaceTypes.Region{}
     case SurfaceTypes.PanelToggle{expanded, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: SurfaceTypes.Region{}
     case SurfaceTypes.TaskRow{task, status, selected}: SurfaceTypes.Region{}
@@ -1083,8 +1093,8 @@ type ContextControlRequirements is Type:
     choice_observed_tabs: @+key:UIIdentity.Key -> @semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @kind:SurfaceTypes.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
       {Observed.expected_tabs([SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Choice{kind, classification, selected, description, input, availability}, Nil{}}], elements, native_focus) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, UIIdentity.encode(key))), UIIdentity.encode(key), Nil{}) : +List<String>},
     workspace_label: @+label:String -> @expanded:Bool -> {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    property_contents: @+property:UXTypes.Property -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
-      {A.face_members(Controls.PropertyFace{property}, key, parent, geometry) ==
+    property_contents: @+property:UXTypes.Property -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {A.face_members(Controls.PropertyFace{property}, key, parent, geometry, parameters) ==
         List.append(&2, S.Node, A.leading_icon(Controls.property_icon(property), key, parent, A.face_icon_size(geometry)),
         [S.Box{UIIdentity.part(key, "value"), S.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, A.property_text(property, key, parent)},
          A.glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, A.face_icon_size(geometry))]) : +List<S.Node>},
@@ -1496,13 +1506,6 @@ type AdaptiveSupportingRequirements is Type:
     unavailable_action: @+property:UXTypes.Property -> @+area:Controls.Area -> @+input:InteractionTypes.Input -> @+reason:String -> @+name:String -> @+face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+feedback:Controls.Feedback ->
       {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}) ==
         Controls.supporting_fields(property, area, Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}) : Controls.Representation},
-    normal_permission_icon: {UX.compact_permission_values(Domain.Sandbox{Domain.WorkspaceWrite{}, False{}}, Context.Ask{}) == True{} : Bool},
-    readonly_permission: @+network:Bool -> @+approval:Context.ApprovalChoice -> {UX.compact_permission_values(Domain.Sandbox{Domain.ReadOnly{}, network}, approval) == False{} : Bool},
-    network_permission: @+mode:Domain.SandboxMode -> @+approval:Context.ApprovalChoice -> {UX.compact_permission_values(Domain.Sandbox{mode, True{}}, approval) == False{} : Bool},
-    unrestricted_approval: @+mode:Domain.SandboxMode -> @+network:Bool -> {UX.compact_permission_values(Domain.Sandbox{mode, network}, Context.Unrestricted{}) == False{} : Bool},
-    unavailable_permission: @+reason:String -> {UX.compact_permission_observation(Context.DraftExecution{Context.ContextUnavailable{reason}}) == False{} : Bool},
-    full_access: @task:Nat -> @workspace:Domain.Workspace -> @sandbox:Domain.Sandbox -> @approval:Domain.ApprovalPolicy -> @project:Maybe<&2, Nat> -> @guidance:Domain.ProjectContext ->
-      {UX.compact_permission_observation(Context.CommittedExecution{Context.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, Domain.Unrestricted{}}}) == False{} : Bool},
     accessible_help: @+property:UXTypes.Property -> @+availability:View.Availability -> @+feedback:Controls.Feedback -> @name:String ->
       {Controls.help_for(Controls.CompactPropertyFace{property}, availability, feedback, name) == Controls.tooltip(Controls.help_text(availability, feedback, UX.property_help(property))) : Controls.Help},
     region_stretch: @key:UIIdentity.Key -> @tag:S.BoxTag -> @+style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @form:Controls.SupportingForm ->
@@ -1550,8 +1553,10 @@ type NavigationRequirements is Type:
       {Sidebar.slot(key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
     concealed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
       {Sidebar.slot(key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
+    caption_frame: @+content:E.ContentArea -> @arrangement:E.Arrangement ->
+      {Sidebar.navigation_caption_frame(E.Frame{content, arrangement}) == E.Frame{E.ambient(0n, E.block(content)), arrangement} : E.Frame},
     title_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:Source.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
-      {Sidebar.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
+      {Sidebar.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, Sidebar.navigation_caption_frame(frame), Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
     title_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> ->
       {Sidebar.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Sidebar.attributes(Source.Control{key, tag, Sidebar.navigation_title_style(style), attributes, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}]) : Source.Node},
     complete_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> -> @+width:Model.AxisSize ->
@@ -1583,20 +1588,33 @@ law navigation_fields_task_feedback:
 # Activity geometry is bound to the observed outer surface and its actual children.
 type ActivityRequirements is Type:
   ActivityRequirements{
+    shared_row: @capacity:Nat -> @+key:UIIdentity.Key -> @label:String -> @role:SurfaceTypes.Role -> @+row:SurfaceTypes.ActivityRowRole -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @+parameters:Design.LayoutParameters -> @+content:+List<S.Node> ->
+      {Authored.regular_content(capacity, key, label, role, SurfaceTypes.ActivityRow{row}, visual, representation, children, parameters, content) == Authored.activity_row(capacity, key, row, visual, parameters, content) : S.Node},
+    terminal_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:S.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
+      {Authored.terminal_group_style(S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, Spatial.Trailing{}, Spatial.Centered{}, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : S.Style},
+    terminal_group: @+key:UIIdentity.Key -> @+tag:S.BoxTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+children:+List<S.Node> -> @+rest:+List<S.Node> ->
+      {Authored.activity_row_content(SurfaceTypes.TerminalRow{}, S.Box{key, tag, style, attributes, children} <> rest) == S.Box{key, tag, Authored.terminal_group_style(style), attributes, children} <> Authored.terminal_groups(rest) : +List<S.Node>},
+    support_measure: @+parameters:Design.LayoutParameters ->
+      {Authored.activity_row_width(SurfaceTypes.SupportingRow{}, parameters) == Activity.description_width(Design.activity_support_advance(parameters)) : Model.AxisSize},
+    member_measure: @+key:UIIdentity.Key -> @+collection:UXTypes.Collection -> @+path:String -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @content:+List<S.Node> ->
+      {Authored.workspace_member(key, collection, path, visual, parameters, content) ==
+       Authored.box(key, S.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+         List.append(&2, S.Attribute, Authored.subject_attributes(Authored.collection_subject(collection)), [S.AriaAttribute{"label", path}, S.DataAttribute{"member", path}, S.DataAttribute{"reference-property", UX.subject_key(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspacePrimary{}})}, S.DataAttribute{"primary", Fields.boolean(UX.is_primary(collection, path))}]),
+         [Authored.box(UIIdentity.part(key, "path"), S.Span{}, Factory.content_style(visual, Model.Horizontal{}, Activity.member_width(Design.activity_primary_advance(parameters)), Model.NaturalSize{}, 0n), [S.TitleAttribute{path}], [Authored.text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), Authored.group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)]) : S.Node},
     typography: @role:SurfaceTypes.Role -> @activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+inherited:T.Presentation -> @inside:Bool -> @start:Bool ->
       {Appearance.information_role(role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, inherited, inside, start) ==
         T.activity(Appearance.information_role_fields(role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, inherited, inside, start, T.presentation_scale(inherited))) : T.Presentation},
-    reading: @+capacity:Nat -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @visual:Design.Style -> @fallback:Model.AxisSize ->
-      {Shell.activity_width(capacity, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, fallback) ==
-        Model.CappedStretchSize{Activity.reading_width(capacity, Design.style_text(visual), UXActivity.reading_units(activity))} : Model.AxisSize},
-    outer: @+capacity:Nat -> @+key:UIIdentity.Key -> @+current:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @control:Controls.Representation -> @children:+List<Design.Node> -> @rest:+List<Design.Node> -> @fallback:Model.AxisSize -> @same:{UIIdentity.same(key, current) == True{} : Bool} ->
-      {Shell.outer_width(capacity, key, Design.Node{current, semantic, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, control, children} <> rest, fallback) ==
-        Model.CappedStretchSize{Activity.reading_width(capacity, Design.style_text(visual), UXActivity.reading_units(activity))} : Model.AxisSize},
+    reading: @+capacity:Nat -> @+parameters:Design.LayoutParameters -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @visual:Design.Style -> @fallback:Model.AxisSize ->
+      {Shell.activity_width(capacity, parameters, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, fallback) ==
+        Activity.surface_width(capacity, Design.style_text(visual), Design.activity_primary_advance(parameters)) : Model.AxisSize},
+    outer: @+capacity:Nat -> @+parameters:Design.LayoutParameters -> @+key:UIIdentity.Key -> @+current:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @control:Controls.Representation -> @children:+List<Design.Node> -> @rest:+List<Design.Node> -> @fallback:Model.AxisSize -> @same:{UIIdentity.same(key, current) == True{} : Bool} ->
+      {Shell.outer_width(capacity, parameters, key, Design.Node{current, semantic, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, control, children} <> rest, fallback) ==
+        Activity.surface_width(capacity, Design.style_text(visual), Design.activity_primary_advance(parameters)) : Model.AxisSize},
     source: @+capacity:Nat -> @+key:UIIdentity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @+content:+List<S.Node> ->
       {Authored.regular_content(capacity, key, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, representation, children, parameters, content) ==
         Authored.box(key, Authored.role_tag(role), Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
-          Hierarchy.grouped_frame(Hierarchy.for_text(capacity, Design.style_text(visual)), E.ambient(Activity.length(capacity, Design.style_text(visual), 8n), Activity.length(capacity, Design.style_text(visual), 8n)))),
-          [S.AriaAttribute{"labelledby", UIIdentity.encode(A.information_key(key, Information.SurfaceTitle{}))}, S.DataAttribute{"layer-key", UIIdentity.encode(key)}, S.DataAttribute{"layer-outside", Fields.boolean(outside)}, S.DataAttribute{"layer-escape", Fields.boolean(escape)}, S.TabIndexAttribute{"-1"}, S.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}], Authored.layer_title(role, key, label, visual, content)) : S.Node},
+          E.Frame{E.ambient(Activity.length(capacity, Design.style_text(visual), 8n), Activity.length(capacity, Design.style_text(visual), 8n)), E.EmbeddedContent{Activity.length(capacity, Design.style_text(visual), 4n)}}),
+          List.append(&2, S.Attribute, Authored.activity_layer_attributes(key, label, activity, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}), [S.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}]), Authored.layer_title(role, key, label, visual, content)) : S.Node},
     row: @+value:Design.Style -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
       {Appearance.activity_control_style_when(True{}, value, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
         Appearance.with_flow(Appearance.action_content_style(value, Controls.content_layout_at(Design.style_text(value), face), Controls.geometry_at(Design.style_text(value), geometry), Appearance.activity_content_height(face, Design.style_text(value), Controls.geometry_at(Design.style_text(value), geometry))),
@@ -1608,8 +1626,8 @@ type ActivityRequirements is Type:
         Nat.max(Controls.geometry_minimum_height(Controls.geometry_at(Design.style_text(value), geometry)), E.extent_height(E.required_extent(0n,
           Appearance.activity_content_height(face, Design.style_text(value), Controls.geometry_at(Design.style_text(value), geometry)), Appearance.style_border_width(value),
           Controls.layout_content_area(Controls.content_layout_at(Design.style_text(value), face))))) : Nat},
-    decoration: @+key:UIIdentity.Key -> @+visual:Design.Style -> @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+geometry:Controls.Geometry ->
-      {selection_drawing(A.face(key, Controls.ChoiceFace{text, description, icon, selected}, visual, geometry)) ==
+    decoration: @+key:UIIdentity.Key -> @+visual:Design.Style -> @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {selection_drawing(A.face(key, Controls.ChoiceFace{text, description, icon, selected}, visual, geometry, parameters)) ==
         selected_drawing(selected, A.face_icon_size(Controls.geometry_at(A.parent_font(visual), geometry))) : Maybe<&2, S.Drawing>}}
 
 law activity_evidence:

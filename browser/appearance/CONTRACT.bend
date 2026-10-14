@@ -1,3 +1,4 @@
+import ../layout/natural-size.bend as NaturalSize
 import Base
 import ../../interaction/presentation/INFORMATION.bend as Information
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -467,7 +468,7 @@ law navigation_caption_typography:
   @+scale:T.Scale -> {T.information_role(Information.NavigationCaption{}, scale) == T.Presentation{T.Support{}, T.Regular{}, scale} : T.Presentation}
 
 law navigation_caption_assignment:
-  @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool -> {Appearance.information_role(SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, inherited, in_main, start) == T.inherit_activity(inherited, T.Presentation{T.Support{}, T.Regular{}, T.presentation_scale(inherited)}) : T.Presentation}
+  @+inherited:T.Presentation -> @in_main:Bool -> @start:Bool -> {Appearance.information_role(SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, inherited, in_main, start) == T.inherit_activity(inherited, T.Presentation{T.ActivitySupport{}, T.Regular{}, T.presentation_scale(inherited)}) : T.Presentation}
 
 law navigation_entry_style:
   @+selected:Bool -> @meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> {Appearance.style(SurfaceTypes.NavigationEntry{selected}, meaning, typography) == Appearance.navigation_family_style(selected, 6n, 5n, typography) : Design.Style}
@@ -480,3 +481,42 @@ law project_feedback_preserves_fields:
 law project_feedback_final_background:
   @+key:UIIdentity.Key -> @+context:Controls.Context -> @+owner:UIIdentity.Key -> @+depth:Nat -> @+visible:Bool -> @+active:Bool -> @+value:Design.Style -> @+typography:T.Presentation ->
     {Appearance.style_background(Appearance.final_style(key, SurfaceTypes.Region{}, context, Controls.NavigationRow{owner, depth, visible, active}, value, typography)) == Appearance.phase_background(Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography), Appearance.feedback_phase(active)) : Design.Paint}
+
+
+law activity_calibration_specifications:
+  @+capacity:Nat -> @+scale:T.Scale ->
+  {F.activity_specifications(capacity, scale) == [F.activity_primary_specification(capacity, scale), F.activity_support_specification(capacity, scale)] : +List<T.MeasurementSpec>}
+
+law activity_primary_calibration:
+  @+capacity:Nat -> @+scale:T.Scale ->
+  {F.activity_primary_specification(capacity, scale) == T.spec(T.Probe{"@font/activity-primary", "0", T.resolve_presentation(capacity, T.Presentation{T.ActivityPrimary{}, T.Regular{}, scale}), T.WrapWords{}, None{}, "0"}) : T.MeasurementSpec}
+
+law activity_support_calibration:
+  @+capacity:Nat -> @+scale:T.Scale ->
+  {F.activity_support_specification(capacity, scale) == T.spec(T.Probe{"@font/activity-support", "0", T.resolve_presentation(capacity, T.Presentation{T.ActivitySupport{}, T.Regular{}, scale}), T.WrapWords{}, None{}, "0"}) : T.MeasurementSpec}
+
+def calibrated_parameter_calculation(+capacity: Nat, scale: T.Scale, body: T.Metric, primary: T.Metric, support: T.Metric) -> Maybe<&2, Design.LayoutParameters>:
+  T.Metric{body_key, body_minimum, body_preferred, body_height, body_advance} = body
+  T.Metric{primary_key, primary_minimum, primary_preferred, primary_height, primary_advance} = primary
+  T.Metric{support_key, support_minimum, support_preferred, support_height, support_advance} = support
+  Design.parameter_values(NaturalSize.evaluate_all(capacity, Design.parameter_calculations(capacity, scale, body_height, body_advance, primary_advance, support_advance)))
+
+law calibrated_parameter_source:
+  @+capacity:Nat -> @scale:T.Scale -> @+body:T.Metric -> @+primary:T.Metric -> @+support:T.Metric ->
+  {Design.parameters(capacity, scale, body, primary, support) == calibrated_parameter_calculation(capacity, scale, body, primary, support) : Maybe<&2, Design.LayoutParameters>}
+
+
+law activity_request_protocol:
+  @+capacity:Nat -> @+font:F.State ->
+  {F.activity_request_plan(capacity, font) == F.request_at(capacity, font, F.activity_specifications(capacity, F.scale(font))) : F.Plan}
+
+
+law supporting_row_information_role:
+  @+role:SurfaceTypes.Role -> @+inherited:T.Presentation -> @+inside:Bool -> @+start:Bool ->
+  {Appearance.information_role(role, SurfaceTypes.ActivityRow{SurfaceTypes.SupportingRow{}}, inherited, inside, start) ==
+    T.supporting(T.activity(Appearance.information_role_fields(role, SurfaceTypes.ActivityRow{SurfaceTypes.SupportingRow{}}, inherited, inside, start, T.presentation_scale(inherited)))) : T.Presentation}
+
+law supporting_content_chrome:
+  @emphasis:T.Emphasis -> @scale:T.Scale ->
+  {Appearance.content_chrome(T.Presentation{T.ActivitySupport{}, emphasis, scale}) ==
+    Appearance.chrome(Design.TextForeground{Surfaces.SecondaryText{}}, Appearance.surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), Appearance.transparent(), 0n, 0n, False{}) : Design.Chrome}
