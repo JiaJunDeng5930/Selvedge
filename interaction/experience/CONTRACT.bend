@@ -392,31 +392,6 @@ law attention_skips_passive_obstruction:
   {P.attention_obstruction_list(obstruction <> rest) == P.attention_obstruction_list(rest) : Maybe<&2, M.Obstruction>}
 
 # Compact display preserves principal mode and omits only secondary detail.
-type CompactPropertyRequirements is Type:
-  CompactPropertyRequirements{
-    model_identity: @editor:U.Editor -> @+profile:String -> @effort:String -> @+found:Maybe<&2, D.Profile> ->
-      {P.compact_property_summary_parts(M.ModelObservation{editor, profile, effort, found}) == [P.model_value(profile, found)] : +List<String>},
-    permission_observation: @editor:U.Editor -> @+observation:Context.Observation ->
-      {P.compact_property_summary_parts(M.PermissionsObservation{editor, observation}) == P.permission_mode_parts(observation) : +List<String>},
-    draft_permission_mode: @origin:Context.Origin -> @project:Maybe<&2,Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
-      {P.permission_mode_parts(Context.DraftExecution{Context.ProspectiveContext{origin,project,workspace,sandbox,approval,guidance}}) == [P.strategy_caption(P.observed_strategy(Context.observed_approval(approval)))] : +List<String>},
-    committed_permission_mode: @task:Nat -> @workspace:D.Workspace -> @sandbox:D.Sandbox -> @+approval:D.ApprovalPolicy -> @project:Maybe<&2,Nat> -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess ->
-      {P.permission_mode_parts(Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,access}}) == [P.strategy_caption(P.observed_strategy(Context.approval_choice(approval)))] : +List<String>},
-    full_permission_mode: @+choice:Context.ApprovalChoice -> @observation:Context.Observation ->
-      {P.permission_property_parts_for_choice(choice,observation) == P.strategy_caption(P.observed_strategy(choice)) <> P.permission_secondary_parts(P.observed_strategy(choice),P.permission_summary_parts(observation)) : +List<String>},
-    ask_identity: {P.strategy_caption(M.Ask{}) == "Ask" : String},
-    review_identity: {P.strategy_caption(M.AutomaticReview{}) == "Automatic review" : String},
-    unrestricted_identity: {P.strategy_caption(M.FullAccess{}) == "Full access" : String},
-    project_identity: @+editor:U.Editor -> @+selected:Maybe<&2, Nat> -> @+found:Maybe<&2, D.Project> ->
-      {P.compact_property_summary_parts(M.ProjectObservation{editor, selected, found}) == P.property_summary_parts(M.ProjectObservation{editor, selected, found}) : +List<String>},
-    workspace_identity: @+editor:U.Editor -> @+observation:Context.Observation -> @+source:Maybe<&2, D.Project> ->
-      {P.compact_property_summary_parts(M.WorkspaceObservation{editor, observation, source}) == P.property_summary_parts(M.WorkspaceObservation{editor, observation, source}) : +List<String>},
-    delivery_identity: @+editor:U.Editor -> @+delivery:U.Delivery ->
-      {P.compact_property_summary_parts(M.DeliveryObservation{editor, delivery}) == P.property_summary_parts(M.DeliveryObservation{editor, delivery}) : +List<String>}}
-
-law compact_property_evidence:
-  CompactPropertyRequirements
-
 # Activities expose observations, never caller-supplied selection or layout flags.
 def project_edit_meaning(+draft: U.Draft, +pending: Bool, now: U32, +world: World.World()) -> M.ProjectEdit:
   U.Draft{+revision, +body, feedback, entry} = draft
@@ -701,3 +676,56 @@ type PropertyContextRequirements is Type:
 
 law property_context_evidence:
   PropertyContextRequirements
+
+# The complete observation anchors recognition; projection only removes its dependent detail.
+type RecognitionSummaryRequirements is Type:
+  RecognitionSummaryRequirements{
+    observation: @+property:M.Property ->
+      {P.summary_property(P.property_recognition_summary(property)) == property : M.Property},
+    project_roles: @+editor:U.Editor -> @+selected:Maybe<&2,Nat> -> @+found:Maybe<&2,D.Project> ->
+      {P.property_recognition_summary(M.ProjectObservation{editor,selected,found}) ==
+        M.RecognitionSummary{M.ProjectObservation{editor,selected,found},M.SummaryValue{M.Subject{editor,Forms.ContextOrigin{}},P.project_value(selected,found)},None{}} : M.RecognitionSummary},
+    workspace_roles: @+editor:U.Editor -> @+observation:Context.Observation -> @+source:Maybe<&2,D.Project> ->
+      {P.property_recognition_summary(M.WorkspaceObservation{editor,observation,source}) ==
+        M.RecognitionSummary{M.WorkspaceObservation{editor,observation,source},M.SummaryValue{M.Subject{editor,Forms.WorkspacePrimary{}},P.primary_value(P.observed_workspace(observation))},None{}} : M.RecognitionSummary},
+    delivery_roles: @+editor:U.Editor -> @+delivery:U.Delivery ->
+      {P.property_recognition_summary(M.DeliveryObservation{editor,delivery}) ==
+        M.RecognitionSummary{M.DeliveryObservation{editor,delivery},M.SummaryValue{M.Subject{editor,Forms.DeliveryIntent{}},U.delivery_caption(delivery)},None{}} : M.RecognitionSummary},
+    model_roles: @+editor:U.Editor -> @+profile:String -> @+effort:String -> @+found:Maybe<&2,D.Profile> ->
+      {P.property_recognition_summary(M.ModelObservation{editor,profile,effort,found}) ==
+        M.RecognitionSummary{M.ModelObservation{editor,profile,effort,found}, M.SummaryValue{M.Subject{editor,Forms.ModelProfile{}},P.model_value(profile,found)}, Some{M.SummaryValue{M.Subject{editor,Forms.ReasoningEffort{}},effort}}} : M.RecognitionSummary},
+    permission_roles: @+editor:U.Editor -> @+observation:Context.Observation ->
+      {P.property_recognition_summary(M.PermissionsObservation{editor,observation}) ==
+        M.RecognitionSummary{M.PermissionsObservation{editor,observation}, M.SummaryValue{M.Subject{editor,Forms.ApprovalPolicy{}},P.permission_recognition_value(observation)}, P.permission_recognition_secondary(observation,editor)} : M.RecognitionSummary},
+    ask_identity: {P.strategy_caption(M.Ask{}) == "Ask" : String},
+    review_identity: {P.strategy_caption(M.AutomaticReview{}) == "Automatic review" : String},
+    unrestricted_identity: {P.strategy_caption(M.FullAccess{}) == "Full access" : String},
+    complete_permission_description: @+choice:Context.ApprovalChoice -> @observation:Context.Observation ->
+      {P.permission_property_parts_for_choice(choice,observation) == P.strategy_caption(P.observed_strategy(choice)) <> P.permission_secondary_parts(P.observed_strategy(choice),P.permission_summary_parts(observation)) : +List<String>},
+    unavailable_identity: @reason:String ->
+      {P.permission_recognition_value(Context.DraftExecution{Context.ContextUnavailable{reason}}) == "Unavailable" : String},
+    draft_strategy_identity: @origin:Context.Origin -> @project:Maybe<&2,Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview ->
+      {P.permission_recognition_value(Context.DraftExecution{Context.ProspectiveContext{origin,project,workspace,sandbox,approval,guidance}}) == P.strategy_caption(P.observed_strategy(Context.observed_approval(approval))) : String},
+    sandboxed_strategy_identity: @task:Nat -> @workspace:D.Workspace -> @sandbox:D.Sandbox -> @approval:D.ApprovalPolicy -> @project:Maybe<&2,Nat> -> @guidance:D.ProjectContext ->
+      {P.permission_recognition_value(Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,D.Sandboxed{}}}) == P.strategy_caption(P.observed_strategy(Context.approval_choice(approval))) : String},
+    effective_full_access: @+editor:U.Editor -> @+task:Nat -> @+workspace:D.Workspace -> @+sandbox:D.Sandbox -> @+approval:D.ApprovalPolicy -> @+project:Maybe<&2,Nat> -> @+guidance:D.ProjectContext ->
+      {P.summary_principal(P.property_recognition_summary(M.PermissionsObservation{editor,Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,D.Unrestricted{}}}})) ==
+        M.SummaryValue{M.Subject{editor,Forms.ApprovalPolicy{}},"Full access"} : M.SummaryValue},
+    full_access_has_no_inactive_limit: @editor:U.Editor -> @task:Nat -> @workspace:D.Workspace -> @sandbox:D.Sandbox -> @approval:D.ApprovalPolicy -> @project:Maybe<&2,Nat> -> @guidance:D.ProjectContext ->
+      {P.summary_secondary(P.property_recognition_summary(M.PermissionsObservation{editor,Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,D.Unrestricted{}}}})) == None{} : Maybe<&2,M.SummaryValue>},
+    sandboxed_detail: @+editor:U.Editor -> @+mode:D.SandboxMode -> @network:Bool ->
+      {P.permission_recognition_secondary_access(Some{D.Sandboxed{}},D.Sandbox{mode,network},editor) ==
+        Some{M.SummaryValue{M.Subject{editor,Forms.SandboxMode{}},P.filesystem_recognition_value(mode)}} : Maybe<&2,M.SummaryValue>},
+    workspace_label: {P.filesystem_recognition_value(D.WorkspaceWrite{}) == "Workspace write" : String},
+    readonly_label: {P.filesystem_recognition_value(D.ReadOnly{}) == "Read only" : String},
+    projection_owner: @+full:Bool -> @+property:M.Property -> @principal:M.SummaryValue -> @secondary:Maybe<&2,M.SummaryValue> ->
+      {P.summary_property(P.summary_projection(full,M.RecognitionSummary{property,principal,secondary})) == property : M.Property},
+    projection_identity: @+full:Bool -> @property:M.Property -> @+principal:M.SummaryValue -> @secondary:Maybe<&2,M.SummaryValue> ->
+      {P.summary_principal(P.summary_projection(full,M.RecognitionSummary{property,principal,secondary})) == principal : M.SummaryValue},
+    compact_detail: @summary:M.RecognitionSummary ->
+      {P.summary_secondary(P.summary_projection(False{},summary)) == None{} : Maybe<&2,M.SummaryValue>},
+    full_detail: @+summary:M.RecognitionSummary ->
+      {P.summary_projection(True{},summary) == summary : M.RecognitionSummary}}
+
+law recognition_summary_evidence:
+  RecognitionSummaryRequirements

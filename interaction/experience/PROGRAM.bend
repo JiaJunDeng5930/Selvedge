@@ -754,14 +754,6 @@ def strategy_caption(strategy: M.Strategy) -> String:
     case M.AutomaticReview{}: "Automatic review"
     case M.FullAccess{}: "Full access"
 
-def permission_mode_parts(observation: Context.Observation) -> +List<String>:
-  match observation:
-    case Context.DraftExecution{Context.ContextUnavailable{reason}}: ["Unavailable"]
-    case Context.DraftExecution{Context.ProspectiveContext{origin,project,workspace,sandbox,approval,guidance}}:
-      [strategy_caption(observed_strategy(Context.observed_approval(approval)))]
-    case Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,access}}:
-      [strategy_caption(observed_strategy(Context.approval_choice(approval)))]
-
 def permission_secondary_parts(strategy: M.Strategy, values: +List<String>) -> +List<String>:
   match strategy values:
     case M.FullAccess{} Con{filesystem,remaining}: remaining
@@ -777,6 +769,70 @@ def permission_property_parts(+observation: Context.Observation) -> +List<String
       permission_property_parts_for_choice(Context.observed_approval(approval),observation)
     case Context.CommittedExecution{Context.EffectiveContext{task,D.TaskContext{workspace,sandbox,approval,project},guidance,access}}:
       permission_property_parts_for_choice(Context.approval_choice(approval),observation)
+
+def permission_recognition_value(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: "Unavailable"
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      strategy_caption(observed_strategy(Context.observed_approval(approval)))
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, D.Unrestricted{}}}: "Full access"
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, D.Sandboxed{}}}:
+      strategy_caption(observed_strategy(Context.approval_choice(approval)))
+
+def filesystem_recognition_value(mode: D.SandboxMode) -> String:
+  match mode:
+    case D.WorkspaceWrite{}: "Workspace write"
+    case D.ReadOnly{}: "Read only"
+
+def sandbox_recognition_value(sandbox: D.Sandbox) -> String:
+  D.Sandbox{mode, network} = sandbox
+  filesystem_recognition_value(mode)
+
+def permission_recognition_secondary_access(access: Maybe<&2, D.ExecutionAccess>, sandbox: D.Sandbox, editor: U.Editor) -> Maybe<&2, M.SummaryValue>:
+  match access:
+    case Some{D.Sandboxed{}}:
+      Some{M.SummaryValue{M.Subject{editor, Forms.SandboxMode{}}, sandbox_recognition_value(sandbox)}}
+    case _: None{}
+
+def permission_recognition_secondary(observation: Context.Observation, +editor: U.Editor) -> Maybe<&2, M.SummaryValue>:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: None{}
+    case Context.DraftExecution{+preview}:
+      match preview:
+        case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}:
+          permission_recognition_secondary_access(Context.preview_access(preview), Context.unwrap_sandbox(sandbox), editor)
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}:
+      permission_recognition_secondary_access(Some{access}, sandbox, editor)
+
+def property_recognition_summary(+property: M.Property) -> M.RecognitionSummary:
+  match property:
+    case M.ProjectObservation{+editor, selected, found}:
+      M.RecognitionSummary{property, M.SummaryValue{M.Subject{editor, Forms.ContextOrigin{}}, project_value(selected, found)}, None{}}
+    case M.WorkspaceObservation{+editor, observation, source}:
+      M.RecognitionSummary{property, M.SummaryValue{M.Subject{editor, Forms.WorkspacePrimary{}}, primary_value(observed_workspace(observation))}, None{}}
+    case M.PermissionsObservation{+editor, +observation}:
+      M.RecognitionSummary{property, M.SummaryValue{M.Subject{editor, Forms.ApprovalPolicy{}}, permission_recognition_value(observation)}, permission_recognition_secondary(observation, editor)}
+    case M.ModelObservation{+editor, profile, effort, found}:
+      M.RecognitionSummary{property, M.SummaryValue{M.Subject{editor, Forms.ModelProfile{}}, model_value(profile, found)}, Some{M.SummaryValue{M.Subject{editor, Forms.ReasoningEffort{}}, effort}}}
+    case M.DeliveryObservation{editor, delivery}:
+      M.RecognitionSummary{property, M.SummaryValue{M.Subject{editor, Forms.DeliveryIntent{}}, U.delivery_caption(delivery)}, None{}}
+
+def summary_property(summary: M.RecognitionSummary) -> M.Property:
+  M.RecognitionSummary{property, principal, secondary} = summary
+  property
+
+def summary_principal(summary: M.RecognitionSummary) -> M.SummaryValue:
+  M.RecognitionSummary{property, principal, secondary} = summary
+  principal
+
+def summary_secondary(summary: M.RecognitionSummary) -> Maybe<&2, M.SummaryValue>:
+  M.RecognitionSummary{property, principal, secondary} = summary
+  secondary
+
+def summary_projection(full: Bool, summary: M.RecognitionSummary) -> M.RecognitionSummary:
+  match full summary:
+    case True{} value: value
+    case False{} M.RecognitionSummary{property, principal, secondary}: M.RecognitionSummary{property, principal, None{}}
 
 def property_summary_parts(property: M.Property) -> +List<String>:
   match property:
@@ -1288,12 +1344,6 @@ def restriction_obstructions(+assessment: M.Assessment, reason: String) -> +List
 # including backend refusal, survive in the same ordered observation list.
 def restricted(+assessment: M.Assessment, reason: String) -> M.Assessment:
   M.Assessment{assessment_identity(assessment), restriction_obstructions(assessment, reason), M.Blocked{}, None{}}
-
-def compact_property_summary_parts(property: M.Property) -> +List<String>:
-  match property:
-    case M.ModelObservation{editor, profile, effort, found}: [model_value(profile, found)]
-    case M.PermissionsObservation{editor, observation}: permission_mode_parts(observation)
-    case _: property_summary_parts(property)
 
 def project_edit(+draft: U.Draft, +pending: Bool, now: U32, +world: World.World()) -> M.ProjectEdit:
   U.Draft{+revision, +body, feedback, entry} = draft

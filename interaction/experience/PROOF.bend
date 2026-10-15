@@ -387,19 +387,6 @@ def Rule.attention_keeps_first_repair(obstruction, rest, repair):
 def Rule.attention_skips_passive_obstruction(obstruction, rest, passive):
   Equal.cong(Bool, Maybe<&2, M.Obstruction>, hidden => P.attention_obstruction_select(hidden, obstruction, P.attention_obstruction_list(rest)), P.passive_obstruction(obstruction), True{}, passive)
 
-def Rule.compact_property_evidence():
-  Rule.CompactPropertyRequirements{
-    editor => +profile => effort => +found => {==},
-    editor => +observation => {==},
-    origin => project => workspace => sandbox => approval => guidance => {==},
-    task => workspace => sandbox => approval => project => guidance => access => {==},
-    choice => observation => {==},
-    {==}, {==}, {==},
-    +editor => +selected => +found => {==},
-    +editor => +observation => +source => {==},
-    +editor => +delivery => {==}}
-
-
 def editing_reading_from_draft(+edit: M.ProjectEdit, draft: U.Draft) ->
   {Activity.reading_units(Activity.editing_from_draft(edit, draft)) == 24n : Nat}:
   U.Draft{revision, body, feedback, entry} = draft
@@ -581,3 +568,51 @@ def Rule.property_context_evidence():
     editor => observation => {==},
     editor => profile => effort => world => {==},
     editor => observation => {==}}
+
+def recognition_observation(+property: M.Property) ->
+  {P.summary_property(P.property_recognition_summary(property)) == property : M.Property}:
+  match property:
+    case M.ProjectObservation{editor,selected,found}: {==}
+    case M.WorkspaceObservation{editor,observation,source}: {==}
+    case M.PermissionsObservation{editor,observation}: {==}
+    case M.ModelObservation{editor,profile,effort,found}: {==}
+    case M.DeliveryObservation{editor,delivery}: {==}
+
+def recognition_projection_owner(+full: Bool, +property: M.Property, principal: M.SummaryValue, secondary: Maybe<&2,M.SummaryValue>) ->
+  {P.summary_property(P.summary_projection(full,M.RecognitionSummary{property,principal,secondary})) == property : M.Property}:
+  match full:
+    case True{}: {==}
+    case False{}: {==}
+
+def recognition_projection_identity(+full: Bool, property: M.Property, +principal: M.SummaryValue, secondary: Maybe<&2,M.SummaryValue>) ->
+  {P.summary_principal(P.summary_projection(full,M.RecognitionSummary{property,principal,secondary})) == principal : M.SummaryValue}:
+  match full:
+    case True{}: {==}
+    case False{}: {==}
+
+def recognition_compact_detail(+summary: M.RecognitionSummary) ->
+  {P.summary_secondary(P.summary_projection(False{},summary)) == None{} : Maybe<&2,M.SummaryValue>}:
+  M.RecognitionSummary{property,principal,secondary} = summary
+  {==}
+
+def Rule.recognition_summary_evidence():
+  Rule.RecognitionSummaryRequirements{
+    +property => recognition_observation(property),
+    +editor => +selected => +found => {==},
+    +editor => +observation => +source => {==},
+    +editor => +delivery => {==},
+    +editor => +profile => +effort => +found => {==},
+    +editor => +observation => {==},
+    {==}, {==}, {==},
+    choice => observation => {==},
+    reason => {==},
+    origin => project => workspace => sandbox => approval => guidance => {==},
+    task => workspace => sandbox => approval => project => guidance => {==},
+    +editor => +task => +workspace => +sandbox => +approval => +project => +guidance => {==},
+    editor => task => workspace => sandbox => approval => project => guidance => {==},
+    +editor => +mode => network => {==},
+    {==}, {==},
+    +full => +property => principal => secondary => recognition_projection_owner(full,property,principal,secondary),
+    +full => property => +principal => secondary => recognition_projection_identity(full,property,principal,secondary),
+    summary => recognition_compact_detail(summary),
+    +summary => {==}}

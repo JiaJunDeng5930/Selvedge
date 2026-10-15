@@ -103,3 +103,13 @@ property kinds return None. These read-only getters are bound to the owning
 `model_property` and `permissions_property` producers; clients do not match the
 private Property representation. Human-readable model identity remains available
 through `property_value`.
+
+`property_recognition_summary` is the entry for inline recognition. It retains the
+complete Property observation, the principal subject/value, and an optional
+subject/value that depends on that selection. Model identity owns its effort
+explanation; execution strategy owns the relevant sandbox explanation. Effective
+Full access has no active sandbox limit to summarize. `summary_projection`
+removes dependent information for a compact group without changing the owner or
+principal value. `RecognitionSummaryRequirements` binds these relationships to
+the production factory. The complete `property_summary` remains available for
+semantic descriptions and help, rather than determining the inline visual roles.

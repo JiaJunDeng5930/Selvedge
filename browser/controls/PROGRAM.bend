@@ -121,6 +121,14 @@ type Context is Data:
     appearance: Services.Appearance, access: Services.Access, settings_open: Bool,
     layers: +List<View.Layer>, execution: Maybe<&2, Workspace.Observation>, source_family: SourceFamily, supporting_form: SupportingForm, attention: Navigation.Attention, navigation_depth: Nat}
 
+def supporting_form(context: Context) -> SupportingForm:
+  Context{area, selection, code, appearance, access, open, layers, execution, source_family, form, attention, navigation_depth} = context
+  form
+
+def context_area(context: Context) -> Area:
+  Context{area, selection, code, appearance, access, open, layers, execution, source_family, form, attention, navigation_depth} = context
+  area
+
 def with_supporting_form(context: Context, form: SupportingForm) -> Context:
   Context{area, selection, code, appearance, access, open, layers, execution, source_family, previous, attention, navigation_depth} = context
   Context{area, selection, code, appearance, access, open, layers, execution, source_family, form, attention, navigation_depth}
@@ -1154,10 +1162,6 @@ def supporting_fields_at(form: SupportingForm, +property: UXTypes.Property, area
     case FullSupporting{}: supporting_fields(property, area, value)
     case CompactSupporting{}:
       match value:
-        case Action{Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}:
-          supporting_fields(property, area, Action{Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}})
-        case Action{Button{input, View.NeedsDirectoryObservation{}, name, face, behavior, geometry, placement, feedback}}:
-          supporting_fields(property, area, Action{Button{input, View.NeedsDirectoryObservation{}, name, face, behavior, geometry, placement, feedback}})
         case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
           +shown: Face = CompactPropertyFace{property}
           Action{Button{input, availability, UX.property_help(property), shown, behavior, geometry_for(ChooseValue{False{}}, shown, area), placement, feedback}}
@@ -1167,8 +1171,7 @@ def make_support_visible(visible: Bool, key: UIIdentity.Key, support: UXTypes.Su
   match visible:
     case False{}: NoControl{}
     case True{}:
-      Context{+area, selection, code, appearance, access, settings_open, layers, execution, source_family, +supporting_form, attention, navigation_depth} = context
-      supporting_fields_at(supporting_form, property, area, represent_action(key, input, availability, label, role, context))
+      supporting_fields_at(supporting_form(context), property, context_area(context), represent_action(key, input, availability, label, role, context))
 
 def make_support(key: UIIdentity.Key, +support: UXTypes.Support, property: UXTypes.Property, input: InteractionTypes.Input, availability: View.Availability, label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
   make_support_visible(UX.support_visible(support), key, support, property, input, availability, label, role, context)

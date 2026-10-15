@@ -1474,11 +1474,17 @@ def Rule.focus_ownership_evidence():
     {==},
     +key => +tag => +style => +attributes => +children => {==}}
 
-def Rule.property_part_captions_empty(key, parent, index): {==}
+def Rule.summary_value_roles(secondary, subject, value, key, parent): {==}
 
-def Rule.property_part_captions_complete(part, rest, key, parent, index): {==}
+def Rule.summary_value_shared_line(secondary, parent): {==}
+
+def Rule.summary_indivisible_row(parent): {==}
+
+def Rule.property_summary_projection(full, property, key, parent): {==}
 
 def Rule.property_current_values(property, key, parent): {==}
+
+def Rule.compact_property_current_values(property, key, parent): {==}
 
 def Rule.property_caption_wraps(property): {==}
 
@@ -1491,8 +1497,7 @@ def Rule.native_input_policy(key, meaning, name, widget, label, availability, vi
 def Rule.adaptive_supporting_evidence():
   Rule.AdaptiveSupportingRequirements{
     +property => +area => +value => {==},
-    +property => area => input => name => face => behavior => geometry => placement => feedback => {==},
-    +property => +area => +input => +reason => +name => +face => +behavior => +geometry => +placement => +feedback => {==},
+    +property => area => input => +availability => name => face => behavior => geometry => placement => feedback => {==},
     +property => +availability => +feedback => name => {==},
     key => tag => +style => attributes => children => form => {==}}
 
@@ -1518,8 +1523,8 @@ def Rule.navigation_evidence():
     navigation_context_depth,
     {==},
     +owner => +project => +depth => +attention => +layers => +fallback => {==},
-    +key => +role => +width => +visual => +children => {==},
-    +key => +role => +width => +visual => +children => {==},
+    +capacity => +key => +role => +width => +visual => +children => {==},
+    +capacity => +key => +role => +width => +visual => +children => {==},
     content => arrangement => {==},
     direction => main => cross => frame => width => height => minimum => scroll => position => font => chrome => states => {==},
     +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => {==},
@@ -1586,3 +1591,20 @@ def Rule.input_support_evidence():
     capacity => key => input => visual => parameters => {==},
     capacity => key => input => visual => parameters => first => rest => {==},
     capacity => key => visual => parameters => content => {==}}
+
+def Rule.supporting_member_uses_group(key,support,property,input,availability,label,role,context): {==}
+
+def supporting_group_form_inherited(+node: SurfaceTypes.Node, +context: Controls.Context) ->
+  {Controls.supporting_form(Controls.enter(node,context)) == Controls.supporting_form(context) : Controls.SupportingForm}:
+  match node context:
+    case SurfaceTypes.Node{key,semantic,label,role,meaning,children} Controls.Context{area,selection,code,appearance,access,open,layers,execution,family,form,attention,depth}: {==}
+
+def Rule.supporting_group_form_inherited(node,context): supporting_group_form_inherited(node,context)
+
+def Rule.compact_summary_keeps_recognition(property,key,parent,geometry): {==}
+
+def Rule.summary_members_preserve_roles(property,principal,secondary,key,parent): {==}
+
+def Rule.summary_absent_detail(key,parent): {==}
+
+def Rule.summary_dependent_detail(subject,value,key,parent): {==}

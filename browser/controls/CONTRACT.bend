@@ -1446,27 +1446,51 @@ law focus_ownership_evidence:
   FocusOwnershipRequirements
 
 
-law property_part_captions_empty:
-  for key: UIIdentity.Key
-  for parent: Design.Style
-  for index: Nat
-  {A.property_part_captions(Nil{}, key, parent, index) == Nil{} : +List<S.Node>}
-
-law property_part_captions_complete:
-  for part: String
-  for rest: +List<String>
+# A recognition unit is a horizontal, non-wrapping row of subject-bound roles.
+# Both roles retain the exact same font and line box; colour carries dependency.
+law summary_value_roles:
+  for secondary: Bool
+  for +subject: UXTypes.Subject
+  for value: String
   for +key: UIIdentity.Key
   for +parent: Design.Style
-  for +index: Nat
-  {A.property_part_captions(part <> rest, key, parent, index) ==
-    A.caption(UIIdentity.entity(key, "part", Nat.show(index)), part, parent, T.UnbrokenLine{}) <> A.property_part_captions(rest, key, parent, Nat.add(index, 1n)) : +List<S.Node>}
+  {A.summary_value_node(secondary,UXTypes.SummaryValue{subject,value},key,parent) ==
+    S.Box{key,S.Span{},A.summary_value_style(secondary,parent),
+      [S.DataAttribute{"summary-role",A.summary_role_name(secondary)},S.DataAttribute{"summary-subject",UX.subject_key(subject)}],
+      [A.caption(UIIdentity.part(key,"text"),value,parent,T.UnbrokenLine{})]} : S.Node}
 
-law property_current_values:
+law summary_value_shared_line:
+  for secondary: Bool
+  for +parent: Design.Style
+  {A.summary_value_style(secondary,parent) ==
+    A.information_foreground(secondary,Factory.with_alignments(Factory.content_style(parent,Model.Horizontal{},Model.NaturalSize{},Model.NaturalSize{},0n),Spatial.Leading{},Spatial.Centered{})) : S.Style}
+
+law summary_indivisible_row:
+  for +parent: Design.Style
+  {A.summary_style(parent) ==
+    Factory.with_alignments(Factory.content_style(parent,Model.Horizontal{},Model.NaturalSize{},Model.NaturalSize{},Nat.div(A.parent_gap(parent),2n)),Spatial.Leading{},Spatial.Centered{}) : S.Style}
+
+law property_summary_projection:
+  for full: Bool
   for +property: UXTypes.Property
   for +key: UIIdentity.Key
   for +parent: Design.Style
-  {A.property_text(property, key, parent) ==
-    [S.Box{UIIdentity.part(key, "property-value"), S.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, A.property_part_captions(UX.property_summary_parts(property), UIIdentity.part(key, "property-value"), parent, 0n)}] : +List<S.Node>}
+  {A.property_summary_text(full,property,key,parent) ==
+    [S.Box{UIIdentity.part(key,"property-value"),S.Span{},A.summary_style(parent),
+      [S.DataAttribute{"summary-owner",UX.object_key(UX.property_owner(property))}],
+      A.summary_members(UX.summary_projection(full,UX.property_recognition_summary(property)),UIIdentity.part(key,"property-value"),parent)}] : +List<S.Node>}
+
+law property_current_values:
+  for property: UXTypes.Property
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.property_text(property,key,parent) == A.property_summary_text(True{},property,key,parent) : +List<S.Node>}
+
+law compact_property_current_values:
+  for property: UXTypes.Property
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.compact_property_text(property,key,parent) == A.property_summary_text(False{},property,key,parent) : +List<S.Node>}
 
 law property_caption_wraps:
   for property: UXTypes.Property
@@ -1500,12 +1524,9 @@ type AdaptiveSupportingRequirements is Type:
   AdaptiveSupportingRequirements{
     full: @+property:UXTypes.Property -> @+area:Controls.Area -> @+value:Controls.Representation ->
       {Controls.supporting_fields_at(Controls.FullSupporting{}, property, area, value) == Controls.supporting_fields(property, area, value) : Controls.Representation},
-    compact_action: @+property:UXTypes.Property -> @area:Controls.Area -> @input:InteractionTypes.Input -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
-      {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, View.Available{}, name, face, behavior, geometry, placement, feedback}}) ==
-        Controls.Action{Controls.Button{input, View.Available{}, UX.property_help(property), Controls.CompactPropertyFace{property}, behavior, Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.CompactPropertyFace{property}, area), placement, feedback}} : Controls.Representation},
-    unavailable_action: @+property:UXTypes.Property -> @+area:Controls.Area -> @+input:InteractionTypes.Input -> @+reason:String -> @+name:String -> @+face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+feedback:Controls.Feedback ->
-      {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}) ==
-        Controls.supporting_fields(property, area, Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}) : Controls.Representation},
+    compact_action: @+property:UXTypes.Property -> @area:Controls.Area -> @input:InteractionTypes.Input -> @+availability:View.Availability -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
+        Controls.Action{Controls.Button{input, availability, UX.property_help(property), Controls.CompactPropertyFace{property}, behavior, Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.CompactPropertyFace{property}, area), placement, feedback}} : Controls.Representation},
     accessible_help: @+property:UXTypes.Property -> @+availability:View.Availability -> @+feedback:Controls.Feedback -> @name:String ->
       {Controls.help_for(Controls.CompactPropertyFace{property}, availability, feedback, name) == Controls.tooltip(Controls.help_text(availability, feedback, UX.property_help(property))) : Controls.Help},
     region_stretch: @key:UIIdentity.Key -> @tag:S.BoxTag -> @+style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @form:Controls.SupportingForm ->
@@ -1549,10 +1570,10 @@ type NavigationRequirements is Type:
     idle_truth: {Controls.task_status_glyph(View.TaskStatus{Domain.Active{}, False{}}) == Controls.IdleCircle{} : Controls.Icon},
     actual_visibility: @+owner:UIIdentity.Key -> @+project:Nat -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
       {Controls.navigation_header(True{}, owner, project, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)}))), Navigation.feedback_active(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
-    exposed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
-      {Sidebar.slot(key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
-    concealed_slot: @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
-      {Sidebar.slot(key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap(visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
+    exposed_slot: @+capacity:Nat -> @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
+      {Sidebar.slot_at(capacity, key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap_at(capacity, visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
+    concealed_slot: @+capacity:Nat -> @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
+      {Sidebar.slot_at(capacity, key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap_at(capacity, visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
     caption_frame: @+content:E.ContentArea -> @arrangement:E.Arrangement ->
       {Sidebar.navigation_caption_frame(E.Frame{content, arrangement}) == E.Frame{E.ambient(0n, E.block(content)), arrangement} : E.Frame},
     title_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:Source.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
@@ -1647,3 +1668,53 @@ type InputSupportRequirements is Type:
 
 law input_support_evidence:
   InputSupportRequirements
+
+# Membership consumes the inherited group form, not an entry-specific fit decision.
+law supporting_member_uses_group:
+  for key: UIIdentity.Key
+  for support: UXTypes.Support
+  for property: UXTypes.Property
+  for input: InteractionTypes.Input
+  for availability: View.Availability
+  for label: String
+  for role: SurfaceTypes.Role
+  for +context: Controls.Context
+  {Controls.make_support_visible(True{},key,support,property,input,availability,label,role,context) ==
+    Controls.supporting_fields_at(Controls.supporting_form(context),property,Controls.context_area(context),Controls.represent_action(key,input,availability,label,role,context)) : Controls.Representation}
+
+law supporting_group_form_inherited:
+  for +node: SurfaceTypes.Node
+  for +context: Controls.Context
+  {Controls.supporting_form(Controls.enter(node,context)) == Controls.supporting_form(context) : Controls.SupportingForm}
+
+law compact_summary_keeps_recognition:
+  for +property: UXTypes.Property
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  for +geometry: Controls.Geometry
+  {A.compact_property_members(property,key,parent,geometry) ==
+    List.append(&2,S.Node,A.leading_icon(Controls.property_icon(property),key,parent,A.face_icon_size(geometry)),
+      [S.Box{UIIdentity.part(key,"value"),S.Span{},Factory.content_style(parent,Model.Horizontal{},Model.NaturalSize{},Model.NaturalSize{},0n),Nil{},A.compact_property_text(property,key,parent)},
+        A.glyph(UIIdentity.part(key,"chevron"),Controls.ChevronDown{},parent,A.face_icon_size(geometry))]) : +List<S.Node>}
+
+law summary_members_preserve_roles:
+  for property: UXTypes.Property
+  for principal: UXTypes.SummaryValue
+  for secondary: Maybe<&2,UXTypes.SummaryValue>
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  {A.summary_members(UXTypes.RecognitionSummary{property,principal,secondary},key,parent) ==
+    A.summary_value_node(False{},principal,UIIdentity.part(key,"principal"),parent) <> A.summary_secondary_nodes(secondary,key,parent) : +List<S.Node>}
+
+law summary_absent_detail:
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.summary_secondary_nodes(None{},key,parent) == Nil{} : +List<S.Node>}
+
+law summary_dependent_detail:
+  for subject: UXTypes.Subject
+  for value: String
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.summary_secondary_nodes(Some{UXTypes.SummaryValue{subject,value}},key,parent) ==
+    [A.summary_value_node(True{},UXTypes.SummaryValue{subject,"· " ++ value},UIIdentity.part(key,"secondary"),parent)] : +List<S.Node>}

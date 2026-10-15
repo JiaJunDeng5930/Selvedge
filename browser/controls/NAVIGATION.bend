@@ -76,3 +76,22 @@ def role_name(value: ContentRole) -> String:
     case TitleSlot{}: "title"
     case StatusSlot{}: "status"
     case AuxiliarySlot{}: "auxiliary"
+
+# A visual rail and its independent command target share a center, not a width.
+# The target's trailing clearance is paid from the visual-to-title gap once.
+type LeadingGeometry is Data:
+  LeadingGeometry{visual: Nat, target: Nat, allocation: Nat, before: Nat, after: Nat, following: Nat}
+
+def leading_geometry(+visual: Nat, +target: Nat, gap: Nat) -> LeadingGeometry:
+  +allocation: Nat = Nat.max(visual, target)
+  +before: Nat = Nat.div(Nat.sub(allocation, visual), 2n)
+  +after: Nat = Nat.sub(Nat.sub(allocation, visual), before)
+  LeadingGeometry{visual, target, allocation, before, after, Nat.sub(gap, after)}
+
+def leading_allocation(geometry: LeadingGeometry) -> Nat:
+  LeadingGeometry{visual, target, allocation, before, after, following} = geometry
+  allocation
+
+def following_gap(geometry: LeadingGeometry) -> Nat:
+  LeadingGeometry{visual, target, allocation, before, after, following} = geometry
+  following

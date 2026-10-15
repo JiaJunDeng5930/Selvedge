@@ -84,6 +84,15 @@ type Property is Data:
   ModelObservation{editor: U.Editor, profile: String, effort: String, found: Maybe<&2, D.Profile>}
   DeliveryObservation{editor: U.Editor, delivery: U.Delivery}
 
+# Recognition retains the complete observation and the subjects of its two roles.
+# A secondary value explains the principal selection; it is not another selection.
+type SummaryValue is Data:
+  SummaryValue{subject: Subject, value: String}
+
+type RecognitionSummary is Data:
+  RecognitionSummary{property: Property, principal: SummaryValue,
+    secondary: Maybe<&2, SummaryValue>}
+
 type Obstruction is Data:
   Obstruction{target: Object, field: Maybe<&2, Subject>, code: String, message: String}
 

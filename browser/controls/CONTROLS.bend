@@ -212,27 +212,51 @@ def choice_text_gap_activity(enabled: Bool, parent: Design.Style) -> Nat:
 def choice_text_gap(+parent: Design.Style) -> Nat:
   choice_text_gap_activity(T.is_activity(parent_font(parent)), parent)
 
-def property_part_captions(parts: +List<String>, +key: UIIdentity.Key, +parent: Design.Style, +index: Nat) -> +List<Source.Node>:
-  match parts:
-    case Nil{}: Nil{}
-    case Con{part, rest}:
-      caption(UIIdentity.entity(key, "part", Nat.show(index)), part, parent, T.UnbrokenLine{}) <> property_part_captions(rest, key, parent, Nat.add(index, 1n))
+def summary_role_name(secondary: Bool) -> String:
+  match secondary:
+    case False{}: "principal"
+    case True{}: "secondary"
 
-def property_text(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
-  +parts_key = UIIdentity.part(key, "property-value")
-  [Source.Box{parts_key, Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, property_part_captions(UX.property_summary_parts(property), parts_key, parent, 0n)}]
+# Inline roles share a font and line box, so the measured text baselines coincide.
+# Supporting colour expresses dependency without introducing another text row.
+def summary_value_style(secondary: Bool, parent: Design.Style) -> Source.Style:
+  information_foreground(secondary, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Spatial.Leading{}, Spatial.Centered{}))
 
-def compact_property_text(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
-  +parts_key = UIIdentity.part(key, "property-value")
-  [Source.Box{parts_key, Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.ResponsiveHorizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 6n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, property_part_captions(UX.compact_property_summary_parts(property), parts_key, parent, 0n)}]
+def summary_value_node(+secondary: Bool, value: UXTypes.SummaryValue, +key: UIIdentity.Key, +parent: Design.Style) -> Source.Node:
+  UXTypes.SummaryValue{+subject, value} = value
+  Source.Box{key, Source.Span{}, summary_value_style(secondary, parent),
+    [Source.DataAttribute{"summary-role", summary_role_name(secondary)}, Source.DataAttribute{"summary-subject", UX.subject_key(subject)}],
+    [caption(UIIdentity.part(key, "text"), value, parent, T.UnbrokenLine{})]}
 
-def compact_property_members(icon_only: Bool, +property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
-  match icon_only:
-    case True{}: [glyph(UIIdentity.part(key, "icon"), Controls.Shield{}, parent, face_icon_size(geometry))]
-    case False{}:
-      List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
-        [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, compact_property_text(property, key, parent)},
-          glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+def summary_secondary_nodes(value: Maybe<&2, UXTypes.SummaryValue>, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  match value:
+    case None{}: Nil{}
+    case Some{UXTypes.SummaryValue{subject, value}}:
+      [summary_value_node(True{}, UXTypes.SummaryValue{subject, "· " ++ value}, UIIdentity.part(key, "secondary"), parent)]
+
+def summary_members(summary: UXTypes.RecognitionSummary, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  UXTypes.RecognitionSummary{property, principal, secondary} = summary
+  summary_value_node(False{}, principal, UIIdentity.part(key, "principal"), parent) <> summary_secondary_nodes(secondary, key, parent)
+
+def summary_style(+parent: Design.Style) -> Source.Style:
+  Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, Nat.div(parent_gap(parent), 2n)), Spatial.Leading{}, Spatial.Centered{})
+
+def property_summary_text(full: Bool, +property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  +summary_key = UIIdentity.part(key, "property-value")
+  [Source.Box{summary_key, Source.Span{}, summary_style(parent),
+    [Source.DataAttribute{"summary-owner", UX.object_key(UX.property_owner(property))}],
+    summary_members(UX.summary_projection(full, UX.property_recognition_summary(property)), summary_key, parent)}]
+
+def property_text(property: UXTypes.Property, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
+  property_summary_text(True{}, property, key, parent)
+
+def compact_property_text(property: UXTypes.Property, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
+  property_summary_text(False{}, property, key, parent)
+
+def compact_property_members(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+  List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
+    [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, compact_property_text(property, key, parent)},
+      glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
 
 def choice_members(enabled: Bool, text: String, details: Maybe<&2, String>, icon: Maybe<&2, Controls.Icon>, checked: Bool, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> +List<Source.Node>:
   List.append(&2, Source.Node, choice_leading_activity(enabled, icon, key, parent, geometry),
@@ -248,7 +272,7 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
     case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.UnbrokenIconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
-    case Controls.CompactPropertyFace{+property}: compact_property_members(False{}, property, key, parent, geometry)
+    case Controls.CompactPropertyFace{+property}: compact_property_members(property, key, parent, geometry)
     case Controls.PropertyFace{+property}:
       List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{},

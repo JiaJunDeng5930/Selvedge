@@ -91,11 +91,18 @@ and bounded native measurements; appearance does not resolve a second writing
 height. Property faces similarly reserve their operable glyph floor while
 `layout/SOURCE.text_natural_demand` owns actual text demand.
 
-Property summaries retain complete recognition units. Permission summaries place
-filesystem, network and approval consequence phrases together when they fit and
-stack the complete phrases in smaller content areas. Other summaries, including
-model and reasoning, remain one complete caption. Their surrounding icons and
-chevrons keep their authored dimensions.
+Property recognition is produced by experience's `property_recognition_summary`:
+it retains the original Property, principal Subject/value and optional dependent
+Subject/value. `property_summary_text` projects that same observation for Full or
+Compact and authors an indivisible horizontal unit. Principal and dependent
+captions use the same font and line box; secondary foreground expresses
+dependency while keeping one measured baseline. The whole supporting-controls
+region selects one presentation form from actual preferred and available width.
+Every member consumes that form, including unavailable members; there is no
+per-entry fallback. Compact removes dependent details and retains each principal
+identity. Permission identity follows actual effective access; inactive sandbox
+limits are absent under Full access. Standalone `property_summary` remains the
+complete semantic/help caption, independent of visual projection.
 
 [NAVIGATION.bend](NAVIGATION.bend) owns transient row attention, exact owner
 admission, menu ownership and navigation content roles. `PROGRAM.Context` carries
@@ -122,5 +129,21 @@ its own heading and does not acquire project depth.
 while `MODEL.activity_row` supplies their common physical organization.
 `SHELL.activity_width` and the actual button/input constructors consume observed
 activity font parameters, so preferred surface demand comes from authored
-content rather than the activity's name. `SIDEBAR.aligned_sidebar` derives the
-shared leading allocation from the complete sidebar's real target requirements.
+content rather than the activity's name.
+
+`NAVIGATION.leading_geometry` distinguishes the visual rail from its independent
+command target. `SIDEBAR.aligned_sidebar` observes the complete sidebar's visual
+rails, while a separate centered envelope reserves the independent target and
+prevents it from overlapping the title command. The enclosing navigation region
+owns the root edge; row padding does not add another edge. Target clearance is
+paid from the visual-to-caption gap once, so a larger hit area cannot silently
+move every visible icon and caption farther inward. Descendant indentation starts
+from these same axes. `leading_frame_preserved` and `row_edge_preserved` observe
+the actual authored allocation, target dimensions, centering and row frame in
+addition to the retained command, whole-row and hierarchy evidence.
+
+The geometry/source constructor and its complete observation evidence share an
+explicit capacity parameter. Fixed public entry points instantiate the existing
+layout capacity; generic evidence compares the real constructor operations
+without repeatedly normalizing that closed numeric bound. This keeps the
+runtime bound and full production obligations unchanged.

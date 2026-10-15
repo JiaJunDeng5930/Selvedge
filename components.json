@@ -2966,7 +2966,8 @@
       "browser/document/SOURCE.bend",
       "bendlib/categories.bend",
       "browser/controls/SIDEBAR.bend",
-      "browser/layout/physical-space.bend"
+      "browser/layout/physical-space.bend",
+      "browser/layout/natural-size.bend"
     ],
     "interaction/experience/ACTIVITY.bend": [
       "interaction/experience/MODEL.bend",
