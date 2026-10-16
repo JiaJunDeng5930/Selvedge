@@ -156,7 +156,7 @@ def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.D
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Review{resolution}: review_result(resolution, world)
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
-    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(execute_start, operation, world)
+    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(~execute_start, operation, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)
     case Commands.Steer{+task, message}:
       C.Decision{store(T.steer(message, task), world), D.success(id_result(D.task_id(task))),
@@ -182,13 +182,18 @@ def realize(member: Commands.ConstructedCommand()) -> M.Decision():
 def apply_command(command: M.Command, +world: M.World()) -> M.Decision():
   realize(Commands.construct_command(command, world))
 
+def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision():
+  apply_command(M.Send{target, message}, world)
+
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
 
-def model_matched(same: Bool, outcome: D.Outcome, allowed: +List<String>, task: D.Task, world: M.World()) -> M.Decision():
+def model_matched(same: Bool, +outcome: D.Outcome, allowed: +List<String>, +task: D.Task, world: M.World()) -> M.Decision():
   match same:
     case False{}: respond(world, accepted(False{}))
-    case True{}: respond(store(T.model_outcome(outcome, allowed, task), world), accepted(True{}))
+    case True{}:
+      Protocol.accepted_reaction(FeatureExec.react_outputs(~output_send, D.task_id(task), T.reply_outputs(outcome),
+        store(T.model_outcome(outcome, allowed, task), world)))
 
 def summary_matched(same: Bool, outcome: D.Outcome, resume: Bool, task: D.Task, world: M.World()) -> M.Decision():
   match same:

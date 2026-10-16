@@ -273,6 +273,7 @@ def model_resolution_if_refinement(+valid: Bool, +draft: U.Draft, +profiles: +Li
     case False{} U.Draft{revision, U.Agent{agent, revision2, name, profile, reasoning, instructions, context, concurrency}, feedback, directory_entry}: {==}
     case False{} U.Draft{revision, U.Fork{task, count, messages, context}, feedback, directory_entry}: {==}
     case False{} U.Draft{revision, U.Compact{task, summary}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.TaskGraph{graph, declaration, parsed}, feedback, directory_entry}: {==}
 
 def model_resolution_found_refinement(+found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: E.Session) ->
   {E.resolve_model_found(found, profiles, session) == Rule.model_resolution_found(found, profiles, session) : E.Session}:
@@ -286,6 +287,7 @@ def model_resolution_found_refinement(+found: Maybe<&2, U.Draft>, +profiles: +Li
     case Some{U.Draft{revision, U.Agent{agent, revision2, name, profile, reasoning, instructions, context, concurrency}, feedback, directory_entry}}: {==}
     case Some{U.Draft{revision, U.Fork{task, count, messages, context}, feedback, directory_entry}}: {==}
     case Some{U.Draft{revision, U.Compact{task, summary}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.TaskGraph{graph, declaration, parsed}, feedback, directory_entry}}: {==}
 
 def model_resolution_complete(+session: E.Session, +world: M.World()) ->
   {E.resolve_model_draft(session, world) == Rule.model_resolution(session, world) : E.Session}:

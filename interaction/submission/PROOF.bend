@@ -33,6 +33,7 @@ def choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Ob
   match entry:
     case Forms.SingleLine{}: {==}
     case Forms.Multiline{}: {==}
+    case Forms.StructuredText{}: {==}
     case Forms.Choice{}: {==}
     case Forms.MultipleChoices{}: {==}
     case Forms.DisplayOnly{}: {==}
@@ -87,6 +88,7 @@ def property_choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value:
     case Forms.ForkCount{} _: choices_agreement(entry, Forms.ForkCount{}, value, groups)
     case Forms.ForkMessages{} _: choices_agreement(entry, Forms.ForkMessages{}, value, groups)
     case Forms.CompactionSummary{} _: choices_agreement(entry, Forms.CompactionSummary{}, value, groups)
+    case Forms.TaskGraphDeclaration{} _: choices_agreement(entry, Forms.TaskGraphDeclaration{}, value, groups)
 
 def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<View.InputGroup>) ->
   {Interface.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==
@@ -245,6 +247,23 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
     case U.AgentCollection{} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.AgentCollection{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.AgentCollection{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Nil{}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
+      finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
+    case U.TaskGraphs{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskGraphs{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
 
 def message_finish_submission_preserves_drafts(+directory_entry: String, +task: Nat, +revision: Nat, +message: U.Text,
   +delivery: U.Delivery, feedback: U.Feedback, +result: J.Json, +application: E.Application) ->

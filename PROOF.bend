@@ -11,6 +11,7 @@ import ./CONCEPTS.bend as Entry
 import ./harness/reasoning/PROOF.bend as ReasoningProof
 import ./harness/tasks/PROOF.bend as TasksProof
 import ./features/board/PROOF.bend as BoardProof
+import ./features/task_graph/PROOF.bend as TaskGraphProof
 import ./harness/features/laws.bend as FeatureLaws
 import ./harness/protocol/PROOF.bend as ProtocolProof
 import ./harness/execution/PROOF.bend as ExecutionProof

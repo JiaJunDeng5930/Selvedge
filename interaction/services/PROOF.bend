@@ -158,6 +158,9 @@ def permissions_menu_observation(+editor: U.Editor, config: Context.Configuratio
     case U.CompactEditor{id}:
       InteractionTypes.State{E.Application{world, session}, services} = state
       {==}
+    case U.TaskGraphEditor{graph}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
 
 def admitted_task_identity(+task: D.Task) ->
   {Rule.effective_task(Context.effective(task)) == D.task_id(task) : Nat}:

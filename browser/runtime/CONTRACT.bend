@@ -190,6 +190,22 @@ law edit_text_accepted:
   for owned: {Browser.field_owned(key, state) == True{} : Bool}
   {Browser.edit_text(key, text, state) == Browser.accept(True{}, Legacy.edit_text(key, text, Browser.legacy(state)), state) : Browser.Decision}
 
+law edit_structured_text_rejected:
+  for +key: String
+  for +text: String
+  for +parsed: Maybe<&2, J.Json>
+  for +state: Browser.State
+  for owned: {Browser.structured_text_owned(key, state) == False{} : Bool}
+  {Browser.edit_structured_text(key, text, parsed, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law edit_structured_text_accepted:
+  for +key: String
+  for +text: String
+  for +parsed: Maybe<&2, J.Json>
+  for +state: Browser.State
+  for owned: {Browser.structured_text_owned(key, state) == True{} : Bool}
+  {Browser.edit_structured_text(key, text, parsed, state) == Browser.accept(True{}, Legacy.edit_structured_text(key, text, parsed, Browser.legacy(state)), state) : Browser.Decision}
+
 law confirm_text_rejected:
   for +key: String
   for +keyboard: String

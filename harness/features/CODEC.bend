@@ -9,16 +9,24 @@ import ../transport/wire-shape.bend as Shape
 import ../../features/board/CODEC.bend as Board
 import ../../features/chatgpt/MODEL.bend as ChatGPT
 import ../../features/chatgpt/CODEC.bend as ChatGPTCodec
+import ../../features/task_graph/CODEC.bend as TaskGraphCodec
 
 def command_json(command: F.Command) -> J.Json:
   match command:
     case F.ChatGPTCommand{command}: ChatGPTCodec.command_json(command)
     case F.BoardCommand{command}: Board.command_json(command)
+    case F.TaskGraphCommand{command}: TaskGraphCodec.command_json(command)
 
 def query_json(query: F.Query) -> J.Json:
   match query:
     case F.ChatGPTQuery{query}: ChatGPTCodec.query_json(query)
     case F.BoardQuery{query}: Board.query_json(query)
+    case F.TaskGraphQuery{query}: TaskGraphCodec.query_json(query)
+
+def task_graph_command(kind: TaskGraphCodec.EntryKind, body: J.Json) -> M.Command:
+  match kind:
+    case TaskGraphCodec.Write{kind}: M.FeatureCommand{F.TaskGraphCommand{TaskGraphCodec.construct(kind, body)}}
+    case TaskGraphCodec.Read{kind}: M.Observe{M.FeatureQuery{F.TaskGraphQuery{TaskGraphCodec.query(kind, body)}}}
 
 def board_command(kind: Board.EntryKind, body: J.Json) -> M.Command:
   match kind:
@@ -34,11 +42,13 @@ def construct(kind: F.CommandKind, body: J.Json) -> M.Command:
   match kind:
     case F.ChatGPTKind{kind}: chatgpt_command(kind, body)
     case F.BoardKind{kind}: board_command(kind, body)
+    case F.TaskGraphKind{kind}: task_graph_command(kind, body)
 
 def valid(kind: F.CommandKind, body: J.Json) -> Bool:
   match kind:
     case F.ChatGPTKind{kind}: ChatGPTCodec.valid(kind, body)
     case F.BoardKind{kind}: Board.valid(kind, body)
+    case F.TaskGraphKind{kind}: TaskGraphCodec.entry_valid(kind, body)
 
 def effect_json(model_json: D.Model -> J.Json, effect: F.Effect) -> J.Json:
   match effect:

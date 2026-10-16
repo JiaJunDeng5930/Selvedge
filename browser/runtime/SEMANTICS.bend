@@ -677,6 +677,22 @@ def edit_gesture(found: Maybe<&2, SurfaceTypes.Node>, text: String, state: State
 def edit_text(+key: String, text: String, +state: State) -> Decision:
   apply_gesture(edit_gesture(found_node(key, state), text, state), key, state)
 
+def structured_text_source(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, field, Forms.StructuredText{}, value, choices}, children}}: True{}
+    case _: False{}
+
+def structured_text_gesture_when(admitted: Bool, text: String, parsed: Maybe<&2, J.Json>) -> Maybe<&2, SurfaceTypes.Gesture>:
+  match admitted:
+    case True{}: Some{SurfaceTypes.Change{Forms.StructuredValue{text, parsed}}}
+    case False{}: None{}
+
+def structured_text_gesture(found: Maybe<&2, SurfaceTypes.Node>, text: String, parsed: Maybe<&2, J.Json>) -> Maybe<&2, SurfaceTypes.Gesture>:
+  structured_text_gesture_when(structured_text_source(found), text, parsed)
+
+def edit_structured_text(+key: String, text: String, parsed: Maybe<&2, J.Json>, +state: State) -> Decision:
+  apply_gesture(structured_text_gesture(found_node(key, state), text, parsed), key, state)
+
 def confirmation_key(keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool) -> Bool:
   String.eq(keyboard, "Enter") && Bool.not(composing) && Bool.not(control) && Bool.not(alt) && Bool.not(shift) && Bool.not(meta)
 

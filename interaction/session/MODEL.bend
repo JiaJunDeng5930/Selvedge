@@ -11,6 +11,7 @@ import ../../harness/MODEL.bend as M
 import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/workspace/WORKSPACE.bend as W
 import ../../features/board/MODEL.bend as B
+import ../../features/task_graph/MODEL.bend as Graph
 import ../../harness/features/MODEL.bend as F
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/component.bend as C
@@ -796,6 +797,35 @@ def agent_editor(+application: Application, id: Maybe<&2, Nat>) -> Decision:
     case None{}: new_agent(first_profile(Board.profiles(program)), application)
     case Some{id}: board_agent(Board.registry(program), id, application)
 
+def task_graph_editor_text(text: Result<&2, &2, String, String>, graph: Maybe<&2, Nat>, declaration: J.Json, application: Application) -> Decision:
+  match text:
+    case Fail{reason}: refuse(application, reason)
+    case Done{text}: open_editor(U.TaskGraph{graph, text, Some{declaration}}, application)
+
+def task_graph_editor_declaration(graph: Maybe<&2, Nat>, +declaration: J.Json, application: Application) -> Decision:
+  task_graph_editor_text(J.show(declaration), graph, declaration, application)
+
+def task_graph_editor_available(available: Bool, result: J.Json, graph: Nat, application: Application) -> Decision:
+  match available:
+    case False{}: refuse(application, "The task graph no longer exists")
+    case True{}:
+      +declaration = J.get(result, "result")
+      task_graph_editor_declaration(Some{graph}, J.Object{[
+        J.Field{"name", J.get(declaration, "name")}, J.Field{"nodes", J.get(declaration, "nodes")},
+        J.Field{"rules", J.get(declaration, "rules")}]}, application)
+
+def task_graph_editor_result(+result: J.Json, graph: Nat, application: Application) -> Decision:
+  task_graph_editor_available(J.boolean(J.get(result, "ok")), result, graph, application)
+
+def task_graph_editor(graph: Maybe<&2, Nat>, +application: Application) -> Decision:
+  match graph:
+    case None{}:
+      task_graph_editor_declaration(None{}, J.Object{[J.Field{"name", J.Text{"Task graph"}},
+        J.Field{"nodes", J.Array{Nil{}}}, J.Field{"rules", J.Array{Nil{}}}]}, application)
+    case Some{+graph}:
+      Application{program, session} = application
+      task_graph_editor_result(Commands.query(M.FeatureQuery{F.TaskGraphQuery{Graph.ReadGraph{graph}}}, program), graph, application)
+
 def begin_changed(body: Result<&2, &2, String, U.Body>, revision: Nat, directory_entry: String, application: Application) -> Decision:
   match body:
     case Fail{reason}: refuse(application, reason)
@@ -961,6 +991,17 @@ def continue_capture(+application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   capture_attention(capture_open(layers), application)
 
+def finish_task_graph_layer(same: Bool, application: Application) -> Decision:
+  match same:
+    case True{}: visit(U.TaskGraphs{}, application)
+    case False{}: unchanged(application)
+
+def finish_task_graph(editor: U.Editor, layers: +List<Layer>, application: Application) -> Decision:
+  match layers:
+    case Con{Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
+      finish_task_graph_layer(U.same_editor(editor, current), application)
+    case _: unchanged(application)
+
 def with_manual_model(value: Bool, session: Session) -> Session:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, previous} = session
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, value}
@@ -974,6 +1015,7 @@ def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Js
     case U.NewTask{message, profile, reasoning, context}: finish_fresh_task(route, layers, result, application)
     case U.Card{None{}, revision, value, assist, profile, True{}}:
       continue_capture(application)
+    case U.TaskGraph{graph, declaration, parsed}: finish_task_graph(U.TaskGraphEditor{graph}, layers, application)
     case other: finish_at_location(U.owner(other), route, layers, result, application)
 
 def submission_accepted(completion: SubmissionCompletion) -> Bool:
@@ -1367,6 +1409,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.NewCard{stage}: new_card(stage, application)
     case U.EditCard{card}: card_editor(card, application)
     case U.EditAgent{agent}: agent_editor(application, agent)
+    case U.EditTaskGraph{graph}: task_graph_editor(graph, application)
     case U.ForkTask{+task}: open_editor(U.Fork{task, 1n, Nil{}, Context.defaults(Context.ParentTask{task})}, application)
     case U.CompactTask{task}: open_editor(U.Compact{task, None{}}, application)
     case U.Submit{editor}: submit(editor, application)
@@ -1375,6 +1418,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.CancelOperation{task, operation}: execute_direct(U.direct_command(U.CancelOperation{task, operation}), application)
     case U.ReviewApproval{task, operation, allow, reason}: execute_direct(U.direct_command(U.ReviewApproval{task, operation, allow, reason}), application)
     case U.DeleteProject{+project}: open_panel(U.Confirm{M.DeleteProject{project}, "Delete project", U.ProjectCollection{}}, "project/delete/" ++ Nat.show(project), application)
+    case U.DeleteTaskGraph{+graph}: open_panel(U.Confirm{M.FeatureCommand{F.TaskGraphCommand{Graph.Delete{graph}}}, "Delete task graph", U.TaskGraphs{}}, "task-graph/delete/" ++ Nat.show(graph), application)
     case U.BoardCommand{B.Delete{+id, revision}}:
       open_panel(U.Confirm{M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}, "Delete card", U.TaskBoard{}}, "card/delete/" ++ Nat.show(id), application)
     case U.BoardCommand{command}: execute_direct(U.direct_command(U.BoardCommand{command}), application)

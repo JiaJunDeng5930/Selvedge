@@ -415,7 +415,8 @@ def config_payload(+body: J.Json) -> Bool:
 def config_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => config_payload(value)))>) -> Result<&2, &2, String, M.Input>:
   Categories.Membership{+body, evidence} = member
   +max_fork = Protocol.number(body, "max_fork", 0n)
-  Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork), remote_tools(J.items(J.get(body, "tools")))),
+  Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork),
+      List.append(&2, D.Tool, Features.native_catalog(D.task_settings_schema()), remote_tools(J.items(J.get(body, "tools"))))),
     profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
     plugin_values(J.items(J.get(body, "plugins"))), initial_instructions(J.get(body, "instructions"))}}}
 

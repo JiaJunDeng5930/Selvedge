@@ -11,6 +11,7 @@ type Object is Data:
   TaskDraft{}
   Task{task: Nat}
   Project{project: Maybe<&2, Nat>}
+  TaskGraph{graph: Maybe<&2, Nat>}
   MessageDraft{task: Nat}
   EditorObject{editor: U.Editor}
   WorkspaceOf{editor: U.Editor}

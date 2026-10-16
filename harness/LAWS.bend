@@ -384,8 +384,7 @@ law accepted_model_settlement:
   for +task: D.Task
   for +world: M.World()
   {P.model_matched(True{}, outcome, allowed, task, world) ==
-    C.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world),
-      D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision()}
+    Protocol.model_result(task, outcome, allowed, world) : M.Decision()}
 
 law accepted_tool_settlement:
   for +operation: D.Operation()

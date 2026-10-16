@@ -362,7 +362,13 @@ def Rule.experience_evidence():
     task => {==},
     {==},
     shared_evidence(),
-    +editor => +revision => +reason => {==}}
+    +editor => +revision => +reason => {==},
+    +graph => {==},
+    +graph => {==},
+    +graph => {==},
+    graph => {==},
+    +graph => source => world => {==},
+    +graph => old => previous => +source => world => {==}}
 
 def Rule.draft_workspace_requirement(revision, submitted, body, reason, entry, pending, world): {==}
 def Rule.editing_draft_requirements(revision, body, entry, pending, world): {==}
@@ -380,6 +386,7 @@ def Rule.workspace_operation_classification(body):
     case U.Message{task, message, delivery}: {==}
     case U.Card{id, revision, value, assist, profile, keep_open}: {==}
     case U.Compact{task, summary}: {==}
+    case U.TaskGraph{graph, declaration, parsed}: {==}
 
 def Rule.assessment_attention_uses_all_obstructions(assessment): {==}
 def Rule.attention_keeps_first_repair(obstruction, rest, repair):
@@ -430,6 +437,7 @@ def Rule.project_relations_order(property, edit, revision, body, feedback, entry
     case U.Agent{agent, draft_revision, name, profile, reasoning, instructions, context, concurrency}: {==}
     case U.Fork{task, count, messages, context}: {==}
     case U.Compact{task, summary}: {==}
+    case U.TaskGraph{graph, declaration, parsed}: {==}
 
 def editing_relations_from_draft_agreement(+edit: M.ProjectEdit, +draft: U.Draft) ->
   {Activity.relations(Activity.editing_from_draft(edit, draft)) == Activity.project_relations_from_draft(P.project_edit_property(edit), edit, P.project_edit_draft(edit)) : +List<Activity.Relation>}:

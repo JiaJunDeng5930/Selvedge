@@ -18,16 +18,19 @@ import ../../features/board/PROOF.bend as BoardProof
 import ./CONTRACT.bend as Architecture
 import ../../features/chatgpt/CONTRACT.bend as ChatGPT
 import ../../features/chatgpt/PROOF.bend as ChatGPTProof
+import ../../features/task_graph/PROOF.bend as TaskGraphProof
+import ./graph-proof.bend as GraphProof
+import ./PROOF.bend as StorageProof
 
 # Task creation is an actual interaction boundary. Its complete-decision proof
 # is an explicit premise; no callback silently substitutes for that premise.
 def meaning(
-  actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+  ~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   operation: O.Operation, +world: M.World()) ->
-  {Actual.realize_calculation(actual_spawn, operation, world) == Spec.meaning(spec_spawn, operation, world) : M.Decision()}:
+  {Actual.realize_calculation(~actual_spawn, operation, world) == Spec.meaning(~spec_spawn, operation, world) : M.Decision()}:
   match operation:
     case O.ChatGPTChange{change}: ChatGPTProof.assembled(change, world)
     case O.BoardChange{change}: Boundary.change_meaning(change, world)
@@ -40,6 +43,8 @@ def meaning(
           actual_spawn(profile, reasoning, message, selection, world), spec_spawn(profile, reasoning, message, selection, world),
           creation(profile, reasoning, message, selection, world)),
         Boundary.birth_meaning(id, State.task_id(world), card, now, spec_spawn(profile, reasoning, message, selection, world)))
+    case O.InstallGraph{id, declaration, nodes}: GraphProof.install(~actual_spawn, ~spec_spawn, ~creation, id, declaration, nodes, world)
+    case O.DeleteGraph{id}: GraphProof.remove(id, world)
 
 def event(event: O.ResolvedEvent, world: M.World()) ->
   {Actual.event_calculation(event, world) == Spec.event(event, world) : M.Decision()}:
@@ -48,29 +53,45 @@ def event(event: O.ResolvedEvent, world: M.World()) ->
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary()}
+  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage()}
 
-def command_calculation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
+  ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),
+  ~sending: @+target:Nat -> @+message:String -> @+world:M.World() ->
+    {actual_send(target, message, world) == required_send(target, message, world) : M.Decision()},
+  source: Nat, output: String, world: M.World()) ->
+  {Actual.react(~actual_send, source, output, world) == Spec.react(~required_send, source, output, world) : M.Decision()}:
+  GraphProof.react(~actual_send, ~required_send, ~sending, source, output, world)
+
+def react_outputs(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
+  ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),
+  ~sending: @+target:Nat -> @+message:String -> @+world:M.World() ->
+    {actual_send(target, message, world) == required_send(target, message, world) : M.Decision()},
+  source: Nat, outputs: +List<String>, world: M.World()) ->
+  {Actual.react_outputs(~actual_send, source, outputs, world) == Spec.react_outputs(~required_send, source, outputs, world) : M.Decision()}:
+  GraphProof.react_outputs(~actual_send, ~required_send, ~sending, source, outputs, world)
+
+def command_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   construction: Categories.Construction<Resolution.CommandRequest, Resolution.Resolution>) -> M.Decision():
   Categories.Construction{Resolution.CommandRequest{command, +world}, resolution} = construction
-  Actual.resolution_calculation(spawn, Resolution.resolve(start, command, world), world)
+  Actual.resolution_calculation(~spawn, Resolution.resolve(~start, command, world), world)
 
-def command_equation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  member: Resolution.ConstructedCommand(start)) ->
-  {Actual.realize(start, spawn, member) == command_calculation(start, spawn, Categories.value(
+def command_equation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  member: Resolution.ConstructedCommand(~start)) ->
+  {Actual.realize(~start, ~spawn, member) == command_calculation(~start, ~spawn, Categories.value(
     Categories.Construction<Resolution.CommandRequest, Resolution.Resolution>,
-    Categories.constructed_by(Resolution.CommandRequest, Resolution.Resolution, Resolution.command_resolution(start)), member)) : M.Decision()}:
+    Categories.constructed_by(Resolution.CommandRequest, Resolution.Resolution, Resolution.command_resolution(~start)), member)) : M.Decision()}:
   Categories.Membership{Categories.Construction{Resolution.CommandRequest{command, +world}, +resolution}, evidence} = member
-  Equal.cong(Resolution.Resolution, M.Decision(), value => Actual.resolution_calculation(spawn, value, world),
-    resolution, Resolution.resolve(start, command, world), evidence)
+  Equal.cong(Resolution.Resolution, M.Decision(), value => Actual.resolution_calculation(~spawn, value, world),
+    resolution, Resolution.resolve(~start, command, world), evidence)
 
-def constructed_command_equation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def constructed_command_equation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   +command: F.Command, +world: M.World()) ->
-  {Actual.realize(start, spawn, Resolution.construct_command(start, command, world)) ==
-    Actual.resolution_calculation(spawn, Resolution.resolve(start, command, world), world) : M.Decision()}:
+  {Actual.realize(~start, ~spawn, Resolution.construct_command(~start, command, world)) ==
+    Actual.resolution_calculation(~spawn, Resolution.resolve(~start, command, world), world) : M.Decision()}:
   {==}
 
 def completion_calculation(construction: Categories.Construction<Protocol.EventRequest, Maybe<&2, O.ResolvedEvent>>) -> M.Decision():
@@ -91,22 +112,22 @@ def constructed_completion_equation(+completion: F.Completion, +world: M.World()
   completion_equation(Protocol.construct_event(completion, world))
 
 
-def command_value_calculation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
+def command_value_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
   construction: Categories.Construction<Resolution.CommandRequest, Resolution.Resolution>) -> Resolution.Resolution:
   Categories.Construction{request, result} = construction
-  Resolution.command_resolution(start, request)
+  Resolution.command_resolution(~start, request)
 
-def command_value_equation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  member: Resolution.ConstructedCommand(start)) ->
-  {Resolution.command_value(start, member) == command_value_calculation(start, Categories.value(
+def command_value_equation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
+  member: Resolution.ConstructedCommand(~start)) ->
+  {Resolution.command_value(~start, member) == command_value_calculation(~start, Categories.value(
     Categories.Construction<Resolution.CommandRequest, Resolution.Resolution>,
-    Categories.constructed_by(Resolution.CommandRequest, Resolution.Resolution, Resolution.command_resolution(start)), member)) : Resolution.Resolution}:
+    Categories.constructed_by(Resolution.CommandRequest, Resolution.Resolution, Resolution.command_resolution(~start)), member)) : Resolution.Resolution}:
   Categories.Membership{Categories.Construction{request, result}, evidence} = member
   evidence
 
-def command_resolution_equation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
+def command_resolution_equation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
   +command: F.Command, +world: M.World()) ->
-  {Resolution.resolve(start, command, world) == Resolution.resolve_calculation(start, command, world) : Resolution.Resolution}:
+  {Resolution.resolve(~start, command, world) == Resolution.resolve_calculation(~start, command, world) : Resolution.Resolution}:
   {==}
 
 def event_value_calculation(construction: Categories.Construction<Protocol.EventRequest, Maybe<&2, O.ResolvedEvent>>) -> Maybe<&2, O.ResolvedEvent>:
@@ -124,22 +145,22 @@ def event_resolution_equation(+completion: F.Completion, +world: M.World()) ->
   {Protocol.resolve(completion, world) == Protocol.resolve_calculation(completion, world) : Maybe<&2, O.ResolvedEvent>}:
   {==}
 
-def operation_construction_calculation(spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def operation_construction_calculation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   construction: Categories.Construction<Actual.OperationRequest, M.Decision()>) -> M.Decision():
   Categories.Construction{request, result} = construction
-  Actual.operation_result(spawn, request)
+  Actual.operation_result(~spawn, request)
 
-def operation_equation(spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  member: Actual.ConstructedOperation(spawn)) ->
-  {Actual.operation_value(spawn, member) == operation_construction_calculation(spawn, Categories.value(
+def operation_equation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  member: Actual.ConstructedOperation(~spawn)) ->
+  {Actual.operation_value(~spawn, member) == operation_construction_calculation(~spawn, Categories.value(
     Categories.Construction<Actual.OperationRequest, M.Decision()>,
-    Categories.constructed_by(Actual.OperationRequest, M.Decision(), Actual.operation_result(spawn)), member)) : M.Decision()}:
+    Categories.constructed_by(Actual.OperationRequest, M.Decision(), Actual.operation_result(~spawn)), member)) : M.Decision()}:
   Categories.Membership{Categories.Construction{request, result}, evidence} = member
   evidence
 
-def operation_factory_equation(spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def operation_factory_equation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   +operation: O.Operation, +world: M.World()) ->
-  {Actual.realize_calculation(spawn, operation, world) == Actual.operation_calculation(spawn, operation, world) : M.Decision()}:
+  {Actual.realize_calculation(~spawn, operation, world) == Actual.operation_calculation(~spawn, operation, world) : M.Decision()}:
   {==}
 
 def resolved_event_construction_calculation(construction: Categories.Construction<Actual.ResolvedEventRequest, M.Decision()>) -> M.Decision():

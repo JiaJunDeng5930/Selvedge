@@ -9,6 +9,7 @@ type Property is Data:
 type DOMEvent is Data:
   Activate{key: String}
   EditText{key: String}
+  EditStructuredText{key: String}
   ConfirmText{key: String}
   EditToggle{key: String}
   SelectFiles{key: String}
@@ -21,6 +22,7 @@ def keyboard_activation(event: DOMEvent) -> Bool:
   match event:
     case Activate{key}: True{}
     case EditText{key}: False{}
+    case EditStructuredText{key}: False{}
     case ConfirmText{key}: False{}
     case EditToggle{key}: False{}
     case SelectFiles{key}: False{}

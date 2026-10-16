@@ -6,19 +6,24 @@ import ../features/protocol.bend as FeatureProtocol
 import ../features/operations.bend as FeatureOps
 import ../features/SPEC.bend as FeatureSpec
 import ../features/MODEL.bend as F
+import ../features/CODEC.bend as FeatureCodec
+import ../features/resolution.bend as FeatureResolution
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
 import ../COMMANDS.bend as Commands
 import ../../bendlib/json.bend as J
 import ../tasks/PROGRAM.bend as T
+import ../tasks/CONTRACT.bend as TaskRequirements
 import ../../bendlib/stdlib.bend as Std
 import ../execution/OPERATIONS.bend as Ops
 import ./RESULTS.bend as Results
 import ../workspace/WORKSPACE.bend as Workspace
+import ../workspace/PROJECTS.bend as Projects
 import ../approval/MODEL.bend as Approvals
 import ../reasoning/MODEL.bend as R
 import ../reasoning/SPEC.bend as Reasoning
+import ../transport/schema.bend as Schema
 
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
@@ -196,12 +201,20 @@ def recover(task: D.Task) -> D.Task:
 def recovery(tasks: +List<D.Task>) -> +List<D.Task>:
   Std.map(~D.Task, ~D.Task, ~recover, tasks)
 
+def accepted_reaction(decision: M.Decision()) -> M.Decision():
+  C.Decision{world, reply, effects} = decision
+  C.Decision{world, acknowledgement(True{}), effects}
+
+def model_result(+task: D.Task, +outcome: D.Outcome, allowed: +List<String>, world: M.World()) -> M.Decision():
+  accepted_reaction(FeatureSpec.react_outputs(~Commands.output_send, D.task_id(task), TaskRequirements.reply_outputs(outcome),
+    Commands.replace(T.model_outcome(outcome, allowed, task), world)))
+
 def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
   match event:
     case User{operation}: Commands.meaning(operation, world)
     case Ignore{}: C.Decision{world, acknowledgement(False{}), Nil{}}
     case ModelResult{task, outcome, allowed}:
-      C.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world), acknowledgement(True{}), Nil{}}
+      model_result(task, outcome, allowed, world)
     case ReasoningResult{task, revision, outcome}:
       C.Decision{Commands.replace(Reasoning.complete(revision, outcome, task), world), acknowledgement(True{}), Nil{}}
     case FeatureEvent{event}: FeatureSpec.event(event, world)
@@ -321,10 +334,78 @@ def native_query(query: Native.Query, +arguments: J.Json, +caller: Nat) -> M.Que
     case Native.Projects{}: M.ListProjects{}
     case Native.Project{project}: M.ReadProject{Native.number(project, arguments, caller)}
 
+def native_creation_permitted(options: J.Json, parent: D.TaskContext, environment: D.Environment,
+  registry: D.Projects, operation: Commands.Operation) -> Bool:
+  match operation:
+    case Commands.Start{profile, reasoning, message, Workspace.Selection{context, guidance}}:
+      Projects.native_creation_settings(options, context, parent, environment, registry)
+    case _: True{}
+
+def native_creation(operation: Commands.Operation, options: J.Json, parent: D.TaskContext, +world: M.World()) -> Invocation:
+  environment = Commands.settings(world)
+  registry = Projects.registry(F.State(), world)
+  Internal{Commands.require((value => native_creation_permitted(options, parent, environment, registry, value)), operation,
+    "invalid_settings", "Model-created tasks must use committed directory observations, omit root guidance, and remain within the caller's workspace and permissions.")}
+
+type FeatureInvocation is Data:
+  FeatureInvocation{operation: String, spec: F.CommandSpec, frozen_schema: J.Json, arguments: J.Json, caller: D.Task, world: M.World()}
+
+def native_feature_permitted(command: M.Command, caller: D.Task, world: M.World()) -> Bool:
+  match command:
+    case M.FeatureCommand{command}: FeatureResolution.native_admissible(~Commands.feature_start, caller, command, world)
+    case M.Observe{query}: True{}
+    case _: False{}
+
+def feature_invocation_accepts(request: FeatureInvocation) -> Bool:
+  FeatureInvocation{operation, F.CommandSpec{+name, description, +kind, +schema}, frozen_schema, +arguments, caller, world} = request
+  +body = Schema.command_body(name, arguments)
+  String.eq(operation, name) && J.same(schema, frozen_schema) && Schema.valid(Schema.command_arguments(schema), arguments) &&
+    Schema.valid(schema, body) && FeatureCodec.valid(kind, body) &&
+    native_feature_permitted(FeatureCodec.construct(kind, body), caller, world)
+
+def feature_invocation_accepted(member: Categories.Membership<FeatureInvocation, Categories.holds(FeatureInvocation, feature_invocation_accepts)>) -> Invocation:
+  Categories.Membership{request, evidence} = member
+  FeatureInvocation{operation, F.CommandSpec{name, description, kind, schema}, frozen_schema, arguments, caller, world} = request
+  Internal{Commands.resolve(FeatureCodec.construct(kind, Schema.command_body(name, arguments)), world)}
+
+def feature_invocation_admitted(admission: Maybe<&1, Categories.Membership<FeatureInvocation, Categories.holds(FeatureInvocation, feature_invocation_accepts)>>) -> Invocation:
+  match admission:
+    case Some{member}: feature_invocation_accepted(member)
+    case None{}:
+      Internal{Commands.Refuse{"invalid_native_feature", "Arguments must match the frozen feature contract. New tasks must use committed directories, omit root guidance, and remain within caller authority."}}
+
+def native_feature_choice(found: Bool, spec: F.CommandSpec, rest: Maybe<&2, F.CommandSpec>) -> Maybe<&2, F.CommandSpec>:
+  match found:
+    case True{}: Some{spec}
+    case False{}: rest
+
+def native_feature_spec(specs: +List<F.CommandSpec>, +operation: String) -> Maybe<&2, F.CommandSpec>:
+  match specs:
+    case Nil{}: None{}
+    case Con{F.CommandSpec{+name, description, kind, schema}, rest}:
+      native_feature_choice(String.eq(name, operation), F.CommandSpec{name, description, kind, schema}, native_feature_spec(rest, operation))
+
+def native_feature_found(found: Maybe<&2, F.CommandSpec>, operation: String, frozen_schema: J.Json,
+  arguments: J.Json, caller: D.Task, world: M.World()) -> Invocation:
+  match found:
+    case None{}: Internal{Commands.Refuse{"unknown_native_feature", "The frozen feature capability is not installed."}}
+    case Some{spec}:
+      feature_invocation_admitted(Categories.admit(FeatureInvocation, feature_invocation_accepts,
+        FeatureInvocation{operation, spec, frozen_schema, arguments, caller, world}))
+
+def native_feature(+operation: String, frozen_schema: J.Json, arguments: J.Json, caller: D.Task, world: M.World()) -> Invocation:
+  native_feature_found(native_feature_spec(F.specs(D.task_settings_schema()), operation), operation, frozen_schema, arguments, caller, world)
+
 def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, +task: D.Task, +world: M.World()) -> Invocation:
   match tool:
     case Native.Observe{query}:
       Internal{Commands.resolve(M.Observe{native_query(query, arguments, caller)}, world)}
+    case Native.Create{profile, reasoning, message, settings}:
+      +options = Native.settings(settings, arguments)
+      native_creation(Commands.resolve(M.Create{Native.text(profile, arguments), Native.text(reasoning, arguments),
+        Native.text(message, arguments), options}, world), options, D.task_context(task), world)
+    case Native.Feature{operation, schema}:
+      native_feature(operation, schema, arguments, task, world)
     case Native.Send{target, message}:
       Internal{Commands.resolve(M.Send{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
     case Native.Steer{target, message}:

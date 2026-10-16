@@ -169,6 +169,7 @@ def Rule.permission_menu_agreement(editor, group, parent, state):
     case V.AgentIdentityInput{name, instructions, concurrency}: {==}
     case V.ForkInput{count, messages}: {==}
     case V.SummaryInput{summary}: {==}
+    case V.TaskGraphInput{declaration}: {==}
 
 def supporting_binding_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +gesture: SurfaceTypes.Gesture) ->
   {Model.bind(SurfaceTypes.SupportingControl{support, property, input, availability}, gesture) == Rule.expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>}:
@@ -196,6 +197,8 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.NewCard{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditCard{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditAgent{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditTaskGraph{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.DeleteTaskGraph{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ForkTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
@@ -237,6 +240,7 @@ def effort_entry_surface_agreement(+entry: Forms.Entry, +observation: Forms.Obse
     case Forms.SingleLine{}: {==}
     case Forms.DisplayOnly{}: {==}
     case Forms.Multiline{}: {==}
+    case Forms.StructuredText{}: {==}
     case Forms.MultipleChoices{}: {==}
     case Forms.PositiveInteger{}: {==}
     case Forms.DirectoryCollection{}: {==}

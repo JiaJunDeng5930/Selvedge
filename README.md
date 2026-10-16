@@ -8,6 +8,10 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+[Task graphs](features/task_graph/README.md) construct editable output-to-input
+connections over ordinary tasks. Their declarations drive both execution and
+display; task settings and scheduling remain owned by the harness.
+
 The independent [ChatGPT plugin](plugins/selvedge-chatgpt/README.md) exposes
 explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection grants
 apply across conversations, and local operations run in the selected project's

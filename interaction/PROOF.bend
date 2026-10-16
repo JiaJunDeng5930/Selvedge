@@ -111,6 +111,8 @@ def Architecture.surface():
       SubmissionLaws.feedback_evidence(),
       CoreSubmissionProof.reopen_evidence(),
       task => text => previous => selected => world => {==},
+      graph => source => previous_source => previous => world => {==},
+      graph => source => {==},
       directory_entry => revision => body => feedback => submitted => reply => {==},
       revision => title => description => stage => priority => owner => project => labels => attachments => assist => profile => {==}},
     Contract.Presentation{
@@ -151,6 +153,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.ToggleProjectGroup{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ToggleProjectGroup{p0}), access))
     case E.UserInput{U.Activate{U.BeginTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BeginTask{p0}), access))
     case E.UserInput{U.Activate{U.EditProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditProject{p0}), access))
+    case E.UserInput{U.Activate{U.EditTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTaskGraph{p0}), access))
     case E.UserInput{U.Activate{U.NewCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.NewCard{p0}), access))
     case E.UserInput{U.Activate{U.EditCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditCard{p0}), access))
     case E.UserInput{U.Activate{U.EditAgent{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditAgent{p0}), access))
@@ -162,6 +165,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.CancelOperation{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CancelOperation{p0, p1}), access))
     case E.UserInput{U.Activate{U.ReviewApproval{+p0, +p1, +p2, +p3}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ReviewApproval{p0, p1, p2, p3}), access))
     case E.UserInput{U.Activate{U.DeleteProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteProject{p0}), access))
+    case E.UserInput{U.Activate{U.DeleteTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteTaskGraph{p0}), access))
     case E.UserInput{U.Activate{U.BoardCommand{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BoardCommand{p0}), access))
     case E.UserInput{U.Activate{U.OpenPanel{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.OpenPanel{p0, p1}), access))
     case E.UserInput{U.Activate{U.TogglePanel{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.TogglePanel{p0, p1}), access))

@@ -8,6 +8,8 @@ import ../../harness/COMMANDS.bend as Commands
 import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../../features/board/MODEL.bend as B
+import ../../features/task_graph/MODEL.bend as G
+import ../../harness/features/graph-state.bend as GraphState
 import ../../harness/features/MODEL.bend as F
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/association-map.bend as Finite
@@ -39,6 +41,8 @@ def editor_title(editor: U.Editor) -> String:
     case U.CardEditor{Some{id}}: "Edit card"
     case U.AgentEditor{None{}}: "New agent"
     case U.AgentEditor{Some{id}}: "Edit agent"
+    case U.TaskGraphEditor{None{}}: "New task graph"
+    case U.TaskGraphEditor{Some{id}}: "Edit task graph"
     case U.ForkEditor{task}: "Fork task"
     case U.CompactEditor{task}: "Compact history"
 
@@ -448,6 +452,7 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>
   match body:
     case U.NewTask{message, profile, reasoning, context}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
     case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
+    case U.TaskGraph{graph, declaration, parsed}: [ViewTypes.TaskGraphInput{declaration}]
     case U.Project{id, name, +workspace}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
@@ -589,7 +594,7 @@ def project_entries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Tas
 def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.Session) -> ViewTypes.Navigation:
   +nav = E.navigation(session)
   ViewTypes.Navigation{expanded, control("new-task", "新任务", U.BeginTask{None{}}),
-    [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}})],
+    [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}}), control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
     project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, active_project(route, session, world), nav), task_entries(project_tasks(Commands.entries(world), None{}), route),
     ViewTypes.ControlDeclaration{"navigation/toggle", "Toggle sidebar", ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
@@ -760,6 +765,27 @@ def agent_scenes(agents: +List<Finite.Entry(B.AgentProfile)>, +world: M.World())
     case Nil{}: Nil{}
     case Con{(id, agent), rest}: agent_scene(id, agent, world) <> agent_scenes(rest, world)
 
+def task_graph_entry(found: Maybe<&2, D.Task>, route: U.Route) -> Maybe<&2, ViewTypes.TaskEntry>:
+  match found:
+    case None{}: None{}
+    case Some{task}: Some{task_entry(task, route)}
+
+def task_graph_nodes(nodes: +List<G.ResolvedNode>, +route: U.Route, +world: M.World()) -> +List<ViewTypes.TaskGraphNode>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{G.ResolvedNode{key, +task}, rest}:
+      ViewTypes.TaskGraphNode{key, task, task_graph_entry(Tasks.find(Commands.entries(world), task), route)} <> task_graph_nodes(rest, route, world)
+
+def task_graph_scene(+id: Nat, +value: G.Graph, route: U.Route, +world: M.World()) -> ViewTypes.TaskGraphScene:
+  ViewTypes.TaskGraphScene{id, value, task_graph_nodes(G.nodes(value), route, world),
+    control("task-graph/edit/" ++ Nat.show(id), "Edit task graph", U.EditTaskGraph{Some{id}}),
+    native("task-graph/delete/" ++ Nat.show(id), "Delete task graph", ViewTypes.Destructive{}, U.DeleteTaskGraph{id}, world)}
+
+def task_graph_scenes(graphs: +List<Finite.Entry(G.Graph)>, +route: U.Route, +world: M.World()) -> +List<ViewTypes.TaskGraphScene>:
+  match graphs:
+    case Nil{}: Nil{}
+    case Con{(id, graph), rest}: task_graph_scene(id, graph, route, world) <> task_graph_scenes(rest, route, world)
+
 def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.Page:
   match route:
     case U.Start{}: ViewTypes.StartPage{composer(U.NewTaskEditor{}, session, world)}
@@ -771,6 +797,7 @@ def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.P
       now = E.now(session)
       board_page(Board.registry(world), filter, route, now, world)
     case U.AgentCollection{}: ViewTypes.AgentsPage{agent_scenes(agents(Board.registry(world)), world), control("agent/new", "New agent", U.EditAgent{None{}})}
+    case U.TaskGraphs{}: ViewTypes.TaskGraphsPage{task_graph_scenes(G.graphs(GraphState.registry(world)), route, world), control("task-graph/new", "New task graph", U.EditTaskGraph{None{}})}
 
 def task_menu(actions: ViewTypes.TaskActions) -> +List<ViewTypes.ControlDeclaration>:
   ViewTypes.TaskActions{details, overflow} = actions
@@ -1052,6 +1079,7 @@ def page_composition(page: ViewTypes.Page) -> Composition.Page:
     case ViewTypes.ProjectsPage{projects, create}: Composition.ProjectCollection{}
     case ViewTypes.BoardPage{filter, columns, create, working, settings, filters, archive}: Composition.TaskBoard{}
     case ViewTypes.AgentsPage{agents, create}: Composition.AgentCollection{}
+    case ViewTypes.TaskGraphsPage{graphs, create}: Composition.TaskGraphCollection{}
     case ViewTypes.MissingObject{message}: Composition.Unavailable{}
 
 def arrangement(beside: Bool, expanded: Bool) -> ViewTypes.Arrangement:

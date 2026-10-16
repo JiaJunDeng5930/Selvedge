@@ -65,6 +65,12 @@ const renderer = new Renderer(root, {
     switch (bendTag(binding)) {
       case 'Activate': event.preventDefault(); captureAnchor(binding.key, node); commit(Bend.activate(binding.key, state)); break;
       case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); break;
+      case 'EditStructuredText': {
+        let parsed = bendValue('None');
+        try { parsed = bendValue('Some', { value: json(JSON.parse(node.value)) }); } catch {}
+        commit(Bend.edit_structured_text(binding.key, node.value, parsed, state));
+        break;
+      }
       case 'ConfirmText': commit(Bend.confirm_text(binding.key, event.key, bool(event.isComposing || composing || event.keyCode === 229), bool(event.ctrlKey), bool(event.altKey), bool(event.shiftKey), bool(event.metaKey), state)); break;
       case 'EditToggle': commit(Bend.edit_toggle(binding.key, bool(node.checked), state)); break;
       case 'SelectFiles':

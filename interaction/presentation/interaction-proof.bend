@@ -328,6 +328,7 @@ def page_sequence(+page: V.Page, +parent: Identity.Key, +state: InteractionTypes
     case V.ProjectsPage{projects, create}: {==}
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
+    case V.TaskGraphsPage{graphs, create}: {==}
     case V.MissingObject{message}: {==}
 
 def page_only_regions(+page: V.Page, +parent: Identity.Key, +state: InteractionTypes.State) ->
@@ -351,6 +352,7 @@ def page_only_regions(+page: V.Page, +parent: Identity.Key, +state: InteractionT
     case V.ProjectsPage{projects, create}: {==}
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
+    case V.TaskGraphsPage{graphs, create}: {==}
     case V.MissingObject{message}: {==}
 
 def task_reading(+value: V.TaskScene, +parent: Identity.Key, +state: InteractionTypes.State) -> Rule.task_reading(value, parent, state):
@@ -373,6 +375,8 @@ def layer_title_evidence() -> Rule.LayerTitleRequirements:
   Rule.LayerTitleRequirements{
     {==},
     task => {==},
+    {==},
+    id => {==},
     {==},
     id => {==},
     {==},
@@ -416,7 +420,13 @@ def page_payload(+page: V.Page, +state: InteractionTypes.State) ->
     case V.ProjectsPage{projects, create}: {==}
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
+    case V.TaskGraphsPage{graphs, create}: {==}
     case V.MissingObject{message}: {==}
+
+def task_graphs_route_selects_nav(+world: M.World(), +session: E.Session) ->
+  {Rule.task_graphs_navigation_selected(U.TaskGraphs{}, world, session) == True{} : Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
+  {==}
 
 def Rule.page_region_evidence():
   Rule.PageRegionRequirements{page => state => page_payload(page, state), +toggle => expanded => create => destinations => projects => tasks => +state => {==}, collapsed_assembly,
@@ -428,6 +438,9 @@ def Rule.page_region_evidence():
     page => parent => state => page_only_regions(page, parent, state),
     +projects => +create => +parent => +state => {==},
     +agents => +create => +parent => +state => {==},
+    +graphs => +create => +parent => +state => {==},
+    task_graphs_route_selects_nav,
+    +id => +value => route => +world => {==},
     +filter => +columns => +create => working => +settings => +filters => +archive => +parent => +state => {==},
     +heading => +summary => +context => +project => +choose => +parent => +state => {==},
     task_reading,
@@ -655,6 +668,7 @@ def structure_evidence(recipe: Composition.Recipe)
     case Composition.Recipe{measure, heading, Composition.ProjectRows{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.StageColumns{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.AgentRows{}, composer, decisions, latest}: {==}
+    case Composition.Recipe{measure, heading, Composition.TaskGraphRows{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.UnavailableNotice{}, composer, decisions, latest}: {==}
 
 def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text,

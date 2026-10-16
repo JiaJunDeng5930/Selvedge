@@ -19,6 +19,7 @@ def root_object(editor: U.Editor) -> M.Object:
     case U.NewTaskEditor{}: M.TaskDraft{}
     case U.MessageEditor{task}: M.Task{task}
     case U.ProjectEditor{project}: M.Project{project}
+    case U.TaskGraphEditor{graph}: M.TaskGraph{graph}
     case _: M.EditorObject{editor}
 
 def workspace_field(field: Forms.Field) -> Bool:
@@ -42,6 +43,7 @@ def scalar_owner(editor: U.Editor, field: Forms.Field) -> M.Object:
     case U.MessageEditor{task} Forms.MessageText{}: M.MessageDraft{task}
     case U.MessageEditor{task} Forms.DeliveryIntent{}: M.MessageDraft{task}
     case U.ProjectEditor{project} _: M.Project{project}
+    case U.TaskGraphEditor{graph} _: M.TaskGraph{graph}
     case _ _: M.EditorObject{editor}
 
 def owner_fields(workspace: Bool, configuration: Bool, +editor: U.Editor, field: Forms.Field) -> M.Object:
@@ -66,6 +68,7 @@ def object_key(object: M.Object) -> String:
     case M.TaskDraft{}: "task-draft"
     case M.Task{task}: "task/" ++ Nat.show(task)
     case M.Project{project}: "project/" ++ U.optional_key(project)
+    case M.TaskGraph{graph}: "task-graph/" ++ U.optional_key(graph)
     case M.MessageDraft{task}: "message-draft/" ++ Nat.show(task)
     case M.EditorObject{editor}: "editor/" ++ U.editor_key(editor)
     case M.WorkspaceOf{editor}: "workspace/" ++ U.editor_key(editor)
@@ -430,8 +433,13 @@ def action_pending(value: M.ActionUnit) -> Bool:
   M.ActionUnit{identity, pending} = value
   pending
 
-def content_subject(value: M.ActionUnit) -> M.Subject:
-  M.Subject{action_editor(value), Forms.MessageText{}}
+def content_field(editor: U.Editor) -> Forms.Field:
+  match editor:
+    case U.TaskGraphEditor{graph}: Forms.TaskGraphDeclaration{}
+    case _: Forms.MessageText{}
+
+def content_subject(+value: M.ActionUnit) -> M.Subject:
+  M.Subject{action_editor(value), content_field(action_editor(value))}
 
 def commit(value: M.ActionUnit) -> U.Input:
   U.Activate{U.Submit{action_editor(value)}}
@@ -1091,6 +1099,9 @@ def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstructio
       model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.AgentEditor{id}))))))
     case U.Fork{+task, count, messages, context}:
       fork_requirements(Tasks.find(Commands.entries(world), task), count, messages, task, world)
+    case U.TaskGraph{+graph, +declaration, +parsed}:
+      failed_requirement(U.graph_declaration_valid(U.TaskGraph{graph, declaration, parsed}),
+        obstruction(U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}, "invalid_task_graph_declaration", "Enter a valid task graph declaration"))
     case _: Nil{}
 
 def agent_reference_requirement(found: Maybe<&2, Board.AgentProfile>, editor: U.Editor) -> +List<M.Obstruction>:

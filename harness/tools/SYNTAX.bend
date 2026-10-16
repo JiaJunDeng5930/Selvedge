@@ -31,6 +31,8 @@ type Query is Data:
 
 type Body is Data:
   Observe{query: Query}
+  Create{profile: Text, reasoning: Text, message: Text, settings: Settings}
+  Feature{operation: String, schema: J.Json}
   Send{task: Natural, message: Text}
   Steer{task: Natural, message: Text}
   Archive{task: Natural}
@@ -116,6 +118,8 @@ def query_json(value: Query) -> J.Json:
 def json(value: Body) -> J.Json:
   match value:
     case Observe{query}: J.Object{[J.Field{"kind", J.Text{"Observe"}}, J.Field{"query", query_json(query)}]}
+    case Create{profile, reasoning, message, settings}: J.Object{[J.Field{"kind", J.Text{"Create"}}, J.Field{"profile", text_json(profile)}, J.Field{"reasoning", text_json(reasoning)}, J.Field{"message", text_json(message)}, J.Field{"settings", settings_json(settings)}]}
+    case Feature{operation, schema}: J.Object{[J.Field{"kind", J.Text{"Feature"}}, J.Field{"operation", J.Text{operation}}, J.Field{"schema", schema}]}
     case Send{task, message}: J.Object{[J.Field{"kind", J.Text{"Send"}}, J.Field{"task", number_json(task)}, J.Field{"message", text_json(message)}]}
     case Steer{task, message}: J.Object{[J.Field{"kind", J.Text{"Steer"}}, J.Field{"task", number_json(task)}, J.Field{"message", text_json(message)}]}
     case Archive{task}: J.Object{[J.Field{"kind", J.Text{"Archive"}}, J.Field{"task", number_json(task)}]}

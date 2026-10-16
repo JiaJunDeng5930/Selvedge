@@ -22,6 +22,8 @@ or rejection of source code, proofs or certificates.
 | Actual adaptive history through providerInput/responseBody: complete history prefixes, recorded reasoning changes, audit encoding and request effort; nested private continuation projection | `reasoning-boundaries.test.mjs` |
 | Typed Jev HTTP payloads, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch and restart | `reasoning.test.mjs` |
 | SQLite journal framing, commit faults, replay and restart | `journal.test.mjs`, `service-recovery.test.mjs` |
+| Atomic graph installation, accepted-output handoffs, rejected deliveries, live replacement, commit rollback and SQLite replay | `task-graph.test.mjs`; actual native decisions, Worker execution and journal commits |
+| Native graph tool capabilities, immediate service replies, restart, canonical workspace observations and refreshed creation guidance | `task-graph-service.test.mjs`; actual service effects and frozen model tool catalogs |
 | Subprocess execution, real tool results, deferred input and cancellation | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
 | Filesystem observations, Seatbelt quoting, seccomp ABI encoding and actual OS write isolation | `sandbox.test.mjs` |
 | Idle-task execution configuration, in-flight model/approval rejection, unchanged project/workspace/history, actual next-provider routing, task-local ChatGPT Web root restart after model or policy changes, and preserved continuation after no-op configuration or another task's change | `task-execution.test.mjs`, `approvals.test.mjs`; authenticated loopback HTTP, actual native commands and provider fixtures |

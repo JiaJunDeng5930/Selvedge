@@ -249,6 +249,7 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
         case Forms.DisplayOnly{}: {==}
         case Forms.SingleLine{}: {==}
         case Forms.Multiline{}: {==}
+        case Forms.StructuredText{}: {==}
         case Forms.Choice{}: {==}
         case Forms.MultipleChoices{}: {==}
         case Forms.PositiveInteger{}: {==}
@@ -1135,6 +1136,7 @@ def other_main_fields(+measure: Composition.Measure, +heading: Composition.Headi
     case Composition.ProjectSections{}: {==}
     case Composition.ProjectRows{}: {==}
     case Composition.AgentRows{}: {==}
+    case Composition.TaskGraphRows{}: {==}
     case Composition.StageColumns{}: {==}
     case Composition.UnavailableNotice{}: {==}
 
@@ -1439,6 +1441,7 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
     case Forms.ForkCount{}: ordinary_choice(value)
     case Forms.ForkMessages{}: ordinary_choice(value)
     case Forms.CompactionSummary{}: ordinary_choice(value)
+    case Forms.TaskGraphDeclaration{}: ordinary_choice(value)
 
 def workspace_picker(found: Maybe<&2, Domain.Workspace>, +editor: User.Editor, +parent: UIIdentity.Key, +state: InteractionTypes.State) ->
   {InterfaceView.workspace_collection_menu(found, editor, None{}, parent, state) == Rule.expected_workspace_picker(found, editor, parent, state) : +List<SurfaceTypes.Node>}:

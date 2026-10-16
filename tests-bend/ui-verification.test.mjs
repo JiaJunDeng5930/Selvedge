@@ -177,7 +177,7 @@ const actualUIInput = (value, tag) => {
 // These observations deliberately stop at the emitted semantic tree. Physical
 // geometry needs the actual browser: this repository has no DOM/measurement fixture.
 test('production activity surfaces retain current decisions and project obstructions', { timeout: 240_000 }, async t => {
-  const [ui, input] = await Promise.all([browserUI(t), activityInput(t)]);
+  const [ui, input] = await Promise.all([browserUI(t, { sourceAdmission: true }), activityInput(t)]);
   const upstream = await chatgptFixture(t, (request, response) => {
     if (request.method === 'GET') jsonResponse(response, { models: [{
       slug: 'activity-model', display_name: 'Activity model', priority: 0, visibility: 'list', supported_in_api: false,
@@ -445,7 +445,7 @@ test('production activity surfaces retain current decisions and project obstruct
 
 
 test('production activity choices complete and compound cancellation discards buffers', { timeout: 240_000 }, async t => {
-  const [ui, input] = await Promise.all([browserUI(t), activityInput(t)]);
+  const [ui, input] = await Promise.all([browserUI(t, { sourceAdmission: true }), activityInput(t)]);
   const editor = uiValue('NewTaskEditor');
   const observe = state => surfaceNodes(ui.surface_state(state));
   const apply = (state, value) => input.apply(bendValue('interaction/TYPES.ApplicationInput', {

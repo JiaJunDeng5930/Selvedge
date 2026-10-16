@@ -12,7 +12,7 @@ def World() -> Data:
   C.Frame<D.State, F.State()>
 
 def initial() -> World():
-  C.Frame{D.initial_state(Tools.catalog(4n)), F.initial()}
+  C.Frame{D.initial_state(List.append(&2, D.Tool, Tools.catalog(4n), F.native_catalog(D.task_settings_schema()))), F.initial()}
 
 def Effect() -> Data:
   Effects.Effect<F.Effect>

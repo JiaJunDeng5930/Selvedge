@@ -316,7 +316,7 @@ type Requirements is Type:
     action_editor: @+editor:U.Editor -> @revision:Nat -> @pending:Bool -> {P.action_editor(P.action(editor, revision, pending)) == editor : U.Editor},
     action_pending: @editor:U.Editor -> @revision:Nat -> @+pending:Bool -> {P.action_pending(P.action(editor, revision, pending)) == pending : Bool},
     action_identity: @+editor:U.Editor -> @+revision:Nat -> @pending:Bool -> {P.identity(P.action(editor, revision, pending)) == M.ActionIdentity{editor, revision} : M.ActionIdentity},
-    action_content: @+editor:U.Editor -> @revision:Nat -> @pending:Bool -> {P.content_subject(P.action(editor, revision, pending)) == M.Subject{editor, Forms.MessageText{}} : M.Subject},
+    action_content: @+editor:U.Editor -> @revision:Nat -> @pending:Bool -> {P.content_subject(P.action(editor, revision, pending)) == M.Subject{editor, P.content_field(editor)} : M.Subject},
     action_commit: @+editor:U.Editor -> @revision:Nat -> @pending:Bool -> {P.commit(P.action(editor, revision, pending)) == U.Activate{U.Submit{editor}} : U.Input},
     action_context: @+editor:U.Editor -> @revision:Nat -> @pending:Bool -> {P.action_context(P.action(editor, revision, pending)) == P.editor_context(editor) : M.ActionContext},
     support_identity: @+editor:U.Editor -> @+revision:Nat -> @pending:Bool -> @fields:+List<Forms.Field> -> {P.support_identity(P.support(P.action(editor, revision, pending), fields)) == M.ActionIdentity{editor, revision} : M.ActionIdentity},
@@ -328,7 +328,17 @@ type Requirements is Type:
     continuation_excludes_workspace: @task:Nat -> {P.support_field(M.Continuation{task}, Forms.WorkspaceDirectories{}) == False{} : Bool},
     creation_excludes_delivery: {P.support_field(M.Creation{}, Forms.DeliveryIntent{}) == False{} : Bool},
     shared: SharedRequirements,
-    feedback_retention: @+editor:U.Editor -> @+revision:Nat -> @+reason:String -> {P.feedback(editor, U.Rejected{revision, reason}) == Some{M.Feedback{editor, revision, reason}} : Maybe<&2, M.Feedback>}
+    feedback_retention: @+editor:U.Editor -> @+revision:Nat -> @+reason:String -> {P.feedback(editor, U.Rejected{revision, reason}) == Some{M.Feedback{editor, revision, reason}} : Maybe<&2, M.Feedback>},
+    graph_key: @+graph:Maybe<&2, Nat> -> {P.object_key(M.TaskGraph{graph}) == "task-graph/" ++ U.optional_key(graph) : String},
+    graph_root: @+graph:Maybe<&2, Nat> -> {P.root_object(U.TaskGraphEditor{graph}) == M.TaskGraph{graph} : M.Object},
+    graph_declaration_owner: @+graph:Maybe<&2, Nat> -> {P.owner(M.Subject{U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}}) == M.TaskGraph{graph} : M.Object},
+    graph_action_content: @graph:Maybe<&2, Nat> -> {P.content_field(U.TaskGraphEditor{graph}) == Forms.TaskGraphDeclaration{} : Forms.Field},
+    graph_invalid_json_requirement: @+graph:Maybe<&2, Nat> -> @source:String -> @world:World.World() ->
+      {P.body_requirements(U.TaskGraph{graph, source, None{}}, world) ==
+        [P.obstruction(U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}, "invalid_task_graph_declaration", "Enter a valid task graph declaration")] : +List<M.Obstruction>},
+    graph_failed_parse_replaces_previous: @+graph:Maybe<&2, Nat> -> @old:String -> @previous:Maybe<&2, J.Json> -> @+source:String -> @world:World.World() ->
+      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, old, previous}, world) ==
+        Done{U.TaskGraph{graph, source, None{}}} : Result<&2, &2, String, U.Body>}
   }
 
 def subject_field(subject: M.Subject) -> Forms.Field:
@@ -376,6 +386,7 @@ def workspace_operation_meaning(body: U.Body) -> Bool:
     case U.Message{task, message, delivery}: False{}
     case U.Card{id, revision, value, assist, profile, keep_open}: False{}
     case U.Compact{task, summary}: False{}
+    case U.TaskGraph{graph, declaration, parsed}: False{}
 
 law workspace_operation_classification:
   @+body:U.Body -> {U.workspace_operation(body) == workspace_operation_meaning(body) : Bool}

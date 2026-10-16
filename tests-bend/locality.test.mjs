@@ -223,6 +223,7 @@ test('a kernel feature extends all kernel alphabets with existing clients and pr
   await extendCounter(copy.directory);
   const expectedManifest = JSON.parse(copy.originals.get('components.json').toString());
   for (const [owner, dependencies] of Object.entries({
+    'harness/features/MODEL.bend': ['COUNTER.bend'],
     'harness/features/CODEC.bend': ['COUNTER.bend'],
     'harness/features/execution.bend': ['bendlib/counter-execution.bend', 'bendlib/counter-assembly.bend', 'COUNTER.bend'],
     'harness/features/laws.bend': ['bendlib/counter-laws.bend'],
