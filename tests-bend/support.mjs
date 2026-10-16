@@ -8,25 +8,32 @@ import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
-let productionUI;
+const productionUI = new Map();
 
 // A checked facade invokes the production UI against the HTTP-visible program.
-export async function browserUI(t) {
-  return productionUI ??= (async () => {
+export async function browserUI(t, { sourceAdmission = false } = {}) {
+  const variant = sourceAdmission ? 'source' : 'runtime';
+  if (!sourceAdmission && productionUI.has('source')) return productionUI.get('source');
+  if (productionUI.has(variant)) return productionUI.get(variant);
+  const ready = (async () => {
     await mkdir(path.join(repository, '.workpad'), { recursive: true });
     const directory = await mkdtemp(path.join(repository, '.workpad', 'ui-boundary-'));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const entry = path.join(directory, 'fixture.bend');
     const output = path.join(directory, 'fixture.mjs');
     const modules = {
-      Controls: 'browser/controls/PROGRAM.bend', Web: 'browser/MODEL.bend', Shell: 'browser/controls/SHELL.bend', Design: 'browser/appearance/DESIGN.bend',
-      Font: 'browser/appearance/FONT.bend', Typography: 'browser/appearance/TYPOGRAPHY.bend', Limit: 'browser/layout/natural-size.bend',
+      ...(sourceAdmission ? {
+        Controls: 'browser/controls/PROGRAM.bend', Web: 'browser/MODEL.bend', Shell: 'browser/controls/SHELL.bend', Design: 'browser/appearance/DESIGN.bend',
+        Font: 'browser/appearance/FONT.bend', Typography: 'browser/appearance/TYPOGRAPHY.bend', Limit: 'browser/layout/natural-size.bend',
+      } : {}),
+      ...(sourceAdmission ? {} : { SurfaceProof: 'interaction/presentation/surface-proof.bend' }),
       ProductUI: 'interaction/MODEL.bend', Core: 'interaction/STATE.bend', CoreTypes: 'interaction/TYPES.bend', Services: 'interaction/services/MODEL.bend', E: 'interaction/session/MODEL.bend',
       U: 'interaction/INPUT.bend', View: 'interaction/presentation/MODEL.bend', InterfaceView: 'interaction/presentation/SURFACE.bend',
-      SurfaceProof: 'interaction/presentation/surface-proof.bend',
+      ...(sourceAdmission ? { SurfaceProof: 'interaction/presentation/surface-proof.bend' } : {}),
       Identity: 'interaction/IDENTITY.bend', Cmd: 'harness/transport/command-codec.bend', J: 'bendlib/json.bend', M: 'harness/MODEL.bend',
     };
-    const verificationImports = (await readFile(path.join(repository, '.build/ui-verification.bend'), 'utf8'))
+    // Ordinary UI clients need the surface provider; source authorship also needs the browser providers.
+    const verificationImports = (sourceAdmission ? await readFile(path.join(repository, '.build/ui-verification.bend'), 'utf8') : '')
       .split('\n').filter(line => line.startsWith('import ../')).map(line => {
         const [, file, alias] = /^import \.\.\/(\S+) as (\S+)$/.exec(line);
         return `import ${path.relative(directory, path.join(repository, file))} as ${alias}`;
@@ -62,7 +69,7 @@ def authenticated(program: M.World(), task: Nat) -> Result<&2, &2, String, CoreT
 def surface_state(state: CoreTypes.State) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, state)
 
-# Fixture measurements answer each requested role independently; they do not bypass font admission.
+${sourceAdmission ? `# Fixture measurements answer each requested role independently; they do not bypass font admission.
 def fixture_reference_advance(key: String) -> Nat:
   match key:
     case "@font/body": 8n
@@ -111,6 +118,7 @@ def source_admission(state: CoreTypes.State) -> Result<&2, &2, String, Shell.She
   +capacity: View.Capacity = View.Capacity{True{}, False{}}
   source_admission_surface(ProductUI.observe(capacity, state), capacity)
 
+` : ''}
 def key(node: InterfaceView.Node) -> String:
   InterfaceView.Node{key, semantic, label, role, meaning, children} = node
   Identity.encode(key)
@@ -135,9 +143,11 @@ def press(program: M.World(), task: Nat, key: String) -> Result<&2, &2, String, 
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, selected(program, task)))
 `);
     await compileJavaScript({ entry, output, sourceRoot: repository,
-      exports: { source_admission: 'source_admission', surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', activate_state: 'activate_state', press_state: 'press_state' } });
+      exports: { ...(sourceAdmission ? { source_admission: 'source_admission' } : {}), surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', activate_state: 'activate_state', press_state: 'press_state' } });
     return import(pathToFileURL(output).href);
   })();
+  productionUI.set(variant, ready);
+  return ready;
 }
 
 function linkedNodes(list) {

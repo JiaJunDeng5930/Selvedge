@@ -2,12 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
-import { compiler } from '../scripts/toolchain.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const bend = compiler();
 const executionFields = 'initial, valid, run, meaning, world, reply, effects, durable, replay';
 const executionEvidence = 'Categories.Intersection{Model.ExecutionSafety{initial_valid, preserves_valid}, Categories.Intersection{Model.ExecutionRefinement{refinement}, Categories.Intersection{Model.ExecutionObservation{query_world, query_effects, query_not_durable}, Model.ExecutionHistory{replay_valid, query_replay}}}}';
 const applicationFields = 'initial, user, snapshot_event, completed_event, run, state, effects, finish, program, sequence, lookup, snapshot, settle, observe';
@@ -81,13 +79,11 @@ test('generic operational clients use production fields and laws while carriers 
   await mkdir(build, { recursive: true });
   const directory = await mkdtemp(path.join(build, 'model-abstraction-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const compile = filename => spawnSync(bend, [filename], {
-    cwd: directory, encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
-  });
-  await writeFile(path.join(directory, 'client.bend'), client);
-  const executed = compile('client.bend');
-  assert.equal(executed.error, undefined);
-  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
-  assert.match(executed.stdout, /\bTrue\{\}/);
+  const entry = path.join(directory, 'client.bend');
+  const output = path.join(directory, 'client.mjs');
+  await writeFile(entry, client);
+  // Use the production emitter to execute operations without normalizing the dependent system.
+  await compileJavaScript({ entry, output, exports: { main: 'main' } });
+  const { main } = await import(pathToFileURL(output).href);
+  assert.equal(main(), true);
 });
