@@ -1,5 +1,6 @@
 import Base
 import ../context/MODEL.bend as Context
+import ../context/KINDS.bend as ContextKinds
 import ../features/CODEC.bend as FeatureCodec
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as Component
@@ -51,7 +52,7 @@ def effect(effect: M.Effect()) -> J.Json:
         J.Field{"value", value}, J.Field{"error", J.Boolean{error}}]}
     case Effects.ObserveContext{task_id, ticket, history, context}:
       J.Object{[J.Field{"kind", J.Text{"observe_context"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"settings", D.task_context_json(context)}, J.Field{"bindings", Context.snapshots_json(D.context_bindings(history))}]}
+        J.Field{"settings", D.task_context_json(context)}, J.Field{"definitions", Context.definitions_json(ContextKinds.definitions())}, J.Field{"bindings", Context.snapshots_json(D.context_bindings(history))}]}
     case Effects.RequestModel{+task_id, ticket, +model, +history, tools, callable, context}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},

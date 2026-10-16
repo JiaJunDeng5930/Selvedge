@@ -3,6 +3,8 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
 import ../../harness/DOMAIN.bend as D
+import ../../harness/context/MODEL.bend as Context
+import ../../harness/context/KINDS.bend as ContextKinds
 
 # Sources are observations of persisted JSON. Original UTF-16 strings and
 # environment bytes remain in host; reconstruction plans select original refs.
@@ -150,11 +152,58 @@ def configured_instruction(instructions: D.InitialInstructions) -> String:
 def configured_default() -> String:
   configured_instruction(D.default_instructions())
 
-def config_defaults(+source: J.Json) -> J.Json:
+def config_base_defaults(+source: J.Json) -> J.Json:
   J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}]}
+def config_context_definitions() -> J.Json:
+  Context.definitions_json(ContextKinds.definitions())
+def config_context_observer(+definition: J.Json) -> J.Json:
+  J.get(definition, "observer")
+def config_context_setting(+definition: J.Json) -> String:
+  J.text(J.get(config_context_observer(definition), "setting"))
+def config_context_configured(+definition: J.Json) -> Bool:
+  +observer = config_context_observer(definition)
+  String.eq(J.text(J.get(observer, "type")), "config_text") || String.eq(J.text(J.get(observer, "type")), "config_files")
+def config_context_default(+definition: J.Json) -> J.Json:
+  +base = J.get(config_base_defaults(J.Null{}), config_context_setting(definition))
+  config_select(config_present(base), base,
+    config_select(String.eq(J.text(J.get(config_context_observer(definition), "type")), "config_text"), J.Text{""}, J.Array{[]}))
+def config_context_defaults_case(keep: Bool, +definition: J.Json, rest: +List<J.Field>) -> +List<J.Field>:
+  match keep:
+    case True{}: Con{J.Field{config_context_setting(definition), config_context_default(definition)}, rest}
+    case False{}: rest
+def config_context_defaults(definitions: +List<J.Json>) -> +List<J.Field>:
+  match definitions:
+    case Nil{}: Nil{}
+    case Con{+definition, rest}: config_context_defaults_case(config_context_configured(definition) && Bool.not(config_present(J.get(config_base_defaults(J.Null{}), config_context_setting(definition)))), definition, config_context_defaults(rest))
+def config_default_fields(value: J.Json) -> +List<J.Field>:
+  match value:
+    case J.Object{fields}: fields
+    case _: Nil{}
+def config_append_fields(left: +List<J.Field>, +right: +List<J.Field>) -> +List<J.Field>:
+  match left:
+    case Nil{}: right
+    case Con{head, rest}: Con{head, config_append_fields(rest, right)}
+def config_defaults(+source: J.Json) -> J.Json:
+  J.Object{config_append_fields(config_default_fields(config_base_defaults(source)), config_context_defaults(J.items(config_context_definitions())))}
+def config_context_keys_case(keep: Bool, definition: J.Json, rest: +List<String>) -> +List<String>:
+  match keep:
+    case True{}: Con{config_context_setting(definition), rest}
+    case False{}: rest
+def config_context_keys(definitions: +List<J.Json>, +rest: +List<String>) -> +List<String>:
+  match definitions:
+    case Nil{}: rest
+    case Con{+definition, tail}: config_context_keys_case(config_context_configured(definition), definition, config_context_keys(tail, rest))
+def config_context_head_case(keep: Bool, +definition: J.Json, rest: +List<J.Json>, +value: J.Json) -> +List<J.Json>:
+  match keep:
+    case True{}: Con{J.Object{[J.Field{"key", J.Text{config_context_setting(definition)}}, J.Field{"value", config_value(config_get(value, config_context_setting(definition)), config_context_default(definition))}]}, rest}
+    case False{}: rest
+def config_context_head_fields(definitions: +List<J.Json>, +value: J.Json) -> +List<J.Json>:
+  match definitions:
+    case Nil{}: Nil{}
+    case Con{+definition, rest}: config_context_head_case(config_context_configured(definition), definition, config_context_head_fields(rest, value), value)
 def config_head_format(+valid: Bool, +value: J.Json) -> J.Json:
   match valid:
-    case True{}: J.Object{[J.Field{"base", J.get(value, "ref")}, J.Field{"fields", J.Array{[J.Object{[J.Field{"key", J.Text{"host"}}, J.Field{"value", config_value(config_get(value, "host"), J.get(config_defaults(J.Null{}), "host"))}]}, J.Object{[J.Field{"key", J.Text{"port"}}, J.Field{"value", config_value(config_get(value, "port"), J.get(config_defaults(J.Null{}), "port"))}]}, J.Object{[J.Field{"key", J.Text{"max_fork"}}, J.Field{"value", config_value(config_get(value, "max_fork"), J.get(config_defaults(J.Null{}), "max_fork"))}]}, J.Object{[J.Field{"key", J.Text{"max_descendants"}}, J.Field{"value", config_value(config_get(value, "max_descendants"), J.get(config_defaults(J.Null{}), "max_descendants"))}]}, J.Object{[J.Field{"key", J.Text{"instructions"}}, J.Field{"value", config_value(config_get(value, "instructions"), J.get(config_defaults(J.Null{}), "instructions"))}]}, J.Object{[J.Field{"key", J.Text{"profiles"}}, J.Field{"value", config_value(config_get(value, "profiles"), J.get(config_defaults(J.Null{}), "profiles"))}]}, J.Object{[J.Field{"key", J.Text{"mcp"}}, J.Field{"value", config_value(config_get(value, "mcp"), J.get(config_defaults(J.Null{}), "mcp"))}]}, J.Object{[J.Field{"key", J.Text{"plugins"}}, J.Field{"value", config_value(config_get(value, "plugins"), J.get(config_defaults(J.Null{}), "plugins"))}]}, J.Object{[J.Field{"key", J.Text{"skills"}}, J.Field{"value", config_value(config_get(value, "skills"), J.get(config_defaults(J.Null{}), "skills"))}]}]}}]}
+    case True{}: J.Object{[J.Field{"base", J.get(value, "ref")}, J.Field{"fields", J.Array{config_append([J.Object{[J.Field{"key", J.Text{"host"}}, J.Field{"value", config_value(config_get(value, "host"), J.get(config_defaults(J.Null{}), "host"))}]}, J.Object{[J.Field{"key", J.Text{"port"}}, J.Field{"value", config_value(config_get(value, "port"), J.get(config_defaults(J.Null{}), "port"))}]}, J.Object{[J.Field{"key", J.Text{"max_fork"}}, J.Field{"value", config_value(config_get(value, "max_fork"), J.get(config_defaults(J.Null{}), "max_fork"))}]}, J.Object{[J.Field{"key", J.Text{"max_descendants"}}, J.Field{"value", config_value(config_get(value, "max_descendants"), J.get(config_defaults(J.Null{}), "max_descendants"))}]}, J.Object{[J.Field{"key", J.Text{"profiles"}}, J.Field{"value", config_value(config_get(value, "profiles"), J.get(config_defaults(J.Null{}), "profiles"))}]}, J.Object{[J.Field{"key", J.Text{"mcp"}}, J.Field{"value", config_value(config_get(value, "mcp"), J.get(config_defaults(J.Null{}), "mcp"))}]}, J.Object{[J.Field{"key", J.Text{"plugins"}}, J.Field{"value", config_value(config_get(value, "plugins"), J.get(config_defaults(J.Null{}), "plugins"))}]}], config_context_head_fields(J.items(config_context_definitions()), value))}}]}
     case False{}: J.Object{Con{J.Field{"error", J.Array{Con{config_literal(J.Text{"The configuration is not in the current Bend format"}), Nil{}}}}, Con{J.Field{"code", J.Text{"Error"}}, Nil{}}}}
 def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
   config_guard(J.same(unknown, J.Null{}), config_error(Con{config_literal(J.Text{"Unknown configuration field: "}), Con{config_ref(unknown), Nil{}}}),
@@ -162,7 +211,18 @@ def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
 def config_configuration_head(+source: J.Json) -> J.Json:
   +value = J.get(source, "value")
   config_guard(config_kind(value, "object"), config_failure("configuration must be an object"),
-    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), Con{"format", Con{"host", Con{"port", Con{"max_fork", Con{"max_descendants", Con{"profiles", Con{"chatgpt", Con{"mcp", Con{"plugins", Con{"reasoning_evaluators", Con{"chatgpt_plugin", Con{"instructions", Con{"skills", Nil{}}}}}}}}}}}}}}), value))
+    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin"])), value))
+def config_context_transport_value_case(text: Bool, +value: J.Json, +observation: J.Json) -> Bool:
+  match text:
+    case True{}: config_kind(value, "string") && J.boolean(J.get(observation, "well_formed")) && Model.nonnegative_le(J.get(observation, "bytes"), Nat.show(D.project_limit()))
+    case False{}: config_kind(value, "array") && config_strings(J.items(J.get(value, "items"))) && Nat.is_le(config_list_count(J.items(J.get(value, "items"))), 64n) && J.boolean(J.get(observation, "paths_well_formed"))
+def config_context_transport_value(+definition: J.Json, +value: J.Json, +observation: J.Json) -> Bool:
+  config_context_transport_value_case(String.eq(J.text(J.get(config_context_observer(definition), "type")), "config_text"), value, observation)
+def config_context_transport(definitions: +List<J.Json>, +values: J.Json, +observations: J.Json) -> Bool:
+  match definitions:
+    case Nil{}: True{}
+    case Con{+definition, rest}:
+      (Bool.not(config_context_configured(definition)) || config_context_transport_value(definition, J.get(values, config_context_setting(definition)), J.get(observations, config_context_setting(definition)))) && config_context_transport(rest, values, observations)
 def config_configuration_transport(+source: J.Json) -> J.Json:
   +value = J.get(source, "transport")
   config_guard(config_text_equal(J.get(value, "host"), "127.0.0.1") || config_text_equal(J.get(value, "host"), "::1"), config_failure("The local server requires a loopback address"),
@@ -170,9 +230,8 @@ def config_configuration_transport(+source: J.Json) -> J.Json:
     config_guard(config_bound(J.get(value, "max_fork"), "1", "4294967295"), config_failure("max_fork must be in 1..4294967295"),
     config_guard(config_bound(J.get(value, "max_descendants"), "1", "4294967295"), config_failure("max_descendants must be in 1..4294967295"),
     config_guard(config_kind(J.get(value, "profiles"), "object"), config_failure("profiles must be an object"),
-    config_guard(config_kind(J.get(value, "instructions"), "string") && J.boolean(J.get(source, "instructions_well_formed")) && Model.nonnegative_le(J.get(source, "instructions_bytes"), Nat.show(D.project_limit())), config_failure("instructions must be a bounded UTF-8 string"),
-    config_guard(config_kind(J.get(value, "skills"), "array") && config_strings(J.items(J.get(J.get(value, "skills"), "items"))) && Nat.is_le(config_list_count(J.items(J.get(J.get(value, "skills"), "items"))), 64n) && J.boolean(J.get(source, "skill_paths_well_formed")), config_failure("skills must contain at most 64 bounded UTF-8 file paths"),
-    config_literal(J.Null{}))))))))
+    config_guard(config_context_transport(J.items(config_context_definitions()), value, J.get(source, "context_fields")), config_failure("context settings must contain bounded UTF-8 text or at most 64 bounded file paths"),
+    config_literal(J.Null{})))))))
 def config_label_prefix(+plugin: Bool) -> String:
   match plugin:
     case True{}: "plugin "
@@ -427,8 +486,12 @@ def config_meaning_defaults(accepted: Bool, +operation: String, +source: J.Json)
   match accepted:
     case True{}: Model.success(config_defaults(source))
     case False{}: config_meaning_route_0(String.eq(operation, "config.configuration_head"), operation, source)
+def config_meaning_context_definitions(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: Model.success(config_context_definitions())
+    case False{}: config_meaning_defaults(String.eq(operation, "config.defaults"), operation, source)
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  config_meaning_defaults(String.eq(operation, "config.defaults"), operation, source)
+  config_meaning_context_definitions(String.eq(operation, "config.context_definitions"), operation, source)
 def factory(+operation: String) -> Model.Adapter((source => meaning(operation, source))):
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})
 def run(+operation: String, source: J.Json) -> J.Json:

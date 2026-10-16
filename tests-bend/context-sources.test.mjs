@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultConfig, loadConfig, validateConfig } from '../host/config.mjs';
-import { snapshotSkillInformation } from '../host/context-sources.mjs';
+import { observeContextSources } from '../host/context-sources.mjs';
+import { Kernel } from '../host/kernel.mjs';
 import { Service } from '../host/service.mjs';
 import { home, responsesServer, taskIdle } from './support.mjs';
 
 const limits = { project_context_bytes: 32768 };
 const skill = (name, description, body = 'Skill body remains outside the context.') =>
   `---\nname: ${name}\ndescription: ${description}\n---\n${body}\n`;
+const edits = (patch, field) => patch.fields.find(item => item.field === field).edits;
 const changes = page => page.messages.filter(item => item.type === 'context_change').map(item => item.change);
 
 function applyEdits(content, edits) {
@@ -29,27 +31,51 @@ function applyEdits(content, edits) {
 test('skill information observes bounded nofollow frontmatter and excludes the body', async t => {
   const directory = await realpath(await home(t));
   const filename = path.join(directory, 'SKILL.md');
-  assert.equal(await snapshotSkillInformation(filename, directory, limits), null);
+  const kernel = new Kernel();
+  t.after(() => kernel.close());
+  const contract = await kernel.initialize();
+  const send = async input => (await kernel.request(input)).value;
+  const configured = await send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null },
+    profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }],
+    tools: [], max_fork: 4, max_descendants: 8 });
+  assert.equal(configured.reply.ok, true);
+  const created = await send({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'inspect skill metadata' } });
+  const effect = created.effects.find(effect => effect.kind === 'observe_context');
+  assert.ok(effect);
+  const definition = effect.definitions.find(definition => definition.kind === 'skill_information');
+  assert.ok(definition, 'Production observation exposes the constructed skill definition');
+  const config = validateConfig({ ...defaultConfig, skills: ['SKILL.md'] });
+  const observe = async () => {
+    const result = await observeContextSources({ ...effect, definitions: [definition] },
+      { home: directory, config, limits: contract.limits });
+    assert.equal(result.length, 1);
+    return result[0];
+  };
+  assert.equal((await observe()).type, 'absent');
   await writeFile(filename, skill('fixture-skill', 'Explain the fixture.', 'PRIVATE-SKILL-BODY-A'));
-  const first = await snapshotSkillInformation(filename, directory, limits);
-  assert.deepEqual(first.key, { type: 'skill_information', installation: await realpath(directory), path: await realpath(filename) });
-  assert.deepEqual(first.value, { type: 'skill_information', name: 'fixture-skill', description: 'Explain the fixture.', path: await realpath(filename) });
+  const firstObservation = await observe();
+  assert.equal(firstObservation.type, 'present');
+  const first = firstObservation.snapshot;
+  assert.equal(first.key.type, 'skill_information');
+  assert.deepEqual(first.key.definition, definition);
+  assert.deepEqual(first.key.identity, { installation: directory, path: await realpath(filename) });
+  assert.deepEqual(first.value, { type: 'skill_information', fields: { name: 'fixture-skill', description: 'Explain the fixture.', path: await realpath(filename) } });
   assert.match(first.revision, /^[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(first).includes('PRIVATE-SKILL-BODY'), false);
   await writeFile(filename, skill('fixture-skill', 'Explain the fixture.', 'PRIVATE-SKILL-BODY-B'));
-  assert.deepEqual(await snapshotSkillInformation(filename, directory, limits), first);
+  assert.deepEqual((await observe()).snapshot, first);
   await writeFile(filename, skill('fixture-skill', 'Explain the changed fixture.'));
-  assert.notEqual((await snapshotSkillInformation(filename, directory, limits)).revision, first.revision);
-  for (const content of ['No frontmatter', '---\nname: fixture\n---\nBody',
+  assert.notEqual((await observe()).snapshot.revision, first.revision);
+  for (const content of ['No frontmatter', '---\ndescription: Missing name.\n---\nBody',
     '---\nname: [fixture]\ndescription: Explain it.\n---\nBody', Buffer.from([0xff]),
     Buffer.alloc(limits.project_context_bytes + 1, 65)]) {
     await writeFile(filename, content);
-    await assert.rejects(snapshotSkillInformation(filename, directory, limits));
+    assert.equal((await observe()).type, 'failure');
   }
   await unlink(filename);
   await symlink(path.join(directory, 'target.md'), filename);
   await writeFile(path.join(directory, 'target.md'), skill('linked', 'Must not follow links.'));
-  await assert.rejects(snapshotSkillInformation(filename, directory, limits), error => ['ELOOP', 'EMLINK'].includes(error.code));
+  assert.equal((await observe()).type, 'failure');
 });
 
 test('configured skills accept only bounded file paths', () => {
@@ -85,7 +111,7 @@ test('live instruction and skill metadata changes use deltas while unintroduced 
   const initial = await taskIdle(service);
   const initialSkill = changes(initial).find(change => change.type === 'introduce' && change.snapshot.key.type === 'skill_information');
   assert.ok(initialSkill);
-  assert.equal(initialSkill.snapshot.value.name, 'fixture-skill');
+  assert.equal(initialSkill.snapshot.value.fields.name, 'fixture-skill');
   assert.equal(JSON.stringify(initial.messages).includes('NEVER-INJECT-BODY'), false);
   await writeFile(filename, skill('fixture-skill', 'Describe version A.', 'NEVER-INJECT-BODY-B'));
   await service.command({ op: 'send', task_id: 0, message: 'body only' });
@@ -97,21 +123,21 @@ test('live instruction and skill metadata changes use deltas while unintroduced 
   const updated = await taskIdle(service);
   assert.deepEqual(updated.messages.slice(0, bodyChanged.messages.length), bodyChanged.messages);
   const appended = updated.messages.slice(bodyChanged.messages.length).filter(item => item.type === 'context_change').map(item => item.change);
-  const instruction = appended.find(change => change.key?.type === 'instruction' && change.key.origin === 'configured');
+  const instruction = appended.find(change => change.key?.type === 'configured_instruction' && change.key.identity.origin === 'configured');
   const metadata = appended.find(change => change.key?.type === 'skill_information');
   assert.equal(appended.length, 2);
   assert.equal(instruction.type, 'amend');
-  assert.equal(instruction.patch.type, 'text_edits');
-  assert.equal(applyEdits(originalInstruction, instruction.patch.edits), updatedInstruction);
+  assert.equal(instruction.patch.type, 'field_edits');
+  assert.equal(applyEdits(originalInstruction, edits(instruction.patch, 'content')), updatedInstruction);
   assert.ok(!JSON.stringify(instruction).includes('shared prefix'));
   assert.equal(metadata.type, 'amend');
   assert.equal(metadata.base_revision, initialSkill.snapshot.revision);
-  assert.equal(metadata.patch.type, 'skill_edits');
-  assert.equal(applyEdits('fixture-skill', metadata.patch.name), 'changed-skill');
-  assert.equal(applyEdits('Describe version A.', metadata.patch.description), 'Describe version B.');
+  assert.equal(metadata.patch.type, 'field_edits');
+  assert.equal(applyEdits('fixture-skill', edits(metadata.patch, 'name')), 'changed-skill');
+  assert.equal(applyEdits('Describe version A.', edits(metadata.patch, 'description')), 'Describe version B.');
   assert.equal(JSON.stringify(model.requests).includes('NEVER-INJECT-BODY'), false);
   const wire = JSON.stringify(model.requests.at(-1).input);
-  assert.ok(wire.includes(metadata.base_revision)); assert.ok(wire.includes(metadata.revision));
+  assert.equal(wire.includes(metadata.base_revision), false); assert.equal(wire.includes(metadata.revision), false);
   await unlink(filename);
   await service.command({ op: 'send', task_id: 0, message: 'skill removed' });
   const removed = await taskIdle(service);

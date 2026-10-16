@@ -89,9 +89,11 @@ test('instruction changes append committed deltas across file changes, forks and
     const developer = body.input.filter(item => item.role === 'developer').map(item => item.content).join('\n');
     for (const item of effect.history.filter(item => item.type === 'context_change')) {
       const change = item.change;
-      assert.ok(developer.includes(change.type === 'introduce' ? change.snapshot.revision : change.base_revision));
-      if (change.type === 'amend') assert.ok(developer.includes(change.revision));
+      const key = change.type === 'introduce' ? change.snapshot.key : change.key;
+      assert.ok(developer.includes(JSON.stringify({ type: key.type, identity: key.identity })));
+      if (change.type === 'introduce') assert.ok(developer.includes(change.snapshot.value.fields.content));
     }
+    assert.doesNotMatch(developer, /(?:^|\n)(?:Revision|Base revision): /);
     effects.push(effect);
     return [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'fixture answer' }] }];
   });
@@ -105,16 +107,22 @@ test('instruction changes append committed deltas across file changes, forks and
   const original = await taskIdle(service);
   const initial = effects[0].history;
   assert.deepEqual(initial.map(item => item.role === 'task_context' ? item.type : item.role), ['context_change', 'context_change', 'context_change', 'settings', 'user']);
-  assert.deepEqual(initial[0].change, { type: 'introduce', snapshot: {
-    key: { type: 'instruction', origin: 'configured', path: '' }, revision: 'initial',
-    value: { type: 'instruction', content: 'Configured instructions A' },
-  } });
-  assert.deepEqual(initial[1].change, { type: 'introduce', snapshot: {
-    key: { type: 'instruction', origin: 'global_agents', path: await realpath(path.join(state, 'AGENTS.md')) },
-    revision: createHash('sha256').update(globalFirst).digest('hex'), value: { type: 'instruction', content: globalFirst },
-  } });
-  assert.equal(initial[2].change.snapshot.value.content, projectFirst);
-  assert.deepEqual(initial[2].change.snapshot.key, { type: 'project_guidance', workspace: await realpath(workspace) });
+  const configured = initial[0].change.snapshot, global = initial[1].change.snapshot;
+  assert.equal(initial[0].change.type, 'introduce');
+  assert.equal(configured.key.type, 'configured_instruction');
+  assert.deepEqual(configured.key.identity, { origin: 'configured' });
+  assert.equal(configured.key.definition.kind, configured.key.type);
+  assert.equal(configured.revision, 'initial');
+  assert.deepEqual(configured.value, { type: 'configured_instruction', fields: { content: 'Configured instructions A' } });
+  assert.equal(initial[1].change.type, 'introduce');
+  assert.equal(global.key.type, 'global_agents');
+  assert.deepEqual(global.key.identity, { path: await realpath(path.join(state, 'AGENTS.md')) });
+  assert.equal(global.key.definition.kind, global.key.type);
+  assert.equal(global.revision, createHash('sha256').update(globalFirst).digest('hex'));
+  assert.deepEqual(global.value, { type: 'global_agents', fields: { content: globalFirst } });
+  assert.equal(initial[2].change.snapshot.value.fields.content, projectFirst);
+  assert.equal(initial[2].change.snapshot.key.type, 'project_guidance');
+  assert.deepEqual(initial[2].change.snapshot.key.identity, { workspace: await realpath(workspace) });
   assert.deepEqual(original.messages.slice(0, initial.length), initial);
   await service.close();
   await writeFile(path.join(state, 'AGENTS.md'), 'Global guidance snapshot B');
@@ -126,7 +134,8 @@ test('instruction changes append committed deltas across file changes, forks and
   assert.deepEqual(continued.messages.slice(0, original.messages.length), original.messages);
   const revisions = continued.messages.slice(original.messages.length).filter(item => item.type === 'context_change').map(item => item.change);
   assert.equal(revisions.length, 3);
-  assert.ok(revisions.every(change => change.type === 'amend' && change.patch.type === 'text_edits'));
+  assert.ok(revisions.every(change => change.type === 'amend' && change.patch.type === 'field_edits'
+    && change.patch.fields.length === 1 && change.patch.fields[0].field === 'content'));
   assert.deepEqual(revisions.map(change => change.key), initial.slice(0, 3).map(item => item.change.snapshot.key));
   assert.ok(revisions.every(change => !('value' in change) && !('snapshot' in change)));
   assert.equal(continued.messages.slice(original.messages.length).filter(item => item.type === 'settings').length, 0);
@@ -136,9 +145,9 @@ test('instruction changes append committed deltas across file changes, forks and
   assert.equal(child.messages.slice(continued.messages.length).filter(item => item.type === 'context_change').length, 0);
   await service.command({ op: 'create', profile: 'fixture', message: 'new objective' });
   const fresh = await taskIdle(service, 2);
-  assert.equal(fresh.messages[0].change.snapshot.value.content, 'Configured instructions B');
-  assert.equal(fresh.messages[1].change.snapshot.value.content, 'Global guidance snapshot B');
-  assert.equal(fresh.messages[2].change.snapshot.value.content, 'Project guidance snapshot B');
+  assert.equal(fresh.messages[0].change.snapshot.value.fields.content, 'Configured instructions B');
+  assert.equal(fresh.messages[1].change.snapshot.value.fields.content, 'Global guidance snapshot B');
+  assert.equal(fresh.messages[2].change.snapshot.value.fields.content, 'Project guidance snapshot B');
   assert.deepEqual(model.failures, []);
   const alternate = path.join(directory, 'alternate'); await mkdir(alternate);
   await writeFile(path.join(alternate, 'AGENTS.md'), 'Explicit child project selection');
@@ -156,14 +165,14 @@ test('instruction changes append committed deltas across file changes, forks and
   assert.ok(selection >= 0);
   assert.deepEqual(override.slice(selection, selection + 2).map(item => item.type ?? item.role), ['context_change', 'settings']);
   assert.ok(override.findIndex(item => item.role === 'user' && item.content === 'selected child') > selection + 1);
-  assert.equal(override[selection].change.snapshot.value.content, 'Explicit child project selection');
+  assert.equal(override[selection].change.snapshot.value.fields.content, 'Explicit child project selection');
   assert.deepEqual(afterFork.messages.slice(0, parent.messages.length), parent.messages);
   assert.equal(JSON.stringify(afterFork.messages).includes('Explicit child project selection'), false);
   await service.close();
   service = await Service.open({ home: state, cwd: workspace, config: configuration('') });
   await service.command({ op: 'create', profile: 'fixture', message: 'explicit empty configuration' });
   const empty = await taskIdle(service, 4);
-  assert.equal(empty.messages[0].type, 'context_change'); assert.equal(empty.messages[0].change.snapshot.value.content, '');
+  assert.equal(empty.messages[0].type, 'context_change'); assert.equal(empty.messages[0].change.snapshot.value.fields.content, '');
   for (const effect of effects) {
     const recorded = (await service.command({ op: 'read', task_id: effect.task_id })).reply.result.messages;
     assert.deepEqual(recorded.slice(0, effect.history.length), effect.history);

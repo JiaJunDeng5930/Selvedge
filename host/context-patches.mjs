@@ -61,27 +61,22 @@ function sameSource(previous, next) {
   if (previous.value.type !== next.value.type) {
     throw new ContextPatchError('Context patch requires the same context value type', 'CONTEXT_PATCH_SOURCE');
   }
-  if (previous.value.type === 'skill_information' && previous.value.path !== next.value.path) {
-    throw new ContextPatchError('Context patch requires the same skill path', 'CONTEXT_PATCH_SOURCE');
+  if (!isDeepStrictEqual(Object.keys(previous.value.fields).sort(), Object.keys(next.value.fields).sort())) {
+    throw new ContextPatchError('Context patch requires the same field schema', 'CONTEXT_PATCH_SOURCE');
   }
 }
 
-/** Propose only the changed fields; native admission verifies the resulting value. */
+/** Native admission checks the schema, identity projections and reconstructed value. */
 export function proposeContextPatch(previousSnapshot, nextSnapshot, options) {
   const next = nextSnapshot?.value;
-  if (!next || typeof next !== 'object') throw new TypeError('Context patch requires a next context snapshot');
-  if (previousSnapshot) sameSource(previousSnapshot, nextSnapshot);
-  switch (next.type) {
-    case 'instruction':
-    case 'project_guidance':
-      return { type: 'text_edits', edits: previousSnapshot ? textEdits(previousSnapshot.value.content, next.content, options) : [] };
-    case 'skill_information':
-      return {
-        type: 'skill_edits',
-        name: previousSnapshot ? textEdits(previousSnapshot.value.name, next.name, options) : [],
-        description: previousSnapshot ? textEdits(previousSnapshot.value.description, next.description, options) : [],
-      };
-    default:
-      throw new TypeError('Context patch has an unsupported context value type');
+  if (!next || typeof next !== 'object' || !next.fields || typeof next.fields !== 'object' || Array.isArray(next.fields)) {
+    throw new TypeError('Context patch requires a context field record');
   }
+  if (previousSnapshot) sameSource(previousSnapshot, nextSnapshot);
+  const fields = Object.entries(next.fields).flatMap(([field, value]) => {
+    if (typeof value !== 'string') throw new TypeError('Context fields must contain strings');
+    const edits = previousSnapshot ? textEdits(previousSnapshot.value.fields[field], value, options) : [];
+    return edits.length ? [{ field, edits }] : [];
+  });
+  return { type: 'field_edits', fields };
 }

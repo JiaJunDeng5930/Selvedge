@@ -47,7 +47,9 @@
     "harness/transport/wire-shape.bend",
     "bendlib/categories.bend",
     "harness/context/MODEL.bend",
-    "bendlib/string-equality.bend"
+    "bendlib/string-equality.bend",
+    "harness/context/instruction.bend",
+    "harness/context/project-guidance.bend"
   ],
   "application_dependencies": {
     "BROWSER.bend": [
@@ -1864,11 +1866,15 @@
       "harness/reasoning/MODEL.bend"
     ],
     "harness/transport/wire.bend": [
+      "harness/context/MODEL.bend",
+      "harness/context/KINDS.bend",
+      "harness/tools/MODEL.bend",
       "bendlib/categories.bend",
       "harness/features/CODEC.bend",
       "harness/transport/wire-shape.bend",
       "harness/features/MODEL.bend",
       "harness/DOMAIN.bend",
+      "harness/workspace/WORKSPACE.bend",
       "harness/MODEL.bend",
       "harness/protocol/PROGRAM.bend",
       "bendlib/json.bend",
@@ -1877,10 +1883,7 @@
       "harness/INVARIANTS.bend",
       "harness/approval/HOOKS.bend",
       "harness/approval/MODEL.bend",
-      "harness/reasoning/MODEL.bend",
-      "harness/tools/MODEL.bend",
-      "harness/workspace/WORKSPACE.bend",
-      "harness/context/MODEL.bend"
+      "harness/reasoning/MODEL.bend"
     ],
     "harness/workspace/CONTRACT.bend": [
       "harness/features/MODEL.bend",
@@ -2481,7 +2484,8 @@
       "bendlib/stdlib.bend",
       "bendlib/categories.bend",
       "host/adapters/MODEL.bend",
-      "host/adapters/ACCOUNTS.bend"
+      "host/adapters/ACCOUNTS.bend",
+      "harness/context/MODEL.bend"
     ],
     "host/adapters/BROWSER.bend": [
       "bendlib/json.bend",
@@ -2617,7 +2621,9 @@
       "bendlib/json.bend",
       "bendlib/categories.bend",
       "host/adapters/MODEL.bend",
-      "harness/DOMAIN.bend"
+      "harness/DOMAIN.bend",
+      "harness/context/MODEL.bend",
+      "harness/context/KINDS.bend"
     ],
     "host/adapters/EVALUATOR.bend": [
       "bendlib/json.bend",
@@ -2655,11 +2661,14 @@
       "harness/context/MODEL.bend",
       "harness/context/CONTRACT.bend",
       "harness/DOMAIN.bend",
-      "harness/context/patch-proof.bend"
+      "harness/context/patch-proof.bend",
+      "harness/context/constructor-proof.bend"
     ],
     "harness/context/CONTRACT.bend": [
       "harness/context/MODEL.bend",
-      "harness/DOMAIN.bend"
+      "harness/DOMAIN.bend",
+      "bendlib/categories.bend",
+      "bendlib/json.bend"
     ],
     "harness/context/patch-proof.bend": [
       "harness/context/MODEL.bend",
@@ -2672,7 +2681,29 @@
       "bendlib/json.bend",
       "harness/workspace/WORKSPACE.bend"
     ],
-    "bendlib/string-equality.bend": []
+    "bendlib/string-equality.bend": [],
+    "harness/context/KINDS.bend": [
+      "harness/context/MODEL.bend",
+      "harness/context/instruction.bend",
+      "harness/context/project-guidance.bend",
+      "harness/context/skill-information.bend"
+    ],
+    "harness/context/constructor-proof.bend": [
+      "harness/context/MODEL.bend",
+      "harness/context/CONTRACT.bend",
+      "harness/context/patch-proof.bend",
+      "bendlib/categories.bend",
+      "bendlib/json.bend"
+    ],
+    "harness/context/instruction.bend": [
+      "harness/context/MODEL.bend"
+    ],
+    "harness/context/project-guidance.bend": [
+      "harness/context/MODEL.bend"
+    ],
+    "harness/context/skill-information.bend": [
+      "harness/context/MODEL.bend"
+    ]
   },
   "feature_alphabet": "harness/features/MODEL.bend",
   "feature_alphabet_types": [

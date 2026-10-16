@@ -9,6 +9,12 @@ import { boundary } from './public/model-boundary.mjs';
 
 export const defaultConfig = boundary('config.defaults', {});
 export const format = defaultConfig.format;
+const contextDefinitions = boundary('config.context_definitions', {});
+
+function contextSettings(definitions = contextDefinitions) {
+  return definitions.filter(definition => ['config_text', 'config_files'].includes(definition.observer.type));
+}
+
 const configurationFiles = new WeakMap();
 
 /** Only configurations loaded from disk participate in file refresh. */
@@ -29,18 +35,43 @@ function profileBoundary(operation, source) {
 }
 
 function configurationHead(value, observer) {
+  const contextKeys = new Set(contextSettings().map(definition => definition.observer.setting));
   const root = observer.observe(value, { shallow: true });
   if (root.kind === 'object') root.fields = Object.entries(value).map(([key, item]) => ({
-    key: observer.observe(key), value: observer.observe(item, { shallow: !['format', 'instructions'].includes(key) }),
+    key: observer.observe(key), value: observer.observe(item, { shallow: key !== 'format' && !contextKeys.has(key) }),
   }));
   return observer.materialize(observer.execute('config.configuration_head', { value: root }));
 }
 
 /** Observe mutable context configuration without changing frozen task policy. */
-export function contextConfiguration(value) {
+export function contextConfiguration(value, definitions = contextDefinitions, limits = { project_context_bytes: 1024 * 1024 }) {
   const current = configurationHead(value, configurationObserver());
-  const validated = validateConfig({ ...defaultConfig, instructions: current.instructions, skills: current.skills });
-  return { instructions: validated.instructions, skills: validated.skills };
+  return Object.fromEntries(contextSettings(definitions).map(definition => {
+    const { type, setting } = definition.observer;
+    const item = Object.hasOwn(current, setting) ? current[setting] : (type === 'config_text' ? '' : []);
+    if (type === 'config_text') {
+      if (typeof item !== 'string' || !item.isWellFormed() || item.includes('\0') || Buffer.byteLength(item, 'utf8') > limits.project_context_bytes) {
+        throw new TypeError(`Context setting ${setting} must be a bounded UTF-8 string`);
+      }
+    } else if (!Array.isArray(item) || item.length > 64 || !item.every(filename => typeof filename === 'string' &&
+      filename.length > 0 && filename.isWellFormed() && !filename.includes('\0') && Buffer.byteLength(filename, 'utf8') <= 4096)) {
+      throw new TypeError(`Context setting ${setting} must contain at most 64 bounded UTF-8 file paths`);
+    }
+    return [setting, item];
+  }));
+}
+
+function contextFieldObservations(config) {
+  return Object.fromEntries(contextSettings().map(definition => {
+    const setting = definition.observer.setting;
+    const value = config[setting];
+    return [setting, {
+      bytes: typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : null,
+      well_formed: typeof value === 'string' && value.isWellFormed() && !value.includes('\0'),
+      paths_well_formed: Array.isArray(value) && value.every(filename => typeof filename === 'string' && filename.length > 0 &&
+        filename.isWellFormed() && !filename.includes('\0') && Buffer.byteLength(filename, 'utf8') <= 4096),
+    }];
+  }));
 }
 
 export function validateConfig(value) {
@@ -50,12 +81,10 @@ export function validateConfig(value) {
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
   observer.execute('config.configuration_transport', {
-    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles', 'instructions', 'skills'].map(key =>
+    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles',
+      ...contextSettings().map(definition => definition.observer.setting)].map(key =>
       [key, observer.observe(config[key], { shallow: key === 'profiles' })])),
-    instructions_bytes: typeof config.instructions === 'string' ? Buffer.byteLength(config.instructions, 'utf8') : null,
-    instructions_well_formed: typeof config.instructions === 'string' && config.instructions.isWellFormed() && !config.instructions.includes('\0'),
-    skill_paths_well_formed: Array.isArray(config.skills) && config.skills.every(value =>
-      typeof value === 'string' && value.length > 0 && value.isWellFormed() && !value.includes('\0') && Buffer.byteLength(value, 'utf8') <= 4096),
+    context_fields: contextFieldObservations(config),
   });
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     profileBoundary('backend.profile_head', { key, profile: source });

@@ -3,6 +3,7 @@ import ./MODEL.bend as C
 import ./CONTRACT.bend as Spec
 import ../DOMAIN.bend as D
 import ./patch-proof.bend as Patch
+import ./constructor-proof.bend as Constructor
 
 # Production history is retained verbatim. Checkpoints are additional records and
 # cannot change the source values reconstructed from that history.
@@ -62,4 +63,4 @@ def preserved_contract(+task: D.Task, observations: +List<C.Observation>) ->
 def instance() -> Spec.Evidence:
   Spec.Evidence{append, checkpoint_bindings, context_reconstruction,
     Patch.unchanged_observation, preserved_contract, Patch.observed_amendment_origin,
-    Patch.apply_amendment, Patch.observed_amendment_patch}
+    Patch.apply_amendment, Patch.observed_amendment_patch, Patch.accepted_snapshot, Constructor.family}

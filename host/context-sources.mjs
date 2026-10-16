@@ -1,74 +1,100 @@
 import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { configurationFilename, contextConfiguration, defaultConfig } from './config.mjs';
-import { configuredInstructions, snapshotContextFile } from './project.mjs';
+import { snapshotContextFile } from './project.mjs';
 import { proposeContextPatch } from './context-patches.mjs';
 
 const configFileLimit = 1024 * 1024;
 
-function revision(content) {
-  return createHash('sha256').update(content, 'utf8').digest('hex');
+function revision(value) {
+  return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
 }
 
-function sameKey(left, right) {
-  if (left.type !== right.type) return false;
-  switch (left.type) {
-    case 'instruction': return left.origin === right.origin && left.path === right.path;
-    case 'project_guidance': return left.workspace === right.workspace;
-    case 'skill_information': return left.installation === right.installation && left.path === right.path;
-    default: return false;
-  }
-}
-
-function metadataText(value, field, maximum) {
-  if (typeof value !== 'string' || !value.trim() || !value.isWellFormed() || value.includes('\0') || Buffer.byteLength(value, 'utf8') > maximum) {
-    throw new TypeError(`Skill ${field} must be a nonempty bounded UTF-8 string`);
+function boundedText(value, field, maximum, required = false) {
+  if (typeof value !== 'string' || !value.isWellFormed() || value.includes('\0') ||
+    (required && !value.trim()) || Buffer.byteLength(value, 'utf8') > maximum) {
+    throw new TypeError(`Context ${field} must be a ${required ? 'nonempty ' : ''}bounded UTF-8 string`);
   }
   return value;
 }
 
-/** Reading a skill advertises its metadata; the body is not introduced. */
-export async function snapshotSkillInformation(filename, installation, limits, options) {
-  installation = await realpath(installation);
-  filename = path.resolve(installation, filename);
-  const file = await snapshotContextFile(filename, limits, options);
-  if (file === null) return null;
-  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(file.content);
-  if (!frontmatter) throw new TypeError('Skill information requires YAML frontmatter');
-  let metadata;
-  try { metadata = Bun.YAML.parse(frontmatter[1]); }
-  catch { throw new TypeError('Skill frontmatter is not valid YAML'); }
-  const maximum = limits.project_context_bytes;
-  const value = {
-    type: 'skill_information',
-    name: metadataText(metadata?.name, 'name', maximum),
-    description: metadataText(metadata?.description, 'description', maximum),
-    path: filename,
-  };
-  const key = { type: 'skill_information', installation, path: filename };
-  return { key, revision: revision(JSON.stringify(value)), value };
+function fieldRecord(entries) {
+  return Object.fromEntries(entries);
 }
 
-async function mutableConfiguration(config, limits, options) {
+function identityValue(source, environment) {
+  switch (source.type) {
+    case 'constant': return source.value;
+    case 'home_root': return environment.home;
+    case 'source_path': return environment.filename;
+    case 'workspace_root': return environment.workspace;
+    default: throw new TypeError('Unknown context identity source');
+  }
+}
+
+function contextKey(definition, environment) {
+  const identity = fieldRecord(definition.identity.map(field => [field.name,
+    boundedText(identityValue(field.source, environment), field.name, 4096, field.required)]));
+  return { type: definition.kind, definition, identity };
+}
+
+function metadataFields(content) {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
+  if (!frontmatter) throw new TypeError('Context metadata requires YAML frontmatter');
+  let metadata;
+  try { metadata = Bun.YAML.parse(frontmatter[1]); }
+  catch { throw new TypeError('Context frontmatter is not valid YAML'); }
+  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new TypeError('Context frontmatter must contain a field record');
+  }
+  return metadata;
+}
+
+async function snapshotSource(definition, environment, key, limits, options) {
+  const content = definition.observer.type === 'config_text'
+    ? environment.config[definition.observer.setting]
+    : (await snapshotContextFile(environment.filename, limits, options))?.content;
+  if (content === undefined) return null;
+  const metadata = definition.fields.some(field => field.source.type === 'metadata') ? metadataFields(content) : undefined;
+  const fields = fieldRecord(definition.fields.map(field => {
+    let value;
+    switch (field.source.type) {
+      case 'body': value = content; break;
+      case 'metadata': value = metadata[field.source.field]; break;
+      case 'identity': value = key.identity[field.source.field]; break;
+      default: throw new TypeError('Unknown context field source');
+    }
+    return [field.name, boundedText(value, field.name, limits.project_context_bytes, field.required)];
+  }));
+  const value = { type: definition.kind, fields };
+  return { key, revision: revision(value), value };
+}
+
+async function mutableConfiguration(config, definitions, limits, options) {
   const filename = configurationFilename(config);
-  if (filename === undefined) return contextConfiguration(config);
+  if (filename === undefined) return contextConfiguration(config, definitions, limits);
   const file = await snapshotContextFile(filename, { ...limits, project_context_bytes: configFileLimit }, options);
-  if (file === null) return contextConfiguration(defaultConfig);
+  if (file === null) return contextConfiguration(defaultConfig, definitions, limits);
   let value;
   try { value = JSON.parse(file.content); }
   catch { throw new TypeError('Context configuration is not valid JSON'); }
-  return contextConfiguration(value);
+  return contextConfiguration(value, definitions, limits);
 }
 
-/** Observations propose changes; the native history operation admits them. */
+/** Interpret native source descriptors; only the native history operation admits changes. */
 export async function observeContextSources(effect, { home, config, limits, signal, onDiagnostic } = {}) {
   const installation = await realpath(home);
+  const definitions = effect.definitions;
+  if (!Array.isArray(definitions)) throw new TypeError('Native context source definitions are required');
   const bindings = effect.bindings;
   const options = { signal };
-  const observations = [];
-  const configuredKey = { type: 'instruction', origin: 'configured', path: '' };
-  const globalKey = { type: 'instruction', origin: 'global_agents', path: path.join(installation, 'AGENTS.md') };
+  const workspace = effect.settings.workspace.primary_root;
+  const configuration = mutableConfiguration(config, definitions, limits, options);
+  // An unreadable configuration must preserve its previous bindings while
+  // independent file observations can still proceed.
+  const configurationResult = configuration.then(value => ({ value }), error => ({ error }));
 
   function failure(key, error) {
     signal?.throwIfAborted();
@@ -77,55 +103,43 @@ export async function observeContextSources(effect, { home, config, limits, sign
     return { type: 'failure', key, message };
   }
 
-  async function observe(key, read) {
+  async function observe(definition, environment, key) {
     try {
-      const snapshot = await read();
+      const snapshot = await snapshotSource(definition, environment, key, limits, options);
       if (snapshot === null) return { type: 'absent', key };
-      const previous = bindings.find(binding => sameKey(binding.key, key));
+      const previous = bindings.find(binding => isDeepStrictEqual(binding.key, key));
       return { type: 'present', snapshot, patch: proposeContextPatch(previous, snapshot) };
     } catch (error) { return failure(key, error); }
   }
 
-  const configured = mutableConfiguration(config, limits, options);
-  const workspace = effect.settings.workspace.primary_root;
-  const files = [observe(globalKey, async () => {
-    const file = await snapshotContextFile(globalKey.path, limits, options);
-    return file === null ? null : { key: globalKey, revision: file.revision, value: { type: 'instruction', content: file.content } };
-  })];
-  if (workspace !== null) {
-    const key = { type: 'project_guidance', workspace };
-    files.push(observe(key, async () => {
-      const file = await snapshotContextFile(path.join(workspace, 'AGENTS.md'), limits, options);
-      return file === null ? null : { key, revision: file.revision, value: { type: 'project_guidance', content: file.content } };
-    }));
-  }
-
-  let current;
-  try {
-    current = await configured;
-    observations.push(await observe(configuredKey, async () => {
-      const content = configuredInstructions(current, limits);
-      return { key: configuredKey, revision: revision(content), value: { type: 'instruction', content } };
-    }));
-  } catch (error) {
-    observations.push(failure(configuredKey, error));
-    for (const binding of bindings) {
-      if (binding.key.type === 'skill_information') observations.push(failure(binding.key, error));
+  return (await Promise.all(definitions.map(async definition => {
+    const source = definition.observer;
+    const previous = bindings.filter(binding => isDeepStrictEqual(binding.key.definition, definition));
+    if (definition.scope === 'workspace' && workspace === null) {
+      return previous.map(binding => ({ type: 'absent', key: binding.key }));
     }
-  }
-  observations.push(...await Promise.all(files));
-  if (current !== undefined) {
-    const skillPaths = [...new Set(current.skills.map(filename => path.resolve(installation, filename)))];
-    const skills = skillPaths.map(filename => {
-      const key = { type: 'skill_information', installation, path: filename };
-      return observe(key, () => snapshotSkillInformation(filename, installation, limits, options));
-    });
-    observations.push(...await Promise.all(skills));
-    for (const binding of bindings) {
-      if (binding.key.type === 'skill_information' && (binding.key.installation !== installation || !skillPaths.includes(binding.key.path))) {
-        observations.push({ type: 'absent', key: binding.key });
-      }
+    const needsConfiguration = source.type === 'config_text' || source.type === 'config_files';
+    const configured = needsConfiguration ? await configurationResult : {};
+    const environment = { home: installation, workspace, config: configured.value ?? {} };
+    if (needsConfiguration && configured.error) {
+      if (previous.length) return previous.map(binding => failure(binding.key, configured.error));
+      // Singleton identities independent of configuration can still identify a
+      // failed first observation; list sources have no admitted members yet.
+      if (source.type === 'config_files') return [];
+      return [failure(contextKey(definition, environment), configured.error)];
     }
-  }
-  return observations;
+    let filenames;
+    switch (source.type) {
+      case 'config_text': filenames = [undefined]; break;
+      case 'home_file': filenames = [path.resolve(installation, source.relative)]; break;
+      case 'workspace_file': filenames = workspace === null ? [] : [path.resolve(workspace, source.relative)]; break;
+      case 'config_files': filenames = [...new Set(environment.config[source.setting].map(filename => path.resolve(installation, filename)))]; break;
+      default: throw new TypeError('Unknown context observation strategy');
+    }
+    const keys = filenames.map(filename => contextKey(definition, { ...environment, filename }));
+    const observations = await Promise.all(filenames.map((filename, index) => observe(definition, { ...environment, filename }, keys[index])));
+    observations.push(...previous.filter(binding => !keys.some(key => isDeepStrictEqual(binding.key, key)))
+      .map(binding => ({ type: 'absent', key: binding.key })));
+    return observations;
+  }))).flat();
 }

@@ -206,12 +206,43 @@ def Laws.summary_failure_empty_stops(message, id, lineage, contract, status, his
     case D.Archived{}: {==}
 
 
+# Initial context admission is shared by every definition; this proof compares
+# the production append operation with the independently specified history.
+def initial_contexts_meaning(+configured: Maybe<&2, D.HistoryContext>, +global: Maybe<&2, D.HistoryContext>, +project: Maybe<&2, D.HistoryContext>, +history: D.History) ->
+  {D.history_initial_context(project, D.history_initial_context(global, D.history_initial_context(configured, history))) ==
+    Spec.initial_context(project, Spec.initial_context(global, Spec.initial_context(configured, history))) : D.History}:
+  match configured global project:
+    case None{} None{} None{}: {==}
+    case None{} None{} Some{project}: {==}
+    case None{} Some{global} None{}: {==}
+    case None{} Some{global} Some{project}: {==}
+    case Some{configured} None{} None{}: {==}
+    case Some{configured} None{} Some{project}: {==}
+    case Some{configured} Some{global} None{}: {==}
+    case Some{configured} Some{global} Some{project}: {==}
+
+def initial_history_meaning(+configured: Maybe<&2, D.HistoryContext>, +global: Maybe<&2, D.HistoryContext>, +project: Maybe<&2, D.HistoryContext>,
+  +context: D.TaskContext, +profile: D.Profile, +reasoning: String, +message: String, +history: D.History) ->
+  {D.HistoryNode{D.HistoryNode{D.history_initial_context(project, D.history_initial_context(global, D.history_initial_context(configured, history))),
+    D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}, D.UserMessage{message}} ==
+   D.HistoryNode{D.HistoryNode{Spec.initial_context(project, Spec.initial_context(global, Spec.initial_context(configured, history))),
+    D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}, D.UserMessage{message}} : D.History}:
+  Equal.cong(D.History, D.History,
+    (prefix => D.HistoryNode{D.HistoryNode{prefix, D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}, D.UserMessage{message}}),
+    D.history_initial_context(project, D.history_initial_context(global, D.history_initial_context(configured, history))),
+    Spec.initial_context(project, Spec.initial_context(global, Spec.initial_context(configured, history))),
+    initial_contexts_meaning(configured, global, project, history))
+
 def Laws.initial_history_order(instructions, project, message, id, lineage, profile, reasoning, tools, max_fork, max_descendants, plugins, context, status, history, queued, phase, operations, notified):
   match instructions project:
-    case D.InitialInstructions{configured, None{}} D.NoProject{}: {==}
-    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, revision, content}: {==}
-    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.NoProject{}: {==}
-    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_revision, project_content}: {==}
+    case D.InitialInstructions{configured, None{}} D.NoProject{}:
+      initial_history_meaning(D.configured_context(configured), None{}, None{}, context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, project_revision, project_content}:
+      initial_history_meaning(D.configured_context(configured), None{}, D.project_guidance_context(root, project_revision, project_content), context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.NoProject{}:
+      initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), None{}, context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_revision, project_content}:
+      initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), D.project_guidance_context(root, project_revision, project_content), context, profile, reasoning, message, history)
 
 def Laws.context_append_preserves_prefix(context, task):
   match task:
@@ -227,8 +258,13 @@ def Laws.selected_parent_history(context, guidance, parent):
   Laws.recorded_selection_history(Bool.not(Same.project(guidance, D.task_guidance(parent)) && Same.task_context(context, D.task_context(parent))), Workspace.Selection{context, guidance}, parent)
 
 def Laws.root_initial_history(profile, reasoning, message, context, instructions, project, catalog, profiles, forks, descendants, plugins, state, board):
-  match instructions project state:
-    case D.InitialInstructions{configured, None{}} D.NoProject{} D.State{tasks, next_task, next_ticket, environment, limits, registry}: {==}
-    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, revision, content} D.State{tasks, next_task, next_ticket, environment, limits, registry}: {==}
-    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.NoProject{} D.State{tasks, next_task, next_ticket, environment, limits, registry}: {==}
-    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_revision, project_content} D.State{tasks, next_task, next_ticket, environment, limits, registry}: {==}
+  match state:
+    case D.State{+tasks, +next_task, next_ticket, environment, limits, registry}:
+      Equal.cong(D.History, +List<D.Task>,
+        (history => List.append(&2, D.Task, tasks, [D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context},
+          D.Active{}, history, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}])),
+        D.task_history(D.initialize_history(instructions, project, message,
+          D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context}, D.Active{}, D.EmptyHistory{}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}})),
+        Spec.initial_history(instructions, project, context, profile, reasoning, message, D.EmptyHistory{}),
+        Laws.initial_history_order(instructions, project, message, next_task, Nil{}, profile, reasoning, catalog, forks, descendants, plugins,
+          context, D.Active{}, D.EmptyHistory{}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}))

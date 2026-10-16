@@ -1,5 +1,6 @@
 import Base
 import ../context/MODEL.bend as Context
+import ../context/KINDS.bend as ContextKinds
 import ../tools/MODEL.bend as Tools
 import ../../bendlib/categories.bend as Categories
 import ../features/CODEC.bend as FeatureCodec
@@ -144,7 +145,7 @@ def context_payload(ok: Bool, +body: J.Json) -> Bool:
   match ok:
     case True{}:
       Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "observations"]) &&
-        context_observations_valid(Context.observations(J.get(body, "observations")))
+        context_observations_valid(Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
     case False{}:
       Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
         Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
@@ -161,7 +162,7 @@ def parsed_context_outcome(parsed: Maybe<&2, +List<D.ContextObservation()>>) -> 
 def context_outcome(ok: Bool, +body: J.Json) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
   match ok:
     case False{}: Fail{J.text(J.get(body, "message"))}
-    case True{}: parsed_context_outcome(Context.observations(J.get(body, "observations")))
+    case True{}: parsed_context_outcome(Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
 
 def context_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>) -> Result<&2, &2, String, M.Input>:
   Categories.Membership{+body, evidence} = member

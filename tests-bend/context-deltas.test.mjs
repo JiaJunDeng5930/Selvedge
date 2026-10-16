@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { Service } from '../host/service.mjs';
+import { Kernel } from '../host/kernel.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { home, responsesServer, taskIdle } from './support.mjs';
@@ -12,6 +13,7 @@ import { webServer, answer } from './fixtures/chatgpt-web.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
 const context = change => ({ role: 'task_context', type: 'context_change', change });
+const edits = (patch, field = 'content') => patch.fields.find(item => item.field === field).edits;
 const changes = messages => messages.filter(item => item.type === 'context_change').map(item => item.change);
 
 function textFromPatch(base, edits) {
@@ -58,7 +60,7 @@ test('changed AGENTS sources append patches, reversals and removal without repla
       const key = change.type === 'introduce' ? change.snapshot.key : change.key;
       if (key.type === 'project_guidance') assert.ok(developer.includes(await realpath(workspace)));
       if (change.type === 'amend') {
-        assert.ok(developer.includes(change.base_revision)); assert.ok(developer.includes(change.revision));
+        assert.equal(developer.includes(change.base_revision), false); assert.equal(developer.includes(change.revision), false);
       }
     }
     effects.push(effect);
@@ -75,11 +77,12 @@ test('changed AGENTS sources append patches, reversals and removal without repla
   const initial = page.messages;
   const settings = structuredClone(page.task.settings);
   const introductions = changes(initial).filter(change => change.type === 'introduce');
-  const global = introductions.find(change => change.snapshot.key.origin === 'global_agents').snapshot;
+  const global = introductions.find(change => change.snapshot.key.type === 'global_agents').snapshot;
   const project = introductions.find(change => change.snapshot.key.type === 'project_guidance').snapshot;
-  assert.equal(global.revision, hash(globalA)); assert.equal(project.revision, hash(projectA));
-  assert.equal(global.key.path, await realpath(globalPath));
-  assert.equal(project.key.workspace, await realpath(workspace));
+  assert.equal(global.value.fields.content, globalA); assert.equal(project.value.fields.content, projectA);
+  assert.match(global.revision, /^[a-f0-9]{64}$/); assert.match(project.revision, /^[a-f0-9]{64}$/);
+  assert.equal(global.key.identity.path, await realpath(globalPath));
+  assert.equal(project.key.identity.workspace, await realpath(workspace));
 
   const send = async message => {
     const before = page.messages;
@@ -96,8 +99,9 @@ test('changed AGENTS sources append patches, reversals and removal without repla
   for (const [snapshot, before, after] of [[global, globalA, globalB], [project, projectA, projectB]]) {
     const change = amended.find(item => JSON.stringify(item.key) === JSON.stringify(snapshot.key));
     assert.equal(change.type, 'amend'); assert.equal(change.base_revision, snapshot.revision);
-    assert.equal(change.revision, hash(after)); assert.equal(change.patch.type, 'text_edits');
-    assert.equal(textFromPatch(before, change.patch.edits), after);
+    assert.match(change.revision, /^[a-f0-9]{64}$/); assert.notEqual(change.revision, change.base_revision);
+    assert.equal(change.patch.type, 'field_edits');
+    assert.equal(textFromPatch(before, edits(change.patch)), after);
     assert.equal('snapshot' in change, false); assert.equal('value' in change, false);
     assert.equal(JSON.stringify(change).includes('Keep 🧵'), false, 'The appended change excludes the untouched prefix');
   }
@@ -107,19 +111,23 @@ test('changed AGENTS sources append patches, reversals and removal without repla
   for (const change of reversed) {
     const previous = amended.find(item => JSON.stringify(item.key) === JSON.stringify(change.key));
     assert.equal(change.base_revision, previous.revision);
-    assert.equal(change.revision, change.key.type === 'project_guidance' ? project.revision : global.revision);
+    assert.notEqual(change.revision, change.base_revision);
+    const [before, after] = change.key.type === 'project_guidance' ? [projectB, projectA] : [globalB, globalA];
+    assert.equal(textFromPatch(before, edits(change.patch)), after);
   }
   await unlink(projectPath);
   await unlink(globalPath); await symlink(projectPath, globalPath);
   const errorPrefix = page.messages.length;
   const removed = await send('removed project and unreadable global');
-  assert.deepEqual(removed, [{ type: 'remove', key: project.key, base_revision: project.revision }]);
+  assert.deepEqual(removed, [{ type: 'remove', key: project.key,
+    base_revision: reversed.find(change => change.key.type === 'project_guidance').revision }]);
   assert.ok(page.messages.slice(errorPrefix).some(item => item.role === 'error'), 'A failed source observation remains visible');
   await unlink(globalPath); await writeFile(globalPath, globalB);
   const restored = await send('readable global');
   assert.equal(restored.length, 1);
-  assert.equal(restored[0].type, 'amend'); assert.equal(restored[0].base_revision, global.revision);
-  assert.equal(restored[0].revision, hash(globalB));
+  assert.equal(restored[0].type, 'amend');
+  assert.equal(restored[0].base_revision, reversed.find(change => change.key.type === 'global_agents').revision);
+  assert.equal(restored[0].revision, amended.find(change => change.key.type === 'global_agents').revision);
 
   const beforeSummary = page.messages;
   assert.equal((await service.command({ op: 'compact', task_id: 0 })).reply.ok, true);
@@ -147,12 +155,24 @@ test('changed AGENTS sources append patches, reversals and removal without repla
 
 test('ChatGPT Web sends context amendments as the verified continuation suffix', async t => {
   const directory = await home(t);
-  const key = { type: 'instruction', origin: 'configured', path: '' };
+  const kernel = new Kernel();
+  t.after(() => kernel.close());
+  await kernel.initialize();
+  const send = async input => (await kernel.request(input)).value;
+  assert.equal((await send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null },
+    profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }],
+    tools: [], max_fork: 4, max_descendants: 8 })).reply.ok, true);
+  const created = await send({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'initial schema' } });
+  const observation = created.effects.find(effect => effect.kind === 'observe_context');
+  assert.ok(observation);
+  const definition = observation.definitions.find(definition => definition.observer.type === 'config_text');
+  assert.ok(definition);
+  const key = { type: 'configured_instruction', definition, identity: { origin: 'configured' } };
   const original = 'Keep the long unchanged prefix. Use npm.';
   const updated = 'Keep the long unchanged prefix. Use bun.';
-  const introduction = context({ type: 'introduce', snapshot: { key, revision: 'initial', value: { type: 'instruction', content: original } } });
+  const introduction = context({ type: 'introduce', snapshot: { key, revision: 'initial', value: { type: 'configured_instruction', fields: { content: original } } } });
   const amendment = context({ type: 'amend', key, base_revision: 'initial', revision: hash(updated),
-    patch: { type: 'text_edits', edits: [{ start: Array.from('Keep the long unchanged prefix. Use ').length, removed: 'npm', inserted: 'bun' }] } });
+    patch: { type: 'field_edits', fields: [{ field: 'content', edits: [{ start: Array.from('Keep the long unchanged prefix. Use ').length, removed: 'npm', inserted: 'bun' }] }] } });
   const server = await webServer(t, async () => ({ output: answer('done') }));
   const api_key_env = credentials(t, 'SELVEDGE_DELTA_WEB_FIXTURE_KEY', 'local-web-fixture');
   const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: { web: {
@@ -172,7 +192,9 @@ test('ChatGPT Web sends context amendments as the verified continuation suffix',
   assert.ok(server.requests[1].body.previous_response_id);
   const suffix = server.requests[1].body.input;
   const update = suffix.find(item => item.role === 'developer');
-  assert.ok(update); assert.match(update.content, /initial/); assert.ok(update.content.includes(hash(updated)));
+  assert.ok(update); assert.ok(update.content.includes('configured'));
+  assert.equal(update.content.includes(hash(updated)), false);
+  assert.equal(update.content.includes('base_revision'), false);
   assert.match(update.content, /npm/); assert.match(update.content, /bun/);
   assert.equal(JSON.stringify(suffix).includes('long unchanged prefix'), false);
   assert.equal(JSON.stringify(suffix).includes('first question'), false);
@@ -210,7 +232,7 @@ test('large guidance survives generated-kernel comparison and widely separated e
   const initial = await settled();
   assert.equal(model.requests.length, 1);
   const introduced = changes(initial.messages).find(change => change.type === 'introduce' && change.snapshot.key.type === 'project_guidance');
-  assert.equal(introduced.snapshot.value.content, original);
+  assert.equal(introduced.snapshot.value.fields.content, original);
   await service.command({ op: 'send', task_id: 0, message: 'unchanged large guidance' });
   const unchanged = await settled();
   assert.equal(model.requests.length, 2);
@@ -224,10 +246,11 @@ test('large guidance survives generated-kernel comparison and widely separated e
   assert.equal(appended.length, 1);
   assert.equal(appended[0].type, 'amend');
   assert.equal(appended[0].base_revision, introduced.snapshot.revision);
-  assert.equal(appended[0].revision, hash(updated));
-  assert.equal(textFromPatch(original, appended[0].patch.edits), updated);
+  assert.match(appended[0].revision, /^[a-f0-9]{64}$/);
+  assert.notEqual(appended[0].revision, introduced.snapshot.revision);
+  assert.equal(textFromPatch(original, edits(appended[0].patch)), updated);
   assert.equal(JSON.stringify(appended[0]).includes('Policy 180:'), false, 'Unchanged guidance stays in the inherited prefix');
-  assert.ok(JSON.stringify(model.requests.at(-1).input).includes(appended[0].revision));
+  assert.equal(JSON.stringify(model.requests.at(-1).input).includes(appended[0].revision), false);
   assert.equal(notices.some(notice => notice.type === 'fatal'), false);
   assert.deepEqual(model.failures, []);
 });

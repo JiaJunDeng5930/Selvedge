@@ -6,6 +6,7 @@ import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { writeAtomic } from '../../host/files.mjs';
 import { defaultChatGPTAccount, chatgptAccountIdentity } from '../../host/chatgpt-account.mjs';
 import { home } from '../support.mjs';
+import { configuredContext } from './context.mjs';
 
 const resource = 'https://api.openai.com/v1';
 const scope = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
@@ -155,10 +156,7 @@ export function modelResponse(response, output, deltas = []) {
 export const modelEffect = () => ({
   kind: 'model', task_id: 1, ticket: 2,
   model: { profile: 'fixture', provider: 'chatgpt', name: 'model-from-account', reasoning: 'medium' },
-  history: [{ role: 'task_context', type: 'context_change', change: { type: 'introduce', snapshot: {
-    key: { type: 'instruction', origin: 'configured', path: '' }, revision: 'initial',
-    value: { type: 'instruction', content: 'Fixture instructions' },
-  } } }, { role: 'user', content: 'hello' }],
+  history: [configuredContext('Fixture instructions'), { role: 'user', content: 'hello' }],
   tools: [
     { name: 'allowed', description: 'Allowed tool', parameters: { type: 'object', properties: {} } },
     { name: 'withheld', description: 'Not callable', parameters: { type: 'object', properties: {} } },

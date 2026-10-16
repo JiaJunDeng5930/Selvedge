@@ -4,6 +4,8 @@ import ../bendlib/json.bend as J
 import ./transport/schema.bend as Schema
 import ./tools/SYNTAX.bend as Native
 import ./context/MODEL.bend as Context
+import ./context/instruction.bend as InstructionContext
+import ./context/project-guidance.bend as ProjectGuidanceContext
 import ../bendlib/association-map.bend as Finite
 
 # Task-domain values and rules have no dependency on the assembled application.
@@ -963,12 +965,13 @@ def context_bindings(history: History) -> +List<Context.Snapshot>:
     case HistoryNode{previous, ContextMessage{ContextChange{change}}}: Context.apply_change(change, context_bindings(previous))
     case HistoryNode{previous, other}: context_bindings(previous)
 
+def selected_guidance(found: Maybe<&2, ProjectGuidanceContext.Guidance>) -> ProjectContext:
+  match found:
+    case None{}: NoProject{}
+    case Some{ProjectGuidanceContext.Guidance{workspace, revision, content}}: ProjectContext{workspace, revision, content}
+
 def bindings_project(bindings: +List<Context.Snapshot>) -> ProjectContext:
-  match bindings:
-    case Nil{}: NoProject{}
-    case Con{Context.Snapshot{Context.ProjectGuidanceKey{workspace}, revision, Context.ProjectGuidance{content}}, rest}:
-      ProjectContext{workspace, revision, content}
-    case Con{other, rest}: bindings_project(rest)
+  selected_guidance(ProjectGuidanceContext.latest(bindings))
 
 def history_project(history: History) -> ProjectContext:
   bindings_project(context_bindings(history))
@@ -982,14 +985,24 @@ def context_json(context: HistoryContext) -> J.Json:
     case TaskSettings{context, profile, reasoning}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"settings"}}, J.Field{"content", task_context_json(context)}, J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}]}
     case ReasoningConfiguration{effort}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"reasoning_configuration"}}, J.Field{"effort", J.Text{effort}}]}
 
-def configured_context(content: String) -> HistoryContext:
-  ContextChange{Context.Introduce{Context.Snapshot{Context.InstructionKey{"configured", ""}, "initial", Context.Instruction{content}}}}
+def introduced_context(snapshot: Maybe<&2, Context.Snapshot>) -> Maybe<&2, HistoryContext>:
+  match snapshot:
+    case None{}: None{}
+    case Some{snapshot}: Some{ContextChange{Context.Introduce{snapshot}}}
 
-def global_context(path: String, revision: String, content: String) -> HistoryContext:
-  ContextChange{Context.Introduce{Context.Snapshot{Context.InstructionKey{"global_agents", path}, revision, Context.Instruction{content}}}}
+def configured_context(content: String) -> Maybe<&2, HistoryContext>:
+  introduced_context(InstructionContext.configured_snapshot(content))
 
-def project_guidance_context(workspace: String, revision: String, content: String) -> HistoryContext:
-  ContextChange{Context.Introduce{Context.Snapshot{Context.ProjectGuidanceKey{workspace}, revision, Context.ProjectGuidance{content}}}}
+def global_context(path: String, revision: String, content: String) -> Maybe<&2, HistoryContext>:
+  introduced_context(InstructionContext.global_snapshot(path, revision, content))
+
+def project_guidance_context(workspace: String, revision: String, content: String) -> Maybe<&2, HistoryContext>:
+  introduced_context(ProjectGuidanceContext.snapshot(workspace, revision, content))
+
+def history_initial_context(context: Maybe<&2, HistoryContext>, history: History) -> History:
+  match context:
+    case None{}: history
+    case Some{context}: history_append_context(context, history)
 
 def context_failure_seen(history: History, +message: String) -> Bool:
   match history:
@@ -1032,54 +1045,61 @@ def context_observations_go(observations: +List<Context.Observation>, task: Task
 def apply_context_observations(task: Task, observations: +List<Context.Observation>) -> Task:
   context_observations_go(observations, task)
 
-def selected_workspace(project: ProjectContext) -> String:
-  match project:
-    case NoProject{}: ""
-    case ProjectContext{workspace, revision, content}: workspace
+def selected_workspace(context: TaskContext) -> String:
+  match context:
+    case TaskContext{Workspace{roots, None{}}, sandbox, approval, project}: ""
+    case TaskContext{Workspace{roots, Some{primary}}, sandbox, approval, project}: primary
 
-def retire_other_project(same: Bool, key: Context.Key, revision: String, history: History) -> History:
-  match same:
+def retire_unselected_context(retained: Bool, key: Context.Key, revision: String, history: History) -> History:
+  match retained:
     case True{}: history
     case False{}: history_append_context(ContextChange{Context.Remove{key, revision}}, history)
 
-def retire_project_bindings(bindings: +List<Context.Snapshot>, +workspace: String, history: History) -> History:
+def context_workspace_retained(source: Maybe<&2, String>, workspace: String) -> Bool:
+  match source:
+    case None{}: True{}
+    case Some{root}: String.eq(root, workspace)
+
+def retire_scoped_bindings(bindings: +List<Context.Snapshot>, +workspace: String, history: History) -> History:
   match bindings:
     case Nil{}: history
-    case Con{Context.Snapshot{Context.ProjectGuidanceKey{+root}, revision, value}, rest}:
-      retire_project_bindings(rest, workspace, retire_other_project(String.eq(root, workspace), Context.ProjectGuidanceKey{root}, revision, history))
-    case Con{other, rest}: retire_project_bindings(rest, workspace, history)
+    case Con{Context.Snapshot{+key, revision, value}, rest}:
+      retire_scoped_bindings(rest, workspace, retire_unselected_context(context_workspace_retained(Context.key_workspace(key), workspace), key, revision, history))
 
 def introduce_selected(previous: Maybe<&2, Context.Snapshot>, project: ProjectContext, history: History) -> History:
   match previous project:
-    case None{} ProjectContext{workspace, revision, content}: history_append_context(project_guidance_context(workspace, revision, content), history)
+    case None{} ProjectContext{workspace, revision, content}: history_initial_context(project_guidance_context(workspace, revision, content), history)
     case _ _: history
 
 def select_guidance(project: ProjectContext, +history: History) -> History:
   match project:
     case NoProject{}: history
-    case ProjectContext{+workspace, revision, content}: introduce_selected(Context.find(context_bindings(history), Context.ProjectGuidanceKey{workspace}), ProjectContext{workspace, revision, content}, history)
+    case ProjectContext{+workspace, revision, content}: introduce_selected(Context.find(context_bindings(history), ProjectGuidanceContext.key(workspace)), ProjectContext{workspace, revision, content}, history)
 
-def select_project_history(+project: ProjectContext, +history: History) -> History:
-  select_guidance(project, retire_project_bindings(context_bindings(history), selected_workspace(project), history))
+def select_project_history(context: TaskContext, +project: ProjectContext, +history: History) -> History:
+  select_guidance(project, retire_scoped_bindings(context_bindings(history), selected_workspace(context), history))
 
 def selected_project(guidance: ProjectContext, +task: Task) -> Task:
-  with_history(select_project_history(guidance, task_history(task)), task)
+  with_history(select_project_history(task_context(task), guidance, task_history(task)), task)
 
-def initial_global(snapshot: Maybe<&2, InstructionSnapshot>, task: Task) -> Task:
+def initial_global(snapshot: Maybe<&2, InstructionSnapshot>, history: History) -> History:
   match snapshot:
-    case None{}: task
-    case Some{InstructionSnapshot{path, revision, content}}: append_context(global_context(path, revision, content), task)
+    case None{}: history
+    case Some{InstructionSnapshot{path, revision, content}}: history_initial_context(global_context(path, revision, content), history)
 
-def initial_project(project: ProjectContext, task: Task) -> Task:
+def initial_project(project: ProjectContext, history: History) -> History:
   match project:
-    case NoProject{}: task
-    case ProjectContext{workspace, revision, content}: append_context(project_guidance_context(workspace, revision, content), task)
+    case NoProject{}: history
+    case ProjectContext{workspace, revision, content}: history_initial_context(project_guidance_context(workspace, revision, content), history)
 
-def initialize_contract(instructions: InitialInstructions, project: ProjectContext, message: String, contract: Contract, task: Task) -> Task:
+def initial_source_history(instructions: InitialInstructions, project: ProjectContext, history: History) -> History:
   InitialInstructions{configured, global} = instructions
+  initial_project(project, initial_global(global, history_initial_context(configured_context(configured), history)))
+
+def initialize_contract(instructions: InitialInstructions, project: ProjectContext, message: String, contract: Contract, +task: Task) -> Task:
   Contract{Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context} = contract
-  append_message(UserMessage{message}, append_context(TaskSettings{context, profile_key(profile), reasoning},
-    initial_project(project, initial_global(global, append_context(configured_context(configured), task)))))
+  with_history(HistoryNode{HistoryNode{initial_source_history(instructions, project, task_history(task)),
+    ContextMessage{TaskSettings{context, profile_key(profile), reasoning}}}, UserMessage{message}}, task)
 
 def initialize_history(instructions: InitialInstructions, project: ProjectContext, message: String, +task: Task) -> Task:
   initialize_contract(instructions, project, message, task_contract(task), task)
