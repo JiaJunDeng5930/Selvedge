@@ -20,7 +20,7 @@ def plugins(contract: D.Contract) -> +List<D.Plugin>:
   plugins
 
 def environment_plugins(environment: D.Environment) -> +List<D.Plugin>:
-  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions} = environment
   plugins
 
 def live(-StateRest: Data, world: C.Frame<D.State, StateRest>) -> +List<D.Plugin>:

@@ -27,7 +27,6 @@ def Laws.execution_semantics(action, world):
     case Execution.Rest{} _: {==}
     case Execution.Idle{task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
     case Execution.Model{task} _: Reasoning.start_meaning(task, world)
-    case Execution.Summary{task, resume} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
     case Execution.External{tool, call, remaining, task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
     case Execution.Review{reviewer, call, remaining, task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
     case Execution.Granted{reviewer, tool, operation, task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
@@ -202,14 +201,15 @@ def Laws.tool_dispatch(board, tool, call, remaining, task, state):
   D.State{tasks, next_task, ticket, environment, limits, projects} = state
   {==}
 
-def Laws.small_context_dispatch(task, world):
+def Laws.full_history_dispatch(task, world):
   {==}
 
-def Laws.large_context_dispatch(task, world):
+def Laws.model_has_no_context_preflight(task, world):
   {==}
 
-def Laws.oversized_operation_barrier(task):
-  {==}
+def Laws.summary_request_full_history(task, state, board):
+  match task state:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} D.State{tasks, next_task, ticket, environment, limits, projects}: {==}
 
 # Stable operation identity is the association-list key. The project proves
 # only the value adapter; deletion absence is the original ExtLib theorem.

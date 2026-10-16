@@ -1,6 +1,6 @@
 # Task storage
 
-Updates tasks through an abstract carrier and binds the concrete production specialization to its required update and frame preservation.
+Updates tasks through an abstract carrier. Its contract also describes initial context order and selected fork history independently of the production append operations.
 
 Start with [PROGRAM.bend](PROGRAM.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
 

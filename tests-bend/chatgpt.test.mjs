@@ -26,6 +26,25 @@ test('ChatGPT Responses uses the official namespace and preserves opaque reasoni
   assert.equal(responseBody(modelEffect(), { provider: 'responses' }).tool_choice.type, 'allowed_tools');
 });
 
+test('account HTTP preserves a recorded reasoning change between surrounding messages', async t => {
+  const upstream = await chatgptFixture(t, (request, response) => {
+    const input = request.body.input;
+    const before = input.findIndex(item => item.content === 'before recorded effort');
+    const changed = input.findIndex(item => item.role === 'developer' && /Committed reasoning effort.*high/.test(item.content));
+    const after = input.findIndex(item => item.content === 'after recorded effort');
+    assert.ok(before >= 0 && before < changed && changed < after);
+    assert.ok(!request.body.instructions);
+    modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }]);
+  });
+  const effect = { ...modelEffect(), history: [
+    { role: 'user', content: 'before recorded effort' },
+    { role: 'task_context', type: 'reasoning_configuration', effort: 'high' },
+    { role: 'user', content: 'after recorded effort' },
+  ] };
+  await requestModel(effect, { profiles: { fixture: upstream.profile } }, upstream.directory, wireLimits);
+  assert.deepEqual(upstream.failures, []);
+});
+
 test('namespace call and result history is retained and foreign tool namespaces fail', async t => {
   let namespace = 'selvedge';
   const upstream = await chatgptFixture(t, (request, response) => {

@@ -801,4 +801,4 @@ def Rule.task_details_evidence():
     +owner => +name => +description => +schema => +source => +rest => +visual => {==},
     {==},
     +ancestor => +rest => {==},
-    +owner => +task => +roots => +primary => +mode => +network => +approval => +project => +guidance => +access => +id => +provider => +name => +policy => +options => +reasoning => +model_guidance => +tools => +lineage => +queued => +status => +phase => +visual => {==}}
+    +owner => +task => +roots => +primary => +mode => +network => +approval => +project => +guidance => +access => +id => +provider => +name => +policy => +options => +reasoning => +tools => +lineage => +queued => +status => +phase => +visual => {==}}

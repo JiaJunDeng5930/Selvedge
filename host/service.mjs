@@ -6,7 +6,7 @@ import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
-import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
+import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand } from './project.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
 import { observeBoardCommand } from './board-files.mjs';
@@ -49,6 +49,8 @@ export class Service extends EventEmitter {
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
+      service.instructions = { configured: configuredInstructions(config, service.limits),
+        global: await snapshotGlobalInstructions(home, service.limits) };
       const discovered = await withAccountModels(config, home, {
         onDiagnostic: message => service.notify({ type: 'diagnostic', message }),
       });
@@ -125,7 +127,7 @@ export class Service extends EventEmitter {
     const decision = await this.journal.execute({ kind: 'configure', profiles: profileCatalog(this.config),
       tools: [...this.#catalog.values(), ...extensions.map(extension => extension.tools)].flat(),
       plugins: extensions.map(extension => extension.descriptor), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
-      project: this.project });
+      project: this.project, instructions: this.instructions });
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
   }
 
@@ -287,6 +289,39 @@ export class Service extends EventEmitter {
   async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    if (command?.op === 'create') {
+      // Keep each root's observed defaults adjacent to its command even when
+      // catalog refreshes and other root births arrive concurrently.
+      const next = this.#catalogTail.then(() => this.#createRoot(command));
+      this.#catalogTail = next.catch(() => {});
+      return next;
+    }
+    return this.#submitCommand(command);
+  }
+
+  async #createRoot(command) {
+    try {
+      if (this.#failure) throw this.#failure;
+      if (this.#closing) throw new Error('Service is stopping');
+      const instructions = { configured: configuredInstructions(this.config, this.limits),
+        global: await snapshotGlobalInstructions(this.home, this.limits) };
+      const project = await snapshotProject(this.cwd, this.limits);
+      const settings = command.settings;
+      if (settings && typeof settings === 'object' && !Array.isArray(settings) &&
+          settings.workspace === undefined && Number.isSafeInteger(settings.project_id)) {
+        const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id: settings.project_id } });
+        if (result.reply.ok) command = { ...command, settings: { ...settings, workspace: result.reply.result.workspace } };
+      }
+      const observed = await observeWorkspaceCommand(command, this.limits);
+      const previous = { project: this.project, instructions: this.instructions };
+      Object.assign(this, { project, instructions });
+      try { await this.#configure(); }
+      catch (error) { Object.assign(this, previous); throw error; }
+      return this.journal.execute({ kind: 'command', command: observed });
+    } catch (cause) { throw new CommandNotSubmitted(cause); }
+  }
+
+  async #submitCommand(command) {
     const boardObserved = await observeBoardCommand(command, this.home);
     let observed;
     try { observed = await observeWorkspaceCommand(boardObserved, this.limits); }

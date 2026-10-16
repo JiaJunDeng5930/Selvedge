@@ -45,22 +45,13 @@ def lease(history: D.History, +owner: Nat) -> R.Lease:
 def task_policy(task: D.Task) -> R.Policy:
   D.model_reasoning(D.task_model(task))
 
-# Configuration updates are trusted native items, never opaque model output.
-# A checkpoint starts a new provider context, so its next generation needs a
-# fresh update, even if its selected effort happens to match the old one.
-
-def after_checkpoint(checkpoint: Bool, previous: Maybe<&2, String>) -> Maybe<&2, String>:
-  match checkpoint:
-    case True{}: None{}
-    case False{}: previous
+# Native context changes stay in the full prefix across additive summaries.
 
 def last_update(history: D.History) -> Maybe<&2, String>:
   match history:
     case D.EmptyHistory{}: None{}
-    case D.HistoryNode{previous, D.ConfigurationUpdate{effort}}: Some{effort}
-    case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: None{}
-    case D.HistoryNode{previous, D.ModelContext{value}}:
-      after_checkpoint(D.is_provider_checkpoint(value), last_update(previous))
+    case D.HistoryNode{previous, D.ContextMessage{D.ReasoningConfiguration{effort}}}: Some{effort}
+    case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: last_update(previous)
     case D.HistoryNode{previous, other}: last_update(previous)
 
 def changed(previous: Maybe<&2, String>, effort: String) -> Bool:
@@ -70,7 +61,7 @@ def changed(previous: Maybe<&2, String>, effort: String) -> Bool:
 
 def trailing_update(history: D.History) -> Bool:
   match history:
-    case D.HistoryNode{previous, D.ConfigurationUpdate{effort}}: True{}
+    case D.HistoryNode{previous, D.ContextMessage{D.ReasoningConfiguration{effort}}}: True{}
     case D.HistoryNode{previous, D.ReasoningRecord{owner, effort, remaining, sampling}}: trailing_update(previous)
     case D.HistoryNode{previous, D.ToolReceipt{owner, operation, call, value, error}}: trailing_update(previous)
     case D.HistoryNode{previous, D.AfterRecord{owner, operation, plugin, outcome}}: trailing_update(previous)
@@ -84,7 +75,7 @@ def separate(needed: Bool, history: D.History) -> D.History:
 
 def update(needed: Bool, effort: String, history: D.History) -> D.History:
   match needed:
-    case True{}: D.HistoryNode{history, D.ConfigurationUpdate{effort}}
+    case True{}: D.history_append_context(D.ReasoningConfiguration{effort}, history)
     case False{}: history
 
 def sampling_history(+emit: Bool, +effort: String, remaining: Nat, owner: Nat, +history: D.History) -> D.History:
@@ -137,7 +128,7 @@ def valid_sample(+policy: R.Policy, +owner: Nat, +history: D.History) -> Bool:
       sample_record(history, owner, policy) && R.allowed(policy, effective(policy, owner, "", history))
 
 def sampling(owner: Nat, model: D.Model, history: D.History) -> J.Json:
-  D.Model{+profile, fixed, project} = model
+  D.Model{+profile, fixed} = model
   +policy = D.profile_reasoning(profile)
   +effort = effective(policy, owner, fixed, history)
   J.Object{[J.Field{"effective_effort", J.Text{effort}}, J.Field{"request_effort", J.Text{R.request_effort(policy, effort)}}]}

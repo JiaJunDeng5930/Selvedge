@@ -201,6 +201,16 @@ function applicationEvent(input) {
           bendValue('interaction/TYPES.ApplicationInput', { input }) }) }) }) });
 }
 
+function actualUIInput(value, tag) {
+  if (!value || typeof value !== 'object') return undefined;
+  if (bendTag(value) === tag) return value;
+  for (const child of Object.values(value)) {
+    const found = actualUIInput(child, tag);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function preferenceEffects(decision) {
   const effects = [];
   for (let rest = decision.effects; bendTag(rest) === 'Con'; rest = rest.tail) {
@@ -244,21 +254,32 @@ test('the browser reasoning choice reaches the authenticated server with each cu
       .find(node => node.semantic === `composer/model/message/${task}`);
     assert.ok(modelControl, 'The selected task must expose its actual model control');
     const opened = ui.activate_state(selected, ui.key(modelControl));
-    const decisions = surfaceNodes(ui.surface_state(opened)).filter(node =>
-      bendTag(node.meaning) === 'DecisionGroup'
-      && bendTag(node.meaning.decision.subject.field) === 'ReasoningEffort');
-    assert.equal(decisions.length, 1, 'The actual model menu must expose one reasoning decision');
-    assert.equal(bendTag(decisions[0].meaning.decision.subject.editor), 'MessageEditor');
-    assert.equal(Number(decisions[0].meaning.decision.subject.editor.task), task);
-    const options = [];
-    for (let rest = decisions[0].children; bendTag(rest) === 'Con'; rest = rest.tail) options.push(rest.head);
+    const entrances = surfaceNodes(ui.surface_state(opened)).filter(node =>
+      bendTag(node.meaning) === 'SettingEntry'
+      && bendTag(node.meaning.subject.field) === 'ReasoningEffort'
+      && actualUIInput(node.meaning.input, 'EnterDecision')?.field_key === 'reasoning-effort');
+    assert.equal(entrances.length, 1, 'The actual model menu must expose one reasoning parameter entrance');
+    assert.equal(bendTag(entrances[0].meaning.subject.editor), 'MessageEditor');
+    assert.equal(Number(entrances[0].meaning.subject.editor.task), task);
+    const expanded = ui.activate_state(opened, ui.key(entrances[0]));
+    const options = surfaceNodes(ui.surface_state(expanded)).filter(node =>
+      bendTag(node.meaning) === 'Choice' && node.semantic.startsWith('effort/'));
+    assert.deepEqual(options.map(node => actualUIInput(node.meaning.input, 'ChooseModel')?.reasoning).sort(),
+      ['high', 'medium'], "The expanded parameter must expose precisely the model's declared reasoning alternatives");
+    for (const option of options) {
+      const edit = actualUIInput(option.meaning.input, 'EditDraft');
+      assert.equal(bendTag(edit?.editor), 'MessageEditor');
+      assert.equal(Number(edit.editor.task), task);
+      assert.equal(actualUIInput(option.meaning.input, 'ChooseModel').profile, profile);
+    }
+    assert.equal(options.find(node => node.semantic === 'effort/medium').meaning.selected, true);
     const high = options.find(node => node.semantic === 'effort/high');
-    assert.ok(high, 'The actual reasoning decision must expose the permitted high option');
+    assert.ok(high, 'The actual reasoning parameter must expose the permitted high option');
     assert.equal(bendTag(high.meaning), 'Choice');
     assert.equal(bendTag(high.meaning.kind), 'SingleChoice');
     assert.equal(bendTag(high.meaning.availability), 'Available');
     assert.equal(high.meaning.selected, false);
-    const pressed = ui.press_state(opened, ui.key(high));
+    const pressed = ui.press_state(expanded, ui.key(high));
     assert.equal(bendTag(pressed), 'Done');
     const commands = JSON.parse(pressed.value);
     assert.equal(commands.length, 1, `Task ${task} reasoning choice must emit one actual server command`);
@@ -276,8 +297,13 @@ test('the browser reasoning choice reaches the authenticated server with each cu
     assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
     const after = await server.service.command({ op: 'read', task_id: task });
     assert.equal(after.reply.ok, true, JSON.stringify(after.reply));
-    assert.deepEqual(after.reply.result, { ...before, task: { ...before.task, reasoning: 'high' } },
-      'A browser reasoning change must preserve model, approval, sandbox, project, workspace and complete history');
+    const settingsRecord = { role: 'task_context', type: 'settings', content: before.task.settings,
+      profile: before.task.profile, reasoning: 'high' };
+    assert.deepEqual(after.reply.result, { ...before,
+      cursor: before.cursor + 1,
+      task: { ...before.task, reasoning: 'high', cursor: before.task.cursor + 1 },
+      messages: [...before.messages, settingsRecord],
+    }, 'A browser reasoning change must preserve every unrelated field and the complete history prefix, appending only its settings record');
   }
   assert.deepEqual(upstream.failures, []);
 });

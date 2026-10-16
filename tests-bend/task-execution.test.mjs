@@ -32,6 +32,19 @@ const read = async (service, task_id = 0) => {
   return result.reply.result;
 };
 
+function assertSettingsAppended(before, after, configuration) {
+  assert.equal(after.task.cursor, before.task.cursor + 1);
+  assert.deepEqual(after.messages, [...before.messages, {
+    role: 'task_context', type: 'settings', profile: configuration.profile, reasoning: configuration.reasoning,
+    content: {
+      project_id: before.task.settings.project_id,
+      workspace: before.task.settings.workspace,
+      sandbox: configuration.sandbox,
+      approval: { mode: configuration.approval.mode, reviewer_profile: '', reviewer: null },
+    },
+  }]);
+}
+
 test('HTTP execution configuration rejects in-flight work and changes only a settled task execution plan', { timeout: 20_000 }, async t => {
   const base = await realpath(await home(t));
   const workspace = path.join(base, 'workspace');
@@ -81,10 +94,10 @@ test('HTTP execution configuration rejects in-flight work and changes only a set
   assert.equal(after.task.settings.sandbox.mode, 'read-only');
   assert.equal(after.task.settings.sandbox.network_access, false);
   assert.equal(after.task.settings.approval.mode, 'ask-for-approval');
-  assert.deepEqual(after.messages, before.messages);
+  assertSettingsAppended(before, after, execution(0, 'b'));
   // Compare every unrelated public task field, including lineage, queue and leases.
-  const { profile: oldProfile, provider: oldProvider, model: oldModel, reasoning: oldReasoning, settings: oldSettings, ...oldTask } = before.task;
-  const { profile: newProfile, provider: newProvider, model: newModel, reasoning: newReasoning, settings: newSettings, ...newTask } = after.task;
+  const { profile: oldProfile, provider: oldProvider, model: oldModel, reasoning: oldReasoning, settings: oldSettings, cursor: oldCursor, ...oldTask } = before.task;
+  const { profile: newProfile, provider: newProvider, model: newModel, reasoning: newReasoning, settings: newSettings, cursor: newCursor, ...newTask } = after.task;
   assert.deepEqual(newTask, oldTask);
   const { sandbox: oldSandbox, approval: oldApproval, ...oldContext } = oldSettings;
   const { sandbox: newSandbox, approval: newApproval, ...newContext } = newSettings;
@@ -128,13 +141,15 @@ test('task model and policy changes restart ChatGPT Web roots while no-op config
   await taskIdle(service, 1);
   const receipt = first.messages.find(item => item.role === 'model_context' && item.content.type === 'provider_receipt');
   assert.ok(receipt, JSON.stringify(first));
-  assert.equal((await service.command({ ...execution(0, 'b'), reasoning: 'default' })).reply.ok, true);
-  assert.deepEqual((await read(service, 0)).messages, first.messages);
+  const modelConfiguration = { ...execution(0, 'b'), reasoning: 'default' };
+  assert.equal((await service.command(modelConfiguration)).reply.ok, true);
+  assertSettingsAppended(first, await read(service, 0), modelConfiguration);
   assert.equal((await service.command({ op: 'send', task_id: 0, message: 'New model root.' })).reply.ok, true);
   await taskIdle(service, 0);
   assert.equal(upstream.requests[2].body.model, 'chatgpt-web/light');
   assert.equal(upstream.requests[2].body.previous_response_id, undefined);
-  assert.ok(!JSON.stringify(upstream.requests[2].body).includes(receipt.content.response_id));
+  // Historical receipts remain input data; only the protocol predecessor selects continuation.
+  assert.ok(JSON.stringify(upstream.requests[2].body.input).includes(receipt.content.response_id));
   assert.equal((await service.command({ op: 'send', task_id: 1, message: 'Continue other task.' })).reply.ok, true);
   await taskIdle(service, 1);
   assert.ok(upstream.requests[3].body.previous_response_id);
@@ -157,14 +172,14 @@ test('task model and policy changes restart ChatGPT Web roots while no-op config
   assert.deepEqual(afterPolicy.task.settings.sandbox, policy.sandbox);
   assert.deepEqual(afterPolicy.task.settings.approval, beforePolicy.task.settings.approval);
   assert.equal(afterPolicy.task.settings.approval.mode, policy.approval.mode);
-  assert.deepEqual(afterPolicy.messages, beforePolicy.messages);
+  assertSettingsAppended(beforePolicy, afterPolicy, policy);
   assert.deepEqual(await read(service, 1), otherBeforePolicy);
   assert.equal((await service.command({ op: 'send', task_id: 0, message: 'New policy root.' })).reply.ok, true);
   const policyRoot = await taskIdle(service, 0);
   assert.equal(upstream.requests.length, 5);
   assert.equal(upstream.requests[4].body.model, 'chatgpt-web/light');
   assert.equal(upstream.requests[4].body.previous_response_id, undefined);
-  assert.ok(!JSON.stringify(upstream.requests[4].body).includes(oldPolicyReceipt.content.response_id));
+  assert.ok(JSON.stringify(upstream.requests[4].body.input).includes(oldPolicyReceipt.content.response_id));
   const rootInput = JSON.stringify(upstream.requests[4].body.input);
   for (const content of ['First task.', 'New model root.', 'Answer 2', 'New policy root.']) {
     assert.ok(rootInput.includes(content), rootInput);

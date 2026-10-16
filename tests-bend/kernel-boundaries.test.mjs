@@ -11,7 +11,7 @@ async function kernel(t, overrides = {}) {
   await k.initialize();
   const send = async input => (await k.request(input)).value;
   const command = body => send({ kind: 'command', command: body });
-  const configure = config => send({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8, ...config });
+  const configure = config => send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8, ...config });
   assert.equal((await configure(overrides)).reply.ok, true);
   return { k, send, command, configure };
 }
@@ -25,7 +25,7 @@ test('Bend-generated JavaScript Worker and codec transport preserves Unicode, em
   const { k, send, command } = await kernel(t, { tools: [remote] });
   const text = 'hello\n"\\\0 世界 😀';
   const created = await command({ op: 'create', profile: 'fixture', message: text });
-  assert.equal(created.effects[0].history[0].content, text);
+  assert.equal(created.effects[0].history.at(-1).content, text);
   const arguments_ = parseJson('{"huge":9007199254740993,"fraction":1.2300,"nested":[null,true,{"0":"x"}]}');
   const result = await send(model(0, 0, '', [{ id: 'inspect', name: remote.name, arguments: arguments_ }]));
   assert.equal(result.effects[0].kind, 'tool');

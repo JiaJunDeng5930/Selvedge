@@ -291,15 +291,12 @@ it through Bash. Nonzero exits, deadlines and cancellation are tool errors, and
 shell descendants are terminated when the shell exits.
 The executable catalog and `limits` in `describe` are authoritative.
 
-At startup the service captures default root guidance. Supplying explicit
-workspace roots observes the primary root's `AGENTS.md` as a bounded UTF-8 snapshot
-with a content revision. Selecting a saved project reuses its recorded workspace
-and guidance. A new task freezes the selected guidance in its contract; inherited
-forks, checkpoints and restarts retain it. Later file changes
-are visible through Bash, but do not silently rewrite an existing task's
-instructions. Restarting captures new guidance for subsequently created tasks.
-Nested module guidance is read on demand. Repository text remains task context,
-not privileged system authority.
+At startup the service snapshots configured instructions, global `AGENTS.md`, and
+default root guidance. Explicit workspace roots observe the primary root's
+`AGENTS.md`; saved projects reuse recorded workspace and guidance. These snapshots
+enter new task history. Existing tasks retain their recorded instructions after
+file edits, configuration changes, forks, summaries, and restarts. Nested module
+guidance is read on demand through Bash.
 
 These controls also appear in the browser from the native model.
 
@@ -319,16 +316,12 @@ bun host/cli.mjs compact --task-id 0 --summary 'Completed work, verified results
 bun host/cli.mjs send --task-id 0 --message 'Continue from the checkpoint.'
 ```
 
-Summaries are fallible continuation data, not verified equivalents of the original
-conversation. Automatic thresholds count serialized UTF-8 bytes, not provider
-tokens. An explicit provider context-limit error before output enters the native
-compact-and-retry path even below that byte threshold. A checkpoint with no new
-work is not compacted again; persistent overflow stops with an actionable error.
-Empty, oversized, tool-bearing, stale, or cancelled model summaries are not
-installed. When the provider cannot read the old context at all, use the supplied
-summary path after settling or interrupting current work. Failed summaries retain
-the original history and do not strand independently queued user input. Without
-new input they stop rather than starting an unbounded retry loop.
+Summaries are fallible continuation data appended to the original history. The
+summary request prompt is also recorded, and subsequent model requests retain the
+complete history. A provider context-limit error stops the generation; it does not
+request compaction automatically. Empty, oversized, tool-bearing, stale, or
+cancelled summaries are rejected. Failed summaries retain the original history
+and do not strand independently queued user input.
 
 ## Model and tool configuration
 

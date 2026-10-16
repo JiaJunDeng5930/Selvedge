@@ -10,6 +10,7 @@ import ./context.bend as Context
 import ../execution/OPERATIONS.bend as Ops
 import ../features/MODEL.bend as F
 import ./CONTRACT.bend as A
+import ../LAWS.bend as Laws
 
 def route_meaning(+policy: R.Policy, +lease: R.Lease) ->
   {Actual.route(policy, lease) == R.requirement(policy, lease) : R.Plan}:
@@ -22,7 +23,7 @@ def route_meaning(+policy: R.Policy, +lease: R.Lease) ->
 def request_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
   {Actual.request(StateRest, EffectRest, task, world) == Spec.model(StateRest, EffectRest, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
   match world:
-    case C.Frame{D.State{tasks, next_task, ticket, D.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects}, rest}: {==}
+    case C.Frame{D.State{tasks, next_task, ticket, D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions}, limits, projects}, rest}: {==}
 
 def evaluator_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
   {Actual.evaluate(StateRest, EffectRest, task, world) == Spec.evaluator(StateRest, EffectRest, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
@@ -55,7 +56,7 @@ def start_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.
 def request_frame(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) ->
   {C.remaining(D.State, StateRest, Effects.Effect<EffectRest>, Actual.request(StateRest, EffectRest, task, world)) == C.rest(D.State, StateRest, world) : StateRest}:
   match world:
-    case C.Frame{D.State{tasks, next_task, ticket, D.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects}, rest}: {==}
+    case C.Frame{D.State{tasks, next_task, ticket, D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions}, limits, projects}, rest}: {==}
 
 def evaluator_frame(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) ->
   {C.remaining(D.State, StateRest, Effects.Effect<EffectRest>, Actual.evaluate(StateRest, EffectRest, task, world)) == C.rest(D.State, StateRest, world) : StateRest}:
@@ -137,3 +138,8 @@ def A.reasoning_boundary():
     (history => {==}), contract_frame,
     (secret => summary => tail => {==}),
     (secret => {==}), (id => value => error => tail => {==})}
+
+
+def Laws.model_request_full_history(task, state, board, catalog, profiles, forks, descendants, project, plugins, instructions):
+  match state:
+    case D.State{tasks, next_task, next_ticket, environment, limits, registry}: {==}

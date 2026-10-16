@@ -123,3 +123,6 @@ def adaptive_policy_production(+source: J.Json) ->
 def auto_preset_production(+source: J.Json) ->
   {Configuration.run("config.auto_preset", source) == Model.success(Configuration.config_auto_preset(source)) : J.Json}:
   {==}
+
+def Configuration.initial_instruction_default():
+  source => {==}

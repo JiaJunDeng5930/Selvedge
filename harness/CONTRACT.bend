@@ -91,8 +91,8 @@ type ResultBoundary is Type:
         task, duplicate, duplicate_error) == Protocol.Ignore{} : Protocol.ResolvedEvent},
     audit: @+history: D.History -> @+owner: Nat -> @+operation: Nat -> @call: D.Call -> @value: J.Json -> @error: Bool ->
       @plugin: D.PluginRef -> @outcome: D.AfterOutcome ->
-      ({D.context_node(history, D.ToolReceipt{owner, operation, call, value, error}) == history : D.History} &
-       {D.context_node(history, D.AfterRecord{owner, operation, plugin, outcome}) == history : D.History}),
+      ({D.context_history(D.HistoryNode{history, D.ToolReceipt{owner, operation, call, value, error}}) == D.HistoryNode{history, D.ToolReceipt{owner, operation, call, value, error}} : D.History} &
+       {D.context_history(D.HistoryNode{history, D.AfterRecord{owner, operation, plugin, outcome}}) == D.HistoryNode{history, D.AfterRecord{owner, operation, plugin, outcome}} : D.History}),
     control_frame: @+task: D.Task -> @operation: D.Operation() ->
       {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase},
     completion_record: @+outcome: D.AfterOutcome -> @+plugin: D.PluginRef -> @+pending: +List<D.PluginRef> ->

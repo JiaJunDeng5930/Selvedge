@@ -69,7 +69,7 @@ type ReasoningBoundary is Type:
     checkpoint: @history:D.History -> @summary:String -> @owner:Nat ->
       {Context.lease(D.HistoryNode{history, D.ContextCheckpoint{summary}}, owner) == R.NoLease{} : R.Lease},
     checkpoint_update: @history:D.History -> @summary:String ->
-      {Context.last_update(D.HistoryNode{history, D.ContextCheckpoint{summary}}) == None{} : Maybe<&2, String>},
+      {Context.last_update(D.HistoryNode{history, D.ContextCheckpoint{summary}}) == Context.last_update(history) : Maybe<&2, String>},
     baseline: @evaluator:String -> @efforts:+List<String> -> @+baseline:String -> @maximum:Nat -> @effective:String ->
       {R.request_effort(R.Adaptive{evaluator, efforts, baseline, R.ConfigurationUpdates{}, maximum}, effective) == baseline : String},
     sample_frame: @+effort:String -> @+remaining:Nat -> @+owner:Nat -> @+history:D.History ->
@@ -78,7 +78,7 @@ type ReasoningBoundary is Type:
     update_frame: @+effort:String -> @+remaining:Nat -> @+owner:Nat -> @+history:D.History ->
       {Context.sampling_history(True{}, effort, remaining, owner, history) ==
         D.HistoryNode{D.HistoryNode{Context.separate(Context.trailing_update(history), history),
-          D.ReasoningRecord{owner, effort, remaining, True{}}}, D.ConfigurationUpdate{effort}} : D.History},
+          D.ReasoningRecord{owner, effort, remaining, True{}}}, D.ContextMessage{D.ReasoningConfiguration{effort}}} : D.History},
     separator_frame: @+history:D.History ->
       {Context.separate(True{}, history) == D.HistoryNode{history, D.FailureMessage{
         "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."}} : D.History},

@@ -11,10 +11,9 @@ import ../tasks/PROGRAM.bend as T
 import ../reasoning/context.bend as ReasoningContext
 
 def model_json(model: D.Model) -> J.Json:
-  D.Model{D.Profile{profile, provider, name, policy, options}, reasoning, project} = model
+  D.Model{D.Profile{profile, provider, name, policy, options}, reasoning} = model
   J.Object{[J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}},
-    J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"adaptive_reasoning", Reasoning.json(policy)},
-    J.Field{"project", D.project_json(project)}]}
+    J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"adaptive_reasoning", Reasoning.json(policy)}]}
 
 def references(values: +List<D.PluginRef>) -> +List<J.Json>:
   match values:
@@ -51,7 +50,6 @@ def effect(effect: M.Effect()) -> J.Json:
         J.Field{"value", value}, J.Field{"error", J.Boolean{error}}]}
     case Effects.RequestModel{+task_id, ticket, +model, +history, tools, callable, context}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"instructions", J.Text{D.assistant_instructions()}},
         J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"sampling", ReasoningContext.sampling(task_id, model, history)},
         J.Field{"history", J.Array{T.messages_json(D.history_messages(history, Nil{}))}},
@@ -66,7 +64,7 @@ def effect(effect: M.Effect()) -> J.Json:
     case Effects.RequestApproval{task_id, ticket, D.Profile{+key, +provider, +name, policy, options}, call, context, history}:
       J.Object{[J.Field{"kind", J.Text{"approval"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", J.Object{[J.Field{"profile", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}},
-          J.Field{"reasoning", J.Text{D.profile_default(D.Profile{key, provider, name, policy, options})}}, J.Field{"project", J.Null{}}]}},
+          J.Field{"reasoning", J.Text{D.profile_default(D.Profile{key, provider, name, policy, options})}}]}},
         J.Field{"instructions", J.Text{Approvals.instructions()}}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"call", T.call_json(call)}, J.Field{"user_requests", J.Array{Approvals.user_requests(4n, history)}}]}
     case Effects.ResetModelSession{task_id}:
@@ -77,9 +75,8 @@ def effect(effect: M.Effect()) -> J.Json:
       J.Object{[J.Field{"kind", J.Text{"cancel_ticket"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)}]}
     case Effects.RequestSummary{+task_id, ticket, +model, +history, context}:
       J.Object{[J.Field{"kind", J.Text{"summary"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)}, J.Field{"instructions", J.Text{D.summary_instructions()}},
+        J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"sampling", ReasoningContext.sampling(task_id, model, history)},
-        J.Field{"context_instructions", J.Text{D.assistant_instructions()}},
         J.Field{"history", J.Array{T.messages_json(D.history_messages(history, Nil{}))}},
         J.Field{"tools", J.Array{Nil{}}}, J.Field{"callable", J.Array{Nil{}}}]}
     case Effects.ContinueScheduling{}:

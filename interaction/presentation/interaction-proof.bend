@@ -286,7 +286,7 @@ def Rule.boundary_evidence():
           Code.CodeView{wrap, copy}, next}),
         Code.code_can_copy(Code.CodeView{wrap, copy}), True{}, can_copy),
     identity => source => wrap => copy => next => {==},
-    model => tools => max_fork => max_descendants => plugins => context => task => {==},
+    model => tools => max_fork => max_descendants => plugins => context => task => guidance => {==},
     origin => workspace => sandbox => approval => project => guidance => entered_workspace => entered_sandbox => entered_approval => {==},
     project => name => old_workspace => workspace => guidance => now => {==},
     name => workspace => guidance => {==},

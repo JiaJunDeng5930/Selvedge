@@ -11,6 +11,7 @@ import ./CONTRACT.bend as A
 import ../../bendlib/association-map.bend as Finite
 import ../protocol/PROGRAM.bend as Protocol
 import ../../bendlib/json-proof.bend as JsonProof
+import ../../bendlib/equality.bend as Same
 import ../../bendlib/equality-proof.bend as EqualityProof
 
 def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
@@ -26,14 +27,17 @@ def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.
   D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified} = parent
   {==}
 
-def override_context(+context:D.TaskContext, guidance:D.ProjectContext, task:D.Task) ->
+def recorded_context(changed: Bool, +context:D.TaskContext, guidance:D.ProjectContext, parent:D.Task) ->
+  {D.task_context(Commands.record_selection(changed, W.Selection{context, guidance}, parent)) == context : D.TaskContext}:
+  match changed context parent:
+    case False{} D.TaskContext{workspace, sandbox, approval, project_id}
+      D.Task{id, lineage, D.Contract{model, tools, forks, descendants, plugins, previous}, current, status, history, queued, phase, operations, notified}: {==}
+    case True{} D.TaskContext{workspace, sandbox, approval, project_id}
+      D.Task{id, lineage, D.Contract{model, tools, forks, descendants, plugins, previous}, current, status, history, queued, phase, operations, notified}: {==}
+
+def override_context(+context:D.TaskContext, +guidance:D.ProjectContext, +task:D.Task) ->
   {D.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : D.TaskContext}:
-  match context task:
-    case D.TaskContext{workspace, sandbox, approval, project}
-         D.Task{id, lineage, D.Contract{creation_model, tools, max_fork, max_descendants, plugins,
-           D.TaskContext{old_workspace, old_sandbox, old_approval, old_project}},
-           D.ExecutionConfiguration{current_profile, current_reasoning, D.Model{profile, reasoning, previous}, current_sandbox, current_approval},
-           status, history, queued, phase, operations, notified}: {==}
+  recorded_context(Bool.not(Same.project(guidance, D.task_guidance(task)) && Same.task_context(context, D.task_context(task))), context, guidance, task)
 
 def project_frame(registry:D.Projects, +world:M.World()) ->
   {Commands.entries(Projects.store(F.State(), registry, world)) == Commands.entries(world) : +List<D.Task>}:

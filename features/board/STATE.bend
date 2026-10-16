@@ -20,7 +20,7 @@ def store(board: B.State, world: M.World()) -> M.World():
   C.map_rest(D.State, F.State(), state => F.with_board(board, state), world)
 
 def environment_profiles(environment: D.Environment) -> +List<D.Profile>:
-  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions} = environment
   profiles
 
 def profiles(world: M.World()) -> +List<D.Profile>:

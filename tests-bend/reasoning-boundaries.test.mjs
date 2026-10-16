@@ -19,7 +19,7 @@ async function kernel(t, adaptive = policy()) {
   await k.initialize();
   const send = async input => (await k.request(input)).value;
   const command = command => send({ kind: 'command', command });
-  const configured = await send({ kind: 'configure', profiles: [
+  const configured = await send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [
     { key: 'fixed', provider: 'responses', name: 'ordinary-model', reasoning_options: null }, profile(adaptive),
   ], tools: [], max_fork: 4, max_descendants: 8 });
   assert.equal(configured.reply.ok, true, JSON.stringify(configured));
@@ -35,7 +35,7 @@ async function kernel(t, adaptive = policy()) {
   };
 }
 
-test('Bend-generated JavaScript generation records encode exact Responses prefixes and never leak audit records into provider input', async t => {
+test('Bend-generated JavaScript generation records encode exact Responses prefixes and preserve audit records in provider input', async t => {
   const k = await kernel(t);
   const pending = effect(await k.create(), 'reasoning');
   const first = effect(await k.choose(pending, 'low', 2), 'model');
@@ -50,7 +50,9 @@ test('Bend-generated JavaScript generation records encode exact Responses prefix
   assert.deepEqual(providerInput(third.history).at(-1), { type: 'configuration_update', reasoning: { effort: 'high' } });
   const body = responseBody(third, { provider: 'responses' });
   assert.equal(body.reasoning.effort, 'medium');
-  assert.ok(!body.input.some(item => item.role === 'reasoning_record'));
+  assert.ok(JSON.stringify(body.input).includes('reasoning_record'));
+  assert.ok(third.history.some(item => item.role === 'task_context' && item.type === 'reasoning_configuration'));
+  assert.equal('instructions' in third, false);
   assert.ok(!body.input.some((item, index) => item.type === 'configuration_update' && body.input[index + 1]?.type === 'configuration_update'));
 });
 

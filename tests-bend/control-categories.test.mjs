@@ -34,8 +34,11 @@ def key() -> Identity.Key:
 def visual() -> Design.Style:
   Appearance.ordinary_button(Typography.Presentation{Typography.Body{}, Typography.Regular{}, Typography.Scale{0n}})
 
-def parameters() -> Design.LayoutParameters:
-  Design.LayoutParameters{1n, 1n, 1n, 1n, 1n, 1n, 1n, 1n, 1n, 1n, 1n}
+def parameters() -> Maybe<&2, Design.LayoutParameters>:
+  Design.parameters(4096n, Typography.Scale{0n},
+    Typography.Metric{"@font/body", 8n, 8n, 20n, 8n},
+    Typography.Metric{"@font/activity-primary", 7n, 7n, 20n, 7n},
+    Typography.Metric{"@font/activity-support", 6n, 6n, 18n, 6n})
 
 def input() -> Controls.FormInput:
   Controls.FormInput{Surface.DirectoryBrowserLocation{"retained-value"}, "Known input", Controls.TextInput{}, Controls.AccessibleOnly{}, View.Unavailable{"paused"}}
@@ -60,8 +63,14 @@ def native_movable(node: Source.Node) -> Bool:
       Bool.and(String.eq(target, "available"), Bool.and(String.eq(label, "Available"), String.eq(binding, Identity.encode(key))))
     case _: False{}
 
+def native_fields(admitted: Maybe<&2, Design.LayoutParameters>) -> Bool:
+  match admitted:
+    case Some{+parameters}:
+      Bool.and(native_input(Authored.input(key(), input(), visual(), parameters)), native_movable(Authored.movable_choices(key(), movable(), visual(), parameters)))
+    case None{}: False{}
+
 def main() -> Bool:
-  Bool.and(native_input(Authored.input(key(), input(), visual(), parameters())), native_movable(Authored.movable_choices(key(), movable(), visual(), parameters())))
+  native_fields(parameters())
 `;
 
 async function fixture(t) {

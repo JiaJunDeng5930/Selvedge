@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,6 +11,9 @@ import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { approvalOutcome } from '../host/approvals.mjs';
 import { bendTag, decodeBendValue } from '../host/public/bend-value.mjs';
 import { home, responsesServer, shellQuote, taskIdle, browserUI, surfaceNodes as nodes } from './support.mjs';
+
+// Compile the shared production facade outside the operation deadlines.
+beforeAll(() => browserUI({ after: afterAll }), 120_000);
 
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
 const find = (view, semantic) => nodes(view.surface).find(node => node.semantic === semantic);

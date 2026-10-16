@@ -13,7 +13,7 @@ const output = text => [{ type: 'context', value: {
 // integration obtains its actual budgets from the executable description.
 const limits = { frame_bytes: 64 * 1024, model_retry: { statuses: [], delays_ms: [], max_retry_after_ms: 0 } };
 const effect = { kind: 'board_text', card_id: 7, ticket: 13, retitle: false,
-  model: { profile: 'draft', provider: 'responses', name: 'draft-model', reasoning: 'default', project: null },
+  model: { profile: 'draft', provider: 'responses', name: 'draft-model', reasoning: 'default' },
   prompt: '保留原要求，生成一个任务标题和描述。',
 };
 
@@ -60,7 +60,7 @@ test('independent board requests have no tools, task history or inherited reason
     assert.deepEqual(body.tools, []);
     assert.equal(body.tool_choice, 'none');
     assert.equal(Object.hasOwn(body, 'reasoning'), false);
-    assert.equal(Object.hasOwn(body, 'instructions'), false);
+    assert.ok(!body.instructions);
     assert.equal(body.model, 'draft-model');
   }
 });

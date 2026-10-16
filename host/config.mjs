@@ -26,15 +26,17 @@ export function validateConfig(value) {
   const observer = configurationObserver();
   const root = observer.observe(value, { shallow: true });
   if (root.kind === 'object') root.fields = Object.entries(value).map(([key, item]) => ({
-    key: observer.observe(key), value: observer.observe(item, { shallow: key !== 'format' }),
+    key: observer.observe(key), value: observer.observe(item, { shallow: !['format', 'instructions'].includes(key) }),
   }));
   const config = observer.materialize(observer.execute('config.configuration_head', { value: root }));
   config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
   observer.execute('config.configuration_transport', {
-    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles'].map(key =>
+    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles', 'instructions'].map(key =>
       [key, observer.observe(config[key], { shallow: key === 'profiles' })])),
+    instructions_bytes: typeof config.instructions === 'string' ? Buffer.byteLength(config.instructions, 'utf8') : null,
+    instructions_well_formed: typeof config.instructions === 'string' && config.instructions.isWellFormed() && !config.instructions.includes('\0'),
   });
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     profileBoundary('backend.profile_head', { key, profile: source });

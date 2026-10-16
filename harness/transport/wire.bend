@@ -384,8 +384,29 @@ def valid_project(+value: J.Json) -> Bool:
         I.project_context(project(body))
     case _: False{}
 
+def instruction_snapshot(+value: J.Json) -> Maybe<&2, D.InstructionSnapshot>:
+  match value:
+    case J.Null{}: None{}
+    case other: Some{D.InstructionSnapshot{J.text(J.get(other, "path")), J.text(J.get(other, "revision")), J.text(J.get(other, "content"))}}
+
+def initial_instructions(+value: J.Json) -> D.InitialInstructions:
+  D.InitialInstructions{J.text(J.get(value, "configured")), instruction_snapshot(J.get(value, "global"))}
+
+def valid_instruction_snapshot(+value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case other:
+      Shape.object_keys(other, ["path", "revision", "content"]) && J.is_text(J.get(other, "path")) &&
+        Workspace.valid_path(J.text(J.get(other, "path"))) && J.is_text(J.get(other, "revision")) &&
+        Nat.is_eq(J.utf8_length(J.text(J.get(other, "revision"))), 64n) && J.is_text(J.get(other, "content")) &&
+        Nat.is_le(J.utf8_length(J.text(J.get(other, "content"))), D.project_limit())
+
+def valid_initial_instructions(+value: J.Json) -> Bool:
+  Shape.object_keys(value, ["configured", "global"]) && J.is_text(J.get(value, "configured")) &&
+    Nat.is_le(J.utf8_length(J.text(J.get(value, "configured"))), D.project_limit()) && valid_instruction_snapshot(J.get(value, "global"))
+
 def config_payload(+body: J.Json) -> Bool:
-  valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
+  valid_initial_instructions(J.get(body, "instructions")) && valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
     Shape.is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
     Nat.is_le(Protocol.number(body, "max_fork", 0n), U32.to_nat(4294967295)) &&
@@ -396,7 +417,7 @@ def config_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Jso
   +max_fork = Protocol.number(body, "max_fork", 0n)
   Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork), remote_tools(J.items(J.get(body, "tools")))),
     profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
-    plugin_values(J.items(J.get(body, "plugins")))}}}
+    plugin_values(J.items(J.get(body, "plugins"))), initial_instructions(J.get(body, "instructions"))}}}
 
 def config_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => config_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
   match admission:

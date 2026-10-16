@@ -1543,13 +1543,13 @@
       "bendlib/effects.bend",
       "bendlib/component.bend",
       "harness/DOMAIN.bend",
+      "bendlib/equality.bend",
       "harness/MODEL.bend",
       "bendlib/json.bend",
       "harness/tasks/PROGRAM.bend",
       "harness/execution/OPERATIONS.bend",
       "harness/INVARIANTS.bend",
       "bendlib/stdlib.bend",
-      "bendlib/equality.bend",
       "harness/workspace/WORKSPACE.bend",
       "harness/workspace/PROJECTS.bend",
       "harness/transport/schema.bend",
@@ -1611,7 +1611,10 @@
       "harness/execution/notifications.bend",
       "harness/workspace/WORKSPACE.bend",
       "harness/approval/MODEL.bend",
-      "harness/tools/SYNTAX.bend"
+      "harness/tools/SYNTAX.bend",
+      "harness/tasks/CONTRACT.bend",
+      "bendlib/equality.bend",
+      "harness/reasoning/PROGRAM.bend"
     ],
     "harness/MODEL.bend": [
       "bendlib/effects.bend",
@@ -1919,7 +1922,8 @@
       "harness/reasoning/context.bend",
       "harness/execution/OPERATIONS.bend",
       "harness/features/MODEL.bend",
-      "harness/reasoning/CONTRACT.bend"
+      "harness/reasoning/CONTRACT.bend",
+      "harness/LAWS.bend"
     ],
     "harness/tasks/PROGRAM.bend": [
       "bendlib/categories.bend",
@@ -1941,7 +1945,9 @@
       "harness/LAWS.bend",
       "bendlib/theory.bend",
       "harness/CONTRACT.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/equality.bend"
     ],
     "harness/transport/CONTRACT.bend": [
       "harness/DOMAIN.bend",
@@ -2005,7 +2011,8 @@
       "bendlib/association-map.bend",
       "harness/protocol/PROGRAM.bend",
       "bendlib/json-proof.bend",
-      "bendlib/equality-proof.bend"
+      "bendlib/equality-proof.bend",
+      "bendlib/equality.bend"
     ],
     "harness/workspace/WORKSPACE.bend": [
       "bendlib/categories.bend",
@@ -2668,7 +2675,8 @@
       "bendlib/json.bend",
       "bendlib/categories.bend",
       "bendlib/stdlib.bend",
-      "host/adapters/MODEL.bend"
+      "host/adapters/MODEL.bend",
+      "host/adapters/BACKENDS.bend"
     ],
     "host/adapters/backends-proof.bend": [
       "bendlib/json.bend",
@@ -2768,7 +2776,8 @@
     "host/adapters/CONFIGURATION.bend": [
       "bendlib/json.bend",
       "bendlib/categories.bend",
-      "host/adapters/MODEL.bend"
+      "host/adapters/MODEL.bend",
+      "harness/DOMAIN.bend"
     ],
     "host/adapters/EVALUATOR.bend": [
       "bendlib/json.bend",

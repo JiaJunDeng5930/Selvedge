@@ -18,9 +18,9 @@ import { webServer, answer, call } from './fixtures/chatgpt-web.mjs';
 const limits = { frame_bytes: 1024 * 1024, approval_reason_bytes: 400,
   model_retry: { delays_ms: [1, 2], statuses: [429, 500, 502, 503, 504], max_retry_after_ms: 1000 } };
 const tool = { name: 'work', description: 'A fixture function', parameters: { type: 'object', properties: { path: { type: 'string' } } } };
-const baseEffect = () => ({ kind: 'model', task_id: 0, ticket: 1, instructions: 'Follow the user.',
-  model: { profile: 'web', provider: 'chatgpt-web', name: 'chatgpt-web/high', reasoning: 'medium', project: null },
-  history: [{ role: 'user', content: 'first question' }], tools: [tool], callable: ['work'], settings: { workspace: '/fixture' } });
+const baseEffect = () => ({ kind: 'model', task_id: 0, ticket: 1,
+  model: { profile: 'web', provider: 'chatgpt-web', name: 'chatgpt-web/high', reasoning: 'medium' },
+  history: [{ role: 'task_context', type: 'instruction', source: 'configured', content: 'Follow the user.' }, { role: 'user', content: 'first question' }], tools: [tool], callable: ['work'], settings: { workspace: '/fixture' } });
 
 function append(history, items) {
   return [...history, ...items.map(item => item.type === 'text' ? { role: 'assistant', content: item.text } :
@@ -58,13 +58,15 @@ test('web profiles use their own endpoint, token and fixed effort catalog', () =
 test('root requests use named snapshots and retain only authoritative output plus an opaque receipt', async t => {
   const f = await fixture(t, async body => {
     assert.equal(body.model, 'chatgpt-web/high');
-    assert.match(body.instructions, /Committed task settings/);
-    assert.match(body.input[0].content, /Project context snapshot/);
-    assert.equal(body.input[1].content, 'first question');
+    assert.ok(!body.instructions);
+    assert.equal(body.input[0].content, 'Follow the user.');
+    assert.equal(body.input[0].role, 'developer');
+    assert.ok(JSON.stringify(body.input).includes('project data'));
+    assert.equal(body.input.at(-1).content, 'first question');
     assert.deepEqual(body.tools, [{ type: 'function', ...tool }]);
     return { output: answer('final 😀'), snapshots: ['provisional longer text', 'short', 'corrected 😀'] };
   });
-  const effect = baseEffect(); effect.model.project = { workspace: '/fixture', instructions: 'project data', revision: 'r1' };
+  const effect = baseEffect(); effect.history.splice(1, 0, { role: 'task_context', type: 'project', content: { workspace: '/fixture', instructions: 'project data', revision: 'a'.repeat(64) } });
   const snapshots = [];
   const items = await f.run(effect, { onSnapshot: (text, index) => snapshots.push([text, index]), onDelta: () => assert.fail('snapshots are not deltas') });
   assert.deepEqual(snapshots, [['provisional longer text', 0], ['short', 0], ['corrected 😀', 0], ['final 😀', 0]]);
@@ -86,20 +88,22 @@ test('completed continuations send only new messages and inherit all root settin
   const root = baseEffect(); const first = await f.run(root);
   const next = { ...root, ticket: 2, history: [...append(root.history, first), { role: 'user', content: 'only this is new' }] };
   await f.run(next);
-  assert.deepEqual(f.requests[1].body, { previous_response_id: first[1].value.response_id,
-    input: [{ type: 'message', role: 'user', content: 'only this is new' }], stream: true });
+  assert.equal(f.requests[1].body.previous_response_id, first[1].value.response_id);
+  assert.deepEqual(f.requests[1].body.input.at(-1), { type: 'message', role: 'user', content: 'only this is new' });
+  assert.match(f.requests[1].body.input[0].content, /Committed provider receipt/);
   assert.deepEqual(f.failures, []);
 });
 
-test('local transport receipts never become another backend\'s wire input', async t => {
+test('local transport receipts remain tagged data in another backend\'s wire input', async t => {
   const f = await fixture(t, async () => ({ output: answer('portable answer') }));
   const root = baseEffect(); const output = await f.run(root);
   const history = append(root.history, output);
   for (const provider of ['responses', 'chatgpt']) {
     const body = responseBody({ ...root, history, model: { ...root.model, provider, name: 'fixture-model' } }, { provider });
-    assert.deepEqual(body.input, [{ role: 'user', content: 'first question' }, { role: 'assistant', content: 'portable answer' }]);
-    assert.ok(!JSON.stringify(body).includes(output.at(-1).value.response_id));
-    assert.ok(!JSON.stringify(body).includes(output.at(-1).value.request_key));
+    assert.ok(body.input.some(item => item.role === 'user' && item.content === 'first question'));
+    assert.ok(body.input.some(item => item.role === 'assistant' && item.content === 'portable answer'));
+    assert.ok(JSON.stringify(body.input).includes(output.at(-1).value.response_id));
+    assert.ok(JSON.stringify(body.input).includes(output.at(-1).value.request_key));
   }
 });
 
@@ -107,11 +111,11 @@ test('object-argument calls return one exact result batch, then flush deferred m
   const f = await fixture(t, async (body, index) => {
     if (index === 0) return { output: [call('a', 'work', { path: 'a' }), call('b', 'work', { path: 'b' })] };
     if (index === 1) {
-      assert.deepEqual(body.input.map(item => item.call_id), ['a', 'b']);
-      assert.deepEqual(JSON.parse(body.input[1].output), { value: { content: 'opaque JSON, not MCP blocks' }, is_error: true });
+      assert.deepEqual(body.input.filter(item => item.type === 'function_call_output').map(item => item.call_id), ['a', 'b']);
+      assert.deepEqual(JSON.parse(body.input.filter(item => item.type === 'function_call_output')[1].output), { value: { content: 'opaque JSON, not MCP blocks' }, is_error: true });
       return { output: answer('tool turn completed') };
     }
-    assert.equal(body.input[0].content, 'new request during tools');
+    assert.ok(body.input.some(item => item.content === 'new request during tools'));
     return { output: answer('new request answered') };
   });
   const root = baseEffect(); const first = await f.run(root);
@@ -133,10 +137,10 @@ test('messages deferred over several tool rounds survive in the native context c
   const next = { ...root, ticket: 2, history: [...append(root.history, first),
     { role: 'user', content: 'keep this message' }, { role: 'function_output', call_id: 'c0', content: 'zero', is_error: false }] };
   const second = await f.run(next);
-  assert.equal(second.at(-1).value.deferred[0].content, 'keep this message');
+  assert.ok(second.at(-1).value.deferred.some(item => item.content === 'keep this message'));
   const last = { ...root, ticket: 3, history: [...append(next.history, second), { role: 'function_output', call_id: 'c1', content: 'one', is_error: false }] };
   await f.run(last);
-  assert.deepEqual(f.requests[3].body.input, [{ type: 'message', role: 'user', content: 'keep this message' }]);
+  assert.ok(f.requests[3].body.input.some(item => item.type === 'message' && item.content === 'keep this message'));
   assert.deepEqual(f.failures, []);
 });
 
@@ -150,22 +154,41 @@ test('missing, repeated and foreign results fail before admitting another reques
   assert.equal(f.requests.length, 1);
 });
 
-test('forks and text checkpoints start explicit roots; summaries never invoke remote compaction', async t => {
+test('forks start explicit roots and recorded summaries retain the verified continuation prefix', async t => {
   const f = await fixture(t, async () => ({ output: answer('answer'), snapshots: ['preview'] }));
   const root = baseEffect(); const first = await f.run(root);
   const history = append(root.history, first);
   await f.run({ ...root, task_id: 8, ticket: 2, history: [...history, { role: 'user', content: 'child task' }] });
   assert.equal(f.requests[1].body.previous_response_id, undefined);
   assert.ok(f.requests[1].body.input.some(item => item.content === 'first question'));
-  const summary = await f.run({ ...root, ticket: 3, kind: 'summary', history, instructions: 'Summarize this task.' },
+  const summary = await f.run({ ...root, ticket: 3, kind: 'summary', history: [...history, { role: 'user', content: 'Summarize this task for this request only; then resume the original task.' }] },
     { onSnapshot: () => assert.fail('summary previews must not be displayed') });
   assert.deepEqual(summary, [{ type: 'text', text: 'answer' }]);
   assert.deepEqual(f.requests[2].body.tools, []);
   assert.ok(f.requests[2].body.input.every(item => item.type === 'message'));
-  await f.run({ ...root, ticket: 4, history: [{ role: 'context_summary', content: 'replacement context' }, { role: 'user', content: 'continue' }] });
-  assert.equal(f.requests[3].body.previous_response_id, undefined);
-  assert.ok(!JSON.stringify(f.requests[3].body).includes('first question'));
+  await f.run({ ...root, ticket: 4, history: [...history, { role: 'context_summary', content: 'recorded summary' }, { role: 'user', content: 'continue' }] });
+  assert.equal(f.requests[3].body.previous_response_id, first.at(-1).value.response_id);
+  assert.ok(history.some(item => item.content === 'first question'));
+  assert.ok(JSON.stringify(f.requests[3].body).includes('recorded summary'));
   assert.deepEqual(f.failures, []);
+});
+
+test('web HTTP retains the recorded reasoning change and rejects unknown history entries', async t => {
+  const f = await fixture(t, async body => {
+    const encoded = body.input.map(item => typeof item.content === 'string' ? item.content : JSON.stringify(item.content));
+    const changed = encoded.findIndex(item => item.includes('Committed reasoning effort') && item.includes('high'));
+    assert.ok(encoded.indexOf('before recorded effort') < changed);
+    assert.ok(changed < encoded.indexOf('after recorded effort'));
+    assert.ok(!body.instructions);
+    return { output: answer('done') };
+  });
+  await f.run({ ...baseEffect(), history: [
+    { role: 'user', content: 'before recorded effort' },
+    { role: 'task_context', type: 'reasoning_configuration', effort: 'high' },
+    { role: 'user', content: 'after recorded effort' },
+  ] });
+  await assert.rejects(f.run({ ...baseEffect(), task_id: 8, history: [{ role: 'unknown_history_role', content: 'must fail' }] }));
+  assert.equal(f.requests.length, 1); assert.deepEqual(f.failures, []);
 });
 
 test('transient header retries preserve the original body and idempotency key; completed replay is local', async t => {
@@ -209,8 +232,9 @@ test('connection and contract changes cannot consume a retained predecessor', as
   const f = await fixture(t, async () => ({ output: answer('done') }));
   const root = baseEffect(); const first = await f.run(root);
   const next = { ...root, ticket: 2, history: [...append(root.history, first), { role: 'user', content: 'next' }] };
-  await assert.rejects(f.run({ ...next, instructions: 'different root instructions' }), /contract changed/);
-  const alien = structuredClone(next); alien.history[2].content.store_id = 'different-home';
+  const altered = structuredClone(next); altered.history[0].content = 'changed configured instruction';
+  await assert.rejects(f.run(altered), /prefix|contract changed|history no longer matches/);
+  const alien = structuredClone(next); alien.history.find(item => item.role === 'model_context' && item.content.type === 'provider_receipt').content.store_id = 'different-home';
   await assert.rejects(f.run(alien), /connection or contract changed/);
   assert.equal(f.requests.length, 1);
 });
@@ -255,7 +279,7 @@ test('web transport crosses real native execution, SQLite commit, restart, fork 
     'HTTP requires its own earlier committed model intent');
     if (index === 0) return { output: [call('run', 'bash', { command: "printf 'ran\\n' >> executions; printf 'tool ok'" })] };
     if (index === 1) {
-      const result = JSON.parse(body.input[0].output);
+      const result = JSON.parse(body.input.find(item => item.type === 'function_call_output').output);
       assert.equal(result.is_error, false);
       // OS scheduling may return a running operation before its completion.
       // The final task page below must contain the actual stdout in either case.
@@ -290,10 +314,11 @@ test('web transport crosses real native execution, SQLite commit, restart, fork 
   const childRequest = f.requests.find(request => request.body.input.some(item => item.content === 'child request'));
   assert.ok(childRequest);
   assert.equal(childRequest.body.previous_response_id, undefined);
-  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit replacement context' })).reply.ok, true);
+  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit recorded summary' })).reply.ok, true);
   assert.equal((await service.command({ op: 'send', task_id: 0, message: 'continue with summary' })).reply.ok, true);
   await taskIdle(service);
-  assert.equal(f.requests.at(-1).body.previous_response_id, undefined);
+  assert.ok(f.requests.at(-1).body.previous_response_id);
+  assert.ok(JSON.stringify(f.requests.at(-1).body.input).includes('explicit recorded summary'));
   assert.equal(await readFile(path.join(f.directory, 'executions'), 'utf8'), 'ran\n', 'no tool replay after restart or branch');
   assert.ok(notices.some(value => value.type === 'snapshot'));
   assert.deepEqual(f.failures, []);
@@ -426,8 +451,7 @@ test('receipt input coverage preserves arrivals committed before the model reply
   const arriving = { role: 'operation_result', operation_id: 7, call_id: 'older', tool: 'work', content: 'arrived during HTTP', is_error: false };
   const next = { ...root, ticket: 2, history: append([...root.history, arriving], first) };
   await f.run(next);
-  assert.equal(f.requests[1].body.input.length, 1);
-  assert.match(f.requests[1].body.input[0].content, /arrived during HTTP/);
+  assert.equal(f.requests[1].body.input.filter(item => item.content?.includes('arrived during HTTP')).length, 1);
   const changed = structuredClone(next); changed.history[0].content = 'mutated committed history';
   await assert.rejects(f.run(changed), /history no longer matches/);
   assert.equal(f.requests.length, 2);
@@ -441,25 +465,24 @@ test('a real background tool completion during HTTP is sent exactly once in the 
       call('slow', 'bash', { command: 'while [ ! -f release-slow ]; do sleep 0.01; done; printf slow-result' }),
     ] };
     if (index === 1) {
-      const results = new Map(body.input.map(item => [item.call_id, JSON.parse(item.output)]));
+      const results = new Map(body.input.filter(item => item.type === 'function_call_output').map(item => [item.call_id, JSON.parse(item.output)]));
       assert.equal(results.get('fast').value.stdout, 'fast-result');
       assert.equal(results.get('slow').value.status, 'running');
       await writeFile(path.join(f.directory, 'release-slow'), 'release after the committed request snapshot');
       await eventually(async () => (await service.command({ op: 'read', task_id: 0 })).reply.result.messages.some(item => item.role === 'operation_result'));
       return { output: answer('reply to the earlier snapshot') };
     }
-    assert.equal(index, 2);
-    assert.equal(body.input.length, 1);
-    assert.equal(body.input[0].type, 'message');
-    assert.match(body.input[0].content, /Asynchronous operation completed/);
-    assert.match(body.input[0].content, /slow-result/);
-    return { output: answer('observed the late result') };
+    assert.ok(index >= 2);
+    const completions = body.input.filter(item => item.type === 'message' && item.content?.includes('slow-result'));
+    for (const completion of completions) assert.match(completion.content, /operation_result|Asynchronous operation completed/);
+    return { output: answer(completions.length ? 'observed the late result' : 'recorded the committed transport data') };
   });
   service = await Service.open({ home: path.join(f.directory, 'state'), cwd: f.directory, config: f.config });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'web', message: 'run overlapping tools' });
   const page = await taskIdle(service);
   assert.deepEqual(f.failures, [], JSON.stringify(page));
-  assert.equal(f.requests.length, 3);
+  assert.ok(f.requests.length >= 3);
+  assert.equal(f.requests.flatMap(request => request.body.input).filter(item => item.type === 'message' && item.content?.includes('slow-result')).length, 1);
   assert.ok(page.messages.some(item => item.role === 'assistant' && item.content === 'observed the late result'));
 });

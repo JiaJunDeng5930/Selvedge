@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { encodeBendValue } from '../host/public/bend-value.mjs';
 import { Service } from '../host/service.mjs';
@@ -11,14 +12,25 @@ import { chatgptFixture, jsonResponse, modelResponse, modelEffect, wireLimits } 
 
 const checkpoint = 'Retain the original user request and continue the unfinished work.';
 const assistant = text => ({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
-const summaryEffect = () => ({ ...modelEffect(), kind: 'summary', instructions: 'Summarize this task for continuation by the same assistant.',
-  context_instructions: 'The same native assistant instructions', tools: [], callable: [] });
-const isSummary = request => request.body?.instructions?.startsWith('Summarize this task for continuation');
+const summaryPrompt = 'Summarize this task for this request only; later continuations resume the original task.';
+const summaryEffect = () => ({ ...modelEffect(), kind: 'summary',
+  history: [...modelEffect().history, { role: 'user', content: summaryPrompt }], tools: [], callable: [] });
+const isSummary = request => request.body?.input?.at(-1)?.role === 'user' && /Summarize this task/.test(request.body.input.at(-1).content);
 const catalog = { models: [{ slug: 'fixture-model', display_name: 'Fixture model', visibility: 'list' }] };
 
 async function fixtureService(t, handle) {
   const upstream = await chatgptFixture(t, (request, response) => request.method === 'GET'
-    ? jsonResponse(response, catalog) : handle(request, response));
+    ? jsonResponse(response, catalog) : (() => {
+      const db = new DatabaseSync(path.join(upstream.directory, 'state', 'journal.sqlite'), { readOnly: true });
+      let effect;
+      try { effect = JSON.parse(db.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get().decision)
+        .effects.find(item => item.kind === (isSummary(request) ? 'summary' : 'model')); }
+      finally { db.close(); }
+      assert.ok(effect, 'Every request follows its committed native effect');
+      assert.equal('instructions' in effect, false); assert.equal('context_instructions' in effect, false);
+      if (isSummary(request)) assert.match(effect.history.at(-1).content, /Summarize this task/);
+      return handle(request, response);
+    })());
   const config = validateConfig({ ...defaultConfig, profiles: {}, chatgpt: {
     ...upstream.profile, auth_file: path.join(upstream.directory, upstream.profile.auth_file),
   } });
@@ -32,7 +44,8 @@ async function fixtureService(t, handle) {
 test('official Responses summary uses bounded text instructions and no tools or preview fields', async t => {
   const upstream = await chatgptFixture(t, (request, response) => {
     assert.equal(request.url, '/v1/responses');
-    assert.equal(request.body.instructions, summaryEffect().instructions);
+    assert.ok(!request.body.instructions);
+    assert.equal(request.body.input.at(-1).content, summaryPrompt);
     assert.equal(request.body.tool_choice, 'none'); assert.deepEqual(request.body.tools, []);
     modelResponse(response, [assistant(checkpoint)], [{ type: 'response.output_text.delta', delta: 'hidden summary delta' }]);
   });
@@ -42,7 +55,8 @@ test('official Responses summary uses bounded text instructions and no tools or 
   assert.deepEqual(result, [{ type: 'context', value: assistant(checkpoint) }]); assert.deepEqual(deltas, []);
   const request = responseBody({ ...summaryEffect(), model: { ...summaryEffect().model,
     adaptive_reasoning: { transport: 'configuration_update' } }, sampling: { request_effort: 'medium', effective_effort: 'medium' } }, { provider: 'chatgpt' });
-  assert.equal(request.instructions, summaryEffect().instructions);
+  assert.ok(!request.instructions);
+  assert.equal(request.input.at(-1).content, summaryPrompt);
   assert.equal(request.input.some(item => item.type === 'compaction_trigger'), false);
   assert.deepEqual(upstream.failures, []);
 });
@@ -71,27 +85,32 @@ test('empty, oversized and tool-bearing summaries are rejected by the native che
   });
 });
 
-test('automatic text checkpoint keeps original read_task history and survives native kernel restart and UI observation', { timeout: 120_000 }, async t => {
+test('manual text summary preserves original read_task history and survives native kernel restart and UI observation', { timeout: 120_000 }, async t => {
   let compactCalls = 0, modelCalls = 0;
-  const longAnswer = 'x'.repeat(140000);
+  const longAnswer = 'x'.repeat(20000);
   const largeOutputSummary = 'The original request produced a large output. The latest user request is: Continue after large output.';
   const running = await fixtureService(t, (request, response) => {
     if (isSummary(request)) {
       compactCalls++;
-      assert.ok(request.body.input.some(item => item.role === 'user' && item.content === 'Continue after large output.'));
+      assert.ok(request.body.input.some(item => item.role === 'user' && item.content === 'Original user request.'));
+      assert.ok(request.body.input.some(item => /Summarize this task/.test(item.content)));
       modelResponse(response, [assistant(largeOutputSummary)]);
     }
     else {
       modelCalls++;
       if (modelCalls > 1) {
         assert.ok(request.body.input.some(item => item.role === 'user' && typeof item.content === 'string' && item.content.includes(largeOutputSummary)));
-        assert.equal(request.body.input.some(item => item.content?.[0]?.text === longAnswer), false);
+        assert.equal(request.body.input.some(item => item.content?.[0]?.text === longAnswer), true);
       }
       modelResponse(response, [assistant(modelCalls === 1 ? longAnswer : 'Continued from the text summary.')]);
     }
   });
   await running.service.command({ op: 'create', profile: running.key, message: 'Original user request.' });
   await taskIdle(running.service);
+  const original = (await taskIdle(running.service)).messages;
+  await running.service.command({ op: 'compact', task_id: 0 });
+  const summarized = await taskIdle(running.service);
+  assert.deepEqual(summarized.messages.slice(0, original.length), original);
   await running.service.command({ op: 'send', task_id: 0, message: 'Continue after large output.' });
   let page = await taskIdle(running.service);
   assert.deepEqual(running.failures, []);
@@ -109,7 +128,7 @@ test('automatic text checkpoint keeps original read_task history and survives na
   assert.deepEqual(running.failures, []);
 });
 
-test('explicit context-limit error gets one text checkpoint and persistent overflow stops', async t => {
+test('explicit context-limit error stops without summary or retry', async t => {
   let compactCalls = 0, models = 0;
   const running = await fixtureService(t, (request, response) => {
     if (isSummary(request)) { compactCalls++; modelResponse(response, [assistant(checkpoint)]); }
@@ -117,8 +136,8 @@ test('explicit context-limit error gets one text checkpoint and persistent overf
   });
   await running.service.command({ op: 'create', profile: running.key, message: 'A small request.' });
   const page = await taskIdle(running.service);
-  assert.equal(compactCalls, 1); assert.equal(models, 2);
-  assert.ok(page.messages.some(message => message.role === 'error' && message.content.includes('persists after compaction')));
+  assert.equal(compactCalls, 0); assert.equal(models, 1);
+  assert.ok(page.messages.some(message => message.role === 'error' && typeof message.content === 'string'));
   assert.equal(JSON.stringify(page).includes('private upstream details'), false);
   assert.deepEqual(running.failures, []);
 });
