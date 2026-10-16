@@ -30,6 +30,7 @@ def lease(history: D.History, +owner: Nat) -> R.Lease:
     case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, sampling}}:
       recorded(Nat.is_eq(owner, other), effort, remaining)
     case D.HistoryNode{previous, D.UserMessage{text}}: R.NoLease{}
+    case D.HistoryNode{previous, D.ContextMessage{D.ContextChange{change}}}: R.NoLease{}
     case D.HistoryNode{previous, D.FailureMessage{text}}: R.NoLease{}
     case D.HistoryNode{previous, D.ContextCheckpoint{text}}: R.NoLease{}
     case D.HistoryNode{previous, D.ModelContext{value}}:

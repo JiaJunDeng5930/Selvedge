@@ -229,6 +229,8 @@ def transition_calculation_certificate(input: M.Input, +world: M.World()) ->
       update_certificate(M.UserCommand{M.DeleteProject{id}}, world)
     case M.UserCommand{M.ReviewApproval{id, operation, outcome}}:
       update_certificate(M.UserCommand{M.ReviewApproval{id, operation, outcome}}, world)
+    case M.ContextObserved{id, ticket, outcome}:
+      update_certificate(M.ContextObserved{id, ticket, outcome}, world)
     case M.ModelCompleted{id, ticket, outcome}:
       update_certificate(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ReasoningCompleted{id, ticket, outcome}:

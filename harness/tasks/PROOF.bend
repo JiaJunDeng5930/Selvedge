@@ -75,6 +75,7 @@ def Laws.stopped_no_model(phase):
     case D.Idle{}: {==}
     case D.Ready{Nil{}}: {==}
     case D.Ready{Con{call, rest}}: {==}
+    case D.ContextPending{ticket, revision, purpose}: {==}
     case D.ModelPending{ticket, callable}: {==}
     case D.ReasoningPending{ticket, revision}: {==}
     case D.SummaryPending{ticket, resume}: {==}
@@ -138,6 +139,8 @@ def Laws.recover_phase_idempotent(phase):
     case D.HookPending{ticket, reference, call, pending, remaining}: {==}
     case D.Idle{}: {==}
     case D.Ready{calls}: {==}
+    case D.ContextPending{ticket, revision, D.GenerateContext{}}: {==}
+    case D.ContextPending{ticket, revision, D.SummaryContext{resume}}: {==}
     case D.ModelPending{ticket, callable}: {==}
     case D.ReasoningPending{ticket, revision}: {==}
     case D.SummaryPending{ticket, True{}}: {==}

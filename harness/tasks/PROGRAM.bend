@@ -180,6 +180,7 @@ def phase_name(phase: D.Phase) -> String:
     case D.HookPending{ticket, reference, call, pending, remaining}: "hook_pending"
     case D.Idle{}: "idle"
     case D.Ready{calls}: "ready"
+    case D.ContextPending{ticket, revision, purpose}: "context_pending"
     case D.ModelPending{ticket, callable}: "model_pending"
     case D.ReasoningPending{ticket, revision}: "reasoning_pending"
     case D.SummaryPending{ticket, resume}: "summary_pending"
@@ -445,6 +446,8 @@ def interrupted_history(phase: D.Phase, history: D.History) -> D.History:
       interrupt_attempts(remaining, D.HistoryNode{history,
         D.FunctionOutput{call_id(call), D.failure("hook_cancelled", "Authorization was interrupted; the tool was not dispatched. The plugin callback may already have run."), True{}}})
     case D.Idle{}: history
+    case D.ContextPending{ticket, revision, purpose}:
+      D.HistoryNode{history, D.FailureMessage{"Context observation interrupted by the user; no model request was sent"}}
     case D.ModelPending{ticket, callable}:
       D.HistoryNode{history, D.FailureMessage{"Model request interrupted by the user"}}
     case D.ReasoningPending{ticket, revision}:
@@ -483,6 +486,7 @@ def steer(text: String, task: D.Task) -> D.Task:
 def steering_effects(-EffectRest: Data, phase: D.Phase, id: Nat) -> +List<Effects.Effect<EffectRest>>:
   match phase:
     case D.HookPending{ticket, plugin, call, pending, remaining}: [Effects.CancelTicket{id, ticket}]
+    case D.ContextPending{ticket, revision, purpose}: [Effects.CancelTicket{id, ticket}]
     case D.ModelPending{ticket, allowed}: [Effects.CancelTicket{id, ticket}]
     case D.ReasoningPending{ticket, revision}: [Effects.CancelTicket{id, ticket}]
     case D.SummaryPending{ticket, resume}: [Effects.CancelTicket{id, ticket}]
@@ -490,6 +494,8 @@ def steering_effects(-EffectRest: Data, phase: D.Phase, id: Nat) -> +List<Effect
 
 def recover_phase(phase: D.Phase) -> D.Phase:
   match phase:
+    case D.ContextPending{ticket, revision, D.GenerateContext{}}: D.Ready{Nil{}}
+    case D.ContextPending{ticket, revision, D.SummaryContext{resume}}: D.Idle{}
     case D.ModelPending{ticket, callable}: D.Ready{Nil{}}
     case D.ReasoningPending{ticket, revision}: D.Ready{Nil{}}
     case D.SummaryPending{ticket, resume}: D.Idle{}

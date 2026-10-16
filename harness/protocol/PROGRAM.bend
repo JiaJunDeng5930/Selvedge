@@ -26,6 +26,7 @@ import ../reasoning/SPEC.bend as Reasoning
 type ResolvedEvent is Data:
   User{operation: Commands.Operation}
   Ignore{}
+  ContextResult{task: D.Task, revision: Nat, purpose: D.ContextPurpose, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>}
   ModelResult{task: D.Task, outcome: D.Outcome, allowed: +List<String>}
   ReasoningResult{task: D.Task, revision: Nat, outcome: R.Outcome}
   FeatureEvent{event: FeatureOps.ResolvedEvent}
@@ -68,6 +69,19 @@ def matching_calculation(same: Bool, event: ResolvedEvent) -> ResolvedEvent:
   match same:
     case True{}: event
     case False{}: Ignore{}
+
+def context_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat,
+  outcome: Result<&2, &2, String, +List<D.ContextObservation()>>) -> ResolvedEvent:
+  match status phase:
+    case D.Archived{} _: Ignore{}
+    case _ D.ContextPending{expected, revision, purpose}:
+      matching(ticket, expected, ContextResult{task, revision, purpose, outcome})
+    case _ _: Ignore{}
+
+def context_observed(found: Maybe<&2, D.Task>, ticket: Nat, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>) -> ResolvedEvent:
+  match found:
+    case None{}: Ignore{}
+    case Some{+task}: context_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
 def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +outcome: D.Outcome) -> ResolvedEvent:
   match status phase:
@@ -173,6 +187,7 @@ def feature_result(found: Maybe<&2, FeatureOps.ResolvedEvent>) -> ResolvedEvent:
 def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
+    case M.ContextObserved{id, ticket, outcome}: context_observed(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)
     case M.FeatureCompleted{completion}: feature_result(FeatureProtocol.resolve(completion, world))
@@ -200,6 +215,8 @@ def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
   match event:
     case User{operation}: Commands.meaning(operation, world)
     case Ignore{}: C.Decision{world, acknowledgement(False{}), Nil{}}
+    case ContextResult{task, revision, purpose, outcome}:
+      Reasoning.context_completed(F.State(), F.Effect, revision, purpose, outcome, task, world)
     case ModelResult{task, outcome, allowed}:
       C.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world), acknowledgement(True{}), Nil{}}
     case ReasoningResult{task, revision, outcome}:

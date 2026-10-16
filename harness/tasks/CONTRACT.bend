@@ -13,24 +13,24 @@ def initial_global(snapshot: Maybe<&2, D.InstructionSnapshot>, history: D.Histor
   match snapshot:
     case None{}: history
     case Some{D.InstructionSnapshot{path, revision, content}}:
-      D.HistoryNode{history, D.ContextMessage{D.Instruction{D.GlobalInstruction{path, revision}, content}}}
+      D.HistoryNode{history, D.ContextMessage{D.global_context(path, revision, content)}}
 
 def initial_project(project: D.ProjectContext, history: D.History) -> D.History:
   match project:
     case D.NoProject{}: history
-    case other: D.HistoryNode{history, D.ContextMessage{D.ProjectGuidance{other}}}
+    case D.ProjectContext{workspace, revision, content}: D.HistoryNode{history, D.ContextMessage{D.project_guidance_context(workspace, revision, content)}}
 
 def initial_history(instructions: D.InitialInstructions, project: D.ProjectContext, context: D.TaskContext,
   profile: D.Profile, reasoning: String, message: String, history: D.History) -> D.History:
   D.InitialInstructions{configured, global} = instructions
   D.HistoryNode{D.HistoryNode{initial_project(project, initial_global(global,
-    D.HistoryNode{history, D.ContextMessage{D.Instruction{D.ConfiguredInstruction{}, configured}}})),
+    D.HistoryNode{history, D.ContextMessage{D.configured_context(configured)}})),
     D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}, D.UserMessage{message}}
 
 
 def selected_model_history(context: D.TaskContext, guidance: D.ProjectContext, model: D.Model, history: D.History) -> D.History:
   D.Model{profile, reasoning} = model
-  D.HistoryNode{D.HistoryNode{history, D.ContextMessage{D.ProjectGuidance{guidance}}},
+  D.HistoryNode{D.select_project_history(guidance, history),
     D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}
 
 def selected_history(changed: Bool, selection: Workspace.Selection, +parent: D.Task) -> D.History:

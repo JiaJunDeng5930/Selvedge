@@ -19,6 +19,7 @@ import ./workspace/WORKSPACE.bend as Workspace
 import ./workspace/PROJECTS.bend as Projects
 import ./transport/schema.bend as Schema
 import ./approval/MODEL.bend as Approvals
+import ./reasoning/SPEC.bend as Reasoning
 
 # A command denotes a resolved operation, not permission to make any safe change.
 # Resolution owns every command precondition. The operation's meaning fixes the
@@ -156,7 +157,7 @@ def record_selection(changed: Bool, +selection: Workspace.Selection, +parent: D.
       Workspace.Selection{+context, guidance} = selection
       +model = T.task_model(D.task_contract(parent))
       D.append_context(D.TaskSettings{context, D.profile_key(D.model_profile(model)), D.model_selection(model)},
-        D.append_context(D.ProjectGuidance{guidance}, D.with_contract(selected_contract(selection, D.task_contract(parent)), parent)))
+        D.selected_project(guidance, D.with_contract(selected_contract(selection, D.task_contract(parent)), parent)))
 
 def selected_parent(+selection: Workspace.Selection, +parent: D.Task) -> D.Task:
   Workspace.Selection{context, guidance} = selection
@@ -409,13 +410,7 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
 def summarize(task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{+task_state, +board} = world
-  +task = D.append_message(D.UserMessage{D.summary_instructions()}, task)
-  tasks = D.state_tasks(task_state)
-  +next_ticket = D.state_next_ticket(task_state)
-  next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, False{}}, task))
-  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, D.success(id_result(D.task_id(task))),
-    [Effects.RequestSummary{D.task_id(task), next_ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
+  Reasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{False{}}, world)
 
 def page_checked(valid: Bool, task: D.Task, after: Nat, limit: Nat) -> J.Json:
   match valid:

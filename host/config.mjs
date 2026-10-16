@@ -9,6 +9,12 @@ import { boundary } from './public/model-boundary.mjs';
 
 export const defaultConfig = boundary('config.defaults', {});
 export const format = defaultConfig.format;
+const configurationFiles = new WeakMap();
+
+/** Only configurations loaded from disk participate in file refresh. */
+export function configurationFilename(config) {
+  return configurationFiles.get(config);
+}
 
 function urlObservation(value) {
   try {
@@ -22,21 +28,34 @@ function profileBoundary(operation, source) {
   catch (error) { throw new TypeError(error.message); }
 }
 
-export function validateConfig(value) {
-  const observer = configurationObserver();
+function configurationHead(value, observer) {
   const root = observer.observe(value, { shallow: true });
   if (root.kind === 'object') root.fields = Object.entries(value).map(([key, item]) => ({
     key: observer.observe(key), value: observer.observe(item, { shallow: !['format', 'instructions'].includes(key) }),
   }));
-  const config = observer.materialize(observer.execute('config.configuration_head', { value: root }));
+  return observer.materialize(observer.execute('config.configuration_head', { value: root }));
+}
+
+/** Observe mutable context configuration without changing frozen task policy. */
+export function contextConfiguration(value) {
+  const current = configurationHead(value, configurationObserver());
+  const validated = validateConfig({ ...defaultConfig, instructions: current.instructions, skills: current.skills });
+  return { instructions: validated.instructions, skills: validated.skills };
+}
+
+export function validateConfig(value) {
+  const observer = configurationObserver();
+  const config = configurationHead(value, observer);
   config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
   observer.execute('config.configuration_transport', {
-    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles', 'instructions'].map(key =>
+    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles', 'instructions', 'skills'].map(key =>
       [key, observer.observe(config[key], { shallow: key === 'profiles' })])),
     instructions_bytes: typeof config.instructions === 'string' ? Buffer.byteLength(config.instructions, 'utf8') : null,
     instructions_well_formed: typeof config.instructions === 'string' && config.instructions.isWellFormed() && !config.instructions.includes('\0'),
+    skill_paths_well_formed: Array.isArray(config.skills) && config.skills.every(value =>
+      typeof value === 'string' && value.length > 0 && value.isWellFormed() && !value.includes('\0') && Buffer.byteLength(value, 'utf8') <= 4096),
   });
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     profileBoundary('backend.profile_head', { key, profile: source });
@@ -71,7 +90,9 @@ export async function loadConfig({ home, filename } = {}) {
     catch (legacyError) { if (legacyError.code !== 'ENOENT') throw legacyError; config = structuredClone(defaultConfig); }
     if (!config) throw new Error('A legacy config.toml exists in this home; choose a new home or supply the current config.json explicitly');
   }
-  return { home, filename, config: validateConfig(config) };
+  const validated = validateConfig(config);
+  configurationFiles.set(validated, filename);
+  return { home, filename, config: validated };
 }
 
 export function profileCatalog(config) {

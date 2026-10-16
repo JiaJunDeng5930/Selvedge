@@ -1,23 +1,18 @@
 import Base
+import ./string-equality.bend as Text
 import ../harness/DOMAIN.bend as D
 import ../harness/reasoning/MODEL.bend as Reasoning
 import ./json.bend as J
 import ../harness/workspace/WORKSPACE.bend as Workspace
 
 def char_equal(compared: (Char & Char) & Cmp) -> Bool:
-  ((left, right), order) = compared
-  Cmp.is_eq(order)
+  Text.char_equal(compared)
 
 def string_equal_acc(left: String, right: String, same: Bool) -> Bool:
-  match left right:
-    case SNil{} SNil{}: same
-    case SNil{} SCon{head, tail}: False{}
-    case SCon{head, tail} SNil{}: False{}
-    case SCon{a, rest_a} SCon{b, rest_b}:
-      string_equal_acc(rest_a, rest_b, same && char_equal(Char.cmp(a, b)))
+  Text.string_equal_acc(left, right, same)
 
 def string_equal(left: String, right: String) -> Bool:
-  string_equal_acc(left, right, True{})
+  Text.string_equal(left, right)
 
 def booleans(left: Bool, right: Bool) -> Bool:
   match left right:

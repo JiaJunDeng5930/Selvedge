@@ -2,6 +2,7 @@ import Base
 import ./harness/LOCALITY.bend as Locality
 import ./harness/CONTRACT.bend as A
 import ./harness/history/MODEL.bend as Reach
+import ./harness/context/CONTRACT.bend as Context
 import ./harness/workspace/CONTRACT.bend as Workspace
 import ./harness/approval/CONTRACT.bend as Approval
 import ./harness/reasoning/CONTRACT.bend as Reasoning
@@ -75,7 +76,8 @@ type Harness is Type:
   Harness{meaning: Meaning, composition: Composition, recovery: Recovery,
     observation: Observation, concurrency: Concurrency, extensibility: Extensibility,
     working_context: Workspace.ContextBoundary, approval: Approval.ApprovalBoundary,
-    reasoning: Reasoning.ReasoningBoundary, features: Features.Features, locality: Locality.Locality}
+    reasoning: Reasoning.ReasoningBoundary, features: Features.Features, locality: Locality.Locality,
+    context: Context.Evidence}
 
 # Construction is mandatory in PROOF. No field is an unproved assertion.
 # The OS/network/SQLite effect interpreter is an explicit external boundary;

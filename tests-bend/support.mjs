@@ -10,6 +10,26 @@ import { setTimeout as delay } from 'node:timers/promises';
 const repository = fileURLToPath(new URL('../', import.meta.url));
 let productionUI;
 
+// Kernel-only fixtures keep their accepted bindings while exercising the real
+// observation completion before handling the next externally owned effect.
+export async function settleContextObservations(send, decision) {
+  const effects = [];
+  const pending = [...decision.effects];
+  let sequence = decision.sequence;
+  let durable = decision.durable;
+  while (pending.length) {
+    const effect = pending.shift();
+    if (effect.kind !== 'observe_context') { effects.push(effect); continue; }
+    const completed = await send({ kind: 'context_observed', task_id: effect.task_id,
+      ticket: effect.ticket, ok: true, observations: [] });
+    assert.equal(completed.reply.ok, true, JSON.stringify(completed.reply));
+    pending.push(...completed.effects);
+    sequence = completed.sequence ?? sequence;
+    durable ||= completed.durable;
+  }
+  return { ...decision, effects, ...(sequence === undefined ? {} : { sequence }), durable };
+}
+
 // A checked facade invokes the production UI against the HTTP-visible program.
 export async function browserUI(t) {
   return productionUI ??= (async () => {

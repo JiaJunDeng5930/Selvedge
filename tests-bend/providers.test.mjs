@@ -4,7 +4,7 @@ import http from 'node:http';
 import { requestModel, ContextLimitError } from '../host/providers.mjs';
 import { Kernel } from '../host/kernel.mjs';
 import { validateConfig, defaultConfig } from '../host/config.mjs';
-import { home } from './support.mjs';
+import { home, settleContextObservations } from './support.mjs';
 
 async function fixture(t, handler) {
   const directory = await home(t);
@@ -12,7 +12,9 @@ async function fixture(t, handler) {
   t.after(() => kernel.close());
   const description = await kernel.initialize();
   await kernel.request({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8 });
-  const decision = (await kernel.request({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'hello' } })).value;
+  const send = async input => (await kernel.request(input)).value;
+  const decision = await settleContextObservations(send,
+    await send({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'hello' } }));
   const server = http.createServer((request, response) => {
     request.resume();
     handler(request, response);

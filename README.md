@@ -291,12 +291,19 @@ it through Bash. Nonzero exits, deadlines and cancellation are tool errors, and
 shell descendants are terminated when the shell exits.
 The executable catalog and `limits` in `describe` are authoritative.
 
-At startup the service snapshots configured instructions, global `AGENTS.md`, and
-default root guidance. Explicit workspace roots observe the primary root's
-`AGENTS.md`; saved projects reuse recorded workspace and guidance. These snapshots
-enter new task history. Existing tasks retain their recorded instructions after
-file edits, configuration changes, forks, summaries, and restarts. Nested module
-guidance is read on demand through Bash.
+Initial instructions and guidance enter task history with their source identity
+and revision. Before model and summary requests, the service observes configured
+instructions, global `AGENTS.md`, the current primary root's `AGENTS.md`, and
+explicitly configured skill metadata. Accepted changes append verified patches;
+unchanged content adds no record. Removed sources append a withdrawal, while
+failed observations preserve the previously accepted content. Forks inherit the
+recorded baseline and patches. Workspace and sandbox contracts stay frozen.
+Nested module guidance is read on demand through Bash.
+
+Set `skills` in the service home's `config.json` to an array of `SKILL.md` paths
+(relative paths resolve from the service home). The model receives each skill's
+name, description and path; its body is not automatically loaded. Changes to
+unloaded skill bodies do not add context updates.
 
 These controls also appear in the browser from the native model.
 
@@ -388,7 +395,7 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-The current journal format is `selvedge-bend-journal-3`, independent of build
+The current journal format is `selvedge-bend-journal-4`, independent of build
 fingerprints and compiler versions, with task-local workspace settings stored in
 its inputs. Reopening validates integrity and complete committed decisions
 against the current kernel. Ordinary source, compiler and UI updates do not

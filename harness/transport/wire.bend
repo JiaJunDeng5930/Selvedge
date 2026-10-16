@@ -1,4 +1,5 @@
 import Base
+import ../context/MODEL.bend as Context
 import ../tools/MODEL.bend as Tools
 import ../../bendlib/categories.bend as Categories
 import ../features/CODEC.bend as FeatureCodec
@@ -133,6 +134,46 @@ def valid_failure_kind(kind: J.Json) -> Bool:
     case J.Null{}: True{}
     case J.Text{"context_limit"}: True{}
     case _: False{}
+
+def context_observations_valid(observations: Maybe<&2, +List<D.ContextObservation()>>) -> Bool:
+  match observations:
+    case Some{items}: True{}
+    case None{}: False{}
+
+def context_payload(ok: Bool, +body: J.Json) -> Bool:
+  match ok:
+    case True{}:
+      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "observations"]) &&
+        context_observations_valid(Context.observations(J.get(body, "observations")))
+    case False{}:
+      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
+        Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
+
+def context_completion_payload(+body: J.Json) -> Bool:
+  Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "ok")) &&
+    context_payload(J.boolean(J.get(body, "ok")), body)
+
+def parsed_context_outcome(parsed: Maybe<&2, +List<D.ContextObservation()>>) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
+  match parsed:
+    case Some{items}: Done{items}
+    case None{}: Fail{"Malformed context observation"}
+
+def context_outcome(ok: Bool, +body: J.Json) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
+  match ok:
+    case False{}: Fail{J.text(J.get(body, "message"))}
+    case True{}: parsed_context_outcome(Context.observations(J.get(body, "observations")))
+
+def context_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>) -> Result<&2, &2, String, M.Input>:
+  Categories.Membership{+body, evidence} = member
+  Done{M.ContextObserved{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n), context_outcome(J.boolean(J.get(body, "ok")), body)}}
+
+def context_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
+  match admission:
+    case Some{member}: context_accepted(member)
+    case None{}: Fail{"Malformed context completion"}
+
+def decode_context(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  context_admission(Categories.admit(J.Json, (value => context_completion_payload(value)), body))
 
 def model_outcome(ok: Bool, +body: J.Json) -> D.Outcome:
   match ok:
@@ -510,6 +551,7 @@ def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> 
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
+    case "context_observed": decode_context(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)
     case "tool": decode_tool(body)

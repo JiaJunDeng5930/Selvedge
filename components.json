@@ -45,7 +45,9 @@
     "harness/tasks/CONTRACT.bend",
     "harness/tasks/PROGRAM.bend",
     "harness/transport/wire-shape.bend",
-    "bendlib/categories.bend"
+    "bendlib/categories.bend",
+    "harness/context/MODEL.bend",
+    "bendlib/string-equality.bend"
   ],
   "application_dependencies": {
     "BROWSER.bend": [
@@ -139,7 +141,8 @@
       "browser/PROOF.bend",
       "browser/runtime/SEMANTICS.bend",
       "browser/runtime/PROOF.bend",
-      "browser/controls/PROOF.bend"
+      "browser/controls/PROOF.bend",
+      "harness/context/PROOF.bend"
     ],
     "bendlib/categories.bend": [],
     "bendlib/equality-proof.bend": [
@@ -1443,7 +1446,8 @@
       "harness/workspace/PROJECTS.bend",
       "harness/transport/schema.bend",
       "harness/approval/MODEL.bend",
-      "bendlib/equality.bend"
+      "bendlib/equality.bend",
+      "harness/reasoning/SPEC.bend"
     ],
     "harness/CONTRACT.bend": [
       "interaction/CONTRACT.bend",
@@ -1502,7 +1506,8 @@
       "harness/tools/SYNTAX.bend",
       "harness/tasks/CONTRACT.bend",
       "bendlib/equality.bend",
-      "harness/reasoning/PROGRAM.bend"
+      "harness/reasoning/PROGRAM.bend",
+      "harness/reasoning/SPEC.bend"
     ],
     "harness/MODEL.bend": [
       "bendlib/effects.bend",
@@ -1754,7 +1759,8 @@
       "harness/workspace/WORKSPACE.bend",
       "harness/approval/MODEL.bend",
       "harness/CONTRACT.bend",
-      "harness/execution/OPERATIONS.bend"
+      "harness/execution/OPERATIONS.bend",
+      "harness/features/MODEL.bend"
     ],
     "harness/protocol/commit-proof.bend": [
       "bendlib/categories.bend",
@@ -1785,7 +1791,8 @@
       "harness/reasoning/context.bend",
       "harness/reasoning/PROGRAM.bend",
       "harness/reasoning/SPEC.bend",
-      "harness/protocol/PROGRAM.bend"
+      "harness/protocol/PROGRAM.bend",
+      "harness/context/MODEL.bend"
     ],
     "harness/reasoning/PROGRAM.bend": [
       "bendlib/categories.bend",
@@ -1872,7 +1879,8 @@
       "harness/approval/MODEL.bend",
       "harness/reasoning/MODEL.bend",
       "harness/tools/MODEL.bend",
-      "harness/workspace/WORKSPACE.bend"
+      "harness/workspace/WORKSPACE.bend",
+      "harness/context/MODEL.bend"
     ],
     "harness/workspace/CONTRACT.bend": [
       "harness/features/MODEL.bend",
@@ -2637,7 +2645,34 @@
       "bendlib/json.bend",
       "bendlib/categories.bend",
       "host/adapters/HTTP.bend"
-    ]
+    ],
+    "harness/context/MODEL.bend": [
+      "bendlib/json.bend",
+      "bendlib/stdlib.bend",
+      "bendlib/string-equality.bend"
+    ],
+    "harness/context/PROOF.bend": [
+      "harness/context/MODEL.bend",
+      "harness/context/CONTRACT.bend",
+      "harness/DOMAIN.bend",
+      "harness/context/patch-proof.bend"
+    ],
+    "harness/context/CONTRACT.bend": [
+      "harness/context/MODEL.bend",
+      "harness/DOMAIN.bend"
+    ],
+    "harness/context/patch-proof.bend": [
+      "harness/context/MODEL.bend",
+      "harness/context/CONTRACT.bend"
+    ],
+    "bendlib/equality.bend": [
+      "bendlib/string-equality.bend",
+      "harness/DOMAIN.bend",
+      "harness/reasoning/MODEL.bend",
+      "bendlib/json.bend",
+      "harness/workspace/WORKSPACE.bend"
+    ],
+    "bendlib/string-equality.bend": []
   },
   "feature_alphabet": "harness/features/MODEL.bend",
   "feature_alphabet_types": [

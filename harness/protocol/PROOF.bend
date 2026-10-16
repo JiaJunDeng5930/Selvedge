@@ -1,6 +1,7 @@
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../features/laws.bend as FeatureLaws
+import ../features/MODEL.bend as Features
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../reasoning/CONTRACT.bend as Reasoning
@@ -127,6 +128,8 @@ def Laws.event_semantics(event, world):
     case Protocol.User{operation} _: Laws.operation_semantics(operation, world)
     case Protocol.Ignore{} _: {==}
     case Protocol.Review{resolution} _: Laws.review_semantics(resolution, world)
+    case Protocol.ContextResult{task, revision, purpose, outcome} _:
+      ReasoningProof.context_completed_meaning(Features.State(), Features.Effect, revision, purpose, outcome, task, world)
     case Protocol.ModelResult{task, outcome, allowed} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.ReasoningResult{+task, +revision, +outcome} _:
       Equal.cong(D.Task, M.Decision(), (next => C.Decision{

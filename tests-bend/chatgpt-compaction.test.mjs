@@ -88,6 +88,8 @@ test('empty, oversized and tool-bearing summaries are rejected by the native che
 test('manual text summary preserves original read_task history and survives native kernel restart and UI observation', { timeout: 120_000 }, async t => {
   let compactCalls = 0, modelCalls = 0;
   const longAnswer = 'x'.repeat(20000);
+  const firstAssistant = messages => messages.find(message => message.role === 'model_context'
+    && message.content.type === 'message' && message.content.role === 'assistant')?.content;
   const largeOutputSummary = 'The original request produced a large output. The latest user request is: Continue after large output.';
   const running = await fixtureService(t, (request, response) => {
     if (isSummary(request)) {
@@ -115,7 +117,7 @@ test('manual text summary preserves original read_task history and survives nati
   let page = await taskIdle(running.service);
   assert.deepEqual(running.failures, []);
   assert.equal(compactCalls, 1); assert.equal(modelCalls, 2);
-  assert.ok(page.messages.some(message => message.role === 'model_context' && message.content.content?.[0]?.text === longAnswer));
+  assert.deepEqual(firstAssistant(page.messages), assistant(longAnswer));
   assert.deepEqual(page.messages.filter(message => message.role === 'context_summary').map(message => message.content), [largeOutputSummary]);
   const ui = await browserUI(t);
   const surface = ui.surface(running.service.browserSnapshot().program, 0n);
@@ -124,7 +126,7 @@ test('manual text summary preserves original read_task history and survives nati
   await running.service.command({ op: 'send', task_id: 0, message: 'Continue after restart.' });
   page = await taskIdle(running.service);
   assert.equal(modelCalls, 3); assert.equal(compactCalls, 1);
-  assert.ok(page.messages.some(message => message.content.content?.[0]?.text === longAnswer));
+  assert.deepEqual(firstAssistant(page.messages), assistant(longAnswer));
   assert.deepEqual(running.failures, []);
 });
 

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
 
-async function snapshotInstructions(filename, limits, { signal } = {}) {
+export async function snapshotContextFile(filename, limits, { signal } = {}) {
   signal?.throwIfAborted();
   const maximum = limits.project_context_bytes;
   if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('The kernel did not declare a project-context bound');
@@ -43,12 +43,12 @@ async function snapshotInstructions(filename, limits, { signal } = {}) {
 /** Observe guidance before a birth command; the journal owns the snapshot. */
 export async function snapshotProject(cwd, limits, options) {
   const workspace = await realpath(cwd);
-  const snapshot = await snapshotInstructions(path.join(workspace, 'AGENTS.md'), limits, options);
+  const snapshot = await snapshotContextFile(path.join(workspace, 'AGENTS.md'), limits, options);
   return { workspace, revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
 }
 
 export async function snapshotGlobalInstructions(home, limits, options) {
-  return snapshotInstructions(path.join(await realpath(home), 'AGENTS.md'), limits, options);
+  return snapshotContextFile(path.join(await realpath(home), 'AGENTS.md'), limits, options);
 }
 
 export function configuredInstructions(config, limits) {

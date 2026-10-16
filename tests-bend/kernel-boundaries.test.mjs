@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Kernel } from '../host/kernel.mjs';
 import { parseJson, stringifyJson, JsonNumber } from '../host/codec.mjs';
+import { settleContextObservations } from './support.mjs';
 
 const remote = { name: 'mcp__fixture__inspect', description: 'Inspect input', schema: { type: 'object' }, server: 'fixture', remote: 'inspect' };
 
@@ -9,7 +10,8 @@ async function kernel(t, overrides = {}) {
   const k = new Kernel({ timeout: 5000 });
   t.after(() => k.close());
   await k.initialize();
-  const send = async input => (await k.request(input)).value;
+  const raw = async input => (await k.request(input)).value;
+  const send = async input => settleContextObservations(raw, await raw(input));
   const command = body => send({ kind: 'command', command: body });
   const configure = config => send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8, ...config });
   assert.equal((await configure(overrides)).reply.ok, true);
@@ -27,10 +29,10 @@ test('Bend-generated JavaScript Worker and codec transport preserves Unicode, em
   const created = await command({ op: 'create', profile: 'fixture', message: text });
   assert.equal(created.effects[0].history.at(-1).content, text);
   const arguments_ = parseJson('{"huge":9007199254740993,"fraction":1.2300,"nested":[null,true,{"0":"x"}]}');
-  const result = await send(model(0, 0, '', [{ id: 'inspect', name: remote.name, arguments: arguments_ }]));
+  const result = await send(model(0, created.effects[0].ticket, '', [{ id: 'inspect', name: remote.name, arguments: arguments_ }]));
   assert.equal(result.effects[0].kind, 'tool');
   assert.equal(stringifyJson(result.effects[0].call.arguments), stringifyJson(arguments_));
-  await send({ kind: 'tool', task_id: 0, ticket: 1, value: arguments_, error: false });
+  await send({ kind: 'tool', task_id: 0, ticket: result.effects[0].ticket, value: arguments_, error: false });
   const page = await command({ op: 'read', task_id: 0 });
   const output = page.reply.result.messages.find(x => x.role === 'function_output');
   assert.ok(output.content.huge instanceof JsonNumber);

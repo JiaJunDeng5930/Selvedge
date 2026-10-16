@@ -114,13 +114,7 @@ def commit_fork(built: Commands.Children, call: D.Call, remaining: +List<D.Attem
         J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]})
 
 def summary_request(task: D.Task, resume: Bool, world: M.World()) -> M.Decision():
-  C.Frame{+task_state, +board} = world
-  +task = D.append_message(D.UserMessage{D.summary_instructions()}, task)
-  tasks = D.state_tasks(task_state)
-  +next_ticket = D.state_next_ticket(task_state)
-  next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, resume}, task))
-  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, D.success(id_result(D.task_id(task))),
-    [Effects.RequestSummary{D.task_id(task), next_ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
+  Reasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{resume}, world)
 
 def execute_checkpoint(summary: String, +task: D.Task, world: M.World()) -> M.Decision():
   respond(store(D.append_message(D.ContextCheckpoint{summary}, task), world), id_result(D.task_id(task)))
@@ -205,6 +199,8 @@ def realize_event_calculation(event: Protocol.ResolvedEvent, world: M.World()) -
   match event:
     case Protocol.User{operation}: realize_calculation(operation, world)
     case Protocol.Ignore{}: respond(world, accepted(False{}))
+    case Protocol.ContextResult{task, revision, purpose, outcome}:
+      Reasoning.context_completed(F.State(), F.Effect, revision, purpose, outcome, task, world)
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
     case Protocol.ReasoningResult{task, revision, outcome}:
       respond(store(Reasoning.complete(revision, outcome, task), world), accepted(True{}))

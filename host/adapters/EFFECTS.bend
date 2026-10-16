@@ -317,6 +317,7 @@ type CallbackKind is Data:
   CallbackApproval{}
   CallbackHook{}
   CallbackAfterHook{}
+  CallbackContext{}
   CallbackReasoning{}
   CallbackModel{}
   CallbackSummary{}
@@ -329,6 +330,7 @@ def classify_callback_kind(+kind: String) -> CallbackKind:
     case "approval": CallbackApproval{}
     case "hook": CallbackHook{}
     case "after_hook": CallbackAfterHook{}
+    case "observe_context": CallbackContext{}
     case "reasoning": CallbackReasoning{}
     case "model": CallbackModel{}
     case "summary": CallbackSummary{}
@@ -341,6 +343,7 @@ def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -
     case CallbackApproval{}: J.Object{List.append(&2, J.Field, callback_base(effect, "approval"), Con{field("outcome", result), Nil{}})}
     case CallbackHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "hook"), Con{field("outcome", result), Nil{}})}
     case CallbackAfterHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "after_hook"), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("outcome", result), Nil{}}})}
+    case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{True{}}), Con{field("observations", J.get(result, "observations")), Nil{}}})}
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{True{}}), callback_result_fields(fields(result), ["kind", "task_id", "ticket", "ok"])})}
     case CallbackModel{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
     case CallbackSummary{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
@@ -370,6 +373,7 @@ def failure_classified(+kind: CallbackKind, +effect: J.Json, +message: String) -
   match kind:
     case CallbackChatgptExec{}: J.Object{Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("error", J.Boolean{True{}}), Con{field("value", error_value(message)), Nil{}}}}}}
     case CallbackBoardText{}: J.Object{Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}}}}}}
+    case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
     case CallbackHook{}: failed_outcome(effect, "hook", message)
     case CallbackApproval{}: failed_outcome(effect, "approval", take(message, 400n))
@@ -1519,3 +1523,14 @@ law sandbox_launch_value_cwd:
   @prefix:J.Json -> @cwd:J.Json -> {J.get(launch_value(prefix, cwd), "cwd") == cwd : J.Json}
 law sandbox_launch_value_prefix:
   @prefix:J.Json -> @cwd:J.Json -> {J.get(launch_value(prefix, cwd), "prefix") == prefix : J.Json}
+
+
+law context_callback_observations:
+  @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackContext{}, effect, result), "observations") == J.get(result, "observations") : J.Json}
+law context_callback_kind:
+  @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackContext{}, effect, result), "kind") == J.Text{"context_observed"} : J.Json}
+law context_failure_kind:
+  @effect:J.Json -> @message:String ->
+  {J.get(failure_classified(CallbackContext{}, effect, message), "kind") == J.Text{"context_observed"} : J.Json}

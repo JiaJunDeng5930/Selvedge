@@ -7,6 +7,7 @@ import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
 import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand } from './project.mjs';
+import { observeContextSources } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
 import { observeBoardCommand } from './board-files.mjs';
@@ -180,7 +181,7 @@ export class Service extends EventEmitter {
       this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
       return;
     }
-    if (!['model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['observe_context', 'model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
       effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
@@ -205,7 +206,11 @@ export class Service extends EventEmitter {
       signal.addEventListener('abort', cancelPreview, { once: true });
     }
     try {
-      if (effect.kind === 'chatgpt_exec') {
+      if (effect.kind === 'observe_context') {
+        const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal,
+          onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
+        input = boundary('effect.completion', { effect, result: { observations } });
+      } else if (effect.kind === 'chatgpt_exec') {
         const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, readOnlyPaths: [this.home] });
         input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'board_text') {

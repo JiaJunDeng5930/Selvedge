@@ -503,7 +503,7 @@ def Web.retirement_admitted_metadata_writes():
 
 def Web.summary_preserves_page_reset_policy():
   body => deferred => source => {==}
-def Web.instruction_context_encoding():
+def Web.context_change_encoding():
   item => {==}
 
 def Web.tool_receipt_history_success():

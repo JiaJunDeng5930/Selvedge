@@ -231,11 +231,24 @@ byte limit. Place global guidance in `<service home>/AGENTS.md`; the service rea
 it as a bounded regular UTF-8 file, rejects symbolic links, and records its content
 hash. A missing file supplies no global guidance.
 
-The service snapshots configured, global and project guidance before configuring
-the kernel. Root tasks record those snapshots in their history. An explicit
-workspace selection reads the selected root's `AGENTS.md` before submitting the
-command. Existing tasks keep their recorded content after configuration or file
-changes. A fork inherits its parent's history; explicit workspace selection records
-the selected guidance after that inherited history. Model dispatch uses these
-recorded entries without reading instruction files again. The provider input also
-carries recorded settings, reasoning changes, receipts and audit records.
+Root tasks record initial configured, global and project guidance in their
+history. Before model and summary dispatch, a committed context observation
+effect reads the current instruction sources. Its completion is accepted by the
+kernel before the final request is emitted. Only changes are appended, as patches
+against the last accepted revision of that source. Requests use the resulting
+committed history, including the original baseline and patches. An observation
+failure preserves the previous value and records its diagnostic; a confirmed
+missing source withdraws its content. Execution settings remain the task's frozen
+contract.
+
+The `instructions` and `skills` fields in `config.json` are observed again for
+these updates; other running service configuration is not reloaded. `skills` is
+an array of `SKILL.md` file paths, resolved relative to the service home. Skill
+frontmatter supplies `name` and `description`; only that metadata and the path
+enter history. The remaining body is not injected. Skill files use the same
+bounded, regular UTF-8 file observation as guidance files.
+
+A fork inherits its parent's baseline and patches. An explicit workspace
+selection records the selected guidance after the inherited history; later
+observations follow the selected primary root. Provider input also carries
+recorded settings, reasoning changes, receipts and audit records.

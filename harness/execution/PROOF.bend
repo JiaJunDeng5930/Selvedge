@@ -207,7 +207,10 @@ def Laws.full_history_dispatch(task, world):
 def Laws.model_has_no_context_preflight(task, world):
   {==}
 
-def Laws.summary_request_full_history(task, state, board):
+def Laws.summary_context_observation(task, resume, world):
+  ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{resume}, world)
+
+def Laws.summary_request_full_history(task, resume, state, board):
   match task state:
     case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} D.State{tasks, next_task, ticket, environment, limits, projects}: {==}
 

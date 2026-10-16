@@ -28,6 +28,7 @@ import ./workspace/WORKSPACE.bend as Workspace
 import ./approval/MODEL.bend as Approvals
 import ../bendlib/equality.bend as Same
 import ./reasoning/PROGRAM.bend as ActualReasoning
+import ./reasoning/SPEC.bend as RequiredReasoning
 
 law hook_gateway:
   for +tool: D.Tool
@@ -370,11 +371,19 @@ law model_has_no_context_preflight:
   for world: M.World()
   {Execution.model(task, world) == Execution.Model{task} : Execution.Action}
 
+law summary_context_observation:
+  for +task: D.Task
+  for +resume: Bool
+  for +world: M.World()
+  {P.summary_request(task, resume, world) ==
+    RequiredReasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{resume}, world) : M.Decision()}
+
 law summary_request_full_history:
   for +task: D.Task
+  for +resume: Bool
   for +state: D.State
   for +board: F.State()
-  {P.decision_effects(P.summary_request(task, False{}, C.Frame{state, board})) ==
+  {P.decision_effects(ActualReasoning.summary(F.State(), F.Effect, task, resume, C.Frame{state, board})) ==
     [Effects.RequestSummary{D.task_id(task), D.state_next_ticket(state), T.task_model(D.task_contract(task)),
       D.HistoryNode{D.task_history(task), D.UserMessage{D.summary_instructions()}}, D.task_context(task)}] : +List<M.Effect()>}
 

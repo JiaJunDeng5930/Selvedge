@@ -117,6 +117,7 @@ def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.
     case D.Archived{} _: False{}
     case _ D.Idle{}: True{}
     case _ D.Ready{pending}: attempts(pending, history)
+    case _ D.ContextPending{ticket, revision, purpose}: Nat.is_lt(ticket, next_ticket) && Nat.is_le(revision, D.history_length(history))
     case _ D.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ D.ReasoningPending{ticket, revision}: Nat.is_lt(ticket, next_ticket) && Nat.is_le(revision, D.history_length(history))
     case _ D.SummaryPending{ticket, resume}: Nat.is_lt(ticket, next_ticket)
@@ -125,6 +126,7 @@ def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.
 
 def ticket_is(phase: D.Phase, ticket: Nat) -> Bool:
   match phase:
+    case D.ContextPending{expected, revision, purpose}: Nat.is_eq(expected, ticket)
     case D.ModelPending{expected, callable}: Nat.is_eq(expected, ticket)
     case D.ReasoningPending{expected, revision}: Nat.is_eq(expected, ticket)
     case D.SummaryPending{expected, resume}: Nat.is_eq(expected, ticket)
@@ -256,6 +258,7 @@ def has_ticket(tasks: +List<D.Task>, +ticket: Nat) -> Bool:
 
 def distinct_ticket(phase: D.Phase, tasks: +List<D.Task>) -> Bool:
   match phase:
+    case D.ContextPending{ticket, revision, purpose}: Bool.not(has_ticket(tasks, ticket))
     case D.ModelPending{ticket, callable}: Bool.not(has_ticket(tasks, ticket))
     case D.ReasoningPending{ticket, revision}: Bool.not(has_ticket(tasks, ticket))
     case D.SummaryPending{ticket, resume}: Bool.not(has_ticket(tasks, ticket))
@@ -435,6 +438,9 @@ def after_pending(found: Maybe<&2, D.Task>, operation: Nat, ticket: Nat) -> Bool
 def retained_effects(effects: +List<M.Effect()>, +cancellations: +List<M.Effect()>, +tasks: +List<D.Task>) -> +List<M.Effect()>:
   match effects:
     case Nil{}: Nil{}
+    case Con{Effects.ObserveContext{+id, +ticket, history, context}, rest}:
+      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
+        Effects.ObserveContext{id, ticket, history, context}, retained_effects(rest, cancellations, tasks))
     case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         Effects.RequestModel{id, ticket, model, history, tools, callable, context}, retained_effects(rest, cancellations, tasks))
@@ -460,6 +466,12 @@ def retained_effects(effects: +List<M.Effect()>, +cancellations: +List<M.Effect(
 
 def live_effects(+effects: +List<M.Effect()>, tasks: +List<D.Task>) -> +List<M.Effect()>:
   retained_effects(effects, effects, tasks)
+
+def observation_effect(found: Maybe<&2, D.Task>, ticket: Nat, sent_history: D.History, +budget: Nat) -> Bool:
+  match found:
+    case Some{D.Task{id, lineage, contract, D.Active{}, +history, queued, D.ContextPending{expected, revision, purpose}, operations, notified}}:
+      Nat.is_eq(ticket, expected) && Nat.is_eq(revision, D.history_length(history)) && Same.history(budget, sent_history, history)
+    case _: False{}
 
 def model_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, sent_history: D.History,
   tools: +List<D.Tool>, callable: +List<String>, +budget: Nat) -> Bool:
@@ -544,6 +556,8 @@ def feature_ticket_matches(found: Maybe<&2, Nat>, ticket: Nat) -> Bool:
 def has_effect_ticket(effects: +List<M.Effect()>, +ticket: Nat) -> Bool:
   match effects:
     case Nil{}: False{}
+    case Con{Effects.ObserveContext{id, other, history, context}, rest}:
+      Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.RequestModel{id, other, model, history, tools, callable, context}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.RequestReasoning{id, other, model, history}, rest}:
@@ -605,6 +619,9 @@ def effects(pending: +List<M.Effect()>, +tasks: +List<D.Task>, +first_ticket: Na
   match pending:
     case Nil{}: True{}
     case Con{Effects.NotifyPlugins{events}, rest}: effects(rest, tasks, first_ticket, budget)
+    case Con{Effects.ObserveContext{+id, +ticket, history, context}, +rest}:
+      Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
+        context_effect(T.find(tasks, id), context, budget) && observation_effect(T.find(tasks, id), ticket, history, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && model_effect(T.find(tasks, id), ticket, model, history, tools, callable, budget) && effects(rest, tasks, first_ticket, budget)

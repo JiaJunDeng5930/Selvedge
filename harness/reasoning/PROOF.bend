@@ -49,9 +49,80 @@ def prepared_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world:
       plan => Actual.execute(StateRest, EffectRest, plan, task, world), actual, required, route_meaning(policy, lease)),
     execution_meaning(StateRest, EffectRest, required, task, world))
 
+def observe_meaning(-StateRest: Data, -EffectRest: Data, task: D.Task, purpose: D.ContextPurpose, world: C.Frame<D.State, StateRest>) ->
+  {Actual.observe_context(StateRest, EffectRest, task, purpose, world) == Spec.observe_context(StateRest, EffectRest, task, purpose, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  match world:
+    case C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, rest}: {==}
+
+def context_active_meaning(-StateRest: Data, -EffectRest: Data, +status: D.Status, +purpose: D.ContextPurpose, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
+  {Actual.context_active(StateRest, EffectRest, status, purpose, task, world) == Spec.context_active(StateRest, EffectRest, status, purpose, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  match status purpose:
+    case D.Active{} D.GenerateContext{}: prepared_meaning(StateRest, EffectRest, task, world)
+    case D.Active{} D.SummaryContext{resume}:
+      match world:
+        case C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, rest}: {==}
+    case D.Frozen{} D.GenerateContext{}: {==}
+    case D.Frozen{} D.SummaryContext{resume}: {==}
+    case D.Stopped{} D.GenerateContext{}: {==}
+    case D.Stopped{} D.SummaryContext{resume}: {==}
+    case D.Archived{} D.GenerateContext{}: {==}
+    case D.Archived{} D.SummaryContext{resume}: {==}
+
+def context_retry_meaning(-StateRest: Data, -EffectRest: Data, +status: D.Status, purpose: D.ContextPurpose,
+  task: D.Task, world: C.Frame<D.State, StateRest>) ->
+  {Actual.context_retry(StateRest, EffectRest, status, purpose, task, world) == Spec.context_retry(StateRest, EffectRest, status, purpose, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  match status:
+    case D.Active{}: observe_meaning(StateRest, EffectRest, task, purpose, world)
+    case D.Frozen{}:
+      match purpose:
+        case D.GenerateContext{}: {==}
+        case D.SummaryContext{resume}: {==}
+    case D.Stopped{}:
+      match purpose:
+        case D.GenerateContext{}: {==}
+        case D.SummaryContext{resume}: {==}
+    case D.Archived{}:
+      match purpose:
+        case D.GenerateContext{}: {==}
+        case D.SummaryContext{resume}: {==}
+
+def context_fresh_meaning(-StateRest: Data, -EffectRest: Data, +current: Bool, +purpose: D.ContextPurpose,
+  +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
+  {Actual.context_fresh(StateRest, EffectRest, current, purpose, outcome, task, world) == Spec.context_fresh(StateRest, EffectRest, current, purpose, outcome, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  match current:
+    case False{}: context_retry_meaning(StateRest, EffectRest, D.task_status(task), purpose, task, world)
+    case True{}:
+      match outcome:
+        case Done{observations}:
+          +updated = D.apply_context_observations(task, observations)
+          context_active_meaning(StateRest, EffectRest, D.task_status(updated), purpose, updated, world)
+        case Fail{reason}:
+          +updated = D.diagnose_context("Context observation failed; retaining accepted context: " ++ reason, task)
+          context_active_meaning(StateRest, EffectRest, D.task_status(updated), purpose, updated, world)
+
+def context_acknowledged_meaning(-StateRest: Data, -EffectRest: Data,
+  decision: C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>) ->
+  {Actual.context_acknowledged(StateRest, EffectRest, decision) == Spec.context_acknowledged(StateRest, EffectRest, decision) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  match decision:
+    case C.Decision{world, reply, effects}: {==}
+
+def context_completed_meaning(-StateRest: Data, -EffectRest: Data, +revision: Nat, +purpose: D.ContextPurpose,
+  +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
+  {Actual.context_completed(StateRest, EffectRest, revision, purpose, outcome, task, world) == Spec.context_completed(StateRest, EffectRest, revision, purpose, outcome, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  +current = Nat.is_eq(revision, D.history_length(D.task_history(task)))
+  +actual = Actual.context_fresh(StateRest, EffectRest, current, purpose, outcome, task, world)
+  +required = Spec.context_fresh(StateRest, EffectRest, current, purpose, outcome, task, world)
+  Equal.trans(C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>,
+    Actual.context_acknowledged(StateRest, EffectRest, actual), Actual.context_acknowledged(StateRest, EffectRest, required),
+    Spec.context_acknowledged(StateRest, EffectRest, required),
+    Equal.cong(C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>, C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>,
+      (decision => Actual.context_acknowledged(StateRest, EffectRest, decision)), actual, required,
+      context_fresh_meaning(StateRest, EffectRest, current, purpose, outcome, task, world)),
+    context_acknowledged_meaning(StateRest, EffectRest, required))
+
 def start_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
   {Actual.start(StateRest, EffectRest, task, world) == Spec.start(StateRest, EffectRest, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
-  prepared_meaning(StateRest, EffectRest, Ops.publish(task), world)
+  observe_meaning(StateRest, EffectRest, Ops.publish(task), D.GenerateContext{}, world)
 
 def request_frame(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) ->
   {C.remaining(D.State, StateRest, Effects.Effect<EffectRest>, Actual.request(StateRest, EffectRest, task, world)) == C.rest(D.State, StateRest, world) : StateRest}:
@@ -76,7 +147,8 @@ def prepared_frame(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.
 
 def start_frame(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) ->
   {C.remaining(D.State, StateRest, Effects.Effect<EffectRest>, Actual.start(StateRest, EffectRest, task, world)) == C.rest(D.State, StateRest, world) : StateRest}:
-  prepared_frame(StateRest, EffectRest, Ops.publish(task), world)
+  match world:
+    case C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, rest}: {==}
 
 def A.route_meaning(policy, lease):
   route_meaning(policy, lease)
@@ -137,7 +209,8 @@ def A.reasoning_boundary():
     (effort => remaining => owner => history => {==}),
     (history => {==}), contract_frame,
     (secret => summary => tail => {==}),
-    (secret => {==}), (id => value => error => tail => {==})}
+    (secret => {==}), (id => value => error => tail => {==}),
+    (history => change => owner => {==})}
 
 
 def Laws.model_request_full_history(task, state, board, catalog, profiles, forks, descendants, project, plugins, instructions):

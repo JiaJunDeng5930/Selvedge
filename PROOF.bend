@@ -9,6 +9,7 @@ import ./harness/reasoning/CONTRACT.bend as Reasoning
 import ./harness/workspace/CONTRACT.bend as Workspace
 import ./CONCEPTS.bend as Entry
 import ./harness/reasoning/PROOF.bend as ReasoningProof
+import ./harness/context/PROOF.bend as ContextProof
 import ./harness/tasks/PROOF.bend as TasksProof
 import ./features/board/PROOF.bend as BoardProof
 import ./harness/features/laws.bend as FeatureLaws
@@ -93,7 +94,7 @@ def harness() -> Entry.Harness:
     Entry.Observation{Concepts.observations(), Concepts.task_views(), Concepts.branch_results(), Concepts.surface()},
     Entry.Concurrency{Concepts.operation_rights(), Concepts.announcement(), Concepts.notifications(), Concepts.coordination()},
     Entry.Extensibility{Concepts.plugin_boundary(), Concepts.result_boundary()}, Workspace.context_boundary(), Approval.approval_boundary(),
-    Reasoning.reasoning_boundary(), FeatureLaws.features(), LocalityProof.locality()}
+    Reasoning.reasoning_boundary(), FeatureLaws.features(), LocalityProof.locality(), ContextProof.instance()}
 
 # The native product bridge carries all trusted interface decisions unchanged.
 
