@@ -15,11 +15,11 @@ import ./authored-primitives.bend as Factory
 
 # Category observations bind construction inputs to the actual emitted node.
 type Observation is Data:
-  Observation{key: UIIdentity.Key, visual: Design.Style, button: Controls.Button, node: Source.Node}
+  Observation{key: UIIdentity.Key, visual: Design.Style, parameters: Design.LayoutParameters, button: Controls.Button, node: Source.Node}
 
-def source(+key: UIIdentity.Key, +visual: Design.Style, +button: Controls.Button) -> Source.Node:
+def source(+key: UIIdentity.Key, +visual: Design.Style, +parameters: Design.LayoutParameters, +button: Controls.Button) -> Source.Node:
   Controls.Button{input, +availability, +name, +value, +state, +geometry, placement, +response} = button
-  Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), A.action_alignment(value), Spatial.Centered{}), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(state), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, value, state, geometry, placement, response})), A.feedback(response))))), name, A.enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, A.face(key, value, visual, geometry)}
+  Source.Control{key, Source.Button{}, Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(value, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(Controls.geometry_at(A.parent_font(visual), geometry)), Controls.geometry_minimum_height(Controls.geometry_at(A.parent_font(visual), geometry))}), Model.Horizontal{}), A.action_alignment(value), A.action_cross_alignment(value, visual)), List.append(&2, Source.Attribute, A.choice_association(value, key), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(state), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, value, state, geometry, placement, response})), A.feedback(response)))))), name, A.enabled(availability), Doc.Activate{UIIdentity.encode(key)}, Nil{}, A.face(key, value, visual, geometry, parameters)}
 
 def native_tag(node: Source.Node) -> Maybe<&2, Source.ControlTag>:
   match node:
@@ -51,43 +51,43 @@ def button_face(button: Controls.Button) -> Controls.Face:
   face
 
 def expected_attributes(+key: UIIdentity.Key, +button: Controls.Button) -> +List<Source.Attribute>:
-  Controls.Button{input, +availability, +name, face, +behavior, geometry, placement, +feedback} = button
-  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(behavior), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback})), A.feedback(feedback)))))
+  Controls.Button{input, +availability, +name, +face, +behavior, geometry, placement, +feedback} = button
+  List.append(&2, Source.Attribute, A.choice_association(face, key), List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, A.availability_attributes(availability), List.append(&2, Source.Attribute, A.behavior(behavior), List.append(&2, Source.Attribute, A.help(Controls.button_help(Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback})), A.feedback(feedback))))))
 
 def expected_style(+visual: Design.Style, button: Controls.Button) -> Source.Style:
   Controls.Button{input, availability, name, +face, behavior, +geometry, placement, feedback} = button
-  Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(face, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(geometry), Controls.geometry_minimum_height(geometry)}), Model.Horizontal{}), A.action_alignment(face), Spatial.Centered{})
+  Factory.with_alignments(Factory.with_direction(Factory.with_minimum(Factory.style(visual, A.action_width(face, visual), Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{Controls.geometry_minimum_width(Controls.geometry_at(A.parent_font(visual), geometry)), Controls.geometry_minimum_height(Controls.geometry_at(A.parent_font(visual), geometry))}), Model.Horizontal{}), A.action_alignment(face), A.action_cross_alignment(face, visual))
 
 def native(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {native_tag(node) == Some{Source.Button{}} : Maybe<&2, Source.ControlTag>}
 
 def activation(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {Source.events_of(node) == [Doc.Activate{UIIdentity.encode(key)}] : +List<Doc.DOMEvent>}
 
 def named(observation: Observation) -> Type:
-  Observation{key, visual, Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}, node} = observation
+  Observation{key, visual, parameters, Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}, node} = observation
   {declared_name(node) == Some{name} : Maybe<&2, String>}
 
 def available(observation: Observation) -> Type:
-  Observation{key, visual, Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}, node} = observation
+  Observation{key, visual, parameters, Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}, node} = observation
   {enabled_value(node) == Some{A.enabled(availability)} : Maybe<&2, Bool>}
 
 def attributes(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {node_attributes(node) == Some{expected_attributes(key, button)} : Maybe<&2, +List<Source.Attribute>>}
 
 type Content<-observation: Observation> is Type:
   Content{style: content_style(observation), children: content_children(observation)}
 
 def content_style(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {node_style(node) == Some{expected_style(visual, button)} : Maybe<&2, Source.Style>}
 
 def content_children(observation: Observation) -> Type:
-  Observation{key, visual, Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}, node} = observation
-  {Source.children_of(node) == A.face(key, face, visual, geometry) : +List<Source.Node>}
+  Observation{key, visual, parameters, Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}, node} = observation
+  {Source.children_of(node) == A.face(key, face, visual, geometry, parameters) : +List<Source.Node>}
 
 def content(observation: Observation) -> Type:
   Content<observation>
@@ -112,11 +112,11 @@ type Centered<-observation: Observation> is Type:
   Centered{main: centered_main(observation), cross: centered_cross(observation)}
 
 def centered_main(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {main_alignment(node) == Some{Spatial.Centered{}} : Maybe<&2, Spatial.Alignment>}
 
 def centered_cross(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {cross_alignment(node) == Some{Spatial.Centered{}} : Maybe<&2, Spatial.Alignment>}
 
 def centered(observation: Observation) -> Type:
@@ -134,11 +134,11 @@ def centered_glyph_children(children: +List<Source.Node>) -> Bool:
     case _: False{}
 
 def glyph_centered(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {centered_glyph_children(Source.children_of(node)) == True{} : Bool}
 
 def leading(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {main_alignment(node) == Some{Spatial.Leading{}} : Maybe<&2, Spatial.Alignment>}
 
 def help_policy(help: Controls.Help) -> Bool:
@@ -147,11 +147,11 @@ def help_policy(help: Controls.Help) -> Bool:
     case _: False{}
 
 def icon_help(observation: Observation) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {help_policy(Controls.button_help(button)) == True{} : Bool}
 
 def requested_face(observation: Observation, face: Controls.Face) -> Type:
-  Observation{key, visual, button, node} = observation
+  Observation{key, visual, parameters, button, node} = observation
   {button_face(button) == face : Controls.Face}
 
 type Icon<-observation: Observation> is Type:
@@ -271,23 +271,23 @@ def picker_leading() -> Categories.Inclusion<Observation, picker, leading>:
   Categories.Inclusion{observation => evidence => project_picker_leading(observation, evidence)}
 
 law construction_evidence:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> authored(Observation{key, visual, button, source(key, visual, button)})
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+button:Controls.Button -> authored(Observation{key, visual, parameters, button, source(key, visual, parameters, button)})
 
 law icon_evidence:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> @+glyph:Controls.Icon -> requested_face(Observation{key, visual, button, source(key, visual, button)}, Controls.IconFace{glyph}) -> icon(Observation{key, visual, button, source(key, visual, button)})
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+button:Controls.Button -> @+glyph:Controls.Icon -> requested_face(Observation{key, visual, parameters, button, source(key, visual, parameters, button)}, Controls.IconFace{glyph}) -> icon(Observation{key, visual, parameters, button, source(key, visual, parameters, button)})
 
 law choice_evidence:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> @+text:String -> @+description:Maybe<&2, String> -> @+glyph:Maybe<&2, Controls.Icon> -> @+selected:Bool -> requested_face(Observation{key, visual, button, source(key, visual, button)}, Controls.ChoiceFace{text, description, glyph, selected}) -> choice(Observation{key, visual, button, source(key, visual, button)})
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+button:Controls.Button -> @+text:String -> @+description:Maybe<&2, String> -> @+glyph:Maybe<&2, Controls.Icon> -> @+selected:Bool -> requested_face(Observation{key, visual, parameters, button, source(key, visual, parameters, button)}, Controls.ChoiceFace{text, description, glyph, selected}) -> choice(Observation{key, visual, parameters, button, source(key, visual, parameters, button)})
 
 law picker_evidence:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> @+glyph:Maybe<&2, Controls.Icon> -> @+text:String -> requested_face(Observation{key, visual, button, source(key, visual, button)}, Controls.PickerFace{glyph, text}) -> picker(Observation{key, visual, button, source(key, visual, button)})
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+button:Controls.Button -> @+glyph:Maybe<&2, Controls.Icon> -> @+text:String -> requested_face(Observation{key, visual, parameters, button, source(key, visual, parameters, button)}, Controls.PickerFace{glyph, text}) -> picker(Observation{key, visual, parameters, button, source(key, visual, parameters, button)})
 
 law construct:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> Categories.Membership<Observation, authored>
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+button:Controls.Button -> Categories.Membership<Observation, authored>
 
 def constructed_node(constructed: Categories.Membership<Observation, authored>) -> Source.Node:
-  Categories.Membership{Observation{key, visual, button, node}, evidence} = constructed
+  Categories.Membership{Observation{key, visual, parameters, button, node}, evidence} = constructed
   node
 
 law constructor_correspondence:
-  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+button:Controls.Button -> {constructed_node(construct(key, visual, button)) == source(key, visual, button) : Source.Node}
+  @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+button:Controls.Button -> {constructed_node(construct(key, visual, parameters, button)) == source(key, visual, parameters, button) : Source.Node}

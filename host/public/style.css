@@ -7,6 +7,9 @@ button { cursor: pointer; }
 button:disabled { cursor: default; }
 [hidden] { display: none !important; }
 :focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
+[data-focus-owner="aggregate"]:focus-within { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
+[data-focus-owner="embedded"]:focus-visible,
+[data-focus-owner="embedded"] :focus-visible { outline: none; }
 pre, code { font-family: var(--rich-code-font); }
 .markdown p { margin: 0 0 1em; }
 .markdown p:last-child { margin-bottom: 0; }
@@ -32,3 +35,6 @@ pre, code { font-family: var(--rich-code-font); }
 .markdown h4, .markdown h5, .markdown h6 { font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
 .markdown pre, .markdown code { font-family: var(--rich-code-font); font-size: var(--rich-code-size); line-height: var(--rich-code-line); font-weight: var(--rich-code-weight); }
 .code-toolbar { font-size: var(--rich-support-size); line-height: var(--rich-support-line); }
+
+[data-presentation-visibility="hidden"],
+[data-presentation-visibility="hidden"] * { visibility: hidden !important; }

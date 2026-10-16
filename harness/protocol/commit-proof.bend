@@ -59,14 +59,14 @@ def Laws.output_semantics(durable, decision, previous):
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:
   +durable = M.durable(input)
-  +candidate = Notifications.decorate(input, previous, P.scheduled(Commit.schedules(input, decision), decision))
+  +candidate = Commit.configuration_checked(input, Notifications.decorate(input, previous, P.scheduled(Commit.schedules(input, decision), decision)), previous)
   first = Equal.trans(M.Decision(), P.after_apply(input, decision, previous), Commit.deliver(durable, P.checked(candidate, previous), previous),
     Commit.update(~P.scheduled, input, decision, previous), Laws.output_semantics(durable, P.checked(candidate, previous), previous),
     Equal.cong(M.Decision(), M.Decision(), (value => Commit.deliver(durable, value, previous)),
       P.checked(candidate, previous), Commit.checked(candidate, previous), Laws.commit_semantics(candidate, previous)))
   Equal.trans(M.Decision(), P.after_apply(input, decision, previous), Commit.update(~P.scheduled, input, decision, previous),
     Commit.update(~Execution.scheduled, input, decision, previous), first,
-    Equal.cong(M.Decision(), M.Decision(), (value => Commit.finish(durable, Notifications.decorate(input, previous, value), previous)),
+    Equal.cong(M.Decision(), M.Decision(), (value => Commit.finish(durable, Commit.configuration_checked(input, Notifications.decorate(input, previous, value), previous), previous)),
       P.scheduled(Commit.schedules(input, decision), decision), Execution.scheduled(Commit.schedules(input, decision), decision), Laws.scheduling_semantics(Commit.schedules(input, decision), decision)))
 
 def updated_command_semantics(+command: M.Command, +world: M.World()) ->
@@ -82,6 +82,7 @@ def Laws.command_transition(command, world):
   match command:
     case M.FeatureCommand{command}: updated_command_semantics(M.FeatureCommand{command}, world)
     case M.Observe{query}: Laws.output_semantics(False{}, P.observe(query, world), world)
+    case M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}: updated_command_semantics(M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}, world)
     case M.Create{profile, reasoning, message, options}: updated_command_semantics(M.Create{profile, reasoning, message, options}, world)
     case M.Send{id, message}: updated_command_semantics(M.Send{id, message}, world)
     case M.Steer{id, message}: updated_command_semantics(M.Steer{id, message}, world)

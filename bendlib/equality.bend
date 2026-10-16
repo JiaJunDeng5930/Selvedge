@@ -147,6 +147,19 @@ def inherited_contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Boo
   Workspace.profile_same(profile_a, profile_b) && string_equal(reasoning_a, reasoning_b) && tools(budget, tools_a, tools_b) &&
     Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, D.plugins_json(plugins_a), D.plugins_json(plugins_b))
 
+def inherited_creation(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
+  match left right:
+    case D.Contract{model_a, tools_a, fork_a, descendants_a, plugins_a, context_a} D.Contract{model_b, tools_b, fork_b, descendants_b, plugins_b, context_b}:
+      tools(budget, tools_a, tools_b) && Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) &&
+        json(budget, D.plugins_json(plugins_a), D.plugins_json(plugins_b))
+
+
+def execution(+budget: Nat, left: D.ExecutionConfiguration, right: D.ExecutionConfiguration) -> Bool:
+  match left right:
+    case D.ExecutionConfiguration{profile_a, reasoning_a, model_a, sandbox_a, approval_a} D.ExecutionConfiguration{profile_b, reasoning_b, model_b, sandbox_b, approval_b}:
+      string_equal(profile_a, profile_b) && string_equal(reasoning_a, reasoning_b) && model(model_a, model_b) &&
+        json(budget, D.sandbox_json(sandbox_a), D.sandbox_json(sandbox_b)) && approval(approval_a, approval_b)
+
 def call(budget: Nat, left: D.Call, right: D.Call) -> Bool:
   match left right:
     case D.Call{id_a, name_a, arguments_a} D.Call{id_b, name_b, arguments_b}:

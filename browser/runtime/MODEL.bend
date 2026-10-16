@@ -1,4 +1,8 @@
+import ../controls/NAVIGATION.bend as Navigation
 import Base
+import ../layout/ADAPTATION.bend as Adaptation
+import ../controls/PROGRAM.bend as Controls
+import ../controls/MODEL.bend as Authored
 import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
@@ -60,31 +64,31 @@ type Published is Data:
 
 type State is Data:
   State{legacy: Legacy.State, generation: Nat, anchors: +List<Shell.Anchor>, lifecycle: Lifecycle,
-    displayed: Maybe<&2, Published>}
+    displayed: Maybe<&2, Published>, attention: Navigation.Attention}
 
 def generation(state: State) -> Nat:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
   value_generation
 
 def anchors(state: State) -> +List<Shell.Anchor>:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
   value_anchors
 
 def lifecycle(state: State) -> Lifecycle:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
   value_lifecycle
 
 def displayed(state: State) -> Maybe<&2, Published>:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
   value_displayed
 
 def with_lifecycle(value: Lifecycle, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
-  State{value_legacy, value_generation, value_anchors, value, value_displayed}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value_generation, value_anchors, value, value_displayed, attention}
 
 def with_displayed(value: Maybe<&2, Published>, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value, attention}
 
 type RenderInspection is Data:
   RenderInspection{frame: Maybe<&2, Rendered.Frame>, expected_tabs: Maybe<&2, +List<String>>,
@@ -130,7 +134,7 @@ def inspect_published(frame: Maybe<&2, Rendered.Frame>, +layer: Maybe<&2, String
       inspect_frame(frame, active, layer, dismiss)
 
 def utility_owned(state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}: Utility.owned(source)
     case None{}: False{}
@@ -155,11 +159,11 @@ def utility_rejected(lifecycle: Lifecycle) -> Bool:
     case _: False{}
 
 def auxiliary_owned(+state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   utility_owned(state) || utility_rejected(lifecycle)
 
 def render_inspection(+state: State) -> RenderInspection:
-  State{stored, serial, anchors, lifecycle, displayed} = state
+  State{stored, serial, anchors, lifecycle, displayed, attention} = state
   render_inspection_owned(auxiliary_owned(state), stored, displayed)
 
 def pending_frame_effects_for(lifecycle: Lifecycle, realization: Rendered.State, displayed: Maybe<&2, Published>) -> +List<Legacy.Effect>:
@@ -179,32 +183,48 @@ def pending_frame_effects_for(lifecycle: Lifecycle, realization: Rendered.State,
     case _: Nil{}
 
 def pending_frame_effects(+state: State) -> +List<Legacy.Effect>:
-  State{+observed_state_1, serial, anchors, lifecycle, displayed} = state
+  State{+observed_state_1, serial, anchors, lifecycle, displayed, attention} = state
   +observed_web_2 = Legacy.web(observed_state_1)
   +realization = Web.realization(observed_web_2)
   pending_frame_effects_for(lifecycle, realization, displayed)
 
 def with_generation(value: Nat, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
-  State{value_legacy, value, value_anchors, value_lifecycle, value_displayed}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value, value_anchors, value_lifecycle, value_displayed, attention}
 
 def with_legacy(value: Legacy.State, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed} = state
-  State{value, value_generation, value_anchors, value_lifecycle, value_displayed}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value, value_generation, value_anchors, value_lifecycle, value_displayed, attention}
 
-def initial(+program: M.World(), +sequence: Nat) -> State:
-  State{Legacy.initial(program, sequence), 0n, Nil{}, WaitingEnvironment{}, None{}}
-
-def legacy(+state: State) -> Legacy.State:
-  State{value, generation, anchors, lifecycle, displayed} = state
+def attention(state: State) -> Navigation.Attention:
+  State{legacy, generation, anchors, lifecycle, displayed, value} = state
   value
 
-def candidate(+index: Nat) -> View.Capacity:
-  match index:
+
+def initial(+program: M.World(), +sequence: Nat) -> State:
+  State{Legacy.initial(program, sequence), 0n, Nil{}, WaitingEnvironment{}, None{}, Navigation.initial()}
+
+def legacy(+state: State) -> Legacy.State:
+  State{value, generation, anchors, lifecycle, displayed, attention} = state
+  value
+
+def candidate_form_remainder(remainder: Nat) -> Controls.SupportingForm:
+  match remainder:
+    case 0n: Controls.FullSupporting{}
+    case _: Controls.CompactSupporting{}
+
+def candidate_form(index: Nat) -> Controls.SupportingForm:
+  candidate_form_remainder(Nat.mod(index, 2n))
+
+def candidate_pair(pair: Nat) -> View.Capacity:
+  match pair:
     case 0n: View.Capacity{True{}, True{}}
     case 1n: View.Capacity{True{}, False{}}
     case 2n: View.Capacity{False{}, True{}}
     case _: View.Capacity{False{}, False{}}
+
+def candidate(index: Nat) -> View.Capacity:
+  candidate_pair(Nat.div(index, 2n))
 
 def semantic_surface(+capacity: View.Capacity, +state: Legacy.State) -> SurfaceTypes.Surface:
   Legacy.semantic_surface(capacity, state)
@@ -213,9 +233,9 @@ def published(+world: Content.AllocatedWorld, +capacity: View.Capacity, +state: 
   Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies} = world
   Published{world, semantic, Focus.realized_scope(semantic, Legacy.active_focus_scope(state)), NativeFields.basis([source], semantic), None{}}
 
-def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>, +semantic: SurfaceTypes.Surface) -> Decision:
+def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>, +semantic: SurfaceTypes.Surface, attention: Navigation.Attention) -> Decision:
   Legacy.Decision{+accepted, collected} = decision
-  Decision{State{accepted, serial, anchors, Displaying{capacity, engine, semantic}, Some{published(world, capacity, accepted, semantic)}}, collected}
+  Decision{State{accepted, serial, anchors, Displaying{capacity, engine, semantic}, Some{published(world, capacity, accepted, semantic)}, attention}, collected}
 
 def current_legacy_surface(+state: Legacy.State) -> SurfaceTypes.Surface:
   +observed_web_1 = Legacy.web(state)
@@ -233,19 +253,19 @@ def published_world(value: Published) -> Content.AllocatedWorld:
   world
 
 def native_updates(+state: State) -> +List<NativeFields.Update>:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: Nil{}
     case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.updates(basis, current_surface(state))
 
 def field_owned(+key: String, +state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: False{}
     case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.field_owned(basis, key, current_surface(state))
 
 def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  State{+observed_state_1, serial, anchors, lifecycle, displayed} = state
+  State{+observed_state_1, serial, anchors, lifecycle, displayed, attention} = state
   +observed_web_2 = Legacy.web(observed_state_1)
   +observed_application_3 = Web.application(observed_web_2)
   +core = Platform.core(observed_application_3)
@@ -258,17 +278,17 @@ def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: Wor
   +pending = Legacy.pending(observed_state_1)
   +receipt = Legacy.receipt(observed_state_1)
   +decision = Platform.reflow_capacity(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, capacity)
-  admitted(Legacy.finish(Web.production_commit(decision, generation, environment, font), sequence, ticket, pending, "", receipt), world, capacity, engine, serial, anchors, semantic)
+  admitted(Legacy.finish(Web.production_commit(decision, generation, environment, font), sequence, ticket, pending, "", receipt), world, capacity, engine, serial, anchors, semantic, attention)
 
 def display_ready(+state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
     case Displaying{capacity, engine, semantic}: True{}
     case UtilityDisplaying{purpose, engine}: True{}
     case _: False{}
 
 def displayed_generation(+state: State) -> Nat:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: 0n
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}: generation
@@ -290,7 +310,7 @@ def utility_render_status(displayed: Maybe<&2, Published>) -> String:
     case _: "awaiting-frame"
 
 def render_status(+state: State) -> String:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
     case Displaying{capacity, engine, semantic}: legacy_render_status(legacy)
     case UtilityDisplaying{purpose, engine}: utility_render_status(displayed)
@@ -313,7 +333,7 @@ def measurement_request_plan(plan: Plan.Plan, generation: Nat, round: Nat) -> Ma
     case other: None{}
 
 def measurement_request(+state: State) -> Maybe<&2, MeasurementRequest>:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
     case Measuring{index, capacity, +engine, semantic, round}:
       measurement_request_plan(World.plan(engine), World.snapshot_generation(World.snapshot(engine)), round)
@@ -336,7 +356,7 @@ def observed(+displayed: Maybe<&2, Published>, +lifecycle: Lifecycle, +font: T.P
   observed_lifecycle(lifecycle, displayed, font)
 
 def observe(+capacity: Nat, +state: State) -> CodeObservation.Document:
-  State{+legacy, serial, anchors, lifecycle, displayed} = state
+  State{+legacy, serial, anchors, lifecycle, displayed, attention} = state
   +observed_web_1 = Legacy.web(legacy)
   +font = Web.typography(observed_web_1)
   observed_lifecycle_at(capacity, lifecycle, displayed, T.Presentation{T.Body{}, T.Regular{}, F.scale(font)})
@@ -426,9 +446,9 @@ def visible_anchor(environment: Design.Environment, left: AnchorGeometry.Origin,
   AnchorGeometry.visible(left, top, width, height, viewport_width, viewport_height)
 
 def capture_anchor(key: String, left: AnchorGeometry.Origin, top: AnchorGeometry.Origin, width: Nat, height: Nat, +state: State) -> Decision:
-  State{+legacy, serial, anchors, lifecycle, displayed} = state
+  State{+legacy, serial, anchors, lifecycle, displayed, attention} = state
   bounds = visible_anchor(Web.environment(Legacy.web(legacy)), left, top, width, height)
-  Decision{State{legacy, serial, Shell.Anchor{key, bounds} <> anchors, lifecycle, displayed}, Nil{}}
+  Decision{State{legacy, serial, Shell.Anchor{key, bounds} <> anchors, lifecycle, displayed, attention}, Nil{}}
 
 def legacy_focus_ticket(+state: Legacy.State) -> Nat:
   +observed_web_1 = Legacy.web(state)
@@ -447,7 +467,7 @@ def scope_if_rejected(rejected: Bool, +scope: Focus.Scope) -> Focus.Scope:
     case False{}: scope
 
 def active_scope(+state: State) -> Focus.Scope:
-  State{+legacy, serial, anchors, lifecycle, displayed} = state
+  State{+legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: scope_if_rejected(utility_rejected(lifecycle), Legacy.active_focus_scope(legacy))
     case Some{Published{world, semantic, scope, basis, frame}}: scope
@@ -458,10 +478,17 @@ def program(+state: State) -> M.World(): Legacy.program(legacy(state))
 
 def code_key(+source: Code.Source, +ordinal: Nat) -> String: Legacy.code_key(source, ordinal)
 
+def activity_font_budget(metrics: Maybe<&2, F.ActivityMetrics>) -> Nat:
+  match metrics:
+    case None{}: 1n
+    case Some{metrics}: 0n
+
 def font_budget(+font: F.State) -> Nat:
   match font:
     case F.Pending{generation, scale}: 1n
-    case _: 0n
+    case F.Ready{generation, scale, body, content}:
+      activity_font_budget(F.activity_metrics(F.Ready{generation, scale, body, content}))
+    case F.Failed{generation, scale}: 0n
 
 def source_changed(+input: Web.Input) -> Bool:
   match input:
@@ -485,8 +512,11 @@ def current_font(+state: Legacy.State) -> F.State:
   +font = Web.typography(observed_web_1)
   font
 
+def measurement_plan_at(capacity: Nat, +state: State) -> F.Plan:
+  F.activity_request_plan(capacity, current_font(legacy(state)))
+
 def measurement_plan(+state: State) -> F.Plan:
-  F.request(current_font(legacy(state)), Nil{})
+  measurement_plan_at(NaturalSize.limit(), state)
 
 def measurement_budget(+state: State) -> Nat:
   font_budget(current_font(legacy(state)))
@@ -497,8 +527,8 @@ def semantic_generation(+state: Legacy.State) -> Nat:
   generation
 
 def set_lifecycle(+state: State, lifecycle: Lifecycle) -> State:
-  State{legacy, serial, anchors, old, displayed} = state
-  State{legacy, serial, anchors, lifecycle, displayed}
+  State{legacy, serial, anchors, old, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention}
 
 def no_candidate(state: State) -> Decision:
   Decision{set_lifecycle(state, Blocked{"The interface does not fit the available space"}), Nil{}}
@@ -529,12 +559,33 @@ def infeasible_candidate(+more: Bool, +index: Nat, +state: State, failure: Alloc
     case True{}: Searching{(index + 1n : Nat), state}
     case False{}: Stopped{Decision{set_lifecycle(state, Blocked{failure_message(failure)}), Nil{}}}
 
+def supporting_width_admitted(form: Controls.SupportingForm, requirement: Maybe<&2, Adaptation.RegionDemand>) -> Bool:
+  match form requirement:
+    case Controls.FullSupporting{} None{}: True{}
+    case Controls.FullSupporting{} Some{Adaptation.RegionDemand{available, preferred}}:
+      Nat.is_le(preferred, available)
+    case Controls.CompactSupporting{} _: True{}
+
+def supporting_admitted(index: Nat, world: Content.AllocatedWorld) -> Bool:
+  supporting_width_admitted(candidate_form(index), Adaptation.world_region_demand(world,
+    Adaptation.RegionAttribute{"allocated-region", "supporting-controls"}))
+
+def supporting_retry(more: Bool, index: Nat, state: State) -> Search:
+  match more:
+    case True{}: Searching{(index + 1n : Nat), state}
+    case False{}: Stopped{no_candidate(state)}
+
+def selected_supporting(admitted: Bool, +world: Content.AllocatedWorld, +index: Nat, capacity: View.Capacity, engine: World.Engine, state: State, semantic: SurfaceTypes.Surface) -> Search:
+  match admitted:
+    case True{}: Stopped{admit(world, capacity, engine, state, semantic)}
+    case False{}: supporting_retry(Nat.is_lt(index, 7n), index, state)
+
 def selected(+outcome: Plan.Plan, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface, round: Nat) -> Search:
   match outcome:
-    case Plan.Ready{world}: Stopped{admit(world, capacity, engine, state, semantic)}
+    case Plan.Ready{world}: selected_supporting(supporting_admitted(index, world), world, index, capacity, engine, state, semantic)
     case Plan.Awaiting{generation, first, remaining}: Stopped{Decision{set_lifecycle(state, Measuring{index, capacity, engine, semantic, round}), Nil{}}}
     case Plan.Invalid{error}: Stopped{Decision{set_lifecycle(state, Blocked{"Physical source or receipt is invalid"}), Nil{}}}
-    case Plan.Infeasible{failure}: infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure)
+    case Plan.Infeasible{failure}: infeasible_candidate(Nat.is_lt(index, 7n), index, state, failure)
 
 def surface_layers(surface: SurfaceTypes.Surface) -> +List<View.Layer>:
   SurfaceTypes.Surface{InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
@@ -600,9 +651,9 @@ def feedback_root(+source: Source.Node, +entries: +List<Legacy.Pending>, +font: 
   only_root(feedback_nodes(source <> Nil{}, entries, font), source)
 
 def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: AnchorGeometry.Box, +state: State, +semantic: SurfaceTypes.Surface) -> Search:
-  State{legacy, +serial, anchors, lifecycle, displayed} = state
+  State{legacy, +serial, anchors, lifecycle, displayed, attention} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), feedback_root(source, pending(legacy), font), font}, viewport)
-  selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)
+  selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed, attention}, semantic, 0n)
 
 def authored(+result: Shell.ShellAuthorship, +index: Nat, +capacity: View.Capacity, +font: T.Presentation,
   +viewport: AnchorGeometry.Box, +state: State, +semantic: SurfaceTypes.Surface) -> Search:
@@ -610,11 +661,11 @@ def authored(+result: Shell.ShellAuthorship, +index: Nat, +capacity: View.Capaci
     case Shell.Rejected{key, problem}: Stopped{Decision{set_lifecycle(state, Blocked{"Unsupported authored content: " ++ UIIdentity.encode(key)}), Nil{}}}
     case Shell.Ready{source}: frozen(source, index, capacity, font, viewport, state, semantic)
 
-def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, +index: Nat, +state: State) -> Search:
+def calibrated_parameters_at(physical_capacity: Nat, parameters: Maybe<&2, Design.LayoutParameters>, +index: Nat, +state: State) -> Search:
   match parameters:
     case None{}: Stopped{Decision{set_lifecycle(state, Blocked{"Font metrics exceed supported layout size."}), Nil{}}}
     case Some{parameters}:
-      State{+observed_state_1, serial, +anchors, lifecycle, displayed} = state
+      State{+observed_state_1, serial, +anchors, lifecycle, displayed, attention} = state
       +observed_web_2 = Legacy.web(observed_state_1)
       +observed_application_3 = Web.application(observed_web_2)
       +environment = Web.environment(observed_web_2)
@@ -623,13 +674,28 @@ def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, +index
       +capacity = candidate(index)
       +semantic = semantic_surface(capacity, stored)
       +layers = surface_layers(semantic)
-      +surface = Web.appearance_surface(semantic, environment, font)
+      +surface = Web.appearance_surface_supporting_navigation(semantic, environment, font, candidate_form(index), attention)
       +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
-      authored(Shell.source(surface, parameters, capacity, layers, anchors, presentation),
-        index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed}, semantic)
+      authored(Shell.source_supporting(physical_capacity, surface, parameters, capacity, layers, anchors, presentation, candidate_form(index)),
+        index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed, attention}, semantic)
 
-def calibrated_body(metric: T.Metric, +index: Nat, +state: State) -> Search:
-  calibrated_parameters(Design.parameters(NaturalSize.limit(), F.scale(current_font(legacy(state))), metric), index, state)
+def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, index: Nat, state: State) -> Search:
+  calibrated_parameters_at(NaturalSize.limit(), parameters, index, state)
+
+def calibrated_activity_metrics_at(+physical_capacity: Nat, body: T.Metric, metrics: Maybe<&2, F.ActivityMetrics>, +index: Nat, +state: State) -> Search:
+  match metrics:
+    case None{}: Stopped{Decision{set_lifecycle(state, WaitingFont{}), Nil{}}}
+    case Some{F.ActivityMetrics{primary, support}}:
+      calibrated_parameters_at(physical_capacity, Design.parameters(physical_capacity, F.scale(current_font(legacy(state))), body, primary, support), index, state)
+
+def calibrated_activity_metrics(body: T.Metric, metrics: Maybe<&2, F.ActivityMetrics>, index: Nat, state: State) -> Search:
+  calibrated_activity_metrics_at(NaturalSize.limit(), body, metrics, index, state)
+
+def calibrated_body_at(+physical_capacity: Nat, metric: T.Metric, +index: Nat, +state: State) -> Search:
+  calibrated_activity_metrics_at(physical_capacity, metric, F.activity_metrics_at(physical_capacity, current_font(legacy(state))), index, state)
+
+def calibrated_body(metric: T.Metric, index: Nat, state: State) -> Search:
+  calibrated_body_at(NaturalSize.limit(), metric, index, state)
 
 def calibrated(+body: Maybe<&2, T.Metric>, +index: Nat, +state: State) -> Search:
   match body:
@@ -661,9 +727,9 @@ def finish_search(search: Search) -> Decision:
     case Searching{index, state}: no_candidate(state)
 
 def utility_publish(+world: Content.AllocatedWorld, purpose: Utility.Purpose, engine: World.Engine, state: State) -> Decision:
-  State{+stored, serial, anchors, lifecycle, displayed} = state
+  State{+stored, serial, anchors, lifecycle, displayed, attention} = state
   Decision{State{stored, serial, anchors, UtilityDisplaying{purpose, engine},
-    Some{Published{world, current_legacy_surface(stored), Focus.Document{}, NativeFields.Basis{Nil{}, Nil{}}, None{}}}}, Nil{}}
+    Some{Published{world, current_legacy_surface(stored), Focus.Document{}, NativeFields.Basis{Nil{}, Nil{}}, None{}}}, attention}, Nil{}}
 
 def utility_selected(plan: Plan.Plan, +purpose: Utility.Purpose, +engine: World.Engine, round: Nat, glyph_only: Bool, +state: State) -> Decision:
   match plan:
@@ -673,17 +739,17 @@ def utility_selected(plan: Plan.Plan, +purpose: Utility.Purpose, +engine: World.
     case Plan.Invalid{error}: Decision{set_lifecycle(state, Blocked{"Frontend utility source is invalid"}), Nil{}}
 
 def utility_start(+purpose: Utility.Purpose, +glyph_only: Bool, +state: State) -> Decision:
-  State{+stored, +serial, anchors, lifecycle, displayed} = state
+  State{+stored, +serial, anchors, lifecycle, displayed, attention} = state
   +observed_web_1 = Legacy.web(stored)
   +environment = Web.environment(observed_web_1)
   +font = Web.typography(observed_web_1)
   +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), UtilityProof.source(purpose, presentation, glyph_only), presentation}, viewport_box(environment))
-  utility_selected(World.plan(engine), purpose, engine, 0n, glyph_only, State{stored, (serial + 1n : Nat), anchors, lifecycle, displayed})
+  utility_selected(World.plan(engine), purpose, engine, 0n, glyph_only, State{stored, (serial + 1n : Nat), anchors, lifecycle, displayed, attention})
 
 def utility_if_needed(decision: Decision) -> Decision:
   Decision{+state, effects} = decision
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
     case WaitingEnvironment{}: append(effects, utility_start(Utility.Preparing{}, False{}, state))
     case WaitingFont{}: append(effects, utility_start(Utility.Preparing{}, False{}, state))
@@ -691,7 +757,7 @@ def utility_if_needed(decision: Decision) -> Decision:
     case _: Decision{state, effects}
 
 def build(index: Nat, state: State) -> Decision:
-  utility_if_needed(finish_search(search_run(4n, Searching{index, state})))
+  utility_if_needed(finish_search(search_run(8n, Searching{index, state})))
 
 def accepted(+rebuild: Bool, +first: +List<Legacy.Effect>, +state: State) -> Decision:
   match rebuild:
@@ -701,8 +767,8 @@ def accepted(+rebuild: Bool, +first: +List<Legacy.Effect>, +state: State) -> Dec
 
 def accept(+rebuild: Bool, +value: Legacy.Decision, +state: State) -> Decision:
   Legacy.Decision{next, first} = value
-  State{old, serial, anchors, lifecycle, displayed} = state
-  accepted(rebuild, first, State{next, serial, anchors, lifecycle, displayed})
+  State{old, serial, anchors, lifecycle, displayed, attention} = state
+  accepted(rebuild, first, State{next, serial, anchors, lifecycle, displayed, attention})
 
 def command_rejected(+ticket: Nat, +reason: String, +state: State) -> Decision: accept(True{}, Legacy.command_rejected(ticket, reason, legacy(state)), state)
 
@@ -888,7 +954,7 @@ def code_batch_owned(observations: +List<CodeObservation.Observation>, source: S
     case Con{observation, rest}: code_observations_owned(Con{observation, rest}, source)
 
 def code_batch_qualified(+generation: Nat, observations: +List<CodeObservation.Observation>, state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: False{}
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
@@ -946,13 +1012,13 @@ def forward_frame_predicate(candidate: ForwardFrameCandidate) -> Bool:
 def forward_frame_category() -> ForwardFrameCandidate -> Type: Categories.holds(ForwardFrameCandidate, forward_frame_predicate)
 
 def frame_forward_calculation(+state: State, +frame: Rendered.Frame) -> Decision:
-  State{+stored, serial, anchors, lifecycle, displayed} = state
+  State{+stored, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
-    case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}}, Nil{}}
+    case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}, attention}, Nil{}}
     case Some{+value}:
-      Published{world, semantic, scope, basis, old} = value
-      accept(False{}, Legacy.observe_frame(semantic_generation(stored), semantic, frame, stored),
-        State{stored, serial, anchors, lifecycle, Some{value}})
+      Published{+world, semantic, scope, basis, old} = value
+      accept(False{}, Legacy.observe_frame_with(semantic_generation(stored), semantic, frame, stored, SourceFrame.expectations(world, frame)),
+        State{stored, serial, anchors, lifecycle, Some{value}, attention})
 
 def frame_forward_ready(member: Categories.Membership<ForwardFrameCandidate, forward_frame_category()>) -> Decision:
   Categories.Membership{ForwardFrameCandidate{state, frame}, evidence} = member
@@ -967,14 +1033,14 @@ def frame_forward(+state: State, +frame: Rendered.Frame) -> Decision:
   frame_forward_admitted(Categories.admit(ForwardFrameCandidate, forward_frame_predicate, ForwardFrameCandidate{state, frame}), state)
 
 def frame_capture(+frame: Rendered.Frame, state: State) -> State:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
-    case None{}: State{legacy, serial, anchors, lifecycle, None{}}
+    case None{}: State{legacy, serial, anchors, lifecycle, None{}, attention}
     case Some{Published{world, semantic, scope, basis, old}}:
-      State{legacy, serial, anchors, lifecycle, Some{Published{world, semantic, scope, basis, Some{frame}}}}
+      State{legacy, serial, anchors, lifecycle, Some{Published{world, semantic, scope, basis, Some{frame}}}, attention}
 
 def frame_owned(+received: Nat, +state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: False{}
     case Some{published}: Nat.is_eq(received, displayed_generation(state))
@@ -983,8 +1049,8 @@ def utility_frame_calculation(frame: Rendered.Frame, state: State) -> Decision:
   Decision{frame_capture(frame, state), Nil{}}
 
 def utility_frame_rejection(state: State) -> Decision:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
-  Decision{State{legacy, serial, anchors, UtilityRejected{"Frontend utility frame does not match its admitted source"}, None{}}, Nil{}}
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  Decision{State{legacy, serial, anchors, UtilityRejected{"Frontend utility frame does not match its admitted source"}, None{}, attention}, Nil{}}
 
 def frame_violations_empty(violations: +List<Rendered.Violation>) -> Bool:
   match violations:
@@ -1016,7 +1082,7 @@ def correlated_frame_owned(utility: Bool, +frame: Rendered.Frame, +state: State)
   match utility:
     case False{}: frame_forward(frame_capture(frame, state), frame)
     case True{}:
-      State{legacy, serial, anchors, lifecycle, displayed} = state
+      State{legacy, serial, anchors, lifecycle, displayed, attention} = state
       match displayed:
         case None{}: Decision{state, Nil{}}
         case Some{Published{world, semantic, scope, basis, old}}:
@@ -1087,7 +1153,7 @@ def native_frame_owned(frame: Maybe<&2, Rendered.Frame>, +semantic: SurfaceTypes
       Rendered.native_valid(native_focus, InterfaceView.active_nodes(semantic), elements) && native_pair(native_focus, owner, identity)
 
 def native_observation_owned(+generation: Nat, +owner: String, +identity: String, state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: False{}
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, +semantic, scope, basis, frame}}:
@@ -1137,20 +1203,6 @@ def auxiliary_focus_admitted(admission: Maybe<&1, Categories.Membership<Auxiliar
 def auxiliary_focus(+input: Web.Input, +state: State) -> Decision:
   auxiliary_focus_admitted(Categories.admit(AuxiliaryFocusCandidate, auxiliary_focus_predicate, AuxiliaryFocusCandidate{input, state}), state)
 
-def step(+input: Legacy.Input, +state: State) -> Decision:
-  match input:
-    case Legacy.Native{Web.CodeSourcesObserved{generation, observations}}: code_sources(generation, observations, state)
-    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.CodeSource{identity, text}}}}: Decision{state, Nil{}}
-    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{text}}}}}}}: Decision{state, Nil{}}
-    case Legacy.Native{Web.NativeFocusObserved{generation, owner, identity}}: native_focus_observed(generation, owner, identity, state)
-    case Legacy.Native{Web.PlatformInput{Platform.ContentFocusObserved{owner, identity}}}: Decision{state, Nil{}}
-    case Legacy.Native{Web.FrameObserved{generation, frame}}:
-      receive_frame(generation, frame, state)
-    case Legacy.Native{Web.PlatformInput{Platform.FocusObserved{identity}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusObserved{identity}}, state)
-    case Legacy.Native{Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}, state)
-    case Legacy.Native{Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}}: auxiliary_focus(Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}, state)
-    case Legacy.Native{+input}: accept(source_changed(input), Legacy.native(input, legacy(state)), state)
-    case other: accept(True{}, Legacy.step(other, legacy(state)), state)
 
 def outside_result(+result: Legacy.OutsideDecision, +state: State) -> OutsideDecision:
   Legacy.OutsideDecision{handled, decision} = result
@@ -1260,7 +1312,7 @@ def published_key(+key: String, shift: Bool, +scope: Focus.Scope, basis: NativeF
       published_key_kind(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, scope, basis, semantic, frame, state)
 
 def key_captured(+key: String, +shift: Bool, +state: State) -> KeyResult:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match displayed:
     case None{}: KeyResult{False{}, Decision{state, Nil{}}}
     case Some{Published{world, semantic, scope, basis, frame}}: published_key(key, shift, scope, basis, semantic, frame, state)
@@ -1271,13 +1323,13 @@ def key_event(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame
 def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface, round: Nat) -> Decision:
   match status:
     case World.Rejected{reason}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
-    case _: finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine, state, semantic, round)))
+    case _: finish_search(search_run(8n, selected(World.plan(engine), index, capacity, engine, state, semantic, round)))
 
 def utility_fallback(reason: String, state: State) -> Decision:
   utility_start(Utility.Recovery{reason}, True{}, state)
 
 def utility_measurement_failure(reason: String, +state: State) -> Decision:
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
     case UtilityMeasuring{purpose, engine, round, False{}}: utility_fallback(reason, state)
     case UtilityMeasuring{purpose, engine, round, True{}}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
@@ -1290,17 +1342,17 @@ def utility_receipt(status: World.ReceiptStatus, +purpose: Utility.Purpose, +eng
 
 def measured_pending(+receipts: +List<String>, +state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic, +round}, displayed}:
+    case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic, +round}, displayed, attention}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
-      receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}, semantic, (round + 1n : Nat))
-    case State{legacy, serial, anchors, UtilityMeasuring{purpose, +engine, +round, glyph_only}, displayed}:
+      utility_if_needed(receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}, semantic, (round + 1n : Nat)))
+    case State{legacy, serial, anchors, UtilityMeasuring{purpose, +engine, +round, glyph_only}, displayed, attention}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
-      utility_receipt(World.receipt_status(next), purpose, next, (round + 1n : Nat), glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed})
+      utility_receipt(World.receipt_status(next), purpose, next, (round + 1n : Nat), glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention})
     case other: Decision{other, Nil{}}
 
 def measurement_owned(ticket: MeasurementTicket, state: State) -> Bool:
   MeasurementTicket{generation, received_round} = ticket
-  State{legacy, serial, anchors, lifecycle, displayed} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
   match lifecycle:
     case Measuring{index, capacity, engine, semantic, round}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) && Nat.is_eq(received_round, round)
     case UtilityMeasuring{purpose, engine, round, glyph_only}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) && Nat.is_eq(received_round, round)
@@ -1328,7 +1380,6 @@ def physical_measured_admitted(admission: Maybe<&1, Categories.Membership<Measur
 def physical_measured(+ticket: MeasurementTicket, +receipts: +List<String>, +state: State) -> Decision:
   physical_measured_admitted(Categories.admit(MeasurementCandidate, physical_measured_predicate, MeasurementCandidate{ticket, receipts, state}), state)
 
-
 type MeasurementFailureCandidate is Data:
   MeasurementFailureCandidate{ticket: MeasurementTicket, reason: String, state: State}
 
@@ -1351,35 +1402,14 @@ def physical_measurement_failed_admitted(admission: Maybe<&1, Categories.Members
 def physical_measurement_failed(+ticket: MeasurementTicket, +reason: String, +state: State) -> Decision:
   physical_measurement_failed_admitted(Categories.admit(MeasurementFailureCandidate, physical_measurement_failed_predicate, MeasurementFailureCandidate{ticket, reason, state}), state)
 
-def capacity_index(capacity: View.Capacity) -> Nat:
-  match capacity:
-    case View.Capacity{True{}, True{}}: 0n
-    case View.Capacity{True{}, False{}}: 1n
-    case View.Capacity{False{}, True{}}: 2n
-    case _: 3n
-
-def refrozen_source(source: Source.Node, font: T.Presentation, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  State{legacy, +serial, anchors, lifecycle, displayed} = state
-  +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), source, font}, viewport)
-  finish_search(search_run(4n, selected(World.plan(engine), index, capacity, engine,
-    State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed}, semantic, 0n)))
-
-def refrozen(snapshot: Content.Snapshot, viewport: AnchorGeometry.Box, +index: Nat, +capacity: View.Capacity, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  Content.Snapshot{old, source, font} = snapshot
-  refrozen_source(source, font, viewport, index, capacity, state, semantic)
-
-def refreeze(+index: Nat, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  State{legacy, +serial, anchors, lifecycle, displayed} = state
-  refrozen(World.snapshot(engine), World.viewport(engine), index, capacity, State{legacy, serial, anchors, lifecycle, displayed}, semantic)
-
 def remeasure(+state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}: refreeze(index, capacity, engine, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed}, semantic)
-    case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed}: refreeze(capacity_index(capacity), capacity, engine, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed}, semantic)
-    case State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed}:
-      utility_start(purpose, glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed})
-    case State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed}:
-      utility_start(purpose, False{}, State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed})
+    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}: build(0n, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention})
+    case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention}: build(0n, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention})
+    case State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention}:
+      utility_start(purpose, glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention})
+    case State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention}:
+      utility_start(purpose, False{}, State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention})
     case other: Decision{other, Nil{}}
 
 def key_decision(result: KeyResult) -> Decision:
@@ -1391,3 +1421,73 @@ def key_input(+key: String, +shift: Bool, +received: Nat, +frame: Rendered.Frame
 def key_handled(result: KeyResult) -> Bool:
   KeyResult{handled, decision} = result
   handled
+
+
+
+
+
+def with_attention(value: Navigation.Attention, state: State) -> State:
+  State{legacy, generation, anchors, lifecycle, displayed, previous} = state
+  State{legacy, generation, anchors, lifecycle, displayed, value}
+
+def attention_refresh(+state: State) -> Decision:
+  State{legacy, generation, anchors, lifecycle, displayed, attention} = state
+  match lifecycle:
+    case Displaying{capacity, +engine, semantic}: build(0n, state)
+    case Measuring{index, capacity, engine, semantic, round}: build(0n, state)
+    case _: Decision{state, Nil{}}
+
+def attention_changed(changed: Bool, value: Navigation.Attention, state: State) -> Decision:
+  match changed:
+    case False{}: Decision{state, Nil{}}
+    case True{}: attention_refresh(with_attention(value, state))
+
+
+def attention_change(valid: Bool, +value: Navigation.Attention, +state: State) -> Decision:
+  match valid:
+    case False{}: Decision{state, Nil{}}
+    case True{}: attention_changed(Bool.not(Navigation.same(value, attention(state))), value, state)
+
+
+def navigation_pointer_fields(+owner: Maybe<&2, String>, +state: State, previous: Navigation.Attention) -> Decision:
+  Navigation.Attention{hovered, focused, capable} = previous
+  attention_change(Navigation.admitted(owner, InterfaceView.active_nodes(current_surface(state))), Navigation.Attention{owner, focused, capable}, state)
+
+def navigation_pointer(+owner: Maybe<&2, String>, +state: State) -> Decision:
+  navigation_pointer_fields(owner, state, attention(state))
+
+def navigation_focus_fields(+owner: Maybe<&2, String>, +state: State, previous: Navigation.Attention) -> Decision:
+  Navigation.Attention{hovered, focused, capable} = previous
+  attention_change(Navigation.admitted(owner, InterfaceView.active_nodes(current_surface(state))), Navigation.Attention{hovered, owner, capable}, state)
+
+def navigation_focus(+owner: Maybe<&2, String>, +state: State) -> Decision:
+  navigation_focus_fields(owner, state, attention(state))
+
+def navigation_hover_fields(capable: Bool, state: State, previous: Navigation.Attention) -> Decision:
+  Navigation.Attention{hovered, focused, previous_capable} = previous
+  attention_change(True{}, Navigation.Attention{hovered, focused, capable}, state)
+
+def navigation_hover(capable: Bool, +state: State) -> Decision:
+  navigation_hover_fields(capable, state, attention(state))
+
+def step(+input: Legacy.Input, +state: State) -> Decision:
+  match input:
+    case Legacy.Native{Web.PlatformInput{Platform.NavigationPointerObserved{owner}}}: navigation_pointer(owner, state)
+    case Legacy.Native{Web.PlatformInput{Platform.NavigationFocusObserved{owner}}}: navigation_focus(owner, state)
+    case Legacy.Native{Web.PlatformInput{Platform.NavigationHoverObserved{capable}}}: navigation_hover(capable, state)
+    case Legacy.Native{Web.CodeSourcesObserved{generation, observations}}: code_sources(generation, observations, state)
+    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.CodeSource{identity, text}}}}: Decision{state, Nil{}}
+    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{text}}}}}}}: Decision{state, Nil{}}
+    case Legacy.Native{Web.NativeFocusObserved{generation, owner, identity}}: native_focus_observed(generation, owner, identity, state)
+    case Legacy.Native{Web.PlatformInput{Platform.ContentFocusObserved{owner, identity}}}: Decision{state, Nil{}}
+    case Legacy.Native{Web.FrameObserved{generation, frame}}:
+      receive_frame(generation, frame, state)
+    case Legacy.Native{Web.PlatformInput{Platform.FocusObserved{identity}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusObserved{identity}}, state)
+    case Legacy.Native{Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}, state)
+    case Legacy.Native{Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}}: auxiliary_focus(Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}, state)
+    case Legacy.Native{+input}: accept(source_changed(input), Legacy.native(input, legacy(state)), state)
+    case other: accept(True{}, Legacy.step(other, legacy(state)), state)
+
+def presentation_phase(state: State) -> Lifecycle:
+  State{legacy, generation, anchors, phase, displayed, attention} = state
+  phase

@@ -1,3 +1,4 @@
+import ../experience/MODEL.bend as Experience
 import Base
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
@@ -48,20 +49,19 @@ type InputGroup is Data:
 
 type EditorScene is Data:
   EditorScene{identity: U.Editor, revision: Nat, groups: +List<InputGroup>, sections: +List<Forms.Section>,
-    submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
-
-type ComposerSubject is Data:
-  ModelSubject{}
-  WorkspaceSubject{}
-  PermissionsSubject{}
-  DeliverySubject{delivery: U.Delivery}
+    assessment: Experience.Assessment, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
 type ComposerControl is Data:
-  ComposerControl{subject: ComposerSubject, declaration: ControlDeclaration}
+  ComposerControl{property: Experience.Property, declaration: ControlDeclaration}
+
+type ComposerPhase is Data:
+  Creation{}
+  Conversation{task: Nat}
 
 type ComposerScene is Data:
-  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, footer: +List<ComposerControl>,
-    context: Maybe<&2, Context.Observation>, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
+  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, phase: ComposerPhase,
+    creation_context: +List<ComposerControl>, execution_controls: +List<ComposerControl>,
+    context: Maybe<&2, Context.Observation>, assessment: Experience.Assessment, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
 # Derived from the current composer; this is not another mutable draft.
 
@@ -133,6 +133,7 @@ type Page is Data:
   MissingObject{message: String}
 
 type LayerContent is Data:
+  PropertySource{origin: LayerContent}
   ProjectSelection{query: String, selected: Maybe<&2, Nat>, projects: +List<ProjectChoice>}
   ObjectActions{actions: +List<ControlDeclaration>}
   ArchivedCards{cards: +List<CardScene>}

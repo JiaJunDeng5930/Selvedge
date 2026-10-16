@@ -1,3 +1,5 @@
+import ../experience/MODEL.bend as Experience
+import ../experience/PROGRAM.bend as UX
 import Base
 import ../IDENTITY.bend as Identity
 import ./MODEL.bend as Receipt
@@ -90,14 +92,20 @@ def expected_choices(entry: Forms.Entry, field: Forms.Field, value: Forms.Observ
     case Forms.MultipleChoices{}: Options.choices(field, value, groups)
     case _: Nil{}
 
+def expected_property_choices(entry: Forms.Entry, field: Forms.Field, +value: Forms.Observed, editor: U.Editor, groups: +List<View.InputGroup>) -> +List<Forms.ChoiceValue>:
+  match field value:
+    case Forms.WorkspacePrimary{} Forms.WorkspaceValue{workspace}: InterfaceView.primary_choices(UX.decision_alternatives(UX.primary_decision(UX.collection(editor, workspace))))
+    case Forms.WorkspacePrimary{} Forms.ContextValue{preview, reviewers}: InterfaceView.observed_primary_choices(InterfaceView.context_workspace(preview), editor)
+    case _ _: expected_choices(entry, field, value, groups)
+
 type FeedbackRequirements is Type:
   FeedbackRequirements{
     field_payload: @+field:Forms.Field -> @label:String -> @+entry:Forms.Entry -> @+editor:U.Editor -> @+parent: Identity.Key -> @+state:InteractionTypes.State -> @+groups:+List<View.InputGroup> ->
       {InterfaceView.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==
         SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
           SurfaceTypes.Edit{editor, field, InterfaceView.actual_entry(field, entry, InterfaceView.field_value(state, editor, field), state), InterfaceView.field_value(state, editor, field),
-            expected_choices(InterfaceView.actual_entry(field, entry, InterfaceView.field_value(state, editor, field), state), field, InterfaceView.field_value(state, editor, field), groups)},
-          InterfaceView.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)} : SurfaceTypes.Node},
+            expected_property_choices(InterfaceView.actual_entry(field, entry, InterfaceView.field_value(state, editor, field), state), field, InterfaceView.field_value(state, editor, field), editor, groups)},
+          List.append(&2, SurfaceTypes.Node, InterfaceView.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state), InterfaceView.subject_repair(editor, field, Identity.Part{parent, Forms.key(field)}, state))} : SurfaceTypes.Node},
     rejected_feedback: @+parent: Identity.Key -> @revision:Nat -> @+reason:String ->
       {InterfaceView.feedback_nodes(parent, U.Rejected{revision, reason}) ==
     [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{reason}, Nil{}}] : +List<SurfaceTypes.Node>},
@@ -105,16 +113,19 @@ type FeedbackRequirements is Type:
       {InterfaceView.feedback_nodes(parent, U.Editing{}) == Nil{} : +List<SurfaceTypes.Node>},
     accepted_no_stale: @parent: Identity.Key -> @revision:Nat -> @reply:J.Json ->
       {InterfaceView.feedback_nodes(parent, U.Accepted{revision, reply}) == Nil{} : +List<SurfaceTypes.Node>},
-    editor_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @groups:+List<View.InputGroup> -> @+structure:+List<Forms.Section> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
-      {InterfaceView.editor(Some{View.EditorScene{identity, revision, groups, structure, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
+    editor_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @+groups:+List<View.InputGroup> -> @+structure:+List<Forms.Section> -> @+assessment:Experience.Assessment -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
+      {InterfaceView.editor(Some{View.EditorScene{identity, revision, groups, structure, assessment, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
+        InterfaceView.activity_or_content(InterfaceView.project_activity_scene(Some{View.EditorScene{identity, revision, groups, structure, assessment, submit, U.Rejected{submitted, reason}, pending}}, state), "", parent, state,
         List.append(&2, SurfaceTypes.Node, InterfaceView.sections(structure, identity, parent, 0n, state, groups),
-          [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{reason}, Nil{}}, InterfaceView.dialog_actions(parent, [InterfaceView.declared(parent, submit, state)])]) : +List<SurfaceTypes.Node>},
-    composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> -> @context:Maybe<&2, Context.Observation> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
-      {InterfaceView.composer(Some{View.ComposerScene{identity, revision, message, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
-        [SurfaceTypes.Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.Region{},
+          List.append(&2, SurfaceTypes.Node,
+            List.append(&2, SurfaceTypes.Node, InterfaceView.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state),
+              [SurfaceTypes.Node{Identity.Part{parent, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ActionFeedback{Experience.Feedback{identity, submitted, reason}}, [SurfaceTypes.Node{Identity.Part{parent, "reason"}, "submission-feedback/reason", reason, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{reason}, Nil{}}]}]),
+            [InterfaceView.dialog_actions(parent, [InterfaceView.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])]))) : +List<SurfaceTypes.Node>},
+    composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> -> @context:Maybe<&2, Context.Observation> -> @+assessment:Experience.Assessment -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
+      {InterfaceView.composer(Some{View.ComposerScene{identity, revision, message, View.Creation{}, Nil{}, footer, context, assessment, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
+        [SurfaceTypes.Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           InterfaceView.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, Identity.Entity{parent, "composer", U.editor_key(identity)}, state, Nil{}) <>
-            [SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "composer", U.editor_key(identity)}, "feedback"}, "submission-feedback", "Submission failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{reason}, Nil{}},
-             InterfaceView.composer_actions(footer, submit, Identity.Entity{parent, "composer", U.editor_key(identity)}, state)]}] : +List<SurfaceTypes.Node>}}
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, InterfaceView.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, Identity.Entity{parent, "composer", U.editor_key(identity)}, state), InterfaceView.action_feedback_nodes(identity, U.Rejected{submitted, reason}, Identity.Entity{parent, "composer", U.editor_key(identity)})), [InterfaceView.action_footer(footer, UX.action(identity, revision, pending), assessment, submit, Identity.Entity{parent, "composer", U.editor_key(identity)}, state)])}] : +List<SurfaceTypes.Node>}}
 
 law feedback_evidence:
   FeedbackRequirements

@@ -44,7 +44,7 @@ def catalog(+world: M.World()) -> +List<D.Tool>:
   catalog_environment(world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def context(+task: D.Task) -> J.Json:
-  J.Object{[J.Field{"model", View.model_json(T.task_model(D.task_contract(task)))},
+  J.Object{[J.Field{"model", View.model_json(D.task_model(task))},
     J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}},
     J.Field{"history", J.Array{T.messages_json(D.history_messages(D.context_history(D.task_history(task)), Nil{}))}}]}
 
@@ -350,6 +350,7 @@ def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
     case Idle{task} _:
       C.Decision{Commands.replace(D.with_phase(D.Idle{}, task), world), D.success(J.Null{}), Nil{}}
     case Model{task} _: Reasoning.start(F.State(), F.Effect, task, world)
+
     case External{+tool, +call, remaining, +task} C.Frame{+task_state_2, +board}:
       tasks = D.state_tasks(task_state_2)
       next_task = D.state_next_task(task_state_2)

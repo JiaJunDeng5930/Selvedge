@@ -41,9 +41,11 @@ type Command is Data:
   UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json}
   DeleteProject{project_id: Nat}
   ReviewApproval{task_id: Nat, operation_id: Nat, outcome: D.ApprovalOutcome}
+  ConfigureTaskExecution{task: Nat, profile: String, reasoning: String, sandbox: D.Sandbox, approval: D.ApprovalPolicy}
   FeatureCommand{command: F.Command}
 
 type CommandKind is Data:
+  ConfigureTaskExecutionCommand{}
   CreateCommand{}
   SendCommand{}
   SteerCommand{}
@@ -79,7 +81,11 @@ def feature_specs(specs: +List<F.CommandSpec>) -> +List<CommandSpec>:
 
 def commands() -> +List<CommandSpec>:
   List.append(&2, CommandSpec, feature_specs(F.specs(D.task_settings_schema())),
-  [CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
+  [CommandSpec{"configure_task_execution", "Change a quiescent task's current execution settings while preserving its creation snapshot.", ConfigureTaskExecutionCommand{},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"profile", D.string_schema("Configured execution profile")},
+       J.Field{"reasoning", D.string_schema("Permitted reasoning effort")}, J.Field{"sandbox", D.sandbox_schema()},
+       J.Field{"approval", D.approval_schema()}], [J.Text{"task_id"}, J.Text{"profile"}, J.Text{"reasoning"}, J.Text{"sandbox"}, J.Text{"approval"}])},
+   CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
      D.command_schema([J.Field{"profile", D.string_schema("Configured model profile")},
        J.Field{"reasoning", D.string_schema("Reasoning effort; defaults to medium")},
        J.Field{"message", D.string_schema("Initial user request")}, J.Field{"settings", D.task_settings_schema()}], [J.Text{"profile"}, J.Text{"message"}])},

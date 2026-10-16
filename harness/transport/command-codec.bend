@@ -16,10 +16,18 @@ def optional_field(name: String, value: J.Json, fields: +List<J.Field>) -> +List
     case J.Null{}: fields
     case value: J.Field{name, value} <> fields
 
+def approval_input(+policy: D.ApprovalPolicy) -> J.Json:
+  J.Object{[J.Field{"mode", J.Text{D.approval_name(policy)}},
+    J.Field{"reviewer_profile", J.Text{D.reviewer_key(policy)}}]}
+
 def command_json(command: M.Command) -> J.Json:
   match command:
     case M.FeatureCommand{command}: FeatureCodec.command_json(command)
     case M.Observe{M.FeatureQuery{query}}: FeatureCodec.query_json(query)
+    case M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}:
+      J.Object{[J.Field{"op", J.Text{"configure_task_execution"}}, J.Field{"task_id", J.nat(id)},
+        J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}},
+        J.Field{"sandbox", D.sandbox_json(sandbox)}, J.Field{"approval", approval_input(approval)}]}
     case M.Create{profile, reasoning, message, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
         J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}])}

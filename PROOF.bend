@@ -42,6 +42,7 @@ import ./interaction/submission/PROOF.bend as CoreSubmissionFeedbackProof
 import ./interaction/presentation/scene-proof.bend as SplitInteractionPresentationSceneProof
 import ./interaction/services/PROOF.bend as CoreExecutionContextProof
 import ./interaction/session/PROOF.bend as CoreSessionProof
+import ./interaction/experience/PROOF.bend as ExperienceProof
 import ./interaction/PROOF.bend as UIProof
 
 import ./bendlib/categories.bend as Categories

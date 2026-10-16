@@ -1,6 +1,6 @@
 import Base
 
-# Physical coordinates share the pinned compiler's immediate Nat capacity.
+# Physical coordinates use the pinned compiler's immediate Nat capacity, 2^48 - 1.
 def limit() -> Nat:
   Nat.add(Nat.mul(4294967295n, 65536n), 65535n)
 

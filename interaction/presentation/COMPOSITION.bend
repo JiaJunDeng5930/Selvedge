@@ -55,7 +55,6 @@ type Region is Data:
   LatestAction{}
   ApprovalDecisions{}
   CreationIntroduction{}
-  CreationContext{}
   ComposerInput{}
   ProjectTitle{}
   ProjectActions{}
@@ -88,7 +87,6 @@ def region_name(region: Region) -> String:
     case LatestAction{}: "latest-action"
     case ApprovalDecisions{}: "approval-decisions"
     case CreationIntroduction{}: "creation-introduction"
-    case CreationContext{}: "creation-context"
     case ComposerInput{}: "composer-input"
     case ProjectTitle{}: "project-title"
     case ProjectActions{}: "project-actions"
@@ -415,7 +413,7 @@ def bottom_composer_region(composer: Composer) -> +List<Region>:
 def structure(recipe: Recipe) -> Structure:
   match recipe:
     case Recipe{measure, heading, CenteredCreation{}, composer, decisions, latest}:
-      Structure{Nil{}, CreationIntroduction{} <> CreationContext{} <> centered_composer_region(composer), Nil{}}
+      Structure{Nil{}, CreationIntroduction{} <> centered_composer_region(composer), Nil{}}
     case Recipe{measure, heading, ChronologicalReading{}, composer, decisions, latest}:
       Structure{[ConversationTitle{}, TaskActions{}], [TimelineContent{}],
         List.append(&2, Region, latest_region(latest),

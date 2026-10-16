@@ -50,7 +50,7 @@ def workspace_roots(value: Context.WorkspaceValue) -> +List<String>:
 def primary_choices(value: Forms.Observed) -> +List<String>:
   match value:
     case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: roots
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: workspace_roots(workspace)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: workspace_roots(workspace)
     case _: Nil{}
 
 def sandbox_text(value: Context.SandboxValue) -> String:
@@ -75,7 +75,7 @@ def observed(value: Forms.Observed) -> String:
     case Forms.TextsValue{values}: joined(values)
     case Forms.ToggleValue{enabled}: boolean(enabled)
     case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: joined(roots)
-    case Forms.ContextValue{preview}: context_text(preview)
+    case Forms.ContextValue{preview, reviewers}: context_text(preview)
     case Forms.ModelValue{profile, reasoning}: profile
     case Forms.DeliveryValue{delivery}: delivery_name(delivery)
     case Forms.StageValue{stage}: Board.stage_name(stage)
@@ -121,7 +121,7 @@ def project_options(values: +List<View.ProjectChoice>) -> +List<Forms.ChoiceValu
 
 def origin_options(value: Forms.Observed) -> +List<Forms.ChoiceValue>:
   match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: origin_option_values(origin)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: origin_option_values(origin)
     case _: [option("environment", "Environment defaults")]
 
 def policy_options(policy: Reasoning.Policy) -> +List<Forms.ChoiceValue>:
@@ -155,6 +155,7 @@ def field_options(field: Forms.Field, value: Forms.Observed) -> +List<Forms.Choi
   match field:
     case Forms.SandboxMode{}: [option("workspace-write", "Workspace write"), option("read-only", "Read only")]
     case Forms.ContextOrigin{}: origin_options(value)
+    case Forms.ApprovalReviewer{}: Nil{}
     case Forms.ApprovalPolicy{}: [option("ask", "Ask for approval"), option("full-access", "Full access"), option("automatic", "Automatic review")]
     case Forms.WorkspacePrimary{}: options(primary_choices(value))
     case Forms.CardStage{}: stage_options(Board.stages())
@@ -162,9 +163,20 @@ def field_options(field: Forms.Field, value: Forms.Observed) -> +List<Forms.Choi
     case Forms.DeliveryIntent{}: [option("send", User.delivery_caption(User.Send{})), option("steer", User.delivery_caption(User.Steer{}))]
     case _: [option(observed(value), "Current value")]
 
+def approval_choice_reviewer_options(choice: Context.ApprovalChoice, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+  match choice:
+    case Context.AutomaticReview{profile}: reviewer_options(reviewers)
+    case _: Nil{}
+
+def approval_reviewer_options(preview: Context.Preview, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+  match preview:
+    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: approval_choice_reviewer_options(Context.observed_approval(approval), reviewers)
+    case _: Nil{}
+
 def execution_options(field: String, configuration: Context.Configuration, preview: Context.Preview, projects: +List<View.ProjectChoice>, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match field:
-    case "context-origin": List.append(&2, Forms.ChoiceValue, origin_options(Forms.ContextValue{preview}), project_origin_options(projects))
+    case "context-origin": List.append(&2, Forms.ChoiceValue, origin_options(Forms.ContextValue{preview, reviewers}), project_origin_options(projects))
+    case "approval-reviewer": approval_reviewer_options(preview, reviewers)
     case "approval-policy": List.append(&2, Forms.ChoiceValue, [option("ask", "Ask for approval"), option("full-access", "Full access")], reviewer_options(reviewers))
     case _: Nil{}
 

@@ -416,7 +416,7 @@ def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, 
       Internal{Commands.resolve(M.Cancel{Native.number(target, arguments, caller), Native.number(operation, arguments, caller)}, world)}
     case Native.Fork{count, messages, settings}:
       branch(Native.number(count, arguments, caller), Native.texts(messages, arguments),
-        Commands.selected_settings(Native.settings(settings, arguments), Commands.task_selection(task), D.model_profile(T.task_model(D.task_contract(task))), world), task, world)
+        Commands.selected_settings(Native.settings(settings, arguments), Commands.task_selection(task), D.model_profile(D.task_model(task)), world), task, world)
     case Native.Process{}:
       Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
 

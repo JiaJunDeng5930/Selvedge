@@ -52,6 +52,7 @@ type Feedback is Data:
   Editing{}
   Accepted{revision: Nat, reply: J.Json}
   Rejected{revision: Nat, reason: String}
+  WorkspaceRejected{revision: Nat, reason: String}
 
 type Draft is Data:
   Draft{revision: Nat, body: Body, feedback: Feedback, directory_entry: String}
@@ -109,6 +110,7 @@ type Panel is Data:
   PermissionsConfiguration{editor: Editor}
   TaskContext{task: Nat}
   ModelPicker{editor: Editor}
+  PropertySource{origin: Panel}
   DeliveryPicker{task: Nat}
   Confirm{command: M.Command, title: String, destination: Route}
 
@@ -126,6 +128,7 @@ type Action is Data:
   ForkTask{task: Nat}
   CompactTask{task: Nat}
   Submit{editor: Editor}
+  RetryWorkspace{editor: Editor}
   ControlTask{task: Nat, control: D.Control}
   CancelOperation{task: Nat, operation: Nat}
   ReviewApproval{task: Nat, operation: Nat, allow: Bool, reason: String}
@@ -137,6 +140,11 @@ type Action is Data:
   ConfirmAction{}
 
 type Input is Data:
+  WriteDecisionParameter{editor: Editor, value: String}
+  CompleteDecisionParameter{editor: Editor}
+  EnterDecision{editor: Editor, field_key: String}
+  LeaveDecision{editor: Editor}
+  TogglePropertySource{editor: Editor}
   Activate{action: Action}
   EditDraft{editor: Editor, edit: Edit}
   ReadTimeline{task: Nat, generation: Nat, intent: ReadingIntent}
@@ -327,6 +335,14 @@ def command(body: Body, now: U32) -> M.Command:
     case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.settings(context)}
     case Compact{task, summary}: M.Compact{task, summary}
     case TaskGraph{graph, declaration, parsed}: graph_command(graph, parsed)
+
+def workspace_operation(body: Body) -> Bool:
+  match body:
+    case NewTask{message, profile, reasoning, context}: True{}
+    case Project{id, name, workspace}: True{}
+    case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
+    case Fork{task, count, messages, context}: True{}
+    case _: False{}
 
 def required_workspace(body: Body) -> Maybe<&2, D.Workspace>:
   match body:

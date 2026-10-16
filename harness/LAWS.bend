@@ -375,7 +375,7 @@ law summary_request_full_history:
   for +state: D.State
   for +board: F.State()
   {P.decision_effects(P.summary_request(task, False{}, C.Frame{state, board})) ==
-    [Effects.RequestSummary{D.task_id(task), D.state_next_ticket(state), T.task_model(D.task_contract(task)),
+    [Effects.RequestSummary{D.task_id(task), D.state_next_ticket(state), D.task_model(task),
       D.HistoryNode{D.task_history(task), D.UserMessage{D.summary_instructions()}}, D.task_context(task)}] : +List<M.Effect()>}
 
 law accepted_model_settlement:
@@ -417,6 +417,7 @@ law summary_recovery_idle:
   {T.recover_phase(D.SummaryPending{ticket, resume}) == D.Idle{} : D.Phase}
 
 law checkpoint_is_not_recompacted:
+  for +current: D.ExecutionConfiguration
   for +id: Nat
   for +lineage: +List<Nat>
   for +contract: D.Contract
@@ -428,10 +429,11 @@ law checkpoint_is_not_recompacted:
   for +world: M.World()
   for +operations: +List<D.Operation()>
   for +notified: Bool
-  {P.model_request(D.Task{id, lineage, contract, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) ==
-    P.model_request_direct(D.Task{id, lineage, contract, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) : M.Decision()}
+  {P.model_request(D.Task{id, lineage, contract, current, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) ==
+    P.model_request_direct(D.Task{id, lineage, contract, current, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) : M.Decision()}
 
 law context_limit_after_checkpoint_stops:
+  for +current: D.ExecutionConfiguration
   for allowed: +List<String>
   for +id: Nat
   for +lineage: +List<Nat>
@@ -443,11 +445,12 @@ law context_limit_after_checkpoint_stops:
   for +operations: +List<D.Operation()>
   for +notified: Bool
   {T.model_outcome(D.ContextLimit{}, allowed,
-    D.Task{id, lineage, contract, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, Nil{}, phase, operations, notified}) ==
-    D.Task{id, lineage, contract, status, D.HistoryNode{D.HistoryNode{history, D.ContextCheckpoint{summary}},
+    D.Task{id, lineage, contract, current, status, D.HistoryNode{history, D.ContextCheckpoint{summary}}, Nil{}, phase, operations, notified}) ==
+    D.Task{id, lineage, contract, current, status, D.HistoryNode{D.HistoryNode{history, D.ContextCheckpoint{summary}},
       D.FailureMessage{"Model context limit reached; full task history retained"}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
 
 law summary_context_limit_stops:
+  for +current: D.ExecutionConfiguration
   for resume: Bool
   for +id: Nat
   for +lineage: +List<Nat>
@@ -457,8 +460,8 @@ law summary_context_limit_stops:
   for phase: D.Phase
   for +operations: +List<D.Operation()>
   for +notified: Bool
-  {T.summary_outcome(D.ContextLimit{}, resume, D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
-    D.Task{id, lineage, contract, status, D.HistoryNode{history,
+  {T.summary_outcome(D.ContextLimit{}, resume, D.Task{id, lineage, contract, current, status, history, Nil{}, phase, operations, notified}) ==
+    D.Task{id, lineage, contract, current, status, D.HistoryNode{history,
       D.FailureMessage{"The summary request exceeded the model context limit; supply a bounded checkpoint with compact"}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
 
 law checkpoint_preserves_project_contract:
@@ -509,6 +512,7 @@ law archived_terminal:
   {D.control(D.Archived{}, request) == None{} : Maybe<&2, D.Status>}
 
 law archived_input_unchanged:
+  for +current: D.ExecutionConfiguration
   for +id: Nat
   for +lineage: +List<Nat>
   for +contract: D.Contract
@@ -518,8 +522,8 @@ law archived_input_unchanged:
   for text: String
   for +operations: +List<D.Operation()>
   for +notified: Bool
-  {T.receive(text, D.Task{id, lineage, contract, D.Archived{}, history, queue, phase, operations, notified}) ==
-    D.Task{id, lineage, contract, D.Archived{}, history, queue, phase, operations, notified} : D.Task}
+  {T.receive(text, D.Task{id, lineage, contract, current, D.Archived{}, history, queue, phase, operations, notified}) ==
+    D.Task{id, lineage, contract, current, D.Archived{}, history, queue, phase, operations, notified} : D.Task}
 
 # Freeze suspends dispatch; stop permits settlement but never requests a model.
 
@@ -571,8 +575,8 @@ law queue_order:
   {D.task_queue(D.queue_message(second, D.queue_message(first, task))) ==
     List.append(&2, String, D.task_queue(task), [first, second]) : +List<String>}
 
-# A child shares the parent's history prefix and immutable contract, has a new
-# task-parent edge, and receives no copy of the parent's waiting user messages.
+# A child snapshots the parent's effective execution contract at the actual fork,
+# has a new parent edge and receives no copy of waiting user messages.
 
 law child_contract:
   for id: Nat
@@ -581,7 +585,16 @@ law child_contract:
   for branch: Nat
   for remaining: +List<D.Attempt>
   for message: Maybe<&2, String>
-  {D.task_contract(P.child(id, parent, call, branch, remaining, message)) == D.task_contract(parent) : D.Contract}
+  {D.task_contract(P.child(id, parent, call, branch, remaining, message)) == D.effective_contract(parent) : D.Contract}
+
+law child_execution:
+  for id: Nat
+  for +parent: D.Task
+  for call: String
+  for branch: Nat
+  for remaining: +List<D.Attempt>
+  for message: Maybe<&2, String>
+  {D.task_execution(P.child(id, parent, call, branch, remaining, message)) == D.execution_configuration(D.effective_contract(parent)) : D.ExecutionConfiguration}
 
 law child_history_prefix:
   for +id: Nat
@@ -761,6 +774,7 @@ law summary_rejects_invocations:
     T.promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Compaction failed: expected a nonempty bounded summary without tool calls; original history retained"}, task))) : D.Task}
 
 law summary_failure_promotes_fifo:
+  for +current: D.ExecutionConfiguration
   for +message: String
   for +id: Nat
   for +lineage: +List<Nat>
@@ -771,11 +785,12 @@ law summary_failure_promotes_fifo:
   for phase: D.Phase
   for +operations: +List<D.Operation()>
   for +notified: Bool
-  {T.summary_failure(message, D.Task{id, lineage, contract, D.Active{}, history, first <> rest, phase, operations, notified}) ==
-    D.Task{id, lineage, contract, D.Active{}, D.history_append(T.user_messages(first <> rest), D.HistoryNode{history, D.FailureMessage{message}}),
+  {T.summary_failure(message, D.Task{id, lineage, contract, current, D.Active{}, history, first <> rest, phase, operations, notified}) ==
+    D.Task{id, lineage, contract, current, D.Active{}, D.history_append(T.user_messages(first <> rest), D.HistoryNode{history, D.FailureMessage{message}}),
       Nil{}, D.Ready{Nil{}}, operations, True{}} : D.Task}
 
 law summary_failure_empty_stops:
+  for +current: D.ExecutionConfiguration
   for +message: String
   for +id: Nat
   for +lineage: +List<Nat>
@@ -785,8 +800,8 @@ law summary_failure_empty_stops:
   for phase: D.Phase
   for +operations: +List<D.Operation()>
   for +notified: Bool
-  {T.summary_failure(message, D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
-    D.Task{id, lineage, contract, status, D.HistoryNode{history, D.FailureMessage{message}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
+  {T.summary_failure(message, D.Task{id, lineage, contract, current, status, history, Nil{}, phase, operations, notified}) ==
+    D.Task{id, lineage, contract, current, status, D.HistoryNode{history, D.FailureMessage{message}}, Nil{}, D.Idle{}, operations, notified} : D.Task}
 
 
 law command_consumer_correspondence:
@@ -798,6 +813,34 @@ law input_consumer_correspondence:
   for member: Protocol.ConstructedInput()
   {P.realize_event(member) == P.input_consumer_correspondence_required(member) : M.Decision()}
 
+law execution_configuration_status:
+  for configuration: D.ExecutionConfiguration
+  for +task: D.Task
+  {D.task_status(D.with_execution(configuration, task)) == D.task_status(task) : D.Status}
+
+law execution_configuration_creation:
+  for configuration: D.ExecutionConfiguration
+  for +task: D.Task
+  {D.task_contract(D.with_execution(configuration, task)) == D.task_contract(task) : D.Contract}
+
+law execution_configuration_current:
+  for +configuration: D.ExecutionConfiguration
+  for task: D.Task
+  {D.task_execution(D.with_execution(configuration, task)) == configuration : D.ExecutionConfiguration}
+
+law queued_execution_configuration_rejected:
+  for id: Nat
+  for lineage: +List<Nat>
+  for contract: D.Contract
+  for current: D.ExecutionConfiguration
+  for status: D.Status
+  for history: D.History
+  for first: String
+  for rest: +List<String>
+  for phase: D.Phase
+  for operations: +List<D.Operation()>
+  for notified: Bool
+  {D.task_execution_quiescent(D.Task{id, lineage, contract, current, status, history, first <> rest, phase, operations, notified}) == False{} : Bool}
 
 law initial_history_order:
   for +instructions: D.InitialInstructions
@@ -812,6 +855,7 @@ law initial_history_order:
   for +max_descendants: Nat
   for +plugins: +List<D.Plugin>
   for +context: D.TaskContext
+  for +current: D.ExecutionConfiguration
   for +status: D.Status
   for +history: D.History
   for +queued: +List<String>
@@ -819,7 +863,7 @@ law initial_history_order:
   for +operations: +List<D.Operation()>
   for +notified: Bool
   {D.task_history(D.initialize_history(instructions, project, message,
-    D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context}, status, history, queued, phase, operations, notified})) ==
+    D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified})) ==
     TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, history) : D.History}
 
 law context_append_preserves_prefix:
@@ -857,7 +901,7 @@ law model_request_full_history:
   for instructions: D.InitialInstructions
   {P.decision_effects(ActualReasoning.request_environment(F.State(), F.Effect, task, C.Frame{state, board},
     D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions})) ==
-    [Effects.RequestModel{D.task_id(task), D.state_next_ticket(state), T.task_model(D.task_contract(task)), D.task_history(task),
+    [Effects.RequestModel{D.task_id(task), D.state_next_ticket(state), D.task_model(task), D.task_history(task),
       T.task_tools(D.task_contract(task)), T.callable(T.task_tools(D.task_contract(task)), catalog), D.task_context(task)}] : +List<M.Effect()>}
 
 law root_initial_history:
@@ -878,5 +922,6 @@ law root_initial_history:
     Workspace.Selection{context, project}, C.Frame{state, board},
     D.Environment{catalog, profiles, forks, descendants, D.NoProject{}, plugins, instructions})))) ==
     List.append(&2, D.Task, D.state_tasks(state), [D.Task{D.state_next_task(state), Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context},
+      D.execution_configuration(D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context}),
       D.Active{}, TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, D.EmptyHistory{}),
       Nil{}, D.Ready{Nil{}}, Nil{}, True{}}]) : +List<D.Task>}

@@ -1,3 +1,4 @@
+import ./browser/MODEL.bend as Web
 import Base
 import ./browser/layout/GEOMETRY.bend as AnchorGeometry
 import ./browser/runtime/native-fields.bend as NativeFields
@@ -111,3 +112,12 @@ def code_dom_key(source: Code.Source, ordinal: Nat) -> String: Code.dom_key(Code
 def render_inspection(state: Browser.State) -> Browser.RenderInspection: Browser.render_inspection(state)
 
 def publication_focus_feedback(publication: Browser.Publication, ticket: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>) -> Maybe<&2, Platform.Input>: Browser.publication_focus_feedback(publication, ticket, before, after)
+
+def navigation_pointer_observed(owner: Maybe<&2, String>, state: Browser.State) -> Browser.Decision:
+  Browser.step(Legacy.Native{Web.PlatformInput{Platform.NavigationPointerObserved{owner}}}, state)
+
+def navigation_focus_observed(owner: Maybe<&2, String>, state: Browser.State) -> Browser.Decision:
+  Browser.step(Legacy.Native{Web.PlatformInput{Platform.NavigationFocusObserved{owner}}}, state)
+
+def navigation_hover_observed(capable: Bool, state: Browser.State) -> Browser.Decision:
+  Browser.step(Legacy.Native{Web.PlatformInput{Platform.NavigationHoverObserved{capable}}}, state)

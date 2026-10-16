@@ -346,6 +346,7 @@ async function execute(effect) {
       catch (error) { commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state)); }
       break;
     }
+    case 'PersistModelPreference': localStorage.setItem('selvedge-model-preference', JSON.stringify({ profile: effect.profile, reasoning: effect.reasoning })); break;
     case 'BrowserEffect': await browserEffect(effect.effect); break;
     case 'RenderingFailed': console.error('Bend browser failure', JSON.stringify(encodeBendValue(effect))); break;
     default: throw new TypeError(`Unknown browser effect ${effect.$}`);
@@ -466,7 +467,7 @@ function frame() {
   const elements = nodes.map(node => {
     const bounds = rect(node); const geometry = frameGeometry(node, bounds);
     const enabled = !node.disabled && !node.closest('[inert]') && node.getAttribute('aria-disabled') !== 'true';
-    const tab = enabled && node.tabIndex >= 0;
+    const tab = enabled && node.tabIndex >= 0 && (geometry.visible || geometry.scrollReachable);
     return bendValue('browser/document/RENDERED.Element', { key: node.getAttribute('data-frame-key') ?? focusIdentity(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
       center_hit_owner: geometry.hitOwner, paint_bounds: geometry.paintBounds });
   });
@@ -727,6 +728,14 @@ window.addEventListener('pagehide', () => {
   for (const resource of resources) URL.revokeObjectURL(resource);
 });
 const bootEffects = [];
+let storedModelPreference;
+try { storedModelPreference = JSON.parse(localStorage.getItem('selvedge-model-preference')); } catch {}
+if (storedModelPreference && typeof storedModelPreference.profile === 'string' && typeof storedModelPreference.reasoning === 'string') {
+  const input = bendValue('browser/runtime/SEMANTICS.Native', { input: bendValue('browser/MODEL.PlatformInput', { input: bendValue('browser/runtime/PLATFORM.ProductInput', { input: bendValue('interaction/MODEL.InterfaceInput', { input: bendValue('interaction/TYPES.ApplicationInput', { input: bendValue('interaction/session/MODEL.ModelPreferenceRestored', storedModelPreference) }) }) }) }) });
+  const decision = Bend.step(input, state);
+  state = decision.state;
+  bootEffects.push(...list(decision.effects));
+}
 for (const input of [
   environmentInput(),
   bendValue('browser/MODEL.PlatformInput', { input: bendValue('browser/runtime/PLATFORM.MotionPreference', { reduced: bool(motion.matches) }) }),
@@ -858,3 +867,26 @@ root.addEventListener('scroll', event => {
 }, true);
 for (const node of root.querySelectorAll('[data-reading-scroll],[data-reading-content],[data-reading-dock]')) { observed.add(node); resizeObserver.observe(node); }
 observeReadingLayout();
+
+// Declared owners describe presentation interest; Bend decides action exposure.
+const navigationOwner = node => node?.closest?.('[data-navigation-owner]')?.getAttribute('data-navigation-owner') ?? null;
+const navigationOwnerValue = value => value === null ? bendValue('None') : bendValue('Some', { value });
+let observedNavigationPointer = null;
+let observedNavigationFocus = null;
+function observeNavigationPointer(owner) {
+  if (observedNavigationPointer === owner) return;
+  observedNavigationPointer = owner;
+  commit(Bend.navigation_pointer_observed(navigationOwnerValue(owner), state));
+}
+function observeNavigationFocus(owner) {
+  if (observedNavigationFocus === owner) return;
+  observedNavigationFocus = owner;
+  commit(Bend.navigation_focus_observed(navigationOwnerValue(owner), state));
+}
+root.addEventListener('pointerover', event => observeNavigationPointer(navigationOwner(event.target)));
+root.addEventListener('pointerout', event => observeNavigationPointer(navigationOwner(event.relatedTarget)));
+root.addEventListener('focusin', event => observeNavigationFocus(navigationOwner(event.target)));
+root.addEventListener('focusout', event => observeNavigationFocus(navigationOwner(event.relatedTarget)));
+const navigationHover = matchMedia('(hover: hover)');
+navigationHover.addEventListener('change', () => commit(Bend.navigation_hover_observed(bool(navigationHover.matches), state)));
+commit(Bend.navigation_hover_observed(bool(navigationHover.matches), state));

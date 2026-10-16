@@ -1,4 +1,6 @@
 import Base
+import ../layout/natural-size.bend as NaturalSize
+import ./PROGRAM.bend as Controls
 import ../document/presentation-order.bend as Order
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./MODEL.bend as Authored
@@ -12,6 +14,8 @@ import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/presentation/COMPOSITION.bend as Composition
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/experience/ACTIVITY.bend as UXActivity
+import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/VIEW.bend as View2
 
@@ -276,20 +280,29 @@ def main_box(structure: Design.MainStructure, +key: UIIdentity.Key, tag: Source.
   Design.MainStructure{measure, heading, organization} = structure
   organized_main_box(measure, organization, key, tag, style, attributes, heading_children(heading, key, style, children), maximum)
 
-def minimum_style(style: Source.Style, +required: Nat) -> Source.Style:
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{Nat.max(minimum_width, required), minimum_height}, scroll, position}, font, chrome, states}
+def main_clearance(frame: Enclosure.Frame, chrome: Design.Chrome) -> Nat:
+  Design.Chrome{foreground, background, border_paint, border, radius, shadow} = chrome
+  Enclosure.extent_width(Enclosure.required_extent(0n, 0n, border, Enclosure.frame_content(frame)))
 
 def beside_style(beside: Bool, required: Nat, style: Source.Style) -> Source.Style:
   match beside:
-    case True{}: minimum_style(style, required)
     case False{}: style
+    case True{}:
+      Source.Style{Source.Layout{direction, main, cross, +frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, +chrome, states} = style
+      # required is an outer reservation; the source rule adds frame clearance once.
+      +inner = Nat.sub(required, main_clearance(frame, chrome))
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{Nat.max(minimum_width, inner), minimum_height}, scroll, position}, font, chrome, states}
+
+def reserved_main_node(+beside: Bool, +required: Nat, node: Source.Node) -> Source.Node:
+  match node:
+    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, beside_style(beside, required, style), attrs, children}
+    case other: other
 
 def main_nodes(values: +List<Source.Node>, +structure: Design.MainStructure, +maximum: Nat, +beside: Bool, +required: Nat) -> +List<Source.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Source.Box{key, tag, style, attributes, children}, rest}:
-      main_box(structure, key, tag, beside_style(beside, required, style), attributes, children, maximum) <> main_nodes(rest, structure, maximum, beside, required)
+      reserved_main_node(beside, required, main_box(structure, key, tag, style, attributes, children, maximum)) <> main_nodes(rest, structure, maximum, beside, required)
     case Con{node, rest}: node <> main_nodes(rest, structure, maximum, beside, required)
 
 def body_mode(beside: Bool, navigation_width: Nat, main_minimum_width: Nat, +structure: Design.MainStructure, +reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
@@ -384,7 +397,7 @@ def dialog_reading_span(reading_width: Nat, line_height: Nat) -> Nat:
   Nat.min(reading_width, Nat.mul(24n, line_height))
 
 def dialog_reading_width(parameters: Design.LayoutParameters) -> Nat:
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   dialog_reading_span(reading_width, line_height)
 
 def floating_width(role: SurfaceTypes.Role, +reading_width: Nat, dialog_width: Nat) -> Model.AxisSize:
@@ -398,31 +411,47 @@ def floating_scroll(role: SurfaceTypes.Role) -> Model.Scroll:
     case SurfaceTypes.Dialog{}: Model.Confined{}
     case _: Model.ScrollVertically{}
 
+def activity_width(capacity: Nat, parameters: Design.LayoutParameters, meaning: SurfaceTypes.Meaning, visual: Design.Style, fallback: Model.AxisSize) -> Model.AxisSize:
+  match meaning:
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: Activity.surface_width(capacity, Design.style_text(visual), Design.activity_primary_advance(parameters))
+    case _: fallback
+
+def outer_width_found(+coordinate_capacity: Nat, parameters: Design.LayoutParameters, found: Bool, meaning: SurfaceTypes.Meaning, visual: Design.Style, fallback: Model.AxisSize) -> Model.AxisSize:
+  match found:
+    case True{}: activity_width(coordinate_capacity, parameters, meaning, visual, fallback)
+    case False{}: fallback
+
+def outer_width(+coordinate_capacity: Nat, +parameters: Design.LayoutParameters, +key: UIIdentity.Key, values: +List<Design.Node>, +fallback: Model.AxisSize) -> Model.AxisSize:
+  match values:
+    case Nil{}: fallback
+    case Con{Design.Node{current, semantic, label, role, meaning, visual, control, children}, rest}:
+      outer_width_found(coordinate_capacity, parameters, UIIdentity.same(key, current), meaning, visual, outer_width(coordinate_capacity, parameters, key, rest, fallback))
+
 def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
-  Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   OverlayParts{resize(node, Model.LimitedSize{0n, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating}
 
 def outside_insets(+unit: Nat) -> Enclosure.Insets:
   Enclosure.Insets{Nat.mul(2n, unit), Nat.mul(2n, unit)}
 
-def float_overlay(+role: SurfaceTypes.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, +line_height, creation_height, lane_width} = parameters
+def float_overlay(coordinate_capacity: Nat, +role: SurfaceTypes.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, +overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, +line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   +dialog_width = dialog_reading_span(reading_width, line_height)
   +unit = Nat.max(1n, Nat.div(line_height, 4n))
   +outside = outside_insets(unit)
-  OverlayParts{docked, resize(node, floating_width(role, reading_width, dialog_width), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
+  OverlayParts{docked, resize(node, outer_width(coordinate_capacity, parameters, Source.key_of(node), overlays, floating_width(role, reading_width, dialog_width)), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
 
 def standard_overlay_layout(+role: SurfaceTypes.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   match role details_beside:
     case SurfaceTypes.Details{} True{}:
       dock_overlay(parameters, node, docked, floating)
     case _ _:
-      float_overlay(role, parameters, node, layers, base, overlays, anchors, docked, floating)
+      float_overlay(NaturalSize.limit(), role, parameters, node, layers, base, overlays, anchors, docked, floating)
 
 def overlay_layout(+role: SurfaceTypes.Role, +details_beside: Bool, +placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
   match role placement:
     case SurfaceTypes.Navigation{} View.ModalNavigation{}:
-      Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+      Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
       OverlayParts{docked, resize(node, Model.ExactSize{navigation_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> floating}
     case _ _:
       standard_overlay_layout(role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating)
@@ -480,5 +509,13 @@ def assemble(base_result: Authored.Authorship, overlay_result: Authored.Authorsh
     case Authored.Authored{base_nodes} Authored.Authored{overlay_nodes}:
       assemble_surface(surface, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font)
 
-def source(+surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation) -> ShellAuthorship:
-  assemble(Authored.base(surface, parameters), Authored.overlays(surface, parameters), surface, capacity, parameters, layers, anchors, font)
+def source(+physical_capacity: Nat, +surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation) -> ShellAuthorship:
+  assemble(Authored.base(physical_capacity, surface, parameters), Authored.overlays(physical_capacity, surface, parameters), surface, capacity, parameters, layers, anchors, font)
+
+def supporting_authorship(result: ShellAuthorship, form: Controls.SupportingForm) -> ShellAuthorship:
+  match result:
+    case Rejected{key, problem}: Rejected{key, problem}
+    case Ready{node}: Ready{Authored.supporting_region_node(node, form)}
+
+def source_supporting(physical_capacity: Nat, +surface: Design.Surface, +parameters: Design.LayoutParameters, capacity: View.Capacity, layers: +List<View.Layer>, anchors: +List<Anchor>, font: Typography.Presentation, form: Controls.SupportingForm) -> ShellAuthorship:
+  supporting_authorship(source(physical_capacity, surface, parameters, capacity, layers, anchors, font), form)
