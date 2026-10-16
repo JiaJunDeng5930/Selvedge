@@ -81,6 +81,22 @@ def edit_text_equation(+key: String, +text: String, +state: BrowserModel.State) 
   {BrowserModel.edit_text(key, text, state) == edit_text_owned_spec(BrowserModel.field_owned(key, state), key, text, state) : BrowserModel.Decision}:
   edit_text_checked(key, text, state, BrowserModel.field_owned(key, state), {==})
 
+def edit_structured_text_owned_spec(+allowed: Bool, +key: String, +text: String, +parsed: Maybe<&2, J.Json>, +state: BrowserModel.State) -> BrowserModel.Decision:
+  match allowed:
+    case False{}: BrowserModel.Decision{state, Nil{}}
+    case True{}: BrowserModel.accept(True{}, Browser.edit_structured_text(key, text, parsed, BrowserModel.legacy(state)), state)
+
+def edit_structured_text_checked(+key: String, +text: String, +parsed: Maybe<&2, J.Json>, +state: BrowserModel.State, +allowed: Bool,
+  observed: {BrowserModel.edit_structured_text_predicate(BrowserModel.StructuredTextEditCandidate{key, text, parsed, state}) == allowed : Bool}) ->
+  {BrowserModel.edit_structured_text_admitted(Categories.admit_checked(BrowserModel.StructuredTextEditCandidate, BrowserModel.edit_structured_text_predicate, BrowserModel.StructuredTextEditCandidate{key, text, parsed, state}, allowed, observed), state) == edit_structured_text_owned_spec(allowed, key, text, parsed, state) : BrowserModel.Decision}:
+  match allowed:
+    case False{}: {==}
+    case True{}: {==}
+
+def edit_structured_text_equation(+key: String, +text: String, +parsed: Maybe<&2, J.Json>, +state: BrowserModel.State) ->
+  {BrowserModel.edit_structured_text(key, text, parsed, state) == edit_structured_text_owned_spec(BrowserModel.structured_text_owned(key, state), key, text, parsed, state) : BrowserModel.Decision}:
+  edit_structured_text_checked(key, text, parsed, state, BrowserModel.structured_text_owned(key, state), {==})
+
 def confirm_text_owned_spec(+allowed: Bool, +key: String, +keyboard: String, +composing: Bool, +control: Bool, +alt: Bool, +shift: Bool, +meta: Bool, +state: BrowserModel.State) -> BrowserModel.Decision:
   match allowed:
     case False{}: BrowserModel.Decision{state, Nil{}}
@@ -391,6 +407,20 @@ def Rule.edit_text_accepted(key, text, state, owned):
     Equal.cong(Bool, BrowserModel.Decision,
       (allowed => edit_text_owned_spec(allowed, key, text, state)),
       BrowserModel.field_owned(key, state), True{}, owned))
+
+def Rule.edit_structured_text_rejected(key, text, parsed, state, owned):
+  Equal.trans(BrowserModel.Decision, BrowserModel.edit_structured_text(key, text, parsed, state), edit_structured_text_owned_spec(BrowserModel.structured_text_owned(key, state), key, text, parsed, state),
+    BrowserModel.Decision{state, Nil{}}, edit_structured_text_equation(key, text, parsed, state),
+    Equal.cong(Bool, BrowserModel.Decision,
+      (allowed => edit_structured_text_owned_spec(allowed, key, text, parsed, state)),
+      BrowserModel.structured_text_owned(key, state), False{}, owned))
+
+def Rule.edit_structured_text_accepted(key, text, parsed, state, owned):
+  Equal.trans(BrowserModel.Decision, BrowserModel.edit_structured_text(key, text, parsed, state), edit_structured_text_owned_spec(BrowserModel.structured_text_owned(key, state), key, text, parsed, state),
+    BrowserModel.accept(True{}, Browser.edit_structured_text(key, text, parsed, BrowserModel.legacy(state)), state), edit_structured_text_equation(key, text, parsed, state),
+    Equal.cong(Bool, BrowserModel.Decision,
+      (allowed => edit_structured_text_owned_spec(allowed, key, text, parsed, state)),
+      BrowserModel.structured_text_owned(key, state), True{}, owned))
 
 def Rule.confirm_text_rejected(key, keyboard, composing, control, alt, shift, meta, state, owned):
   Equal.trans(BrowserModel.Decision, BrowserModel.confirm_text(key, keyboard, composing, control, alt, shift, meta, state), confirm_text_owned_spec(BrowserModel.field_owned(key, state), key, keyboard, composing, control, alt, shift, meta, state),

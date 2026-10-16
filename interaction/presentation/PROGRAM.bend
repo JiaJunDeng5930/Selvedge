@@ -5,6 +5,8 @@ import ../submission/MODEL.bend as Receipt
 import ../../harness/MODEL.bend as M
 import ../../harness/COMMANDS.bend as Commands
 import ../../features/board/MODEL.bend as B
+import ../../features/task_graph/MODEL.bend as G
+import ../../features/task_graph/CODEC.bend as GraphCodec
 import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/features/MODEL.bend as F
 import ../../harness/reasoning/MODEL.bend as Reasoning
@@ -173,6 +175,7 @@ def same_route(left: U.Route, right: U.Route) -> Bool:
     case U.ProjectCollection{} U.ProjectCollection{}: True{}
     case U.TaskBoard{} U.TaskBoard{}: True{}
     case U.AgentCollection{} U.AgentCollection{}: True{}
+    case U.TaskGraphs{} U.TaskGraphs{}: True{}
     case _ _: False{}
 
 def is_start_route(route: U.Route) -> Bool:
@@ -749,6 +752,66 @@ def agents(values: +List<V.AgentScene>, +parent: Identity.Key, +state: Interacti
     case Con{V.AgentScene{+id, value, edit, remove}, rest}:
       agent_observation(id, value, edit, parent, state) <> agents(rest, parent, state)
 
+def task_graph_message(message: G.Message) -> String:
+  approval_serialized(J.show(GraphCodec.message_json(message)))
+
+def resolved_task_graph_endpoint(key: String, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case None{}: key ++ " (unavailable)"
+    case Some{task}: key ++ " (Task #" ++ Nat.show(task) ++ ")"
+
+def task_graph_endpoint(+key: String, nodes: +List<G.ResolvedNode>) -> String:
+  resolved_task_graph_endpoint(key, G.resolve(key, nodes))
+
+def task_graph_node_entry(entry: Maybe<&2, V.TaskEntry>, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match entry:
+    case None{}: [project_fact(Identity.Part{parent, "status"}, "Task status", "Unavailable")]
+    case Some{task}: task_entries([task], parent, state)
+
+def task_graph_node_rows(nodes: +List<V.TaskGraphNode>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{V.TaskGraphNode{+key, task, entry}, rest}:
+      SurfaceTypes.Node{Identity.Entity{parent, "node", key}, "task-graph/node", key ++ " · Task #" ++ Nat.show(task), SurfaceTypes.Section{}, SurfaceTypes.Region{},
+        task_graph_node_entry(entry, Identity.Entity{parent, "node", key}, state)} <> task_graph_node_rows(rest, parent, state)
+
+def task_graph_action_rows(actions: +List<G.Action>, +source: String, +nodes: +List<G.ResolvedNode>, +parent: Identity.Key, +ordinal: Nat) -> +List<SurfaceTypes.Node>:
+  match actions:
+    case Nil{}: Nil{}
+    case Con{G.Action{target, message}, rest}:
+      project_fact(Identity.Entity{parent, "action", Nat.show(ordinal)}, "Output delivery",
+        task_graph_endpoint(source, nodes) ++ " → " ++ task_graph_endpoint(target, nodes) ++ ": " ++ task_graph_message(message)) <>
+        task_graph_action_rows(rest, source, nodes, parent, Nat.add(ordinal, 1n))
+
+def task_graph_rule_rows(rules: +List<G.Rule>, +nodes: +List<G.ResolvedNode>, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match rules:
+    case Nil{}: Nil{}
+    case Con{G.Rule{+key, source, actions}, rest}:
+      SurfaceTypes.Node{Identity.Entity{parent, "rule", key}, "task-graph/rule", key, SurfaceTypes.Section{}, SurfaceTypes.Region{},
+        task_graph_action_rows(actions, source, nodes, Identity.Entity{parent, "rule", key}, 0n)} <> task_graph_rule_rows(rest, nodes, parent)
+
+def task_graph_receipt_rows(receipts: +List<G.Receipt>, +parent: Identity.Key, +ordinal: Nat) -> +List<SurfaceTypes.Node>:
+  match receipts:
+    case Nil{}: Nil{}
+    case Con{G.Receipt{source, rule, target, reply}, rest}:
+      project_fact(Identity.Entity{parent, "receipt", Nat.show(ordinal)}, "Last delivery result",
+        "Task #" ++ Nat.show(source) ++ " → Task #" ++ Nat.show(target) ++ " (" ++ rule ++ "): " ++ approval_value(reply)) <>
+        task_graph_receipt_rows(rest, parent, Nat.add(ordinal, 1n))
+
+def task_graph_observation(+id: Nat, +value: G.Graph, nodes: +List<V.TaskGraphNode>, edit: V.ControlDeclaration, remove: V.ControlDeclaration, parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  +key : Identity.Key = Identity.Entity{parent, "task-graph", Nat.show(id)}
+  SurfaceTypes.Node{key, "task-graph/" ++ Nat.show(id), G.name(value), SurfaceTypes.Section{}, SurfaceTypes.Region{},
+    [region(key, "actions", "", SurfaceTypes.Section{}, [declared(key, edit, state), declared(key, remove, state)]),
+     region(key, "nodes", "Tasks", SurfaceTypes.Section{}, task_graph_node_rows(nodes, key, state)),
+     region(key, "rules", "Output rules", SurfaceTypes.Section{}, task_graph_rule_rows(G.rules(value), G.nodes(value), key)),
+     region(key, "receipts", "Last delivery results", SurfaceTypes.Section{}, task_graph_receipt_rows(G.receipts(value), key, 0n))]}
+
+def task_graphs(values: +List<V.TaskGraphScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{V.TaskGraphScene{id, value, nodes, edit, remove}, rest}:
+      task_graph_observation(id, value, nodes, edit, remove, parent, state) <> task_graphs(rest, parent, state)
+
 def page_region(+parent: Identity.Key, +part: Composition.Region, position: Composition.Position, children: +List<SurfaceTypes.Node>) -> SurfaceTypes.Node:
   +name = Composition.region_name(part)
   SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "region"}, name}, name, "", SurfaceTypes.Section{}, SurfaceTypes.PageRegion{part, position}, children}
@@ -974,6 +1037,10 @@ def page_contents(view: V.Page, +parent: Identity.Key, +state: InteractionTypes.
       [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Agents", SurfaceTypes.Heading{}, Nil{})]),
        page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
        page_region(parent, Composition.AgentEntries{}, Composition.BodyPosition{}, agents(values, parent, state))]
+    case V.TaskGraphsPage{values, create}:
+      [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Task graphs", SurfaceTypes.Heading{}, Nil{})]),
+       page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
+       page_region(parent, Composition.TaskGraphEntries{}, Composition.BodyPosition{}, task_graphs(values, parent, state))]
     case V.MissingObject{message}:
       [page_region(parent, Composition.UnavailableMessage{}, Composition.BodyPosition{}, [SurfaceTypes.Node{Identity.Part{parent, "missing"}, "missing", "Unavailable", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{message}, Nil{}}])]
 

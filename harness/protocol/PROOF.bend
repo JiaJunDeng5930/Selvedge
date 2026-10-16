@@ -1,6 +1,8 @@
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../features/laws.bend as FeatureLaws
+import ../features/execution.bend as FeatureExec
+import ../features/SPEC.bend as FeatureSpec
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../reasoning/CONTRACT.bend as Reasoning
@@ -11,6 +13,8 @@ import ../MODEL.bend as M
 import ../PROGRAM.bend as P
 import ../LAWS.bend as Laws
 import ../tasks/PROGRAM.bend as T
+import ../tasks/CONTRACT.bend as TaskRequirements
+import ../tasks/PROOF.bend as TaskProof
 import ../../bendlib/json.bend as J
 import ../COMMANDS.bend as Commands
 import ./PROGRAM.bend as Protocol
@@ -95,8 +99,8 @@ def spawn_semantics(+profile: D.Profile, +reasoning: String, +message: String, +
 def Laws.operation_semantics(operation, world):
   match operation world:
     case Commands.FeatureOperation{operation} _:
-      FeatureLaws.meaning(P.execute_start, Commands.start,
-        +profile => +reasoning => +message => +selection => +state => spawn_semantics(profile, reasoning, message, selection, state), operation, world)
+      FeatureLaws.meaning(~P.execute_start, ~Commands.start,
+        ~(+profile => +reasoning => +message => +selection => +state => spawn_semantics(profile, reasoning, message, selection, state)), operation, world)
     case Commands.Refuse{code, reason} _: {==}
     case Commands.Start{profile, reasoning, message, Workspace.Selection{context, guidance}}
          C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}, limits, projects}, +board}: {==}
@@ -121,13 +125,32 @@ def Laws.operation_semantics(operation, world):
 def Laws.command_semantics(command, world):
   Laws.operation_semantics(Commands.resolve(command, world), world)
 
+def model_result_semantics(+task: D.Task, +outcome: D.Outcome, +allowed: +List<String>, +world: M.World()) ->
+  {P.model_matched(True{}, outcome, allowed, task, world) == Protocol.model_result(task, outcome, allowed, world) : M.Decision()}:
+  match world:
+    case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +rest}:
+      +source = D.task_id(task)
+      +stored = P.store(T.model_outcome(outcome, allowed, task),
+        C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, rest})
+      +actual = FeatureExec.react_outputs(~P.output_send, source, T.reply_outputs(outcome), stored)
+      +middle = FeatureSpec.react_outputs(~Commands.output_send, source, T.reply_outputs(outcome), stored)
+      +required = FeatureSpec.react_outputs(~Commands.output_send, source, TaskRequirements.reply_outputs(outcome), stored)
+      Equal.cong(M.Decision(), M.Decision(), Protocol.accepted_reaction, actual, required,
+        Equal.trans(M.Decision(), actual, middle, required,
+          FeatureLaws.react_outputs(~P.output_send, ~Commands.output_send,
+            ~(+target => +message => +state => Laws.command_semantics(M.Send{target, message}, state)),
+            source, T.reply_outputs(outcome), stored),
+          Equal.cong(+List<String>, M.Decision(),
+            (outputs => FeatureSpec.react_outputs(~Commands.output_send, source, outputs, stored)),
+            T.reply_outputs(outcome), TaskRequirements.reply_outputs(outcome), TaskProof.reply_outputs_meaning(outcome))))
+
 def Laws.event_semantics(event, world):
   match event world:
     case Protocol.FeatureEvent{event} _: FeatureLaws.event(event, world)
     case Protocol.User{operation} _: Laws.operation_semantics(operation, world)
     case Protocol.Ignore{} _: {==}
     case Protocol.Review{resolution} _: Laws.review_semantics(resolution, world)
-    case Protocol.ModelResult{task, outcome, allowed} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+    case Protocol.ModelResult{task, outcome, allowed} _: model_result_semantics(task, outcome, allowed, world)
     case Protocol.ReasoningResult{+task, +revision, +outcome} _:
       Equal.cong(D.Task, M.Decision(), (next => C.Decision{
         P.store(next, world), Protocol.acknowledgement(True{}), Nil{}}),
@@ -179,8 +202,7 @@ def Laws.builtin_semantics(tool, arguments, call, remaining, task, world):
   Laws.invocation_semantics(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)
 
 def Laws.accepted_model_settlement(outcome, allowed, task, world):
-  match world:
-    case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+  model_result_semantics(task, outcome, allowed, world)
 
 def Laws.accepted_tool_settlement(operation, value, error, task, world):
   match world:

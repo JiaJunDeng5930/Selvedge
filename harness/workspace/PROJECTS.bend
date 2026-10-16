@@ -4,6 +4,7 @@ import ../DOMAIN.bend as D
 import ./WORKSPACE.bend as W
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
+import ../transport/schema.bend as Schema
 
 # Projects are an organizational finite map. Their workspace is a birth default,
 # not a mutable reference held by a task's execution contract.
@@ -27,6 +28,48 @@ def count(registry: D.Projects) -> Nat:
 
 def find(registry: D.Projects, id: Nat) -> Maybe<&2, D.Project>:
   Finite.find(~D.Project, entries(registry), id)
+
+def observed_project_roots(projects: +List<Finite.Entry(D.Project)>) -> +List<String>:
+  match projects:
+    case Nil{}: Nil{}
+    case Con{(id, D.Project{name, workspace, guidance}), rest}:
+      List.append(&2, String, W.roots(workspace), observed_project_roots(rest))
+
+def observed_creation_roots(caller: D.TaskContext, environment: D.Environment, registry: D.Projects) -> +List<String>:
+  D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions} = environment
+  List.append(&2, String, W.roots(W.workspace(caller)),
+    List.append(&2, String, W.roots(W.default_workspace(project)), observed_project_roots(entries(registry))))
+
+def observed_native_roots(roots: +List<J.Json>, +observed: +List<String>) -> Bool:
+  match roots:
+    case Nil{}: True{}
+    case Con{J.Text{root}, rest}:
+      Schema.contains(observed, root) && observed_native_roots(rest, observed)
+    case _: False{}
+
+def native_root_array(value: J.Json, observed: +List<String>) -> Bool:
+  match value:
+    case J.Array{roots}: observed_native_roots(roots, observed)
+    case _: False{}
+
+def native_workspace(value: J.Json, observed: +List<String>) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Object{fields}: native_root_array(J.get(J.Object{fields}, "roots"), observed)
+    case _: False{}
+
+def native_options(options: J.Json, observed: +List<String>) -> Bool:
+  match options:
+    case J.Null{}: True{}
+    case J.Object{+fields}:
+      Bool.not(Schema.exists(fields, "guidance")) && native_workspace(J.get(J.Object{fields}, "workspace"), observed)
+    case _: False{}
+
+# Internal creation cannot perform a new realpath or guidance observation.
+# Reuse exact committed directory roots; lexical descendants may be symlinks.
+def native_creation_settings(options: J.Json, +context: D.TaskContext, +caller: D.TaskContext,
+  environment: D.Environment, registry: D.Projects) -> Bool:
+  W.may_delegate(context, caller) && native_options(options, observed_creation_roots(caller, environment, registry))
 
 def missing(found: Maybe<&2, D.Project>) -> Bool:
   match found:

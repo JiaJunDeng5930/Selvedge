@@ -46,6 +46,7 @@ def RulePhysicalControlRules.keyboard_activation_total(event):
   match event:
     case Doc.Activate{key}: {==}
     case Doc.EditText{key}: {==}
+    case Doc.EditStructuredText{key}: {==}
     case Doc.ConfirmText{key}: {==}
     case Doc.EditToggle{key}: {==}
     case Doc.SelectFiles{key}: {==}

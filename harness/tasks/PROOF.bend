@@ -11,6 +11,41 @@ import ../../bendlib/theory.bend as Theory
 import ../CONTRACT.bend as Concepts
 import ../../bendlib/json.bend as J
 
+def output_text_meaning(nonempty: Bool, +text: String, +rest: +List<String>) ->
+  {Tasks.output_text(nonempty, text, rest) == Spec.output_text(nonempty, text, rest) : +List<String>}:
+  match nonempty:
+    case True{}: {==}
+    case False{}: {==}
+
+def output_items_meaning(+items: +List<D.ModelItem>) ->
+  {Tasks.output_items(items) == Spec.assistant_outputs(Tasks.item_messages(items)) : +List<String>}:
+  match items:
+    case Nil{}: {==}
+    case Con{D.Say{+text}, +rest}:
+      Equal.trans(+List<String>,
+        Tasks.output_text(Bool.not(String.is_empty(text)), text, Tasks.output_items(rest)),
+        Tasks.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))),
+        Spec.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))),
+        Equal.cong(+List<String>, +List<String>, values => Tasks.output_text(Bool.not(String.is_empty(text)), text, values),
+          Tasks.output_items(rest), Spec.assistant_outputs(Tasks.item_messages(rest)), output_items_meaning(rest)),
+        output_text_meaning(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))))
+    case Con{D.Invoke{call}, +rest}: output_items_meaning(rest)
+    case Con{D.Context{value}, +rest}: output_items_meaning(rest)
+
+def normal_outputs_meaning(calls: +List<D.Call>, +items: +List<D.ModelItem>) ->
+  {Tasks.normal_output_items(calls, items) == Spec.normal_output_messages(calls, Tasks.item_messages(items)) : +List<String>}:
+  match calls:
+    case Nil{}: output_items_meaning(items)
+    case Con{call, rest}: {==}
+
+def reply_outputs_meaning(+outcome: D.Outcome) ->
+  {Tasks.reply_outputs(outcome) == Spec.reply_outputs(outcome) : +List<String>}:
+  match outcome:
+    case D.ModelReply{+items}:
+      normal_outputs_meaning(Tasks.item_calls(items), items)
+    case D.ModelFailure{message}: {==}
+    case D.ContextLimit{}: {==}
+
 def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
   {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
   {==}

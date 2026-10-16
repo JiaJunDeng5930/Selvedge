@@ -2,6 +2,7 @@ import Base
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
 import ../../features/board/MODEL.bend as B
+import ../../features/task_graph/MODEL.bend as G
 import ../../harness/DOMAIN.bend as D
 import ../INPUT.bend as U
 import ../services/CONTEXT.bend as Context
@@ -43,6 +44,7 @@ type InputGroup is Data:
   AgentIdentityInput{name: String, instructions: String, concurrency: Nat}
   ForkInput{count: Nat, messages: +List<String>}
   SummaryInput{summary: Maybe<&2, String>}
+  TaskGraphInput{declaration: String}
 
 type EditorScene is Data:
   EditorScene{identity: U.Editor, revision: Nat, groups: +List<InputGroup>, sections: +List<Forms.Section>,
@@ -113,6 +115,12 @@ type BoardColumn is Data:
 type AgentScene is Data:
   AgentScene{id: Nat, value: B.AgentProfile, edit: ControlDeclaration, remove: ControlDeclaration}
 
+type TaskGraphNode is Data:
+  TaskGraphNode{key: String, task: Nat, entry: Maybe<&2, TaskEntry>}
+
+type TaskGraphScene is Data:
+  TaskGraphScene{id: Nat, value: G.Graph, nodes: +List<TaskGraphNode>, edit: ControlDeclaration, remove: ControlDeclaration}
+
 type Page is Data:
   StartPage{composer: Maybe<&2, ComposerScene>}
   TaskPage{task: TaskScene}
@@ -121,6 +129,7 @@ type Page is Data:
   BoardPage{filter: B.Filter, columns: +List<BoardColumn>, create: ControlDeclaration, working: Nat,
     settings: ControlDeclaration, filters: ControlDeclaration, archive: ControlDeclaration}
   AgentsPage{agents: +List<AgentScene>, create: ControlDeclaration}
+  TaskGraphsPage{graphs: +List<TaskGraphScene>, create: ControlDeclaration}
   MissingObject{message: String}
 
 type LayerContent is Data:

@@ -320,7 +320,7 @@ def resolve(command: M.Command, +world: M.World()) -> Operation:
     case M.ReviewApproval{id, operation, outcome}:
       Review{Approvals.resolution(F.State(), Approvals.construct_review(F.State(),
         Approvals.ReviewRequest{Approvals.HumanDecision{}, id, operation, outcome, world}))}
-    case M.FeatureCommand{command}: feature_result(FeatureResolution.resolve(feature_start, command, world))
+    case M.FeatureCommand{command}: feature_result(FeatureResolution.resolve(~feature_start, command, world))
 
 def id_result(id: Nat) -> J.Json:
   J.Object{[J.Field{"task_id", J.nat(id)}]}
@@ -454,7 +454,7 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
     case Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
     case Review{resolution}: Approvals.meaning_calculation(F.State(), F.Effect, resolution, world)
     case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
-    case FeatureOperation{operation}: FeatureSpec.meaning(start, operation, world)
+    case FeatureOperation{operation}: FeatureSpec.meaning(~start, operation, world)
     case Deliver{+task, message}:
       C.Decision{replace(T.receive(message, task), world), D.success(id_result(D.task_id(task))), Nil{}}
     case Steer{+task, message}:
@@ -479,6 +479,9 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
 
 def command(+request: M.Command, +world: M.World()) -> M.Decision():
   meaning(resolve(request, world), world)
+
+def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision():
+  command(M.Send{target, message}, world)
 
 
 type CommandRequest is Data:

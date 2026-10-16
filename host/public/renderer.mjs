@@ -133,11 +133,12 @@ export class Renderer {
     const dispatch = (kind, native) => {
       for (const event of record.bindings) if (bendTag(event) === kind) this.callbacks.event(event, native, node, this.composing.has(node));
     };
+    const textInput = event => { dispatch('EditText', event); dispatch('EditStructuredText', event); };
     const session = event => this.isolated ? { deliver: false } : this.fieldSession(record, bendValue(event));
     node.addEventListener('compositionstart', () => { this.composing.add(node); session('browser/runtime/native-fields.CompositionStarted'); });
     node.addEventListener('compositionend', event => {
       this.composing.delete(node);
-      if (session('browser/runtime/native-fields.CompositionEnded').deliver) dispatch('EditText', event);
+      if (session('browser/runtime/native-fields.CompositionEnded').deliver) textInput(event);
     });
     node.addEventListener('pointerdown', () => {
       if (bendTag(record.fieldSession?.session) === 'SupersededTail') session('browser/runtime/native-fields.InputStarted');
@@ -152,7 +153,7 @@ export class Renderer {
       if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('browser/runtime/native-fields.InputStarted');
       dispatch('ConfirmText', event);
     });
-    node.addEventListener('input', event => { if (session('browser/runtime/native-fields.InputObserved').deliver) dispatch('EditText', event); });
+    node.addEventListener('input', event => { if (session('browser/runtime/native-fields.InputObserved').deliver) textInput(event); });
     node.addEventListener('change', event => {
       if (!session('browser/runtime/native-fields.InputObserved').deliver) return;
       dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event);

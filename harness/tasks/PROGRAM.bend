@@ -277,6 +277,31 @@ def item_messages(items: +List<D.ModelItem>) -> +List<D.Message>:
     case Con{D.Invoke{call}, rest}: D.FunctionCall{call} <> item_messages(rest)
     case Con{D.Context{value}, rest}: D.ModelContext{value} <> item_messages(rest)
 
+def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<String>:
+  match nonempty:
+    case True{}: text <> rest
+    case False{}: rest
+
+def output_items(items: +List<D.ModelItem>) -> +List<String>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{D.Say{+text}, rest}:
+      output_text(Bool.not(String.is_empty(text)), text, output_items(rest))
+    case Con{other, rest}: output_items(rest)
+
+def normal_output_items(calls: +List<D.Call>, items: +List<D.ModelItem>) -> +List<String>:
+  match calls:
+    case Nil{}: output_items(items)
+    case Con{call, rest}: Nil{}
+
+# A reply with tool calls is still a continuation, even when it also has text.
+# Output hooks observe accepted reply text rather than the resulting Idle phase.
+def reply_outputs(outcome: D.Outcome) -> +List<String>:
+  match outcome:
+    case D.ModelReply{+items}:
+      normal_output_items(item_calls(items), items)
+    case _: Nil{}
+
 def settled_model(notified: Bool, task: D.Task) -> D.Task:
   match notified:
     case True{}: promote(D.with_phase(D.Ready{Nil{}}, task))

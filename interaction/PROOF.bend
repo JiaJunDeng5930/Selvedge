@@ -110,6 +110,8 @@ def Architecture.surface():
       SubmissionLaws.feedback_evidence(),
       CoreSubmissionProof.reopen_evidence(),
       task => text => previous => selected => world => {==},
+      graph => source => previous_source => previous => world => {==},
+      graph => source => {==},
       directory_entry => revision => body => feedback => submitted => reply => {==},
       revision => title => description => stage => priority => owner => project => labels => attachments => assist => profile => {==}},
     Contract.Presentation{

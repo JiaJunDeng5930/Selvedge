@@ -12,6 +12,7 @@ import ../services/CONTEXT.bend as Context
 import ../INPUT.bend as U
 import ../session/MODEL.bend as E
 import ../../features/board/MODEL.bend as B
+import ../../features/task_graph/MODEL.bend as G
 import ../MODEL.bend as ModelModel
 import ../TYPES.bend as InteractionTypes
 import ./SURFACE.bend as SurfaceTypes
@@ -330,6 +331,15 @@ def projects_navigation_selected(+route: U.Route, +world: M.World(), +session: E
 def agents_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
   selected_control(navigation_agents_control(View.navigation(True{}, route, world, session)), route)
 
+def navigation_task_graphs_control(navigation: V.Navigation) -> Maybe<&2, V.ControlDeclaration>:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
+  match destinations:
+    case Con{board, Con{collection, Con{agents, Con{graphs, rest}}}}: Some{graphs}
+    case _: None{}
+
+def task_graphs_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
+  selected_control(navigation_task_graphs_control(View.navigation(True{}, route, world, session)), route)
+
 def create_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
   Model.navigation_action_selected(route, declaration_input(navigation_create_control(View.navigation(True{}, route, world, session))))
 
@@ -509,6 +519,8 @@ type LayerTitleRequirements is Type:
     edit_card: @id:Nat -> {View.editor_title(U.CardEditor{Some{id}}) == "Edit card" : String},
     new_agent: {View.editor_title(U.AgentEditor{None{}}) == "New agent" : String},
     edit_agent: @id:Nat -> {View.editor_title(U.AgentEditor{Some{id}}) == "Edit agent" : String},
+    new_task_graph: {View.editor_title(U.TaskGraphEditor{None{}}) == "New task graph" : String},
+    edit_task_graph: @id:Nat -> {View.editor_title(U.TaskGraphEditor{Some{id}}) == "Edit task graph" : String},
     fork: @task:Nat -> {View.editor_title(U.ForkEditor{task}) == "Fork task" : String},
     compact: @task:Nat -> {View.editor_title(U.CompactEditor{task}) == "Compact history" : String},
     actions: @actions:+List<V.ControlDeclaration> -> {View.layer_title(V.ObjectActions{actions}) == "Actions" : String},
@@ -557,6 +569,10 @@ def task_reading(+value: V.TaskScene, +parent: Identity.Key, +state: Interaction
       List.append(&2, SurfaceTypes.Node, Model.groups(groups, id, Identity.Part{owner, "timeline"}, state),
         List.append(&2, SurfaceTypes.Node, Model.live_outputs(previews, owner, state), Model.operations(live, owner, state))))]} : Maybe<&2, +List<SurfaceTypes.Node>>}
 
+def task_graph_value(scene: V.TaskGraphScene) -> G.Graph:
+  V.TaskGraphScene{id, value, nodes, edit, remove} = scene
+  value
+
 type PageRegionRequirements is Type:
   PageRegionRequirements{
     page_payload: @+page:V.Page -> @+state:InteractionTypes.State ->
@@ -584,6 +600,13 @@ type PageRegionRequirements is Type:
     agents_title: @+agents:+List<V.AgentScene> -> @+create:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.AgentsPage{agents, create}, parent, state), Composition.CollectionTitle{}) ==
         Some{[Model.region(parent, "heading", "Agents", SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
+    task_graphs_title: @+graphs:+List<V.TaskGraphScene> -> @+create:V.ControlDeclaration -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {find_region(Model.page_contents(V.TaskGraphsPage{graphs, create}, parent, state), Composition.CollectionTitle{}) ==
+        Some{[Model.region(parent, "heading", "Task graphs", SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
+    task_graphs_nav_selected: @+world:M.World() -> @+session:E.Session ->
+      {task_graphs_navigation_selected(U.TaskGraphs{}, world, session) == True{} : Bool},
+    task_graph_declaration: @+id:Nat -> @+value:G.Graph -> @route:U.Route -> @+world:M.World() ->
+      {task_graph_value(View.task_graph_scene(id, value, route, world)) == value : G.Graph},
     board_title: @+filter:B.Filter -> @+columns:+List<V.BoardColumn> -> @+create:V.ControlDeclaration -> @working:Nat ->
       @+settings:V.ControlDeclaration -> @+filters:V.ControlDeclaration -> @+archive:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
@@ -683,6 +706,8 @@ def expected_structure(recipe: Composition.Recipe) -> Composition.Structure:
       Composition.Structure{[Composition.BoardTitle{}, Composition.BoardControls{}], [Composition.BoardStages{}], Nil{}}
     case Composition.Recipe{measure, heading, Composition.AgentRows{}, composer, decisions, latest}:
       Composition.Structure{[Composition.CollectionTitle{}, Composition.CollectionActions{}], [Composition.AgentEntries{}], Nil{}}
+    case Composition.Recipe{measure, heading, Composition.TaskGraphRows{}, composer, decisions, latest}:
+      Composition.Structure{[Composition.CollectionTitle{}, Composition.CollectionActions{}], [Composition.TaskGraphEntries{}], Nil{}}
     case Composition.Recipe{measure, heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Composition.Structure{Nil{}, [Composition.UnavailableMessage{}], Nil{}}
 

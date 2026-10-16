@@ -730,6 +730,31 @@ def edit_text_admitted(admission: Maybe<&1, Categories.Membership<TextEditCandid
 def edit_text(+key: String, +text: String, +state: State) -> Decision:
   edit_text_admitted(Categories.admit(TextEditCandidate, edit_text_predicate, TextEditCandidate{key, text, state}), state)
 
+type StructuredTextEditCandidate is Data:
+  StructuredTextEditCandidate{key: String, text: String, parsed: Maybe<&2, J.Json>, state: State}
+
+def structured_text_owned(+key: String, +state: State) -> Bool:
+  field_owned(key, state) && Legacy.structured_text_source(Legacy.found_node(key, legacy(state)))
+
+def edit_structured_text_predicate(candidate: StructuredTextEditCandidate) -> Bool:
+  StructuredTextEditCandidate{+key, text, parsed, +state} = candidate
+  structured_text_owned(key, state)
+
+def edit_structured_text_category() -> StructuredTextEditCandidate -> Type: Categories.holds(StructuredTextEditCandidate, edit_structured_text_predicate)
+
+def edit_structured_text_owned(member: Categories.Membership<StructuredTextEditCandidate, edit_structured_text_category()>) -> Decision:
+  Categories.Membership{candidate, evidence} = member
+  StructuredTextEditCandidate{+key, text, parsed, +state} = candidate
+  accept(True{}, Legacy.edit_structured_text(key, text, parsed, legacy(state)), state)
+
+def edit_structured_text_admitted(admission: Maybe<&1, Categories.Membership<StructuredTextEditCandidate, edit_structured_text_category()>>, state: State) -> Decision:
+  match admission:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: edit_structured_text_owned(member)
+
+def edit_structured_text(+key: String, +text: String, +parsed: Maybe<&2, J.Json>, +state: State) -> Decision:
+  edit_structured_text_admitted(Categories.admit(StructuredTextEditCandidate, edit_structured_text_predicate, StructuredTextEditCandidate{key, text, parsed, state}), state)
+
 type TextConfirmationCandidate is Data:
   TextConfirmationCandidate{key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, state: State}
 

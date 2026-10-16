@@ -1,5 +1,6 @@
 import Base
 import ../../bendlib/categories.bend as Categories
+import ../../bendlib/json.bend as J
 import ../../harness/COMMANDS.bend as Commands
 import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
@@ -39,11 +40,13 @@ type Field is Data:
   ForkCount{}
   ForkMessages{}
   CompactionSummary{}
+  TaskGraphDeclaration{}
 
 type Entry is Data:
   DisplayOnly{}
   SingleLine{}
   Multiline{}
+  StructuredText{}
   Choice{}
   MultipleChoices{}
   PositiveInteger{}
@@ -62,6 +65,7 @@ type Section is Data:
 type Value is Data:
   Toggle{enabled: Bool}
   Text{value: String}
+  StructuredValue{source: String, parsed: Maybe<&2, J.Json>}
   Count{value: Nat}
   Strings{values: +List<String>}
   Stage{value: B.Stage}
@@ -130,6 +134,8 @@ def structure(body: U.Body) -> +List<Section>:
       [Section{"Fork", [FieldScene{ForkCount{}, "Number of tasks", PositiveInteger{}}, FieldScene{ForkMessages{}, "Initial messages", Multiline{}}]}, execution()]
     case U.Compact{task, summary}:
       [Section{"Compaction", [FieldScene{CompactionSummary{}, "Summary override", Multiline{}}]}]
+    case U.TaskGraph{graph, declaration, parsed}:
+      [Section{"Task graph", [FieldScene{TaskGraphDeclaration{}, "Declaration", StructuredText{}}]}]
 
 def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
@@ -161,6 +167,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case ForkCount{} Fork{count, messages}: Some{U.SetFork{count, messages}}
     case ForkMessages{} Fork{count, messages}: Some{U.SetFork{count, messages}}
     case CompactionSummary{} Summary{summary}: Some{U.WriteSummary{summary}}
+    case TaskGraphDeclaration{} StructuredValue{source, parsed}: Some{U.WriteTaskGraph{source, parsed}}
     case _ _: None{}
 
 def key(field: Field) -> String:
@@ -193,6 +200,7 @@ def key(field: Field) -> String:
     case ForkCount{}: "fork-count"
     case ForkMessages{}: "fork-messages"
     case CompactionSummary{}: "compaction-summary"
+    case TaskGraphDeclaration{}: "task-graph-declaration"
 
 def field_present(fields: +List<FieldScene>, +wanted: Field) -> Bool:
   match fields:
@@ -268,6 +276,11 @@ def fork_value(field: Field, count: Nat, messages: +List<String>, config: Contex
     case ForkMessages{}: TextsValue{messages}
     case other: context_value(other, config, world)
 
+def task_graph_value(field: Field, declaration: String) -> Observed:
+  match field:
+    case TaskGraphDeclaration{}: TextValue{declaration}
+    case _: NotApplicable{}
+
 def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
   match body:
     case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
@@ -277,6 +290,7 @@ def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
+    case U.TaskGraph{graph, declaration, parsed}: task_graph_value(field, declaration)
 
 type ModelSelection is Data:
   ModelSelection{profile: D.Profile, reasoning: String}

@@ -419,6 +419,7 @@ def route_icon(route: UserInput.Route) -> Icon:
     case UserInput.ProjectCollection{}: Folder{}
     case UserInput.TaskBoard{}: Columns{}
     case UserInput.AgentCollection{}: Agents{}
+    case UserInput.TaskGraphs{}: Columns{}
 
 def panel_purpose(panel: UserInput.Panel, expanded: Bool) -> Purpose:
   match panel:
@@ -468,6 +469,9 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
     case UserInput.EditCard{card}: EditItem{}
     case UserInput.EditAgent{None{}}: CreateItem{}
     case UserInput.EditAgent{Some{agent}}: EditItem{}
+    case UserInput.EditTaskGraph{None{}}: CreateItem{}
+    case UserInput.EditTaskGraph{Some{graph}}: EditItem{}
+    case UserInput.DeleteTaskGraph{graph}: DeleteItem{}
     case UserInput.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, UIIdentity.encode(key))}
     case UserInput.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, UIIdentity.encode(key))}
     case UserInput.ControlTask{task, control}: task_control(control)
@@ -903,6 +907,7 @@ def entry_widget(entry: Forms.Entry) -> Widget:
     case Forms.DisplayOnly{}: PlainValue{}
     case Forms.SingleLine{}: TextInput{}
     case Forms.Multiline{}: TextArea{}
+    case Forms.StructuredText{}: TextArea{}
     case Forms.Choice{}: SelectInput{}
     case Forms.MultipleChoices{}: MultiSelectInput{}
     case Forms.PositiveInteger{}: NumberInput{1n}

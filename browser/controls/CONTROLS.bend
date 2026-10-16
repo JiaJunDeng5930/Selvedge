@@ -262,6 +262,11 @@ def field_first_event(value: Controls.Widget, key: UIIdentity.Key) -> Doc.DOMEve
     case Controls.AttachmentList{}: Doc.SelectFiles{UIIdentity.encode(key)}
     case _: Doc.EditText{UIIdentity.encode(key)}
 
+def field_input_event(meaning: SurfaceTypes.Meaning, value: Controls.Widget, key: UIIdentity.Key) -> Doc.DOMEvent:
+  match meaning:
+    case SurfaceTypes.Edit{editor, field, Forms.StructuredText{}, observed, choices}: Doc.EditStructuredText{UIIdentity.encode(key)}
+    case _: field_first_event(value, key)
+
 def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
   match value:
     case Controls.DirectoryChooser{face}: [Doc.ConfirmText{UIIdentity.encode(key)}]
@@ -344,7 +349,7 @@ def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visu
   Controls.FormInput{+meaning, +name, +widget, label, availability} = input
   InputFieldRequest{FieldBinding{key, expected_input_attributes(key, input)},
     FieldContent{field_kind(widget), Factory.style(visual, input_width(widget), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(widget, visual, parameters), 1n)), name},
-    FieldProtocol{enabled(availability), field_first_event(widget, key), field_remaining_events(widget, key)}}
+    FieldProtocol{enabled(availability), field_input_event(meaning, widget, key), field_remaining_events(widget, key)}}
 
 def interpret_input_field(label: Controls.LabelPlacement, key: UIIdentity.Key, name: String, visual: Design.Style, request: InputFieldRequest) -> Source.Node:
   InputFieldRequest{binding, content, protocol} = request

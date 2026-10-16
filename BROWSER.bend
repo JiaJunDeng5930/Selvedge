@@ -32,6 +32,8 @@ def activate(key: String, state: Browser.State) -> Browser.Decision: Browser.act
 
 def edit_text(key: String, text: String, state: Browser.State) -> Browser.Decision: Browser.edit_text(key, text, state)
 
+def edit_structured_text(key: String, text: String, parsed: Maybe<&2, J.Json>, state: Browser.State) -> Browser.Decision: Browser.edit_structured_text(key, text, parsed, state)
+
 def confirm_text(key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, state: Browser.State) -> Browser.Decision: Browser.confirm_text(key, keyboard, composing, control, alt, shift, meta, state)
 
 def edit_toggle(key: String, enabled: Bool, state: Browser.State) -> Browser.Decision: Browser.edit_toggle(key, enabled, state)

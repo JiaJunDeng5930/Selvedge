@@ -38,3 +38,28 @@ def selected_history(changed: Bool, selection: Workspace.Selection, +parent: D.T
     case False{} _: D.task_history(parent)
     case True{} Workspace.Selection{context, guidance}:
       selected_model_history(context, guidance, Tasks.task_model(D.task_contract(parent)), D.task_history(parent))
+
+# Outputs are the nonempty assistant messages that this accepted ordinary reply
+# contributes to history. A tool continuation has no completed reply output.
+def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<String>:
+  match nonempty:
+    case True{}: text <> rest
+    case False{}: rest
+
+def assistant_outputs(messages: +List<D.Message>) -> +List<String>:
+  match messages:
+    case Nil{}: Nil{}
+    case Con{D.AssistantMessage{+text}, rest}:
+      output_text(Bool.not(String.is_empty(text)), text, assistant_outputs(rest))
+    case Con{other, rest}: assistant_outputs(rest)
+
+def normal_output_messages(calls: +List<D.Call>, messages: +List<D.Message>) -> +List<String>:
+  match calls:
+    case Nil{}: assistant_outputs(messages)
+    case Con{call, rest}: Nil{}
+
+def reply_outputs(outcome: D.Outcome) -> +List<String>:
+  match outcome:
+    case D.ModelReply{+items}:
+      normal_output_messages(Tasks.item_calls(items), Tasks.item_messages(items))
+    case _: Nil{}
