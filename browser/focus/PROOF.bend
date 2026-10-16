@@ -140,6 +140,7 @@ def Rule.dismissal_evidence():
 
 def Rule.all_panel_policies(panel, trigger):
   match panel:
+    case U.PropertySource{origin}: {==}
     case U.ProjectPicker{}: {==}
     case U.ObjectActions{subject}: {==}
     case U.ArchivedCards{}: {==}

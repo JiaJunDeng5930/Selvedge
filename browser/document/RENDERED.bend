@@ -76,6 +76,7 @@ def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.MovableCard{destinations, face}: True{}
     case SurfaceTypes.ActionCommit{assessment, input, availability}: True{}
     case SurfaceTypes.Activate{input, availability}: True{}
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: True{}
     case SurfaceTypes.PanelToggle{expanded, input, availability}: True{}
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: True{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: field_control(entry)
@@ -93,6 +94,7 @@ def required_enabled(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.MovableCard{destinations, face}: InterfaceView.has_available_destination(destinations)
     case SurfaceTypes.ActionCommit{assessment, input, availability}: UX.assessment_ready(assessment) && enabled(availability)
     case SurfaceTypes.Activate{input, availability}: enabled(availability)
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: enabled(availability)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: enabled(availability)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: enabled(availability)
     case SurfaceTypes.ReceiveFile{editor, enabled}: enabled

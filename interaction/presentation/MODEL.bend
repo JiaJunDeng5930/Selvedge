@@ -124,6 +124,7 @@ type Page is Data:
   MissingObject{message: String}
 
 type LayerContent is Data:
+  PropertySource{origin: LayerContent}
   ProjectSelection{query: String, selected: Maybe<&2, Nat>, projects: +List<ProjectChoice>}
   ObjectActions{actions: +List<ControlDeclaration>}
   ArchivedCards{cards: +List<CardScene>}

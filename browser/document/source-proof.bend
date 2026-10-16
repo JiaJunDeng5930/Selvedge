@@ -222,10 +222,18 @@ def option_description(+key: UIIdentity.Key, +value: String, +visual: Design.Sty
 def group_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.group_title(capacity, key, label, role, visual, representation, children, parameters, content):
   owned_information(key, Information.GroupTitle{}, label, visual)
 
-def panel_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content):
+def panel_title_unheaded(+key: UIIdentity.Key, +label: String, +visual: Design.Style, content: +List<Source.Node>) -> RuleSourceRules.panel_title_heading(False{}, key, label, visual, content):
   match label:
     case "": {==}
     case SCon{head, tail}: owned_information(key, Information.SurfaceTitle{}, label, visual)
+
+def panel_title_heading(navigation: Bool, key: UIIdentity.Key, label: String, visual: Design.Style, content: +List<Source.Node>) -> RuleSourceRules.panel_title_heading(navigation, key, label, visual, content):
+  match navigation:
+    case True{}: {==}
+    case False{}: panel_title_unheaded(key, label, visual, content)
+
+def panel_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, +children: +List<Authored.Child>, parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content):
+  panel_title_heading(Authored.has_activity_navigation(children), key, label, visual, content)
 
 def dialog_title(+capacity: Nat, +key: UIIdentity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> RuleSourceRules.dialog_title(capacity, key, label, visual, children):
   owned_information(key, Information.SurfaceTitle{}, label, visual)
@@ -368,6 +376,7 @@ def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +rol
     case SurfaceTypes.TaskFacts{details}: {==}
     case SurfaceTypes.CodeFacts{view}: {==}
     case SurfaceTypes.Activate{input, availability}: {==}
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}

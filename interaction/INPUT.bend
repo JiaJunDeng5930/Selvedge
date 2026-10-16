@@ -104,6 +104,7 @@ type Panel is Data:
   PermissionsConfiguration{editor: Editor}
   TaskContext{task: Nat}
   ModelPicker{editor: Editor}
+  PropertySource{origin: Panel}
   DeliveryPicker{task: Nat}
   Confirm{command: M.Command, title: String, destination: Route}
 

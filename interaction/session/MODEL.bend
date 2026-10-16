@@ -643,6 +643,7 @@ def panel_target(panel: U.Panel) -> String:
     case U.PermissionsConfiguration{editor}: "permissions-configuration/" ++ U.editor_key(editor)
     case U.TaskContext{task}: "task-context/" ++ Nat.show(task)
     case U.ModelPicker{editor}: "model-picker/" ++ U.editor_key(editor)
+    case U.PropertySource{origin}: "property-source/" ++ panel_target(origin)
     case U.DeliveryPicker{task}: "delivery-picker/" ++ Nat.show(task)
     case U.Confirm{command, title, destination}: "confirm/cancel"
 
@@ -1332,6 +1333,30 @@ def dismiss_layers(+layers: +List<Layer>, +application: Application) -> Decision
 def dismiss_panel(+application: Application) -> Decision:
   dismiss_layers(layers(session(application)), application)
 
+def source_origin_inspected(panel: U.Panel, expanded: Bool, field: Maybe<&2, Forms.Field>) -> Bool:
+  match panel field:
+    case U.ModelPicker{editor} None{}: expanded
+    case U.PermissionsConfiguration{editor} None{}: expanded
+    case U.WorkspaceConfiguration{editor} None{}: True{}
+    case U.EditObject{editor} None{}: True{}
+    case _ _: False{}
+
+def source_origin_owned(layers: +List<Layer>, origin: U.Panel) -> Bool:
+  match layers:
+    case Con{Layer{+panel, trigger, initial, query, occurrence, expanded, field, buffer}, rest}:
+      String.eq(panel_target(panel), panel_target(origin)) && source_origin_inspected(panel, expanded, field)
+    case _: False{}
+
+def open_source_checked(owned: Bool, origin: U.Panel, trigger: String, application: Application) -> Decision:
+  match owned:
+    case False{}: refuse(application, "The setting source does not belong to the current inspection")
+    case True{}: open_panel(U.PropertySource{origin}, trigger, application)
+
+def open_requested_panel(panel: U.Panel, trigger: String, +application: Application) -> Decision:
+  match panel:
+    case U.PropertySource{+origin}: open_source_checked(source_origin_owned(layers(session(application)), origin), origin, trigger, application)
+    case other: open_panel(other, trigger, application)
+
 def activate_selected(action: U.Action, +application: Application) -> Decision:
   match action:
     case U.SelectProject{project}: begin_task(project, application)
@@ -1353,7 +1378,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.BoardCommand{B.Delete{+id, revision}}:
       open_panel(U.Confirm{M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}, "Delete card", U.TaskBoard{}}, "card/delete/" ++ Nat.show(id), application)
     case U.BoardCommand{command}: execute_direct(U.direct_command(U.BoardCommand{command}), application)
-    case U.OpenPanel{panel, trigger}: open_panel(panel, trigger, application)
+    case U.OpenPanel{panel, trigger}: open_requested_panel(panel, trigger, application)
     case U.TogglePanel{panel, trigger}: toggle_panel(panel, trigger, application)
     case U.ClosePanel{}: dismiss_panel(application)
     case U.ConfirmAction{}:

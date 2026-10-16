@@ -20,7 +20,14 @@ these guarantees to the production admission and refusal operations.
 
 `settle_workspace` retains only correlated directory failures; `retry_workspace`
 uses the same draft through the normal preparation guards. `toggle_property_source`
-changes the matching open layer without changing the work or model preference.
+requests the matching setting inspection without changing the work or model preference.
+`PropertySource{origin}` is a distinct child activity on the existing layer stack.
+Opening it requires the actual top layer to own that origin and be in inspection,
+with no requested dependent field. Object editing and workspace configuration
+are already their owning settings activities.
+The child retains the original panel as its source identity; its explicit return
+uses `ClosePanel`, preserving the complete parent inspection and project draft.
+A source child has no decision editor, so parameter edits cannot target it.
 
 Choice layers carry one requested field and a separate `parameter_buffer`.
 `requested_decision` and `requested_parameter` read them only for the actual

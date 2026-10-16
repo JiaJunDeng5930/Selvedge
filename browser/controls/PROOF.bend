@@ -143,6 +143,7 @@ def navigation_region_meaning_binding(+key: UIIdentity.Key, +owner: UIIdentity.K
   {Rule.binding(Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, meaning, children}}, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
   match meaning:
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: navigation_header_binding(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers)
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: {==}
     case SurfaceTypes.DecisionGroup{decision}: {==}
     case SurfaceTypes.WorkspaceCollection{collection}: {==}
     case SurfaceTypes.WorkspaceMember{collection, path}: {==}
@@ -202,8 +203,20 @@ def navigation_region_binding(+key: UIIdentity.Key, +context: Controls.Context) 
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth}: navigation_region_fields_binding(key, family, depth, attention, layers)
 
-def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, label: String,
-  role: SurfaceTypes.Role, context: Controls.Context) ->
+def setting_fields_retains_binding(+subject: UXTypes.Subject, +title: String, +value: String, +representation: Controls.Representation) ->
+  {Rule.binding(Controls.setting_representation(subject, title, value, representation)) == Rule.binding(representation) : SurfaceTypes.Meaning}:
+  match representation:
+    case Controls.Action{Controls.Button{input, View.Available{}, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.Action{Controls.Button{input, View.Unavailable{reason}, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.Action{Controls.Button{input, View.NeedsDirectoryObservation{}, name, face, behavior, geometry, placement, feedback}}: {==}
+    case Controls.NoControl{}: {==}
+    case Controls.NavigationGroup{depth}: {==}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: {==}
+    case Controls.Input{input}: {==}
+    case Controls.Movable{control}: {==}
+
+def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String,
+  +role: SurfaceTypes.Role, +context: Controls.Context) ->
   {Rule.binding(Controls.represent(key, meaning, label, role, context)) == Rule.source_binding(meaning) : SurfaceTypes.Meaning}:
   match meaning:
     case SurfaceTypes.ActionExplanation{assessment}: {==}
@@ -217,6 +230,12 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
     case SurfaceTypes.ChoiceGroup{}: {==}
+    case SurfaceTypes.SettingEntry{+subject, +value, +input, +availability}:
+      Equal.trans(SurfaceTypes.Meaning,
+        Rule.binding(Controls.setting_representation(subject, InterfaceView.activity_subject_title(subject), value, Controls.represent_action(key, input, availability, label, role, context))),
+        Rule.binding(Controls.represent_action(key, input, availability, label, role, context)), SurfaceTypes.Activate{input, availability},
+        setting_fields_retains_binding(subject, InterfaceView.activity_subject_title(subject), value, Controls.represent_action(key, input, availability, label, role, context)),
+        represented_action_retains_binding(key, input, availability, label, role, context))
     case SurfaceTypes.DecisionGroup{decision}: {==}
     case SurfaceTypes.ObjectGroup{object}: {==}
     case SurfaceTypes.WorkspaceCollection{collection}: {==}
@@ -609,6 +628,7 @@ def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alig
     case Controls.SingleLineFace{text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.IconTextFace{icon, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.UnbrokenIconTextFace{icon, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
+    case Controls.SettingFace{subject, title, current} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, slot}: {==}
     case Controls.PickerFace{leading, text} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, slot}: {==}
     case Controls.ChoiceFace{text, description, icon, checked} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
     case Controls.DisclosureFace{text, expanded} Controls.Geometry{Space.Demand{Enclosure.Extent{width, height}, preferred}, icon_size, radius, leading}: {==}
@@ -933,7 +953,7 @@ def Rule.persistent_trigger_evidence():
             key, semantic, label, role, meaning, Nil{}, target, accepted)),
         valid_exactly_once(scene, base, key, semantic, label, role, meaning, owner, layer_semantic, title, policy, body, rest, distinct, fresh))
     , +task => +trigger => +content => +initial => +state => CoreDirectory.persistent_details_trigger_uses_actual_layer_behavior(
-        InterfaceView.layer_activity(content, state), task, trigger, InterfaceView.layer_key(initial), initial, InterfaceView.activity_layer_label(InterfaceView.layer_activity(content, state), View2.layer_title(content)),
+        InterfaceView.layer_activity(content, state), task, trigger, InterfaceView.layer_key(initial), initial, InterfaceView.activity_layer_label(InterfaceView.layer_activity(content, state), View2.layer_title(content), state),
         InterfaceView.layer_content(content, InterfaceView.layer_key(initial), state)), +scene => +base => +overlays => +key => +semantic => +label => +role => +expanded => +source => +trigger => +availability => +children => +target => distinct =>
       rejected_source_stays(scene, base, overlays, key, semantic, label, role,
         SurfaceTypes.PanelToggle{expanded, InteractionTypes.ApplicationInput{E.UserInput{User.Activate{User.TogglePanel{User.TaskDetails{source}, trigger}}}}, availability}, children, target, distinct)
@@ -1608,3 +1628,54 @@ def Rule.summary_members_preserve_roles(property,principal,secondary,key,parent)
 def Rule.summary_absent_detail(key,parent): {==}
 
 def Rule.summary_dependent_detail(subject,value,key,parent): {==}
+
+def Rule.setting_face_preserves_actual_button_binding(subject, title, value, input, availability, name, face, behavior, geometry, placement, feedback):
+  {==}
+
+def Rule.setting_face_has_whole_row_allocation(subject, title, value, visual):
+  {==}
+
+def Rule.setting_face_keeps_leading_reading_axis(subject, title, value):
+  {==}
+
+def Rule.setting_face_interprets_distinct_subject_roles(subject, title, value, key, parent, geometry, parameters):
+  {==}
+
+def Rule.activity_navigation_is_a_shared_horizontal_row():
+  {==}
+
+def Rule.current_navigation_heading_suppresses_duplicate_outer_heading(role, key, label, visual, content):
+  {==}
+
+def Rule.setting_row_keeps_subject_roles_and_opposite_reading_axes(subject, title, value, key, parent, geometry):
+  {==}
+
+def Rule.shared_navigation_row_reads_from_the_leading_edge():
+  {==}
+
+def Rule.activity_layer_accessibility_uses_actual_view_identity(label, activity, first, rest):
+  {==}
+
+def Rule.nested_information_navigation_retains_layer_dismissal_attributes(key, label, meaning):
+  {==}
+
+def Rule.property_source_requests_readonly_inspection(origin, expanded):
+  {==}
+
+def Rule.shared_navigation_centers_original_control_and_title_boxes(direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states):
+  {==}
+
+def Rule.navigation_heading_uses_intrinsic_line_box(text, chrome, alignment, flow, overflow, frame, minimum, maximum, states):
+  {==}
+
+def Rule.navigation_heading_consumes_its_actual_parent_role(key, semantic, label, role, children, style):
+  {==}
+
+def Rule.navigation_caption_keeps_its_full_measured_width(key, value, font, wrapping, rest):
+  {==}
+
+def Rule.navigation_preserves_actual_return_control(key, tag, style, attributes, name, enabled, first, remaining, children, rest):
+  {==}
+
+def Rule.navigation_group_combines_whole_control_and_title_demand(key, tag, style, attributes, children, rest):
+  {==}

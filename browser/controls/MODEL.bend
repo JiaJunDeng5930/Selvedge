@@ -668,6 +668,7 @@ def activity_row_direction(role: SurfaceTypes.ActivityRowRole) -> Model.Directio
     case SurfaceTypes.MemberRow{}: Model.Horizontal{}
     case SurfaceTypes.TerminalRow{}: Model.Horizontal{}
     case SurfaceTypes.ObjectHeading{}: Model.Horizontal{}
+    case SurfaceTypes.NavigationRow{}: Model.Horizontal{}
     case _: Model.Vertical{}
 
 def activity_row_width(role: SurfaceTypes.ActivityRowRole, parameters: Design.LayoutParameters) -> Model.AxisSize:
@@ -692,9 +693,34 @@ def terminal_groups(nodes: +List<Source.Node>) -> +List<Source.Node>:
       Source.Box{key, tag, terminal_group_style(style), attributes, children} <> terminal_groups(rest)
     case Con{other, rest}: other <> terminal_groups(rest)
 
+# A return control and its current identity form one indivisible navigation
+# unit. Horizontal demand therefore adds their measured widths and the gap.
+def navigation_group_style(style: Source.Style) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
+
+def navigation_unbroken(nodes: +List<Source.Node>) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Text{key, value, font, wrapping}, rest}:
+      Source.Text{key, value, font, T.UnbrokenLine{}} <> navigation_unbroken(rest)
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      Source.Box{key, tag, style, attributes, navigation_unbroken(children)} <> navigation_unbroken(rest)
+    case Con{Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, rest}:
+      Source.Control{key, tag, style, attributes, name, enabled, first, remaining, navigation_unbroken(children)} <> navigation_unbroken(rest)
+    case Con{other, rest}: other <> navigation_unbroken(rest)
+
+def navigation_groups(nodes: +List<Source.Node>) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Box{key, tag, style, attributes, children}, rest}:
+      Source.Box{key, tag, navigation_group_style(style), attributes, navigation_unbroken(children)} <> navigation_groups(rest)
+    case Con{other, rest}: other <> navigation_groups(rest)
+
 def activity_row_content(role: SurfaceTypes.ActivityRowRole, content: +List<Source.Node>) -> +List<Source.Node>:
   match role:
     case SurfaceTypes.TerminalRow{}: terminal_groups(content)
+    case SurfaceTypes.NavigationRow{}: navigation_groups(content)
     case _: content
 
 def activity_row(+capacity: Nat, +key: UIIdentity.Key, +role: SurfaceTypes.ActivityRowRole, +visual: Design.Style, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Source.Node:
@@ -702,18 +728,44 @@ def activity_row(+capacity: Nat, +key: UIIdentity.Key, +role: SurfaceTypes.Activ
     Factory.content_style(visual, activity_row_direction(role), activity_row_width(role, parameters), Model.NaturalSize{}, Activity.length(capacity, Design.style_text(visual), 8n)),
     Enclosure.Extent{0n, Activity.length(capacity, Design.style_text(visual), 32n)}), activity_row_alignment(role), Spatial.Centered{}), Nil{}, activity_row_content(role, content))
 
-def activity_layer_name(label: String, +activity: UXActivity.Activity, attributes: +List<Source.Attribute>) -> +List<Source.Attribute>:
-  match label attributes:
-    case "" Con{first, rest}: Source.AriaAttribute{"label", UX.property_title(UXActivity.property(activity))} <> rest
-    case _ members: members
+def activity_accessible_name(label: String, activity: UXActivity.Activity) -> String:
+  match label:
+    case "": UX.property_title(UXActivity.property(activity))
+    case current: current
+
+def activity_layer_name(label: String, activity: UXActivity.Activity, attributes: +List<Source.Attribute>) -> +List<Source.Attribute>:
+  match attributes:
+    case Con{first, rest}: Source.AriaAttribute{"label", activity_accessible_name(label, activity)} <> rest
+    case Nil{}: [Source.AriaAttribute{"label", activity_accessible_name(label, activity)}]
 
 def activity_layer_attributes(+key: UIIdentity.Key, label: String, +activity: UXActivity.Activity, meaning: SurfaceTypes.Meaning) -> +List<Source.Attribute>:
   activity_layer_name(label, activity, layer_attributes(key, meaning))
 
-def activity_group(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +activity: UXActivity.Activity, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+def has_activity_navigation(children: +List<Child>) -> Bool:
+  match children:
+    case Nil{}: False{}
+    case Con{Child{key, role, SurfaceTypes.ActivityRow{SurfaceTypes.NavigationRow{}}, control, nodes}, rest}: True{}
+    case Con{other, rest}: has_activity_navigation(rest)
+
+def activity_group_heading(present: Bool, role: SurfaceTypes.Role, key: UIIdentity.Key, label: String, visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
+  match present:
+    case True{}: content
+    case False{}: layer_title(role, key, label, visual, content)
+
+def named_layer_attributes(label: String, attributes: +List<Source.Attribute>) -> +List<Source.Attribute>:
+  match attributes:
+    case Nil{}: [Source.AriaAttribute{"label", label}]
+    case Con{first, rest}: Source.AriaAttribute{"label", label} <> rest
+
+def navigation_layer_attributes(present: Bool, +key: UIIdentity.Key, label: String, meaning: SurfaceTypes.Meaning) -> +List<Source.Attribute>:
+  match present:
+    case False{}: layer_attributes(key, meaning)
+    case True{}: named_layer_attributes(label, layer_attributes(key, meaning))
+
+def activity_group(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +activity: UXActivity.Activity, +visual: Design.Style, children: +List<Child>, content: +List<Source.Node>) -> Source.Node:
   box(key, role_tag(role), Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
     Enclosure.Frame{Enclosure.ambient(Activity.length(capacity, Design.style_text(visual), 8n), Activity.length(capacity, Design.style_text(visual), 8n)), Enclosure.EmbeddedContent{Activity.length(capacity, Design.style_text(visual), 4n)}}),
-    List.append(&2, Source.Attribute, activity_layer_attributes(key, label, activity, meaning), [Source.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}]), layer_title(role, key, label, visual, content))
+    List.append(&2, Source.Attribute, activity_layer_attributes(key, label, activity, meaning), [Source.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}]), activity_group_heading(has_activity_navigation(children), role, key, label, visual, content))
 
 def grouped_menu_visible(+capacity: Nat, role: SurfaceTypes.Role, grouped: Bool, node: Source.Node) -> Source.Node:
   match role grouped node:
@@ -727,7 +779,7 @@ def grouped_menu(+capacity: Nat, role: SurfaceTypes.Role, children: +List<Child>
 
 def regular_content(capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Source.Node:
   match meaning:
-    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: activity_group(capacity, key, label, role, meaning, activity, visual, content)
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: activity_group(capacity, key, label, role, meaning, activity, visual, children, content)
     case SurfaceTypes.ActivityRow{row}: activity_row(capacity, key, row, visual, parameters, content)
 
     case SurfaceTypes.DecisionGroup{decision}: decision_group(capacity, key, decision, visual, content)
@@ -742,6 +794,7 @@ def regular_content(capacity: Nat, +key: UIIdentity.Key, +label: String, +role: 
     case SurfaceTypes.Edit{+editor, +field, Forms.DirectoryCollection{}, value, choices}: add_attributes(compound_directory(field, value, key, label, visual, content), [Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}])
     case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound(key, label, field, visual, content)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: button_source(key, visual, parameters, representation)
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: add_attributes(button_source(key, visual, parameters, representation), [Source.DataAttribute{"setting-subject", UX.subject_key(subject)}])
     case SurfaceTypes.Activate{input, availability}: button_source(key, visual, parameters, representation)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: button_source(key, visual, parameters, representation)
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
@@ -756,7 +809,7 @@ def regular_content(capacity: Nat, +key: UIIdentity.Key, +label: String, +role: 
     case SurfaceTypes.CardArchive{count}: Source.constructed_control_node(Source.construct_control(Source.ControlRequest{key, Source.DivControl{}, role_style(visual, role), [Source.DataAttribute{"card-archive", Nat.show(count)}], label, True{}, Doc.DropCard{UIIdentity.encode(key)}, Nil{}, content}))
     case SurfaceTypes.CardContent{face}: card(key, face, visual, children, card_movement_control(children), parameters, card_movement_available(children))
     case SurfaceTypes.MovableCard{destinations, face}: movable_source(key, representation, visual, parameters)
-    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), layer_attributes(key, meaning), layer_title(role, key, label, visual, content))
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: box(key, role_tag(role), role_style(visual, role), navigation_layer_attributes(has_activity_navigation(children), key, label, meaning), activity_group_heading(has_activity_navigation(children), role, key, label, visual, content))
     case SurfaceTypes.ActivityContent{expanded, audit}: box(key, Source.Section{}, role_style(visual, role), [Source.AriaAttribute{"label", label}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], append(activity_title(key, label, visual, activity_header(children)), expanded_content(expanded, append(activity_content(children), audit_nodes(audit, key, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ActivityContent{expanded, audit}, Design.style_text(visual)))))))
     case SurfaceTypes.TaskFacts{details}: box(key, Source.Section{}, role_style(visual, role), Nil{}, append(task_details(key, details, visual), content))
     case SurfaceTypes.Fact{value}: fact(key, label, value, visual)

@@ -264,6 +264,13 @@ def choice_members(enabled: Bool, text: String, details: Maybe<&2, String>, icon
    Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
 
 
+def setting_members(+subject: UXTypes.Subject, title: String, value: String, +key: UIIdentity.Key, +parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
+  [Source.Box{UIIdentity.part(key, "setting-label"), Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Spatial.Leading{}, Spatial.Centered{}),
+     [Source.DataAttribute{"setting-role", "label"}, Source.DataAttribute{"setting-subject", UX.subject_key(subject)}], [caption(UIIdentity.part(key, "setting-label/text"), title, parent, T.SingleLine{})]},
+   Source.Box{UIIdentity.part(key, "setting-value"), Source.Span{}, information_foreground(True{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Spatial.Trailing{}, Spatial.Centered{})),
+     [Source.DataAttribute{"setting-role", "value"}, Source.DataAttribute{"setting-subject", UX.subject_key(subject)}], [caption(UIIdentity.part(key, "setting-value/text"), value, parent, T.SingleLine{})]},
+   glyph(UIIdentity.part(key, "chevron"), Controls.ChevronRight{}, parent, face_icon_size(geometry))]
+
 def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> +List<Source.Node>:
   match value:
     case Controls.TextFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
@@ -278,6 +285,7 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{},
         property_text(property, key, parent)},
        glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+    case Controls.SettingFace{subject, title, current}: setting_members(subject, title, current, key, parent, geometry)
     case Controls.PickerFace{leading, text}:
       List.append(&2, Source.Node, leading_icon(leading, key, parent, face_icon_size(geometry)),
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]}, glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
@@ -326,12 +334,14 @@ def feedback(value: Controls.Feedback) -> +List<Source.Attribute>:
 
 def action_width(value: Controls.Face, visual: Design.Style) -> Model.AxisSize:
   match value:
+    case Controls.SettingFace{subject, title, current}: Model.StretchSize{}
     case Controls.ChoiceFace{text, description, icon, checked}: Model.StretchSize{}
     case _: Factory.natural_width(visual)
 
 def action_alignment(value: Controls.Face) -> Spatial.Alignment:
   match value:
     case Controls.ChoiceFace{text, description, icon, checked}: Spatial.Leading{}
+    case Controls.SettingFace{subject, title, current}: Spatial.Leading{}
     case Controls.PropertyFace{property}: Spatial.Leading{}
     case Controls.CompactPropertyFace{property}: Spatial.Leading{}
     case Controls.PickerFace{leading, text}: Spatial.Leading{}

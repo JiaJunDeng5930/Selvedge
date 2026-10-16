@@ -201,10 +201,22 @@ def option_description(+key: Identity.Key, +value: String, +visual: Design.Style
 def group_title(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
   {first_information(Source.children_of(Authored.regular_content(capacity, key, label, role, SurfaceTypes.ChoiceGroup{}, visual, representation, children, parameters, content))) == required_information(key, Information.GroupTitle{}, label, visual) : InformationObservation}
 
-def panel_title(+capacity: Nat, +key: Identity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> Type:
+def panel_title_unheaded(label: String, key: Identity.Key, visual: Design.Style, content: +List<Source.Node>) -> InformationObservation:
   match label:
-    case "": {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == first_information(content) : InformationObservation}
-    case SCon{head, tail}: {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
+    case "": first_information(content)
+    case current: required_information(key, Information.SurfaceTitle{}, current, visual)
+
+def panel_title_expected(navigation: Bool, key: Identity.Key, label: String, visual: Design.Style, content: +List<Source.Node>) -> InformationObservation:
+  match navigation:
+    case True{}: first_information(content)
+    case False{}: panel_title_unheaded(label, key, visual, content)
+
+def panel_title_heading(+navigation: Bool, +key: Identity.Key, +label: String, +visual: Design.Style, +content: +List<Source.Node>) -> Type:
+  {first_information(Authored.activity_group_heading(navigation, SurfaceTypes.Menu{}, key, label, visual, content)) == panel_title_expected(navigation, key, label, visual, content) : InformationObservation}
+
+def panel_title(+capacity: Nat, +key: Identity.Key, +label: String, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool, +visual: Design.Style, representation: Controls.Representation, +children: +List<Authored.Child>, parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Type:
+  {first_information(Source.children_of(Authored.regular_content(capacity, key, label, SurfaceTypes.Menu{}, SurfaceTypes.LayerRegion{dismiss, outside, escape}, visual, representation, children, parameters, content))) ==
+    panel_title_expected(Authored.has_activity_navigation(children), key, label, visual, content) : InformationObservation}
 
 def dialog_title(+capacity: Nat, +key: Identity.Key, +label: String, +visual: Design.Style, children: +List<Authored.Child>) -> Type:
   {dialog_information(Authored.dialog_content(capacity, key, label, visual, children)) == required_information(key, Information.SurfaceTitle{}, label, visual) : InformationObservation}
@@ -361,7 +373,7 @@ def fact_source_dispatch(+capacity: Nat, key: Identity.Key, label: String, role:
 def experience_source(+capacity: Nat, +key: Identity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> Type:
   match meaning:
     case SurfaceTypes.ActivityRow{row}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.activity_row(capacity, key, row, visual, parameters, content) : Source.Node}
-    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.activity_group(capacity, key, label, role, meaning, activity, visual, content) : Source.Node}
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.activity_group(capacity, key, label, role, meaning, activity, visual, children, content) : Source.Node}
     case SurfaceTypes.DecisionGroup{decision}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(capacity, key, UX.decision_question(decision), visual, Source.RoleAttribute{"radiogroup"} <> Authored.subject_attributes(UX.decision_subject(decision)), content) : Source.Node}
     case SurfaceTypes.ObjectGroup{object}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.object_group(capacity, key, object, label, visual, content) : Source.Node}
     case SurfaceTypes.WorkspaceCollection{collection}: {Authored.regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, content) == Authored.owned_group(capacity, key, label, visual, Source.TabIndexAttribute{"-1"} <> Authored.subject_attributes(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspaceDirectories{}}), content) : Source.Node}
@@ -486,7 +498,7 @@ type Requirements is Type:
     option_label: @+key:Identity.Key -> @+label:String -> @description:Maybe<&2, String> -> @+icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> @+visual:Design.Style -> @geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters -> option_label(key, label, description, icon, selected, visual, geometry, parameters),
     option_description: @+key:Identity.Key -> @+value:String -> @+visual:Design.Style -> @parameters:Design.LayoutParameters -> option_description(key, value, visual, parameters),
     group_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> group_title(capacity, key, label, role, visual, representation, children, parameters, content),
-    panel_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @dismiss:InteractionTypes.Input -> @outside:Bool -> @escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @content:+List<Source.Node> -> panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content),
+    panel_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @dismiss:InteractionTypes.Input -> @outside:Bool -> @escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @+children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @+content:+List<Source.Node> -> panel_title(capacity, key, label, dismiss, outside, escape, visual, representation, children, parameters, content),
     dialog_title: @+capacity:Nat -> @+key:Identity.Key -> @+label:String -> @+visual:Design.Style -> @children:+List<Authored.Child> -> dialog_title(capacity, key, label, visual, children),
     visible_label_reference: @+key:Identity.Key -> visible_label_reference(key),
     option_reference: @+key:Identity.Key -> @+label:String -> @+description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @selected:Bool -> option_reference(key, label, description, icon, selected),

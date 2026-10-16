@@ -73,7 +73,7 @@ selection returns to its owner. A different child request never expands the root
 `relation_exposure` is the production projection policy for the existing relation
 fold. Required facts remain requirements, but `coverage` supplies their actual
 expression witness instead of requiring a duplicate paragraph. Read
-`coverage_expressions` for every required subject: a selected candidate, admitted
+`information_expressions(activity, current, coverage)` for every applicable required subject: a selected candidate, admitted
 parameter, actual permission consequence, owner context, original identity,
 requested inspection or necessary inline value. The complete property observation
 and applied/draft/original reference remain in `FactIdentity`. Project name input
@@ -113,3 +113,26 @@ removes dependent information for a compact group without changing the owner or
 principal value. `RecognitionSummaryRequirements` binds these relationships to
 the production factory. The complete `property_summary` remains available for
 semantic descriptions and help, rather than determining the inline visual roles.
+
+
+`MODEL.InformationStatus` separates applicability from presence.
+`PROGRAM.property_information` reads typed property observations at their owner;
+`ACTIVITY.information_status` combines that public observation with the current
+activity's dependency and assessment evidence. The original
+parent/selection/child dependencies remain in the relation tree even while
+inactive; they retain observation evidence without admitting a choice or edit.
+`subject_dependency` reads those same conditions, including owner and editor
+checks, rather than reconstructing applicability from field captions. The
+existing `dependency_applies`, retained-decision and exposure checks continue to
+control all actionable dependencies.
+
+Applicable observations distinguish present information, optional absence,
+required absence and unavailable information. Project selection uses its typed
+optional reference, model and reviewer presence use the actual catalog lookup,
+and project editing uses the production assessment's field obstructions.
+`information_expressions` filters the existing subject witnesses through that
+classification. Inactive information is omitted unless its exact subject was
+explicitly requested for inspection; a required or unavailable observation remains
+visible so that missing information cannot disappear as if it were irrelevant.
+`InformationRequirements` binds retained conditions, classification and complete
+expression traversal to these production operations.

@@ -114,3 +114,12 @@ type ProjectEdit is Data:
 type CandidateObservation is Data:
   CandidateObservation{decision: Decision, alternative: Alternative,
     canonical: Maybe<&2, U.Input>, admission: Decision, input: Maybe<&2, U.Input>}
+
+
+# The typed observation remains distinct from its activity-specific applicability.
+type InformationStatus is Data:
+  NotApplicable{reason: String}
+  PresentInformation{}
+  OptionalAbsence{}
+  RequiredAbsence{reason: String}
+  UnavailableInformation{reason: String}

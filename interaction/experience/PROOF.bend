@@ -403,8 +403,6 @@ def project_edit_agreement(+draft: U.Draft, +pending: Bool, +now: U32, +world: W
 
 def Rule.activity_evidence():
   Rule.ActivityRequirements{
-    parent => prerequisite => child => {==},
-    parent => prerequisite => child => {==},
     decision => children => {==},
     property => decision => children => facts => catalog => {==},
     property => decision => children => facts => catalog => {==},
@@ -559,7 +557,9 @@ def Rule.view_construction_evidence():
     subject => relation => {==},
     subject => property => {==},
     subject => rest => property => decision => dependencies => {==},
-    activity => current => parent => prerequisite => decision => {==}}
+    activity => current => parent => prerequisite => decision => {==},
+    subject => {==},
+    activity => parent => subject => entry => profile => {==}}
 
 
 def Rule.property_context_evidence():
@@ -616,3 +616,18 @@ def Rule.recognition_summary_evidence():
     +full => property => +principal => secondary => recognition_projection_identity(full,property,principal,secondary),
     summary => recognition_compact_detail(summary),
     +summary => {==}}
+
+def Rule.information_evidence():
+  Rule.InformationRequirements{
+    parent => prerequisite => child => {==},
+    parent => prerequisite => child => rest => {==},
+    parent => prerequisite => child => subject => {==},
+    observed => {==}, observed => {==},
+    found => {==}, id => {==}, {==}, {==},
+    activity => current => property => subject => {==},
+    current => subject => reason => {==},
+    current => subject => reason => {==},
+    current => subject => reason => {==},
+    expression => rest => {==}, expression => rest => {==},
+    activity => current => property => expression => rest => {==},
+    activity => current => coverage => {==}}

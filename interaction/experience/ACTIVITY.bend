@@ -6,7 +6,7 @@ import ../submission/FIELDS.bend as Forms
 import ../services/CONTEXT.bend as Context
 import ../../harness/DOMAIN.bend as D
 
-# Dependencies are requests; only the root decision can admit them.
+# Dependencies retain their condition even when the current choice makes them inactive.
 type Dependency is Data:
   Dependency{prerequisite: M.Value, decision: M.Decision}
 
@@ -37,19 +37,18 @@ def same_owner(+parent: M.Decision, +child: M.Decision) -> Bool:
 def dependency_applies(+parent: M.Decision, +prerequisite: M.Value, +child: M.Decision) -> Bool:
   UX.selected(parent, prerequisite) && same_owner(parent, child) && U.same_editor(decision_editor(parent), decision_editor(child))
 
-def admitted_dependency(applies: Bool, parent: M.Decision, prerequisite: M.Value, decision: M.Decision) -> +List<Relation>:
-  match applies:
+# An inactive condition remains available to information planning. Admission of
+# choices and edits continues to use dependency_applies at the consumer boundary.
+def retained_dependency(owned: Bool, parent: M.Decision, prerequisite: M.Value, decision: M.Decision) -> +List<Relation>:
+  match owned:
     case True{}: [DependentDecision{parent, prerequisite, decision}]
     case False{}: Nil{}
-
-def dependent_decision(+parent: M.Decision, +prerequisite: M.Value, +decision: M.Decision) -> +List<Relation>:
-  admitted_dependency(dependency_applies(parent, prerequisite, decision), parent, prerequisite, decision)
 
 def dependencies(+parent: M.Decision, requests: +List<Dependency>) -> +List<Relation>:
   match requests:
     case Nil{}: Nil{}
-    case Con{Dependency{prerequisite, decision}, rest}:
-      List.append(&2, Relation, dependent_decision(parent, prerequisite, decision), dependencies(parent, rest))
+    case Con{Dependency{prerequisite, +decision}, rest}:
+      List.append(&2, Relation, retained_dependency(same_owner(parent, decision) && U.same_editor(decision_editor(parent), decision_editor(decision)), parent, prerequisite, decision), dependencies(parent, rest))
 
 def root_decision(+decision: M.Decision, children: +List<Dependency>) -> Relation:
   RootDecision{decision, dependencies(decision, children)}
@@ -480,6 +479,7 @@ def dependent_exposure(current: View, subject: M.Subject) -> Exposure:
 def field_exposure(current: View, subject: M.Subject) -> Exposure:
   match current:
     case PrincipalView{}: DependencySummary{}
+    case InspectionView{None{}}: DependencySummary{}
     case _: parameter_exposure(requested_subject(current, subject))
 
 def initial_dependency_exposure(goal: Purpose) -> Exposure:
@@ -888,3 +888,95 @@ def relation_for_view(value: RelationView) -> Relation:
 
 def relation_view_exposure(activity: Activity, current: View, value: RelationView) -> Exposure:
   relation_exposure(activity,current,relation_for_view(value))
+
+
+# Applicability and absence are observations of the activity's real dependencies
+# and domain observations, never classifications of already formatted captions.
+type DependencyState is Data:
+  IndependentInformation{}
+  InactiveInformation{}
+  ActiveInformation{}
+
+def merge_dependency(left: DependencyState, right: DependencyState) -> DependencyState:
+  match left right:
+    case ActiveInformation{} _: ActiveInformation{}
+    case _ ActiveInformation{}: ActiveInformation{}
+    case InactiveInformation{} _: InactiveInformation{}
+    case _ InactiveInformation{}: InactiveInformation{}
+    case _ _: IndependentInformation{}
+
+def dependency_condition(matched: Bool, active: Bool) -> DependencyState:
+  match matched active:
+    case False{} _: IndependentInformation{}
+    case True{} True{}: ActiveInformation{}
+    case True{} False{}: InactiveInformation{}
+
+def relation_dependency(relation: Relation, +subject: M.Subject) -> DependencyState:
+  match relation:
+    case DependentDecision{+parent, +prerequisite, +decision}:
+      dependency_condition(same_subject(UX.decision_subject(decision), subject), dependency_applies(parent, prerequisite, decision))
+    case FieldSpecification{+parent, +child, entry, +profile}:
+      dependency_condition(same_subject(child, subject), field_specification_applies(parent, child, profile))
+    case _: IndependentInformation{}
+
+def subject_dependency(values: +List<Relation>, +subject: M.Subject) -> DependencyState:
+  match values:
+    case Nil{}: IndependentInformation{}
+    case Con{relation, rest}:
+      match relation:
+        case RootDecision{decision, children}: merge_dependency(subject_dependency(children,subject),subject_dependency(rest,subject))
+        case _: merge_dependency(relation_dependency(relation,subject),subject_dependency(rest,subject))
+
+def obstruction_subject_information(matched: Bool, obstruction: M.Obstruction, fallback: M.InformationStatus) -> M.InformationStatus:
+  match matched:
+    case True{}: M.RequiredAbsence{UX.obstruction_message(obstruction)}
+    case False{}: fallback
+
+def obstruction_information(values: +List<M.Obstruction>, +subject: M.Subject, fallback: M.InformationStatus) -> M.InformationStatus:
+  match values:
+    case Nil{}: fallback
+    case Con{+obstruction, rest}:
+      obstruction_subject_information(UX.subject_obstruction_matches(subject, UX.obstruction_field(obstruction)), obstruction, obstruction_information(rest, subject, fallback))
+
+
+def editing_information(found: Maybe<&2,M.ProjectEdit>, subject: M.Subject, fallback: M.InformationStatus) -> M.InformationStatus:
+  match found:
+    case None{}: fallback
+    case Some{edit}: obstruction_information(UX.assessment_obstructions(UX.project_edit_assessment(edit)), subject, fallback)
+
+def conditional_information(condition: DependencyState, observed: M.InformationStatus) -> M.InformationStatus:
+  match condition:
+    case InactiveInformation{}: M.NotApplicable{"This setting does not apply to the current selection"}
+    case _: observed
+
+def information_status(+activity: Activity, current: View, +property: M.Property, +subject: M.Subject) -> M.InformationStatus:
+  conditional_information(subject_dependency(relations(activity), subject),
+    editing_information(editing_observation(activity), subject, UX.property_information(property, subject, catalog(activity))))
+
+def information_visible(current: View, subject: M.Subject, status: M.InformationStatus) -> Bool:
+  match status:
+    case M.NotApplicable{reason}: requested_subject(current, subject)
+    case _: True{}
+
+def coverage_property(value: Coverage) -> M.Property:
+  match value:
+    case SelectedPrincipal{fact, decision, dependencies}: fact_property(fact)
+    case CurrentDependency{fact, relation}: fact_property(fact)
+    case OriginalObject{fact, edit}: fact_property(fact)
+    case RequestedInspection{fact}: fact_property(fact)
+    case NecessaryInline{fact}: fact_property(fact)
+
+def admitted_information(visible: Bool, expression: SubjectExpression, rest: +List<SubjectExpression>) -> +List<SubjectExpression>:
+  match visible:
+    case True{}: expression <> rest
+    case False{}: rest
+
+def required_information_expressions(+activity: Activity, +current: View, +property: M.Property, values: +List<SubjectExpression>) -> +List<SubjectExpression>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+expression, rest}:
+      admitted_information(information_visible(current, expression_subject(expression), information_status(activity, current, property, expression_subject(expression))), expression,
+        required_information_expressions(activity, current, property, rest))
+
+def information_expressions(+activity: Activity, +current: View, +value: Coverage) -> +List<SubjectExpression>:
+  required_information_expressions(activity, current, coverage_property(value), coverage_expressions(value))

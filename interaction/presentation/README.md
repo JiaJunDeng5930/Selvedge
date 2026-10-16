@@ -106,3 +106,28 @@ requires the activity's actual completion boundary before producing a compound
 commit. Collection Add/Clear/Browse remain the owning draft's ordinary toolbar;
 feedback remains supporting information. Back and inspection return are navigation,
 not synthetic commit stages.
+
+Expanded views retain the same activity identity as the layer's accessible name.
+`activity_current_view` and completion determine one shared navigation header:
+principal choices have no extra commit or heading, dependent views name their
+actual subject, inspection names its property, and compound editing keeps its
+existing object title and commit/discard boundary. The header retains the actual
+`LeaveDecision` input; it is not inferred from a caption. The authored layer
+recognizes this header and does not add a duplicate outer title.
+
+The coverage fold consumes `ACTIVITY.information_expressions` and the actual
+`information_status`. Inapplicable observations are normally absent; an explicit
+inspection request receives an explanation instead of an editable control.
+Required absence is attached to the subject's retained expression, while optional
+absence remains an ordinary state. Scope remains supporting context in a settings inspection. Provenance has its
+own explicit subactivity: the source entry retains the actual owner panel,
+`PropertySource` resolves that owner observation, and the shared navigation header
+uses the existing layer-stack return. Model, permission and project settings
+therefore share source disclosure without another layer-state field or an
+implicit native browser toggle. Detailed source descriptions occur only in that
+requested subactivity.
+
+`SettingEntry` preserves its original subject, current value and admitted input.
+It is shared by dependent decisions and parameter summaries. Browser authorship
+interprets these roles as a leading label, trailing current value and disclosure
+inside the original whole-row native button, rather than parsing a joined string.

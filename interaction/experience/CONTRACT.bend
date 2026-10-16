@@ -400,10 +400,6 @@ def project_edit_meaning(+draft: U.Draft, +pending: Bool, now: U32, +world: Worl
 
 type ActivityRequirements is Type:
   ActivityRequirements{
-    dependent_decision: @+parent:M.Decision -> @+prerequisite:M.Value -> @+child:M.Decision ->
-      {Activity.dependent_decision(parent, prerequisite, child) == Activity.admitted_dependency(P.selected(parent, prerequisite) && Activity.same_owner(parent, child) && U.same_editor(Activity.decision_editor(parent), Activity.decision_editor(child)), parent, prerequisite, child) : +List<Activity.Relation>},
-    dependency_rejected: @parent:M.Decision -> @prerequisite:M.Value -> @child:M.Decision ->
-      {Activity.admitted_dependency(False{}, parent, prerequisite, child) == Nil{} : +List<Activity.Relation>},
     root_owned_dependencies: @+decision:M.Decision -> @children:+List<Activity.Dependency> ->
       {Activity.root_decision(decision, children) == Activity.RootDecision{decision, Activity.dependencies(decision, children)} : Activity.Relation},
     comparison_construction: @+property:M.Property -> @+decision:M.Decision -> @children:+List<Activity.Dependency> -> @facts:+List<M.Property> -> @+catalog:+List<D.Profile> ->
@@ -656,7 +652,12 @@ type ViewConstructionRequirements is Type:
       {Activity.principal_expressions(subject <> rest,property,decision,dependencies) == Activity.principal_subject_expression(Activity.same_subject(subject,P.decision_subject(decision)),subject,property,decision,dependencies) <> Activity.principal_expressions(rest,property,decision,dependencies) : +List<Activity.SubjectExpression>},
     dependency_admission: @+activity:Activity.Activity -> @+current:Activity.View -> @+parent:M.Decision -> @+prerequisite:M.Value -> @+decision:M.Decision ->
       {Activity.relation_exposure(activity,current,Activity.DependentDecision{parent,prerequisite,decision}) ==
-        Activity.admitted_exposure(Activity.dependency_applies(parent,prerequisite,decision) && Activity.retains_decision(activity,decision), Activity.dependency_view_exposure(activity,current,P.decision_subject(decision))) : Activity.Exposure}}
+        Activity.admitted_exposure(Activity.dependency_applies(parent,prerequisite,decision) && Activity.retains_decision(activity,decision), Activity.dependency_view_exposure(activity,current,P.decision_subject(decision))) : Activity.Exposure},
+    inspection_field_summary: @subject:M.Subject ->
+      {Activity.field_exposure(Activity.InspectionView{None{}},subject) == Activity.DependencySummary{} : Activity.Exposure},
+    inspection_field_admission: @+activity:Activity.Activity -> @+parent:M.Decision -> @+subject:M.Subject -> @entry:Forms.Entry -> @+profile:D.Profile ->
+      {Activity.relation_exposure(activity,Activity.InspectionView{None{}},Activity.FieldSpecification{parent,subject,entry,profile}) ==
+        Activity.admitted_exposure(Activity.field_specification_applies(parent,subject,profile) && Activity.retained_subject(Activity.relations(activity),subject),Activity.DependencySummary{}) : Activity.Exposure}}
 
 law view_construction_evidence:
   ViewConstructionRequirements
@@ -729,3 +730,42 @@ type RecognitionSummaryRequirements is Type:
 
 law recognition_summary_evidence:
   RecognitionSummaryRequirements
+
+# Completeness is relative to the current activity's applicable subjects. A
+# retained inactive condition is evidence for omission, not an admitted edit.
+type InformationRequirements is Type:
+  InformationRequirements{
+    retained_condition: @+parent:M.Decision -> @+prerequisite:M.Value -> @+child:M.Decision ->
+      {Activity.retained_dependency(True{},parent,prerequisite,child) == [Activity.DependentDecision{parent,prerequisite,child}] : +List<Activity.Relation>},
+    dependency_source: @+parent:M.Decision -> @+prerequisite:M.Value -> @+child:M.Decision -> @+rest:+List<Activity.Dependency> ->
+      {Activity.dependencies(parent,Activity.Dependency{prerequisite,child} <> rest) == List.append(&2,Activity.Relation,Activity.retained_dependency(Activity.same_owner(parent,child) && U.same_editor(Activity.decision_editor(parent),Activity.decision_editor(child)),parent,prerequisite,child),Activity.dependencies(parent,rest)) : +List<Activity.Relation>},
+    selected_condition: @+parent:M.Decision -> @+prerequisite:M.Value -> @+child:M.Decision -> @+subject:M.Subject ->
+      {Activity.relation_dependency(Activity.DependentDecision{parent,prerequisite,child},subject) == Activity.dependency_condition(Activity.same_subject(P.decision_subject(child),subject),Activity.dependency_applies(parent,prerequisite,child)) : Activity.DependencyState},
+    inactive_condition: @observed:M.InformationStatus ->
+      {Activity.conditional_information(Activity.InactiveInformation{},observed) == M.NotApplicable{"This setting does not apply to the current selection"} : M.InformationStatus},
+    active_condition: @+observed:M.InformationStatus ->
+      {Activity.conditional_information(Activity.ActiveInformation{},observed) == observed : M.InformationStatus},
+    optional_project: @found:Maybe<&2,D.Project> ->
+      {P.selected_project_information(None{},found) == M.OptionalAbsence{} : M.InformationStatus},
+    missing_project: @id:Nat ->
+      {P.selected_project_information(Some{id},None{}) == M.RequiredAbsence{"Choose an available project"} : M.InformationStatus},
+    missing_model: {P.model_field_information(None{},Forms.ModelProfile{},"") == M.RequiredAbsence{"Choose a configured model"} : M.InformationStatus},
+    missing_reviewer: {P.reviewer_presence(None{}) == M.RequiredAbsence{"Choose an available reviewing model"} : M.InformationStatus},
+    observed_information: @+activity:Activity.Activity -> @current:Activity.View -> @+property:M.Property -> @+subject:M.Subject ->
+      {Activity.information_status(activity,current,property,subject) == Activity.conditional_information(Activity.subject_dependency(Activity.relations(activity),subject),Activity.editing_information(Activity.editing_observation(activity),subject,P.property_information(property,subject,Activity.catalog(activity)))) : M.InformationStatus},
+    inactive_visibility: @+current:Activity.View -> @+subject:M.Subject -> @reason:String ->
+      {Activity.information_visible(current,subject,M.NotApplicable{reason}) == Activity.requested_subject(current,subject) : Bool},
+    required_visibility: @current:Activity.View -> @subject:M.Subject -> @reason:String ->
+      {Activity.information_visible(current,subject,M.RequiredAbsence{reason}) == True{} : Bool},
+    unavailable_visibility: @current:Activity.View -> @subject:M.Subject -> @reason:String ->
+      {Activity.information_visible(current,subject,M.UnavailableInformation{reason}) == True{} : Bool},
+    preserve_expression: @+expression:Activity.SubjectExpression -> @+rest:+List<Activity.SubjectExpression> ->
+      {Activity.admitted_information(True{},expression,rest) == expression <> rest : +List<Activity.SubjectExpression>},
+    omit_expression: @expression:Activity.SubjectExpression -> @+rest:+List<Activity.SubjectExpression> ->
+      {Activity.admitted_information(False{},expression,rest) == rest : +List<Activity.SubjectExpression>},
+    complete_expression: @+activity:Activity.Activity -> @+current:Activity.View -> @+property:M.Property -> @+expression:Activity.SubjectExpression -> @+rest:+List<Activity.SubjectExpression> ->
+      {Activity.required_information_expressions(activity,current,property,expression <> rest) == Activity.admitted_information(Activity.information_visible(current,Activity.expression_subject(expression),Activity.information_status(activity,current,property,Activity.expression_subject(expression))),expression,Activity.required_information_expressions(activity,current,property,rest)) : +List<Activity.SubjectExpression>},
+    production_coverage: @+activity:Activity.Activity -> @+current:Activity.View -> @+coverage:Activity.Coverage ->
+      {Activity.information_expressions(activity,current,coverage) == Activity.required_information_expressions(activity,current,Activity.coverage_property(coverage),Activity.coverage_expressions(coverage)) : +List<Activity.SubjectExpression>}}
+
+law information_evidence: InformationRequirements

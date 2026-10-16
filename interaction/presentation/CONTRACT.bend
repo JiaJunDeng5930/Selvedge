@@ -574,7 +574,7 @@ type PageRegionRequirements is Type:
 
     layer_titles: LayerTitleRequirements,
     layer_name: @+kind:V.LayerKind -> @+content:V.LayerContent -> @+initial:String -> @+restore:String -> @+close:V.Dismissal -> @+state:InteractionTypes.State ->
-      {layer_label(Model.layers([V.Layer{kind, content, initial, restore, close}], state)) == Some{Model.activity_layer_label(Model.layer_activity(content, state), View.layer_title(content))} : Maybe<&2, String>},
+      {layer_label(Model.layers([V.Layer{kind, content, initial, restore, close}], state)) == Some{Model.activity_layer_label(Model.layer_activity(content, state), View.layer_title(content), state)} : Maybe<&2, String>},
     attention_independent: @+kind:V.LayerKind -> @+content:V.LayerContent -> @+first:String -> @+second:String -> @+restore:String -> @+close:V.Dismissal -> @+state:InteractionTypes.State ->
       {layer_label(Model.layers([V.Layer{kind, content, first, restore, close}], state)) ==
         layer_label(Model.layers([V.Layer{kind, content, second, restore, close}], state)) : Maybe<&2, String>},
@@ -1761,8 +1761,7 @@ law property_source_uses_actual_top_layer:
 law property_source_controls_use_actual_top_layer:
   @+property:Experience.Property -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
   {Model.property_source_controls(property, parent, state) ==
-    Model.property_source_toggle(UX.property_editor(property), parent, state) <>
-      Model.property_source_details(E.property_source_expanded(E.layers(E.session(Core.application(state))), UX.property_editor(property)), property, parent) : +List<SurfaceTypes.Node>}
+    Model.property_source_entry_layers(E.layers(E.session(Core.application(state))), UX.property_editor(property), parent, state) : +List<SurfaceTypes.Node>}
 
 law workspace_current_retains_context_observation:
   @+preview:Context.Preview -> @+parent:Identity.Key ->
@@ -1817,7 +1816,7 @@ law activity_interpreter_consumes_actual_relation_fold:
   {Model.activity_content(activity, query, parent, state) ==
     List.append(&2, SurfaceTypes.Node, Model.activity_search(Activity.search_required(activity, Model.activity_current_view(activity, state)), query, parent),
       Model.activity_flatten(Activity.fold_relations(~Model.ActivityRenderContext, ~(+List<SurfaceTypes.Node>), ~Model.activity_relation_handler,
-        Model.ActivityRenderContext{activity, query, Model.activity_focus_layers(E.layers(E.session(Core.application(state))), Activity.scope(activity)), parent, state},
+        Model.ActivityRenderContext{activity, query, Model.activity_focus_layers(Model.activity_observation_layers(E.layers(E.session(Core.application(state)))), Activity.scope(activity)), parent, state},
         Activity.relations(activity)))) : +List<SurfaceTypes.Node>}
 
 law persistent_details_trigger_uses_actual_layer_behavior:
@@ -1836,17 +1835,17 @@ law hidden_activity_relation_retains_child_traversal:
 
 law selected_subject_uses_actual_canonical_candidates:
   @+subject:Experience.Subject -> @+decision:Experience.Decision -> @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
-  {Model.activity_coverage_expression(Activity.SelectedSubject{subject, decision}, activity, query, parent, state) ==
+  {Model.activity_coverage_present(Activity.SelectedSubject{subject, decision}, activity, query, parent, state) ==
     Model.activity_decision_candidates(activity, decision, query, Identity.Part{parent, UX.subject_key(subject)}, state) : +List<SurfaceTypes.Node>}
 
 law required_activity_property_consumes_subject_coverage:
   @+activity:Activity.Activity -> @+property:Experience.Property -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
   {Model.activity_required_property(activity, property, query, parent, state) ==
-    Model.activity_coverage_nodes(Activity.coverage_expressions(Activity.coverage(activity, Model.activity_current_view(activity, state), property)), activity, query, parent, state) : +List<SurfaceTypes.Node>}
+    Model.activity_coverage_nodes(Activity.information_expressions(activity, Model.activity_current_view(activity, state), Activity.coverage(activity, Model.activity_current_view(activity, state), property)), activity, query, parent, state) : +List<SurfaceTypes.Node>}
 
 law principal_choice_has_no_independent_commit:
-  @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
-  {Model.activity_view_completion_controls(Activity.ApplyAndDismiss{}, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+  @title:String -> @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_view_completion_controls(Activity.ApplyAndDismiss{}, title, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
 
 law requested_open_parameter_writes_only_buffer:
   @+editor:U.Editor -> @profile:String -> @reasoning:String -> @input:InteractionTypes.Input ->
@@ -1860,14 +1859,14 @@ law readonly_parameter_has_no_apply_action:
 law activity_projection_consumes_completion:
   @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
   {Model.activity_nodes(activity, query, parent, state) ==
-    List.append(&2, SurfaceTypes.Node, Model.activity_view_completion_controls(Activity.completion(activity, Model.activity_current_view(activity, state)), Activity.scope(activity), parent, state),
+    List.append(&2, SurfaceTypes.Node, Model.activity_view_completion_controls(Activity.completion(activity, Model.activity_current_view(activity, state)), Model.activity_view_title(Model.activity_current_view(activity, state), Activity.property(activity)), Activity.scope(activity), parent, state),
       List.append(&2, SurfaceTypes.Node, Model.activity_content(activity, query, parent, state),
         List.append(&2, SurfaceTypes.Node, Model.activity_view_parameter_completion(Activity.completion(activity, Model.activity_current_view(activity, state)), Activity.scope(activity), parent, state), Model.activity_view_inspection_entry(Model.activity_current_view(activity, state), Activity.property(activity), parent, state)))) : +List<SurfaceTypes.Node>}
 
 
 law activity_layer_label_consumes_actual_goal:
-  @+activity:Activity.Activity -> @+fallback:String ->
-  {Model.activity_layer_label(Some{activity}, fallback) == Model.activity_goal_label(Activity.purpose(activity), fallback) : String}
+  @+activity:Activity.Activity -> @+fallback:String -> @+state:InteractionTypes.State ->
+  {Model.activity_layer_label(Some{activity}, fallback, state) == Model.activity_layer_view_label(Model.activity_view_title(Model.activity_current_view(activity, state), Activity.property(activity)), Activity.purpose(activity), fallback) : String}
 
 law choosing_goal_does_not_repeat_owner_title:
   @fallback:String ->
@@ -1940,3 +1939,108 @@ law open_parameter_terminal_retains_whole_value_completion:
   @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
   {Model.activity_parameter_apply_entry(Forms.SingleLine{}, editor, parent, state) ==
     [Model.activity_row(SurfaceTypes.TerminalRow{}, Model.user_action(parent, "parameter/apply", "Apply", U.CompleteDecisionParameter{editor}, True{}, state))] : +List<SurfaceTypes.Node>}
+
+# Expanded information is interpreted from the same admission and observation
+# used by subject coverage, not from a rendered caption or an empty string.
+law activity_expression_consumes_information_requirement:
+  @+expression:Activity.SubjectExpression -> @+activity:Activity.Activity -> @+query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_coverage_expression(expression, activity, query, parent, state) ==
+    Model.activity_coverage_information(Activity.information_status(activity, Model.activity_current_view(activity, state), Activity.property(activity), Activity.expression_subject(expression)), expression, activity, query, parent, state) : +List<SurfaceTypes.Node>}
+
+law not_applicable_information_has_no_mutation_control:
+  @+reason:String -> @+expression:Activity.SubjectExpression -> @activity:Activity.Activity -> @query:String -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_coverage_information(Experience.NotApplicable{reason}, expression, activity, query, parent, state) ==
+    Model.activity_information_notice(Experience.NotApplicable{reason}, Activity.expression_subject(expression), parent) : +List<SurfaceTypes.Node>}
+
+law setting_entry_retains_subject_value_and_input:
+  @+editor:U.Editor -> @+field:Forms.Field -> @+value:String -> @+parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.activity_dependency_summary(Experience.Subject{editor, field}, value, parent, state) ==
+    [Model.activity_row(SurfaceTypes.DependencyRow{}, SurfaceTypes.Node{Identity.Part{parent, "decision/" ++ Forms.key(field)}, "decision/" ++ Forms.key(field), Model.activity_subject_title(Experience.Subject{editor, field}) ++ " · " ++ value, SurfaceTypes.Button{},
+      SurfaceTypes.SettingEntry{Experience.Subject{editor, field}, value, InteractionTypes.ApplicationInput{E.UserInput{U.EnterDecision{editor, Forms.key(field)}}}, V.Available{}}, Nil{}})] : +List<SurfaceTypes.Node>}
+
+law setting_entry_activates_its_original_input:
+  @subject:Experience.Subject -> @value:String -> @+input:InteractionTypes.Input ->
+  {Model.bind(SurfaceTypes.SettingEntry{subject, value, input, V.Available{}}, SurfaceTypes.Press{}) == Some{input} : Maybe<&2, InteractionTypes.Input>}
+
+law setting_entry_respects_unavailability:
+  @subject:Experience.Subject -> @value:String -> @input:InteractionTypes.Input -> @reason:String ->
+  {Model.bind(SurfaceTypes.SettingEntry{subject, value, input, V.Unavailable{reason}}, SurfaceTypes.Press{}) == None{} : Maybe<&2, InteractionTypes.Input>}
+
+law returning_view_constructs_navigation_and_current_identity:
+  @+title:String -> @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_view_header(title, editor, parent, state) ==
+    [Model.activity_row(SurfaceTypes.NavigationRow{}, Model.region(parent, "view/header", "", SurfaceTypes.Toolbar{},
+      [Model.user_action(parent, "view/back", "Back", U.LeaveDecision{editor}, True{}, state),
+       SurfaceTypes.Node{Identity.Part{parent, "view/title"}, "view/title", title, SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.SurfaceTitle{}}, Nil{}}]))] : +List<SurfaceTypes.Node>}
+
+law dependent_view_identity_comes_from_actual_subject:
+  @+subject:Experience.Subject -> @property:Experience.Property ->
+  {Model.activity_view_title(Activity.DependentView{subject}, property) == Model.activity_subject_title(subject) : String}
+
+law inspection_view_identity_comes_from_actual_property:
+  @+property:Experience.Property ->
+  {Model.activity_view_title(Activity.InspectionView{None{}}, property) == Model.activity_inspection_title(property) : String}
+
+law settings_inspection_keeps_source_details_requested:
+  @+property:Experience.Property -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_requested_support(Activity.InspectionView{None{}}, property, parent, state) ==
+    List.append(&2, SurfaceTypes.Node, [Model.activity_row(SurfaceTypes.SupportingRow{}, Model.approval_fact(parent, "property-scope", "Scope", Model.property_scope(UX.property_editor(property))))], Model.property_source_controls(property, parent, state)) : +List<SurfaceTypes.Node>}
+
+law source_entry_retains_actual_owner_panel:
+  @+origin:U.Panel -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.property_source_entry_for_owner(True{}, origin, parent, state) ==
+    [Model.activity_row(SurfaceTypes.InspectionRow{}, Model.user_action(parent, "source/open", "Configuration source…", U.Activate{U.OpenPanel{U.PropertySource{origin}, Identity.encode(Identity.Part{parent, "source/open"})}}, True{}, state))] : +List<SurfaceTypes.Node>}
+
+law source_subactivity_uses_stack_return_and_owner_observation:
+  @+origin:V.LayerContent -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.layer_content(V.PropertySource{origin}, parent, state) ==
+    List.append(&2, SurfaceTypes.Node, Model.activity_navigation_header("Configuration source", U.Activate{U.ClosePanel{}}, parent, state), Model.property_source_observation(Model.layer_property(origin, state), parent)) : +List<SurfaceTypes.Node>}
+
+law source_subactivity_names_actual_request:
+  @origin:V.LayerContent ->
+  {View.layer_title(V.PropertySource{origin}) == "Configuration source" : String}
+
+law source_subactivity_reads_the_same_owner_activity:
+  @+activity:Activity.Activity -> @+parent:Identity.Key ->
+  {Model.property_source_observation(Some{Activity.property(activity)}, parent) ==
+    [Model.activity_row(SurfaceTypes.SupportingRow{}, Model.approval_fact(parent, "source/owner", "Settings", UX.property_title(Activity.property(activity)))),
+     Model.activity_row(SurfaceTypes.SupportingRow{}, Model.approval_fact(parent, "source/details", "Source", UX.property_source_description(Activity.property(activity))))] : +List<SurfaceTypes.Node>}
+
+law workspace_source_uses_actual_execution_observation:
+  @config:Context.Configuration -> @+preview:Context.Preview -> @controls:V.WorkspaceControls -> @projects:+List<V.ProjectChoice> -> @reviewers:+List<D.Profile> -> @rest:+List<V.InputGroup> -> @+editor:U.Editor -> @+state:InteractionTypes.State ->
+  {Model.workspace_source_property(V.ExecutionInput{config, preview, controls, projects, reviewers} <> rest, editor, state) == Some{UX.workspace_property(editor, Context.DraftExecution{preview}, E.program(Core.application(state)))} : Maybe<&2, Experience.Property>}
+
+law workspace_layer_source_preserves_observation_owner:
+  @+editor:U.Editor -> @+fields:+List<V.InputGroup> -> @+state:InteractionTypes.State ->
+  {Model.layer_property(V.WorkspaceSettings{editor, fields}, state) == Model.workspace_source_property(fields, editor, state) : Maybe<&2, Experience.Property>}
+
+law activity_layer_source_preserves_property_observation:
+  @+activity:Activity.Activity ->
+  {Model.layer_activity_property(Some{activity}) == Some{Activity.property(activity)} : Maybe<&2, Experience.Property>}
+
+law source_child_preserves_owner_view_observation:
+  @origin:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @expanded:Bool -> @field:Maybe<&2, Forms.Field> -> @buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> ->
+  {Model.activity_observation_layers(E.Layer{U.PropertySource{origin}, trigger, initial, query, occurrence, expanded, field, buffer} <> rest) == Model.activity_observation_layers(rest) : +List<E.Layer>}
+
+law source_projection_replaces_only_its_real_owner:
+  @+origin:U.Panel -> @+owner:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @expanded:Bool -> @field:Maybe<&2, Forms.Field> -> @buffer:Maybe<&2, String> -> @rest:+List<E.Layer> -> @+shown:+List<V.Layer> ->
+  {View.source_origin_projection(origin, E.Layer{owner, trigger, initial, query, occurrence, expanded, field, buffer} <> rest, shown) ==
+    View.source_parent_projection(String.eq(E.panel_target(origin), E.panel_target(owner)), shown) : +List<V.Layer>}
+
+law source_projection_keeps_return_parent_out_of_the_visible_stack:
+  @owner:V.Layer -> @+rest:+List<V.Layer> ->
+  {View.source_parent_projection(True{}, owner <> rest) == rest : +List<V.Layer>}
+
+law source_projection_reuses_owning_visible_anchor:
+  @+owner:String -> @original:String ->
+  {View.source_anchor_when(True{}, owner, original) == owner : String}
+
+law inspection_readonly_dependency_uses_its_actual_relation:
+  @owner:Experience.Decision -> @+subject:Experience.Subject -> @profile:D.Profile -> @children:+List<+List<SurfaceTypes.Node>> -> @+activity:Activity.Activity -> @current:Activity.View -> @query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_exposed_relation(Activity.DependencySummary{}, Activity.FieldSpecificationView{owner, subject, Forms.DisplayOnly{}, profile}, children, activity, current, query, parent, state) ==
+    Model.activity_inline_expression(subject, Activity.property(activity), parent, state) : +List<SurfaceTypes.Node>}
+
+law inspection_root_precedes_its_retained_dependencies:
+  @+decision:Experience.Decision -> @actual:+List<Activity.Relation> -> @+children:+List<+List<SurfaceTypes.Node>> -> @+activity:Activity.Activity -> @current:Activity.View -> @query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.activity_exposed_relation(Activity.DependencySummary{}, Activity.RootDecisionView{decision, actual}, children, activity, current, query, parent, state) ==
+    List.append(&2, SurfaceTypes.Node, Model.activity_decision_summary(False{}, activity, decision, parent, state), Model.activity_flatten(children)) : +List<SurfaceTypes.Node>}

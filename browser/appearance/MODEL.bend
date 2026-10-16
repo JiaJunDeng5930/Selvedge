@@ -394,6 +394,7 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     # Property text demand is measured by layout/SOURCE; this is only the glyph floor.
     case Controls.PropertyFace{property}: geometry_icon_size(geometry)
     case Controls.CompactPropertyFace{property}: geometry_icon_size(geometry)
+    case Controls.SettingFace{subject, title, current}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
@@ -597,6 +598,7 @@ def resolved_source_style(content: Controls.SourceContent, representation: Contr
 
 def source_action_style(meaning: SurfaceTypes.Meaning, context: Controls.Context, +representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match meaning:
+    case SurfaceTypes.SettingEntry{subject, current, input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case SurfaceTypes.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case _: value
 
@@ -694,9 +696,18 @@ def activity_controls(role: SurfaceTypes.Role, context: Controls.Context, value:
       modeled_container(Design.Style{text, chrome, SpatialModel.Trailing{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.SplitRowFlow{}, Activity.clearance(Activity.initial()))
     case _ _: value
 
+def navigation_heading_style(value: Design.Style) -> Design.Style:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, chrome, SpatialModel.Leading{}, SpatialModel.BlockFlow{}, overflow, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, maximum, states}
+
+def navigation_role_style(role: SurfaceTypes.Role, family: Controls.SourceFamily, value: Design.Style) -> Design.Style:
+  match role family:
+    case SurfaceTypes.Heading{} Controls.SourceFamily{SurfaceTypes.Node{key, semantic, label, row_role, SurfaceTypes.ActivityRow{SurfaceTypes.NavigationRow{}}, children}}: navigation_heading_style(value)
+    case _ _: value
+
 def prepared_style(+key: UIIdentity.Key, semantic: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
-  activity_control_style(activity_controls(role, local, alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))), control)
+  activity_control_style(navigation_role_style(role, Controls.source_reference(local), activity_controls(role, local, alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography)))), control)
 
 def nodes_at(values: +List<SurfaceTypes.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
   match values:

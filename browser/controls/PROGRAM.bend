@@ -143,6 +143,7 @@ type Face is Data:
   # Render the value and a trailing chevron, with room reserved for both.
   PropertyFace{property: UXTypes.Property}
   CompactPropertyFace{property: UXTypes.Property}
+  SettingFace{subject: UXTypes.Subject, title: String, value: String}
   PickerFace{leading: Maybe<&2, Icon>, text: String}
   # Every option reserves the check column, including unselected options.
   ChoiceFace{text: String, description: Maybe<&2, String>, icon: Maybe<&2, Icon>, checked: Bool}
@@ -159,6 +160,7 @@ def caption_wrapping(face: Face) -> Typography.Wrapping:
     case UnbrokenIconTextFace{icon, text}: Typography.UnbrokenLine{}
     case PropertyFace{property}: Typography.UnbrokenLine{}
     case CompactPropertyFace{property}: Typography.UnbrokenLine{}
+    case SettingFace{subject, title, value}: Typography.SingleLine{}
     case PickerFace{leading, text}: Typography.SingleLine{}
     case DisclosureFace{text, expanded}: Typography.SingleLine{}
     case ChoiceFace{text, description, icon, checked}: Typography.NormalWords{}
@@ -403,6 +405,7 @@ def activity_source(role: SurfaceTypes.Role, node: SurfaceTypes.Node, inherited:
 def source_family_at(+node: SurfaceTypes.Node, inherited: SourceFamily) -> SourceFamily:
   SurfaceTypes.Node{key, semantic, label, +role, meaning, children} = node
   match meaning:
+    case SurfaceTypes.ActivityRow{SurfaceTypes.NavigationRow{}}: SourceFamily{node}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: SourceFamily{node}
     case SurfaceTypes.TaskRow{task, status, selected}: SourceFamily{node}
     case SurfaceTypes.ProjectChooser{selected}: SourceFamily{node}
@@ -465,6 +468,7 @@ def route_icon(route: UserInput.Route) -> Icon:
 
 def panel_purpose(panel: UserInput.Panel, expanded: Bool) -> Purpose:
   match panel:
+    case UserInput.PropertySource{origin}: OpenPanel{Inspector{}, True{}, expanded}
     case UserInput.CardDetails{card}: OpenPanel{Inspector{}, False{}, expanded}
     case UserInput.ObjectActions{subject}: MoreActions{expanded}
     case UserInput.BoardSettings{}: OpenPanel{Settings{}, False{}, expanded}
@@ -1190,11 +1194,18 @@ def assessment_help(obstructions: +List<UXTypes.Obstruction>) -> String:
     case Con{obstruction, Nil{}}: UX.obstruction_message(obstruction)
     case Con{obstruction, rest}: UX.obstruction_message(obstruction) ++ " · " ++ assessment_help(rest)
 
+def setting_representation(subject: UXTypes.Subject, title: String, value: String, representation: Representation) -> Representation:
+  match representation:
+    case Action{Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
+      Action{Button{input, availability, name, SettingFace{subject, title, value}, behavior, geometry, placement, feedback}}
+    case other: other
+
 def represent_plain(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
     case SurfaceTypes.ActivityRow{row}: NoControl{}
     case SurfaceTypes.SupportingControl{support, property, input, availability}: make_support(key, support, property, input, availability, label, role, context)
     case SurfaceTypes.ActionCommit{assessment, input, availability}: represent_action(key, input, assessment_availability(assessment, availability), label, role, context)
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: setting_representation(subject, InterfaceView.activity_subject_title(subject), value, represent_action(key, input, availability, label, role, context))
     case SurfaceTypes.Activate{input, availability}: represent_action(key, input, availability, label, role, context)
     case SurfaceTypes.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
     case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: make_choice(key, kind, classification, selected, description, input, availability, label, role, context)

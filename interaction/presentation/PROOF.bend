@@ -318,7 +318,7 @@ def Rule.selected_subject_uses_actual_canonical_candidates(subject, decision, ac
 def Rule.required_activity_property_consumes_subject_coverage(activity, property, query, parent, state):
   {==}
 
-def Rule.principal_choice_has_no_independent_commit(editor, parent, state):
+def Rule.principal_choice_has_no_independent_commit(title, editor, parent, state):
   {==}
 
 def Rule.requested_open_parameter_writes_only_buffer(editor, profile, reasoning, input):
@@ -331,7 +331,7 @@ def Rule.activity_projection_consumes_completion(activity, query, parent, state)
   {==}
 
 
-def Rule.activity_layer_label_consumes_actual_goal(activity, fallback):
+def Rule.activity_layer_label_consumes_actual_goal(activity, fallback, state):
   {==}
 
 def Rule.choosing_goal_does_not_repeat_owner_title(fallback):
@@ -378,4 +378,70 @@ def Rule.returning_inspection_has_no_parameter_apply(editor, parent, state):
   {==}
 
 def Rule.open_parameter_terminal_retains_whole_value_completion(editor, parent, state):
+  {==}
+
+def Rule.activity_expression_consumes_information_requirement(expression, activity, query, parent, state):
+  {==}
+
+def Rule.not_applicable_information_has_no_mutation_control(reason, expression, activity, query, parent, state):
+  {==}
+
+def Rule.setting_entry_retains_subject_value_and_input(editor, field, value, parent, state):
+  {==}
+
+def Rule.setting_entry_activates_its_original_input(subject, value, input):
+  {==}
+
+def Rule.setting_entry_respects_unavailability(subject, value, input, reason):
+  {==}
+
+def Rule.returning_view_constructs_navigation_and_current_identity(title, editor, parent, state):
+  {==}
+
+def Rule.dependent_view_identity_comes_from_actual_subject(subject, property):
+  {==}
+
+def Rule.inspection_view_identity_comes_from_actual_property(property):
+  {==}
+
+def Rule.settings_inspection_keeps_source_details_requested(property, parent, state):
+  {==}
+
+def Rule.source_entry_retains_actual_owner_panel(origin, parent, state):
+  {==}
+
+def Rule.source_subactivity_uses_stack_return_and_owner_observation(origin, parent, state):
+  {==}
+
+def Rule.source_subactivity_names_actual_request(origin):
+  {==}
+
+def Rule.source_subactivity_reads_the_same_owner_activity(activity, parent):
+  {==}
+
+def Rule.workspace_source_uses_actual_execution_observation(config, preview, controls, projects, reviewers, rest, editor, state):
+  {==}
+
+def Rule.workspace_layer_source_preserves_observation_owner(editor, fields, state):
+  {==}
+
+def Rule.activity_layer_source_preserves_property_observation(activity):
+  {==}
+
+def Rule.source_child_preserves_owner_view_observation(origin, trigger, initial, query, occurrence, expanded, field, buffer, rest):
+  {==}
+
+def Rule.source_projection_replaces_only_its_real_owner(origin, owner, trigger, initial, query, occurrence, expanded, field, buffer, rest, shown):
+  {==}
+
+def Rule.source_projection_keeps_return_parent_out_of_the_visible_stack(owner, rest):
+  {==}
+
+def Rule.source_projection_reuses_owning_visible_anchor(owner, original):
+  {==}
+
+def Rule.inspection_readonly_dependency_uses_its_actual_relation(owner, subject, profile, children, activity, current, query, parent, state):
+  {==}
+
+def Rule.inspection_root_precedes_its_retained_dependencies(decision, actual, children, activity, current, query, parent, state):
   {==}

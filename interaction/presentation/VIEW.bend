@@ -44,6 +44,7 @@ def editor_title(editor: U.Editor) -> String:
 
 def layer_title(content: ViewTypes.LayerContent) -> String:
   match content:
+    case ViewTypes.PropertySource{origin}: "Configuration source"
     case ViewTypes.ProjectSelection{query, selected, projects}: "Select project"
     case ViewTypes.ObjectActions{actions}: "Actions"
     case ViewTypes.ArchivedCards{cards}: "Archived cards"
@@ -828,6 +829,7 @@ def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U
 
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> ViewTypes.LayerContent:
   match panel:
+    case U.PropertySource{origin}: ViewTypes.PropertySource{layer_content(origin, session, world)}
     case U.ProjectPicker{}:
       +route = E.route(session)
       +drafts = E.drafts(session)
@@ -906,6 +908,7 @@ def details_kind(beside: Bool) -> ViewTypes.LayerKind:
 
 def layer_kind(panel: U.Panel, beside: Bool) -> ViewTypes.LayerKind:
   match panel:
+    case U.PropertySource{origin}: ViewTypes.AnchoredMenu{}
     case U.ObjectActions{subject}: ViewTypes.AnchoredMenu{}
     case U.ModelPicker{editor}: ViewTypes.AnchoredMenu{}
     case U.DeliveryPicker{task}: ViewTypes.AnchoredMenu{}
@@ -973,11 +976,43 @@ def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
     case U.TaskDetails{task}: ViewTypes.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}}
     case _: ViewTypes.OutsideOrEscape{U.ClosePanel{}}
 
+def source_parent_projection(matched: Bool, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:
+  match matched shown:
+    case True{} Con{owner, rest}: rest
+    case _ original: original
+
+def source_origin_projection(origin: U.Panel, entries: +List<E.Layer>, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:
+  match entries:
+    case Nil{}: shown
+    case Con{E.Layer{owner, trigger, initial, query, occurrence, expanded, field, buffer}, rest}:
+      source_parent_projection(String.eq(E.panel_target(origin), E.panel_target(owner)), shown)
+
+def source_visible_layers(panel: U.Panel, entries: +List<E.Layer>, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:
+  match panel:
+    case U.PropertySource{origin}: source_origin_projection(origin, entries, shown)
+    case _: shown
+
+def source_anchor_when(matched: Bool, owner: String, original: String) -> String:
+  match matched:
+    case True{}: owner
+    case False{}: original
+
+def source_origin_anchor(origin: U.Panel, entries: +List<E.Layer>, original: String) -> String:
+  match entries:
+    case Nil{}: original
+    case Con{E.Layer{owner, trigger, initial, query, occurrence, expanded, field, buffer}, rest}:
+      source_anchor_when(String.eq(E.panel_target(origin), E.panel_target(owner)), trigger, original)
+
+def layer_navigation_anchor(panel: U.Panel, entries: +List<E.Layer>, original: String) -> String:
+  match panel:
+    case U.PropertySource{origin}: source_origin_anchor(origin, entries, original)
+    case _: original
+
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<ViewTypes.Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
-      ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
+    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, +rest}:
+      ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, layer_navigation_anchor(panel, rest, trigger), layer_dismissal(panel, trigger)} <> source_visible_layers(panel, rest, layers(rest, session, world, beside))
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:
   match intent:

@@ -6,6 +6,7 @@ import ../experience/ACTIVITY.bend as Activity
 def layer_region_agreement(+meaning: Surface.Meaning) ->
   {Surface.layer_region(meaning) == Surface.layer_region_meaning(meaning) : Maybe<&2, Surface.LayerBehavior>}:
   match meaning:
+    case Surface.SettingEntry{subject, value, input, availability}: {==}
     case Surface.ActivityRow{role}: {==}
     case Surface.ActivityGroup{activity, dismiss, outside, escape}: {==}
     case Surface.DecisionGroup{decision}: {==}

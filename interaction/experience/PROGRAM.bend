@@ -1484,3 +1484,65 @@ def candidate_observations(+decision: M.Decision, alternatives: +List<M.Alternat
   match alternatives:
     case Nil{}: Nil{}
     case Con{alternative, rest}: candidate(decision, alternative) <> candidate_observations(decision, rest)
+
+
+# Presence comes from typed observations and catalog lookups at the property owner.
+def reviewer_presence(found: Maybe<&2,D.Profile>) -> M.InformationStatus:
+  match found:
+    case Some{profile}: M.PresentInformation{}
+    case None{}: M.RequiredAbsence{"Choose an available reviewing model"}
+
+def approval_information(choice: Context.ApprovalChoice, field: Forms.Field, profiles: +List<D.Profile>) -> M.InformationStatus:
+  match choice field:
+    case Context.AutomaticReview{key} Forms.ApprovalReviewer{}: reviewer_presence(D.find_profile(profiles, key))
+    case _ _: M.PresentInformation{}
+
+def permission_information(observation: Context.Observation, field: Forms.Field, profiles: +List<D.Profile>) -> M.InformationStatus:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: M.UnavailableInformation{reason}
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      approval_information(Context.observed_approval(approval), field, profiles)
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}:
+      approval_information(Context.approval_choice(approval), field, profiles)
+
+def selected_project_information(selected: Maybe<&2,Nat>, found: Maybe<&2,D.Project>) -> M.InformationStatus:
+  match selected found:
+    case None{} _: M.OptionalAbsence{}
+    case Some{id} None{}: M.RequiredAbsence{"Choose an available project"}
+    case Some{id} Some{project}: M.PresentInformation{}
+
+def permitted_information(permitted: Bool) -> M.InformationStatus:
+  match permitted:
+    case True{}: M.PresentInformation{}
+    case False{}: M.RequiredAbsence{"Choose an allowed reasoning effort"}
+
+def model_field_information(found: Maybe<&2,D.Profile>, field: Forms.Field, effort: String) -> M.InformationStatus:
+  match found field:
+    case None{} Forms.ModelProfile{}: M.RequiredAbsence{"Choose a configured model"}
+    case None{} _: M.UnavailableInformation{"Choose a configured model before inspecting its parameters"}
+    case Some{+profile} Forms.ReasoningEffort{}:
+      permitted_information(D.profile_permitted(profile, D.profile_selection(effort, profile)))
+    case Some{profile} _: M.PresentInformation{}
+
+
+def information_field(subject: M.Subject) -> Forms.Field:
+  M.Subject{editor, field} = subject
+  field
+
+def workspace_information(found: Maybe<&2,D.Workspace>) -> M.InformationStatus:
+  match found:
+    case None{}: M.UnavailableInformation{"Workspace information is unavailable"}
+    case Some{workspace}: M.PresentInformation{}
+
+
+def property_field_information(observed: M.Property, field: Forms.Field, profiles: +List<D.Profile>) -> M.InformationStatus:
+  match observed:
+    case M.ProjectObservation{editor, selected, found}: selected_project_information(selected, found)
+    case M.PermissionsObservation{editor, observation}: permission_information(observation, field, profiles)
+    case M.ModelObservation{editor, profile, effort, found}: model_field_information(found, field, effort)
+    case M.WorkspaceObservation{editor, observation, source}: workspace_information(observed_workspace(observation))
+    case M.DeliveryObservation{editor, delivery}: M.PresentInformation{}
+
+
+def property_information(property: M.Property, subject: M.Subject, profiles: +List<D.Profile>) -> M.InformationStatus:
+  property_field_information(property, information_field(subject), profiles)

@@ -527,3 +527,36 @@ law same_requested_view_preserves_identity:
   @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
   {E.update_requested_view(False{}, panel, trigger, initial, query, occurrence, source, field, buffer, rest, application) ==
     E.local(E.program(application), E.with_layers(E.Layer{panel, trigger, initial, query, occurrence, source, field, buffer} <> rest, E.session(application)), Nil{}) : E.Decision}
+
+law source_navigation_uses_current_inspection:
+  @+origin:U.Panel -> @+trigger:String -> @+application:E.Application ->
+  {E.activate_selected(U.OpenPanel{U.PropertySource{origin}, trigger}, application) ==
+    E.open_source_checked(E.source_origin_owned(E.layers(E.session(application)), origin), origin, trigger, application) : E.Decision}
+
+law source_navigation_rejects_unowned_origin:
+  @origin:U.Panel -> @trigger:String -> @+application:E.Application ->
+  {E.open_source_checked(False{}, origin, trigger, application) ==
+    E.refuse(application, "The setting source does not belong to the current inspection") : E.Decision}
+
+law source_navigation_pushes_distinct_activity:
+  @+origin:U.Panel -> @+trigger:String -> @+application:E.Application ->
+  {E.open_source_checked(True{}, origin, trigger, application) ==
+    opened_application(application, U.PropertySource{origin}, trigger) : E.Decision}
+
+law source_navigation_has_own_identity:
+  @+origin:U.Panel ->
+  {E.panel_target(U.PropertySource{origin}) == "property-source/" ++ E.panel_target(origin) : String}
+
+law source_navigation_is_read_only:
+  @origin:U.Panel ->
+  {E.decision_panel_editor(U.PropertySource{origin}) == None{} : Maybe<&2, U.Editor>}
+
+law source_dismiss_preserves_underlying_draft:
+  @origin:U.Panel -> @+application:E.Application ->
+  {E.dismiss_layer_draft(U.PropertySource{origin}, application) == application : E.Application}
+
+law source_back_uses_actual_stack:
+  @+origin:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+expanded:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.dismiss_layers(E.Layer{U.PropertySource{origin}, trigger, initial, query, occurrence, expanded, field, buffer} <> rest, application) ==
+    E.close_panel(application) : E.Decision}

@@ -147,3 +147,22 @@ explicit capacity parameter. Fixed public entry points instantiate the existing
 layout capacity; generic evidence compares the real constructor operations
 without repeatedly normalizing that closed numeric bound. This keeps the
 runtime bound and full production obligations unchanged.
+
+Expanded settings use `SettingEntry` and `SettingFace` as two interpretations of
+the same subject, value and original command. The controlled face gives the label
+the leading stretch allocation, keeps the value at the trailing reading axis,
+and reserves a disclosure glyph; button availability, native event, accessible
+name and ownership survive that presentation. This rule differs from a closed
+recognition summary because inspection requires comparison between named fields.
+
+`NavigationRow` organizes the completion-derived return control and current
+activity heading together. The actual layer name is derived from that same
+activity view. `has_activity_navigation` prevents browser authorship from
+repeating the outer title when the semantic view already owns its heading.
+
+The navigation header is an indivisible return-and-identity unit. Its actual
+horizontal allocation adds the measured return target, unbroken current title
+and existing gap to its minimum demand. The containing panel therefore cannot
+choose its width only from a shorter description and split the navigation across
+rows. This policy retains each original control's command, availability and
+target; it applies equally to settings, dependencies and source inspection.

@@ -138,6 +138,7 @@ def mask_meaning(blocked: Bool, meaning: SurfaceTypes.Meaning) -> SurfaceTypes.M
     case True{} SurfaceTypes.ActionCommit{assessment, input, availability}: SurfaceTypes.ActionCommit{assessment, input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.SupportingControl{support, property, input, availability}: SurfaceTypes.SupportingControl{support, property, input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.Activate{input, availability}: SurfaceTypes.Activate{input, View.Unavailable{"Request pending"}}
+    case True{} SurfaceTypes.SettingEntry{subject, value, input, availability}: SurfaceTypes.SettingEntry{subject, value, input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: SurfaceTypes.Choice{kind, icon, selected, description, input, View.Unavailable{"Request pending"}}
     case _ other: other
 

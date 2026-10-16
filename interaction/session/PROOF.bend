@@ -396,6 +396,7 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.PermissionsConfiguration{editor}: {==}
         case U.TaskContext{task}: {==}
         case U.ModelPicker{editor}: {==}
+        case U.PropertySource{origin}: {==}
         case U.DeliveryPicker{task}: {==}
 
 
@@ -558,3 +559,12 @@ def Rule.cancelled_project_advances_shared_fresh_occurrence(revision, body, feed
 
 def Rule.requested_view_change_uses_fresh_identity(panel, trigger, initial, query, occurrence, source, field, buffer, rest, application): {==}
 def Rule.same_requested_view_preserves_identity(panel, trigger, initial, query, occurrence, source, field, buffer, rest, application): {==}
+
+def Rule.source_navigation_uses_current_inspection(origin, trigger, application): {==}
+def Rule.source_navigation_rejects_unowned_origin(origin, trigger, application): {==}
+def Rule.source_navigation_pushes_distinct_activity(origin, trigger, application):
+  open_allocation(application, U.PropertySource{origin}, trigger)
+def Rule.source_navigation_has_own_identity(origin): {==}
+def Rule.source_navigation_is_read_only(origin): {==}
+def Rule.source_dismiss_preserves_underlying_draft(origin, application): {==}
+def Rule.source_back_uses_actual_stack(origin, trigger, initial, query, occurrence, expanded, field, buffer, rest, application): {==}

@@ -71,8 +71,10 @@ type ActivityRowRole is Data:
   MemberRow{}
   TerminalRow{}
   ObjectHeading{}
+  NavigationRow{}
 
 type Meaning is Data:
+  SettingEntry{subject: Experience.Subject, value: String, input: InteractionTypes.Input, availability: V.Availability}
   ActivityRow{role: ActivityRowRole}
   ActivityGroup{activity: Activity.Activity, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DecisionGroup{decision: Experience.Decision}

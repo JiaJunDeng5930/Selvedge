@@ -201,6 +201,7 @@ test('production activity surfaces retain current decisions and project obstruct
   }), state);
   const activate = (state, action) => apply(state, uiValue('Activate', { action }));
   const nodes = state => surfaceNodes(ui.surface_state(state));
+  const overlayNodes = state => listValues(ui.surface_state(state).overlays).flatMap(subtree);
   const enterDecision = (state, field) => {
     const fieldKey = { ReasoningEffort: 'reasoning-effort', ApprovalReviewer: 'approval-reviewer' }[field];
     const entrances = nodes(state).filter(node => {
@@ -214,11 +215,23 @@ test('production activity surfaces retain current decisions and project obstruct
   const open = (state, name, owner) => activate(state, uiValue('OpenPanel', {
     panel: uiValue(name, { editor: owner }), trigger: 'acceptance',
   }));
+  const expandedView = (state, title) => {
+    const emitted = overlayNodes(state);
+    assert.ok(emitted.some(node => bendTag(node.role) === 'Heading' && title.test(node.label)),
+      'An expanded view must visibly identify its current activity');
+    const returns = emitted.filter(node => {
+      const request = actualUIInput(node.meaning.input, 'LeaveDecision');
+      return request && isDeepStrictEqual(request.editor, editor);
+    });
+    assert.equal(returns.length, 1, 'The identified view must expose one return action for its actual owner');
+    return returns[0];
+  };
 
   await t.test('searching away from the selected model retains its live reasoning command', async () => {
     let state = open(initial(), 'ModelPicker', editor);
     state = apply(state, uiValue('SearchChoices', { query: 'no-model-matches-this-query' }));
     state = enterDecision(state, 'ReasoningEffort');
+    expandedView(state, /reasoning/i);
     const emitted = nodes(state);
     const high = emitted.find(node => node.semantic === 'effort/high');
     assert.ok(high, 'Search results must not remove the current model reasoning capability');
@@ -237,10 +250,45 @@ test('production activity surfaces retain current decisions and project obstruct
     assert.equal((await response.json()).reply.ok, true);
   });
 
-  await t.test('FullAccess exposes unrestricted effects and removes effective restriction choices', async () => {
+  await t.test('Ask inspection retains applicable settings without suggesting a missing automatic reviewer', () => {
+    const state = apply(open(initial(), 'PermissionsConfiguration', editor), uiValue('TogglePropertySource', { editor }));
+    const emitted = nodes(state);
+    assert.doesNotMatch(surfaceText(emitted), /reviewing model|no automatic reviewing model/i,
+      'An inactive dependency must not appear as an unconfigured permission');
+    expandedView(state, /permissions/i);
+    for (const field of ['approval-policy', 'sandbox-mode', 'network-access']) {
+      const entrances = emitted.filter(node => {
+        const request = actualUIInput(node.meaning.input, 'EnterDecision');
+        return request?.field_key === field && isDeepStrictEqual(request.editor, editor);
+      });
+      assert.equal(entrances.length, 1, `${field} must retain one actual setting entry in Ask inspection`);
+    }
+  });
+
+  await t.test('model inspection and its dependent parameter return through their identified owning views', () => {
+    let state = open(initial(), 'ModelPicker', editor);
+    state = apply(state, uiValue('TogglePropertySource', { editor }));
+    expandedView(state, /model/i);
+    assert.match(surfaceText(overlayNodes(state)), /applies to this task/i);
+    assert.doesNotMatch(surfaceText(overlayNodes(state)), /configured model list/i,
+      'The ordinary settings view must retain scope without displaying detailed provenance');
+    state = enterDecision(state, 'ReasoningEffort');
+    const dependencyBack = expandedView(state, /reasoning/i);
+    state = ui.activate_state(state, ui.key(dependencyBack));
+    assert.equal(state.application.session.layers.head.source_expanded, true);
+    assert.equal(bendTag(state.application.session.layers.head.decision_field), 'None');
+    const inspectionBack = expandedView(state, /model/i);
+    state = ui.activate_state(state, ui.key(inspectionBack));
+    assert.equal(state.application.session.layers.head.source_expanded, false);
+    assert.ok(nodes(state).some(node => bendTag(node.meaning) === 'Choice' && node.meaning.selected),
+      'Returning from inspection must retain the actual selected model');
+  });
+
+  await t.test('FullAccess exposes unrestricted effects and omits inapplicable settings from inspection', async () => {
     assert.equal((await server.service.command({ op: 'configure_task_execution', task_id: 0, profile,
       reasoning: 'high', sandbox: { mode: 'workspace-write', network_access: false }, approval: { mode: 'full-access' } })).reply.ok, true);
-    const emitted = nodes(open(initial(), 'PermissionsConfiguration', editor));
+    let state = open(initial(), 'PermissionsConfiguration', editor);
+    const emitted = nodes(state);
     assert.match(surfaceText(emitted), /unrestricted|full access/i);
     assert.match(surfaceText(emitted), /no approval|without approval/i);
     for (const field of ['SandboxMode', 'NetworkAccess']) {
@@ -248,6 +296,16 @@ test('production activity surfaces retain current decisions and project obstruct
         `${field} must not appear as an effective decision under FullAccess`);
     }
     assert.equal(emitted.filter(node => isDecision(node, 'ApprovalReviewer')).length, 0);
+    state = apply(state, uiValue('TogglePropertySource', { editor }));
+    const inspected = nodes(state);
+    assert.doesNotMatch(surfaceText(inspected), /no automatic reviewing model/i);
+    for (const field of ['sandbox-mode', 'network-access', 'approval-reviewer']) {
+      assert.equal(inspected.some(node => actualUIInput(node.meaning.input, 'EnterDecision')?.field_key === field), false,
+        `${field} must not become editable merely by opening inspection`);
+    }
+    assert.equal(inspected.some(node => node.label === 'Reviewing model'
+      || node.label === 'Filesystem access' || node.label === 'Network access'), false,
+      'Inapplicable fields must be absent rather than presented as missing values');
   });
 
   await t.test('AutomaticReview owns its reviewer selection', async () => {
@@ -354,11 +412,11 @@ test('production activity surfaces retain current decisions and project obstruct
       return result.value.source;
     };
     admittedSource(state);
-    const sourceToggle = nodes(state).find(node => carriesInput(node.meaning.input, 'TogglePropertySource'));
+    const sourceToggle = nodes(state).find(node => bendTag(actualUIInput(node.meaning.input, 'OpenPanel')?.panel) === 'PropertySource');
     assert.ok(sourceToggle, 'Project settings must expose their actual source disclosure');
     const expandedSource = ui.activate_state(state, ui.key(sourceToggle));
     admittedSource(expandedSource);
-    const sourceDetails = nodes(expandedSource).find(node => node.semantic === 'property-source/details');
+    const sourceDetails = nodes(expandedSource).find(node => node.label === 'Source' && node.meaning.text === 'Project configuration');
     assert.ok(sourceDetails, 'Expanded project source must retain its actual disclosure content');
     assert.equal(sourceDetails.meaning.text, 'Project configuration');
     assert.equal(bendTag(commit(state).meaning.availability), 'Unavailable');
@@ -507,6 +565,26 @@ test('production activity choices complete and compound cancellation discards bu
     state = open(state, 'PermissionsConfiguration');
     state = apply(state, uiValue('TogglePropertySource', { editor }));
     assert.equal(layer(state).source_expanded, true);
+    const inspection = observe(state);
+    assert.match(surfaceText(inspection), /applies to this new task/i);
+    assert.doesNotMatch(surfaceText(inspection), /filesystem and network:|approval: environment defaults/i,
+      'Detailed origins must wait for the user to request the source view');
+    const source = inspection.find(node => bendTag(actualInput(node.meaning.input, 'OpenPanel')?.panel) === 'PropertySource');
+    assert.ok(source, 'Settings inspection must expose an actual source-view entrance');
+    const settingsDepth = listValues(state.application.session.layers).length;
+    state = ui.activate_state(state, ui.key(source));
+    assert.equal(listValues(state.application.session.layers).length, settingsDepth + 1);
+    const sourceNodes = observe(state);
+    assert.ok(sourceNodes.some(node => bendTag(node.role) === 'Heading' && /source/i.test(node.label)),
+      'The source view must identify its own information activity');
+    assert.match(surfaceText(sourceNodes), /filesystem and network: environment defaults/i);
+    assert.match(surfaceText(sourceNodes), /approval: custom/i,
+      'Manually choosing Ask must remain distinguishable from an inherited policy');
+    const sourceBack = sourceNodes.find(node => actualInput(node.meaning.input, 'ClosePanel') && /back/i.test(node.label));
+    assert.ok(sourceBack, 'The source view must expose its actual stack return');
+    state = ui.activate_state(state, ui.key(sourceBack));
+    assert.equal(listValues(state.application.session.layers).length, settingsDepth);
+    assert.equal(layer(state).source_expanded, true, 'Source Back must preserve its settings inspection parent');
     state = enter(state, 'sandbox-mode');
     assert.equal(bendTag(layer(state).decision_field), 'Some');
     state = back(state);
@@ -515,6 +593,25 @@ test('production activity choices complete and compound cancellation discards bu
     state = back(state);
     assert.equal(layer(state).source_expanded, false);
     assert.ok(observe(state).some(node => bendTag(node.meaning) === 'Choice'));
+  });
+  await t.test('workspace source retains its actual observation and returns to the working-directory editor', () => {
+    let state = open(authenticated(singleton), 'WorkspaceConfiguration');
+    const source = observe(state).find(node => bendTag(actualInput(node.meaning.input, 'OpenPanel')?.panel) === 'PropertySource');
+    assert.ok(source, 'The working-directory editor must expose its actual configuration source');
+    const settingsDepth = listValues(state.application.session.layers).length;
+    state = ui.activate_state(state, ui.key(source));
+    const emitted = observe(state);
+    assert.ok(emitted.some(node => bendTag(node.role) === 'Heading' && /source/i.test(node.label)));
+    assert.match(surfaceText(emitted), /environment defaults/i,
+      'Workspace source must retain the real inherited workspace observation');
+    assert.doesNotMatch(surfaceText(emitted), /original.*unavailable|observation.*unavailable/i);
+    const sourceBack = emitted.find(node => actualInput(node.meaning.input, 'ClosePanel') && /back/i.test(node.label));
+    assert.ok(sourceBack);
+    state = ui.activate_state(state, ui.key(sourceBack));
+    assert.equal(listValues(state.application.session.layers).length, settingsDepth);
+    assert.equal(bendTag(layer(state).panel), 'WorkspaceConfiguration');
+    assert.ok(observe(state).some(node => node.label === 'Working directories'),
+      'Returning from the source view must retain the actual workspace editor');
   });
   await t.test('cancelling a compound project discards both its name and pending directory before reopening', async () => {
     const created = await singleton.service.command({ op: 'create_project', name: 'Saved lifecycle project',
