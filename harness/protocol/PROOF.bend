@@ -1,4 +1,6 @@
 import Base
+import ../../features/compaction/PROOF.bend as CompactionProof
+import ../../features/compaction/SPEC.bend as CompactionSpec
 import ../../bendlib/categories.bend as Categories
 import ../features/laws.bend as FeatureLaws
 import ../../bendlib/component.bend as C
@@ -109,8 +111,8 @@ def Laws.operation_semantics(operation, world):
       +parent = D.append_message(D.FunctionCall{call}, task)
       branch_commit_semantics(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages),
         call, parent, C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board})
-    case Commands.Summarize{task} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
-    case Commands.Checkpoint{task, summary} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+    case Commands.Summarize{task} _: CompactionProof.meaning(CompactionSpec.manual(task, world), world)
+    case Commands.Checkpoint{task, summary} _: CompactionProof.meaning(CompactionSpec.supplied(summary, task, world), world)
     case Commands.Observe{+query} _:
       Equal.cong(J.Json, M.Decision(), (reply => C.Decision{world, reply, Nil{}}),
         P.query(query, world), Commands.query(query, world), query_semantics(query, world))
@@ -132,7 +134,6 @@ def Laws.event_semantics(event, world):
       Equal.cong(D.Task, M.Decision(), (next => C.Decision{
         P.store(next, world), Protocol.acknowledgement(True{}), Nil{}}),
         ActualReasoning.complete(revision, outcome, task), RequiredReasoning.complete(revision, outcome, task), Reasoning.completion_meaning(revision, outcome, task))
-    case Protocol.SummaryResult{task, outcome, resume} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.ToolResult{task, operation, value, error} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.HookResult{task, outcome} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.AfterResult{task, operation, outcome} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
@@ -186,9 +187,6 @@ def Laws.accepted_tool_settlement(operation, value, error, task, world):
   match world:
     case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
 
-def Laws.accepted_summary_settlement(outcome, resume, task, world):
-  match world:
-    case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
 
 def control_frame(+task: D.Task, operation: D.Operation()) ->
   {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase}:
@@ -210,7 +208,6 @@ def A.result_boundary():
         Equal.cong(Bool, Protocol.ResolvedEvent, (same => Protocol.matching_calculation(same, Protocol.AfterResult{task, operation, outcome})),
           Nat.is_eq(ticket, expected), False{}, different))),
     (id => call => announced => ticket => plugin => pending => value => error => task => duplicate => duplicate_error => {==}),
-    (history => owner => operation => call => value => error => plugin => outcome => ({==}, {==})),
     (task => operation => control_frame(task, operation)),
     (outcome => plugin => pending => operation => value => error => task => world => {==}),
     (value => error => pending => operation => task => world => {==}),

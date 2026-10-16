@@ -25,27 +25,7 @@ def update_frame(-StateRest: Data, task: D.Task, world: C.Frame<D.State, StateRe
 def Laws.context_limit_stops(task):
   {==}
 
-def Laws.summary_recovery_idle(ticket, resume):
-  {==}
-
-def Laws.checkpoint_is_not_recompacted(id, lineage, contract, status, history, summary, queued, phase, world, operations, notified):
-  {==}
-
-def Laws.context_limit_after_checkpoint_stops(allowed, id, lineage, contract, status, history, summary, phase, operations, notified):
-  match status:
-    case D.Active{}: {==}
-    case D.Frozen{}: {==}
-    case D.Stopped{}: {==}
-    case D.Archived{}: {==}
-
-def Laws.summary_context_limit_stops(resume, id, lineage, contract, status, history, phase, operations, notified):
-  match status:
-    case D.Active{}: {==}
-    case D.Frozen{}: {==}
-    case D.Stopped{}: {==}
-    case D.Archived{}: {==}
-
-def Laws.checkpoint_preserves_project_contract(task, summary):
+def Laws.context_replacement_preserves_project_contract(task, replacement):
   match task:
     case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
 
@@ -77,7 +57,6 @@ def Laws.stopped_no_model(phase):
     case D.Ready{Con{call, rest}}: {==}
     case D.ModelPending{ticket, callable}: {==}
     case D.ReasoningPending{ticket, revision}: {==}
-    case D.SummaryPending{ticket, resume}: {==}
 
 def Laws.stopped_input_reactivates():
   {==}
@@ -140,8 +119,6 @@ def Laws.recover_phase_idempotent(phase):
     case D.Ready{calls}: {==}
     case D.ModelPending{ticket, callable}: {==}
     case D.ReasoningPending{ticket, revision}: {==}
-    case D.SummaryPending{ticket, True{}}: {==}
-    case D.SummaryPending{ticket, False{}}: {==}
 
 def Laws.unmatched_model_result_unchanged(outcome, allowed, task, world):
   {==}
@@ -151,57 +128,6 @@ def Laws.unmatched_tool_result_unchanged(operation, value, error, task, world):
 
 def Laws.context_has_no_call_authority(value):
   {==}
-
-def Laws.context_projection_idempotent(history):
-  {==}
-
-def Laws.full_history_source(history):
-  {==}
-
-def Laws.checkpoint_preserves_context(history, summary):
-  {==}
-
-def Laws.provider_checkpoint_context(history, value, checked):
-  {==}
-
-def provider_summary_result(accepted: Bool, value: J.Json, resume: Bool, task: D.Task) -> D.Task:
-  match accepted:
-    case True{}: Tasks.provider_summary_calculation(value, resume, task)
-    case False{}: Tasks.summary_failure("Compaction failed: expected one nonempty bounded provider checkpoint; original history retained", task)
-
-def provider_summary_checked_meaning(+accepted: Bool, +value: J.Json, +resume: Bool, +task: D.Task,
-  checked: {Tasks.provider_checkpoint_permitted(value) == accepted : Bool}) ->
-  {Tasks.provider_summary_admission(Categories.admit_checked(J.Json, Tasks.provider_checkpoint_permitted, value, accepted, checked), resume, task) ==
-    provider_summary_result(accepted, value, resume, task) : D.Task}:
-  match accepted:
-    case True{}: {==}
-    case False{}: {==}
-
-def Laws.provider_summary_preserves_record(value, resume, task, kind, valid):
-  %Equal.sym(Bool, D.is_provider_checkpoint(value), True{}, kind) :
-    {Tasks.summary_context_result(_, value, resume, task) ==
-      Tasks.promote(D.with_phase(Tasks.after_summary(resume), D.append_message(D.ModelContext{value}, task))) : D.Task}
-  Equal.trans(D.Task,
-    Tasks.provider_summary_admission(Categories.admit(J.Json, Tasks.provider_checkpoint_permitted, value), resume, task),
-    provider_summary_result(D.valid_provider_checkpoint(value), value, resume, task),
-    Tasks.provider_summary_calculation(value, resume, task),
-    provider_summary_checked_meaning(D.valid_provider_checkpoint(value), value, resume, task, {==}),
-    Equal.cong(Bool, D.Task, accepted => provider_summary_result(accepted, value, resume, task),
-      D.valid_provider_checkpoint(value), True{}, valid))
-
-def Laws.summary_rejects_invocations(call, rest, resume, task):
-  {==}
-
-def Laws.summary_failure_promotes_fifo(message, id, lineage, contract, history, first, rest, phase, operations, notified):
-  {==}
-
-def Laws.summary_failure_empty_stops(message, id, lineage, contract, status, history, phase, operations, notified):
-  match status:
-    case D.Active{}: {==}
-    case D.Frozen{}: {==}
-    case D.Stopped{}: {==}
-    case D.Archived{}: {==}
-
 
 def Laws.initial_history_order(instructions, project, message, id, lineage, profile, reasoning, tools, max_fork, max_descendants, plugins, context, status, history, queued, phase, operations, notified):
   match instructions project:

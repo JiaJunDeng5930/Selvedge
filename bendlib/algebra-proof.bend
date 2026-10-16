@@ -84,9 +84,6 @@ def Concepts.journal_interpretation(world, inputs):
 def Concepts.decisions():
   (first => second => third => decision_associativity(first, second, third))
 
-def Concepts.context():
-  (history => Laws.context_projection_idempotent(history))
-
 def Concepts.recovery():
   (phase => Laws.recover_phase_idempotent(phase))
 

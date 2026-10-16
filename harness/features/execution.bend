@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/PROGRAM.bend as Compaction
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../../bendlib/json.bend as J
@@ -22,6 +23,7 @@ def operation_calculation(spawn: D.Profile -> String -> String -> Workspace.Sele
 
 def resolved_event_calculation(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.CompactionResult{completion}: Compaction.complete(completion, world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
     case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)
 

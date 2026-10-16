@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/json.bend as J
 import ./MODEL.bend as F
@@ -44,11 +45,12 @@ def meaning(
 def event(event: O.ResolvedEvent, world: M.World()) ->
   {Actual.event_calculation(event, world) == Spec.event(event, world) : M.Decision()}:
   match event:
+    case O.CompactionResult{completion}: CompactionProof.completion(completion, world)
     case O.ChatGPTResult{change}: ChatGPTProof.assembled(change, world)
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary()}
+  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary(), CompactionProof.boundary()}
 
 def command_calculation(start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
   spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),

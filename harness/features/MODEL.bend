@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/MODEL.bend as Compaction
 import ../DOMAIN.bend as D
 import ../../features/board/MODEL.bend as Board
 import ../../features/board/CODEC.bend as BoardCodec
@@ -19,10 +20,13 @@ def State() -> Data:
   C.Frame<Board.State, Modules()>
 
 def Modules() -> Data:
-  C.Frame<ChatGPT.State, Rest()>
+  C.Frame<ChatGPT.State, Extensions()>
+
+def Extensions() -> Data:
+  C.Frame<Compaction.State, Rest()>
 
 def initial() -> State():
-  C.Frame{Board.initial(), C.Frame{ChatGPT.initial(), initial_rest()}}
+  C.Frame{Board.initial(), C.Frame{ChatGPT.initial(), C.Frame{Compaction.initial(), initial_rest()}}}
 
 def board(state: State()) -> Board.State:
   C.local(Board.State, Modules(), state)
@@ -31,21 +35,28 @@ def modules(state: State()) -> Modules():
   C.rest(Board.State, Modules(), state)
 
 def rest(state: State()) -> Rest():
-  C.rest(ChatGPT.State, Rest(), C.rest(Board.State, Modules(), state))
+  C.rest(Compaction.State, Rest(), C.rest(ChatGPT.State, Extensions(), C.rest(Board.State, Modules(), state)))
 
 def with_board(value: Board.State, state: State()) -> State():
   C.constructed_replacement(Board.State, Modules(), C.construct_replace(Board.State, Modules(), value, state))
 
 def chatgpt(state: State()) -> ChatGPT.State:
-  C.local(ChatGPT.State, Rest(), C.rest(Board.State, Modules(), state))
+  C.local(ChatGPT.State, Extensions(), C.rest(Board.State, Modules(), state))
 
 def with_chatgpt(value: ChatGPT.State, state: State()) -> State():
-  C.map_rest(Board.State, Modules(), rest => C.constructed_replacement(ChatGPT.State, Rest(), C.construct_replace(ChatGPT.State, Rest(), value, rest)), state)
+  C.map_rest(Board.State, Modules(), rest => C.constructed_replacement(ChatGPT.State, Extensions(), C.construct_replace(ChatGPT.State, Extensions(), value, rest)), state)
 
 def with_rest(value: Rest(), state: State()) -> State():
-  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, Rest(), previous => value, modules), state)
+  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, Extensions(), extension => C.map_rest(Compaction.State, Rest(), previous => value, extension), modules), state)
+
+def compaction(state: State()) -> Compaction.State:
+  C.local(Compaction.State, Rest(), C.rest(ChatGPT.State, Extensions(), C.rest(Board.State, Modules(), state)))
+
+def with_compaction(value: Compaction.State, state: State()) -> State():
+  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, Extensions(), extension => C.constructed_replacement(Compaction.State, Rest(), C.construct_replace(Compaction.State, Rest(), value, extension)), modules), state)
 
 type Effect is Data:
+  CompactionEffect{effect: Compaction.Effect}
   ChatGPTEffect{effect: ChatGPT.Effect}
   RequestBoardText{card_id: Nat, ticket: Nat, profile: D.Profile, prompt: String, retitle: Bool}
 
@@ -62,6 +73,7 @@ type CommandKind is Data:
   BoardKind{kind: BoardCodec.EntryKind}
 
 type Completion is Data:
+  CompactionCompleted{completion: Compaction.Completion}
   ChatGPTCompleted{operation: Nat, value: J.Json, error: Bool}
   BoardTextCompleted{card_id: Nat, ticket: Nat, outcome: Board.Outcome}
 

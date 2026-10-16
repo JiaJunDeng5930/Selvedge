@@ -501,7 +501,7 @@ def Web.retirement_metadata_rejection():
 def Web.retirement_admitted_metadata_writes():
   metadata => source => {==}
 
-def Web.summary_preserves_page_reset_policy():
+def Web.continuation_preserves_page_reset_policy():
   body => deferred => source => {==}
 def Web.instruction_context_encoding():
   item => {==}

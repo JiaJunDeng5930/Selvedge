@@ -104,19 +104,19 @@ def audit_failed(message: D.Message) -> Bool:
 
 def provider_speech(is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
   match is_assistant:
-    case True{}: Speech{index, AssistantSpeech{}, Content.content_parts(J.items(J.get(value, "content"))), D.ModelContext{value}} <> tail
+    case True{}: Speech{index, AssistantSpeech{}, Content.provider_text(value), D.ModelContext{value}} <> tail
     case False{}: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
 
 def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
   match kind:
-    case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
+    case Content.SpeechContext{}: provider_speech(Content.provider_assistant(value), index, value, tail)
     case _: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
 
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
     case D.UserMessage{+text}: Speech{index, UserSpeech{}, text, D.UserMessage{text}} <> tail
     case D.AssistantMessage{+text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{text}} <> tail
-    case D.ModelContext{+value}: provider_group(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail)
+    case D.ModelContext{+value}: provider_group(Content.provider_kind(value), index, value, tail)
     case +other: prepend_audit(index, audit_failed(other), other, tail)
 
 def audit_kind(message: D.Message) -> AuditKind:
@@ -149,7 +149,7 @@ def audit_title(message: D.Message) -> String:
     case D.ApprovalRecord{task, operation, call, reviewer, outcome}: "Approval: " ++ D.approval_decision(outcome)
     case D.AfterRecord{task, operation, plugin, outcome}: "Tool result processing"
     case D.ForkResult{task, call, branch}: "Task fork"
-    case D.ContextCheckpoint{summary}: "Context summary"
+    case D.ContextReplacement{value}: "Context compacted"
     case D.ContextMessage{D.ReasoningConfiguration{effort}}: "Reasoning changed to " ++ effort
     case D.ModelContext{value}: "Model activity"
     case _: "Conversation event"
@@ -216,7 +216,7 @@ def audit_detail(message: D.Message) -> String:
     case D.HookRecord{task, call, plugin, outcome}: json_detail(J.show(D.hook_json(outcome)))
     case D.AfterRecord{task, operation, plugin, outcome}: json_detail(J.show(D.after_json(outcome)))
     case D.FailureMessage{text}: text
-    case D.ContextCheckpoint{summary}: summary
+    case D.ContextReplacement{value}: "Context compacted; original conversation retained."
     case D.ModelContext{value}: json_detail(J.show(value))
     case other: audit_title(other)
 

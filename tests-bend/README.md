@@ -20,7 +20,7 @@ or rejection of source code, proofs or certificates.
 | Pending approval decoder rejects extra authority fields, absent reasons, invalid decisions and oversized reasons | `approval-decoding.test.mjs` |
 | HTTP approval, SQLite grants and actual subprocess authorization, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs`, `fixtures/approved-tool.mjs`; the child checks its committed grant before writing outside the workspace |
 | Actual adaptive history through providerInput/responseBody: complete history prefixes, recorded reasoning changes, audit encoding and request effort; nested private continuation projection | `reasoning-boundaries.test.mjs` |
-| Typed Jev HTTP payloads, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch and restart | `reasoning.test.mjs` |
+| Typed Jev HTTP payloads, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch, bounded evaluator previews after raw history exceeds a kernel frame, and restart | `reasoning.test.mjs` |
 | SQLite journal framing, commit faults, replay and restart | `journal.test.mjs`, `service-recovery.test.mjs` |
 | Subprocess execution, real tool results, deferred input and cancellation | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
 | Filesystem observations, Seatbelt quoting, seccomp ABI encoding and actual OS write isolation | `sandbox.test.mjs` |
@@ -29,7 +29,8 @@ or rejection of source code, proofs or certificates.
 | Context-limit failure without summary/retry; complete history and completed file mutations survive restart | `context-recovery.test.mjs` |
 | Provider/MCP/plugin wire formats, faults, cancellation and commit-before-callback | `providers.test.mjs`, `plugins.test.mjs`, `after-hooks.test.mjs`, `service-recovery.test.mjs` |
 | ChatGPT Web v1 predecessors, durable same-key observation, tool batches, concurrent/deferred inputs, cancellation, reviews/drafts and restart | `chatgpt-web.test.mjs`, `fixtures/chatgpt-web.mjs`; loopback HTTP, SQLite and sandboxed subprocesses |
-| ChatGPT account authorization, public Responses/model discovery and additive text summary, cancellation and context-limit failure | `auth.test.mjs`, `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`, `fixtures/chatgpt.mjs`; signed loopback OAuth/OIDC and HTTP/SSE fixtures, not a live account |
+| ChatGPT account authorization, public Responses/model discovery, native compact request and complete replacement window, retained original history, cancellation and restart | `auth.test.mjs`, `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`, `fixtures/chatgpt.mjs`; signed loopback OAuth/OIDC and HTTP/SSE fixtures, not a live account |
+| Committed context measurements, readable UTF-8 upper-bound fallback, frozen/stopped observation quiescence, complete request budgets, background continuation, hard-threshold waiting, oversized concurrent suffix reconstruction, idle revisions and endpoint switching | `automatic-compaction.test.mjs`, `fixtures/compaction.mjs`; real service, SQLite journal and HTTP token-count/compact fixtures |
 | Authentication, HTTP/SSE delivery and committed service dispatch | `auth.test.mjs`, `service.test.mjs` |
 | Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
 | Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |

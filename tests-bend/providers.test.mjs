@@ -64,7 +64,7 @@ test('model requests retry transient headers within the native retry budget', as
   });
   const result = await run({ onRetry: retry => retries.push(retry) });
   assert.equal(calls, 2);
-  assert.equal(result[0].value.content[0].text, 'done');
+  assert.equal(result[0].value.item.content[0].text, 'done');
   assert.deepEqual(retries, [{ attempt: 1, delay_ms: 250, status: 429 }]);
 });
 
@@ -106,7 +106,7 @@ test('an SSE body is accepted when the provider omits Content-Type', async t => 
     ] } })}\n\n`);
   });
   const result = await run();
-  assert.equal(result[0].value.content[0].text, 'done');
+  assert.equal(result[0].value.item.content[0].text, 'done');
 });
 
 test('completed output items are retained when ChatGPT omits them from response.completed', async t => {
@@ -120,7 +120,7 @@ test('completed output items are retained when ChatGPT omits them from response.
     ].join(''));
   });
   const result = await run();
-  assert.equal(result[0].value.content[0].text, 'done');
+  assert.equal(result[0].value.item.content[0].text, 'done');
 });
 
 test('an explicit non-SSE Content-Type is still rejected', async t => {

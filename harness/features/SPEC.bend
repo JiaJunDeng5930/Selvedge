@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/SPEC.bend as Compaction
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
 import ../workspace/WORKSPACE.bend as Workspace
@@ -19,5 +20,6 @@ def meaning(spawn: D.Profile -> String -> String -> Workspace.Selection -> @+wor
 
 def event(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.CompactionResult{completion}: Compaction.meaning(Compaction.resolve(completion, world), world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)

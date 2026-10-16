@@ -176,7 +176,7 @@ def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
       Nat.is_eq(ticket_a, ticket_b) && string_equal(id_a, id_b) && string_equal(tool_a, tool_b) &&
         booleans(error_a, error_b) && json(budget, a, b)
     case D.ModelContext{a} D.ModelContext{b}: json(budget, a, b)
-    case D.ContextCheckpoint{a} D.ContextCheckpoint{b}: string_equal(a, b)
+    case D.ContextReplacement{a} D.ContextReplacement{b}: json(budget, a, b)
     case D.ReasoningRecord{oa, ea, ra, sa} D.ReasoningRecord{ob, eb, rb, sb}:
       Nat.is_eq(oa, ob) && string_equal(ea, eb) && Nat.is_eq(ra, rb) && booleans(sa, sb)
     case D.ContextMessage{a} D.ContextMessage{b}: json(budget, D.context_json(a), D.context_json(b))

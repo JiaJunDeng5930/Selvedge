@@ -319,7 +319,6 @@ type CallbackKind is Data:
   CallbackAfterHook{}
   CallbackReasoning{}
   CallbackModel{}
-  CallbackSummary{}
   CallbackDefaultTool{}
 
 def classify_callback_kind(+kind: String) -> CallbackKind:
@@ -331,7 +330,6 @@ def classify_callback_kind(+kind: String) -> CallbackKind:
     case "after_hook": CallbackAfterHook{}
     case "reasoning": CallbackReasoning{}
     case "model": CallbackModel{}
-    case "summary": CallbackSummary{}
     case _: CallbackDefaultTool{}
 
 def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -> J.Json:
@@ -343,7 +341,6 @@ def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -
     case CallbackAfterHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "after_hook"), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("outcome", result), Nil{}}})}
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{True{}}), callback_result_fields(fields(result), ["kind", "task_id", "ticket", "ok"])})}
     case CallbackModel{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
-    case CallbackSummary{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
     case CallbackDefaultTool{}: J.Object{List.append(&2, J.Field, callback_base(effect, "tool"), callback_result_fields(fields(result), ["kind", "task_id", "ticket"]))}
 
 def callback_kind(+kind: String, +effect: J.Json, +result: J.Json) -> J.Json:
@@ -375,7 +372,6 @@ def failure_classified(+kind: CallbackKind, +effect: J.Json, +message: String) -
     case CallbackApproval{}: failed_outcome(effect, "approval", take(message, 400n))
     case CallbackAfterHook{}: J.Object{List.append(&2, J.Field, fields(failed_outcome(effect, "after_hook", message)), Con{field("operation_id", J.get(effect, "operation_id")), Nil{}})}
     case CallbackModel{}: failed_model(effect, message)
-    case CallbackSummary{}: failed_model(effect, message)
     case _: J.Object{List.append(&2, J.Field, callback_base(effect, "tool"), Con{field("error", J.Boolean{True{}}), Con{field("value", error_value(message)), Nil{}}})}
 
 def failure_input(+effect: J.Json, +message: String) -> J.Json:
@@ -391,7 +387,6 @@ def failure_context_kind(+context_limit: Bool, +kind: CallbackKind) -> J.Json:
     case True{}:
       match kind:
         case CallbackModel{}: J.Text{"context_limit"}
-        case CallbackSummary{}: J.Text{"context_limit"}
         case _: J.Null{}
 
 def failure_context_classified(+context_limit: Bool, +kind: CallbackKind, +effect: J.Json, +message: String) -> J.Json:
@@ -400,7 +395,6 @@ def failure_context_classified(+context_limit: Bool, +kind: CallbackKind, +effec
     case True{}:
       match kind:
         case CallbackModel{}: context_limit_model(effect, message)
-        case CallbackSummary{}: context_limit_model(effect, message)
         case _: failure_classified(kind, effect, message)
 
 def complete_failure_input(+effect: J.Json, +message: String, +context_limit: Bool) -> J.Json:

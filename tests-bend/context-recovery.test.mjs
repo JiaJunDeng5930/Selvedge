@@ -63,7 +63,7 @@ test('the service commits context-limit failure without summary or retry, withou
   assert.equal(JSON.stringify(page).includes('upstream-private-diagnostic'), false);
   assert.equal(page.messages.filter(x => x.role === 'function_output').length, 1);
   assert.ok(page.messages.some(x => x.role === 'error'));
-  assert.equal(page.messages.some(x => x.role === 'context_summary'), false);
+  assert.equal(page.messages.some(x => x.role === 'context_replacement'), false);
   await service.close();
   service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   assert.deepEqual((await taskIdle(service)).messages, page.messages);

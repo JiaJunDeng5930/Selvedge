@@ -172,7 +172,7 @@ Cancellation targets that live ticket, not its retired execution ticket. The
 host can run several tools for one task and a model request at the same time.
 `cancel_ticket` aborts exactly one controller; task-wide cancellation is separate.
 Neither the host nor a timer invents model polling turns. Running announcements,
-completion notification, queue promotion and summary eligibility are native
+completion notification, queue promotion and compaction eligibility are native
 policy. Providers enable parallel calls and encode a later `operation_result` as
 explicit unprivileged asynchronous-result data, not a duplicate function output.
 
@@ -209,19 +209,22 @@ Stop; observer timeout or shutdown does not. The generic preview interface
 distinguishes replacement snapshots from append-only deltas. See
 `../docs/chatgpt-web.md` for configuration, recovery and evidence.
 
-Summary requests use the ordinary model transport but receive no tools. ChatGPT
-and API-key profiles use bounded text summarization.
-The host does not decide when to compact, which history to retain, or whether a completion
-is current. Bend performs those decisions, validates summaries, and commits a
-checkpoint as an additional history entry. Supplied checkpoints need no
-host/model effect. Model retries and text deltas are notices, not extra task
-history or a second scheduler.
+Compaction preserves the immutable original history and records a complete
+replacement window. Context selection appends only messages committed after the
+captured prefix. Native account compaction uses `/responses/compact`; portable
+rebuilding processes readable original records through bounded summary calls.
+The feature in Bend owns thresholds, idle observations, call correlation and
+adoption. The host meters the actual request, performs each committed call, and
+reports its result. Background jobs run independently of normal inference; a
+blocking threshold waits for compaction and remeasures the replacement with the
+current suffix before dispatch. Supplied portable summaries enter the same
+replacement path without a model call.
 
 An explicit `context_length_exceeded` code in HTTP 400 or a pre-output SSE failure
 becomes a typed native completion. Diagnostic substrings, incomplete responses
 and failures after emitted output do not grant automatic compaction/retry. The
-native phase owns whether to summarize, retry with a fresh ticket or stop; the
-adapter has no hidden context-recovery counter. Upstream error bodies are not
+committed transition owns any subsequent preparation or failure; the adapter
+has no hidden context-recovery counter. Upstream error bodies are not
 copied into the durable conversation.
 
 Set `instructions` in the service home's `config.json` to customize the initial

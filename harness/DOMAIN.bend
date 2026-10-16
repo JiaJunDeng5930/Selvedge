@@ -696,7 +696,7 @@ type Message is Data:
   OperationResult{ticket: Nat, call_id: String, tool: String, value: J.Json, error: Bool}
   FailureMessage{text: String}
   ModelContext{value: J.Json}
-  ContextCheckpoint{summary: String}
+  ContextReplacement{value: J.Json}
   ReasoningRecord{owner: Nat, effort: String, remaining: Nat, sampling: Bool}
   ContextMessage{context: HistoryContext}
   HookRecord{task_id: Nat, call_id: String, plugin: PluginRef, outcome: HookOutcome}
@@ -719,19 +719,6 @@ type ModelItem is Data:
 type History is Data:
   EmptyHistory{}
   HistoryNode{previous: History, message: Message}
-
-# An opaque provider checkpoint has no call authority. Its encryption and
-# upstream meaning are external assumptions; the domain retains the record.
-
-def is_provider_checkpoint(+value: J.Json) -> Bool:
-  String.eq(J.text(J.get(value, "type")), "compaction")
-
-def provider_checkpoint_limit_bytes() -> Nat:
-  U32.to_nat(262144)
-
-# Requests observe the complete immutable task history.
-def context_history(history: History) -> History:
-  history
 
 def summary_limit_bytes() -> Nat:
   U32.to_nat(16384)
@@ -767,7 +754,6 @@ type Phase is Data:
   Ready{calls: List<&2, Attempt>}
   ModelPending{ticket: Nat, callable: +List<String>}
   ReasoningPending{ticket: Nat, revision: Nat}
-  SummaryPending{ticket: Nat, resume: Bool}
   HookPending{ticket: Nat, plugin: PluginRef, call: Call, pending: +List<PluginRef>, remaining: +List<Attempt>}
 
 # A copied history does not confer permission to repeat an external effect.
@@ -1033,7 +1019,6 @@ def boundary_limits() -> J.Json:
     J.Field{"operations_per_task", J.nat(operation_limit())},
     J.Field{"artifact_bytes", J.nat(U32.to_nat(8388608))},
     J.Field{"summary_limit_bytes", J.nat(summary_limit_bytes())},
-    J.Field{"provider_checkpoint_limit_bytes", J.nat(provider_checkpoint_limit_bytes())},
     J.Field{"project_context_bytes", J.nat(project_limit())},
     J.Field{"model_retry", J.Object{[
       J.Field{"statuses", J.Array{[J.nat(408n), J.nat(429n), J.nat(500n), J.nat(502n), J.nat(503n), J.nat(504n)]}},
@@ -1045,10 +1030,6 @@ def default_instruction_text() -> String:
 
 def default_instructions() -> InitialInstructions:
   InitialInstructions{default_instruction_text(), None{}}
-
-def summary_instructions() -> String:
-  "Summarize this task for continuation by the same assistant. Do not perform the task or call tools. Return only a factual continuation note, at most " ++ Nat.show(summary_limit_bytes()) ++
-  " UTF-8 bytes. Preserve the latest user request and constraints, decisions and their reasons, completed work, relevant paths and revisions, tests actually run and their results, unresolved failures and unknown side effects, and next steps. Distinguish facts from assumptions. Preserve relevant prior summary details. Never claim that omitted work was verified. The complete original task history remains available through read_task."
 
 type Outcome is Data:
   ModelReply{items: +List<ModelItem>}
@@ -1064,11 +1045,6 @@ def success(result: J.Json) -> J.Json:
 def failure(code: String, message: String) -> J.Json:
   J.Object{[J.Field{"ok", J.Boolean{False{}}},
     J.Field{"error", J.Object{[J.Field{"code", J.Text{code}}, J.Field{"message", J.Text{message}}]}}]}
-
-def valid_provider_checkpoint(+value: J.Json) -> Bool:
-  # The host validates the encrypted wire payload and its byte bound. Here the
-  # value is opaque; the native boundary still admits only bounded full frames.
-  is_provider_checkpoint(value) && nonempty(J.text(J.get(value, "encrypted_content")))
 
 def valid_summary(+summary: String) -> Bool:
   nonempty(summary) && Nat.is_le(J.utf8_length(summary), summary_limit_bytes())

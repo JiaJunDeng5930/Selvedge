@@ -17,6 +17,20 @@ def context_kind(kind: String) -> ContextKind:
     case "compaction": CompactionContext{}
     case _: OtherContext{}
 
+def provider_value_kind(kind: String, +value: J.Json) -> J.Json:
+  match kind:
+    case "provider_receipt": J.get(value, "item")
+    case _: value
+
+def provider_value(+value: J.Json) -> J.Json:
+  provider_value_kind(J.text(J.get(value, "type")), value)
+
+def provider_kind(value: J.Json) -> ContextKind:
+  context_kind(J.text(J.get(provider_value(value), "type")))
+
+def provider_assistant(value: J.Json) -> Bool:
+  String.eq(J.text(J.get(provider_value(value), "role")), "assistant")
+
 # Titles are observations of the user's request, never browser-generated names
 # or mutable task identities. Whitespace-only messages do not name a thread.
 
@@ -68,3 +82,18 @@ def content_parts(parts: +List<J.Json>) -> String:
   match parts:
     case Nil{}: ""
     case Con{+part, rest}: content_part(J.text(J.get(part, "type")), part) ++ content_parts(rest)
+
+def provider_text(value: J.Json) -> String:
+  content_parts(J.items(J.get(provider_value(value), "content")))
+
+def public_parts_text(parts: +List<J.Json>) -> String:
+  match parts:
+    case Nil{}: ""
+    case Con{part, Nil{}}: J.text(J.get(part, "text"))
+    case Con{part, rest}: J.text(J.get(part, "text")) ++ "\n" ++ public_parts_text(rest)
+
+def public_text(value: J.Json) -> String:
+  match value:
+    case J.Text{text}: text
+    case J.Array{parts}: public_parts_text(parts)
+    case _: ""

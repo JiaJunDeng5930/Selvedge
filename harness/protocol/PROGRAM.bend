@@ -29,7 +29,6 @@ type ResolvedEvent is Data:
   ModelResult{task: D.Task, outcome: D.Outcome, allowed: +List<String>}
   ReasoningResult{task: D.Task, revision: Nat, outcome: R.Outcome}
   FeatureEvent{event: FeatureOps.ResolvedEvent}
-  SummaryResult{task: D.Task, outcome: D.Outcome, resume: Bool}
   ToolResult{task: D.Task, operation: D.Operation(), value: J.Json, error: Bool}
   HookResult{task: D.Task, outcome: D.HookOutcome}
   AfterResult{task: D.Task, operation: D.Operation(), outcome: D.AfterOutcome}
@@ -74,8 +73,6 @@ def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +
     case D.Archived{} _: Ignore{}
     case _ D.ModelPending{expected, allowed}:
       matching(ticket, expected, ModelResult{task, outcome, allowed})
-    case _ D.SummaryPending{expected, resume}:
-      matching(ticket, expected, SummaryResult{task, outcome, resume})
     case _ _: Ignore{}
 
 def model(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.Outcome) -> ResolvedEvent:
@@ -205,8 +202,6 @@ def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
     case ReasoningResult{task, revision, outcome}:
       C.Decision{Commands.replace(Reasoning.complete(revision, outcome, task), world), acknowledgement(True{}), Nil{}}
     case FeatureEvent{event}: FeatureSpec.event(event, world)
-    case SummaryResult{task, outcome, resume}:
-      C.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world), acknowledgement(True{}), Nil{}}
     case ToolResult{task, operation, value, error}:
       Results.begin(F.State(), F.Effect, operation, value, error, task, world)
     case AfterResult{task, +operation, outcome}:
@@ -220,7 +215,7 @@ def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
       next_ticket = D.state_next_ticket(task_state)
       limits = D.state_limits(task_state)
       projects = D.state_projects(task_state)
-      C.Decision{C.Frame{D.with_state_environment(environment, task_state), board}, D.success(J.Null{}), Nil{}}
+      C.Decision{C.Frame{D.with_state_environment(environment, task_state), FeatureState.reconfigure(board)}, D.success(J.Null{}), Nil{}}
     case Restart{}:
       C.Frame{+task_state_2, +board} = world
       tasks = D.state_tasks(task_state_2)

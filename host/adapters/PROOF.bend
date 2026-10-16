@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/json.bend as J
 import ./PROGRAM.bend as Program
 import ./backends-proof.bend as BackendsProof
+import ./compaction-proof.bend as CompactionProof
 import ./accounts-proof.bend as AccountsProof
 import ./web-proof.bend as WebProof
 import ./plugins-proof.bend as PluginsProof

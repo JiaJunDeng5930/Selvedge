@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/MODEL.bend as Compaction
 import ../DOMAIN.bend as D
 import ../../features/board/MODEL.bend as Board
 import ../workspace/WORKSPACE.bend as Workspace
@@ -13,5 +14,6 @@ type Operation is Data:
   StartCard{id: Nat, card: Board.Card, now: U32, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
 
 type ResolvedEvent is Data:
+  CompactionResult{completion: Compaction.Completion}
   ChatGPTResult{change: ChatGPT.Change}
   BoardTextResult{id: Nat, card: Board.Card, outcome: Board.Outcome, retitle: Bool}

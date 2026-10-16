@@ -140,11 +140,14 @@ test('real model, MCP, and Bash effects start after SQLite commit and are not re
   service.on('notice', event => notices.push(event));
   const created = await service.command({ op: 'create', profile: 'fixture', message: 'Use both tools.' });
   assert.equal(created.reply.ok, true);
-  const settled = await taskIdle(service);
+  const settled = await taskIdle(service).catch(error => {
+    assert.deepEqual(model.failures, []);
+    throw error;
+  });
   assert.deepEqual(model.failures, []);
   assert.ok(model.requests.length >= 2 && model.requests.length <= 3);
   const completedRequests = model.requests.length;
-  assert.equal(settled.messages.at(-1).content.phase, 'final_answer');
+  assert.equal(settled.messages.at(-1).content.item.phase, 'final_answer');
   assert.deepEqual((await readFile(marker, 'utf8')).trim().split('\n').sort(), ['bash', 'mcp']);
   assert.ok(notices.some(event => event.type === 'delta' && event.text === '处理中 😀'));
   await service.close();
