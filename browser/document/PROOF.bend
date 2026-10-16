@@ -128,6 +128,9 @@ def clear_region_geometry(role: SurfaceTypes.Role, key: String, found: Maybe<&2,
   {Rule.clear(Rendered.region_geometry(role, key, found, viewport)) == Spec.region_geometry_valid(role, found, viewport) : Bool}:
   match role:
     case SurfaceTypes.Navigation{}: clear_bounded_dialog(key, found, viewport)
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: clear_bounded_dialog(key, found, viewport)
     case SurfaceTypes.Main{}: clear_bounded_dialog(key, found, viewport)
     case SurfaceTypes.Heading{}: {==}

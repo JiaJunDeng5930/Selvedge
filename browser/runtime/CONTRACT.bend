@@ -1,4 +1,9 @@
+import ../appearance/DESIGN.bend as Design
+import ../controls/NAVIGATION.bend as Navigation
+import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
+import ../layout/ADAPTATION.bend as Adaptation
+import ../layout/natural-size.bend as NaturalSize
 import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
@@ -288,7 +293,7 @@ law forwarded_frame_uses_published_surface:
   for +old: Maybe<&2, Rendered.Frame>
   for +frame: Rendered.Frame
   {Browser.frame_forward_calculation(Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state), frame) ==
-    Browser.accept(False{}, Legacy.observe_frame(Browser.semantic_generation(Browser.legacy(model_state)), semantic, frame, Browser.legacy(model_state)),
+    Browser.accept(False{}, Legacy.observe_frame_with(Browser.semantic_generation(Browser.legacy(model_state)), semantic, frame, Browser.legacy(model_state), SourceFrame.expectations(world, frame)),
       Browser.with_displayed(Some{Browser.Published{world, semantic, scope, basis, old}}, model_state)) : Browser.Decision}
 
 law failed_font_candidate_blocked:
@@ -589,10 +594,10 @@ type RequestRequirements is Type:
     other_pending: @+entry:Legacy.Pending -> @+rest:+List<Legacy.Pending> -> @+ticket:Nat ->
       @distinct:{Nat.is_eq(Legacy.ticket_of(entry), ticket) == False{} : Bool} ->
       {Legacy.remove(entry <> rest, ticket) == entry <> Legacy.remove(rest, ticket) : +List<Legacy.Pending>},
-    rejected_draft: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @directory_entry:String -> @submitted:Nat -> @reason:String ->
+    rejected_draft: @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @directory_entry:String -> @submitted:Nat -> @+reason:String ->
       {E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted,
           D.failure("command_not_submitted", reason)) ==
-          U.Draft{revision, body, U.Rejected{submitted, reason}, directory_entry} : U.Draft},
+          U.Draft{revision, body, E.command_rejection_feedback(body, submitted, D.failure("command_not_submitted", reason)), directory_entry} : U.Draft},
     uncertain: @+model_state:Legacy.State ->  @ticket:Nat -> @reason:String -> {Legacy.failed_completion(ticket, reason, Legacy.with_receipt(None{}, model_state)) ==
         Legacy.Decision{Legacy.with_receipt(None{}, Legacy.with_pending(Legacy.uncertain_pending(Legacy.pending(model_state), ticket, reason), model_state)), Nil{}} : Legacy.Decision},
     other_command: @id:Nat -> @message:String -> {Legacy.request_payload(M.Send{id, message}) == Codec.command_json(M.Send{id, message}) : J.Json}}
@@ -895,7 +900,7 @@ law selected_infeasible:
   for +semantic: SurfaceTypes.Surface
   for +round: Nat
   {Browser.selected(Plan.Infeasible{failure}, index, capacity, engine, state, semantic, round) ==
-    Browser.infeasible_candidate(Nat.is_lt(index, 3n), index, state, failure) : Browser.Search}
+    Browser.infeasible_candidate(Nat.is_lt(index, 7n), index, state, failure) : Browser.Search}
 
 type RecoveryRequirements is Type:
   RecoveryRequirements{
@@ -995,3 +1000,79 @@ law publication_focus_loss:
   for current: {Nat.is_eq(received, ticket(Platform.platform(model_state))) == True{} : Bool}
   for active: {Platform.active_target(Platform.core(model_state), capacity(Platform.platform(model_state)), target) == True{} : Bool}
   {Platform.step(Platform.PublicationFocusObserved{received, Some{target}, None{}}, model_state) == Platform.Decision{Platform.unchanged(Platform.core(model_state)), Platform.platform(model_state), loss_effects(Platform.core(model_state), Platform.platform(model_state), target)} : Platform.Decision}
+
+def supporting_mask(blocked: Bool, +support: UXTypes.Support, +property: UXTypes.Property, +input: InteractionTypes.Input, +availability: View.Availability) -> Type:
+  match blocked:
+    case True{}: {Legacy.mask_meaning(blocked, SurfaceTypes.SupportingControl{support, property, input, availability}) == SurfaceTypes.SupportingControl{support, property, input, View.Unavailable{"Request pending"}} : SurfaceTypes.Meaning}
+    case False{}: {Legacy.mask_meaning(blocked, SurfaceTypes.SupportingControl{support, property, input, availability}) == SurfaceTypes.SupportingControl{support, property, input, availability} : SurfaceTypes.Meaning}
+
+law supporting_mask_evidence:
+  for blocked: Bool
+  for +support: UXTypes.Support
+  for +property: UXTypes.Property
+  for +input: InteractionTypes.Input
+  for +availability: View.Availability
+  supporting_mask(blocked, support, property, input, availability)
+
+# A full form compares its real one-line demand with its allocated inner room.
+type SupportingAdmissionRequirements is Type:
+  SupportingAdmissionRequirements{
+    missing_full: {Browser.supporting_width_admitted(Controls2.FullSupporting{}, None{}) == True{} : Bool},
+    full_room: @+available:Nat -> @+preferred:Nat ->
+      {Browser.supporting_width_admitted(Controls2.FullSupporting{}, Some{Adaptation.RegionDemand{available, preferred}}) == Nat.is_le(preferred, available) : Bool},
+    compact_ready: @requirement:Maybe<&2, Adaptation.RegionDemand> ->
+      {Browser.supporting_width_admitted(Controls2.CompactSupporting{}, requirement) == True{} : Bool},
+    complete_observation: @+index:Nat -> @+world:Content.AllocatedWorld ->
+      {Browser.supporting_admitted(index, world) == Browser.supporting_width_admitted(Browser.candidate_form(index), Adaptation.world_region_demand(world, Adaptation.RegionAttribute{"allocated-region", "supporting-controls"})) : Bool},
+    ready: @+world:Content.AllocatedWorld -> @+index:Nat -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+state:Browser.State -> @+semantic:SurfaceTypes.Surface -> @round:Nat ->
+      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.selected_supporting(Browser.supporting_admitted(index, world), world, index, capacity, engine, state, semantic) : Browser.Search},
+    admitted: @+world:Content.AllocatedWorld -> @index:Nat -> @+capacity:View.Capacity -> @+engine:World.Engine -> @+state:Browser.State -> @+semantic:SurfaceTypes.Surface ->
+      {Browser.selected_supporting(True{}, world, index, capacity, engine, state, semantic) == Browser.Stopped{Browser.admit(world, capacity, engine, state, semantic)} : Browser.Search},
+    rejected: @world:Content.AllocatedWorld -> @+index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @+state:Browser.State -> @semantic:SurfaceTypes.Surface ->
+      {Browser.selected_supporting(False{}, world, index, capacity, engine, state, semantic) == Browser.supporting_retry(Nat.is_lt(index, 7n), index, state) : Browser.Search},
+    terminal: @+index:Nat -> @+state:Browser.State -> {Browser.supporting_retry(False{}, index, state) == Browser.Stopped{Browser.no_candidate(state)} : Browser.Search}}
+
+law supporting_admission_evidence:
+  SupportingAdmissionRequirements
+
+def fresh_attention_phase(phase: Browser.Lifecycle, +state: Browser.State) -> Type:
+  match phase:
+    case Browser.Displaying{capacity, engine, semantic}:
+      {Browser.attention_refresh(state) == Browser.build(0n, state) : Browser.Decision}
+    case Browser.Measuring{index, capacity, engine, semantic, round}:
+      {Browser.attention_refresh(state) == Browser.build(0n, state) : Browser.Decision}
+    case _:
+      {Browser.attention_refresh(state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+def fresh_attention_candidate(+state: Browser.State) -> Type:
+  fresh_attention_phase(Browser.presentation_phase(state), state)
+
+type NavigationRequirements is Type:
+  NavigationRequirements{
+    interest_keeps_legacy: @+attention:Navigation.Attention -> @+state:Browser.State ->
+      {Browser.legacy(Browser.with_attention(attention, state)) == Browser.legacy(state) : Legacy.State},
+    invalid_owner: @+attention:Navigation.Attention -> @+state:Browser.State ->
+      {Browser.attention_change(False{}, attention, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
+    identical_interest: @+attention:Navigation.Attention -> @+state:Browser.State ->
+      {Browser.attention_changed(False{}, attention, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
+    fresh_layout_derivation: @+state:Browser.State -> fresh_attention_candidate(state)}
+
+law navigation_evidence:
+  NavigationRequirements
+
+law reviewer_field_gesture:
+  @editor:U.Editor -> @entry:Forms.Entry -> @value:Forms.Observed -> @+text:String -> @state:Legacy.State ->
+    {Legacy.field_text(editor, Forms.ApprovalReviewer{}, entry, value, text, state) == Legacy.approval_gesture(text) : Maybe<&2, SurfaceTypes.Gesture>}
+
+
+law role_calibration_request:
+  @+capacity:Nat -> @+state:Browser.State ->
+  {Browser.measurement_plan_at(capacity, state) == F.request_at(capacity, Browser.current_font(Browser.legacy(state)), F.activity_specifications(capacity, F.scale(Browser.current_font(Browser.legacy(state))))) : F.Plan}
+
+law missing_activity_calibration_waits:
+  @physical_capacity:Nat -> @body:T.Metric -> @+index:Nat -> @+state:Browser.State ->
+  {Browser.calibrated_activity_metrics_at(physical_capacity, body, None{}, index, state) == Browser.Stopped{Browser.Decision{Browser.set_lifecycle(state, Browser.WaitingFont{}), Nil{}}} : Browser.Search}
+
+law actual_activity_calibration:
+  @+physical_capacity:Nat -> @body:T.Metric -> @primary:T.Metric -> @support:T.Metric -> @+index:Nat -> @+state:Browser.State ->
+  {Browser.calibrated_activity_metrics_at(physical_capacity, body, Some{F.ActivityMetrics{primary, support}}, index, state) == Browser.calibrated_parameters_at(physical_capacity, Design.parameters(physical_capacity, F.scale(Browser.current_font(Browser.legacy(state))), body, primary, support), index, state) : Browser.Search}

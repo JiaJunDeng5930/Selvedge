@@ -204,7 +204,7 @@ def navigation_header_keeps_brand(+navigation: V.Navigation, +state: Interaction
   {Rule.navigation_header_label(Model.navigation(navigation, state)) == Some{"Selvedge"} : Maybe<&2, String>}:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, stored_navigation,
-    filter, now, next, pending, previews, code, next_layer}}, services} = state
+    filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = state
   {==}
 
 def navigation_header_contains_only_toggle(+navigation: V.Navigation, +state: InteractionTypes.State) ->
@@ -212,7 +212,7 @@ def navigation_header_contains_only_toggle(+navigation: V.Navigation, +state: In
     Some{[Model.declared(Identity.Place{"/navigation"}, Rule.navigation_toggle_control(navigation), state)]} : Maybe<&2, +List<SurfaceTypes.Node>>}:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, stored_navigation,
-    filter, now, next, pending, previews, code, next_layer}}, services} = state
+    filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = state
   {==}
 
 def display_cards_are_pinned_partition(+board: B.State) ->
@@ -273,46 +273,46 @@ def label_toggle_preserves_other_facets(+value: String, +filter: B.Filter) ->
 
 def board_route_selects_board_nav(+world: M.World(), +session: E.Session) ->
   {Rule.board_navigation_selected(U.TaskBoard{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def projects_route_selects_projects_nav(+world: M.World(), +session: E.Session) ->
   {Rule.projects_navigation_selected(U.ProjectCollection{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def agents_route_selects_agents_nav(+world: M.World(), +session: E.Session) ->
   {Rule.agents_navigation_selected(U.AgentCollection{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def start_route_selects_create_nav(+world: M.World(), +session: E.Session) ->
   {Rule.create_navigation_selected(U.Start{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def board_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.projects_navigation_selected(U.TaskBoard{}, world, session), Rule.agents_navigation_selected(U.TaskBoard{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def projects_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.board_navigation_selected(U.ProjectCollection{}, world, session), Rule.agents_navigation_selected(U.ProjectCollection{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def agents_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.board_navigation_selected(U.AgentCollection{}, world, session), Rule.projects_navigation_selected(U.AgentCollection{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def start_route_rejects_destination_nav(+world: M.World(), +session: E.Session) ->
   {(Rule.board_navigation_selected(U.Start{}, world, session), Rule.projects_navigation_selected(U.Start{}, world, session), Rule.agents_navigation_selected(U.Start{}, world, session)) ==
     (False{}, (False{}, False{})) : Bool & (Bool & Bool)}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def selected_declaration_role_tracks_predicate(+route: U.Route, +parent: Identity.Key,
@@ -512,7 +512,7 @@ def encapsulated_missing_draft_focus(+session: E.Session, +project: Maybe<&2, Na
   {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
         E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}:
-  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, model_preference, draft_model_manual} = session
   backwards_drafts = Equal.sym(E.Session, session, E.with_drafts(Nil{}, session),
     Equal.cong(+List<U.Draft>, E.Session, value => E.with_drafts(value, session), E.drafts(session), Nil{}, observed_drafts))
   %backwards_drafts : {E.activate_selected(U.SelectProject{project}, E.from_program(world, _)) ==
@@ -520,34 +520,73 @@ def encapsulated_missing_draft_focus(+session: E.Session, +project: Maybe<&2, Na
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}
   {==}
 
-def encapsulated_select_focus_and_input(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), +revision: Nat, +message: U.Text, +profile: String, +reasoning: String, +old: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +feedback: U.Feedback, +directory_entry: String, +rest: +List<U.Draft>, observed_drafts: {E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>}) ->
-  {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
+def retained_select_focus_and_input(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), +revision: Nat, +message: U.Text, +profile: String, +reasoning: String, +old: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +feedback: U.Feedback, +directory_entry: String, +rest: +List<U.Draft>, observed_drafts: {E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>}) ->
+  {E.begin_resolved(E.context_project(project), world, session) ==
         E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
             U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}:
-  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, model_preference, draft_model_manual} = session
   backwards_drafts = Equal.sym(E.Session, session, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session),
     Equal.cong(+List<U.Draft>, E.Session, value => E.with_drafts(value, session), E.drafts(session), U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, observed_drafts))
-  %backwards_drafts : {E.activate_selected(U.SelectProject{project}, E.from_program(world, _)) ==
+  %backwards_drafts : {E.begin_resolved(E.context_project(project), world, _) ==
         E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(_)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
             U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, _))))),
           [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}
   {==}
 
-def encapsulated_picker_search_preserves_session(+session: E.Session, +query: String, +world: M.World(), +trigger: String, +initial: String, previous: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, observed_layers: {E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest : +List<E.Layer>}) ->
+
+def manual_resolution(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), +revision: Nat, +message: U.Text, +profile: String, +reasoning: String, +old: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +feedback: U.Feedback, +directory_entry: String, +rest: +List<U.Draft>, valid_manual: {E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool}, observed_drafts: {E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>}) ->
+  {E.resolve_model_draft(session, world) == session : E.Session}:
+  Equal.trans(E.Session, E.resolve_model_draft(session, world),
+    E.resolve_model_found(Some{U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry}}, Board.profiles(world), session), session,
+    Equal.cong(+List<U.Draft>, E.Session, values => E.resolve_model_found(E.find_draft(values, U.NewTaskEditor{}), Board.profiles(world), session),
+      E.drafts(session), U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, observed_drafts),
+    Equal.cong(Bool, E.Session, valid => E.resolve_model_valid(valid, U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry}, Board.profiles(world), session),
+      E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning), True{}, valid_manual))
+
+def known_select_focus_and_input(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), +revision: Nat, +message: U.Text, +profile: String, +reasoning: String, +old: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +feedback: U.Feedback, +directory_entry: String, +rest: +List<U.Draft>, valid_manual: {E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool}) ->
+  {E.activate_selected(U.SelectProject{project}, E.from_program(world, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session))) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session))), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session)))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}:
+  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, +model_preference, +draft_model_manual} = session
+  Equal.trans(E.Decision, E.activate_selected(U.SelectProject{project}, E.from_program(world, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session))),
+    E.begin_resolved(E.context_project(project), world, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session)),
+E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session))), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session)))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]),
+    Equal.cong(E.Session, E.Decision, resolved => E.begin_resolved(E.context_project(project), world, resolved),
+      E.resolve_model_draft(E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session), world), E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session), manual_resolution(E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session), project, world, revision, message, profile, reasoning, old, workspace, sandbox, approval, feedback, directory_entry, rest, valid_manual, {==})),
+    retained_select_focus_and_input(E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session), project, world, revision, message, profile, reasoning, old, workspace, sandbox, approval, feedback, directory_entry, rest, {==}))
+
+def encapsulated_select_focus_and_input(+session: E.Session, +project: Maybe<&2, Nat>, +world: M.World(), +revision: Nat, +message: U.Text, +profile: String, +reasoning: String, +old: Context.Origin, +workspace: Maybe<&2, D.Workspace>, +sandbox: Maybe<&2, D.Sandbox>, +approval: Maybe<&2, Context.ApprovalChoice>, +feedback: U.Feedback, +directory_entry: String, +rest: +List<U.Draft>, valid_manual: {E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool}, observed_drafts: {E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>}) ->
+  {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}:
+  E.Session{+route, +stored_drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, +model_preference, +draft_model_manual} = session
+  backwards_drafts = Equal.sym(E.Session, session, E.with_drafts(U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, session),
+    Equal.cong(+List<U.Draft>, E.Session, value => E.with_drafts(value, session), E.drafts(session), U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest, observed_drafts))
+  %backwards_drafts :   {E.activate_selected(U.SelectProject{project}, E.from_program(world, _)) ==
+        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(_)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, _))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision}
+  known_select_focus_and_input(session, project, world, revision, message, profile, reasoning, old, workspace, sandbox, approval, feedback, directory_entry, rest, valid_manual)
+
+def encapsulated_picker_search_preserves_session(+session: E.Session, +query: String, +world: M.World(), +trigger: String, +initial: String, previous: String, +layer_occurrence: Nat, +rest: +List<E.Layer>, observed_layers: {E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest : +List<E.Layer>}) ->
   {E.search_choices(query, E.from_program(world, session)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest, session), Nil{}) : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
-  backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest, session),
-    Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence} <> rest, observed_layers))
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}, None{}} <> rest, session), Nil{}) : E.Decision}:
+  E.Session{+route, +drafts, +readers, +stored_layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, model_preference, draft_model_manual} = session
+  backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest, session),
+    Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest, observed_layers))
   %backwards_layers : {E.search_choices(query, E.from_program(world, _)) ==
-        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence} <> rest, _), Nil{}) : E.Decision}
+        E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}, None{}} <> rest, _), Nil{}) : E.Decision}
   {==}
 
 def encapsulated_toggle_keeps_location(+session: E.Session, +project: Nat, +world: M.World()) ->
   {E.toggle_project(project, E.from_program(world, session)) ==
         E.local(world, E.with_navigation(E.toggle_project_navigation(project, E.navigation(session)), session), Nil{}) : E.Decision}:
-  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer} = session
+  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def Rule.project_interaction_evidence():
@@ -572,6 +611,16 @@ def Rule.project_interaction_evidence():
     +context => +world => {==},
     encapsulated_picker_search_preserves_session,
     +id => name => workspace => +selected => +expanded => +tasks => +open => +create => +toggle => +more => +parent => +state => {==},
+    +expanded => +route => +world => +session => {==},
+    +key => +semantic => +label => role => +meaning => +children => +selected => {==},
+    +route => +parent => +identity => +label => +prominence => +input => +availability => +state => {==},
+    +route => +parent => +state => {==},
+    +route => +first => +rest => +parent => +state => {==},
+    +route => +create => +destinations => +state => {==},
+    +parent => +state => {==},
+    +first => +rest => +parent => +state => {==},
+    +route => +create => +destinations => +projects => +tasks => +state => {==},
+    +route => +create => +destinations => +projects => +tasks => +state => {==},
     context => {==},
     +parent => state => {==},
     +first => +rest => +parent => +state => {==},
@@ -629,10 +678,10 @@ def Rule.directory_picker_requirements():
 
 def Rule.directory_identity_requirements():
   Rule.DirectoryIdentityRequirements{
-    +path => primary => choose => remove => +parent => state => {==},
-    +path => control => +parent => state => {==},
-    path => primary => choose => remove => +parent => state => other => name => {==},
-    path => primary => choose => remove => +parent => state => other => name => {==}}
+    +path => collection => +parent => state => {==},
+    +path => collection => +parent => state => {==},
+    path => collection => +parent => state => other => name => {==},
+    path => collection => +parent => state => other => name => {==}}
 
 def Rule.directory_ready_regions(ticket, editor, path, parent, entries, truncated, location, trigger):
   {==}

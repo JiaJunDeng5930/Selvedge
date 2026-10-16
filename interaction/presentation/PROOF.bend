@@ -1,3 +1,7 @@
+import ./surface-proof.bend as SurfaceProof
+import ../experience/PROGRAM.bend as UX
+import ../experience/MODEL.bend as Experience
+import ../INPUT.bend as U
 import Base
 import ./CONTRACT.bend as Rule
 import ./MODEL.bend as V
@@ -7,17 +11,38 @@ import ../TYPES.bend as InteractionTypes
 import ../submission/FIELDS.bend as Forms
 import ../../harness/DOMAIN.bend as D
 import ../session/MODEL.bend as E
+import ../services/CONTEXT.bend as Context
+import ../IDENTITY.bend as Identity
+import ../STATE.bend as Core
+import ./VIEW.bend as View
+import ../../harness/tasks/PROGRAM.bend as T
+import ../../harness/COMMANDS.bend as Commands
 
-def Rule.composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state):
-  match footer:
-    case Nil{}: {==}
-    case Con{first, rest}: {==}
+def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
+  match creation_context execution_controls:
+    case Nil{} Nil{}: {==}
+    case Nil{} Con{first, rest}: {==}
+    case Con{first, rest} Nil{}: {==}
+    case Con{first, rest} Con{other, tail}: {==}
 
 def Rule.composer_tree_agreement(view, parent, state):
   match view:
     case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
-      Rule.composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state)
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
+      Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
+
+def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
+  match creation_context execution_controls:
+    case Nil{} Nil{}: {==}
+    case Nil{} Con{first, rest}: {==}
+    case Con{first, rest} Nil{}: {==}
+    case Con{first, rest} Con{other, tail}: {==}
+
+def Rule.composer_enclosure_agreement(view, parent, state):
+  match view:
+    case None{}: {==}
+    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
+      Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
 
 def Rule.relocated_valid_content(valid, node, scene, base, overlays):
   match valid:
@@ -95,7 +120,7 @@ def Rule.overlay_navigation_scope(key, semantic, label, meaning, children, rest)
 def Rule.dialog_actions_region(parent, children):
   {==}
 
-def Rule.editor_submit_region(identity, revision, groups, structure, submit, feedback, pending, parent, state):
+def Rule.editor_submit_region(identity, revision, groups, structure, assessment, submit, feedback, pending, parent, state):
   {==}
 
 def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
@@ -103,7 +128,7 @@ def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
 
 def Rule.card_ordered_movement(view, parent, state):
   V.CardScene{id, value, open, actions, linked, destinations, candidates} = view
-  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer}}, services} = state
+  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = state
   {==}
 
 def Rule.card_surface_placement(key, semantic, label, face, children, target): {==}
@@ -117,3 +142,306 @@ def Rule.interface_input(input, state):
 
 def Rule.interface_evidence():
   Rule.InterfaceRequirements{Rule.interface_input}
+
+def committed_permission_summary_agreement(+found: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Model.committed_permission_summary(found, parent, state) == Rule.expected_committed_permission_summary(found, parent, state) : +List<SurfaceTypes.Node>}:
+  match found:
+    case Some{context}: {==}
+    case None{}: {==}
+
+def Rule.committed_permission_summary_agreement(task, preview, parent, state):
+  committed_permission_summary_agreement(View.committed_context(T.find(Commands.entries(E.program(Core.application(state))), task)), parent, state)
+
+def Rule.task_permission_resets_absent(task, config, parent, state):
+  {==}
+
+def Rule.permission_menu_agreement(editor, group, parent, state):
+  match group:
+    case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: {==}
+    case V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}: {==}
+    case V.MessageInput{value}: {==}
+    case V.ModelInput{profile, reasoning, choices}: {==}
+    case V.DeliveryInput{selected, send, steer}: {==}
+    case V.ProjectNameInput{name}: {==}
+    case V.ProjectWorkspaceInput{workspace, controls}: {==}
+    case V.CardContentInput{value, projects, stages, priorities, owners}: {==}
+    case V.CardAssistanceInput{enabled, profile, choices}: {==}
+    case V.AgentIdentityInput{name, instructions, concurrency}: {==}
+    case V.ForkInput{count, messages}: {==}
+    case V.SummaryInput{summary}: {==}
+
+def supporting_binding_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +gesture: SurfaceTypes.Gesture) ->
+  {Model.bind(SurfaceTypes.SupportingControl{support, property, input, availability}, gesture) == Rule.expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>}:
+  match gesture:
+    case SurfaceTypes.Place{target}: {==}
+    case SurfaceTypes.Press{}: {==}
+    case SurfaceTypes.Change{value}: {==}
+    case SurfaceTypes.Search{query}: {==}
+    case SurfaceTypes.Filter{value}: {==}
+    case SurfaceTypes.Attach{file}: {==}
+    case SurfaceTypes.Directory{path}: {==}
+    case SurfaceTypes.ConfirmDirectory{}: {==}
+    case SurfaceTypes.SelectBoardProfile{profile}: {==}
+
+def supporting_submission_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +editor: U.Editor) ->
+  {Model.submits(SurfaceTypes.SupportingControl{support, property, input, availability}, editor) == Rule.expected_supporting_submission(support, input, availability, editor) : Bool}:
+  match input:
+    case InteractionTypes.ApplicationInput{E.ContentInput{p0, p1}}: {==}
+    case InteractionTypes.ApplicationInput{E.PreviewObserved{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectProject{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ToggleProjectGroup{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BeginTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditProject{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.NewCard{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditCard{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditAgent{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ForkTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorkspace{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ControlTask{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CancelOperation{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ReviewApproval{p0, p1, p2, p3}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.DeleteProject{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BoardCommand{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.OpenPanel{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{p0, p1}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ClosePanel{}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ConfirmAction{}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{p0, p1}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.ReadTimeline{p0, p1, p2}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.SetDisclosure{p0, p1, p2, p3}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.TogglePropertySource{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.EnterDecision{p0, p1}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.LeaveDecision{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.WriteDecisionParameter{p0, p1}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.CompleteDecisionParameter{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.RuntimeInput{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.ProgramObserved{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.CommandCompleted{p0, p1, p2}}: {==}
+    case InteractionTypes.ApplicationInput{E.DirectoriesObserved{p0, p1}}: {==}
+    case InteractionTypes.ApplicationInput{E.ClockObserved{p0}}: {==}
+    case InteractionTypes.ApplicationInput{E.ModelPreferenceRestored{p0, p1}}: {==}
+    case InteractionTypes.ServiceInput{p0}: {==}
+    case InteractionTypes.EditField{p0, p1, p2}: {==}
+    case InteractionTypes.RemoveAttachment{p0, p1}: {==}
+
+def effort_entry_surface_agreement(+entry: Forms.Entry, +observation: Forms.Observed, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<V.InputGroup>) ->
+  {Model.model_effort_surface(entry, observation, editor, parent, state, groups) == Rule.expected_model_effort_surface(entry, observation, editor, parent, state, groups) : SurfaceTypes.Node}:
+  match entry:
+    case Forms.Choice{}: {==}
+    case Forms.SingleLine{}: {==}
+    case Forms.DisplayOnly{}: {==}
+    case Forms.Multiline{}: {==}
+    case Forms.MultipleChoices{}: {==}
+    case Forms.PositiveInteger{}: {==}
+    case Forms.DirectoryCollection{}: {==}
+    case Forms.FileCollection{}: {==}
+
+def canonical_commit_agreement(+action: Experience.ActionUnit, +assessment: Experience.Assessment, +identity: String, +label: String, +prominence: V.Prominence, input: U.Input, +availability: V.Availability, +parent: Identity.Key, +state: InteractionTypes.State) ->
+  {Model.canonical_commit(action, assessment, V.ControlDeclaration{identity, label, prominence, input, availability}, parent, state) == Rule.expected_action_commit(assessment, parent, Core.control(state, V.ControlDeclaration{identity, label, prominence, UX.commit(action), availability})) : SurfaceTypes.Node}:
+  InteractionTypes.State{application, services} = state
+  {==}
+
+def Rule.experience_evidence():
+  Rule.ExperienceRequirements{
+    entry => observation => editor => parent => state => groups => effort_entry_surface_agreement(entry, observation, editor, parent, state, groups),
+    profile => reasoning => choices => editor => parent => state => groups => {==},
+    controls => action => assessment => submit => parent => state => {==},
+    support => property => input => availability => gesture => supporting_binding_agreement(support, property, input, availability, gesture),
+    support => property => input => availability => {==},
+    support => property => input => availability => editor => supporting_submission_agreement(support, property, input, availability, editor),
+    subject => observed => {==},
+    profile => reasoning => choices => rest => editor => parent => state => {==},
+    title => entries => rest => editor => parent => ordinal => state => groups => {==},
+    property => declaration => rest => action => parent => state => {==},
+    subject => observed => profile => rest => {==},
+    decision => parent => state => {==},
+    decision => label => explanation => value => input => parent => state => {==},
+    collection => path => parent => state => {==},
+    action => assessment => identity => label => prominence => input => availability => parent => state => canonical_commit_agreement(action, assessment, identity, label, prominence, input, availability, parent, state),
+    editor => revision => reason => parent => {==},
+    support => property => parent => identity => label => prominence => input => availability => {==}}
+
+def Rule.assessed_editor_scene(revision, body, feedback, entry, pending, now, world): {==}
+
+def Rule.available_assessment_preserved(assessment): {==}
+def Rule.directory_assessment_preserved(assessment): {==}
+def Rule.unavailable_assessment_uses_actual_reason(assessment, reason): {==}
+def Rule.duplicate_assessment_reason_preserved(assessment, reason): {==}
+def Rule.distinct_assessment_reason_retained(assessment, reason): {==}
+def Rule.commit_explanation_observes_same_assessment(assessment, parent, identity, label, prominence, input, availability): {==}
+
+
+def Rule.context_permission_facts(observation): {==}
+def Rule.context_summary_labels(observation, parent, state): {==}
+
+def Rule.model_search_retains_complete_catalog(editor, old, groups, query):
+  {==}
+
+def Rule.model_layer_uses_actual_activity(editor, query, groups, parent, state):
+  {==}
+
+def Rule.policy_layer_uses_actual_activity(editor, groups, parent, state):
+  {==}
+
+def Rule.object_editor_uses_actual_editing_activity(scene, parent, state):
+  {==}
+
+def Rule.activity_layer_preserves_outside_and_escape(activity, action):
+  {==}
+
+def Rule.activity_layer_preserves_trigger_dismissal(activity, action):
+  {==}
+
+def Rule.activity_interpreter_consumes_actual_relation_fold(activity, query, parent, state):
+  {==}
+
+def Rule.persistent_details_trigger_uses_actual_layer_behavior(found, task, trigger, key, semantic, label, children):
+  match found:
+    case None{}: {==}
+    case Some{activity}: {==}
+
+def Rule.activity_row_preserves_actual_descendant(role, key, semantic, label, original_role, meaning, children):
+  {==}
+
+def Rule.hidden_activity_relation_retains_child_traversal(view, children, activity, current, query, parent, state):
+  {==}
+
+def Rule.selected_subject_uses_actual_canonical_candidates(subject, decision, activity, query, parent, state):
+  {==}
+
+def Rule.required_activity_property_consumes_subject_coverage(activity, property, query, parent, state):
+  {==}
+
+def Rule.principal_choice_has_no_independent_commit(title, editor, parent, state):
+  {==}
+
+def Rule.requested_open_parameter_writes_only_buffer(editor, profile, reasoning, input):
+  {==}
+
+def Rule.readonly_parameter_has_no_apply_action(editor, parent, state):
+  {==}
+
+def Rule.activity_projection_consumes_completion(activity, query, parent, state):
+  {==}
+
+
+def Rule.activity_layer_label_consumes_actual_goal(activity, fallback, state):
+  {==}
+
+def Rule.choosing_goal_does_not_repeat_owner_title(fallback):
+  {==}
+
+def Rule.inspection_goal_does_not_repeat_owner_title(fallback):
+  {==}
+
+def Rule.compound_goal_preserves_actual_activity_title(fallback):
+  {==}
+
+def Rule.original_identity_remains_supporting_saved_context(name, workspace, guidance, parent):
+  {==}
+
+def Rule.new_object_has_no_fabricated_original_identity(parent):
+  {==}
+
+
+def Rule.readonly_activity_field_retains_subject_caption_and_value(editor, field, value, parent):
+  {==}
+
+def Rule.readonly_activity_fact_cannot_mutate_its_observation(editor, field, value, next):
+  {==}
+
+def Rule.requested_choice_names_actual_subject(subject, parent):
+  {==}
+
+def Rule.principal_choice_adds_no_requested_caption(subject, parent):
+  {==}
+
+def Rule.owned_collection_actions_do_not_terminate_activity(editor, parent, state):
+  {==}
+
+def Rule.compound_terminal_retains_actual_commit_and_discard(action, assessment, submit, parent, state):
+  {==}
+
+def Rule.compound_action_uses_actual_completion_boundary(activity, current, action, assessment, children, query, parent, state):
+  {==}
+
+def Rule.returning_inspection_has_no_compound_commit(action, assessment, parent, state):
+  {==}
+
+def Rule.returning_inspection_has_no_parameter_apply(editor, parent, state):
+  {==}
+
+def Rule.open_parameter_terminal_retains_whole_value_completion(editor, parent, state):
+  {==}
+
+def Rule.activity_expression_consumes_information_requirement(expression, activity, query, parent, state):
+  {==}
+
+def Rule.not_applicable_information_has_no_mutation_control(reason, expression, activity, query, parent, state):
+  {==}
+
+def Rule.setting_entry_retains_subject_value_and_input(editor, field, value, parent, state):
+  {==}
+
+def Rule.setting_entry_activates_its_original_input(subject, value, input):
+  {==}
+
+def Rule.setting_entry_respects_unavailability(subject, value, input, reason):
+  {==}
+
+def Rule.returning_view_constructs_navigation_and_current_identity(title, editor, parent, state):
+  {==}
+
+def Rule.dependent_view_identity_comes_from_actual_subject(subject, property):
+  {==}
+
+def Rule.inspection_view_identity_comes_from_actual_property(property):
+  {==}
+
+def Rule.settings_inspection_keeps_source_details_requested(property, parent, state):
+  {==}
+
+def Rule.source_entry_retains_actual_owner_panel(origin, parent, state):
+  {==}
+
+def Rule.source_subactivity_uses_stack_return_and_owner_observation(origin, parent, state):
+  {==}
+
+def Rule.source_subactivity_names_actual_request(origin):
+  {==}
+
+def Rule.source_subactivity_reads_the_same_owner_activity(activity, parent):
+  {==}
+
+def Rule.workspace_source_uses_actual_execution_observation(config, preview, controls, projects, reviewers, rest, editor, state):
+  {==}
+
+def Rule.workspace_layer_source_preserves_observation_owner(editor, fields, state):
+  {==}
+
+def Rule.activity_layer_source_preserves_property_observation(activity):
+  {==}
+
+def Rule.source_child_preserves_owner_view_observation(origin, trigger, initial, query, occurrence, expanded, field, buffer, rest):
+  {==}
+
+def Rule.source_projection_replaces_only_its_real_owner(origin, owner, trigger, initial, query, occurrence, expanded, field, buffer, rest, shown):
+  {==}
+
+def Rule.source_projection_keeps_return_parent_out_of_the_visible_stack(owner, rest):
+  {==}
+
+def Rule.source_projection_reuses_owning_visible_anchor(owner, original):
+  {==}
+
+def Rule.inspection_readonly_dependency_uses_its_actual_relation(owner, subject, profile, children, activity, current, query, parent, state):
+  {==}
+
+def Rule.inspection_root_precedes_its_retained_dependencies(decision, actual, children, activity, current, query, parent, state):
+  {==}

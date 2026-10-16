@@ -151,7 +151,7 @@ def reading_box(+capacity: Nat, +key: Identity.Key, +tag: Source.BoxTag, +style:
   recognized: {Renderer.reading_content(attrs) == content : Bool}) ->
   RulePhysicalControlRules.reading_box_claim(capacity, key, tag, style, attrs, original, font, interaction, styles, children, native, content):
   Equal.cong(Bool, +List<Doc.Property>,
-    (is_content => Renderer.reading_styles(is_content, Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, Content.Value{Source.Box{key, tag, style, attrs, original}, font}), Renderer.visual(style))))),
+    (is_content => Renderer.reading_styles(is_content, Renderer.properties(styles, Renderer.properties(Renderer.primitive_styles_at(capacity, Content.Value{Source.Box{key, tag, style, attrs, original}, font}), Renderer.properties(Renderer.visual(style), Renderer.inline_text_styles(style)))))),
     Renderer.reading_content(attrs), content, recognized)
 
 def observation_appended(attrs: +List<Doc.Property>, +key: String) ->
@@ -212,8 +212,99 @@ def container_observation(+capacity: Nat, +value: Content.Value, interaction: Mo
     case Content.Value{Source.RichText{key, style, content, attachments, owner}, font}: {==}
     case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}: {==}
 
+def rich_alignment(+key: Identity.Key, extent: E.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> RulePhysicalControlRules.rich_alignment_claim(key, extent, rule, children):
+  E.Extent{width, height} = extent
+  Model.Rule{direction, main, cross, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
+  match direction:
+    case Model.Horizontal{}:
+      match main:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+    case Model.ResponsiveHorizontal{}:
+      match main:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+    case Model.Vertical{}:
+      match cross:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+    case Model.Layered{}:
+      match cross:
+        case SpatialModel.Stretch{}: {==}
+        case SpatialModel.Leading{}: {==}
+        case SpatialModel.Trailing{}: {==}
+        case SpatialModel.Centered{}: {==}
+
+def container_alignment(+capacity: Nat, +value: Content.Value, +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> RulePhysicalControlRules.container_alignment_claim(capacity, value, interaction, styles, children, native):
+  match value:
+    case Content.Value{Source.Box{key, tag, +style, attrs, original}, font}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, source_font, chrome, states} = style
+      match direction:
+        case Model.Horizontal{}:
+          match main:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+        case Model.ResponsiveHorizontal{}:
+          match main:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+        case Model.Vertical{}:
+          match cross:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+        case Model.Layered{}:
+          match cross:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+    case Content.Value{Source.Control{key, tag, +style, attrs, name, enabled, first, remaining, original}, font}:
+      Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, source_font, chrome, states} = style
+      match direction:
+        case Model.Horizontal{}:
+          match main:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+        case Model.ResponsiveHorizontal{}:
+          match main:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+        case Model.Vertical{}:
+          match cross:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+        case Model.Layered{}:
+          match cross:
+            case SpatialModel.Leading{}: {==}
+            case SpatialModel.Trailing{}: {==}
+            case SpatialModel.Centered{}: {==}
+            case SpatialModel.Stretch{}: {==}
+    case Content.Value{Source.Text{key, text, choice, wrapping}, font}: {==}
+    case Content.Value{Source.Glyph{key, drawing, style}, font}: {==}
+    case Content.Value{Source.Field{key, kind, style, attrs, text, placeholder, options, policy, name, enabled, first, remaining}, font}: {==}
+    case Content.Value{Source.NativeAttachment{key, target, attrs, style, original}, font}: {==}
+    case Content.Value{Source.RichText{key, style, content, attachments, native_owner}, font}: {==}
+
 def RulePhysicalControlRules.renderer_evidence():
-  RulePhysicalControlRules.RendererRequirements{key => dom_key => tag => attrs => styles => events => children => {==}, identity => dom_key => attrs => styles => events => input_key => input_attrs => input_styles => input_events => input_children => rest => {==}, owner => target => key => identity => native_target => attrs => style => original => font => interaction => rule => bounds => canvas => direction => children => {==}, leaf_observation, container_observation, reading_box, styles => {==}, styles => {==}, rich_parent, generation => key => tag => style => children => font => theme => {==}, admitted_world, rejected_world}
+  RulePhysicalControlRules.RendererRequirements{container_alignment, rich_alignment, key => dom_key => tag => attrs => styles => events => children => {==}, identity => dom_key => attrs => styles => events => input_key => input_attrs => input_styles => input_events => input_children => rest => {==}, owner => target => key => identity => native_target => attrs => style => original => font => interaction => rule => bounds => canvas => direction => children => {==}, leaf_observation, container_observation, reading_box, styles => {==}, styles => {==}, rich_parent, generation => key => tag => style => children => font => theme => {==}, admitted_world, rejected_world}
 
 def measured_minimum_bound(+observation: Content.Observation) ->
   {Nat.is_le(RulePhysicalControlRules.minimum_width(SourceSource.text_natural_demand(T.SingleLine{}, observation)), SourceSource.observation_advance(observation)) == True{} : Bool}:

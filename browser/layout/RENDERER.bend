@@ -343,6 +343,12 @@ def drawing(+key: UIIdentity.Key, +value: Source.Drawing, +bounds: Spatial.Box, 
 
 # The allocator has already excluded border and frame from this content extent.
 
+def text_alignment(alignment: Spatial.Alignment) -> String:
+  match alignment:
+    case Spatial.Centered{}: "center"
+    case Spatial.Trailing{}: "end"
+    case _: "start"
+
 def rich_content_frame(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Model.Rule, children: +List<Doc.Node>) -> Doc.Node:
   Enclosure.Extent{width, height} = extent
   Model.Rule{direction, main, cross, frame, border, width_rule, height_rule, minimum, scroll, position} = rule
@@ -350,7 +356,8 @@ def rich_content_frame(+key: UIIdentity.Key, extent: Enclosure.Extent, rule: Mod
   Doc.Element{UIIdentity.encode(UIIdentity.part(key, "content")), "div", Nil{},
     [Paint.property("position", "absolute"), Paint.property("left", Paint.px(Enclosure.inline(insets))),
      Paint.property("top", Paint.px(Enclosure.block(insets))), Paint.property("width", Paint.px(width)), Paint.property("height", Paint.px(height)),
-     Paint.property("margin", "0"), Paint.property("padding", "0"), Paint.property("border", "0"), Paint.property("box-sizing", "border-box")], Nil{}, children}
+     Paint.property("margin", "0"), Paint.property("padding", "0"), Paint.property("border", "0"), Paint.property("box-sizing", "border-box"),
+     Paint.property("text-align", text_alignment(drawing_inline_alignment(direction, main, cross)))], Nil{}, children}
 
 def toggle_checked(attrs: +List<Source.Attribute>) -> Bool:
   match attrs:
@@ -454,12 +461,17 @@ def reading_styles(content: Bool, styles: +List<Doc.Property>) -> +List<Doc.Prop
     case True{}: properties(styles, [Paint.property("padding-bottom", "var(--reading-composer-reserve, 0px)")])
     case False{}: styles
 
+# Text inside native controls follows its authored layout instead of browser defaults.
+def inline_text_styles(style: Source.Style) -> +List<Doc.Property>:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  [Paint.property("text-align", text_alignment(drawing_inline_alignment(direction, main, cross)))]
+
 def container_at(+capacity: Nat, +value: Content.Value, +interaction: Model.Interaction<Doc.DOMEvent>, +styles: +List<Doc.Property>, +children: +List<Doc.Node>, +native: Bool) -> Doc.Node:
   match value:
     case Content.Value{Source.Box{+key, +tag, +style, +attrs, +original_children}, +font}:
-      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), reading_styles(reading_content(attrs), properties(styles, properties(primitive_styles_at(capacity, value), visual(style)))), Nil{}, children})
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.box_tag_name(tag), attributes(attrs), reading_styles(reading_content(attrs), properties(styles, properties(primitive_styles_at(capacity, value), properties(visual(style), inline_text_styles(style))))), Nil{}, children})
     case Content.Value{Source.Control{+key, +tag, +style, +attrs, +name, +enabled, +first, +remaining, +original_children}, +font}:
-      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), control_visual(style))), event_list(interaction), children})
+      observed(observation_key(value), Doc.Element{UIIdentity.encode(key), Source.control_tag_name(tag), control_attributes(tag, attrs, name, interaction), properties(styles, properties(primitive_styles_at(capacity, value), properties(control_visual(style), inline_text_styles(style)))), event_list(interaction), children})
     case Content.Value{Source.NativeAttachment{+key, +target, +attrs, +style, +original_children}, +font}:
       choose(Doc.Node, native, Doc.Element{UIIdentity.encode(key), "div", Nil{}, properties(styles, properties(primitive_styles_at(capacity, value), visual(style))), Nil{}, children}, diagnostic(key, "native-attachment-outside-portal"))
     case Content.Value{Source.Text{+key, +text, +choice, +wrap}, +font}: diagnostic(key, "text-as-container")

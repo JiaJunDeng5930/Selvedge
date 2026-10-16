@@ -16,21 +16,24 @@ import ../../bendlib/equality-proof.bend as EqualityProof
 
 def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
   {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext}:
-  D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+  D.Task{parent_id, lineage,
+    D.Contract{creation_model, tools, max_fork, max_descendants, plugins, D.TaskContext{workspace, creation_sandbox, creation_approval, project_id}},
+    D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval},
+    status, history, queued, phase, operations, notified} = parent
   {==}
 
 def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
   {D.task_operations(Commands.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<D.Operation()>}:
-  D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+  D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified} = parent
   {==}
 
 def recorded_context(changed: Bool, +context:D.TaskContext, guidance:D.ProjectContext, parent:D.Task) ->
   {D.task_context(Commands.record_selection(changed, W.Selection{context, guidance}, parent)) == context : D.TaskContext}:
-  match changed parent:
-    case False{} D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}:
-      match contract:
-        case D.Contract{D.Model{profile, reasoning}, tools, forks, descendants, plugins, previous}: {==}
-    case True{} D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, old_context}, status, history, queued, phase, operations, notified}: {==}
+  match changed context parent:
+    case False{} D.TaskContext{workspace, sandbox, approval, project_id}
+      D.Task{id, lineage, D.Contract{model, tools, forks, descendants, plugins, previous}, current, status, history, queued, phase, operations, notified}: {==}
+    case True{} D.TaskContext{workspace, sandbox, approval, project_id}
+      D.Task{id, lineage, D.Contract{model, tools, forks, descendants, plugins, previous}, current, status, history, queued, phase, operations, notified}: {==}
 
 def override_context(+context:D.TaskContext, +guidance:D.ProjectContext, +task:D.Task) ->
   {D.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : D.TaskContext}:

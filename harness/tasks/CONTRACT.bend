@@ -37,4 +37,4 @@ def selected_history(changed: Bool, selection: Workspace.Selection, +parent: D.T
   match changed selection:
     case False{} _: D.task_history(parent)
     case True{} Workspace.Selection{context, guidance}:
-      selected_model_history(context, guidance, Tasks.task_model(D.task_contract(parent)), D.task_history(parent))
+      selected_model_history(context, guidance, D.task_model(parent), D.task_history(parent))

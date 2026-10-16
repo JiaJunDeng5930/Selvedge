@@ -1,3 +1,4 @@
+import ../bendlib/association-map.bend as Finite
 import Base
 import ../harness/MODEL.bend as M
 import ../harness/PROGRAM.bend as Program
@@ -74,3 +75,27 @@ type Requirements is Type:
     observation: @+capacity:View.Capacity -> @+state:InteractionTypes.State ->
       {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : InteractionTypes.Scene}
   }
+
+def original_submission_blocked_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Bool:
+  match input:
+    case E.UserInput{U.Activate{U.Submit{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{U.RetryWorkspace{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{U.ConfirmAction{}}}: Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{action}}: Core.command_offline(U.direct_command(action), access)
+    case _: False{}
+
+law service_submit_obstruction:
+  @+connected:Bool -> @+blocked:Bool ->
+  {Core.obstruction_present(Core.submit_obstruction(connected, blocked)) == blocked || Bool.not(connected) : Bool}
+
+law service_action_obstruction:
+  @+blocked:Bool -> {Core.obstruction_present(Core.action_obstruction(blocked)) == blocked : Bool}
+
+law submission_obstruction_preserves_admission:
+  @+access:Services.Access -> @+transfers:+List<Finite.Entry(Services.Transfer)> -> @+input:E.Input ->
+  {Core.submission_blocked_access(access, transfers, input) == original_submission_blocked_access(access, transfers, input) : Bool}
+
+law actual_control_observation:
+  @+state:InteractionTypes.State -> @+identity:String -> @+label:String -> @+prominence:View.Prominence -> @+input:U.Input -> @availability:View.Availability ->
+  {Core.control(state, View.ControlDeclaration{identity, label, prominence, input, availability}) ==
+    InteractionTypes.Control{identity, label, prominence, InteractionTypes.ApplicationInput{E.UserInput{input}}, Core.control_availability(Core.submission_obstruction_access(Services.access(Core.services(state)), Services.transfers(Core.services(state)), E.UserInput{input}), availability)} : InteractionTypes.Control}

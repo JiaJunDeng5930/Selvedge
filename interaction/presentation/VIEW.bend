@@ -1,3 +1,5 @@
+import ../experience/PROGRAM.bend as UX
+import ../experience/MODEL.bend as Experience
 import Base
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
@@ -42,6 +44,7 @@ def editor_title(editor: U.Editor) -> String:
 
 def layer_title(content: ViewTypes.LayerContent) -> String:
   match content:
+    case ViewTypes.PropertySource{origin}: "Configuration source"
     case ViewTypes.ProjectSelection{query, selected, projects}: "Select project"
     case ViewTypes.ObjectActions{actions}: "Actions"
     case ViewTypes.ArchivedCards{cards}: "Archived cards"
@@ -49,7 +52,7 @@ def layer_title(content: ViewTypes.LayerContent) -> String:
     case ViewTypes.BoardFilters{filter}: "筛选任务"
     case ViewTypes.CardDetails{card}: "任务详情"
     case ViewTypes.ObjectEditor{None{}}: "Editor unavailable"
-    case ViewTypes.ObjectEditor{Some{ViewTypes.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}: editor_title(identity)
+    case ViewTypes.ObjectEditor{Some{ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending}}}: editor_title(identity)
     case ViewTypes.WorkspaceSettings{editor, fields}: "Working directories"
     case ViewTypes.PermissionSettings{editor, fields}: "Permissions"
     case ViewTypes.CommittedContext{context}: "Execution context"
@@ -80,7 +83,7 @@ def select_fields(fields: +List<ViewTypes.InputGroup>, +selection: ViewTypes.Fie
 def selected_fields(editor: Maybe<&2, ViewTypes.EditorScene>, selection: ViewTypes.FieldSelection) -> +List<ViewTypes.InputGroup>:
   match editor:
     case None{}: Nil{}
-    case Some{ViewTypes.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}: select_fields(groups, selection)
+    case Some{ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending}}: select_fields(groups, selection)
 
 def profile_label(profile: Maybe<&2, D.Profile>, fallback: String) -> String:
   match profile:
@@ -196,6 +199,10 @@ def observation_permissions(observation: Context.Observation, profiles: +List<D.
     case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, D.Sandbox{mode, network}, approval, project}, guidance, +access}}:
       Context.filesystem_summary(access, mode) ++ "; " ++ Context.network_summary(access, network) ++ "; " ++ policy_approval_summary(approval)
 
+def context_task(context: Context.EffectiveContext) -> Nat:
+  Context.EffectiveContext{task, value, guidance, access} = context
+  task
+
 def committed_context(found: Maybe<&2, D.Task>) -> Maybe<&2, Context.EffectiveContext>:
   match found:
     case None{}: None{}
@@ -220,7 +227,7 @@ def creation_selected_project(context: Maybe<&2, Context.Preview>, world: M.Worl
 def creation_heading(project: Maybe<&2, ViewTypes.ProjectChoice>) -> String:
   match project:
     case None{}: "What would you like to build?"
-    case Some{ViewTypes.ProjectChoice{id, name, workspace}}: "Work on"
+    case Some{ViewTypes.ProjectChoice{id, name, workspace}}: "Work on " ++ name
 
 def preview_observation(context: Maybe<&2, Context.Preview>) -> Maybe<&2, Context.Observation>:
   match context:
@@ -261,34 +268,72 @@ def creation_introduction_fields(+context: Maybe<&2, Context.Preview>, +world: M
 def creation_introduction(composer: Maybe<&2, ViewTypes.ComposerScene>, world: M.World()) -> ViewTypes.CreationIntroduction:
   match composer:
     case None{}: creation_introduction_fields(None{}, world)
-    case Some{ViewTypes.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}:
+    case Some{ViewTypes.ComposerScene{identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
       creation_introduction_fields(draft_preview(context), world)
 
 def draft_context_footer(+editor: U.Editor, +observation: Context.Observation, profiles: +List<D.Profile>) -> +List<ViewTypes.ComposerControl>:
-  [ViewTypes.ComposerControl{ViewTypes.WorkspaceSubject{}, context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor})},
-   ViewTypes.ComposerControl{ViewTypes.PermissionsSubject{}, context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})}]
+  [ViewTypes.ComposerControl{UX.permissions_property(editor, observation), context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})}]
 
-def committed_context_footer(+task: Nat, observation: Maybe<&2, Context.Observation>, profiles: +List<D.Profile>) -> +List<ViewTypes.ComposerControl>:
+def operation_availability(operation: Commands.Operation) -> ViewTypes.Availability:
+  match operation:
+    case Commands.Refuse{code, reason}: ViewTypes.Unavailable{reason}
+    case _: ViewTypes.Available{}
+
+def current_execution_availability(+task: Nat, +current: D.ExecutionConfiguration, +world: M.World()) -> ViewTypes.Availability:
+  D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  operation_availability(Commands.resolve(M.ConfigureTaskExecution{task, profile, reasoning, sandbox, approval}, world))
+
+def task_execution_availability(+found: Maybe<&2, D.Task>, +world: M.World()) -> ViewTypes.Availability:
+  match found:
+    case None{}: ViewTypes.Unavailable{"The task no longer exists"}
+    case Some{+task}: current_execution_availability(D.task_id(task), D.task_execution(task), world)
+def committed_context_footer(+task: Nat, observation: Maybe<&2, Context.Observation>, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
   match observation:
     case None{}: Nil{}
     case Some{+value}:
-      [ViewTypes.ComposerControl{ViewTypes.WorkspaceSubject{}, context_control("composer/workspace/message/" ++ Nat.show(task), observation_workspace(value), U.TaskContext{task})},
-       ViewTypes.ComposerControl{ViewTypes.PermissionsSubject{}, context_control("composer/permissions/message/" ++ Nat.show(task), observation_permissions(value, profiles), U.TaskContext{task})}]
+      [ViewTypes.ComposerControl{UX.permissions_property(U.MessageEditor{task}, value), ViewTypes.ControlDeclaration{"composer/permissions/message/" ++ Nat.show(task), observation_permissions(value, Board.profiles(world)), ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.PermissionsConfiguration{U.MessageEditor{task}}, "composer/permissions/message/" ++ Nat.show(task)}}, task_execution_availability(Tasks.find(Commands.entries(world), task), world)}}]
 
+
+def observation_project(observation: Context.Observation) -> Maybe<&2, Nat>:
+  match observation:
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: project
+    case _: None{}
+
+def creation_context_controls(+editor: U.Editor, +observation: Context.Observation, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
+  [ViewTypes.ComposerControl{UX.project_property(editor, observation_project(observation), world), context_control("composer/project", project_choice_label(creation_selected_project(draft_preview(Some{observation}), world)), U.ProjectPicker{})},
+   ViewTypes.ComposerControl{UX.workspace_property(editor, observation, world), context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor})}]
+
+def task_model_found(+found: Maybe<&2, D.Task>, +task: Nat, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
+  match found:
+    case None{}: Nil{}
+    case Some{+value}:
+      [ViewTypes.ComposerControl{UX.model_property(U.MessageEditor{task}, D.task_profile(value), D.task_reasoning(value), world), ViewTypes.ControlDeclaration{"composer/model/message/" ++ Nat.show(task), profile_label(D.find_profile(Board.profiles(world), D.task_profile(value)), D.task_profile(value)) ++ " · " ++ D.task_reasoning(value), ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.MessageEditor{task}}, "composer/model/message/" ++ Nat.show(task)}}, task_execution_availability(Some{value}, world)}}]
+
+def task_model_controls(+task: Nat, +world: M.World()) -> +List<ViewTypes.ComposerControl>:
+  task_model_found(Tasks.find(Commands.entries(world), task), task, world)
+
+def selection_available(allowed: Bool) -> ViewTypes.Availability:
+  match allowed:
+    case True{}: ViewTypes.Available{}
+    case False{}: ViewTypes.Unavailable{"No configured model offers the selected reasoning effort"}
+
+def model_composer_control(+profile: String, +reasoning: String, +world: M.World()) -> ViewTypes.ComposerControl:
+  ViewTypes.ComposerControl{UX.model_property(U.NewTaskEditor{}, profile, reasoning, world), ViewTypes.ControlDeclaration{"composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile) ++ " · " ++ reasoning, ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}}, selection_available(E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning))}}
 def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()) -> Maybe<&2, ViewTypes.ComposerScene>:
   match body:
     case U.NewTask{message, +profile, reasoning, context}:
-      ViewTypes.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+      ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
       +observation: Context.Observation = Context.DraftExecution{Context.preview(context, world)}
-      Some{ViewTypes.ComposerScene{identity, revision, message,
-        ViewTypes.ComposerControl{ViewTypes.ModelSubject{}, control("composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"})} <>
-          draft_context_footer(U.NewTaskEditor{}, observation, Board.profiles(world)), Some{observation}, submit, feedback, pending}}
+      Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Creation{},
+        creation_context_controls(U.NewTaskEditor{}, observation, world),
+        model_composer_control(profile, reasoning, world) <>
+          draft_context_footer(U.NewTaskEditor{}, observation, Board.profiles(world)), Some{observation}, assessment, submit, feedback, pending}}
     case U.Message{+task, message, +delivery}:
-      ViewTypes.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
+      ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
       +observation: Maybe<&2, Context.Observation> = committed_observation(committed_context(Tasks.find(Commands.entries(world), task)))
-      Some{ViewTypes.ComposerScene{identity, revision, message,
-        ViewTypes.ComposerControl{ViewTypes.DeliverySubject{delivery}, control("composer/delivery/" ++ Nat.show(task), U.delivery_caption(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
-          committed_context_footer(task, observation, Board.profiles(world)), observation, submit, feedback, pending}}
+      Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Conversation{task}, Nil{},
+        List.append(&2, ViewTypes.ComposerControl, task_model_controls(task, world), ViewTypes.ComposerControl{UX.delivery_property(U.MessageEditor{task}, delivery), control("composer/delivery/" ++ Nat.show(task), U.delivery_caption(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
+          committed_context_footer(task, observation, world)), observation, assessment, submit, feedback, pending}}
     case _: None{}
 
 def project_choices(entries: +List<Finite.Entry(D.Project)>) -> +List<ViewTypes.ProjectChoice>:
@@ -342,7 +387,7 @@ def execution_group(+identity: U.Editor, +config: Context.Configuration, +world:
   ViewTypes.ExecutionInput{config, observed,
     workspace_controls(preview_workspace(observed), identity,
       workspace_inheritance(configuration_workspace(config), identity)),
-    projects(world), List.filter(~D.Profile, (profile => Workspace.valid_reviewer_profile(profile)), Board.profiles(world))}
+    projects(world), Forms.reviewers(world)}
 
 def delivery_controls(+task: Nat, selected: U.Delivery) -> ViewTypes.InputGroup:
   ViewTypes.DeliveryInput{selected,
@@ -389,10 +434,20 @@ def capture_inputs(id: Maybe<&2, Nat>, assist: Bool, profile: String, world: M.W
     case None{}: [ViewTypes.CardAssistanceInput{assist, profile, Board.profiles(world)}]
     case Some{id}: Nil{}
 
+def task_execution_context(+task: D.Task, +context: D.TaskContext, +world: M.World()) -> +List<ViewTypes.InputGroup>:
+  D.TaskContext{workspace, sandbox, approval, project} = context
+  [ViewTypes.ModelInput{D.task_profile(task), D.task_reasoning(task), Board.profiles(world)},
+   execution_group(U.MessageEditor{D.task_id(task)}, Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, world)]
+
+def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List<ViewTypes.InputGroup>:
+  match found:
+    case None{}: Nil{}
+    case Some{+task}: task_execution_context(task, D.task_context(task), world)
+
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
     case U.NewTask{message, profile, reasoning, context}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
-    case U.Message{task, message, delivery}: [ViewTypes.MessageInput{message}, delivery_controls(task, delivery)]
+    case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
     case U.Project{id, name, +workspace}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
@@ -410,28 +465,23 @@ def submit_label(body: U.Body) -> String:
     case U.Compact{task, summary}: "Compact history"
     case _: "Save"
 
-def operation_availability(operation: Commands.Operation) -> ViewTypes.Availability:
-  match operation:
-    case Commands.Refuse{code, reason}: ViewTypes.Unavailable{reason}
-    case _: ViewTypes.Available{}
+def assessment_state_availability(state: Experience.AssessmentState, assessment: Experience.Assessment) -> ViewTypes.Availability:
+  match state:
+    case Experience.Ready{}: ViewTypes.Available{}
+    case Experience.NeedsDirectoryObservation{}: ViewTypes.NeedsDirectoryObservation{}
+    case Experience.Blocked{}: ViewTypes.Unavailable{UX.assessment_reason(assessment)}
 
-def preparation_availability(workspace: Maybe<&2, D.Workspace>, body: U.Body, now: U32, world: M.World()) -> ViewTypes.Availability:
-  match workspace:
-    case None{}: operation_availability(Commands.resolve(U.command(body, now), world))
-    case Some{value}: ViewTypes.NeedsDirectoryObservation{}
-
-def submit_availability(blocked: Bool, +body: U.Body, now: U32, world: M.World()) -> ViewTypes.Availability:
-  match blocked:
-    case True{}: ViewTypes.Unavailable{"Submission is pending or the context origin or model selection is invalid"}
-    case False{}: preparation_availability(U.required_workspace(body), body, now, world)
+def assessment_availability(+assessment: Experience.Assessment) -> ViewTypes.Availability:
+  assessment_state_availability(UX.assessment_state(assessment), assessment)
 
 def editor_scene(draft: U.Draft, pending: +List<E.Pending>, now: U32, +world: M.World()) -> ViewTypes.EditorScene:
-  U.Draft{revision, +body, feedback, directory_entry} = draft
+  U.Draft{+revision, +body, +feedback, directory_entry} = draft
   +identity = U.owner(body)
   +waiting = E.busy(pending, identity)
-  ViewTypes.EditorScene{identity, revision, input_groups(body, world), Forms.structure(body),
+  +assessment = UX.assessed_requirements(UX.draft_requirements(U.Draft{revision, body, feedback, directory_entry}, waiting, world), body, revision, now, world)
+  ViewTypes.EditorScene{identity, revision, input_groups(body, world), Forms.structure(body), assessment,
     ViewTypes.ControlDeclaration{"submit/" ++ U.editor_key(identity), submit_label(body), ViewTypes.Primary{}, U.Activate{U.Submit{identity}},
-      submit_availability(waiting || Bool.not(U.valid_origin(body)) || Bool.not(U.model_permitted(body, world)), body, now, world)}, feedback, waiting}
+      assessment_availability(assessment)}, feedback, waiting}
 
 def found_composer(found: Maybe<&2, U.Draft>, pending: +List<E.Pending>, now: U32, +world: M.World()) -> Maybe<&2, ViewTypes.ComposerScene>:
   match found:
@@ -544,8 +594,8 @@ def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.
     ViewTypes.ControlDeclaration{"navigation/toggle", "Toggle sidebar", ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:
-  D.Task{id, lineage, D.Contract{+model, tools, max_fork, max_descendants, plugins, +context}, status, history, queued, phase, operations, notified} = task
-  ViewTypes.TaskDetails{Context.effective(task), model, tools, lineage, queued, status, phase}
+  D.Task{id, lineage, D.Contract{+model, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified} = task
+  ViewTypes.TaskDetails{Context.effective(task), D.task_model(task), tools, lineage, queued, status, phase}
 
 def lifecycle(+id: Nat, +value: D.Control, +label: String, world: M.World()) -> ViewTypes.ControlDeclaration:
   native("task/" ++ Nat.show(id) ++ "/" ++ label, label, ViewTypes.Secondary{}, U.ControlTask{id, value}, world)
@@ -779,6 +829,7 @@ def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U
 
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> ViewTypes.LayerContent:
   match panel:
+    case U.PropertySource{origin}: ViewTypes.PropertySource{layer_content(origin, session, world)}
     case U.ProjectPicker{}:
       +route = E.route(session)
       +drafts = E.drafts(session)
@@ -857,6 +908,7 @@ def details_kind(beside: Bool) -> ViewTypes.LayerKind:
 
 def layer_kind(panel: U.Panel, beside: Bool) -> ViewTypes.LayerKind:
   match panel:
+    case U.PropertySource{origin}: ViewTypes.AnchoredMenu{}
     case U.ObjectActions{subject}: ViewTypes.AnchoredMenu{}
     case U.ModelPicker{editor}: ViewTypes.AnchoredMenu{}
     case U.DeliveryPicker{task}: ViewTypes.AnchoredMenu{}
@@ -916,7 +968,7 @@ def matching_projects(projects: +List<ViewTypes.ProjectChoice>, +query: String) 
 def search_content(content: ViewTypes.LayerContent, +query: String) -> ViewTypes.LayerContent:
   match content:
     case ViewTypes.ProjectSelection{old, selected, projects}: ViewTypes.ProjectSelection{query, selected, matching_projects(projects, query)}
-    case ViewTypes.ModelSelection{editor, old, fields}: ViewTypes.ModelSelection{editor, query, search_fields(fields, query)}
+    case ViewTypes.ModelSelection{editor, old, fields}: ViewTypes.ModelSelection{editor, query, fields}
     case other: other
 
 def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
@@ -924,11 +976,43 @@ def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
     case U.TaskDetails{task}: ViewTypes.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}}
     case _: ViewTypes.OutsideOrEscape{U.ClosePanel{}}
 
+def source_parent_projection(matched: Bool, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:
+  match matched shown:
+    case True{} Con{owner, rest}: rest
+    case _ original: original
+
+def source_origin_projection(origin: U.Panel, entries: +List<E.Layer>, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:
+  match entries:
+    case Nil{}: shown
+    case Con{E.Layer{owner, trigger, initial, query, occurrence, expanded, field, buffer}, rest}:
+      source_parent_projection(String.eq(E.panel_target(origin), E.panel_target(owner)), shown)
+
+def source_visible_layers(panel: U.Panel, entries: +List<E.Layer>, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:
+  match panel:
+    case U.PropertySource{origin}: source_origin_projection(origin, entries, shown)
+    case _: shown
+
+def source_anchor_when(matched: Bool, owner: String, original: String) -> String:
+  match matched:
+    case True{}: owner
+    case False{}: original
+
+def source_origin_anchor(origin: U.Panel, entries: +List<E.Layer>, original: String) -> String:
+  match entries:
+    case Nil{}: original
+    case Con{E.Layer{owner, trigger, initial, query, occurrence, expanded, field, buffer}, rest}:
+      source_anchor_when(String.eq(E.panel_target(origin), E.panel_target(owner)), trigger, original)
+
+def layer_navigation_anchor(panel: U.Panel, entries: +List<E.Layer>, original: String) -> String:
+  match panel:
+    case U.PropertySource{origin}: source_origin_anchor(origin, entries, original)
+    case _: original
+
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<ViewTypes.Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence}, rest}:
-      ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
+    case Con{E.Layer{+panel, +trigger, initial, +query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, +rest}:
+      ViewTypes.Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, layer_navigation_anchor(panel, rest, trigger), layer_dismissal(panel, trigger)} <> source_visible_layers(panel, rest, layers(rest, session, world, beside))
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:
   match intent:

@@ -40,19 +40,67 @@ def choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Ob
     case Forms.DirectoryCollection{}: {==}
     case Forms.FileCollection{}: {==}
 
+def property_choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value: Forms.Observed, +editor: U.Editor, +groups: +List<View.InputGroup>) ->
+  {Interface.scoped_entry_choices(entry, field, value, editor, groups) == Rule.expected_property_choices(entry, field, value, editor, groups) : +List<Forms.ChoiceValue>}:
+  match field value:
+    case Forms.WorkspacePrimary{} Forms.ToggleValue{enabled}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.ToggleValue{enabled}, groups)
+    case Forms.WorkspacePrimary{} Forms.TextValue{text}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.TextValue{text}, groups)
+    case Forms.WorkspacePrimary{} Forms.CountValue{count}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.CountValue{count}, groups)
+    case Forms.WorkspacePrimary{} Forms.TextsValue{values}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.TextsValue{values}, groups)
+    case Forms.WorkspacePrimary{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.WorkspacePrimary{} Forms.ContextValue{preview, reviewers}: {==}
+    case Forms.WorkspacePrimary{} Forms.ModelValue{profile, reasoning}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.ModelValue{profile, reasoning}, groups)
+    case Forms.WorkspacePrimary{} Forms.DeliveryValue{delivery}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.DeliveryValue{delivery}, groups)
+    case Forms.WorkspacePrimary{} Forms.StageValue{stage}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.StageValue{stage}, groups)
+    case Forms.WorkspacePrimary{} Forms.PriorityValue{priority}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.PriorityValue{priority}, groups)
+    case Forms.WorkspacePrimary{} Forms.OwnerValue{owner}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.OwnerValue{owner}, groups)
+    case Forms.WorkspacePrimary{} Forms.ProjectValue{project}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.ProjectValue{project}, groups)
+    case Forms.WorkspacePrimary{} Forms.AttachmentsValue{files}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.AttachmentsValue{files}, groups)
+    case Forms.WorkspacePrimary{} Forms.AssistanceValue{enabled, profile}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.AssistanceValue{enabled, profile}, groups)
+    case Forms.WorkspacePrimary{} Forms.OptionalTextValue{text}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.OptionalTextValue{text}, groups)
+    case Forms.WorkspacePrimary{} Forms.NotApplicable{}: choices_agreement(entry, Forms.WorkspacePrimary{}, Forms.NotApplicable{}, groups)
+    case Forms.MessageText{} _: choices_agreement(entry, Forms.MessageText{}, value, groups)
+    case Forms.ProjectName{} _: choices_agreement(entry, Forms.ProjectName{}, value, groups)
+    case Forms.WorkspaceDirectories{} _: choices_agreement(entry, Forms.WorkspaceDirectories{}, value, groups)
+    case Forms.ContextOrigin{} _: choices_agreement(entry, Forms.ContextOrigin{}, value, groups)
+    case Forms.SandboxMode{} _: choices_agreement(entry, Forms.SandboxMode{}, value, groups)
+    case Forms.NetworkAccess{} _: choices_agreement(entry, Forms.NetworkAccess{}, value, groups)
+    case Forms.ApprovalPolicy{} _: choices_agreement(entry, Forms.ApprovalPolicy{}, value, groups)
+    case Forms.ApprovalReviewer{} _: choices_agreement(entry, Forms.ApprovalReviewer{}, value, groups)
+    case Forms.ModelProfile{} _: choices_agreement(entry, Forms.ModelProfile{}, value, groups)
+    case Forms.ReasoningEffort{} _: choices_agreement(entry, Forms.ReasoningEffort{}, value, groups)
+    case Forms.DeliveryIntent{} _: choices_agreement(entry, Forms.DeliveryIntent{}, value, groups)
+    case Forms.CardTitle{} _: choices_agreement(entry, Forms.CardTitle{}, value, groups)
+    case Forms.CardDescription{} _: choices_agreement(entry, Forms.CardDescription{}, value, groups)
+    case Forms.CardStage{} _: choices_agreement(entry, Forms.CardStage{}, value, groups)
+    case Forms.CardPriority{} _: choices_agreement(entry, Forms.CardPriority{}, value, groups)
+    case Forms.CardOwner{} _: choices_agreement(entry, Forms.CardOwner{}, value, groups)
+    case Forms.CardProject{} _: choices_agreement(entry, Forms.CardProject{}, value, groups)
+    case Forms.CardLabels{} _: choices_agreement(entry, Forms.CardLabels{}, value, groups)
+    case Forms.CardAttachments{} _: choices_agreement(entry, Forms.CardAttachments{}, value, groups)
+    case Forms.ContinueCapture{} _: choices_agreement(entry, Forms.ContinueCapture{}, value, groups)
+    case Forms.AssistedCapture{} _: choices_agreement(entry, Forms.AssistedCapture{}, value, groups)
+    case Forms.AssistanceProfile{} _: choices_agreement(entry, Forms.AssistanceProfile{}, value, groups)
+    case Forms.AgentName{} _: choices_agreement(entry, Forms.AgentName{}, value, groups)
+    case Forms.AgentInstructions{} _: choices_agreement(entry, Forms.AgentInstructions{}, value, groups)
+    case Forms.AgentConcurrency{} _: choices_agreement(entry, Forms.AgentConcurrency{}, value, groups)
+    case Forms.ForkCount{} _: choices_agreement(entry, Forms.ForkCount{}, value, groups)
+    case Forms.ForkMessages{} _: choices_agreement(entry, Forms.ForkMessages{}, value, groups)
+    case Forms.CompactionSummary{} _: choices_agreement(entry, Forms.CompactionSummary{}, value, groups)
+
 def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<View.InputGroup>) ->
   {Interface.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==
     SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
       SurfaceTypes.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field),
-        Rule.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups)},
-      Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)} : SurfaceTypes.Node}:
+        Rule.expected_property_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups)},
+      List.append(&2, SurfaceTypes.Node, Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state), Interface.subject_repair(editor, field, Identity.Part{parent, Forms.key(field)}, state))} : SurfaceTypes.Node}:
   Equal.cong(+List<Forms.ChoiceValue>, SurfaceTypes.Node,
     choices => SurfaceTypes.Node{Identity.Part{parent, Forms.key(field)}, Forms.key(field), label, SurfaceTypes.Field{},
       SurfaceTypes.Edit{editor, field, Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), Interface.field_value(state, editor, field), choices},
-      Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state)},
-    Interface.entry_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    Rule.expected_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups),
-    choices_agreement(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), groups))
+      List.append(&2, SurfaceTypes.Node, Interface.field_children(field, editor, Identity.Part{parent, Forms.key(field)}, state), Interface.subject_repair(editor, field, Identity.Part{parent, Forms.key(field)}, state))},
+    Interface.scoped_entry_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups),
+    Rule.expected_property_choices(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups),
+    property_choices_agreement(Interface.actual_entry(field, entry, Interface.field_value(state, editor, field), state), field, Interface.field_value(state, editor, field), editor, groups))
 
 def Rule.feedback_evidence():
   Rule.FeedbackRequirements{
@@ -60,8 +108,8 @@ def Rule.feedback_evidence():
     +parent => revision => +reason => {==},
     parent => {==},
     parent => revision => reply => {==},
-    +identity => revision => groups => +structure => +submit => submitted => +reason => pending => +parent => +state => {==},
-    +identity => revision => message => +footer => context => +submit => submitted => +reason => pending => +parent => +state => {==}}
+    +identity => revision => +groups => +structure => +assessment => +submit => submitted => +reason => pending => +parent => +state => {==},
+    +identity => revision => message => +footer => context => +assessment => +submit => submitted => +reason => pending => +parent => +state => {==}}
 
 def with_native_preserves_drafts(+decision: E.Decision, +result: J.Json, +effects: +List<M.Effect()>, durable: Bool) ->
   {Rule.decision_drafts(E.with_native(decision, result, effects, durable)) == Rule.decision_drafts(decision) : +List<U.Draft>}:
@@ -71,18 +119,18 @@ def with_native_preserves_drafts(+decision: E.Decision, +result: J.Json, +effect
 def close_layers_preserves_drafts(+layers: +List<E.Layer>, program: M.World(), route: U.Route,
   +drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>, +session_layers: +List<E.Layer>,
   attention: String, navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
-  +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>, next_layer: Nat) ->
+  +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>, next_layer: Nat, +model_preference: Maybe<&2, E.ModelPreference>, draft_model_manual: Bool) ->
   {Rule.decision_drafts(E.close_layers(layers, program,
-    E.Session{route, drafts, readers, session_layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer})) == drafts : +List<U.Draft>}:
+    E.Session{route, drafts, readers, session_layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual})) == drafts : +List<U.Draft>}:
   match layers:
     case Nil{}: {==}
-    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
 
 def close_panel_preserves_drafts(+application: E.Application) ->
   {Rule.decision_drafts(E.close_panel(application)) == Rule.application_drafts(application) : +List<U.Draft>}:
-  E.Application{program, E.Session{route, +drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, +drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   close_layers_preserves_drafts(layers, program, route, drafts, readers, layers, attention, navigation, filter,
-    now, next, pending, previews, code_blocks, next_layer)
+    now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual)
 
 def finish_layer_preserves_drafts(same: Bool, +application: E.Application) ->
   {Rule.decision_drafts(E.finish_layer(same, application)) == Rule.application_drafts(application) : +List<U.Draft>}:
@@ -96,107 +144,113 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
     Rule.application_drafts(application) : +List<U.Draft>}:
   match route layers:
     case U.Start{} Nil{}: {==}
-    case U.Start{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
+    case U.Start{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
-    case U.Start{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Start{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.Conversation{route_task} Nil{}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
+    case U.Conversation{route_task} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
-    case U.Conversation{route_task} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.Conversation{route_task} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.ProjectHome{project} Nil{}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
+    case U.ProjectHome{project} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
-    case U.ProjectHome{project} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectHome{project} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.ProjectCollection{} Nil{}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
+    case U.ProjectCollection{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
-    case U.ProjectCollection{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.ProjectCollection{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.TaskBoard{} Nil{}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
+    case U.TaskBoard{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
-    case U.TaskBoard{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.TaskBoard{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
     case U.AgentCollection{} Nil{}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence}, rest}:
+    case U.AgentCollection{} Con{E.Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
-    case U.AgentCollection{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence}, rest}: {==}
-    case U.AgentCollection{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.WorkspaceConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.PermissionsConfiguration{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.TaskContext{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.PropertySource{origin}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.DeliveryPicker{task}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.Confirm{command, title, destination}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
 
 def message_finish_submission_preserves_drafts(+directory_entry: String, +task: Nat, +revision: Nat, +message: U.Text,
   +delivery: U.Delivery, feedback: U.Feedback, +result: J.Json, +application: E.Application) ->
   {Rule.decision_drafts(Rule.finish_submission_spec(True{}, U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry},
       result, application)) == Rule.application_drafts(application) : +List<U.Draft>}:
-  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   message_finish_location_preserves_drafts(task, route, layers, result, application)
 
 def native_session_owned(+owned: Bool, submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J.Json,
@@ -261,7 +315,7 @@ def stale_settlement(+submitted: U.Draft, +result: J.Json, +session: E.Session,
   absent: {E.owns_submission(submitted, session) == False{} : Bool}) ->
   {E.settle(submitted, result, session) == session : E.Session}:
   U.Draft{revision, body, feedback, directory_entry} = submitted
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   stale_found(E.find_draft(drafts, U.owner(body)), revision, result, session, absent)
 
 def conjunction_right_false(left: Bool, right: Bool, absent: {right == False{} : Bool}) ->
@@ -335,7 +389,7 @@ def accepted_message_settlement_snapshot(+directory_entry: String, +revision: Na
   {Rule.session_drafts(E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session)) ==
     E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
       Rule.session_drafts(session)) : +List<U.Draft>}:
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   found_owned = Equal.cong(Maybe<&2, U.Draft>, Bool,
     (found => E.same_revision(found, revision)),
     E.find_draft(drafts, U.MessageEditor{task}),
@@ -463,7 +517,7 @@ def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.Dire
   absent: {E.find_pending(Rule.pending_entries(application), ticket) == None{} : Maybe<&2, E.Pending>}) ->
   {ExperienceProgram.step(E.DirectoriesObserved{ticket, result}, application) ==
     E.Decision{application, D.failure("interaction_refused", "The directory observation has no pending request"), Nil{}, Nil{}, False{}} : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
   Equal.cong(Maybe<&2, E.Pending>, E.Decision,
     (found => E.observed_pending(found, result, application)),
     E.find_pending(Rule.pending_entries(application), ticket), None{}, absent)
@@ -472,7 +526,7 @@ def encapsulated_preparation_snapshot(+session: E.Session, +program: M.World(), 
   {E.prepare(E.from_program(program, session), Some{workspace}, draft) ==
         E.Decision{E.from_program(program, E.with_pending(E.Pending{E.next_ticket(session), draft, E.now(session)} <> E.pending(session), E.with_next_ticket((E.next_ticket(session) + 1n : Nat), session))),
           D.success(J.Null{}), Nil{}, [E.ObserveDirectories{E.next_ticket(session), workspace}], False{}} : E.Decision}:
-  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer} = session
+  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
   {==}
 
 def Rule.submission_evidence():
@@ -494,7 +548,7 @@ def reopened_older_ownership(directory_entry: String, old_entry: String, +previo
   before: {Nat.cmp((previous + 1n : Nat), older) == GT{} : Cmp}) ->
   {E.owns_submission(U.Draft{older, old_body, feedback, old_entry},
     E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}, directory_entry}}, fallback, session)) == False{} : Bool}:
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer} = session
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
   Equal.trans(Bool,
     E.same_revision(E.select_draft(U.same_editor(U.owner(fallback), U.owner(old_body)),
       U.Draft{(previous + 1n : Nat), fallback, U.Editing{}, ""},

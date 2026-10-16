@@ -1,4 +1,7 @@
+import ../experience/PROGRAM.bend as UX
+import ../../bendlib/categories.bend as Categories
 import Base
+import ../submission/FIELDS.bend as Forms
 import ../submission/CONTRACT.bend as SubmissionRule
 import ../../harness/INVARIANTS.bend as I
 import ../../harness/MODEL.bend as M
@@ -10,10 +13,77 @@ import ./MODEL.bend as E
 import ./PROGRAM.bend as ExperienceProgram
 import ../INPUT.bend as U
 import ../../features/board/MODEL.bend as B
+import ../../features/board/STATE.bend as Board
 import ../../bendlib/association-map.bend as Finite
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
 import ../services/CONTEXT.bend as Context
+
+def model_choice_spec(valid: Bool, +profile: String, +reasoning: String, +application: E.Application) -> E.Decision:
+  match valid:
+    case True{}: E.remember_manual(U.ChooseModel{profile, reasoning}, E.close_selected_choice(U.ChooseModel{profile, reasoning}, U.NewTaskEditor{}, E.edit(U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}, application)))
+    case False{}: E.Decision{application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."), Nil{}, Nil{}, False{}}
+
+def catalog_selection_if(valid: Bool, +profile: D.Profile, fallback: Sigma<&2, &2, String, (_ => String)>) -> Sigma<&2, &2, String, (_ => String)>:
+  match valid:
+    case True{}: (D.profile_key(profile), D.profile_default(profile))
+    case False{}: fallback
+
+def catalog_selection(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
+  match profiles:
+    case Nil{}: ("", "")
+    case Con{+profile, rest}: catalog_selection_if(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, catalog_selection(rest))
+
+def preference_selection_if(valid: Bool, value: E.ModelPreference, profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
+  match valid value:
+    case True{} E.ModelPreference{profile, reasoning}: (profile, reasoning)
+    case False{} _: catalog_selection(profiles)
+
+def preference_selection(value: Maybe<&2, E.ModelPreference>, +profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
+  match value:
+    case None{}: catalog_selection(profiles)
+    case Some{+selection}:
+      E.ModelPreference{profile, reasoning} = selection
+      preference_selection_if(E.permitted_preference(D.find_profile(profiles, profile), reasoning), selection, profiles)
+
+def selected_model_session(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, session: E.Session) -> E.Session:
+  (selected, effort) = selection
+  E.with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context}, feedback, directory_entry})
+
+def model_resolution_if(valid: Bool, draft: U.Draft, +profiles: +List<D.Profile>, +session: E.Session) -> E.Session:
+  match valid draft:
+    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback, directory_entry}:
+      selected_model_session(preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session)
+    case _ _: session
+
+def model_resolution_found(found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: E.Session) -> E.Session:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context}, feedback, directory_entry}}:
+      model_resolution_if(E.manual_model(session) && E.permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback, directory_entry}, profiles, session)
+    case _: session
+
+def model_resolution(+session: E.Session, +world: M.World()) -> E.Session:
+  model_resolution_found(E.find_draft(E.drafts(session), U.NewTaskEditor{}), Board.profiles(world), session)
+
+def begin_focus(+world: M.World(), +session: E.Session) -> E.Decision:
+  E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/new-task", E.with_layers(Nil{}, E.with_route(U.Start{}, session)))), [E.Attend{"composer/new-task"}])
+
+def begin_changed_spec(result: Result<&2, &2, String, U.Body>, revision: Nat, directory_entry: String, +world: M.World(), +session: E.Session) -> E.Decision:
+  match result:
+    case Fail{reason}: E.reply(E.from_program(world, session), D.failure("interaction_refused", reason))
+    case Done{body}: begin_focus(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}, directory_entry}))
+
+def begin_existing_spec(found: Maybe<&2, U.Draft>, origin: Context.Origin, +world: M.World(), +session: E.Session) -> E.Decision:
+  match found:
+    case None{}: begin_focus(world, session)
+    case Some{U.Draft{revision, body, feedback, directory_entry}}:
+      begin_changed_spec(U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, body, world), revision, directory_entry, world, session)
+
+def begin_resolved_spec(+origin: Context.Origin, +world: M.World(), +session: E.Session) -> E.Decision:
+  begin_existing_spec(E.find_draft(E.drafts(session), U.NewTaskEditor{}), origin, world, session)
+
+def begin_task_spec(project: Maybe<&2, Nat>, +world: M.World(), session: E.Session) -> E.Decision:
+  begin_resolved_spec(E.context_project(project), world, model_resolution(session, world))
 
 type ReadingLocation is Data:
   ReadingLocation{position: U.ReadingIntent, disclosures: +List<E.Disclosure>}
@@ -114,7 +184,7 @@ def opened_application(+application: E.Application, +panel: U.Panel, trigger: St
   layers = E.layers(observed_session)
   +next_layer = E.next_layer(observed_session)
   +target = E.panel_target(panel)
-  E.Decision{E.from_program(program, E.with_next_layer((next_layer + 1n : Nat), E.with_attention(target, E.with_layers(E.Layer{panel, trigger, target, "", next_layer} <> E.without_panel(layers, E.panel_target(panel)), observed_session)))),
+  E.Decision{E.from_program(program, E.with_next_layer((next_layer + 1n : Nat), E.with_attention(target, E.with_layers(E.Layer{panel, trigger, target, "", next_layer, False{}, None{}, None{}} <> E.without_panel(layers, E.panel_target(panel)), observed_session)))),
     D.success(J.Null{}), Nil{}, [E.Attend{target}], False{}}
 
 type Requirements is Type:
@@ -128,8 +198,8 @@ type Requirements is Type:
     modal_open_effects: @+application:E.Application -> @+panel:U.Panel -> @trigger:String ->
       {interaction_effects(E.open_panel(panel, trigger, application)) == [E.Attend{E.panel_target(panel)}] : +List<E.Effect>},
     modal_close_nonempty: @+session:E.Session -> @+program:M.World() -> @+panel:U.Panel -> @+trigger:String -> @initial:String ->
-      @query:String -> @+layer_occurrence:Nat -> @+rest:+List<E.Layer> ->
-      @observed_layers:{E.layers(session) == E.Layer{panel, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>} ->
+      @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> ->
+      @observed_layers:{E.layers(session) == E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest : +List<E.Layer>} ->
        {E.close_panel(E.from_program(program, session)) ==
        E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, session))),
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision},
@@ -158,18 +228,45 @@ type Requirements is Type:
     obsolete_reading: @+task:Nat -> @+generation:Nat -> @+intent:U.ReadingIntent -> @+application:E.Application ->
       @not_owner:{reading_owner(application, task, generation) == False{} : Bool} ->
       {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision},
-    model_choice: @+session:E.Session -> @+program:M.World() -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat ->
+    model_choice: @+session:E.Session -> @+program:M.World() -> @+trigger:String -> @initial:String -> @query:String -> @+layer_occurrence:Nat -> @+source_expanded:Bool -> @+decision_field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> ->
       @+rest:+List<E.Layer> -> @revision:Nat -> @+text:U.Text -> @old_profile:String ->
       @old_reasoning:String -> @context:Context.Configuration -> @feedback:U.Feedback -> @+directory_entry:String ->
       @+new_profile:String -> @+new_reasoning:String ->
-      @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence} <> rest : +List<E.Layer>} ->
+      @valid:{E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool} ->
+      @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest : +List<E.Layer>} ->
       @found:{E.find_draft(E.drafts(session), U.NewTaskEditor{}) ==
         Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, session)) ==
-       E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{}), session)))),
-         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}
+         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision},
+    model_choice_complete: @+profile:String -> @+reasoning:String -> @+application:E.Application ->
+      {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application) ==
+        model_choice_spec(E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning), profile, reasoning, application) : E.Decision},
+    invalid_model_choice: @+profile:String -> @+reasoning:String -> @+application:E.Application ->
+      @invalid:{E.permitted_preference(D.find_profile(Board.profiles(E.program(application)), profile), reasoning) == False{} : Bool} ->
+      {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{profile, reasoning}}}, application) ==
+        E.Decision{application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."), Nil{}, Nil{}, False{}} : E.Decision},
+    manual_preference_persistence: @+profile:String -> @+reasoning:String -> @+world:M.World() -> @+session:E.Session -> @+reply:J.Json -> @+runtime:+List<M.Effect()> -> @+interaction:+List<E.Effect> -> @durable:Bool ->
+      {E.remember_valid(True{}, profile, reasoning, E.Decision{E.from_program(world, session), reply, runtime, interaction, durable}) ==
+        E.Decision{E.from_program(world, E.with_preference(Some{E.ModelPreference{profile, reasoning}}, session)), reply, runtime, E.PersistModelPreference{profile, reasoning} <> interaction, durable} : E.Decision},
+    begin_task_complete: @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+session:E.Session ->
+      {E.begin_task(project, E.from_program(world, session)) == begin_task_spec(project, world, session) : E.Decision},
+    model_resolution_complete: @+session:E.Session -> @+world:M.World() ->
+      {E.resolve_model_draft(session, world) == model_resolution(session, world) : E.Session},
+    manual_draft_priority: @draft:U.Draft -> @profiles:+List<D.Profile> -> @+session:E.Session ->
+      {E.resolve_model_valid(True{}, draft, profiles, session) == session : E.Session},
+    unavailable_catalog: {E.first_profile(Nil{}) == ("", "") : Sigma<&2, &2, String, (_ => String)>},
+    preference_keeps_tasks: @profile:String -> @reasoning:String -> @+world:M.World() -> @session:E.Session ->
+      {E.program(post(E.restore_preference(profile, reasoning, E.from_program(world, session)))) == world : M.World()},
+    completed_creation_resets_manual: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @+result:J.Json -> @+world:M.World() -> @+session:E.Session ->
+      {E.finish_body(U.NewTask{message, profile, reasoning, context}, U.Start{}, Nil{}, result, E.from_program(world, session)) ==
+        E.follow_created(J.natural(J.get(J.get(result, "result"), "task_id")), E.from_program(world, E.with_manual_model(False{}, session))) : E.Decision},
+    rejected_execution_keeps_preference: @task:Nat -> @profile:String -> @reasoning:String -> @remember:Bool -> @+world:M.World() -> @+result:J.Json -> @previous:M.World() -> @+session:E.Session ->
+      {E.finish_execution(False{}, task, profile, reasoning, remember, world, result, E.from_program(previous, session)) ==
+        E.reply(E.from_program(world, session), result) : E.Decision}
+
   }
 
 law evidence:
@@ -185,7 +282,7 @@ def runtime_observation(decision: E.Decision) -> M.Decision():
 
 def confirmation_spec(layers: +List<E.Layer>, +command: M.Command, +trigger: String, occurrence: Nat) -> Bool:
   match layers:
-    case Con{E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence}, rest}:
+    case Con{E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       Nat.is_eq(layer_occurrence, occurrence) && (String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command)))
     case _: False{}
 
@@ -201,6 +298,8 @@ def confirmation_result_spec(owned: Bool, +result: J.Json, destination: U.Route,
 
 def valid_completion_spec(completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session) -> E.Decision:
   match completion:
+    case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: E.finish_execution_view(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, occurrence, program, result, E.from_program(program, session))
+    case E.ExecutionCompletion{task, profile, reasoning, remember}: E.finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, E.from_program(program, session))
     case E.DirectCompletion{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}
     case E.DraftCompletion{+draft}:
       E.with_native(SubmissionRule.finish_submission_spec(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
@@ -219,7 +318,7 @@ def completion_spec(completion: E.Completion, +program: M.World(), result: J.Jso
 
 def observed_checked_spec(valid: Bool, +program: M.World(), session: E.Session, previous: M.World()) -> E.Decision:
   match valid:
-    case True{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}}
+    case True{}: E.Decision{E.from_program(program, E.resolve_model_draft(E.retain_previews(session, program), program)), D.success(J.Null{}), Nil{}, Nil{}, False{}}
     case False{}: E.refuse(E.from_program(previous, session), "The observed program violates a world invariant")
 
 def observed_spec(+program: M.World(), session: E.Session, previous: M.World()) -> E.Decision:
@@ -253,7 +352,7 @@ type CommandRequirements is Type:
       {confirmation_result_spec(False{}, result, destination, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision},
     stale_occurrence: @+current:M.Command -> @title:String -> @destination:U.Route -> @+current_trigger:String -> @target:String -> @query:String -> @+current_occurrence:Nat -> @rest:+List<E.Layer> -> @+command:M.Command -> @+trigger:String -> @+occurrence:Nat ->
       @stale:{Nat.is_eq(current_occurrence, occurrence) == False{} : Bool} ->
-      {E.confirmation_owned(E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, current_occurrence} <> rest, command, trigger, occurrence) == False{} : Bool}
+      {E.confirmation_owned(E.Layer{U.Confirm{current, title, destination}, current_trigger, target, query, current_occurrence, False{}, None{}, None{}} <> rest, command, trigger, occurrence) == False{} : Bool}
   }
 
 law command_evidence:
@@ -267,7 +366,7 @@ law invalid_observed_decision:
 law valid_observed_decision:
   @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
   @observed:{I.world(program) == True{} : Bool} ->
-  {ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.retain_previews(session, program)), D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision}
+  {ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.resolve_model_draft(E.retain_previews(session, program), program)), D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision}
 
 law invalid_completion_decision:
   @+completion:E.Completion -> @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
@@ -284,3 +383,180 @@ law valid_stale_completion_decision:
   @observed:{I.world(program) == True{} : Bool} ->
   @absent:{E.owns_submission(draft, E.retain_previews(session, program)) == False{} : Bool} ->
   {ExperienceProgram.step(E.CommandCompleted{program, result, E.DraftCompletion{draft}}, E.from_program(previous, session)) == E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}} : E.Decision}
+
+law submission_requirements_gate:
+  @+pending:+List<E.Pending> -> @+world:M.World() -> @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @entry:String ->
+  {E.submission_ready(pending, world, U.Draft{revision, body, feedback, entry}) == UX.draft_can_prepare(U.Draft{revision, body, feedback, entry}, E.busy(pending, U.owner(body)), world) : Bool}
+
+law invalid_preparation_complete_refusal:
+  @+pending:+List<E.Pending> -> @+world:M.World() -> @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @entry:String -> @+application:E.Application ->
+  {E.submit_admitted(pending, world, U.Draft{revision, body, feedback, entry}, None{}, application) ==
+    E.Decision{application, D.failure("interaction_refused", UX.assessment_reason(UX.assessed_requirements(UX.draft_requirements(U.Draft{revision, body, feedback, entry}, E.busy(pending, U.owner(body)), world), body, revision, E.now(E.session(application)), world))), Nil{}, Nil{}, False{}} : E.Decision}
+
+law workspace_settlement_preserves_stale_draft:
+  @draft:U.Draft -> @revision:Nat -> @reason:String -> @+session:E.Session ->
+  {E.workspace_settlement(False{}, draft, revision, reason, session) == session : E.Session}
+
+law workspace_settlement_retains_body:
+  @+revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @+entry:String -> @+submitted:Nat -> @+reason:String -> @+session:E.Session ->
+  {E.workspace_settlement(True{}, U.Draft{revision, body, feedback, entry}, submitted, reason, session) ==
+    E.with_draft(session, U.Draft{revision, body, U.WorkspaceRejected{submitted, reason}, entry}) : E.Session}
+
+law rejected_command_uses_actual_code_and_workspace:
+  @+body:U.Body -> @+revision:Nat -> @+result:J.Json ->
+  {E.command_rejection_feedback(body, revision, result) ==
+    E.rejected_feedback(String.eq(J.text(J.get(J.get(result, "error"), "code")), "command_not_submitted") && U.workspace_operation(body), revision, J.text(J.get(J.get(result, "error"), "message"))) : U.Feedback}
+
+law property_source_toggle_preserves_application:
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+expanded:Bool -> @+field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.toggle_source_layers(True{}, panel, trigger, initial, query, occurrence, expanded, field, parameter_buffer, rest, application) ==
+    E.update_requested_view(True{}, panel, trigger, initial, query, occurrence, Bool.not(expanded), None{}, None{}, rest, application) : E.Decision}
+
+law property_source_toggle_refuses_wrong_owner:
+  @panel:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @expanded:Bool -> @field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.toggle_source_layers(False{}, panel, trigger, initial, query, occurrence, expanded, field, parameter_buffer, rest, application) == E.refuse(application, "The property source is not open for this editor") : E.Decision}
+
+law invalid_workspace_retry_preserves_application:
+  @draft:U.Draft -> @+application:E.Application ->
+  {E.retry_workspace_current(False{}, draft, application) == E.refuse(application, "There is no current workspace failure to retry") : E.Decision}
+
+law workspace_preparation_failure_complete:
+  @+draft:U.Draft -> @+reason:String -> @+application:E.Application ->
+  {E.preparation_failure(draft, reason, application) ==
+    E.Decision{E.with_session(E.settle_workspace(draft, reason, E.session(application)), application), D.failure("workspace_observation_failed", reason), Nil{}, Nil{}, False{}} : E.Decision}
+
+law blocked_workspace_retry_retains_failure:
+  @+draft:U.Draft -> @+application:E.Application ->
+  {E.retry_workspace_allowed(False{}, draft, application) == E.submission_refusal(E.pending(E.session(application)), E.program(application), draft, application) : E.Decision}
+
+law accepted_workspace_retry_uses_normal_admission:
+  @+revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @+entry:String -> @+application:E.Application ->
+  {E.retry_workspace_allowed(True{}, U.Draft{revision, body, feedback, entry}, application) ==
+    E.submit_found(Some{U.Draft{revision, body, U.Editing{}, entry}}, E.with_session(E.with_draft(E.session(application), U.Draft{revision, body, U.Editing{}, entry}), application)) : E.Decision}
+
+law workspace_command_not_submitted_feedback:
+  @+body:U.Body -> @+revision:Nat -> @+reason:String ->
+  {E.command_rejection_feedback(body, revision, D.failure("command_not_submitted", reason)) == E.rejected_feedback(U.workspace_operation(body), revision, reason) : U.Feedback}
+
+law unknown_decision_focus_preserves_application:
+  @editor:U.Editor -> @+application:E.Application ->
+  {E.enter_known_decision(None{}, editor, application) == E.unchanged(application) : E.Decision}
+
+law unrelated_decision_focus_preserves_application:
+  @panel:U.Panel -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @source:Bool ->
+  @field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.decision_layer_update(False{}, panel, trigger, initial, query, occurrence, source, field, parameter_buffer, rest, application) == E.unchanged(application) : E.Decision}
+
+law decision_focus_preserves_query_and_source:
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+source:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+parameter_buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.decision_layer_update(True{}, panel, trigger, initial, query, occurrence, source, field, parameter_buffer, rest, application) ==
+    E.update_requested_view(E.request_view_changed(E.layers(E.session(application)), source, field), panel, trigger, initial, query, occurrence, source, field, parameter_buffer, rest, application) : E.Decision}
+
+law workspace_retry_assesses_complete_candidate:
+  @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @+entry:String -> @+application:E.Application ->
+  {E.retry_workspace_current(True{}, U.Draft{revision, body, feedback, entry}, application) ==
+    E.retry_workspace_allowed(UX.draft_can_prepare(U.Draft{revision, body, U.Editing{}, entry}, E.busy(E.pending(E.session(application)), U.owner(body)), E.program(application)),
+      U.Draft{revision, body, feedback, entry}, application) : E.Decision}
+
+law requested_parameter_preserves_applied_draft:
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+source:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+value:String -> @+application:E.Application ->
+  {E.write_parameter_checked(True{}, E.Layer{panel, trigger, initial, query, occurrence, source, field, buffer} <> rest, value, application) ==
+    E.local(E.program(application), E.with_layers(E.Layer{panel, trigger, initial, query, occurrence, source, field, Some{value}} <> rest, E.session(application)), Nil{}) : E.Decision}
+
+law unavailable_parameter_does_not_apply:
+  @layers:+List<E.Layer> -> @value:String -> @+application:E.Application ->
+  {E.write_parameter_checked(False{}, layers, value, application) == E.refuse(application, "The open parameter is not available in this view") : E.Decision}
+
+law invalid_complete_parameter_preserves_application:
+  @editor:U.Editor -> @profile:String -> @value:String -> @+application:E.Application ->
+  {E.complete_parameter_value(False{}, editor, profile, value, application) == E.refuse(application, "Choose an available model and permitted reasoning effort.") : E.Decision}
+
+law complete_parameter_uses_canonical_configuration:
+  @+editor:U.Editor -> @+profile:String -> @+value:String -> @+application:E.Application ->
+  {E.complete_parameter_value(True{}, editor, profile, value, application) == E.manual_edit(editor, U.ChooseModel{profile, value}, application) : E.Decision}
+
+law full_access_has_no_filesystem_dependency:
+  {E.retained_context_policy(Forms.SandboxMode{}, Context.Unrestricted{}) == False{} : Bool}
+
+law full_access_has_no_network_dependency:
+  {E.retained_context_policy(Forms.NetworkAccess{}, Context.Unrestricted{}) == False{} : Bool}
+
+law reviewer_dependency_requires_automatic_strategy:
+  @+profile:String ->
+  {E.retained_context_policy(Forms.ApprovalReviewer{}, Context.AutomaticReview{profile}) == True{} : Bool}
+
+law back_from_dependency_retains_inspection_parent:
+  @+editor:U.Editor -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+source:Bool ->
+  @+field:Forms.Field -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.leave_layer_request(E.Layer{U.ModelPicker{editor}, trigger, initial, query, occurrence, source, Some{field}, buffer} <> rest, editor, application) ==
+    E.decision_layer_update(U.same_editor(editor, editor), U.ModelPicker{editor}, trigger, initial, query, occurrence, source, None{}, None{}, rest, application) : E.Decision}
+
+law mismatched_execution_view_does_not_dismiss:
+  @task:Nat -> @+result:E.Decision ->
+  {E.finish_execution_view_checked(False{}, task, result) == result : E.Decision}
+
+law explicit_dismiss_preserves_nonproject_state:
+  @+editor:U.Editor -> @+application:E.Application ->
+  {E.dismiss_layer_draft(U.ModelPicker{editor}, application) == application : E.Application}
+
+law project_dismiss_discards_complete_draft:
+  @+id:Maybe<&2, Nat> -> @+world:M.World() -> @+session:E.Session ->
+  {E.dismiss_layer_draft(U.EditObject{U.ProjectEditor{id}}, E.from_program(world, session)) ==
+    E.from_program(world, E.discard_project_session(U.ProjectEditor{id}, session)) : E.Application}
+
+law fresh_project_uses_reserved_occurrence:
+  @+body:U.Body -> @+session:E.Session ->
+  {E.fresh_project_draft(body, session) == E.with_draft(session, U.Draft{E.next_layer(session), body, U.Editing{}, ""}) : E.Session}
+
+law cancelled_project_advances_shared_fresh_occurrence:
+  @+revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @entry:String -> @+current:Nat ->
+  {E.reserve_draft_occurrence(Some{U.Draft{revision, body, feedback, entry}}, current) == Nat.max((revision + 1n : Nat), (current + 1n : Nat)) : Nat}
+
+
+law requested_view_change_uses_fresh_identity:
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @occurrence:Nat -> @+source:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.update_requested_view(True{}, panel, trigger, initial, query, occurrence, source, field, buffer, rest, application) ==
+    E.local(E.program(application), E.with_next_layer((E.next_layer(E.session(application)) + 1n : Nat),
+      E.with_layers(E.Layer{panel, trigger, initial, query, E.next_layer(E.session(application)), source, field, buffer} <> rest, E.session(application))), Nil{}) : E.Decision}
+
+law same_requested_view_preserves_identity:
+  @+panel:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+source:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.update_requested_view(False{}, panel, trigger, initial, query, occurrence, source, field, buffer, rest, application) ==
+    E.local(E.program(application), E.with_layers(E.Layer{panel, trigger, initial, query, occurrence, source, field, buffer} <> rest, E.session(application)), Nil{}) : E.Decision}
+
+law source_navigation_uses_current_inspection:
+  @+origin:U.Panel -> @+trigger:String -> @+application:E.Application ->
+  {E.activate_selected(U.OpenPanel{U.PropertySource{origin}, trigger}, application) ==
+    E.open_source_checked(E.source_origin_owned(E.layers(E.session(application)), origin), origin, trigger, application) : E.Decision}
+
+law source_navigation_rejects_unowned_origin:
+  @origin:U.Panel -> @trigger:String -> @+application:E.Application ->
+  {E.open_source_checked(False{}, origin, trigger, application) ==
+    E.refuse(application, "The setting source does not belong to the current inspection") : E.Decision}
+
+law source_navigation_pushes_distinct_activity:
+  @+origin:U.Panel -> @+trigger:String -> @+application:E.Application ->
+  {E.open_source_checked(True{}, origin, trigger, application) ==
+    opened_application(application, U.PropertySource{origin}, trigger) : E.Decision}
+
+law source_navigation_has_own_identity:
+  @+origin:U.Panel ->
+  {E.panel_target(U.PropertySource{origin}) == "property-source/" ++ E.panel_target(origin) : String}
+
+law source_navigation_is_read_only:
+  @origin:U.Panel ->
+  {E.decision_panel_editor(U.PropertySource{origin}) == None{} : Maybe<&2, U.Editor>}
+
+law source_dismiss_preserves_underlying_draft:
+  @origin:U.Panel -> @+application:E.Application ->
+  {E.dismiss_layer_draft(U.PropertySource{origin}, application) == application : E.Application}
+
+law source_back_uses_actual_stack:
+  @+origin:U.Panel -> @+trigger:String -> @+initial:String -> @+query:String -> @+occurrence:Nat -> @+expanded:Bool ->
+  @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.dismiss_layers(E.Layer{U.PropertySource{origin}, trigger, initial, query, occurrence, expanded, field, buffer} <> rest, application) ==
+    E.close_panel(application) : E.Decision}
