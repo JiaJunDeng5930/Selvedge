@@ -1416,6 +1416,7 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
   match field:
     case Forms.MessageText{}: ordinary_choice(value)
     case Forms.ProjectName{}: ordinary_choice(value)
+    case Forms.CreateWorktree{}: ordinary_choice(value)
     case Forms.WorkspaceDirectories{}: ordinary_choice(value)
     case Forms.WorkspacePrimary{}: ordinary_choice(value)
     case Forms.ContextOrigin{}: ordinary_choice(value)

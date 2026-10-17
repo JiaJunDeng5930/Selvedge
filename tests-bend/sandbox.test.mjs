@@ -38,6 +38,16 @@ test('Seatbelt paths are quoted literals and protected ancestors cannot be renam
   assert.ok(!profile.includes('(allow network-outbound'));
 });
 
+test('Seatbelt permits only the selected managed Worktree within the protected service home', () => {
+  const root = '/private/service/worktrees/task-one/project';
+  const profile = seatbeltProfile({ writableRoots: [root], scratch: '/private/tmp/safe',
+    readOnlyPaths: ['/private/service'], readOnlyExceptions: [root], networkAccess: false });
+  assert.ok(profile.includes(`(deny file-write* (require-all (subpath "/private/service") (require-not (subpath "${root}"))))`));
+  assert.ok(profile.includes('(deny file-write-unlink (literal "/private/service"))'));
+  assert.ok(profile.includes('(deny file-write-unlink (literal "/private"))'));
+  assert.ok(profile.includes(`(deny file-write-unlink (literal "${root}"))`));
+});
+
 // This checks the emitted BPF/ABI boundary, not a replacement for kernel isolation tests.
 function evaluate(filter, { architecture, syscall, argument = 0 }) {
   const data = Buffer.alloc(64);
@@ -131,4 +141,90 @@ test('the service journal subtree stays read-only even when a workspace contains
     { execution: plan, readOnlyPaths: [protectedHome] });
   assert.equal(result.error, true);
   assert.equal(await readFile(path.join(protectedHome, 'journal'), 'utf8'), 'committed');
+});
+
+async function managedFixture(t) {
+  const base = await realpath(await home(t));
+  const serviceHome = path.join(base, 'service');
+  const managedRoot = path.join(serviceHome, 'worktrees', 'task-one');
+  const selected = path.join(managedRoot, 'project');
+  const other = path.join(serviceHome, 'worktrees', 'task-two');
+  await Promise.all([mkdir(selected, { recursive: true }), mkdir(other, { recursive: true })]);
+  await writeFile(path.join(serviceHome, 'journal'), 'committed');
+  await writeFile(path.join(other, 'owned'), 'other task');
+  const plan = { access: 'sandboxed', workspace: { roots: [selected], primary_root: selected },
+    sandbox: { mode: 'workspace-write', network_access: false } };
+  return { base, serviceHome, managedRoot, selected, other, plan };
+}
+
+test('managed Worktree launch rejects unrelated roots, changed aliases and project-scoped execution', async t => {
+  const { base, serviceHome, managedRoot, selected, other, plan } = await managedFixture(t);
+  const options = { readOnlyPaths: [serviceHome] };
+  await assert.rejects(prepareSandbox(plan, { ...options, managedWorktreeRoot: other }), /Managed Worktree/);
+  await assert.rejects(prepareSandbox(plan, { ...options, managedWorktreeRoot: serviceHome }), /Managed Worktree/);
+  await assert.rejects(prepareSandbox(plan, { ...options, managedWorktreeRoot: base }), /Managed Worktree/);
+  await assert.rejects(prepareSandbox(plan, { ...options, managedWorktreeRoot: 42 }), /managed Worktree/);
+  const alias = path.join(base, 'alias');
+  await symlink(managedRoot, alias);
+  await assert.rejects(prepareSandbox(plan, { ...options, managedWorktreeRoot: alias }), /Managed Worktree/);
+  await assert.rejects(prepareSandbox({ ...plan, scope: 'project' }, { ...options, managedWorktreeRoot: managedRoot }), /Managed Worktree|ChatGPT Workspace/);
+  assert.equal(await realpath(selected), selected);
+});
+
+test('managed Worktree launch pins only admitted roots and restores their writes after the private home binding', async t => {
+  const { base, serviceHome, managedRoot, selected, other, plan } = await managedFixture(t);
+  const activePlan = { ...plan, workspace: { roots: [base, selected], primary_root: selected } };
+  const launch = await prepareSandbox(activePlan, { readOnlyPaths: [serviceHome], managedWorktreeRoot: managedRoot });
+  try {
+    assert.equal(launch.cwd, selected);
+    if (process.platform === 'linux') {
+      const bindings = [];
+      for (let index = 0; index < launch.prefix.length; index++) {
+        if (!['--bind', '--ro-bind'].includes(launch.prefix[index])) continue;
+        bindings.push({ index, readonly: launch.prefix[index] === '--ro-bind',
+          source: launch.prefix[index + 1], root: launch.prefix[index + 2] });
+      }
+      const homeBinding = bindings.find(entry => entry.root === serviceHome);
+      assert.equal(homeBinding.readonly, true);
+      const restored = bindings.filter(entry => entry.index > homeBinding.index && !entry.readonly);
+      assert.deepEqual(restored.map(entry => entry.root), [selected]);
+      assert.ok(!bindings.some(entry => entry.root === other || entry.root === managedRoot));
+      for (const entry of bindings.filter(entry => entry.source.startsWith('/proc/self/fd/'))) {
+        const childDescriptor = Number(entry.source.slice('/proc/self/fd/'.length));
+        assert.equal(await realpath(`/proc/self/fd/${launch.descriptors[childDescriptor - 3]}`), entry.root);
+      }
+    } else {
+      const profile = launch.prefix[launch.prefix.indexOf('-p') + 1];
+      assert.ok(profile.includes(`(require-not (subpath "${selected}"))`));
+      assert.ok(!profile.includes(`(require-not (subpath "${managedRoot}"))`));
+    }
+  } finally { await launch.cleanup(); }
+});
+
+test('managed Worktree can write its selected root while service state, siblings and future private paths stay protected', async t => {
+  const { base, serviceHome, managedRoot, selected, other, plan } = await managedFixture(t);
+  const activePlan = { ...plan, workspace: { roots: [base, selected], primary_root: selected } };
+  await symlink(serviceHome, path.join(selected, 'private-home'));
+  await symlink(other, path.join(selected, 'other-task'));
+  const options = { execution: activePlan, readOnlyPaths: [serviceHome], managedWorktreeRoot: managedRoot };
+  const result = await runBash({ command: 'printf selected > created; ' +
+    '! (printf attack > private-home/journal); ! (printf attack > private-home/future-secret); ' +
+    '! (printf attack > other-task/owned); ' +
+    `! (printf attack > ${shellQuote(path.join(managedRoot, 'unselected'))}); ` +
+    `! mv ${shellQuote(serviceHome)} ${shellQuote(path.join(base, 'moved'))}; ` +
+    `! mv ${shellQuote(selected)} ${shellQuote(path.join(managedRoot, 'moved'))}` }, limits, options);
+  assert.equal(result.error, false, JSON.stringify(result.value));
+  assert.equal(await readFile(path.join(selected, 'created'), 'utf8'), 'selected');
+  assert.equal(await readFile(path.join(serviceHome, 'journal'), 'utf8'), 'committed');
+  assert.equal(await readFile(path.join(other, 'owned'), 'utf8'), 'other task');
+  await assert.rejects(access(path.join(serviceHome, 'future-secret')), { code: 'ENOENT' });
+  await assert.rejects(access(path.join(managedRoot, 'unselected')), { code: 'ENOENT' });
+  const readonly = await runBash({ command: 'printf attack > created' }, limits,
+    { ...options, execution: { ...activePlan, sandbox: { ...plan.sandbox, mode: 'read-only' } } });
+  assert.equal(readonly.error, true);
+  assert.equal(await readFile(path.join(selected, 'created'), 'utf8'), 'selected');
+  const unassociated = await runBash({ command: 'printf attack > created' }, limits,
+    { execution: activePlan, readOnlyPaths: [serviceHome] });
+  assert.equal(unassociated.error, true);
+  assert.equal(await readFile(path.join(selected, 'created'), 'utf8'), 'selected');
 });

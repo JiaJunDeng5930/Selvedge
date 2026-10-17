@@ -65,6 +65,7 @@ type SubmissionRequirements is Type:
       {ExperienceProgram.step(E.DirectoriesObserved{ticket, result}, application) ==
         E.Decision{application, D.failure("interaction_refused", "The directory observation has no pending request"), Nil{}, Nil{}, False{}} : E.Decision},
     preparation_snapshot: @+session:E.Session -> @+program:M.World() -> @+workspace:D.Workspace -> @+draft:U.Draft ->
+      @verified:{E.worktree_submission_allowed(U.contents(draft), E.from_program(program, session)) == True{} : Bool} ->
       {E.prepare(E.from_program(program, session), Some{workspace}, draft) ==
         E.Decision{E.from_program(program, E.with_pending(E.Pending{E.next_ticket(session), draft, E.now(session)} <> E.pending(session), E.with_next_ticket((E.next_ticket(session) + 1n : Nat), session))),
           D.success(J.Null{}), Nil{}, [E.ObserveDirectories{E.next_ticket(session), workspace}], False{}} : E.Decision}

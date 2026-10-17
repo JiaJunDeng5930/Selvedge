@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { readFile, writeFile, rm, stat, realpath } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { readFile, writeFile, rm, stat, realpath, mkdir } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { accountModels, discoverAccount, withAccountModels, modelCacheFile, loginAccount } from '../host/chatgpt-models.mjs';
 import { defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
@@ -97,7 +99,7 @@ test('missing or unavailable Codex Auto-review models report task-model fallback
   assert.deepEqual(upstream.failures, []);
 });
 
-test('account approvals use their own Codex Auto-review endpoint, preserve explicit reviewers and enforce Selvedge decisions', { timeout: 30_000 }, async t => {
+test('account approvals use their own Codex Auto-review endpoint, preserve explicit reviewers and cover managed Git worktrees', { timeout: 30_000 }, async t => {
   const scenarios = [];
   const reviews = [];
   const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
@@ -115,6 +117,11 @@ test('account approvals use their own Codex Auto-review endpoint, preserve expli
       assert.equal(body.tool_choice, 'none');
       assert.deepEqual(input.command.arguments, scenario.arguments);
       assert.deepEqual(input.recent_user_requests_newest_first, [scenario.message]);
+      if (scenario.worktree) {
+        assert.deepEqual(input.task_settings.workspace, scenario.workspace);
+        assert.deepEqual(input.task_settings.sandbox, { mode: 'read-only', network_access: false });
+        assert.equal(input.task_settings.approval.reviewer_profile, scenario.reviewer);
+      }
       assert.match(body.instructions, /keys decision \(allow or deny\) and reason/);
       reviews.push({ id: scenario.id, account, model: body.model });
       return modelResponse(response, answer(scenario.malformed
@@ -125,6 +132,8 @@ test('account approvals use their own Codex Auto-review endpoint, preserve expli
     assert.ok(scenario, 'The ordinary model must receive its task message');
     assert.equal(account, scenario.taskAccount);
     assert.equal(body.model, `task-${account}`);
+    if (scenario.worktree) assert.ok(JSON.stringify(body.input).includes(scenario.workspace.primary_root),
+      'The task model must receive the committed managed-worktree settings before requesting approval');
     if (body.input.some(item => item.type === 'function_call_output')) return modelResponse(response, answer('The operation has settled.'));
     return modelResponse(response, [{ type: 'function_call', namespace: 'selvedge', call_id: scenario.id,
       name: 'bash', arguments: JSON.stringify(scenario.arguments) }]);
@@ -139,6 +148,10 @@ test('account approvals use their own Codex Auto-review endpoint, preserve expli
   } });
   const server = await startServer({ home: first.directory, cwd: await realpath(first.directory), config });
   t.after(() => server.close());
+  const toolEffects = [];
+  server.service.journal.on('commit', decision => {
+    toolEffects.push(...decision.effects.filter(effect => effect.kind === 'tool'));
+  });
   const profile = (account, name) => Object.entries(server.service.config.profiles).find(([, profile]) =>
     profile.model === name && profile.endpoint === (account === 'first' ? first : second).profile.endpoint
       && profile.bound_account_id)?.[0];
@@ -165,6 +178,22 @@ test('account approvals use their own Codex Auto-review endpoint, preserve expli
   'Only a configured profile for the same account connection may receive its reviewer alias');
   assert.equal(second.requests.filter(request => request.method === 'GET').length, 1,
     'Relative and absolute auth-file spellings must share one account discovery');
+  const sourceRoot = path.join(await realpath(await home(t)), 'approval source repository');
+  const sourcePrimary = path.join(sourceRoot, 'packages', 'app');
+  await mkdir(sourcePrimary, { recursive: true });
+  const executeGit = promisify(execFile);
+  const git = async (root, ...arguments_) => (await executeGit('git', [
+    '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'user.name=Approval worktree fixture',
+    '-c', 'user.email=approval-worktree@example.test', '-C', root, ...arguments_,
+  ], { env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))) })).stdout.trim();
+  await git(sourceRoot, 'init', '--initial-branch=main');
+  const committedContents = 'Committed account approval worktree contents.\n';
+  await writeFile(path.join(sourcePrimary, 'tracked.txt'), committedContents);
+  await git(sourceRoot, 'add', '.');
+  await git(sourceRoot, 'commit', '-m', 'Initialize account approval worktree fixture');
+  const sourceCommit = await git(sourceRoot, 'rev-parse', 'HEAD');
+  assert.equal(first.directory.startsWith(`${sourceRoot}${path.sep}`), false,
+    'The service home must stay outside the source repository');
   const cases = [
     { id: 'default-first', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'first', reviewModel: 'codex-auto-review', reviewer: firstReviewer },
     { id: 'default-second', taskAccount: 'second', taskProfile: secondTask, reviewAccount: 'second', reviewModel: 'codex-auto-review', reviewer: secondReviewer },
@@ -173,26 +202,63 @@ test('account approvals use their own Codex Auto-review endpoint, preserve expli
     { id: 'custom-account', taskAccount: 'second', taskProfile: 'chatgpt/custom', reviewAccount: 'second', reviewModel: 'codex-auto-review', reviewer: customReviewerKey },
     { id: 'explicit-reviewer', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'second', reviewModel: 'task-second', reviewer: secondTask, explicit: true },
     { id: 'malformed-review', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'first', reviewModel: 'codex-auto-review', reviewer: firstReviewer, malformed: true },
+    { id: 'managed-worktree', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'first', reviewModel: 'codex-auto-review', reviewer: firstReviewer, worktree: true },
   ];
   for (const [task_id, settings] of cases.entries()) {
-    const marker = path.join(first.directory, `${settings.id}.txt`);
-    const scenario = { ...settings, marker, message: `Write exactly ${settings.id} to ${marker}.`, arguments: {
-      command: `printf '%s' ${shellQuote(settings.id)} > ${shellQuote(marker)}`,
+    const managedRoot = path.join(first.directory, 'worktrees', `task-${task_id}`);
+    const managedPrimary = path.join(managedRoot, 'packages', 'app');
+    const marker = settings.worktree ? path.join(managedPrimary, 'approval-worktree.txt') : path.join(first.directory, `${settings.id}.txt`);
+    const workspace = settings.worktree ? { roots: [managedPrimary], primary_root: managedPrimary } : { roots: [], primary_root: null };
+    const scenario = { ...settings, marker, workspace,
+      message: settings.worktree ? 'Use the managed checkout and append exactly managed-worktree to approval-worktree.txt there.'
+        : `Write exactly ${settings.id} to ${marker}.`, arguments: {
+      command: settings.worktree ? `printf '%s' ${shellQuote(settings.id)} >> approval-worktree.txt\npwd > approval-cwd.txt\ncat tracked.txt > approval-source-copy.txt`
+        : `printf '%s' ${shellQuote(settings.id)} > ${shellQuote(marker)}`,
       sandbox_permissions: 'require_escalated', justification: 'Write the one exact output requested by the user.', timeout_ms: 5000,
     } };
     scenarios.push(scenario);
-    const created = await server.service.command({ op: 'create', profile: scenario.taskProfile, reasoning: 'medium',
-      message: scenario.message, settings: { workspace: { roots: [] }, sandbox: { mode: 'read-only', network_access: false },
+    const created = await server.service.command({ op: settings.worktree ? 'create_worktree_task' : 'create', profile: scenario.taskProfile, reasoning: 'medium',
+      message: scenario.message, settings: { workspace: settings.worktree ? { roots: [sourcePrimary], primary_root: sourcePrimary } : { roots: [] },
+        sandbox: { mode: 'read-only', network_access: false },
         approval: { mode: 'approval-for-me', ...(scenario.explicit ? { reviewer_profile: scenario.reviewer } : {}) } } });
     assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+    if (scenario.worktree) {
+      const deadline = Date.now() + 10_000;
+      let worktree;
+      do {
+        const observed = await server.service.command({ op: 'read_worktree', task_id });
+        assert.equal(observed.reply.ok, true, JSON.stringify(observed.reply));
+        worktree = observed.reply.result;
+        if (worktree.status === 'ready') break;
+        assert.equal(worktree.status, 'creating', JSON.stringify(worktree));
+        await delay(10);
+      } while (Date.now() < deadline);
+      assert.equal(worktree.status, 'ready', `The managed checkout did not become ready: ${JSON.stringify(worktree)}`);
+    }
     const completed = await taskIdle(server.service, task_id);
     assert.equal(completed.task.settings.approval.reviewer_profile, scenario.reviewer);
-    assert.deepEqual(completed.task.settings.workspace, { roots: [], primary_root: null });
+    assert.deepEqual(completed.task.settings.workspace, workspace);
     assert.deepEqual(completed.task.settings.sandbox, { mode: 'read-only', network_access: false });
     const record = completed.messages.find(message => message.role === 'approval_record');
     assert.equal(record.content.decision, scenario.malformed ? 'failed' : 'allow');
     if (scenario.malformed) await assert.rejects(readFile(marker), { code: 'ENOENT' });
     else assert.equal(await readFile(marker, 'utf8'), scenario.id, 'An admitted review must launch the real one-operation Bash command');
+    if (scenario.worktree) {
+      const worktree = await server.service.command({ op: 'read_worktree', task_id });
+      assert.equal(worktree.reply.ok, true, JSON.stringify(worktree.reply));
+      assert.equal(worktree.reply.result.status, 'ready');
+      assert.equal(worktree.reply.result.target_primary, managedPrimary);
+      assert.equal(worktree.reply.result.root, managedRoot);
+      assert.equal(await git(managedRoot, 'rev-parse', 'HEAD'), sourceCommit);
+      assert.equal(await readFile(path.join(managedPrimary, 'approval-cwd.txt'), 'utf8'), `${managedPrimary}\n`);
+      assert.equal(await readFile(path.join(managedPrimary, 'approval-source-copy.txt'), 'utf8'), committedContents);
+      await assert.rejects(readFile(path.join(sourcePrimary, 'approval-worktree.txt')), { code: 'ENOENT' });
+      assert.equal(await readFile(path.join(sourcePrimary, 'tracked.txt'), 'utf8'), committedContents);
+      const executions = toolEffects.filter(effect => effect.task_id === task_id);
+      assert.equal(executions.length, 1, 'The approved worktree invocation must execute once');
+      assert.deepEqual(executions[0].execution.workspace, workspace);
+      assert.equal(executions[0].execution.access, 'unrestricted');
+    }
   }
   assert.deepEqual(reviews, cases.map(({ id, reviewAccount: account, reviewModel: model }) => ({ id, account, model })));
   assert.deepEqual(first.failures, []);

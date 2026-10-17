@@ -482,11 +482,24 @@ def platform_admission(+valid: Bool, +plan: J.Json) -> J.Json:
     case False{}: Model.failure("Selvedge supports Linux and macOS only")
     case True{}: execution_admission(plan)
 
+def paths_valid(+items: +List<&2, J.Json>) -> Bool:
+  match items:
+    case Nil{}: True{}
+    case Con{+head, rest}: J.is_text(head) && no_nul(J.text(head)) && well(J.text(head)) && paths_valid(rest)
+
+def launch_next_case(+accepted: Bool, +result: J.Json, +next: J.Json) -> J.Json:
+  match accepted:
+    case False{}: result
+    case True{}: next
+
+def launch_next(+result: J.Json, +next: J.Json) -> J.Json:
+  launch_next_case(J.boolean(J.get(result, "ok")), result, next)
+
 def plan_admission(+source: J.Json) -> J.Json:
   +plan = J.get(source, "plan")
   +options = J.get(source, "options")
   +platform = J.text(J.get(options, "platform"))
-  platform_admission(String.eq(platform, "linux") || String.eq(platform, "darwin"), plan)
+  launch_next(type_outcome_value(Bool.not(has(options, "managedWorktreeRoot")) || paths_valid([J.get(options, "managedWorktreeRoot")]), J.Null{}, "Invalid managed Worktree root"), platform_admission(String.eq(platform, "linux") || String.eq(platform, "darwin"), plan))
 
 def writable_mode(+writable: Bool, +workspace: J.Json) -> J.Json:
   match writable:
@@ -526,6 +539,34 @@ def any_within(+roots: +List<&2, J.Json>, +protected: List<&2, J.Json>, +separat
   match roots:
     case Nil{}: False{}
     case Con{head, rest}: within(J.text(head), protected, separator) || any_within(rest, protected, separator)
+
+def strictly_within(+root: String, +protected: +List<&2, J.Json>, +separator: String) -> Bool:
+  match protected:
+    case Nil{}: False{}
+    case Con{head, rest}: String.starts_with(root, J.text(head) ++ separator) || strictly_within(root, rest, separator)
+
+def managed_worktree_admission(+source: J.Json) -> J.Json:
+  +root = J.get(source, "managedWorktreeRoot")
+  +option = J.get(J.get(source, "options"), "managedWorktreeRoot")
+  outcome_value(J.same(root, option) && (J.same(root, J.Null{}) ||
+    (paths_valid([root]) && Bool.not(J.boolean(J.get(source, "projectOnly"))) &&
+      strictly_within(J.text(root), J.items(J.get(source, "protectedRoots")), J.text(J.get(source, "separator"))) &&
+      Bool.not(any_within(J.items(J.get(source, "protectedRoots")), [root], J.text(J.get(source, "separator")))) &&
+      within(J.text(J.get(J.get(source, "workspace"), "primary_root")), [root], J.text(J.get(source, "separator"))))), J.Null{}, "Managed Worktree does not match its committed Workspace and private service home")
+
+def managed_writable_item(+managed: Bool, +root: J.Json, +rest: +List<&2, J.Json>) -> +List<&2, J.Json>:
+  match managed:
+    case True{}: Con{root, rest}
+    case False{}: rest
+
+def managed_writable_items(+items: +List<&2, J.Json>, +root: J.Json, +separator: String) -> +List<&2, J.Json>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{+head, rest}:
+      managed_writable_item(Bool.not(J.same(root, J.Null{})) && within(J.text(head), [root], separator), head, managed_writable_items(rest, root, separator))
+
+def managed_writable_roots(+source: J.Json) -> +List<&2, J.Json>:
+  managed_writable_items(J.items(J.get(source, "writableRoots")), J.get(source, "managedWorktreeRoot"), J.text(J.get(source, "separator")))
 
 def protected_workspace(+source: J.Json) -> J.Json:
   outcome_value(Bool.not(J.boolean(J.get(source, "projectOnly")) && any_within(J.items(J.get(J.get(source, "workspace"), "roots")), J.items(J.get(source, "protectedRoots")), J.text(J.get(source, "separator")))), J.Null{}, "A ChatGPT Workspace cannot be inside the private service home")
@@ -601,11 +642,6 @@ def seccomp_arch(+architecture: String, +network: Bool) -> J.Json:
 def seccomp(+source: J.Json) -> J.Json:
   seccomp_arch(J.text(J.get(source, "architecture")), J.boolean(J.get(source, "networkAccess")))
 
-def paths_valid(+items: +List<&2, J.Json>) -> Bool:
-  match items:
-    case Nil{}: True{}
-    case Con{+head, rest}: J.is_text(head) && no_nul(J.text(head)) && well(J.text(head)) && paths_valid(rest)
-
 def sbpl_char(+code: U32) -> String:
   match code:
     case 8: "\\b"
@@ -642,12 +678,17 @@ def deny_read(+root: J.Json, +readable: Bool) -> +List<&2, String>:
     case True{}: Con{"(deny file-read* " ++ path_rule(root, "subpath") ++ ")", Nil{}}
     case False{}: Nil{}
 
-def protected_rules(+roots: +List<&2, J.Json>, +ancestors: +List<&2, J.Json>, +readable: Bool) -> +List<&2, String>:
+def protected_write_path(+root: J.Json, +exceptions: +List<&2, J.Json>) -> String:
+  match exceptions:
+    case Nil{}: path_rule(root, "subpath")
+    case exceptions: "(require-all " ++ path_rule(root, "subpath") ++ " " ++ join(Std.map(~J.Json, ~String, ~(exception => "(require-not " ++ path_rule(exception, "subpath") ++ ")"), exceptions), " ") ++ ")"
+
+def protected_rules(+roots: +List<&2, J.Json>, +ancestors: +List<&2, J.Json>, +readable: Bool, +exceptions: List<&2, J.Json>) -> +List<&2, String>:
   match roots ancestors:
     case Nil{} _: Nil{}
     case Con{+root, rest} Con{parents, tail}:
-      List.append(&2, String, Con{"(deny file-write* " ++ path_rule(root, "subpath") ++ ")", deny_read(root, readable)},
-        List.append(&2, String, Std.map(~J.Json, ~String, ~(parent => "(deny file-write-unlink " ++ path_rule(parent, "literal") ++ ")"), J.items(parents)), protected_rules(rest, tail, readable)))
+      List.append(&2, String, Con{"(deny file-write* " ++ protected_write_path(root, exceptions) ++ ")", deny_read(root, readable)},
+        List.append(&2, String, Std.map(~J.Json, ~String, ~(parent => "(deny file-write-unlink " ++ path_rule(parent, "literal") ++ ")"), J.items(parents)), protected_rules(rest, tail, readable, exceptions)))
     case _ _: Nil{}
 
 def unique_append(+found: Bool, +text: String, +acc: +List<&2, String>) -> +List<&2, String>:
@@ -679,7 +720,8 @@ def seatbelt_rules(+source: J.Json, +writes: +List<&2, J.Json>, +reads: +List<&2
   List.append(&2, String, ["(version 1)", "(deny default)", "(allow process-exec process-fork)", "(allow signal (target same-sandbox))", "(allow process-info* (target same-sandbox))"],
     List.append(&2, String, seatbelt_reads(has(source, "readableRoots") && Bool.not(J.same(J.get(source, "readableRoots"), J.Null{})), reads, unique_paths(flatten(J.items(J.get(source, "readAncestors"))), Nil{})),
       List.append(&2, String, ["(allow sysctl-read)", "(allow mach-lookup (global-name \"com.apple.system.opendirectoryd.libinfo\"))", "(allow ipc-posix-sem)", "(allow file-write-data (require-all (literal \"/dev/null\") (vnode-type CHARACTER-DEVICE)))", "(allow file-write*\n  " ++ join(path_rules(writes, "subpath"), "\n  ") ++ ")"],
-        List.append(&2, String, protected_rules(J.items(J.get(source, "readOnlyPaths")), J.items(J.get(source, "protectedAncestors")), has(source, "readableRoots") && Bool.not(J.same(J.get(source, "readableRoots"), J.Null{}))), seatbelt_network(J.boolean(J.get(source, "networkAccess")))))))
+        List.append(&2, String, protected_rules(J.items(J.get(source, "readOnlyPaths")), J.items(J.get(source, "protectedAncestors")), has(source, "readableRoots") && Bool.not(J.same(J.get(source, "readableRoots"), J.Null{})), J.items(J.get(source, "readOnlyExceptions"))),
+          List.append(&2, String, Std.map(~J.Json, ~String, ~(root => "(deny file-write-unlink " ++ path_rule(root, "literal") ++ ")"), J.items(J.get(source, "readOnlyExceptions"))), seatbelt_network(J.boolean(J.get(source, "networkAccess"))))))))
 
 def seatbelt_valid(+valid: Bool, +source: J.Json, +writes: +List<&2, J.Json>, +reads: +List<&2, J.Json>) -> J.Json:
   match valid:
@@ -689,7 +731,7 @@ def seatbelt_valid(+valid: Bool, +source: J.Json, +writes: +List<&2, J.Json>, +r
 def seatbelt(+source: J.Json) -> J.Json:
   +writes = List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})
   +reads = List.append(&2, J.Json, J.items(J.get(source, "readableRoots")), Con{J.get(source, "scratch"), Nil{}})
-  seatbelt_valid(paths_valid(writes) && paths_valid(J.items(J.get(source, "readOnlyPaths"))) && paths_valid(reads), source, writes, reads)
+  seatbelt_valid(paths_valid(writes) && paths_valid(J.items(J.get(source, "readOnlyPaths"))) && paths_valid(J.items(J.get(source, "readOnlyExceptions"))) && paths_valid(reads), source, writes, reads)
 
 def binding(+root: J.Json, +readonly: Bool) -> J.Json:
   J.Object{Con{field("root", root), Con{field("readonly", J.Boolean{readonly}), Nil{}}}}
@@ -702,7 +744,8 @@ def binding_items(+items: List<&2, J.Json>, +readonly: Bool) -> List<&2, J.Json>
 def binding_project(+project: Bool, +source: J.Json) -> J.Json:
   match project:
     case True{}: J.Array{List.append(&2, J.Json, binding_items(J.items(J.get(J.get(source, "workspace"), "roots")), String.eq(J.text(J.get(J.get(J.get(source, "plan"), "sandbox"), "mode")), "read-only")), Con{binding(J.get(source, "scratch"), False{}), Nil{}})}
-    case False{}: J.Array{List.append(&2, J.Json, Std.map(~J.Json, ~J.Json, ~(root => binding(root, False{})), List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})), Std.map(~J.Json, ~J.Json, ~(root => binding(root, True{})), J.items(J.get(source, "protectedRoots"))))}
+    case False{}: J.Array{List.append(&2, J.Json, Std.map(~J.Json, ~J.Json, ~(root => binding(root, False{})), List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})),
+      List.append(&2, J.Json, binding_items(J.items(J.get(source, "protectedRoots")), True{}), binding_items(managed_writable_roots(source), False{})))}
 
 def bindings(+source: J.Json) -> J.Json:
   binding_project(J.boolean(J.get(source, "projectOnly")), source)
@@ -835,7 +878,7 @@ def mac_readable_roots(+project: Bool, +source: J.Json) -> +List<&2, J.Field>:
     case True{}: Con{field("readableRoots", J.Array{List.append(&2, J.Json, J.items(J.get(J.get(source, "workspace"), "roots")), Std.map(~J.Json, ~J.Json, ~(entry => J.get(entry, "canonical")), J.items(J.get(source, "runtimeReads"))))}), Nil{}}
 
 def seatbelt_input(+source: J.Json) -> J.Json:
-  J.Object{List.append(&2, J.Field, [field("writableRoots", J.get(source, "writableRoots")), field("scratch", J.get(source, "scratch")), field("readOnlyPaths", J.get(source, "protectedRoots")), field("networkAccess", J.get(J.get(J.get(source, "plan"), "sandbox"), "network_access"))], mac_readable_roots(J.boolean(J.get(source, "projectOnly")), source))}
+  J.Object{List.append(&2, J.Field, [field("writableRoots", J.get(source, "writableRoots")), field("scratch", J.get(source, "scratch")), field("readOnlyPaths", J.get(source, "protectedRoots")), field("readOnlyExceptions", J.Array{managed_writable_roots(source)}), field("networkAccess", J.get(J.get(J.get(source, "plan"), "sandbox"), "network_access"))], mac_readable_roots(J.boolean(J.get(source, "projectOnly")), source))}
 
 def first_root(+roots: +List<&2, J.Json>) -> J.Json:
   match roots:
@@ -856,14 +899,6 @@ def launch_json_value(value: J.Json) -> J.Json:
   value
 
 # Tagged path observations are OS facts; policy and source coordinates remain native.
-def launch_next_case(+accepted: Bool, +result: J.Json, +next: J.Json) -> J.Json:
-  match accepted:
-    case False{}: result
-    case True{}: next
-
-def launch_next(+result: J.Json, +next: J.Json) -> J.Json:
-  launch_next_case(J.boolean(J.get(result, "ok")), result, next)
-
 def launch_root_observation(+root: J.Json, +observation: J.Json) -> J.Json:
   launch_next(outcome_value(J.is_object(observation) && allowed(fields(observation), ["root", "absolute"]) && has(observation, "root") && bool_type(J.get(observation, "absolute")) && J.same(observation, J.Object{[field("root", root), field("absolute", J.get(observation, "absolute"))]}), J.Null{}, "Workspace path observation does not match its source"), root_admit(observation))
 
@@ -996,7 +1031,7 @@ def unrestricted_launch(+source: J.Json) -> J.Json:
 
 def launch_context(+source: J.Json) -> J.Json:
   +bound = J.get(workspace_bound(source), "value")
-  J.Object{[field("plan", J.get(source, "plan")), field("options", J.get(source, "options")), field("workspace", J.get(source, "workspace")), field("cwd", J.get(bound, "cwd")), field("projectOnly", J.get(bound, "projectOnly")), field("writableRoots", J.get(bound, "writableRoots")), field("scratch", J.get(source, "scratch")), field("protectedRoots", J.get(source, "protectedRoots")), field("separator", J.get(source, "separator")), field("runtimeReads", J.get(source, "runtimeReads"))]}
+  J.Object{[field("plan", J.get(source, "plan")), field("options", J.get(source, "options")), field("workspace", J.get(source, "workspace")), field("cwd", J.get(bound, "cwd")), field("projectOnly", J.get(bound, "projectOnly")), field("writableRoots", J.get(bound, "writableRoots")), field("scratch", J.get(source, "scratch")), field("protectedRoots", J.get(source, "protectedRoots")), field("managedWorktreeRoot", J.get(source, "managedWorktreeRoot")), field("separator", J.get(source, "separator")), field("runtimeReads", J.get(source, "runtimeReads"))]}
 
 def launch_legacy_fields(+keys: +List<&2, String>, +source: J.Json, +context: J.Json) -> Bool:
   match keys:
@@ -1014,7 +1049,7 @@ def launch_resource_admission(+source: J.Json) -> J.Json:
 
 def sandbox_security_admission(+source: J.Json) -> J.Json:
   launch_next(outcome_value(String.eq(J.text(J.get(J.get(source, "plan"), "access")), "sandboxed"), J.Null{}, "Malformed committed sandbox execution plan"),
-    launch_next(launch_resource_admission(source), protected_workspace(launch_context(source))))
+    launch_next(launch_resource_admission(source), launch_next(managed_worktree_admission(launch_context(source)), protected_workspace(launch_context(source)))))
 
 def sandbox_security_accepted(+source: J.Json) -> Bool:
   J.boolean(J.get(sandbox_security_admission(source), "ok"))
@@ -1504,6 +1539,16 @@ law sandbox_launch_context_writes:
   @source:J.Json -> {J.get(launch_context(source), "writableRoots") == J.get(J.get(workspace_bound(source), "value"), "writableRoots") : J.Json}
 law sandbox_launch_context_scope:
   @source:J.Json -> {J.get(launch_context(source), "projectOnly") == J.get(J.get(workspace_bound(source), "value"), "projectOnly") : J.Json}
+law sandbox_without_managed_root:
+  @roots:List<&2, J.Json> -> @separator:String ->
+  {managed_writable_items(roots, J.Null{}, separator) == Nil{} : List<&2, J.Json>}
+law sandbox_readonly_managed_roots:
+  @workspace:J.Json -> @root:J.Json -> @separator:String ->
+  {managed_writable_items(J.items(writable_mode(False{}, workspace)), root, separator) == Nil{} : List<&2, J.Json>}
+law sandbox_managed_binding_order:
+  @source:J.Json -> {binding_project(False{}, source) == J.Array{List.append(&2, J.Json,
+    Std.map(~J.Json, ~J.Json, ~(root => binding(root, False{})), List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})),
+    List.append(&2, J.Json, binding_items(J.items(J.get(source, "protectedRoots")), True{}), binding_items(managed_writable_roots(source), False{})))} : J.Json}
 law sandbox_launch_descriptor_coordinates:
   @source:J.Json -> {launch_expected_bindings(source) == J.Array{launch_bound_bindings(J.items(bindings(launch_context(source))), 4n)} : J.Json}
 law sandbox_launch_binding_head:

@@ -467,9 +467,9 @@ def run_project(found: Maybe<&2, D.Project>, grant: Grant, +connection: Nat, pro
   +request: String, arguments: J.Json, +state: State) -> Resolution:
   match found grant:
     case None{} _: Refuse{"project_not_found", "The project is unavailable"}
-    case Some{D.Project{name, D.Workspace{roots, None{}}, guidance}} _:
+    case Some{D.Project{name, D.Workspace{roots, None{}}, guidance, create_worktree}} _:
       Refuse{"empty_workspace", "The project needs a primary Workspace root"}
-    case Some{D.Project{name, D.Workspace{roots, Some{root}}, guidance}} Grant{ids, sandbox}:
+    case Some{D.Project{name, D.Workspace{roots, Some{root}}, guidance, create_worktree}} Grant{ids, sandbox}:
       run_existing(retry(jobs(state), connection, request), connection, project, request,
         arguments, D.Workspace{roots, Some{root}}, sandbox, state)
 
