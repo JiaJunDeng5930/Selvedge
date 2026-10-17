@@ -1,4 +1,6 @@
 import Base
+import ../../features/remote/CONTRACT.bend as Remote
+import ../../features/remote/PROOF.bend as RemoteProof
 import ./worktree-proof.bend as WorktreeProof
 import ./worktree-sharing-proof.bend as WorktreeSharingProof
 import ../../features/worktree/PROOF.bend as WorktreeRegistryProof
@@ -36,6 +38,7 @@ def meaning(
   operation: O.Operation, +world: M.World()) ->
   {Actual.realize_calculation(~actual_spawn, operation, world) == Spec.meaning(~spec_spawn, operation, world) : M.Decision()}:
   match operation:
+    case O.RemoteChange{change}: {==}
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeProof.start(~actual_spawn, ~spec_spawn, ~creation, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeProof.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTProof.assembled(change, world)
@@ -61,7 +64,7 @@ def event(event: O.ResolvedEvent, world: M.World()) ->
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, source => root => message => primary => {==}, source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary()}
+  Architecture.Features{Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, source => root => message => primary => {==}, source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary()}
 
 def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
   ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),

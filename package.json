@@ -23,7 +23,8 @@
   },
   "packageManager": "bun@1.4.2",
   "workspaces": [
-    "plugins/selvedge-chatgpt"
+    "plugins/selvedge-chatgpt",
+    "relay"
   ],
   "devDependencies": {
     "jose": "6.2.12"

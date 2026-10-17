@@ -1,4 +1,6 @@
 import Base
+import ../../features/remote/PROGRAM.bend as Remote
+import ./remote.bend as RemoteState
 import ../../features/worktree/MODEL.bend as Worktree
 import ../../bendlib/categories.bend as Categories
 import ../DOMAIN.bend as D
@@ -160,6 +162,7 @@ def worktree(~start: String -> String -> String -> J.Json -> @+world:M.World() -
 
 def resolve_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   match command:
+    case F.RemoteCommand{command}: Accept{O.RemoteChange{Remote.admin(command, RemoteState.registry(world))}}
     case F.WorktreeCommand{command}: worktree(~start, command, world)
     case F.ChatGPTCommand{command}: chatgpt(ChatGPT.resolve(command, ChatGPTState.registry(world), Projects.registry(F.State(), world)))
     case F.BoardCommand{command}: board(~start, Board.change_resolution(Board.construct_command(command, world)), world)

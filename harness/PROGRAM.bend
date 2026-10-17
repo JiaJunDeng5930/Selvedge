@@ -401,6 +401,9 @@ def construct_transition(+input: M.Input, +world: M.World()) -> Commit.Committed
   match input:
     case M.UserCommand{M.Observe{request}}:
       Commit.construct_delivery(False{}, world, Commit.Committed{observe(request, world), Fail{({==}, {==})}})
+    case M.RemoteCommand{request, command, environment}: Commit.construct_remote(~Execution.scheduled, request, command, environment, world)
+    case M.RemoteProbe{request, command}: Commit.construct_probe(command, request, world)
+    case M.RemoteCheck{controller, epoch}: Commit.construct_remote_check(controller, epoch, world)
     case +other: construct_after_apply(other, apply(other, world), world)
 
 def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():

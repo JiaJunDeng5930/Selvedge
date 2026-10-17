@@ -76,7 +76,7 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.gitattributes,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,scripts/,tests-bend/,theory/}
+|.:{.codex/,.editorconfig,.gitattributes,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,relay/,remote/,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |bendlib:{README.md,algebra-proof.bend,association-map.bend,categories.bend,component.bend,effects.bend,equality-proof.bend,equality.bend,json-proof.bend,json.bend,logic-proof.bend,relations.bend,stdlib.bend,string-equality.bend,theory.bend}
@@ -89,14 +89,15 @@ This file is for coding agents working in this repository.
 |browser/layout:{ACTIVITY.bend,ADAPTATION.bend,CONTENT.bend,CONTRACT.bend,GEOMETRY.bend,HIERARCHY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,RENDERER.bend,SOURCE.bend,SPACE.bend,activity-contract.bend,activity-proof.bend,adaptation-proof.bend,allocation-contract.bend,allocation-proof.bend,enclosure.bend,geometry-contract.bend,geometry-proof.bend,measurement-contract.bend,natural-size.bend,physical-content-measurement.bend,physical-native.bend,physical-plan.bend,physical-probe.bend,physical-space.bend,render-contract.bend,render-proof.bend,sizing-proof.bend}
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend,utility-proof.bend}
-|docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,task-board.md}
+|docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,remote-control.md,task-board.md}
 |docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md,0038-capability-based-native-tool-construction.md,0039-local-browser-sessions-and-stable-journals.md,0040-append-only-model-history.md,0040-executable-ui-relationships.md,0041-context-compaction.md,0041-context-deltas.md,0041-operational-user-experience-relations.md,0042-context-definition-construction.md,0042-observable-properties-and-action-causes.md,0043-information-needs-and-progressive-disclosure.md,0044-adaptive-presentation-and-navigation-relationships.md,0045-whole-sidebar-construction.md,0046-observation-backed-activity-construction.md,0047-shared-activity-construction-and-measured-scale.md,0048-role-preserving-summary-and-visual-alignment.md,0049-activity-scoped-information-and-settings.md,0050-constructed-task-graphs.md,0051-tracked-context-and-input-selection.md}
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
-|features:{README.md,board/,chatgpt/,compaction/,task_graph/,worktree/}
+|features:{README.md,board/,chatgpt/,compaction/,remote/,task_graph/,worktree/}
 |features/board:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,filter.bend,resolution.bend,scheduling-spec.bend,scheduling.bend}
 |features/chatgpt:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,view.bend}
 |features/compaction:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend}
+|features/remote:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend}
 |features/task_graph:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,construction-proof.bend,registry-proof.bend}
 |features/worktree:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |harness:{COMMANDS.bend,CONTRACT.bend,DOMAIN.bend,INVARIANTS.bend,LAWS.bend,LOCALITY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,approval/,compaction/,context/,conversation/,execution/,features/,history/,protocol/,reasoning/,tasks/,tools/,transport/,workspace/}
@@ -105,7 +106,7 @@ This file is for coding agents working in this repository.
 |harness/context:{CONTRACT.bend,KINDS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,constructor-proof.bend,instruction.bend,patch-proof.bend,project-guidance.bend,selection-proof.bend,selection.bend,skill-information.bend}
 |harness/conversation:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/execution:{OPERATIONS.bend,PROGRAM.bend,PROOF.bend,README.md,notifications.bend}
-|harness/features:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,execution.bend,graph-execution.bend,graph-proof.bend,graph-spec.bend,graph-state.bend,laws.bend,operations.bend,protocol.bend,resolution.bend,worktree-execution.bend,worktree-proof.bend,worktree-sharing-proof.bend,worktree-spec.bend,worktree-state.bend,worktree-storage-proof.bend}
+|harness/features:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,execution.bend,graph-execution.bend,graph-proof.bend,graph-spec.bend,graph-state.bend,laws.bend,operations.bend,protocol.bend,remote-proof.bend,remote.bend,resolution.bend,worktree-execution.bend,worktree-proof.bend,worktree-sharing-proof.bend,worktree-spec.bend,worktree-state.bend,worktree-storage-proof.bend}
 |harness/history:{MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/protocol:{COMMIT.bend,PROGRAM.bend,PROOF.bend,README.md,RESULTS.bend,commit-proof.bend}
 |harness/reasoning:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,context.bend,view-proof.bend,view.bend}
@@ -113,7 +114,7 @@ This file is for coding agents working in this repository.
 |harness/tools:{MODEL.bend,README.md,SYNTAX.bend}
 |harness/transport:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,command-codec.bend,command-contract.bend,model-json.bend,presentation.bend,schema.bend,wire-shape.bend,wire.bend}
 |harness/workspace:{CONTRACT.bend,PROJECTS.bend,PROOF.bend,README.md,WORKSPACE.bend}
-|host:{README.md,adapters/,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,compaction.mjs,config.mjs,context-discovery.mjs,context-patches.mjs,context-sources.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c,worktrees.mjs}
+|host:{README.md,adapters/,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,compaction.mjs,config.mjs,context-discovery.mjs,context-patches.mjs,context-sources.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,remote-connector.mjs,remote-control.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c,worktrees.mjs}
 |host/adapters:{ACCOUNTS.bend,BACKENDS.bend,BROWSER.bend,COMPACTION.bend,CONFIGURATION.bend,EFFECTS.bend,EVALUATOR.bend,HTTP.bend,MODEL.bend,PLUGINS.bend,PROGRAM.bend,PROOF.bend,README.md,RPC.bend,WEB.bend,accounts-proof.bend,backends-proof.bend,browser-proof.bend,compaction-proof.bend,configuration-proof.bend,effects-proof.bend,evaluator-proof.bend,http-proof.bend,plugins-proof.bend,rpc-proof.bend,web-proof.bend}
 |host/public:{README.md,app.mjs,appearance.mjs,bend-value.mjs,bootstrap.mjs,connection.mjs,events.mjs,index.html,json-tokens.mjs,keyboard.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
 |host/public/vendor:{README.md,desktop-source.json,desktop-tokens.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
@@ -131,8 +132,12 @@ This file is for coding agents working in this repository.
 |plugins/selvedge-chatgpt/skills:{local-projects/}
 |plugins/selvedge-chatgpt/skills/local-projects:{SKILL.md}
 |plugins/selvedge-chatgpt/src:{client.mjs,server.mjs}
+|relay:{.gitignore,README.md,package.json,src/,test/,wrangler.jsonc}
+|relay/src:{worker.mjs}
+|relay/test:{runtime.mjs}
+|remote:{README.md,protocol.mjs}
 |scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,theory-index.mjs,toolchain.mjs,ui-verification.mjs,verify-proof.mjs}
-|tests-bend:{README.md,approvals.test.mjs,auth.test.mjs,board-files.test.mjs,browser-boundaries.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,context-discovery.test.mjs,fixtures/,journal.test.mjs,kernel-boundaries.test.mjs,locality.test.mjs,plugins.test.mjs,process.test.mjs,providers.test.mjs,sandbox.test.mjs,service.test.mjs,support.mjs,ui-verification.test.mjs,worktrees.test.mjs}
+|tests-bend:{README.md,approvals.test.mjs,auth.test.mjs,board-files.test.mjs,browser-boundaries.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,context-discovery.test.mjs,fixtures/,journal.test.mjs,kernel-boundaries.test.mjs,locality.test.mjs,plugins.test.mjs,process.test.mjs,providers.test.mjs,relay.test.mjs,remote-connector.test.mjs,remote-control.test.mjs,sandbox.test.mjs,service.test.mjs,support.mjs,ui-verification.test.mjs,worktrees.test.mjs}
 |tests-bend/fixtures:{approved-tool.mjs,chatgpt.mjs}
 |theory:{EXTLIB-LICENSE,LICENSE,README.md,relation-certificates.json,rocq-maps.json,stdlib-certificates.json}
 ```

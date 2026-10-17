@@ -104,6 +104,15 @@ def configuration_extensions_production(+source: J.Json) ->
   {Configuration.run("config.configuration_extensions", source) == Model.success(Configuration.config_configuration_extensions(source)) : J.Json}:
   {==}
 
+def remote_configuration_production(+source: J.Json) ->
+  {Configuration.run("config.remote", source) == Configuration.config_remote(source) : J.Json}:
+  {==}
+
+def remote_configuration_admitted_projection(+source: J.Json,
+  evidence: Categories.holds(J.Json, (candidate => Configuration.remote_configuration_requirements(candidate)), source)) ->
+  {Configuration.remote_configuration_admitted(Some{Categories.Membership{source, evidence}}) == Configuration.remote_configuration_projection(source) : J.Json}:
+  {==}
+
 def evaluators_production(+source: J.Json) ->
   {Configuration.run("config.evaluators", source) == Model.success(Configuration.config_evaluators(source)) : J.Json}:
   {==}

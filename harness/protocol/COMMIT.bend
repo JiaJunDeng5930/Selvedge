@@ -1,4 +1,8 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
+import ../../features/remote/PROGRAM.bend as RemoteProgram
+import ../features/remote.bend as RemoteState
+import ../transport/command-codec.bend as CommandCodec
 import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as F
 import ../../bendlib/component.bend as C
@@ -18,6 +22,9 @@ import ../execution/notifications.bend as Notifications
 def schedules(input: M.Input, decision: M.Decision()) -> Bool:
   match input:
     case M.UserCommand{M.Observe{query}}: False{}
+    case M.UserCommand{M.FeatureCommand{command}}:
+      C.Decision{world, reply, effects} = decision
+      F.schedules(command) && J.boolean(J.get(reply, "ok"))
     case M.UserCommand{other}:
       C.Decision{world, reply, effects} = decision
       J.boolean(J.get(reply, "ok"))
@@ -175,7 +182,115 @@ def command(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request
     case M.Observe{query}: deliver(False{}, Commands.meaning(Commands.Observe{query}, world), world)
     case other: update(~schedule, M.UserCommand{other}, Commands.command(other, world), world)
 
+
+# A remote request and its command receipt form one native decision. Ordinary
+# command resolution, scheduling and configuration checks are reused unchanged.
+# The final finish rolls back both the command and receipt if either is invalid.
+def remote_recorded(fits: Bool, request: Remote.Request, +decision: M.Decision(), previous: M.World()) -> M.Decision():
+  match fits:
+    case False{}: reject(previous, "remote_reply_limit", "The command reply exceeds remote receipt retention limits; no command or effect was committed")
+    case True{}:
+      C.Decision{+world, +reply, effects} = decision
+      C.Decision{RemoteState.store(RemoteProgram.remember(request, reply, RemoteState.registry(world)), world), reply, effects}
+
+def remote_record(request: Remote.Request, +decision: M.Decision(), previous: M.World()) -> M.Decision():
+  C.Decision{world, +reply, effects} = decision
+  remote_recorded(Remote.payload_valid(reply), request, C.Decision{world, reply, effects}, previous)
+
+def remote_environment(environment: Maybe<&2, D.Environment>, world: M.World()) -> M.World():
+  match environment:
+    case None{}: world
+    case Some{value}: state(Protocol.input(M.Configure{value}, world))
+
+def remote_result(accepted: Bool, request: Remote.Request, decision: M.Decision(), +previous: M.World()) -> M.Decision():
+  match accepted:
+    case True{}: remote_record(request, decision, previous)
+    case False{}:
+      C.Decision{discarded, reply, effects} = decision
+      remote_record(request, C.Decision{previous, reply, Nil{}}, previous)
+
+def remote_executed(request: Remote.Request, +decision: M.Decision(), previous: M.World()) -> M.Decision():
+  C.Decision{world, +reply, effects} = decision
+  remote_result(J.boolean(J.get(reply, "ok")), request, C.Decision{world, reply, effects}, previous)
+
+def remote_authorized(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), authorization: Remote.Authorization,
+  request: Remote.Request, request_command: M.Command, environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
+  match authorization:
+    case Remote.Denied{code, reason}: reject(world, code, reason)
+    case Remote.Replay{reply}: C.Decision{world, reply, Nil{}}
+    case Remote.Admitted{}:
+      remote_executed(request, command(~schedule, request_command, remote_environment(environment, world)), world)
+
+def remote_prepared_mapped(required: Maybe<&2, Remote.Rights>, original: Remote.Request, +world: M.World()) -> Remote.Authorization:
+  match required:
+    case None{}: Remote.Denied{"remote_command_forbidden", "Remote access cannot invoke this local management command"}
+    case Some{rights}: RemoteProgram.authorize(rights, original, RemoteState.registry(world))
+
+def remote_prepared(same_operation: Bool, +request: Remote.Request, +request_command: M.Command, +world: M.World()) -> Remote.Authorization:
+  match same_operation:
+    case False{}: Remote.Denied{"remote_intent_mismatch", "The prepared remote command must retain the original operation"}
+    case True{}: remote_prepared_mapped(RemoteState.permission(CommandCodec.command_json(request_command)), request, world)
+
+def remote_original(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), authorization: Remote.Authorization,
+  +request: Remote.Request, +request_command: M.Command, environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
+  match authorization:
+    case Remote.Admitted{}:
+      Remote.Request{controller, epoch, id, intent} = request
+      remote_authorized(~schedule,
+        remote_prepared(String.eq(J.text(J.get(intent, "op")), J.text(J.get(CommandCodec.command_json(request_command), "op"))), request, request_command, world),
+        request, request_command, environment, world)
+    case other: remote_authorized(~schedule, other, request, request_command, environment, world)
+
+def remote_update_candidate(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request: Remote.Request,
+  request_command: M.Command, environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
+  remote_original(~schedule, RemoteState.authorization(request, RemoteState.registry(world)), request, request_command, environment, world)
+
+def remote_query_checked(same_operation: Bool, +request: Remote.Request, +world: M.World()) -> Remote.Authorization:
+  match same_operation:
+    case False{}: Remote.Denied{"remote_intent_mismatch", "The prepared remote command must retain the original operation"}
+    case True{}: RemoteState.query_authorization(request, RemoteState.registry(world))
+
+def remote_query_candidate(authorization: Remote.Authorization, query: M.Query, world: M.World()) -> M.Decision():
+  match authorization:
+    case Remote.Denied{code, reason}: reject(world, code, reason)
+    case Remote.Replay{reply}: C.Decision{world, reply, Nil{}}
+    case Remote.Admitted{}: Commands.meaning(Commands.Observe{query}, world)
+
+def remote_candidate(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request: Remote.Request,
+  request_command: M.Command, environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
+  match request_command:
+    case M.Observe{+query}:
+      remote_query_candidate(remote_query_checked(String.eq(J.text(J.get(Remote.request_intent(request), "op")),
+        J.text(J.get(CommandCodec.command_json(M.Observe{query}), "op"))), request, world), query, world)
+    case other: remote_update_candidate(~schedule, request, other, environment, world)
+
+def construct_remote(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request: Remote.Request,
+  +request_command: M.Command, +environment: Maybe<&2, D.Environment>, +world: M.World()) -> Committed<world>:
+  construct_finish(M.durable(M.RemoteCommand{request, request_command, environment}), remote_candidate(~schedule, request, request_command, environment, world), world)
+
+def remote_command(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), request: Remote.Request,
+  request_command: M.Command, environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
+  value(world, construct_remote(~schedule, request, request_command, environment, world))
+
+def construct_remote_observation(authorization: Remote.Authorization, +world: M.World()) -> Committed<world>:
+  match authorization:
+    case Remote.Denied{code, reason}:
+      construct_delivery(False{}, world, Committed{RemoteState.probe_reply(Remote.Denied{code, reason}, world), Fail{({==}, {==})}})
+    case Remote.Admitted{}:
+      construct_delivery(False{}, world, Committed{RemoteState.probe_reply(Remote.Admitted{}, world), Fail{({==}, {==})}})
+    case Remote.Replay{reply}:
+      construct_delivery(False{}, world, Committed{RemoteState.probe_reply(Remote.Replay{reply}, world), Fail{({==}, {==})}})
+
+def construct_probe(command: M.Command, request: Remote.Request, +world: M.World()) -> Committed<world>:
+  construct_remote_observation(RemoteState.probe_authorization(command, request, RemoteState.registry(world)), world)
+
+def construct_remote_check(controller: String, epoch: Nat, +world: M.World()) -> Committed<world>:
+  construct_remote_observation(RemoteProgram.check(Remote.Rights{True{}, False{}, False{}, False{}}, controller, epoch, RemoteState.registry(world)), world)
+
 def input(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +event: M.Input, +world: M.World()) -> M.Decision():
   match event:
     case M.UserCommand{request}: command(~schedule, request, world)
+    case M.RemoteCommand{request, request_command, environment}: remote_command(~schedule, request, request_command, environment, world)
+    case M.RemoteProbe{request, request_command}: deliver(False{}, RemoteState.probe(request_command, request, world), world)
+    case M.RemoteCheck{controller, epoch}: deliver(False{}, RemoteState.check(controller, epoch, world), world)
     case other: update(~schedule, other, Protocol.input(other, world), world)

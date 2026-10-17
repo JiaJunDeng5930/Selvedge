@@ -18,6 +18,7 @@ import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
+import { RemoteControl } from './remote-control.mjs';
 import { observeWorkspaceGit, createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
@@ -43,7 +44,7 @@ export class Service extends EventEmitter {
   #closePromise;
   #streams = [];
 
-  static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
+  static async open({ home, config, cwd = process.cwd(), journalOptions, remoteOptions } = {}) {
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
@@ -61,6 +62,7 @@ export class Service extends EventEmitter {
       service.accounts = discovered.accounts;
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
+        service.remote?.reconcile();
         let ordinal = 0;
         for (const effect of decision.effects) {
           service.#dispatch(effect, decision.sequence, ordinal);
@@ -103,6 +105,7 @@ export class Service extends EventEmitter {
       await service.#reconcileWorktrees();
       const grants = await service.command({ op: 'configure_chatgpt_connections', connections: connectionGrants(config.chatgpt_plugin) });
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
+      service.remote = await RemoteControl.open(service, remoteOptions);
       return service;
     } catch (error) {
       await service.close();
@@ -125,13 +128,17 @@ export class Service extends EventEmitter {
     this.journal?.kernel.abort(error);
   }
 
-  async #configure() {
+  #configuration({ project = this.project, instructions = this.instructions } = {}) {
     // Configuration order, not process initialization speed, defines the chain.
     const extensions = Object.keys(this.config.plugins ?? {}).flatMap(name => this.#pluginCatalog.has(name) ? [this.#pluginCatalog.get(name)] : []);
-    const decision = await this.journal.execute({ kind: 'configure', profiles: profileCatalog(this.config),
+    return { kind: 'configure', profiles: profileCatalog(this.config),
       tools: [...this.#catalog.values(), ...extensions.map(extension => extension.tools)].flat(),
       plugins: extensions.map(extension => extension.descriptor), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
-      project: this.project, instructions: this.instructions });
+      project, instructions };
+  }
+
+  async #configure() {
+    const decision = await this.journal.execute(this.#configuration());
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
     const compaction = await this.journal.execute({ kind: 'compaction_configure', policy: compactionSettings(this.config), now: Date.now() });
     if (!compaction.reply.ok) throw new Error(`Compaction configuration rejected: ${compaction.reply.error.message}`);
@@ -385,6 +392,71 @@ export class Service extends EventEmitter {
     return this.#submitCommand(command);
   }
 
+  /** Remote intent, authorization and receipt share the ordinary native commit. */
+  remoteCommand(controller_id, grant_epoch, request) {
+    const intent = structuredClone(request?.command);
+    const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
+    const submit = () => this.#remoteSubmit(envelope);
+    if (hasRootTaskCreation(intent)) {
+      const next = this.#catalogTail.then(submit);
+      this.#catalogTail = next.catch(() => {});
+      return next;
+    }
+    return submit();
+  }
+
+  async #remoteSubmit(envelope) {
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const probe = await this.journal.execute({ kind: 'remote_probe', ...envelope });
+    if (!probe.reply.ok) return { sequence: probe.sequence, reply: probe.reply };
+    if (probe.reply.result?.replayed) return { sequence: probe.sequence, reply: probe.reply.result.reply };
+    let command;
+    let configuration;
+    let rootFacts;
+    try {
+      command = await observeBoardCommand(envelope.intent, this.home);
+      command = await this.#observeCommandWorkspace(command);
+      if (hasRootTaskCreation(envelope.intent)) {
+        rootFacts = { project: await snapshotProject(this.cwd, this.limits), instructions: {
+          configured: this.config.instructions,
+          global: await snapshotGlobalInstructions(this.home, this.limits),
+        } };
+        configuration = this.#configuration(rootFacts);
+      }
+    } catch (cause) { throw new CommandNotSubmitted(cause); }
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const result = await this.journal.execute({ kind: 'remote_command', ...envelope, command,
+      configuration: configuration ?? null });
+    if (rootFacts && result.reply.ok) Object.assign(this, rootFacts);
+    return { sequence: result.sequence, reply: result.reply };
+  }
+
+  remoteCheck(controller_id, grant_epoch) {
+    if (this.#failure) return Promise.reject(this.#failure);
+    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    return this.journal.execute({ kind: 'remote_check', controller_id, grant_epoch });
+  }
+
+  async #observeCommandWorkspace(command) {
+    let observed = await observeWorkspaceCommand(command, this.limits, {
+      projectWorkspace: async project_id => {
+        const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
+        return result.reply.ok ? result.reply.result.workspace : undefined;
+      },
+    });
+    if (command.op === 'create_worktree_task') {
+      if (!observed.settings?.workspace) {
+        observed = await observeWorkspaceCommand({ ...observed,
+          settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
+      }
+      const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
+      if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
+    }
+    return observed;
+  }
+
   async #createRoot(command) {
     try {
       if (this.#failure) throw this.#failure;
@@ -392,20 +464,7 @@ export class Service extends EventEmitter {
       const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
-      let observed = await observeWorkspaceCommand(command, this.limits, {
-        projectWorkspace: async project_id => {
-          const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
-          return result.reply.ok ? result.reply.result.workspace : undefined;
-        },
-      });
-      if (command.op === 'create_worktree_task') {
-        if (!observed.settings?.workspace) {
-          observed = await observeWorkspaceCommand({ ...observed,
-            settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
-        }
-        const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
-        if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
-      }
+      const observed = await this.#observeCommandWorkspace(command);
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }
@@ -495,6 +554,7 @@ export class Service extends EventEmitter {
 
   async #close() {
     this.#closing = true;
+    await this.remote?.close();
     if (this.#continuation) clearImmediate(this.#continuation);
     if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));

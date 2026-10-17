@@ -9,6 +9,12 @@ SQLite before publishing replies, world snapshots or starting effects. A failed
 commit terminates the kernel; committed inputs replay through the same Bend
 transition at the next start.
 
+`remote-control.mjs` manages local installation credentials and owner-approved
+device pairing. `remote-connector.mjs` connects outbound to the Cloudflare relay;
+its command path keeps the original intent separate from workspace observations
+and commits the native command with its retained receipt. Closing a transport
+leaves the Service and its tasks running. See [remote setup](../docs/remote-control.md).
+
 Pure host semantics belong to [adapters](adapters/README.md), whose domain
 modules construct results from the complete JSON source and consume the resulting
 category membership. [MODEL.bend](adapters/MODEL.bend) supplies the shared

@@ -35,6 +35,11 @@ multiple roots, override selection, skill metadata and incomplete scans. Context
 admission, deltas, inherited history and provider selection remain native
 construction and proof obligations.
 
+Remote control keeps focused physical checks for atomic command receipts across
+SQLite reopen, WebSocket session teardown and the real Durable Object runtime.
+Grant permissions, generations and command classification belong to native
+constructions and their production proofs.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

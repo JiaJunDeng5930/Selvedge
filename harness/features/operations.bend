@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
 import ../../features/worktree/MODEL.bend as Worktree
 import ../../features/compaction/MODEL.bend as Compaction
 import ../DOMAIN.bend as D
@@ -15,6 +16,7 @@ type GraphNode is Data:
 # These are already resolved feature operations. External callers cannot bypass
 # the command resolver by constructing them through the wire protocol.
 type Operation is Data:
+  RemoteChange{change: Remote.Change}
   StartWorktree{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
   RetryWorktreeArchive{task_id: Nat}
   ChatGPTChange{change: ChatGPT.Change}

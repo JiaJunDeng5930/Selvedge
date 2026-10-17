@@ -1,4 +1,7 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
+import ../../features/remote/PROGRAM.bend as RemoteProgram
+import ../features/remote.bend as RemoteState
 import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as Features
 import ../DOMAIN.bend as D
@@ -44,6 +47,17 @@ def observation_projection(query: M.Query, +world: M.World()) ->
   {P.transition(M.UserCommand{M.Observe{query}}, world) == Commit.deliver(False{}, P.observe(query, world), world) : M.Decision()}:
   delivery_projection(False{}, world, Commit.Committed{P.observe(query, world), Fail{({==}, {==})}})
 
+def remote_observation_projection(authorization: Remote.Authorization, +world: M.World()) ->
+  {Commit.value(world, Commit.construct_remote_observation(authorization, world)) ==
+    Commit.deliver(False{}, RemoteState.probe_reply(authorization, world), world) : M.Decision()}:
+  match authorization:
+    case Remote.Denied{code, reason}:
+      delivery_projection(False{}, world, Commit.Committed{RemoteState.probe_reply(Remote.Denied{code, reason}, world), Fail{({==}, {==})}})
+    case Remote.Admitted{}:
+      delivery_projection(False{}, world, Commit.Committed{RemoteState.probe_reply(Remote.Admitted{}, world), Fail{({==}, {==})}})
+    case Remote.Replay{reply}:
+      delivery_projection(False{}, world, Commit.Committed{RemoteState.probe_reply(Remote.Replay{reply}, world), Fail{({==}, {==})}})
+
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:
   Equal.cong(M.Decision(), M.Decision(),
@@ -87,6 +101,11 @@ def updated_input_semantics(+input: M.Input, +world: M.World()) ->
 
 def Laws.interaction_transition(input, world):
   match input:
+    case M.RemoteCommand{request, command, environment}: {==}
+    case M.RemoteProbe{request, command}:
+      remote_observation_projection(RemoteState.probe_authorization(command, request, RemoteState.registry(world)), world)
+    case M.RemoteCheck{controller, epoch}:
+      remote_observation_projection(RemoteProgram.check(Remote.Rights{True{}, False{}, False{}, False{}}, controller, epoch, RemoteState.registry(world)), world)
     case M.UserCommand{command}: Laws.command_transition(command, world)
     case M.ContextObserved{id, ticket, outcome}: updated_input_semantics(M.ContextObserved{id, ticket, outcome}, world)
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)
