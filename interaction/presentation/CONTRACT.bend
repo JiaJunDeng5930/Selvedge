@@ -587,7 +587,7 @@ type PageRegionRequirements is Type:
   PageRegionRequirements{
     page_payload: @+page:V.Page -> @+state:InteractionTypes.State ->
       {Model.page(page, state) == SurfaceTypes.Node{Identity.Place{"/main"}, "main", "Content", SurfaceTypes.Main{}, SurfaceTypes.PageContext{owned_page_context(page)}, Model.page_contents(page, Identity.Place{"/main"}, state)} : SurfaceTypes.Node},
-    collapsed_navigation_single: @+toggle: V.ControlDeclaration -> @expanded: Bool -> @create: V.ControlDeclaration -> @destinations: +List<V.ControlDeclaration> -> @projects: +List<V.ProjectEntry> -> @tasks: +List<V.TaskEntry> -> @+state: InteractionTypes.State -> {Model.base_navigation_at(V.CollapsedNavigation{}, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
+    collapsed_navigation_single: @+toggle: V.ControlDeclaration -> @expanded: Bool -> @create: V.ControlDeclaration -> @destinations: +List<V.ControlDeclaration> -> @projects: +List<V.ProjectEntry> -> @tasks: +List<V.TaskTree> -> @+state: InteractionTypes.State -> {Model.base_navigation_at(V.CollapsedNavigation{}, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
     [Model.declared(Identity.Place{"/navigation"}, toggle, state)] : +List<SurfaceTypes.Node>},
     collapsed_assembly: @+content: InteractionTypes.Scene -> @+state: InteractionTypes.State -> @collapsed: {content_navigation_placement(content) == V.CollapsedNavigation{} : V.NavigationPlacement} -> {navigation_head(surface_base(Model.assemble(content, state))) ==
     navigation_head(Model.collapsed_navigation_toggle(content_navigation(content), state)) : SurfaceTypes.Node},
@@ -1001,6 +1001,88 @@ def picker_nodes(+values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +pa
         Model.project_registered_choices(values, selected, parent, state)},
      Model.declared(parent, View.control("project/create", "New project", U.EditProject{None{}}), state)] : +List<SurfaceTypes.Node>}
 
+def task_tree_has(trees: +List<V.TaskTree>, +task: Nat) -> Bool:
+  match trees:
+    case Nil{}: False{}
+    case Con{V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children}, rest}:
+      (Nat.is_eq(id, task) || task_tree_has(children, task)) || task_tree_has(rest, task)
+
+def task_tree_root_has(tree: V.TaskTree, +task: Nat) -> Bool:
+  V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children} = tree
+  Nat.is_eq(id, task) || task_tree_has(children, task)
+
+def pending_task_has(trees: +List<View.PendingTaskTree>, +task: Nat) -> Bool:
+  match trees:
+    case Nil{}: False{}
+    case Con{View.PendingTaskTree{parent, tree}, rest}:
+      task_tree_root_has(tree, task) || pending_task_has(rest, task)
+
+def partition_task_has(partition: View.TaskTreePartition, +task: Nat) -> Bool:
+  View.TaskTreePartition{children, roots} = partition
+  task_tree_has(children, task) || pending_task_has(roots, task)
+
+def task_list_has(tasks: +List<D.Task>, +id: Nat) -> Bool:
+  match tasks:
+    case Nil{}: False{}
+    case Con{task, rest}: Nat.is_eq(D.task_id(task), id) || task_list_has(rest, id)
+
+type TaskTreeProjectionRequirements is Type:
+  TaskTreeProjectionRequirements{
+    immediate_parent: @+task:D.Task ->
+      {View.task_parent(task) == List.head(&2, Nat, D.task_lineage(task)) : Maybe<&2, Nat>},
+    missing_parent: @id:Nat -> {View.task_parent_matches(None{}, id) == False{} : Bool},
+    selected_parent: @+parent:Nat -> @+id:Nat ->
+      {View.task_parent_matches(Some{parent}, id) == Nat.is_eq(parent, id) : Bool},
+    partition_empty: @parent:Nat ->
+      {View.partition_task_children(Nil{}, parent) == View.TaskTreePartition{Nil{}, Nil{}} : View.TaskTreePartition},
+    child_order: @+parent:Maybe<&2, Nat> -> @+tree:V.TaskTree -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.partition_task_tree(True{}, View.PendingTaskTree{parent, tree}, View.TaskTreePartition{children, roots}) ==
+        View.TaskTreePartition{tree <> children, roots} : View.TaskTreePartition},
+    root_order: @+value:View.PendingTaskTree -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.partition_task_tree(False{}, value, View.TaskTreePartition{children, roots}) ==
+        View.TaskTreePartition{children, value <> roots} : View.TaskTreePartition},
+    partition_step: @+ancestor:Maybe<&2, Nat> -> @+tree:V.TaskTree -> @+rest:+List<View.PendingTaskTree> -> @+parent:Nat ->
+      {View.partition_task_children(View.PendingTaskTree{ancestor, tree} <> rest, parent) ==
+        View.partition_task_tree(View.task_parent_matches(ancestor, parent), View.PendingTaskTree{ancestor, tree},
+          View.partition_task_children(rest, parent)) : View.TaskTreePartition},
+    partition_membership: @+values:+List<View.PendingTaskTree> -> @+parent:Nat -> @+task:Nat ->
+      {partition_task_has(View.partition_task_children(values, parent), task) == pending_task_has(values, task) : Bool},
+    branch_observation: @+task:D.Task -> @+route:U.Route -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.prepend_task_tree(task, route, View.TaskTreePartition{children, roots}) ==
+        View.PendingTaskTree{List.head(&2, Nat, D.task_lineage(task)), V.TaskTree{View.task_entry(task, route), children}} <> roots : +List<View.PendingTaskTree>},
+    oldest_parent: @+task:D.Task -> @+rest:+List<D.Task> -> @+route:U.Route ->
+      {View.pending_task_forest(task <> rest, route) == View.prepend_task_tree(task, route,
+        View.partition_task_children(View.pending_task_forest(rest, route), D.task_id(task))) : +List<View.PendingTaskTree>},
+    forest_empty: @route:U.Route -> {View.task_forest(Nil{}, route) == Nil{} : +List<V.TaskTree>},
+    forest_membership: @+tasks:+List<D.Task> -> @+route:U.Route -> @+task:Nat ->
+      {task_tree_has(View.task_forest(tasks, route), task) == task_list_has(tasks, task) : Bool}}
+
+law task_tree_projection_evidence:
+  TaskTreeProjectionRequirements
+
+type TaskTreePresentationRequirements is Type:
+  TaskTreePresentationRequirements{
+    empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_tree_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    branch: @+id:Nat -> @+title:String -> @+status:V.TaskStatus -> @+selected:Bool -> @+open:V.ControlDeclaration -> @+children:+List<V.TaskTree> -> @+rest:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_tree_entries(V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children} <> rest, parent, state) ==
+        List.append(&2, SurfaceTypes.Node, Model.task_entries([V.TaskEntry{id, title, status, selected, open}], parent, state),
+          List.append(&2, SurfaceTypes.Node, Model.task_children(Model.task_tree_entries(children, Identity.Entity{parent, "task", Nat.show(id)}, state), Identity.Entity{parent, "task", Nat.show(id)}, id),
+            Model.task_tree_entries(rest, parent, state))) : +List<SurfaceTypes.Node>},
+    leaf: @+parent:Identity.Key -> @+task:Nat ->
+      {Model.task_children(Nil{}, parent, task) == Nil{} : +List<SurfaceTypes.Node>},
+    descendants: @+first:SurfaceTypes.Node -> @+rest:+List<SurfaceTypes.Node> -> @+parent:Identity.Key -> @+task:Nat ->
+      {Model.task_children(first <> rest, parent, task) ==
+        [SurfaceTypes.Node{Identity.Part{parent, "children"}, "task-children", "Subtasks", SurfaceTypes.NavigationCollection{}, SurfaceTypes.TaskChildren{task},
+          first <> rest}] : +List<SurfaceTypes.Node>},
+    collapsed: @+trees:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.disclosed_tasks(False{}, trees, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    expanded: @+trees:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.disclosed_tasks(True{}, trees, parent, state) == Model.task_tree_entries(trees, parent, state) : +List<SurfaceTypes.Node>}}
+
+law task_tree_presentation_evidence:
+  TaskTreePresentationRequirements
+
 type ProjectInteractionRequirements is Type:
   ProjectInteractionRequirements{
     switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() ->
@@ -1025,9 +1107,9 @@ type ProjectInteractionRequirements is Type:
     picker_filter_keeps_selection: @+query:String -> @+selected:Maybe<&2, Nat> -> @+projects:+List<V.ProjectChoice> ->
       {View.search_content(V.ProjectSelection{"", selected, projects}, query) ==
     V.ProjectSelection{query, selected, View.matching_projects(projects, query)} : V.LayerContent},
-    project_actions: @+id:Nat -> @+name:String -> @+workspace:D.Workspace -> @guidance:D.ProjectContext -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState ->
-      {View.project_entry(id, D.Project{name, workspace, guidance, False{}}, tasks, route, selected, navigation) ==
-        V.ProjectEntry{id, name, workspace, View.selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), View.task_entries(View.project_tasks(tasks, Some{id}), route),
+    project_actions: @+id:Nat -> @+name:String -> @+workspace:D.Workspace -> @guidance:D.ProjectContext -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState -> @create_worktree:Bool ->
+      {View.project_entry(id, D.Project{name, workspace, guidance, create_worktree}, tasks, route, selected, navigation) ==
+        V.ProjectEntry{id, name, workspace, View.selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), View.task_forest(View.project_tasks(tasks, Some{id}), route),
           View.control("project/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), View.control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}),
           View.control("project/toggle/" ++ Nat.show(id), "Toggle project tasks", U.ToggleProjectGroup{id}),
           View.context_control("project/more/" ++ Nat.show(id), "More", U.ObjectActions{U.ProjectSubject{id}})} : V.ProjectEntry},
@@ -1059,7 +1141,7 @@ type ProjectInteractionRequirements is Type:
       @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest : +List<E.Layer>} ->
        {E.search_choices(query, E.from_program(world, session)) ==
         E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}, None{}} <> rest, session), Nil{}) : E.Decision},
-    project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskEntry> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
+    project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskTree> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_entries([V.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectGroup{id, selected, expanded},
           Model.region(Identity.Entity{parent, "project", Nat.show(id)}, "actions", "", SurfaceTypes.Section{},
@@ -1069,7 +1151,7 @@ type ProjectInteractionRequirements is Type:
     independent_source: @+expanded:Bool -> @+route:U.Route -> @+world:M.World() -> @+session:E.Session ->
       {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新任务", U.BeginTask{None{}}),
         [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
-        View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_entries(View.project_tasks(Commands.entries(world), None{}), route),
+        View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_forest(View.project_tasks(Commands.entries(world), None{}), route),
         V.ControlDeclaration{"navigation/toggle", "Toggle sidebar", V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
     navigation_entry_fields: @+key:Identity.Key -> @+semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+selected:Bool ->
       {Model.replace_role(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, SurfaceTypes.NavigationEntry{selected}) ==
@@ -1087,13 +1169,13 @@ type ProjectInteractionRequirements is Type:
           Model.navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> Model.navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)} : SurfaceTypes.Node},
     independent_empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
-    independent_populated: @+first:V.TaskEntry -> @+rest:+List<V.TaskEntry> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+    independent_populated: @+first:V.TaskTree -> @+rest:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Con{first, rest}, parent, state) == [Model.region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
         SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
-        Model.task_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
-    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+        Model.task_tree_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
+    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(False{}, route, create, destinations, projects, tasks, state) == Nil{} : +List<SurfaceTypes.Node>},
-    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(True{}, route, create, destinations, projects, tasks, state) ==
         [SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "contents"}, "navigation-content", "", SurfaceTypes.NavigationCollection{}, SurfaceTypes.Region{},
           Model.navigation_destinations(route, create, destinations, state) <> List.append(&2, SurfaceTypes.Node,

@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { browserUI, surfaceNodes, taskIdle, home } from './support.mjs';
-import { bendValue, bendTag } from '../host/public/bend-value.mjs';
+import { bendValue, bendTag, decodeBendValue } from '../host/public/bend-value.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { startServer } from '../host/server.mjs';
 import browserModel from '../host/public/generated/browser-model.mjs';
 import { chatgptFixture, jsonResponse, modelResponse } from './fixtures/chatgpt.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { checkUiSeparation, prepareUiVerification } from '../scripts/ui-verification.mjs';
 
 const firstRule = 'browser/sample/first-laws.bend';
@@ -652,7 +653,6 @@ test('production activity choices complete and compound cancellation discards bu
   });
 });
 
-
 test('compiled task creation gates Git observations and saves the project choice before creating', { timeout: 240_000 }, async t => {
   const repository = await home(t);
   const alternateRepository = await home(t);
@@ -804,4 +804,174 @@ test('compiled task creation gates Git observations and saves the project choice
   observed(reopen.ticket, true);
   const verifiedAgain = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
   assert.equal(commands(verifiedAgain)[0].op, 'create_worktree_task', 'A positive matching observation permits creation without rewriting the saved preference');
+});
+
+test('committed task forks retain project groups and executable nested sidebar rows', { timeout: 240_000 }, async t => {
+  const ui = await browserUI(t, { sourceAdmission: true });
+  const directory = await home(t);
+  const repository = await home(t);
+  for (const args of [['init', '-q'], ['-c', 'user.name=UI Test', '-c', 'user.email=ui@example.test', 'commit', '--allow-empty', '-qm', 'initial']]) {
+    const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const server = await startServer({ home: path.join(directory, 'state'), cwd: directory,
+    config: validateConfig({ ...defaultConfig, port: 0, chatgpt: false }) });
+  t.after(() => server.close());
+  const command = async value => {
+    const result = await server.service.command(value);
+    assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
+    return result.reply.result;
+  };
+  const worktree = async (task_id, status) => {
+    const deadline = Date.now() + 10000;
+    let entry;
+    do {
+      entry = await command({ op: 'read_worktree', task_id });
+      if (entry.status === status) return entry;
+      assert.ok(!['create_failed', 'archive_failed'].includes(entry.status), JSON.stringify(entry));
+      await delay(10);
+    } while (Date.now() < deadline);
+    assert.fail(`Worktree did not reach ${status}: ${JSON.stringify(entry)}`);
+  };
+  const project = async (name, workspace = { roots: [] }, create_worktree = false) =>
+    (await command({ op: 'create_project', name, workspace, create_worktree })).project_id;
+  const create = async (message, project_id, op = 'create') => {
+    const { task_id } = await command({ op, profile: 'demo', message,
+      ...(project_id === undefined ? {} : { settings: { project_id } }) });
+    if (op === 'create_worktree_task') await worktree(task_id, 'ready');
+    await taskIdle(server.service, task_id);
+    return task_id;
+  };
+  const fork = async (task_id, messages, project_id, workspace) => {
+    await taskIdle(server.service, task_id);
+    const { children } = await command({ op: 'fork', task_id, child_count: messages.length, messages,
+      ...(project_id === undefined ? {} : { settings: { project_id, ...(workspace ? { workspace } : {}) } }) });
+    await Promise.all([task_id, ...children].map(id => taskIdle(server.service, id)));
+    return children;
+  };
+  const alpha = await project('Alpha project', { roots: [repository], primary_root: repository }, true);
+  const beta = await project('Beta project');
+  const empty = await project('Empty project');
+  const root = await create('Project root 世界', alpha, 'create_worktree_task');
+  const owner = await worktree(root, 'ready');
+  const sharedWorkspace = (await command({ op: 'read', task_id: root })).task.settings.workspace;
+  const [first, second] = await fork(root, ['First child', 'Second child']);
+  const [grandchild] = await fork(first, ['Grandchild']);
+  const otherRoot = await create('Another project root', alpha);
+  const independent = await create('Independent root');
+  const [independentChild] = await fork(independent, ['Independent child']);
+  const [crossProject] = await fork(root, ['Child in another project'], beta, sharedWorkspace);
+  const [returnedProject] = await fork(crossProject, ['Grandchild back in Alpha'], alpha);
+  const [betaChild] = await fork(crossProject, ['Child within Beta']);
+  await command({ op: 'freeze', task_id: second });
+  assert.equal((await worktree(first, 'ready')).root, owner.root);
+  assert.equal((await worktree(grandchild, 'ready')).root, owner.root);
+  assert.equal((await worktree(crossProject, 'ready')).root, owner.root,
+    'A shared checkout must not replace the child task project or lineage');
+
+  const response = await fetch(`${server.address}/api/browser/state`, {
+    headers: { authorization: `Bearer ${server.token}` },
+  });
+  assert.equal(response.status, 200);
+  const snapshot = decodeBendValue(await response.json());
+  const authenticated = ui.authenticated(snapshot.program, BigInt(root));
+  assert.equal(bendTag(authenticated), 'Done');
+  let state = authenticated.value;
+  const navigation = () => surfaceNodes(ui.surface_state(state)).find(node => bendTag(node.role) === 'Navigation');
+  const group = id => subtree(navigation()).find(node => bendTag(node.meaning) === 'ProjectGroup'
+    && node.meaning.project === BigInt(id));
+  const rows = () => subtree(navigation()).filter(node => bendTag(node.meaning) === 'TaskRow');
+  const hierarchy = node => {
+    const visit = (current, parent) => {
+      const tag = bendTag(current.meaning);
+      return [
+        ...(tag === 'TaskRow' ? [{ task: Number(current.meaning.task), parent }] : []),
+        ...listValues(current.children).flatMap(child => visit(child, tag === 'TaskChildren' ? Number(current.meaning.task) : parent)),
+      ];
+    };
+    return visit(node, null);
+  };
+  const alphaHierarchy = [
+    { task: root, parent: null }, { task: first, parent: root }, { task: grandchild, parent: first },
+    { task: second, parent: root }, { task: otherRoot, parent: null }, { task: returnedProject, parent: null },
+  ];
+  assert.deepEqual(hierarchy(group(alpha)), alphaHierarchy);
+  assert.deepEqual(hierarchy(group(beta)), [{ task: crossProject, parent: null }, { task: betaChild, parent: crossProject }],
+    'A fork into another project starts a visible tree in that project');
+  assert.deepEqual(hierarchy(group(empty)), [], 'An empty project must retain its group');
+  const independentGroup = subtree(navigation()).find(node => node.semantic === 'independent-tasks');
+  assert.ok(independentGroup);
+  assert.deepEqual(hierarchy(independentGroup), [{ task: independent, parent: null }, { task: independentChild, parent: independent }]);
+  const expectedTasks = [root, first, second, grandchild, otherRoot, independent, independentChild, crossProject, returnedProject, betaChild];
+  assert.deepEqual(rows().map(node => Number(node.meaning.task)).sort((a, b) => a - b), expectedTasks.sort((a, b) => a - b),
+    'Every committed task must appear exactly once');
+  assert.equal(bendTag(rows().find(node => node.meaning.task === BigInt(second)).meaning.status.lifecycle), 'Frozen');
+
+  const descendant = rows().find(node => node.meaning.task === BigInt(grandchild));
+  const open = subtree(descendant).find(node => actualUIInput(node.meaning.input, 'Navigate'));
+  assert.ok(open, 'A nested descendant must retain its actual navigation command');
+  assert.equal(actualUIInput(open.meaning.input, 'Navigate').route.task, BigInt(grandchild));
+  state = ui.activate_state(state, ui.key(open));
+  assert.deepEqual(rows().filter(node => node.meaning.selected).map(node => Number(node.meaning.task)), [grandchild]);
+
+  const authored = ui.source_admission(state);
+  assert.equal(bendTag(authored), 'Done');
+  assert.equal(bendTag(authored.value), 'Ready', 'Nested semantic navigation must reach the production browser source');
+  const sourceNodes = node => [node, ...listValues(node.children).flatMap(sourceNodes)];
+  const data = node => Object.fromEntries(listValues(node.attributes)
+    .filter(attribute => bendTag(attribute) === 'DataAttribute').map(attribute => [attribute.name, attribute.value]));
+  const depths = sourceNodes(authored.value.source).map(data)
+    .filter(attributes => attributes.task !== undefined && attributes['navigation-depth'] !== undefined)
+    .map(attributes => [Number(attributes.task), Number(attributes['navigation-depth'])]);
+  assert.deepEqual(new Map(depths), new Map([
+    [root, 1], [first, 2], [grandchild, 3], [second, 2], [otherRoot, 1], [returnedProject, 1],
+    [crossProject, 1], [betaChild, 2], [independent, 0], [independentChild, 1],
+  ]), 'Browser-authored indentation must follow immediate parents inside each project group');
+
+  const toggle = subtree(group(alpha)).find(node => actualUIInput(node.meaning.input, 'ToggleProjectGroup'));
+  assert.ok(toggle);
+  state = ui.activate_state(state, ui.key(toggle));
+  assert.equal(group(alpha).meaning.expanded, false);
+  assert.deepEqual(hierarchy(group(alpha)), [], 'Project collapse hides its complete task tree');
+  assert.equal(rows().some(node => node.meaning.task === BigInt(betaChild)), true);
+  state = ui.activate_state(state, ui.key(toggle));
+  assert.equal(group(alpha).meaning.expanded, true);
+  assert.deepEqual(hierarchy(group(alpha)), alphaHierarchy);
+  assert.deepEqual(rows().filter(node => node.meaning.selected).map(node => Number(node.meaning.task)), [grandchild]);
+
+  for (const task_id of [first, second, grandchild, betaChild]) await command({ op: 'archive', task_id });
+  const blocked = await server.service.command({ op: 'archive', task_id: root });
+  assert.equal(blocked.reply.ok, false);
+  assert.equal(blocked.reply.error.code, 'worktree_in_use', 'A borrower in another project must still protect the checkout');
+  assert.deepEqual(blocked.effects, []);
+  assert.equal((await worktree(root, 'ready')).root, owner.root);
+  const childArchive = await server.service.command({ op: 'archive', task_id: crossProject });
+  assert.equal(childArchive.reply.ok, true);
+  assert.equal(childArchive.effects.some(effect => effect.kind === 'worktree_archive'), false,
+    'Archiving the cross-project borrower must preserve the owner checkout');
+  const ownerArchive = await server.service.command({ op: 'archive', task_id: root });
+  assert.equal(ownerArchive.reply.ok, true);
+  assert.equal(ownerArchive.effects.filter(effect => effect.kind === 'worktree_archive').length, 1);
+  const archived = await worktree(root, 'archived');
+  assert.equal(archived.root, path.join(directory, 'state', 'worktrees', 'archived', `task-${root}`));
+  assert.equal(existsSync(owner.root), false);
+  assert.equal(existsSync(archived.root), true);
+  const archivedResponse = await fetch(`${server.address}/api/browser/state`, {
+    headers: { authorization: `Bearer ${server.token}` },
+  });
+  assert.equal(archivedResponse.status, 200);
+  const archivedSnapshot = decodeBendValue(await archivedResponse.json());
+  const archivedView = ui.authenticated(archivedSnapshot.program, BigInt(grandchild));
+  assert.equal(bendTag(archivedView), 'Done');
+  state = archivedView.value;
+  assert.deepEqual(hierarchy(group(alpha)), alphaHierarchy, 'Worktree archive must preserve committed task identity and lineage');
+  assert.deepEqual(hierarchy(group(beta)), [{ task: crossProject, parent: null }, { task: betaChild, parent: crossProject }]);
+  assert.deepEqual(rows().map(node => Number(node.meaning.task)).sort((a, b) => a - b), expectedTasks,
+    'Every committed task must still appear exactly once after archive');
+  assert.equal(bendTag(rows().find(node => node.meaning.task === BigInt(root)).meaning.status.lifecycle), 'Archived');
+  for (const task of [returnedProject, otherRoot, independent, independentChild]) {
+    assert.equal(bendTag(rows().find(node => node.meaning.task === BigInt(task)).meaning.status.lifecycle), 'Active',
+      'Archiving the checkout owner must not cascade through visual or project grouping');
+  }
+  assert.deepEqual(rows().filter(node => node.meaning.selected).map(node => Number(node.meaning.task)), [grandchild]);
 });

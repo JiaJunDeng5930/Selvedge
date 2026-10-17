@@ -158,10 +158,26 @@ def task_entries(entries: +List<V.TaskEntry>, +parent: Identity.Key, +state: Int
         [selected_node(selected, declared(Identity.Entity{parent, "task", Nat.show(id)}, open, state)),
          SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{View.task_status_label(status)}, Nil{}}]} <> task_entries(rest, parent, state)
 
-def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskEntry>, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def task_children(nodes: +List<SurfaceTypes.Node>, +parent: Identity.Key, task: Nat) -> +List<SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{first, rest}:
+      [SurfaceTypes.Node{Identity.Part{parent, "children"}, "task-children", "Subtasks", SurfaceTypes.NavigationCollection{}, SurfaceTypes.TaskChildren{task},
+        Con{first, rest}}]
+
+def task_tree_entries(trees: +List<V.TaskTree>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match trees:
+    case Nil{}: Nil{}
+    case Con{V.TaskTree{+entry, children}, rest}:
+      V.TaskEntry{+id, title, status, selected, open} = entry
+      List.append(&2, SurfaceTypes.Node, task_entries([entry], parent, state),
+        List.append(&2, SurfaceTypes.Node, task_children(task_tree_entries(children, Identity.Entity{parent, "task", Nat.show(id)}, state), Identity.Entity{parent, "task", Nat.show(id)}, id),
+          task_tree_entries(rest, parent, state)))
+
+def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskTree>, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match expanded:
     case False{}: Nil{}
-    case True{}: task_entries(tasks, parent, state)
+    case True{}: task_tree_entries(tasks, parent, state)
 
 def project_entries(entries: +List<V.ProjectEntry>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match entries:
@@ -212,15 +228,15 @@ def navigation_destinations(+route: U.Route, create: V.ControlDeclaration, desti
   SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "destinations"}, "navigation-destinations", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
     navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)}
 
-def independent_task_entries(tasks: +List<V.TaskEntry>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def independent_task_entries(tasks: +List<V.TaskTree>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match tasks:
     case Nil{}: Nil{}
     case Con{first, rest}:
       [region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
         SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
-        task_entries(Con{first, rest}, parent, state))]
+        task_tree_entries(Con{first, rest}, parent, state))]
 
-def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskEntry>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskTree>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match expanded:
     case False{}: Nil{}
     case True{}:

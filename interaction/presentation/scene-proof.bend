@@ -589,6 +589,109 @@ def encapsulated_toggle_keeps_location(+session: E.Session, +project: Nat, +worl
   E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code, +next_layer, model_preference, draft_model_manual, workspace_git} = session
   {==}
 
+def task_branch_union(+node: Bool, +children: Bool, +roots: Bool) ->
+  {((node || children) || roots) == (node || (children || roots)) : Bool}:
+  Equal.sym(Bool, node || (children || roots), (node || children) || roots,
+    Std.orb_assoc(node, children, roots))
+
+def task_root_union(+node: Bool, +children: Bool, +roots: Bool) ->
+  {(children || (node || roots)) == (node || (children || roots)) : Bool}:
+  Equal.trans(Bool, children || (node || roots), (children || node) || roots, node || (children || roots),
+    Std.orb_assoc(children, node, roots),
+    Equal.trans(Bool, (children || node) || roots, (node || children) || roots, node || (children || roots),
+      Equal.cong(Bool, Bool, value => value || roots, children || node, node || children, Std.orb_comm(children, node)),
+      task_branch_union(node, children, roots)))
+
+def partition_step_membership(+attach: Bool, +value: View.PendingTaskTree, +partition: View.TaskTreePartition, +task: Nat) ->
+  {Rule.partition_task_has(View.partition_task_tree(attach, value, partition), task) ==
+    (Rule.task_tree_root_has(View.pending_task_tree_value(value), task) || Rule.partition_task_has(partition, task)) : Bool}:
+  match attach value partition:
+    case True{} View.PendingTaskTree{parent, V.TaskTree{V.TaskEntry{id, title, status, selected, open}, descendants}} View.TaskTreePartition{children, roots}:
+      task_branch_union(Nat.is_eq(id, task) || Rule.task_tree_has(descendants, task), Rule.task_tree_has(children, task), Rule.pending_task_has(roots, task))
+    case False{} View.PendingTaskTree{parent, V.TaskTree{V.TaskEntry{id, title, status, selected, open}, descendants}} View.TaskTreePartition{children, roots}:
+      task_root_union(Nat.is_eq(id, task) || Rule.task_tree_has(descendants, task), Rule.task_tree_has(children, task), Rule.pending_task_has(roots, task))
+
+def partition_task_membership(+values: +List<View.PendingTaskTree>, +parent: Nat, +task: Nat) ->
+  {Rule.partition_task_has(View.partition_task_children(values, parent), task) == Rule.pending_task_has(values, task) : Bool}:
+  match values:
+    case Nil{}: {==}
+    case Con{View.PendingTaskTree{+ancestor, +tree}, +rest}:
+      Equal.trans(Bool,
+        Rule.partition_task_has(View.partition_task_children(View.PendingTaskTree{ancestor, tree} <> rest, parent), task),
+        Rule.task_tree_root_has(tree, task) || Rule.partition_task_has(View.partition_task_children(rest, parent), task),
+        Rule.pending_task_has(View.PendingTaskTree{ancestor, tree} <> rest, task),
+        partition_step_membership(View.task_parent_matches(ancestor, parent), View.PendingTaskTree{ancestor, tree}, View.partition_task_children(rest, parent), task),
+        Equal.cong(Bool, Bool, found => Rule.task_tree_root_has(tree, task) || found,
+          Rule.partition_task_has(View.partition_task_children(rest, parent), task), Rule.pending_task_has(rest, task),
+          partition_task_membership(rest, parent, task)))
+
+def task_tree_values_membership(+values: +List<View.PendingTaskTree>, +task: Nat) ->
+  {Rule.task_tree_has(View.task_tree_values(values), task) == Rule.pending_task_has(values, task) : Bool}:
+  match values:
+    case Nil{}: {==}
+    case Con{View.PendingTaskTree{parent, V.TaskTree{V.TaskEntry{+id, title, status, selected, open}, +children}}, +rest}:
+      Equal.cong(Bool, Bool, found => (Nat.is_eq(id, task) || Rule.task_tree_has(children, task)) || found,
+        Rule.task_tree_has(View.task_tree_values(rest), task), Rule.pending_task_has(rest, task),
+        task_tree_values_membership(rest, task))
+
+def prepend_task_membership(+task: D.Task, +route: U.Route, +partition: View.TaskTreePartition, +id: Nat) ->
+  {Rule.pending_task_has(View.prepend_task_tree(task, route, partition), id) ==
+    (Nat.is_eq(D.task_id(task), id) || Rule.partition_task_has(partition, id)) : Bool}:
+  match partition:
+    case View.TaskTreePartition{children, roots}:
+      task_branch_union(Nat.is_eq(D.task_id(task), id), Rule.task_tree_has(children, id), Rule.pending_task_has(roots, id))
+
+def pending_task_forest_membership(+tasks: +List<D.Task>, +route: U.Route, +id: Nat) ->
+  {Rule.pending_task_has(View.pending_task_forest(tasks, route), id) == Rule.task_list_has(tasks, id) : Bool}:
+  match tasks:
+    case Nil{}: {==}
+    case Con{+task, +rest}:
+      +forest = View.pending_task_forest(rest, route)
+      +partition = View.partition_task_children(forest, D.task_id(task))
+      Equal.trans(Bool,
+        Rule.pending_task_has(View.prepend_task_tree(task, route, partition), id),
+        Nat.is_eq(D.task_id(task), id) || Rule.partition_task_has(partition, id),
+        Rule.task_list_has(task <> rest, id),
+        prepend_task_membership(task, route, partition, id),
+        Equal.trans(Bool,
+          Nat.is_eq(D.task_id(task), id) || Rule.partition_task_has(partition, id),
+          Nat.is_eq(D.task_id(task), id) || Rule.pending_task_has(forest, id),
+          Rule.task_list_has(task <> rest, id),
+          Equal.cong(Bool, Bool, found => Nat.is_eq(D.task_id(task), id) || found,
+            Rule.partition_task_has(partition, id), Rule.pending_task_has(forest, id), partition_task_membership(forest, D.task_id(task), id)),
+          Equal.cong(Bool, Bool, found => Nat.is_eq(D.task_id(task), id) || found,
+            Rule.pending_task_has(forest, id), Rule.task_list_has(rest, id), pending_task_forest_membership(rest, route, id))))
+
+def task_forest_membership(+tasks: +List<D.Task>, +route: U.Route, +task: Nat) ->
+  {Rule.task_tree_has(View.task_forest(tasks, route), task) == Rule.task_list_has(tasks, task) : Bool}:
+  Equal.trans(Bool, Rule.task_tree_has(View.task_forest(tasks, route), task),
+    Rule.pending_task_has(View.pending_task_forest(tasks, route), task), Rule.task_list_has(tasks, task),
+    task_tree_values_membership(View.pending_task_forest(tasks, route), task), pending_task_forest_membership(tasks, route, task))
+
+def Rule.task_tree_projection_evidence():
+  Rule.TaskTreeProjectionRequirements{
+    +task => {==},
+    id => {==},
+    +parent => +id => {==},
+    parent => {==},
+    +parent => +tree => +children => +roots => {==},
+    +value => +children => +roots => {==},
+    +ancestor => +tree => +rest => +parent => {==},
+    partition_task_membership,
+    +task => +route => +children => +roots => {==},
+    +task => +rest => +route => {==},
+    route => {==},
+    task_forest_membership}
+
+def Rule.task_tree_presentation_evidence():
+  Rule.TaskTreePresentationRequirements{
+    +parent => +state => {==},
+    +id => +title => +status => +selected => +open => +children => +rest => +parent => +state => {==},
+    +parent => +task => {==},
+    +first => +rest => +parent => +task => {==},
+    +trees => +parent => +state => {==},
+    +trees => +parent => +state => {==}}
+
 def Rule.project_interaction_evidence():
   Rule.ProjectInteractionRequirements{
     +origin => +message => +profile => +reasoning => +old => +workspace => +sandbox => +approval => world => {==},
@@ -600,7 +703,7 @@ def Rule.project_interaction_evidence():
     +drafts => +world => {==},
     entries => registered_choices_complete(entries),
     +query => +selected => +projects => {==},
-    +id => +name => +workspace => guidance => +tasks => +route => +selected => +navigation => {==},
+    +id => +name => +workspace => guidance => +tasks => +route => +selected => +navigation => create_worktree => {==},
     +id => +now => +world => {==},
     +id => +name => +workspace => {==},
     +id => title => +status => +selected => +open => +parent => +state => {==},

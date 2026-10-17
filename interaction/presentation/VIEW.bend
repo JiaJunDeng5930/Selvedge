@@ -569,6 +569,55 @@ def task_entries(tasks: +List<D.Task>, +route: U.Route) -> +List<ViewTypes.TaskE
     case Nil{}: Nil{}
     case Con{task, rest}: task_entry(task, route) <> task_entries(rest, route)
 
+type PendingTaskTree is Data:
+  PendingTaskTree{parent: Maybe<&2, Nat>, tree: ViewTypes.TaskTree}
+
+type TaskTreePartition is Data:
+  TaskTreePartition{children: +List<ViewTypes.TaskTree>, roots: +List<PendingTaskTree>}
+
+def task_parent(task: D.Task) -> Maybe<&2, Nat>:
+  List.head(&2, Nat, D.task_lineage(task))
+
+def task_parent_matches(parent: Maybe<&2, Nat>, id: Nat) -> Bool:
+  match parent:
+    case None{}: False{}
+    case Some{parent}: Nat.is_eq(parent, id)
+
+def pending_task_tree_value(value: PendingTaskTree) -> ViewTypes.TaskTree:
+  PendingTaskTree{parent, tree} = value
+  tree
+
+def task_tree_values(values: +List<PendingTaskTree>) -> +List<ViewTypes.TaskTree>:
+  List.foldr(~&2, ~PendingTaskTree, ~(+List<ViewTypes.TaskTree>), ~(value => rest => pending_task_tree_value(value) <> rest), values, Nil{})
+
+def partition_task_tree(attach: Bool, value: PendingTaskTree, partition: TaskTreePartition) -> TaskTreePartition:
+  match attach value partition:
+    case True{} PendingTaskTree{parent, tree} TaskTreePartition{children, roots}:
+      TaskTreePartition{tree <> children, roots}
+    case False{} value TaskTreePartition{children, roots}:
+      TaskTreePartition{children, value <> roots}
+
+def partition_task_children(values: +List<PendingTaskTree>, +parent: Nat) -> TaskTreePartition:
+  match values:
+    case Nil{}: TaskTreePartition{Nil{}, Nil{}}
+    case Con{PendingTaskTree{+ancestor, tree}, rest}:
+      partition_task_tree(task_parent_matches(ancestor, parent), PendingTaskTree{ancestor, tree}, partition_task_children(rest, parent))
+
+def prepend_task_tree(+task: D.Task, route: U.Route, partition: TaskTreePartition) -> +List<PendingTaskTree>:
+  TaskTreePartition{children, roots} = partition
+  PendingTaskTree{task_parent(task), ViewTypes.TaskTree{task_entry(task, route), children}} <> roots
+
+# NOTE: harness/INVARIANTS.tasks orders parents before children, so folding the
+# project-scoped list from the right attaches complete child trees in sibling order.
+def pending_task_forest(tasks: +List<D.Task>, +route: U.Route) -> +List<PendingTaskTree>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{+task, rest}:
+      prepend_task_tree(task, route, partition_task_children(pending_task_forest(rest, route), D.task_id(task)))
+
+def task_forest(tasks: +List<D.Task>, route: U.Route) -> +List<ViewTypes.TaskTree>:
+  task_tree_values(pending_task_forest(tasks, route))
+
 def keep_task(keep: Bool, task: D.Task, rest: +List<D.Task>) -> +List<D.Task>:
   match keep:
     case True{}: task <> rest
@@ -581,7 +630,7 @@ def project_tasks(tasks: +List<D.Task>, +project: Maybe<&2, Nat>) -> +List<D.Tas
 
 def project_entry(+id: Nat, project: D.Project, tasks: +List<D.Task>, +route: U.Route, selected: Maybe<&2, Nat>, navigation: E.NavigationState) -> ViewTypes.ProjectEntry:
   D.Project{+name, workspace, guidance, create_worktree} = project
-  ViewTypes.ProjectEntry{id, name, workspace, selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), task_entries(project_tasks(tasks, Some{id}), route),
+  ViewTypes.ProjectEntry{id, name, workspace, selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), task_forest(project_tasks(tasks, Some{id}), route),
     control("project/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}),
     control("project/toggle/" ++ Nat.show(id), "Toggle project tasks", U.ToggleProjectGroup{id}),
     context_control("project/more/" ++ Nat.show(id), "More", U.ObjectActions{U.ProjectSubject{id}})}
@@ -595,7 +644,7 @@ def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.
   +nav = E.navigation(session)
   ViewTypes.Navigation{expanded, control("new-task", "新任务", U.BeginTask{None{}}),
     [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}}), control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
-    project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, active_project(route, session, world), nav), task_entries(project_tasks(Commands.entries(world), None{}), route),
+    project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, active_project(route, session, world), nav), task_forest(project_tasks(Commands.entries(world), None{}), route),
     ViewTypes.ControlDeclaration{"navigation/toggle", "Toggle sidebar", ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:

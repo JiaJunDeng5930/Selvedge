@@ -47,6 +47,9 @@ placement through its authored assembly obligations.
 Navigation distinguishes project membership from the collection of tasks without
 a project. Project members remain children of their project group; independent
 tasks retain their existing task identities inside a separately titled collection.
+`TaskTree` is the sidebar projection of the existing Task lineage; general task
+lists continue to use `TaskEntry`. Follow `VIEW.task_forest` for construction and
+`PROGRAM.task_tree_entries` for the nested semantic surface.
 `navigation_declaration` retains each resolved declaration's identity, meaning and
 availability while assigning `NavigationEntry` its route-derived selection.
 `navigation_contents` assembles these destinations in a `NavigationSection` and
