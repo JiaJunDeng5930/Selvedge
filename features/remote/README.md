@@ -8,7 +8,7 @@ receipt in the same native decision as that command.
 
 Start with [MODEL.bend](MODEL.bend), then [SPEC.bend](SPEC.bend) for complete
 operation meanings and [PROGRAM.bend](PROGRAM.bend) for production operations.
-[CODEC.bend](CODEC.bend) owns JSON values. [CONTRACT.bend](CONTRACT.bend) and
+[CODEC.bend](CODEC.bend) owns administrative command schemas and encoding. [CONTRACT.bend](CONTRACT.bend) and
 [PROOF.bend](PROOF.bend) bind complete refinement and state preservation to the
 actual operations. Administrative operations are local-only at the assembly
 boundary. A grant generation is never reused, including after revocation.

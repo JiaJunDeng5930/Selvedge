@@ -137,10 +137,9 @@ patterns, and construction or pattern matching of declared private model
 constructors against `components.json`; it runs during normal checks and builds,
 including cached builds. Model owners are explicit source paths. This source
 check complements the proof gate, which still requires complete decisions,
-completion correlation and ordered effects. `bun run test:locality` freezes existing
-source files in temporary copies, extends state and component vocabularies, replaces a component
-without changing its contract or clients, and builds the unchanged native entry.
-It challenges the source and semantic checks separately.
+completion correlation and ordered effects. Component contracts and storage
+types quantify arbitrary clients and surrounding state; normal checks validate
+their actual production instances.
 These checks constrain source changes, not human reading time or whole-build time.
 
 The existing standard-library proof terms and their checked translation live in
@@ -243,7 +242,7 @@ bun run start
 ```
 
 The default build checks production proofs and compiles JavaScript libraries
-with Bend 2.0.27's official `js_lib` backend: `KERNEL.bend` to
+with the pinned Bend compiler's official `js_lib` backend: `KERNEL.bend` to
 `.build/kernel-model.mjs`, executed in a Bun Worker, the browser entry to
 `host/public/generated/browser-model.mjs`, and `HOST.bend` to
 `host/public/generated/host-model.mjs`. Before compilation or cache reuse, the
@@ -498,8 +497,9 @@ Concurrent commands and editors can change the same files; any required locking,
 revision checks or atomic replacement belong in the project's commands or scripts.
 The Bend checker/compiler, generated JavaScript, Bun Worker, browser DOM,
 SQLite, OS and remote protocols remain explicit external boundaries. The optional
-native transport is also outside the proof boundary. Local integration tests exercise those paths;
-live provider acceptance and physical history sharing are not claimed.
+native transport is also outside the proof boundary. Focused regressions exercise
+selected physical failure paths; live provider acceptance and physical history
+sharing are not claimed.
 
 ## Develop and verify
 
@@ -512,8 +512,8 @@ bun run bench
 
 `check` verifies the pinned compiler, proof obligations and host/script syntax.
 The default build also produces the kernel, browser and host JavaScript libraries.
-The remaining tests cover actual compiler execution, external component boundaries
-and integration flows; their evidence responsibilities are recorded in
+The remaining tests target concrete physical failure risks after properties have
+been moved to constructions, types and proofs; their responsibilities are recorded in
 [tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
 claim that a particular checkout has passed them. Tests that exercise workspace
 isolation require a working platform sandbox. The benchmark measures committed

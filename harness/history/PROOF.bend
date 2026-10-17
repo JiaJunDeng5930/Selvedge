@@ -131,45 +131,28 @@ def Laws.trace_step(tape):
 def Laws.trace_partition(first, second, tape):
   Std.iter_add(~Transcript.Tape, ~Traces.implementation, first, second, tape)
 
-def TraceInterpretation(events: +List<M.Input>) -> Type:
-  @+world:M.World() -> @+receipts:+List<M.Decision()> ->
-    {Transcript.state(Traces.actual(List.length(&2, M.Input, events), Transcript.Tape{world, events, receipts})) == P.replay(events, world) : M.World()}
-
-def trace_empty(+world: M.World(), +receipts: +List<M.Decision()>) ->
-  {Transcript.state(Traces.actual(0n, Transcript.Tape{world, Nil{}, receipts})) == P.replay(Nil{}, world) : M.World()}:
-  {==}
-
-def trace_cons(+input: M.Input, +rest: +List<M.Input>, induction: TraceInterpretation(rest),
-  +world: M.World(), +receipts: +List<M.Decision()>) ->
-  {Transcript.state(Traces.actual(List.length(&2, M.Input, input <> rest), Transcript.Tape{world, input <> rest, receipts})) == P.replay(input <> rest, world) : M.World()}:
-  +count = List.length(&2, M.Input, rest)
-  +tape : Transcript.Tape = Transcript.Tape{world, input <> rest, receipts}
-  Equal.trans(M.World(), Transcript.state(Traces.actual(1n+count, tape)),
-    Transcript.state(Traces.actual(count, Traces.implementation(tape))), P.replay(input <> rest, world),
-    Equal.cong(Transcript.Tape, M.World(), Transcript.state,
-      Traces.actual(1n+count, tape), Traces.actual(count, Traces.implementation(tape)),
-      Std.iter_swap_gen(~Transcript.Tape, ~Transcript.Tape, ~Traces.implementation, ~Traces.implementation, ~Traces.implementation, ~(tape => {==}), count, tape)),
-    induction(P.next(world, input), P.transition(input, world) <> receipts))
+def projected_world(tape: Transcript.Tape) ->
+  {Transcript.state(tape) == Reach.world(Reach.project(tape)) : M.World()}:
+  match tape:
+    case Transcript.Tape{world, pending, receipts}: {==}
 
 def Laws.trace_interpretation(events, world):
-  Std.list_ind(~M.Input, ~TraceInterpretation, ~trace_empty,
-    ~(input => rest => induction => +world => +receipts => trace_cons(input, rest, induction, world, receipts)), events)(world, Nil{})
-
-def trace_preserves(+tape: Transcript.Tape, evidence: {Transcript.valid(tape) == True{} : Bool}) ->
-  {Transcript.valid(Traces.implementation(tape)) == True{} : Bool}:
-  match tape:
-    case Transcript.Tape{world, Nil{}, receipts}: evidence
-    case Transcript.Tape{world, Con{input, pending}, receipts}:
-      Laws.transition_preserves_world(world, input, evidence)
+  +start : Reach.State = Reach.State{world, Nil{}}
+  +tape = Traces.actual(List.length(&2, M.Input, events), Transcript.Tape{world, events, Nil{}})
+  Equal.trans(M.World(), Transcript.state(tape), Reach.world(Reach.execute(events, start)), P.replay(events, world),
+    projected_world(tape),
+    Equal.trans(M.World(), Reach.world(Reach.execute(events, start)), Reach.world(Reach.run(events, start)), P.replay(events, world),
+      Equal.cong(Reach.State, M.World(), Reach.world, Reach.execute(events, start), Reach.run(events, start),
+        Equal.sym(Reach.State, Reach.run(events, start), Reach.execute(events, start), receipts(events, start))),
+      replay(events, start)))
 
 def Laws.replay_preserves_world(events, world, evidence):
-  +count = List.length(&2, M.Input, events)
-  +tape : Transcript.Tape = Transcript.Tape{world, events, Nil{}}
-  Equal.trans(Bool, I.world(P.replay(events, world)), I.world(Traces.replay(events, world)), True{},
-    Equal.cong(M.World(), Bool, world => I.world(world), P.replay(events, world), Traces.replay(events, world),
-      Equal.sym(M.World(), Traces.replay(events, world), P.replay(events, world), Laws.trace_interpretation(events, world))),
-    Std.iter_ind(~Transcript.Tape, ~Traces.implementation, ~(count => tape => {Transcript.valid(tape) == True{} : Bool}),
-      ~(count => tape => evidence => trace_preserves(tape, evidence)), tape, evidence, count))
+  +start : Reach.State = Reach.State{world, Nil{}}
+  +end = Reach.run(events, start)
+  Equal.trans(Bool, I.world(P.replay(events, world)), I.world(Reach.world(end)), True{},
+    Equal.cong(M.World(), Bool, state => I.world(state), P.replay(events, world), Reach.world(end),
+      Equal.sym(M.World(), Reach.world(end), P.replay(events, world), replay(events, start))),
+    safety(start, end, journal(events, start), evidence))
 
 def Laws.history_append_composition(first, second, history):
   Std.fold_left_app(~D.History, ~D.Message, ~D.history_step, first, second, history)

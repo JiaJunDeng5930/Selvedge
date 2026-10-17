@@ -4,7 +4,6 @@ import ../../harness/DOMAIN.bend as D
 import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
-import ../../harness/transport/schema.bend as Schema
 import ../../harness/transport/wire-shape.bend as Shape
 
 type EntryKind is Data:
@@ -34,29 +33,9 @@ def specs(settings: J.Json) -> +List<Spec>:
 def number(value: J.Json) -> Nat:
   J.natural_or(J.natural(value), 0n)
 
-def present(body: J.Json, key: String) -> Bool:
-  match body:
-    case J.Object{fields}: Schema.exists(fields, key)
-    case _: False{}
-
-def optional_text(+body: J.Json, +key: String) -> Bool:
-  Bool.not(present(body, key)) || J.is_text(J.get(body, key))
-
-def operation_matches(+body: J.Json, operation: String) -> Bool:
-  Bool.not(present(body, "op")) || J.same(J.get(body, "op"), J.Text{operation})
-
-def optional_settings(+body: J.Json) -> Bool:
-  Bool.not(present(body, "settings")) || Schema.valid(D.task_settings_schema(), J.get(body, "settings"))
-
-def valid(kind: EntryKind, +body: J.Json) -> Bool:
-  match kind:
-    case Write{}:
-      Schema.keys(body, ["op", "profile", "reasoning", "message", "settings"]) &&
-        operation_matches(body, "create_worktree_task") && J.is_text(J.get(body, "profile")) &&
-        J.is_text(J.get(body, "message")) && optional_text(body, "reasoning") && optional_settings(body)
-    case ListKind{}: Schema.keys(body, ["op"]) && operation_matches(body, "list_worktrees")
-    case ReadKind{}: Schema.keys(body, ["op", "task_id"]) && operation_matches(body, "read_worktree") && Shape.is_natural(J.get(body, "task_id"))
-    case RetryArchiveKind{}: Schema.keys(body, ["op", "task_id"]) && operation_matches(body, "retry_worktree_archive") && Shape.is_natural(J.get(body, "task_id"))
+# The command boundary already admitted the declared schema.
+def additional_constraints(kind: EntryKind, body: J.Json) -> Bool:
+  True{}
 
 def construct(kind: EntryKind, +body: J.Json) -> W.Command:
   match kind:

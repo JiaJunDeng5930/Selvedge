@@ -591,6 +591,14 @@ def Rule.source_dismiss_preserves_underlying_draft(origin, application): {==}
 def Rule.source_back_uses_actual_stack(origin, trigger, initial, query, occurrence, expanded, field, buffer, rest, application): {==}
 
 def Rule.worktree_unknown_is_unavailable(primary): {==}
+def Rule.worktree_observation_dispatch(ticket, available, application): {==}
+def Rule.current_worktree_observation_settles(current, ticket, primary, available, application, observed):
+  E.Application{+world, +session} = application
+  Equal.cong(Bool, E.Decision, (accepted => E.settle_workspace_git(accepted, primary, available, E.from_program(world, session))),
+    E.git_observation_current(current, ticket, primary, E.current_primary(E.from_program(world, session))), True{}, observed)
+def Rule.prepared_task_retains_worktree_choice(message, profile, reasoning, context, enabled, observation, now): {==}
+def Rule.prepared_project_creation_retains_worktree_choice(name, previous, workspace, guidance, enabled, now): {==}
+def Rule.prepared_project_update_retains_worktree_choice(id, name, previous, workspace, guidance, enabled, now): {==}
 def Rule.worktree_loading_is_unavailable(ticket, root, primary): {==}
 def Rule.worktree_observed_requires_matching_primary(root, available, primary): {==}
 def Rule.worktree_without_primary_is_unavailable(root, available): {==}

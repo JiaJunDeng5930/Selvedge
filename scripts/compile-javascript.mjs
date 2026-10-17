@@ -60,8 +60,11 @@ export async function compileJavaScript({ entry, exports: publicExports, output,
       realpath(path.resolve(root, entry)), realpath(path.resolve(root, sourceRoot)),
     ]);
     await writeFile(request, JSON.stringify({ entry: canonicalEntry, sourceRoot: canonicalSourceRoot, exports: Object.fromEntries(entries), output: path.resolve(root, output), response }));
+    // NOTE: Bound JavaScriptCore's RAM estimate so emitter GC runs before the container is exhausted.
     const result = spawnSync(process.execPath, [driver, '--emit', request], {
-      cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
+      cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+      env: { ...process.env, BEND_NO_TELEMETRY: '1',
+        BUN_JSC_forceRAMSize: process.env.BUN_JSC_forceRAMSize ?? '4294967296' },
     });
     if (result.error || result.status !== 0) {
       const diagnostic = result.error?.message || result.stderr.trim() || result.stdout.trim() || 'No compiler diagnostic was emitted';

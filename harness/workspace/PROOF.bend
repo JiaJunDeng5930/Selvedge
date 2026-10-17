@@ -19,7 +19,7 @@ def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D
   {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext}:
   D.Task{parent_id, lineage,
     D.Contract{creation_model, tools, max_fork, max_descendants, plugins, D.TaskContext{workspace, creation_sandbox, creation_approval, project_id}},
-    D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval},
+    D.ExecutionConfiguration{model, sandbox, approval},
     status, history, queued, phase, operations, notified} = parent
   {==}
 

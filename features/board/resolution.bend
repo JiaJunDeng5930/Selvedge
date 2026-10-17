@@ -509,8 +509,8 @@ def resolve(+command: B.Command, +world: M.World()) -> Resolution:
     case B.Create{draft, now, +assist, profile}: create_checked(initial_draft(assist, draft), now, assist, profile, world)
     case B.Settings{automatic, +profile}:
       settings_admission(automatic, world, profile)
-    case B.SaveAgent{id, revision, +agent}:
-      save_agent_admission(id, revision, world, agent)
+    case B.SaveAgent{id, +agent}:
+      save_agent_admission(id, B.agent_revision(agent), world, agent)
     case B.DeleteAgent{+id, revision}: delete_agent(B.find_agent(S.registry(world), id), id, revision, world)
     case B.Update{+id, +revision, patch, now}: with_card(B.find(S.registry(world), id), revision, command, world)
     case B.MoveCard{+id, +revision, stage, before, now}: with_card(B.find(S.registry(world), id), revision, command, world)

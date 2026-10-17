@@ -80,11 +80,6 @@ def named_permission(name: String, +body: J.Json) -> Maybe<&2, R.Rights>:
 def permission(+body: J.Json) -> Maybe<&2, R.Rights>:
   named_permission(J.text(J.get(body, "op")), body)
 
-def combine(left: R.Rights, right: R.Rights) -> R.Rights:
-  match left right:
-    case R.Rights{read_a, control_a, configure_a, approve_a} R.Rights{read_b, control_b, configure_b, approve_b}:
-      R.Rights{read_a || read_b, control_a || control_b, configure_a || configure_b, approve_a || approve_b}
-
 def authorize_mapped(required: Maybe<&2, R.Rights>, request: R.Request, state: R.State) -> R.Authorization:
   match required:
     case None{}: R.Denied{"remote_command_forbidden", "Remote access cannot invoke this local management command"}

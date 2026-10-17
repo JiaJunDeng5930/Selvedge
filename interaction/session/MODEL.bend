@@ -583,7 +583,9 @@ def configure_policy(+policy: Sigma<&2, &2, D.Sandbox, (_ => D.ApprovalPolicy)>,
   configure_selected(remember, sandbox, approval, task, profile, reasoning, current_profile, current_reasoning, application)
 
 def configure_current(+current: D.ExecutionConfiguration, +task: Nat, +profile: String, +reasoning: String, +change: Maybe<&2, Context.Change>, +remember: Bool, +application: Application) -> Decision:
-  D.ExecutionConfiguration{current_profile, current_reasoning, model, sandbox, approval} = current
+  D.ExecutionConfiguration{+model, sandbox, approval} = current
+  current_profile = D.profile_key(D.model_profile(model))
+  current_reasoning = D.model_selection(model)
   +world = program(application)
   configure_policy(changed_policy(change, sandbox, approval, Board.profiles(world)), task, profile, reasoning, current_profile, current_reasoning, remember, application)
 

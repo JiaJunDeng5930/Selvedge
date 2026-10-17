@@ -583,6 +583,34 @@ law worktree_unknown_is_unavailable:
   @primary:Maybe<&2, String> ->
   {E.workspace_git_matches(E.UnknownWorkspaceGit{}, primary) == False{} : Bool}
 
+law worktree_observation_dispatch:
+  @+ticket:Nat -> @+available:Bool -> @+application:E.Application ->
+  {ExperienceProgram.step(E.WorkspaceGitObserved{ticket, available}, application) ==
+    E.workspace_git_result(E.workspace_git(E.session(application)), ticket, available, application) : E.Decision}
+
+law current_worktree_observation_settles:
+  @+current:Nat -> @+ticket:Nat -> @+primary:String -> @+available:Bool -> @+application:E.Application ->
+  @observed:{E.git_observation_current(current, ticket, primary, E.current_primary(application)) == True{} : Bool} ->
+  {E.workspace_git_result(E.LoadingWorkspaceGit{current, primary}, ticket, available, application) ==
+    E.local(E.program(application), E.with_workspace_git(E.ObservedWorkspaceGit{primary, available},
+      E.disable_unavailable_worktree(available, E.find_draft(E.drafts(E.session(application)), U.NewTaskEditor{}), E.session(application))), Nil{}) : E.Decision}
+
+law prepared_task_retains_worktree_choice:
+  @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration ->
+  @+enabled:Bool -> @+observation:Context.DirectoryObservation -> @+now:U32 ->
+  {U.prepared_command(U.NewTask{message, profile, reasoning, context, enabled}, observation, now) ==
+    U.task_creation(enabled, profile, reasoning, U.text(message), Context.observed_settings(context, observation)) : M.Command}
+
+law prepared_project_creation_retains_worktree_choice:
+  @+name:String -> @previous:D.Workspace -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @+enabled:Bool -> @now:U32 ->
+  {U.prepared_command(U.Project{None{}, name, previous, enabled}, Context.DirectoryObservation{workspace, guidance}, now) ==
+    M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{enabled}} : M.Command}
+
+law prepared_project_update_retains_worktree_choice:
+  @+id:Nat -> @+name:String -> @previous:D.Workspace -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @+enabled:Bool -> @now:U32 ->
+  {U.prepared_command(U.Project{Some{id}, name, previous, enabled}, Context.DirectoryObservation{workspace, guidance}, now) ==
+    M.UpdateProject{id, Some{name}, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{enabled}} : M.Command}
+
 law worktree_loading_is_unavailable:
   @ticket:Nat -> @root:String -> @primary:Maybe<&2, String> ->
   {E.workspace_git_matches(E.LoadingWorkspaceGit{ticket, root}, primary) == False{} : Bool}

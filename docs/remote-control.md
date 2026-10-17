@@ -14,14 +14,14 @@ can see relayed messages. This is not end-to-end encryption.
 
 ## Deploy the relay
 
-Use Node 22 or later and an authenticated Wrangler installation:
+Use Bun 1.4.2 or later, Node 22 or later and an authenticated Wrangler installation:
 
 ```bash
+bun install --frozen-lockfile
 cd relay
-npm ci --workspaces=false
-npx wrangler login
-npx wrangler secret put RELAY_ENROLLMENT_TOKEN
-npm run deploy
+bun x --no-install wrangler login
+bun x --no-install wrangler secret put RELAY_ENROLLMENT_TOKEN
+bun run deploy
 ```
 
 Enter a fresh random enrollment secret when Wrangler prompts, for example one
@@ -131,20 +131,17 @@ lost response. The native receipt is committed with the command decision;
 WebSocket delivery alone is not a commit acknowledgment. Protocol constants and
 shape checks in [protocol.mjs](../remote/protocol.mjs) are authoritative.
 
-[remote-support.mjs](../tests-bend/remote-support.mjs) provides an executable test
-client, and [remote-control.test.mjs](../tests-bend/remote-control.test.mjs)
-exercises the real local Cloudflare Worker runtime, service and journal. The
+The [focused regression suite](../tests-bend/README.md) exercises the actual
+WebSocket transport, service journal and local Cloudflare Worker runtime. The
 loopback HTTP/WebSocket mode exists only for explicit test setup; production
 configuration requires an HTTPS origin on port 443.
 
 Run the repository's ordinary proof/build checks and remote integration tests:
 
 ```bash
-bun run build
-bun test ./tests-bend/remote-control.test.mjs
-cd relay
-npm test
-npm run check
+bun run check
+bun run test
+bun run index:check
 ```
 
 These local checks do not deploy resources or validate a particular Cloudflare

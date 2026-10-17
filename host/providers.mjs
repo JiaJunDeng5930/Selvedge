@@ -48,6 +48,17 @@ export function responseBody(effect, profile = { provider: effect.model.provider
   return boundary('backend.request', { effect, profile });
 }
 
+// Keep the encoded bytes beside the value observed by the native meter. The
+// dispatchers send this body directly rather than reconstructing the request.
+export function prepareProviderRequest(request) {
+  const body = stringifyJson(request);
+  return Object.freeze({ request, body, bytes: Buffer.byteLength(body) });
+}
+
+function guardProviderRequest(prepared, limits) {
+  boundary('backend.request_size', { bytes: prepared.bytes, limits });
+}
+
 // Resolve the complete consumer before selecting opaque input. API-key identity
 // stays within the target digest, so rotating one credential reference also
 // invalidates its old receipts without sending credential bytes into Bend.
@@ -82,9 +93,9 @@ export async function providerSession(effect, config, home, { signal } = {}) {
   };
 }
 
-export async function requestProviderJSON(session, suffix, request, limits, { onRetry = () => {} } = {}) {
-  const body = stringifyJson(request);
-  boundary('backend.request_size', { bytes: Buffer.byteLength(body), limits });
+export async function requestProviderJSON(session, suffix, prepared, limits, { onRetry = () => {} } = {}) {
+  const { body } = prepared;
+  guardProviderRequest(prepared, limits);
   const send = () => fetch(`${session.profile.endpoint}${suffix}`, { method: 'POST',
     headers: { ...session.headers, accept: 'application/json' }, body, signal: session.lifetime, redirect: 'error' });
   let response = await requestHeaders(send, limits.model_retry, session.lifetime, onRetry);
@@ -120,14 +131,22 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   }
   if (support.transport === 'echo') return boundary('backend.echo', { history: effect.history });
   const session = await providerSession(effect, config, home, { signal });
-  const { profile, backend, scope } = session;
+  const { profile, scope } = session;
   const consumer = boundary('backend.compaction_scope_changed', { effect, scope });
   if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
-  const lifetime = session.lifetime;
+  const prepared = prepareProviderRequest(responseBody(effect, profile));
+  return requestProviderSSE(session, effect, prepared, limits, { onDelta, onRetry, onObservation });
+}
+
+// Model inference and compaction share the same physical SSE transport. A
+// compaction caller passes the very session and request used for its meter.
+export async function requestProviderSSE(session, effect, prepared, limits,
+  { onDelta = () => {}, onRetry = () => {}, onObservation = () => {} } = {}) {
+  const { profile, backend, scope, lifetime } = session;
+  lifetime.throwIfAborted();
   boundary('backend.request_guard', { effect, profile, limits });
-  const request = responseBody(effect, profile);
-  const body = stringifyJson(request);
-  try { boundary('backend.request_size', { bytes: Buffer.byteLength(body), limits }); }
+  const { body } = prepared;
+  try { guardProviderRequest(prepared, limits); }
   catch (error) { throw new RangeError(error.message); }
   const headers = { ...session.headers, accept: 'text/event-stream' };
   const send = () => fetch(profile.endpoint, { method: 'POST', headers, body, signal: lifetime, redirect: 'error' });

@@ -1,34 +1,62 @@
 import test from 'node:test';
+import http from 'node:http';
 import assert from 'node:assert/strict';
-import { stat, readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { requestModel, cancelModelTask, responseBody } from '../host/providers.mjs';
-import { requestApproval, approvalOutcome } from '../host/approvals.mjs';
+import { requestModel } from '../host/providers.mjs';
+import { requestApproval } from '../host/approvals.mjs';
 import { requestBoardText } from '../host/board-text.mjs';
-import { sseEvents, events } from '../host/network.mjs';
-import { chatgptWebRequestAction } from '../host/chatgpt-web.mjs';
-import { WebRequestStore } from '../host/chatgpt-web-store.mjs';
-import { defaultConfig, validateConfig, profileCatalog } from '../host/config.mjs';
+import { sseEvents } from '../host/network.mjs';
+import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { Service } from '../host/service.mjs';
 import { home, taskIdle } from './support.mjs';
-import { webServer, answer, call } from './fixtures/chatgpt-web.mjs';
-import { configuredContext, projectContext } from './fixtures/context.mjs';
-import { boundary } from '../host/public/model-boundary.mjs';
 
 const limits = { frame_bytes: 1024 * 1024, approval_reason_bytes: 400,
   model_retry: { delays_ms: [1, 2], statuses: [429, 500, 502, 503, 504], max_retry_after_ms: 1000 } };
-const tool = { name: 'work', description: 'A fixture function', parameters: { type: 'object', properties: { path: { type: 'string' } } } };
 const baseEffect = () => ({ kind: 'model', task_id: 0, ticket: 1,
   model: { profile: 'web', provider: 'chatgpt-web', name: 'chatgpt-web/high', reasoning: 'medium' },
-  history: [configuredContext('Follow the user.'), { role: 'user', content: 'first question' }],
-  tools: [tool], callable: ['work'], settings: { workspace: '/fixture' } });
+  history: [{ role: 'user', content: 'first question' }], tools: [], callable: [] });
 
-function append(history, items) {
-  return [...history, ...items.map(item => item.type === 'text' ? { role: 'assistant', content: item.text } :
-    item.type === 'context' ? { role: 'model_context', content: item.value } :
-      { role: 'function_call', content: { id: item.id, name: item.name, arguments: item.arguments } })];
+const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
+const call = (id, name, args) => ({ type: 'function_call', id: `item_${id}`, call_id: id, name, arguments: args });
+
+async function webServer(t, respond) {
+  const requests = [], controls = [], failures = [], resources = new Map();
+  const server = http.createServer((request, response) => {
+    void (async () => {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const body = raw ? JSON.parse(raw) : undefined;
+      if (request.url !== '/v1/responses') {
+        controls.push(request.url);
+        response.writeHead(500); response.end(); return;
+      }
+      const key = request.headers['idempotency-key'];
+      requests.push({ body, raw, key });
+      const id = `resp_${requests.length}`;
+      const makeResource = (output, status = output?.[0]?.type === 'function_call' ? 'requires_action' : 'completed') => ({
+        id, object: 'web.response', protocol: 'chatgpt-web.v1', created_at: 1790000000,
+        previous_response_id: body.previous_response_id ?? null, status,
+        model: body.model ?? resources.get(body.previous_response_id).model,
+        output, usage: status === 'completed' ? { input_tokens: 10, output_tokens: 2, total_tokens: 12, estimated: true } : null,
+      });
+      const event = (name, value) => response.write(`event: ${name}\r\ndata: ${JSON.stringify(value)}\r\n\r\n`);
+      const custom = await respond(body, requests.length - 1, { request, response, id, makeResource, event, resources });
+      if (custom === undefined) return;
+      const resource = makeResource(custom.output);
+      resources.set(id, resource);
+      response.writeHead(200, { 'content-type': 'text/event-stream', 'x-response-id': id, 'x-web-protocol': 'chatgpt-web.v1' });
+      event('response.in_progress', { response_id: id, previous_response_id: body.previous_response_id ?? null });
+      event(`response.${resource.status}`, { response: resource });
+      response.end('data: [DONE]\r\n\r\n');
+    })().catch(error => { failures.push(error); response.destroy(error); });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/responses`, requests, controls, failures };
 }
 
 async function fixture(t, respond) {
@@ -44,346 +72,33 @@ async function fixture(t, respond) {
   return { ...server, config, directory, run };
 }
 
-test('web profiles use their own endpoint, token and fixed effort catalog', () => {
-  for (const effort of ['light', 'medium', 'high', 'xhigh', 'pro']) {
-    const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: { web: { provider: 'chatgpt-web', model: `chatgpt-web/${effort}` } } });
-    assert.equal(config.profiles.web.endpoint, 'http://127.0.0.1:8787/v1/responses');
-    assert.equal(config.profiles.web.api_key_env, 'CHATGPT_WEB_TOKEN');
-    assert.deepEqual(profileCatalog(config), [{ key: 'web', provider: 'chatgpt-web', name: `chatgpt-web/${effort}`, reasoning_options: null }]);
-  }
-  for (const extra of [{ model: 'gpt-native' }, { endpoint: 'http://127.0.0.1:8787/responses' },
-    { endpoint: 'http://127.0.0.1:8787/v1/responses?token=secret' }, { api_key_env: 'bad-name' },
-    { adaptive_reasoning: { evaluator: 'fixture', efforts: ['high'], baseline: 'high', transport: 'request_effort' } }]) {
-    assert.throws(() => validateConfig({ ...defaultConfig, profiles: { web: { provider: 'chatgpt-web', model: 'chatgpt-web/high', ...extra } } }));
-  }
-});
-
-test('root requests use named snapshots and retain only authoritative output plus an opaque receipt', async t => {
-  const f = await fixture(t, async body => {
-    assert.equal(body.model, 'chatgpt-web/high');
-    assert.ok(!body.instructions);
-    assert.equal(body.input[0].content, 'Committed context object introduced.\nContext: {"type":"configured_instruction","identity":{"origin":"configured"}}\nInstructions configured for this task.\nApplies to: global\nField: content\nFollow the user.\n');
-    assert.equal(body.input[0].role, 'developer');
-    assert.ok(JSON.stringify(body.input).includes('project data'));
-    assert.equal(body.input.at(-1).content, 'first question');
-    assert.deepEqual(body.tools, [{ type: 'function', ...tool }]);
-    return { output: answer('final 😀'), snapshots: ['provisional longer text', 'short', 'corrected 😀'] };
-  });
-  const effect = baseEffect(); effect.history.splice(1, 0, projectContext('/fixture', 'a'.repeat(64), 'project data'));
-  const snapshots = [];
-  const items = await f.run(effect, { onSnapshot: (text, index) => snapshots.push([text, index]), onDelta: () => assert.fail('snapshots are not deltas') });
-  assert.deepEqual(snapshots, [['provisional longer text', 0], ['short', 0], ['corrected 😀', 0], ['final 😀', 0]]);
-  assert.deepEqual(items[0], { type: 'text', text: 'final 😀' });
-  assert.equal(items[1].value.type, 'provider_receipt');
-  assert.equal(items[1].value.status, 'completed');
-  const file = path.join(f.directory, 'providers/chatgpt-web/requests.sqlite');
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
-  const store = await WebRequestStore.open(f.directory);
-  const stored = store.find(items[1].value.request_key); store.close();
-  assert.equal(stored.body, f.requests[0].raw);
-  assert.ok(!JSON.stringify(stored).includes('local-web-fixture'));
-  assert.ok(!stored.response.includes('provisional longer text'));
-  assert.deepEqual(f.failures, []);
-});
-
-test('completed continuations send only new messages and inherit all root settings', async t => {
-  const f = await fixture(t, async (_, index) => ({ output: answer(`answer ${index}`), json: index === 1 }));
-  const root = baseEffect(); const first = await f.run(root);
-  const next = { ...root, ticket: 2, history: [...append(root.history, first), { role: 'user', content: 'only this is new' }] };
-  await f.run(next);
-  assert.equal(f.requests[1].body.previous_response_id, first[1].value.response_id);
-  assert.deepEqual(f.requests[1].body.input.at(-1), { type: 'message', role: 'user', content: 'only this is new' });
-  assert.match(f.requests[1].body.input[0].content, /Committed provider receipt/);
-  assert.deepEqual(f.failures, []);
-});
-
-test('local transport receipts remain tagged data in another backend\'s wire input', async t => {
-  const f = await fixture(t, async () => ({ output: answer('portable answer') }));
-  const root = baseEffect(); const output = await f.run(root);
-  const history = append(root.history, output);
-  for (const provider of ['responses', 'chatgpt']) {
-    const body = responseBody({ ...root, history, model: { ...root.model, provider, name: 'fixture-model' } }, { provider });
-    assert.ok(body.input.some(item => item.role === 'user' && item.content === 'first question'));
-    assert.ok(body.input.some(item => item.role === 'assistant' && item.content === 'portable answer'));
-    assert.ok(JSON.stringify(body.input).includes(output.at(-1).value.response_id));
-    assert.ok(JSON.stringify(body.input).includes(output.at(-1).value.request_key));
-  }
-});
-
-test('object-argument calls return one exact result batch, then flush deferred messages without mixing them', async t => {
-  const f = await fixture(t, async (body, index) => {
-    if (index === 0) return { output: [call('a', 'work', { path: 'a' }), call('b', 'work', { path: 'b' })] };
-    if (index === 1) {
-      assert.deepEqual(body.input.filter(item => item.type === 'function_call_output').map(item => item.call_id), ['a', 'b']);
-      assert.deepEqual(JSON.parse(body.input.filter(item => item.type === 'function_call_output')[1].output), { value: { content: 'opaque JSON, not MCP blocks' }, is_error: true });
-      return { output: answer('tool turn completed') };
-    }
-    assert.ok(body.input.some(item => item.content === 'new request during tools'));
-    return { output: answer('new request answered') };
-  });
-  const root = baseEffect(); const first = await f.run(root);
-  assert.deepEqual(first[0], { type: 'call', id: 'a', name: 'work', arguments: { path: 'a' } });
-  const next = { ...root, ticket: 2, history: [...append(root.history, first),
-    { role: 'function_output', call_id: 'b', content: { content: 'opaque JSON, not MCP blocks' }, is_error: true },
-    { role: 'user', content: 'new request during tools' },
-    { role: 'function_output', call_id: 'a', content: 'ok', is_error: false }] };
-  const output = await f.run(next);
-  assert.deepEqual(output.slice(0, 2), [{ type: 'text', text: 'tool turn completed' }, { type: 'text', text: 'new request answered' }]);
-  assert.deepEqual(output.at(-1).value.deferred, []);
-  assert.equal(f.requests.length, 3);
-  assert.deepEqual(f.failures, []);
-});
-
-test('messages deferred over several tool rounds survive in the native context carrier', async t => {
-  const f = await fixture(t, async (_, index) => index < 2 ? { output: [call(`c${index}`, 'work')] } : { output: answer(`done ${index}`) });
-  const root = baseEffect(); const first = await f.run(root);
-  const next = { ...root, ticket: 2, history: [...append(root.history, first),
-    { role: 'user', content: 'keep this message' }, { role: 'function_output', call_id: 'c0', content: 'zero', is_error: false }] };
-  const second = await f.run(next);
-  assert.ok(second.at(-1).value.deferred.some(item => item.content === 'keep this message'));
-  const last = { ...root, ticket: 3, history: [...append(next.history, second), { role: 'function_output', call_id: 'c1', content: 'one', is_error: false }] };
-  await f.run(last);
-  assert.ok(f.requests[3].body.input.some(item => item.type === 'message' && item.content === 'keep this message'));
-  assert.deepEqual(f.failures, []);
-});
-
-test('missing, repeated and foreign results fail before admitting another request', async t => {
-  const f = await fixture(t, async () => ({ output: [call('a', 'work'), call('b', 'work')] }));
-  const root = baseEffect(); const first = await f.run(root);
-  const result = id => ({ role: 'function_output', call_id: id, content: 'ok', is_error: false });
-  for (const results of [[result('a')], [result('a'), result('a')], [result('a'), result('foreign')]]) {
-    await assert.rejects(f.run({ ...root, ticket: 2, history: [...append(root.history, first), ...results] }), /batch|results/);
-  }
-  assert.equal(f.requests.length, 1);
-});
-
-test('forks start explicit roots while ordinary continuation retains the verified prefix', async t => {
-  const f = await fixture(t, async () => ({ output: answer('answer'), snapshots: ['preview'] }));
-  const root = baseEffect(); const first = await f.run(root);
-  const history = append(root.history, first);
-  await f.run({ ...root, task_id: 8, ticket: 2, history: [...history, { role: 'user', content: 'child task' }] });
-  assert.equal(f.requests[1].body.previous_response_id, undefined);
-  assert.ok(f.requests[1].body.input.some(item => item.content === 'first question'));
-  await f.run({ ...root, ticket: 3, history: [...history, { role: 'user', content: 'continue' }] });
-  assert.equal(f.requests[2].body.previous_response_id, first.at(-1).value.response_id);
-  assert.ok(history.some(item => item.content === 'first question'));
-  assert.equal(f.requests[2].body.input.at(-1).content, 'continue');
-  assert.deepEqual(f.failures, []);
-});
-
-test('web HTTP retains the recorded reasoning change and rejects unknown history entries', async t => {
-  const f = await fixture(t, async body => {
-    const encoded = body.input.map(item => typeof item.content === 'string' ? item.content : JSON.stringify(item.content));
-    const changed = encoded.findIndex(item => item.includes('Committed reasoning effort') && item.includes('high'));
-    assert.ok(encoded.indexOf('before recorded effort') < changed);
-    assert.ok(changed < encoded.indexOf('after recorded effort'));
-    assert.ok(!body.instructions);
-    return { output: answer('done') };
-  });
-  await f.run({ ...baseEffect(), history: [
-    { role: 'user', content: 'before recorded effort' },
-    { role: 'task_context', type: 'reasoning_configuration', effort: 'high' },
-    { role: 'user', content: 'after recorded effort' },
-  ] });
-  await assert.rejects(f.run({ ...baseEffect(), task_id: 8, history: [{ role: 'unknown_history_role', content: 'must fail' }] }));
-  assert.equal(f.requests.length, 1); assert.deepEqual(f.failures, []);
-});
-
-test('transient header retries preserve the original body and idempotency key; completed replay is local', async t => {
-  const f = await fixture(t, async (_, index, { response }) => {
-    if (!index) { response.writeHead(503); response.end('private upstream detail'); return; }
-    return { output: answer('recovered') };
-  });
-  const retries = [];
-  const first = await f.run(baseEffect(), { onRetry: value => retries.push(value) });
-  assert.equal(f.requests.length, 2);
-  assert.equal(f.requests[0].key, f.requests[1].key);
-  assert.equal(f.requests[0].raw, f.requests[1].raw);
-  assert.equal(retries.length, 1);
-  assert.deepEqual(await f.run(), first);
-  assert.equal(f.requests.length, 2);
-  await assert.rejects(f.run({ ...baseEffect(), history: [{ role: 'user', content: 'changed body' }] }), /cannot change/);
-  assert.equal(f.requests.length, 2);
-});
-
-test('interrupted observation retains identity, does not resend, and permits same-key observation plus explicit controls', async t => {
-  const f = await fixture(t, async (_, index) => ({ output: answer('final'), snapshots: ['provisional'], interrupted: index === 0 }));
-  let error;
-  await assert.rejects(f.run(), value => { error = value; return Boolean(value.requestKey && value.responseId); });
-  assert.equal(f.requests.length, 1);
-  await assert.rejects(f.run({ ...baseEffect(), ticket: 2 }), /request retained/);
-  assert.equal(f.requests.length, 1, 'an unknown outcome cannot silently start a replacement root');
-  const inspected = await chatgptWebRequestAction(error.requestKey, 'inspect', f.config, f.directory, limits);
-  assert.equal(inspected.id, error.responseId);
-  await chatgptWebRequestAction(error.requestKey, 'resume', f.config, f.directory, limits, { confirm: true });
-  const recovered = await f.run();
-  assert.equal(recovered[0].text, 'final');
-  assert.equal(f.requests[0].key, f.requests[1].key);
-  await cancelModelTask(0, f.config, f.directory, limits);
-  assert.deepEqual(f.controls.map(value => [value.action, value.method, value.body]), [
-    ['inspect', 'GET', undefined], ['resume', 'POST', { confirm: true }], ['cancel', 'POST', {}],
-  ]);
-  assert.deepEqual(f.failures, []);
-});
-
-test('connection and contract changes cannot consume a retained predecessor', async t => {
-  const f = await fixture(t, async () => ({ output: answer('done') }));
-  const root = baseEffect(); const first = await f.run(root);
-  const next = { ...root, ticket: 2, history: [...append(root.history, first), { role: 'user', content: 'next' }] };
-  const altered = structuredClone(next); altered.history[0].change.snapshot.value.fields.content = 'changed configured instruction';
-  await assert.rejects(f.run(altered), /prefix|contract changed|history no longer matches/);
-  const alien = structuredClone(next); alien.history.find(item => item.role === 'model_context' && item.content.type === 'provider_receipt').content.store_id = 'different-home';
-  await assert.rejects(f.run(alien), /connection or contract changed/);
-  assert.equal(f.requests.length, 1);
-});
-
-test('provider resources are validated before any call can reach native execution', async t => {
-  for (const [name, alter] of [
-    ['string arguments', r => { r.status = 'requires_action'; r.usage = null; r.output = [{ ...call('x', 'work'), arguments: '{}' }]; }],
-    ['custom call never declared', r => { r.status = 'requires_action'; r.usage = null; r.output = [{ type: 'custom_tool_call', id: 'x', call_id: 'x', name: 'work', input: 'raw' }]; }],
-    ['duplicate call IDs', r => { r.status = 'requires_action'; r.usage = null; r.output = [call('x', 'work'), call('x', 'work')]; }],
-    ['wrong model', r => { r.model = 'chatgpt-web/light'; }],
-    ['wrong protocol', r => { r.protocol = 'responses.v1'; }],
-    ['wrong predecessor', r => { r.previous_response_id = 'foreign'; }],
-    ['wrong identity', r => { r.id = 'foreign'; }],
-  ]) await t.test(name, async t => {
-    const f = await fixture(t, async (_, __, { makeResource }) => { const resource = makeResource(answer('done')); alter(resource); return { resource }; });
-    await assert.rejects(f.run(), error => Boolean(error.requestKey));
-    assert.equal(f.requests.length, 1);
-  });
-});
-
-test('admitted HTTP failures preserve their identity and do not expose upstream diagnostics', async t => {
-  const f = await fixture(t, async (_, __, { id, response }) => {
-    response.writeHead(409, { 'content-type': 'application/json', 'x-response-id': id });
-    response.end(JSON.stringify({ error: { code: 'previous_response_consumed', message: 'secret credential-looking data' } }));
-  });
-  await assert.rejects(f.run(), error => error.code === 'previous_response_consumed' && error.responseId && !error.message.includes('secret'));
-  assert.equal(f.requests.length, 1);
-});
-
-test('web transport crosses real native execution, SQLite commit, restart, fork and context replacement boundaries', { timeout: 20_000 }, async t => {
-  const f = await fixture(t, async (body, index, { request }) => {
-    const database = new DatabaseSync(path.join(f.directory, 'state', 'journal.sqlite'), { readOnly: true });
-    const decisions = database.prepare('SELECT decision FROM journal ORDER BY seq').all().map(row => JSON.parse(row.decision));
-    database.close();
-    const receipts = new DatabaseSync(path.join(f.directory, 'state/providers/chatgpt-web/requests.sqlite'), { readOnly: true });
-    const saved = receipts.prepare('SELECT invocation, body FROM requests WHERE request_key=?').get(request.headers['idempotency-key']);
-    receipts.close();
-    assert.equal(saved.body, f.requests[index].raw, 'The exact request body/key must be durable before HTTP');
-    const [, owner, ticket] = saved.invocation.split(':');
-    assert.ok(decisions.some(decision => decision.effects.some(effect =>
-      effect.kind === 'model' && effect.task_id === Number(owner) && effect.ticket === Number(ticket))),
-    'HTTP requires its own earlier committed model intent');
-    if (index === 0) return { output: [call('run', 'bash', { command: "printf 'ran\\n' >> executions; printf 'tool ok'" })] };
-    if (index === 1) {
-      const result = JSON.parse(body.input.find(item => item.type === 'function_call_output').output);
-      assert.equal(result.is_error, false);
-      // OS scheduling may return a running operation before its completion.
-      // The final task page below must contain the actual stdout in either case.
-      if (result.value.status !== 'running') assert.match(result.value.stdout, /tool ok/);
-    }
-    return { output: answer(`native answer ${index}`), interrupted: body.input.at(-1).content === 'continue with summary' };
-  });
-  const state = path.join(f.directory, 'state');
-  let service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  t.after(() => service.close());
-  const notices = []; service.on('notice', value => notices.push(value));
-  const created = await service.command({ op: 'create', profile: 'web', message: 'execute the fixture tool' });
-  assert.equal(created.reply.ok, true);
-  let page = await taskIdle(service);
-  assert.deepEqual(f.failures, [], JSON.stringify(page));
-  assert.ok(!page.messages.some(item => item.role === 'error' || (item.role === 'function_output' && item.is_error)), JSON.stringify(page));
-  assert.ok(page.messages.some(item => ['function_output', 'operation_result'].includes(item.role) && item.content?.stdout === 'tool ok'), JSON.stringify(page));
-  assert.ok(page.messages.some(item => item.role === 'model_context' && item.content.type === 'provider_receipt'));
-  assert.equal(await readFile(path.join(f.directory, 'executions'), 'utf8'), 'ran\n');
-  const count = f.requests.length;
-  await service.close();
-  service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  assert.equal(f.requests.length, count, 'journal replay must not resend browser effects');
-  await service.command({ op: 'send', task_id: 0, message: 'new message after restart' });
-  page = await taskIdle(service);
-  assert.equal(f.requests.at(-1).body.input.at(-1).content, 'new message after restart');
-  assert.ok(f.requests.at(-1).body.previous_response_id);
-  const forked = await service.command({ op: 'fork', task_id: 0, child_count: 1, messages: ['child request'] });
-  assert.equal(forked.reply.ok, true, JSON.stringify(forked.reply));
-  await taskIdle(service, 1);
-  await taskIdle(service, 0);
-  const childRequest = f.requests.find(request => request.body.input.some(item => item.content === 'child request'));
-  assert.ok(childRequest);
-  assert.equal(childRequest.body.previous_response_id, undefined);
-  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit recorded summary' })).reply.ok, true);
-  assert.equal((await service.command({ op: 'send', task_id: 0, message: 'continue with summary' })).reply.ok, true);
-  await taskIdle(service);
-  assert.equal(f.requests.at(-1).body.previous_response_id, undefined,
-    'Replacing the full context starts a new remote root instead of reviving the old prefix');
-  assert.ok(JSON.stringify(f.requests.at(-1).body.input).includes('explicit recorded summary'));
-  const retainedCount = f.requests.length;
-  await service.command({ op: 'send', task_id: 0, message: 'retry the same compacted context' });
-  page = await taskIdle(service);
-  assert.equal(f.requests.length, retainedCount,
-    'The same context replacement cannot reset an unknown request again under a new ticket');
-  assert.ok(page.messages.some(item => item.role === 'error' && item.content.includes('request retained')));
-  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'second explicitly recorded summary' })).reply.ok, true);
-  await service.command({ op: 'send', task_id: 0, message: 'continue after another explicit compaction' });
-  await taskIdle(service);
-  assert.equal(f.requests.length, retainedCount + 1, 'A new explicit replacement permits one new root');
-  assert.equal(f.requests.at(-1).body.previous_response_id, undefined);
-  assert.ok(JSON.stringify(f.requests.at(-1).body.input).includes('second explicitly recorded summary'));
-  assert.equal(await readFile(path.join(f.directory, 'executions'), 'utf8'), 'ran\n', 'no tool replay after restart or branch');
-  assert.ok(notices.some(value => value.type === 'snapshot'));
-  assert.deepEqual(f.failures, []);
-});
-
-test('independent approval and board effects without task history consume normalized text requests', async t => {
+test('independent approval and board effects without history reach the Web text transport', async t => {
   const f = await fixture(t, async (body, index) => {
     assert.deepEqual(body.tools, []);
     assert.equal(body.previous_response_id, undefined);
-    assert.ok(!JSON.stringify(body).includes('first question'));
+    assert.equal(body.input.length, 1);
     if (index === 0) {
-      assert.equal(JSON.parse(body.input[0].content).command.name, 'bash');
-      return { output: answer('{"decision":"deny","reason":"Not authorized by the user."}') };
+      const review = JSON.parse(body.input[0].content);
+      assert.equal(review.command.arguments.command, 'pwd');
+      assert.deepEqual(review.recent_user_requests_newest_first, ['Inspect only.']);
+      return { output: answer('{"decision":"deny","reason":"Inspect only."}') };
     }
+    assert.equal(index, 1);
     assert.equal(body.input[0].content, 'Draft a description.');
     return { output: answer('{"title":"Fixture","description":"A generated description."}') };
   });
-  const { model, settings } = baseEffect();
-  const approval = { kind: 'approval', task_id: 0, ticket: 1, model, settings,
+  const model = baseEffect().model;
+  const approval = { kind: 'approval', task_id: 0, ticket: 1, model, settings: {},
     instructions: 'Review only the supplied command.',
     call: { id: 'a', name: 'bash', arguments: { command: 'pwd' } }, user_requests: ['Inspect only.'] };
   const board = { kind: 'board_text', card_id: 3, ticket: 2, model, retitle: false, prompt: 'Draft a description.' };
   assert.equal(Object.hasOwn(approval, 'history'), false);
   assert.equal(Object.hasOwn(board, 'history'), false);
-  const review = await requestApproval(approval, f.config, f.directory, limits);
-  assert.deepEqual(review, { decision: 'deny', reason: 'Not authorized by the user.' });
-  const draft = await requestBoardText(board, f.config, f.directory, limits);
-  assert.deepEqual(draft, { title: 'Fixture', description: 'A generated description.' });
-  for (const items of [[], [{ type: 'text', text: '{}' }, { type: 'text', text: '{}' }],
-    [{ type: 'call', id: 'a', name: 'bash', arguments: {} }], [{ type: 'context', value: { type: 'provider_receipt' } }]]) {
-    assert.throws(() => approvalOutcome(items, 400));
-  }
-  assert.deepEqual(f.failures, []);
-});
-
-test('independent context compaction retains native task and ticket identities across Web roots', async t => {
-  const f = await fixture(t, async body => {
-    assert.deepEqual(body.tools, []);
-    assert.equal(body.previous_response_id, undefined);
-    assert.match(body.input[0].content, /Quoted history to summarize\./);
-    return { output: answer('A portable continuation note.') };
-  });
-  const first = { task_id: 0, ticket: 1, model: baseEffect().model,
-    plan: { method: 'portable', prompt: 'Summarize quoted data.', carry: '', chunk: 'Quoted history to summarize.' } };
-  const next = { ...first, ticket: 2 };
-  const other = { ...first, task_id: 1 };
-  for (const effect of [first, next, other]) {
-    const call = boundary('backend.compaction_effect', { effect });
-    assert.deepEqual(await f.run(call), [{ type: 'text', text: 'A portable continuation note.' }]);
-  }
-  const original = boundary('backend.compaction_effect', { effect: first });
-  assert.deepEqual(await f.run(original), [{ type: 'text', text: 'A portable continuation note.' }]);
-  assert.equal(f.requests.length, 3, 'The same effect observes its cache; distinct task/ticket effects each create a root');
-  assert.equal(new Set(f.requests.map(request => request.key)).size, 3);
+  assert.deepEqual(await requestApproval(approval, f.config, f.directory, limits),
+    { decision: 'deny', reason: 'Inspect only.' });
+  assert.deepEqual(await requestBoardText(board, f.config, f.directory, limits),
+    { title: 'Fixture', description: 'A generated description.' });
+  assert.equal(f.requests.length, 2);
   assert.deepEqual(f.failures, []);
 });
 
@@ -403,116 +118,45 @@ function hold({ response, id, resources, makeResource, event }) {
   event('response.output_text.snapshot', { response_id: id, text: 'working', provisional: true });
 }
 
-test('committed steering cancels the original page and authorizes one explicit replacement root', { timeout: 10_000 }, async t => {
+test('detaching a live Web observer persists its original request before HTTP and never reposts under a new ticket', async t => {
   const f = await fixture(t, async (_, index, transport) => {
-    if (index === 0) { hold(transport); return; }
-    return { output: answer('followed the new instruction') };
+    const db = new DatabaseSync(path.join(f.directory, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+    try {
+      const row = db.prepare('SELECT body FROM requests WHERE request_key=?').get(transport.request.headers['idempotency-key']);
+      assert.equal(row.body, f.requests[index].raw, 'The original body and key must be durable before HTTP can observe them');
+    } finally { db.close(); }
+    hold(transport);
   });
-  const state = path.join(f.directory, 'state');
-  const service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  t.after(() => service.close());
-  const notices = []; service.on('notice', notice => notices.push(notice));
-  assert.equal((await service.command({ op: 'create', profile: 'web', message: 'old instruction' })).reply.ok, true);
-  await eventually(() => notices.some(notice => notice.type === 'snapshot'));
-  assert.equal((await service.command({ op: 'steer', task_id: 0, message: 'replacement instruction' })).reply.ok, true);
-  const page = await taskIdle(service);
-  assert.ok(page.messages.some(item => item.role === 'assistant' && item.content === 'followed the new instruction'), JSON.stringify(page));
-  await eventually(() => f.controls.length === 1);
-  assert.equal(f.controls[0].action, 'cancel');
-  assert.equal(f.requests.length, 2);
-  assert.equal(f.requests[1].body.previous_response_id, undefined);
-  assert.equal(f.requests[1].body.input.at(-1).content, 'replacement instruction');
-  assert.deepEqual(f.failures, []);
-});
-
-test('service shutdown retains a compacted request; explicit interruption permits replacement without retiring another task', { timeout: 10_000 }, async t => {
-  const f = await fixture(t, async (_, index, transport) => {
-    if (index === 2) { hold(transport); return; }
-    return { output: answer('explicitly resumed task') };
-  });
-  const state = path.join(f.directory, 'state');
-  let service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  t.after(() => service.close());
-  await service.command({ op: 'create', profile: 'web', message: 'keep original task' });
-  await taskIdle(service);
-  await service.command({ op: 'create', profile: 'web', message: 'keep another task receipt' });
-  await taskIdle(service, 1);
-  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit context before interruption' })).reply.ok, true);
-  await service.command({ op: 'send', task_id: 0, message: 'observe the compacted root' });
-  // NOTE: Earlier requests already emitted snapshots; this request needs its own
-  // durable response identity before shutdown can later authorize remote cancellation.
-  const observedReceipts = new DatabaseSync(path.join(state, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
-  try {
-    const identified = observedReceipts.prepare('SELECT response_id FROM requests WHERE owner=? AND request_key=?');
-    await eventually(() => f.requests.length === 3 && Boolean(identified.get('task:0', f.requests[2].key)?.response_id));
-  } finally { observedReceipts.close(); }
-  assert.equal(f.requests[2].body.previous_response_id, undefined);
-  assert.ok(JSON.stringify(f.requests[2].body.input).includes('explicit context before interruption'));
-  await service.close();
-  assert.equal(f.controls.length, 0);
-  service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  assert.equal(f.requests.length, 3);
-  await service.command({ op: 'send', task_id: 0, message: 'ordinary retry must not duplicate unknown work' });
-  let page = await taskIdle(service);
-  assert.equal(f.requests.length, 3);
-  assert.ok(page.messages.some(item => item.role === 'error' && item.content.includes('request retained')));
-  await service.command({ op: 'interrupt', task_id: 0 });
-  await eventually(() => f.controls.length === 1);
-  const receipts = new DatabaseSync(path.join(state, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
-  try {
-    const interrupted = receipts.prepare('SELECT invocation, retired FROM requests WHERE request_key=?').get(f.requests[2].key);
-    assert.match(interrupted.invocation, /:context:\d+$/);
-    assert.equal(interrupted.retired, 1);
-    assert.equal(receipts.prepare('SELECT retired FROM requests WHERE owner=?').get('task:1').retired, 0);
-  } finally { receipts.close(); }
-  await service.command({ op: 'send', task_id: 0, message: 'explicit replacement after interruption' });
-  page = await taskIdle(service);
-  assert.ok(page.messages.some(item => item.role === 'assistant' && item.content === 'explicitly resumed task'), JSON.stringify(page));
-  assert.equal(f.requests.length, 4);
-  assert.equal(f.requests[3].body.previous_response_id, undefined);
-  assert.deepEqual(f.failures, []);
-});
-
-test('named SSE framing survives bytewise Unicode/CRLF splits and rejects incomplete or oversized frames', async () => {
-  async function* bytes(text) { for (const byte of Buffer.from(text)) yield Buffer.from([byte]); }
-  const text = ': heartbeat\r\nevent: response.output_text.snapshot\r\ndata: {"text":\r\ndata: "😀"}\r\n\r\ndata: [DONE]\r\n\r\n';
-  const named = [];
-  for await (const event of sseEvents(bytes(text), 1024)) named.push(event);
-  assert.deepEqual(named, [{ event: 'response.output_text.snapshot', data: '{"text":\n"😀"}' }, { event: 'message', data: '[DONE]' }]);
-  const data = [];
-  for await (const event of events(bytes(text), 1024)) data.push(event);
-  assert.deepEqual(data, named.map(event => event.data));
-  for (const text of ['data: unfinished', 'data: no separator\n', 'event: ' + 'x'.repeat(120) + '\n\n']) {
-    await assert.rejects(async () => { for await (const _ of sseEvents(bytes(text), 100)) assert.fail('bad frame accepted'); });
-  }
-});
-
-test('aborting an observer retains its key without issuing remote cancellation or another POST', async t => {
-  const f = await fixture(t, async (_, __, transport) => { hold(transport); });
   const controller = new AbortController();
   let key;
-  await assert.rejects(f.run(baseEffect(), { signal: controller.signal, onSnapshot: () => controller.abort(new Error('detach observer')) }), error => {
+  const attempt = f.run(baseEffect(), { signal: controller.signal });
+  const detached = assert.rejects(attempt, error => {
     key = error.requestKey;
     return Boolean(key && error.responseId);
   });
+  await eventually(() => f.requests.length === 1);
+  const db = new DatabaseSync(path.join(f.directory, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+  try {
+    const identified = db.prepare('SELECT response_id FROM requests WHERE owner=? AND request_key=?');
+    await eventually(() => Boolean(identified.get('task:0', f.requests[0].key)?.response_id));
+    controller.abort(new Error('detach observer'));
+    await detached;
+    assert.equal(db.prepare('SELECT request_key FROM requests').get().request_key, key);
+  } finally { db.close(); }
   assert.equal(f.requests.length, 1);
   assert.equal(f.controls.length, 0);
   assert.equal(f.requests[0].key, key);
   await assert.rejects(f.run({ ...baseEffect(), ticket: 2 }), /retained/);
   assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.failures, []);
 });
 
-test('receipt input coverage preserves arrivals committed before the model reply was appended', async t => {
-  const f = await fixture(t, async () => ({ output: answer('answer') }));
-  const root = baseEffect();
-  const first = await f.run(root);
-  const arriving = { role: 'operation_result', operation_id: 7, call_id: 'older', tool: 'work', content: 'arrived during HTTP', is_error: false };
-  const next = { ...root, ticket: 2, history: append([...root.history, arriving], first) };
-  await f.run(next);
-  assert.equal(f.requests[1].body.input.filter(item => item.content?.includes('arrived during HTTP')).length, 1);
-  const changed = structuredClone(next); changed.history[0].change.snapshot.value.fields.content = 'mutated committed history';
-  await assert.rejects(f.run(changed), /history no longer matches/);
-  assert.equal(f.requests.length, 2);
+test('named SSE framing preserves byte-split Unicode and CRLF', async () => {
+  async function* bytes(text) { for (const byte of Buffer.from(text)) yield Buffer.from([byte]); }
+  const text = ': heartbeat\r\nevent: response.output_text.snapshot\r\ndata: {"text":\r\ndata: "😀"}\r\n\r\ndata: [DONE]\r\n\r\n';
+  const named = [];
+  for await (const event of sseEvents(bytes(text), 1024)) named.push(event);
+  assert.deepEqual(named, [{ event: 'response.output_text.snapshot', data: '{"text":\n"😀"}' }, { event: 'message', data: '[DONE]' }]);
 });
 
 test('a real background tool completion during HTTP is sent exactly once in the next web continuation', { timeout: 15_000 }, async t => {

@@ -846,7 +846,7 @@ def is_model_request(work: Work) -> Bool:
     case _: False{}
 
 type ExecutionConfiguration is Data:
-  ExecutionConfiguration{profile: String, reasoning: String, model: Model, sandbox: Sandbox, approval: ApprovalPolicy}
+  ExecutionConfiguration{model: Model, sandbox: Sandbox, approval: ApprovalPolicy}
 
 type Task is Data:
   Task{id: Nat, lineage: +List<Nat>, contract: Contract, current: ExecutionConfiguration, status: Status,
@@ -879,23 +879,21 @@ def profile_key(profile: Profile) -> String:
 
 def execution_configuration(contract: Contract) -> ExecutionConfiguration:
   Contract{+model, tools, max_fork, max_descendants, plugins, TaskContext{workspace, sandbox, approval, project_id}} = contract
-  ExecutionConfiguration{profile_key(model_profile(model)), model_selection(model), model, sandbox, approval}
+  ExecutionConfiguration{model, sandbox, approval}
 
 def task_execution(task: Task) -> ExecutionConfiguration:
   Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   current
 
 def execution_model(current: ExecutionConfiguration) -> Model:
-  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  ExecutionConfiguration{model, sandbox, approval} = current
   model
 
 def execution_profile(current: ExecutionConfiguration) -> String:
-  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
-  profile
+  profile_key(model_profile(execution_model(current)))
 
 def execution_reasoning(current: ExecutionConfiguration) -> String:
-  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
-  reasoning
+  model_selection(execution_model(current))
 
 def task_model(task: Task) -> Model:
   execution_model(task_execution(task))
@@ -908,7 +906,7 @@ def task_reasoning(task: Task) -> String:
 
 def execution_context(current: ExecutionConfiguration, context: TaskContext) -> TaskContext:
   match current context:
-    case ExecutionConfiguration{profile, reasoning, model, sandbox, approval} TaskContext{workspace, original_sandbox, original_approval, project_id}:
+    case ExecutionConfiguration{model, sandbox, approval} TaskContext{workspace, original_sandbox, original_approval, project_id}:
       TaskContext{workspace, sandbox, approval, project_id}
 
 def task_context(+task: Task) -> TaskContext:
@@ -1090,24 +1088,14 @@ def context_diagnostic(known: Bool, message: String, task: Task) -> Task:
 def diagnose_context(+message: String, +task: Task) -> Task:
   context_diagnostic(context_failure_seen(task_history(task), message), message, task)
 
-def same_observation(previous: Maybe<&2, Context.Snapshot>, observed: Context.Snapshot) -> Bool:
-  match previous:
-    case None{}: False{}
-    case Some{old}: Context.same_value(Context.snapshot_value(old), Context.snapshot_value(observed))
-
-def append_context_change(change: Maybe<&2, Context.Change>, unchanged: Bool, task: Task) -> Task:
-  match change unchanged:
-    case Some{change} _: append_context(ContextChange{change}, task)
-    case None{} True{}: task
-    case None{} False{}: diagnose_context("Context update rejected: invalid revision or patch for tracked source.", task)
+def apply_context_resolution(resolution: Context.ObservationResolution, task: Task) -> Task:
+  match resolution:
+    case Context.ObservationChanged{change}: append_context(ContextChange{change}, task)
+    case Context.ObservationUnchanged{}: task
+    case Context.ObservationRejected{message}: diagnose_context(message, task)
 
 def apply_context_observation(observation: Context.Observation, +task: Task) -> Task:
-  match observation:
-    case Context.Present{+snapshot, +patch}: append_context_change(
-      Context.observation_change(context_bindings(task_history(task)), Context.Present{snapshot, patch}),
-      same_observation(Context.find(context_bindings(task_history(task)), Context.snapshot_key(snapshot)), snapshot), task)
-    case Context.Absent{key}: append_context_change(Context.observation_change(context_bindings(task_history(task)), Context.Absent{key}), True{}, task)
-    case Context.ObservationFailure{key, message}: diagnose_context(String.concat(["Context source observation failed: ", message]), task)
+  apply_context_resolution(Context.observation_resolution(context_bindings(task_history(task)), observation), task)
 
 def context_observations_go(observations: +List<Context.Observation>, task: Task) -> Task:
   match observations:

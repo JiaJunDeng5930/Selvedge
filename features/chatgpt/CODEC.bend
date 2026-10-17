@@ -118,11 +118,11 @@ def grant_modes(values: +List<J.Json>) -> Bool:
       (String.eq(J.text(J.get(J.get(value, "sandbox"), "mode")), "read-only") ||
        String.eq(J.text(J.get(J.get(value, "sandbox"), "mode")), "workspace-write")) && grant_modes(rest)
 
-def valid(kind: EntryKind, +body: J.Json) -> Bool:
+# The outer command codec already admitted the declared schema.
+def additional_constraints(kind: EntryKind, +body: J.Json) -> Bool:
   match kind:
-    case Write{ConfigureKind{}}: Schema.valid(write_schema(ConfigureKind{}), body) && grant_modes(J.items(J.get(body, "connections")))
-    case Write{kind}: Schema.valid(write_schema(kind), body)
-    case Read{kind}: Schema.valid(read_schema(kind), body)
+    case Write{ConfigureKind{}}: grant_modes(J.items(J.get(body, "connections")))
+    case _: True{}
 
 def number_json(values: +List<Nat>) -> +List<J.Json>:
   match values:

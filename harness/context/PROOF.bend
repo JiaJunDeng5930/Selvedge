@@ -31,21 +31,16 @@ def diagnose_contract(+message: String, +task: D.Task) ->
   {D.task_contract(D.diagnose_context(message, task)) == D.task_contract(task) : D.Contract}:
   diagnostic_contract(D.context_failure_seen(D.task_history(task), message), message, task)
 
-def changed_contract(change: Maybe<&2, C.Change>, unchanged: Bool, +task: D.Task) ->
-  {D.task_contract(D.append_context_change(change, unchanged, task)) == D.task_contract(task) : D.Contract}:
-  match change unchanged task:
-    case Some{change} _ D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
-    case None{} True{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
-    case None{} False{} other: diagnose_contract("Context update rejected: invalid revision or patch for tracked source.", other)
+def resolution_contract(resolution: C.ObservationResolution, +task: D.Task) ->
+  {D.task_contract(D.apply_context_resolution(resolution, task)) == D.task_contract(task) : D.Contract}:
+  match resolution task:
+    case C.ObservationChanged{change} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case C.ObservationUnchanged{} other: {==}
+    case C.ObservationRejected{message} other: diagnose_contract(message, other)
 
 def observation_contract(observation: C.Observation, +task: D.Task) ->
   {D.task_contract(D.apply_context_observation(observation, task)) == D.task_contract(task) : D.Contract}:
-  match observation:
-    case C.Present{+snapshot, +patch}: changed_contract(
-      C.observation_change(D.context_bindings(D.task_history(task)), C.Present{snapshot, patch}),
-      D.same_observation(C.find(D.context_bindings(D.task_history(task)), C.snapshot_key(snapshot)), snapshot), task)
-    case C.Absent{key}: changed_contract(C.observation_change(D.context_bindings(D.task_history(task)), C.Absent{key}), True{}, task)
-    case C.ObservationFailure{key, message}: diagnose_contract(String.concat(["Context source observation failed: ", message]), task)
+  resolution_contract(C.observation_resolution(D.context_bindings(D.task_history(task)), observation), task)
 
 def observations_contract(+observations: +List<C.Observation>, +task: D.Task) ->
   {D.task_contract(D.context_observations_go(observations, task)) == D.task_contract(task) : D.Contract}:
@@ -64,4 +59,4 @@ def preserved_contract(+task: D.Task, observations: +List<C.Observation>) ->
 def instance() -> Spec.Evidence:
   Spec.Evidence{append, replacement_bindings, context_reconstruction,
     Patch.unchanged_observation, preserved_contract, Patch.observed_amendment_origin,
-    Patch.apply_amendment, Patch.observed_amendment_patch, Patch.accepted_snapshot, Constructor.family}
+    Patch.apply_amendment, Patch.observed_amendment_patch, Patch.accepted_snapshot, Patch.invalid_snapshot_rejected, Constructor.family}

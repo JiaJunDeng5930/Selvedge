@@ -1,4 +1,7 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
+import ../../features/remote/PROGRAM.bend as RemoteProgram
+import ../features/remote.bend as RemoteState
 import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as Features
 import ../DOMAIN.bend as D
@@ -17,57 +20,50 @@ import ../execution/PROOF.bend as ExecutionProof
 import ./PROOF.bend as ProtocolProof
 import ../execution/notifications.bend as Notifications
 
-# Local proof obligations for the commit boundary. No runtime policy lives here.
-def validate_observed(+first: Bool, +second: Bool, +decision: M.Decision(), +previous: M.World(), state_observed: {Commit.state_safe(decision) == first : Bool}, change_observed: {Commit.effect_authorized(previous, decision) == second : Bool}) ->
-  {P.admitted(first, second, decision, previous) == Commit.validate_admitted(previous, Categories.admit_intersection_checked(M.Decision(), Commit.state_safe, candidate => Commit.effect_authorized(previous, candidate), decision, first, second, state_observed, change_observed)) : M.Decision()}:
-  match first second:
-    case True{} True{}: {==}
-    case True{} False{}: {==}
-    case False{} True{}: {==}
-    case False{} False{}: {==}
+# The output bound consumes and preserves the existing domain certificate.
+def sized_projection(+previous: M.World(), admission: Maybe<&1, Categories.Membership<String, Commit.bounded_envelope(previous)>>,
+  member: Commit.Committed<previous>) ->
+  {Commit.value(previous, Commit.construct_sized(previous, admission, member)) ==
+    Commit.sized_admitted(previous, admission, Commit.value(previous, member)) : M.Decision()}:
+  match admission:
+    case Some{Categories.Membership{text, bounded}}: {==}
+    case None{}: {==}
 
-def validate_semantics(+decision: M.Decision(), +previous: M.World()) ->
-  {P.check_live(decision, previous) == Commit.validate(decision, previous) : M.Decision()}:
-  match decision:
-    case C.Decision{+world, +reply, +effects}:
-      +decision : M.Decision() = C.Decision{world, reply, effects}
-      validate_observed(I.world(world), I.decision(previous, decision), decision, previous, {==}, {==})
-
-def live_semantics(+decision: M.Decision()) -> {P.live_decision(decision) == Commit.live(decision) : M.Decision()}:
-  match decision:
-    case C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects}: {==}
-
-def Laws.commit_semantics(decision, previous):
-  {==}
-
-def sized_semantics(+fits: Bool, +text: String, +decision: M.Decision(), +previous: M.World(), observed: {Commit.envelope_fits(previous, text) == fits : Bool}) ->
-  {P.output_admitted(fits, decision, previous) == Commit.sized_admitted(previous, Categories.admit_checked(String, value => Commit.envelope_fits(previous, value), text, fits, observed), decision) : M.Decision()}:
-  match fits:
-    case True{}: {==}
-    case False{}: {==}
-
-def rendered_semantics(+rendered: Result<&2, &2, String, String>, +decision: M.Decision(), +previous: M.World()) ->
-  {P.admission(rendered, decision, previous) == Commit.rendered(rendered, decision, previous) : M.Decision()}:
-  match rendered:
+def rendered_projection(result: Result<&2, &2, String, String>, +previous: M.World(), member: Commit.Committed<previous>) ->
+  {Commit.value(previous, Commit.construct_rendered(result, previous, member)) ==
+    Commit.rendered(result, Commit.value(previous, member), previous) : M.Decision()}:
+  match result:
     case Fail{error}: {==}
-    case Done{+text}:
-      sized_semantics(Commit.envelope_fits(previous, text), text, decision, previous, {==})
+    case Done{text}: sized_projection(previous, Categories.admit(String, value => Commit.envelope_fits(previous, value), text), member)
 
-def Laws.output_semantics(durable, decision, previous):
-  {==}
+def delivery_projection(+durable: Bool, +previous: M.World(), member: Commit.Committed<previous>) ->
+  {Commit.value(previous, Commit.construct_delivery(durable, previous, member)) ==
+    Commit.deliver(durable, Commit.value(previous, member), previous) : M.Decision()}:
+  Commit.Committed{+decision, certificate} = member
+  rendered_projection(J.render(D.state_render_budget(C.local(D.State, Features.State(), previous)), J.One{View.envelope(durable, decision)}),
+    previous, Commit.Committed{decision, certificate})
+
+def observation_projection(query: M.Query, +world: M.World()) ->
+  {P.transition(M.UserCommand{M.Observe{query}}, world) == Commit.deliver(False{}, P.observe(query, world), world) : M.Decision()}:
+  delivery_projection(False{}, world, Commit.Committed{P.observe(query, world), Fail{({==}, {==})}})
+
+def remote_observation_projection(authorization: Remote.Authorization, +world: M.World()) ->
+  {Commit.value(world, Commit.construct_remote_observation(authorization, world)) ==
+    Commit.deliver(False{}, RemoteState.probe_reply(authorization, world), world) : M.Decision()}:
+  match authorization:
+    case Remote.Denied{code, reason}:
+      delivery_projection(False{}, world, Commit.Committed{RemoteState.probe_reply(Remote.Denied{code, reason}, world), Fail{({==}, {==})}})
+    case Remote.Admitted{}:
+      delivery_projection(False{}, world, Commit.Committed{RemoteState.probe_reply(Remote.Admitted{}, world), Fail{({==}, {==})}})
+    case Remote.Replay{reply}:
+      delivery_projection(False{}, world, Commit.Committed{RemoteState.probe_reply(Remote.Replay{reply}, world), Fail{({==}, {==})}})
 
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:
-  +durable = M.durable(input)
-  +candidate = Commit.configuration_checked(input, Notifications.decorate(input, previous, P.scheduled(Commit.schedules(input, decision), decision)), previous)
-  first = Equal.trans(M.Decision(), P.after_apply(input, decision, previous), Commit.deliver(durable, P.checked(candidate, previous), previous),
-    Commit.update(~P.scheduled, input, decision, previous), Laws.output_semantics(durable, P.checked(candidate, previous), previous),
-    Equal.cong(M.Decision(), M.Decision(), (value => Commit.deliver(durable, value, previous)),
-      P.checked(candidate, previous), Commit.checked(candidate, previous), Laws.commit_semantics(candidate, previous)))
-  Equal.trans(M.Decision(), P.after_apply(input, decision, previous), Commit.update(~P.scheduled, input, decision, previous),
-    Commit.update(~Execution.scheduled, input, decision, previous), first,
-    Equal.cong(M.Decision(), M.Decision(), (value => Commit.finish(durable, Commit.configuration_checked(input, Notifications.decorate(input, previous, value), previous), previous)),
-      P.scheduled(Commit.schedules(input, decision), decision), Execution.scheduled(Commit.schedules(input, decision), decision), Laws.scheduling_semantics(Commit.schedules(input, decision), decision)))
+  Equal.cong(M.Decision(), M.Decision(),
+    (value => Commit.finish(M.durable(input), Commit.configuration_checked(input, Notifications.decorate(input, previous, value), previous), previous)),
+    P.scheduled(Commit.schedules(input, decision), decision), Execution.scheduled(Commit.schedules(input, decision), decision),
+    Laws.scheduling_semantics(Commit.schedules(input, decision), decision))
 
 def updated_command_semantics(+command: M.Command, +world: M.World()) ->
   {P.update(M.UserCommand{command}, world) == Commit.update(~Execution.scheduled, M.UserCommand{command}, Commands.command(command, world), world) : M.Decision()}:
@@ -81,7 +77,7 @@ def updated_command_semantics(+command: M.Command, +world: M.World()) ->
 def Laws.command_transition(command, world):
   match command:
     case M.FeatureCommand{command}: updated_command_semantics(M.FeatureCommand{command}, world)
-    case M.Observe{query}: Laws.output_semantics(False{}, P.observe(query, world), world)
+    case M.Observe{query}: observation_projection(query, world)
     case M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}: updated_command_semantics(M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}, world)
     case M.Create{profile, reasoning, message, options}: updated_command_semantics(M.Create{profile, reasoning, message, options}, world)
     case M.Send{id, message}: updated_command_semantics(M.Send{id, message}, world)
@@ -106,8 +102,10 @@ def updated_input_semantics(+input: M.Input, +world: M.World()) ->
 def Laws.interaction_transition(input, world):
   match input:
     case M.RemoteCommand{request, command, environment}: {==}
-    case M.RemoteProbe{request, command}: {==}
-    case M.RemoteCheck{controller, epoch}: {==}
+    case M.RemoteProbe{request, command}:
+      remote_observation_projection(RemoteState.probe_authorization(command, request, RemoteState.registry(world)), world)
+    case M.RemoteCheck{controller, epoch}:
+      remote_observation_projection(RemoteProgram.check(Remote.Rights{True{}, False{}, False{}, False{}}, controller, epoch, RemoteState.registry(world)), world)
     case M.UserCommand{command}: Laws.command_transition(command, world)
     case M.ContextObserved{id, ticket, outcome}: updated_input_semantics(M.ContextObserved{id, ticket, outcome}, world)
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)
@@ -120,9 +118,3 @@ def Laws.interaction_transition(input, world):
     case M.Configure{environment}: updated_input_semantics(M.Configure{environment}, world)
     case M.Recover{}: updated_input_semantics(M.Recover{}, world)
     case M.Continue{}: updated_input_semantics(M.Continue{}, world)
-
-def Laws.rejected_delivery_unchanged(decision, world):
-  {==}
-
-def Laws.rejected_delivery_no_effects(decision, world):
-  {==}

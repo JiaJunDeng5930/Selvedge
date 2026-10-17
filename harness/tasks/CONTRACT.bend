@@ -3,10 +3,29 @@ import ../DOMAIN.bend as D
 import ./PROGRAM.bend as Tasks
 import ../workspace/WORKSPACE.bend as Workspace
 
-# The shared storage primitive has an independent, complete state equation.
-# Frame preservation alone would allow silently discarding the supplied task.
+# Storage replaces each matching identity and retains every unrelated task.
+# The independent fold carries the supplied task beside the output sequence.
+def required_entry(same: Bool, previous: D.Task, task: D.Task) -> D.Task:
+  match same:
+    case True{}: task
+    case False{}: previous
+
+def required_step(+previous: D.Task, state: (D.Task & +List<D.Task>)) -> (D.Task & +List<D.Task>):
+  (+task, tasks) = state
+  (task, required_entry(Nat.is_eq(D.task_id(previous), D.task_id(task)), previous, task) <> tasks)
+
+def required_fold(task: D.Task, tasks: +List<D.Task>) -> (D.Task & +List<D.Task>):
+  List.foldr(~&2, ~D.Task, ~(D.Task & +List<D.Task>), ~(previous => state => required_step(previous, state)), tasks, (task, Nil{}))
+
+def required_entries(state: (D.Task & +List<D.Task>)) -> +List<D.Task>:
+  (task, tasks) = state
+  tasks
+
+def required_tasks(task: D.Task, tasks: +List<D.Task>) -> +List<D.Task>:
+  required_entries(required_fold(task, tasks))
+
 def required_update(+task: D.Task, +state: D.State) -> D.State:
-  D.with_state_tasks(Tasks.replace(D.state_tasks(state), task), state)
+  D.with_state_tasks(required_tasks(task, D.state_tasks(state)), state)
 
 # Required initial context history is defined independently of task mutation.
 def initial_context(context: Maybe<&2, D.HistoryContext>, history: D.History) -> D.History:

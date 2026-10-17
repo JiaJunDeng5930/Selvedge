@@ -13,27 +13,28 @@ their roles, host generation, connection IDs and grant epochs in attachments.
 At most eight unspent tickets share a host's 2 KiB attachment; further issuance
 returns HTTP 429 until a ticket is consumed or expires.
 
-Install and check locally, without a Cloudflare account:
+Install and check from the repository root, without a Cloudflare account:
 
 ```bash
-cd relay
-npm ci --workspaces=false
-npm test
-npm run check
+bun install --frozen-lockfile
+bun run check
+bun run test
 ```
 
-`test/runtime.mjs` exports `startRelay({ enrollmentToken })`, returning
-`{ url, close }`. It runs the real Worker and Durable Object in local workerd
-through Miniflare, including WebSocket upgrades. `url` is loopback HTTP and is
-only appropriate for explicit local-test connector configuration.
+The default suite includes one focused [Durable Object hibernation regression](../tests-bend/relay.test.mjs).
+Its [runtime fixture](test/runtime.mjs) runs the production Worker and deployment
+bindings in local workerd through Miniflare, including real WebSocket upgrades,
+socket attachments and stored grants. It checks forwarding and an unspent ticket
+after eviction. Bun workspace installation supplies the pinned runtime tools;
+Node.js 22 or later is also required. Loopback HTTP is only used by this fixture.
 
 Deploy with an authenticated Cloudflare account:
 
 ```bash
+bun install --frozen-lockfile
 cd relay
-npm ci --workspaces=false
-npx wrangler secret put RELAY_ENROLLMENT_TOKEN
-npm run deploy
+bun x --no-install wrangler secret put RELAY_ENROLLMENT_TOKEN
+bun run deploy
 ```
 
 Use a random enrollment secret, for example `openssl rand -base64 32`. Retain

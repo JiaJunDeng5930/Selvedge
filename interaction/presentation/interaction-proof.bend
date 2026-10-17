@@ -226,25 +226,25 @@ def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result
 
 def encapsulated_failed_auth_no_attention(+state: Services.State, reason: String, application: E.Application) ->
   {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
-        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}) : InteractionTypes.Decision}:
+        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]) : InteractionTypes.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_readiness_attention(+state: Services.State, +application: E.Application) ->
   {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
-        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision}:
+        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_failed_auth(+state: Services.State, reason: String) ->
   {Services.authentication_calculation(state, Fail{reason}) ==
-        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}} : Services.Decision}:
+        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]} : Services.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_accepted_auth_reusable(+state: Services.State, +ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
-        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state)), [Services.SessionReady{}]} : Services.Decision}:
+        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   Equal.trans(Services.Decision,
     Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, settings_open, appearance, next, transfers, preview, picker}),
@@ -255,7 +255,7 @@ def encapsulated_accepted_auth_reusable(+state: Services.State, +ticket: Nat, ow
 
 def encapsulated_accepted_auth(+state: Services.State, ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
-        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state)), [Services.SessionReady{}]} : Services.Decision}:
+        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision}:
   encapsulated_accepted_auth_reusable(state, ticket, owned)
 
 

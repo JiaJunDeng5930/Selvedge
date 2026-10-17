@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/json.bend as J
 import ../../bendlib/stdlib.bend as Std
 import ../../bendlib/string-equality.bend as Text
+import ../../bendlib/categories.bend as Categories
 
 # The definition is an executable schema and observation program. New kinds use
 # this finite construction language instead of extending history's constructors.
@@ -98,6 +99,29 @@ type Observation is Data:
   Absent{key: Key}
   ObservationFailure{key: Key, message: String}
 
+type ObservationResolution is Data:
+  ObservationUnchanged{}
+  ObservationRejected{message: String}
+  ObservationChanged{change: Change}
+
+def rejected_observation() -> ObservationResolution:
+  ObservationRejected{"Context update rejected: invalid revision or patch for tracked source."}
+
+def unchanged_resolution(unchanged: Bool) -> ObservationResolution:
+  match unchanged:
+    case True{}: ObservationUnchanged{}
+    case False{}: rejected_observation()
+
+def settled_observation(unchanged: Bool, change: Maybe<&2, Change>) -> ObservationResolution:
+  match change:
+    case Some{change}: ObservationChanged{change}
+    case None{}: unchanged_resolution(unchanged)
+
+def resolution_change(resolution: ObservationResolution) -> Maybe<&2, Change>:
+  match resolution:
+    case ObservationChanged{change}: Some{change}
+    case _: None{}
+
 def definition_kind(definition: Definition) -> String:
   Definition{kind, semantics, scope, observer, identity, fields} = definition
   kind
@@ -109,6 +133,10 @@ def definition_identity(definition: Definition) -> +List<IdentityField>:
 def definition_fields(definition: Definition) -> +List<ValueField>:
   Definition{kind, semantics, scope, observer, identity, fields} = definition
   fields
+
+def definition_observer(definition: Definition) -> Observer:
+  Definition{kind, semantics, scope, observer, identity, fields} = definition
+  observer
 
 def key_definition(key: Key) -> Definition:
   ContextKey{definition, identity} = key
@@ -321,21 +349,50 @@ def valid_identity(schema: +List<IdentityField>, fields: +List<FieldValue>) -> B
       String.eq(a, b) && required_text(required, text) && identity_source_matches(source, text) && valid_identity(rest, tail)
     case _ _: False{}
 
-def field_matches(schema: ValueField, field: FieldValue, identity: +List<FieldValue>) -> Bool:
+def directory_entry(directory: String, name: String) -> String:
+  match directory:
+    case "/": "/" ++ name
+    case other: other ++ "/" ++ name
+
+def source_path_member(files: +List<String>, +workspace: String, +path: String) -> Bool:
+  match files:
+    case Nil{}: False{}
+    case Con{file, rest}: String.eq(directory_entry(workspace, file), path) || source_path_member(rest, workspace, path)
+
+def policy_source_path(policy: DiscoveryPolicy, workspace: String, path: String) -> Bool:
+  DiscoveryPolicy{files, directories, repository_markers, excluded, max_directories, max_entries, max_sources, max_bytes} = policy
+  source_path_member(files, workspace, path)
+
+def primary_source_path(workspace: Maybe<&2, String>, policy: DiscoveryPolicy, path: String) -> Bool:
+  match workspace:
+    case None{}: False{}
+    case Some{root}: policy_source_path(policy, root, path)
+
+# The observer owns the relation between its selected source and projected text.
+# A primary guidance path must name one of that policy's files in its workspace.
+def observation_text_matches(observer: Observer, source: TextSource, workspace: Maybe<&2, String>, text: String) -> Bool:
+  match observer source:
+    case PrimaryGuidance{policy} ObservationField{"path"}: primary_source_path(workspace, policy, text)
+    case _ _: True{}
+
+def field_matches(schema: ValueField, field: FieldValue, identity: +List<FieldValue>, observer: Observer, workspace: Maybe<&2, String>) -> Bool:
   match schema field:
-    case TextField{a, source, required} FieldValue{b, text}: String.eq(a, b) && required_text(required, text)
+    case TextField{a, source, required} FieldValue{b, +text}:
+      String.eq(a, b) && required_text(required, text) && observation_text_matches(observer, source, workspace, text)
     case IdentityValue{a, name} FieldValue{b, text}: String.eq(a, b) && String.eq(field_text(identity, name), text)
 
-def valid_fields(schema: +List<ValueField>, fields: +List<FieldValue>, +identity: +List<FieldValue>) -> Bool:
+def valid_fields(schema: +List<ValueField>, fields: +List<FieldValue>, +identity: +List<FieldValue>, +observer: Observer, +workspace: Maybe<&2, String>) -> Bool:
   match schema fields:
     case Nil{} Nil{}: True{}
-    case Con{field, rest} Con{value, tail}: field_matches(field, value, identity) && valid_fields(rest, tail, identity)
+    case Con{field, rest} Con{value, tail}:
+      field_matches(field, value, identity, observer, workspace) && valid_fields(rest, tail, identity, observer, workspace)
     case _ _: False{}
 
 def source_value(key: Key, value: Value) -> Bool:
   ContextKey{+definition, +identity} = key
   Record{kind, fields} = value
-  valid_definition(definition) && String.eq(definition_kind(definition), kind) && valid_identity(definition_identity(definition), identity) && valid_fields(definition_fields(definition), fields, identity)
+  valid_definition(definition) && String.eq(definition_kind(definition), kind) && valid_identity(definition_identity(definition), identity) &&
+    valid_fields(definition_fields(definition), fields, identity, definition_observer(definition), workspace_identity(definition_identity(definition), identity))
 
 def valid_key(+key: Key) -> Bool:
   ContextKey{+definition, identity} = key
@@ -517,33 +574,50 @@ def snapshot_revision(snapshot: Snapshot) -> String:
   Snapshot{key, revision, value} = snapshot
   revision
 
-def introduce_checked(valid: Bool, snapshot: Snapshot) -> Maybe<&2, Change>:
-  match valid:
-    case True{}: Some{Introduce{snapshot}}
-    case False{}: None{}
-
 def amend_checked(valid: Bool, key: Key, base: String, observed: Snapshot, patch: Patch) -> Maybe<&2, Change>:
   match valid:
     case True{}: Some{Amend{key, base, snapshot_revision(observed), patch}}
     case False{}: None{}
 
-def observed_change(previous: Maybe<&2, Snapshot>, +observed: Snapshot, +patch: Patch) -> Maybe<&2, Change>:
+def observed_from_valid(previous: Maybe<&2, Snapshot>, +observed: Snapshot, +patch: Patch,
+  valid: {valid_snapshot(observed) == True{} : Bool}) -> ObservationResolution:
   match previous:
-    case None{}: introduce_checked(valid_snapshot(observed), observed)
+    case None{}: ObservationChanged{Introduce{observed}}
     case Some{Snapshot{+key, +base, +value}}:
-      amend_checked(valid_snapshot(observed) && same_key(key, snapshot_key(observed)) && Bool.not(same_value(value, snapshot_value(observed))) &&
-        Bool.not(String.eq(base, snapshot_revision(observed))) && valid_patch(key, patch) && patch_matches(apply_patch(value, patch), snapshot_value(observed)), key, base, observed, patch)
+      +keys = same_key(key, snapshot_key(observed))
+      +same = same_value(value, snapshot_value(observed))
+      settled_observation(keys && same, amend_checked(keys && Bool.not(same) &&
+        Bool.not(String.eq(base, snapshot_revision(observed))) && valid_patch(key, patch) && patch_matches(apply_patch(value, patch), snapshot_value(observed)), key, base, observed, patch))
 
+def observed_admitted(previous: Maybe<&2, Snapshot>, admitted: Categories.Membership<Snapshot, Categories.holds(Snapshot, valid_snapshot)>, patch: Patch) -> ObservationResolution:
+  Categories.Membership{observed, valid} = admitted
+  observed_from_valid(previous, observed, patch, valid)
+
+def observed_resolution_checked(previous: Maybe<&2, Snapshot>, +observed: Snapshot, patch: Patch, valid: Bool,
+  checked: {valid_snapshot(observed) == valid : Bool}) -> ObservationResolution:
+  match valid:
+    case False{}: rejected_observation()
+    case True{}: observed_admitted(previous, Categories.Membership{observed, checked}, patch)
+
+def observed_checked(previous: Maybe<&2, Snapshot>, +observed: Snapshot, patch: Patch, valid: Bool,
+  checked: {valid_snapshot(observed) == valid : Bool}) -> Maybe<&2, Change>:
+  resolution_change(observed_resolution_checked(previous, observed, patch, valid, checked))
+
+def observed_resolution(previous: Maybe<&2, Snapshot>, +observed: Snapshot, patch: Patch) -> ObservationResolution:
+  observed_resolution_checked(previous, observed, patch, valid_snapshot(observed), {==})
+
+def observed_change(previous: Maybe<&2, Snapshot>, +observed: Snapshot, patch: Patch) -> Maybe<&2, Change>:
+  resolution_change(observed_resolution(previous, observed, patch))
 def absent_change(previous: Maybe<&2, Snapshot>) -> Maybe<&2, Change>:
   match previous:
     case None{}: None{}
     case Some{Snapshot{key, revision, value}}: Some{Remove{key, revision}}
 
-def observation_change(bindings: +List<Snapshot>, observation: Observation) -> Maybe<&2, Change>:
+def observation_resolution(bindings: +List<Snapshot>, observation: Observation) -> ObservationResolution:
   match observation:
-    case Present{+snapshot, patch}: observed_change(find(bindings, snapshot_key(snapshot)), snapshot, patch)
-    case Absent{key}: absent_change(find(bindings, key))
-    case ObservationFailure{key, message}: None{}
+    case Present{+snapshot, patch}: observed_resolution(find(bindings, snapshot_key(snapshot)), snapshot, patch)
+    case Absent{key}: settled_observation(True{}, absent_change(find(bindings, key)))
+    case ObservationFailure{key, message}: ObservationRejected{"Context source observation failed: " ++ message}
 
 def same_revision(snapshot: Maybe<&2, Snapshot>, base: String) -> Bool:
   match snapshot:
@@ -735,12 +809,19 @@ def definition_checked(valid: Bool, definition: Definition) -> Maybe<&2, Definit
 def parsed_definition(kind: J.Json, semantics: J.Json, scope: Maybe<&2, Scope>, observer: Maybe<&2, Observer>, identity: Maybe<&2, +List<IdentityField>>, fields: Maybe<&2, +List<ValueField>>) -> Maybe<&2, Definition>:
   match kind semantics scope observer identity fields:
     case J.Text{kind} J.Text{semantics} Some{scope} Some{observer} Some{identity} Some{fields}:
-      +definition: Definition = record_context(kind, semantics, scope, observer, identity, fields)
-      definition_checked(valid_definition(definition), definition)
+      Some{record_context(kind, semantics, scope, observer, identity, fields)}
     case _ _ _ _ _ _: None{}
 
-def definition(+item: J.Json) -> Maybe<&2, Definition>:
+def definition_candidate(+item: J.Json) -> Maybe<&2, Definition>:
   parsed_definition(J.get(item, "kind"), J.get(item, "semantics"), parsed_scope(J.get(item, "scope")), observer(J.get(item, "observer")), identity_schema(J.get(item, "identity")), value_schema(J.get(item, "fields")))
+
+def admitted_definition(candidate: Maybe<&2, Definition>) -> Maybe<&2, Definition>:
+  match candidate:
+    case None{}: None{}
+    case Some{+definition}: definition_checked(valid_definition(definition), definition)
+
+def definition(item: J.Json) -> Maybe<&2, Definition>:
+  admitted_definition(definition_candidate(item))
 
 def lookup_selected(same: Bool, definition: Definition, rest: Maybe<&2, Definition>) -> Maybe<&2, Definition>:
   match same:
@@ -780,11 +861,19 @@ def key_checked(valid: Bool, key: Key) -> Maybe<&2, Key>:
 def parsed_key(kind: J.Json, definition: Maybe<&2, Definition>, identity: Maybe<&2, +List<FieldValue>>) -> Maybe<&2, Key>:
   match kind definition identity:
     case J.Text{kind} Some{+definition} Some{+identity}:
-      key_checked(String.eq(kind, definition_kind(definition)) && valid_identity(definition_identity(definition), identity), ContextKey{definition, identity})
+      key_checked(String.eq(kind, definition_kind(definition)), ContextKey{definition, identity})
     case _ _ _: None{}
 
-def self_key(+item: J.Json) -> Maybe<&2, Key>:
-  parsed_key(J.get(item, "type"), definition(J.get(item, "definition")), field_values(J.get(item, "identity")))
+def self_key_candidate(+item: J.Json) -> Maybe<&2, Key>:
+  parsed_key(J.get(item, "type"), definition_candidate(J.get(item, "definition")), field_values(J.get(item, "identity")))
+
+def admitted_key(candidate: Maybe<&2, Key>) -> Maybe<&2, Key>:
+  match candidate:
+    case None{}: None{}
+    case Some{+key}: key_checked(valid_key(key), key)
+
+def self_key(item: J.Json) -> Maybe<&2, Key>:
+  admitted_key(self_key_candidate(item))
 
 def registered_selected(found: Maybe<&2, Definition>, +key: Key) -> Maybe<&2, Key>:
   match found:
@@ -797,7 +886,7 @@ def registered_key(registry: +List<Definition>, candidate: Maybe<&2, Key>) -> Ma
     case Some{+key}: registered_selected(lookup_definition(registry, key_kind(key)), key)
 
 def key(registry: +List<Definition>, item: J.Json) -> Maybe<&2, Key>:
-  registered_key(registry, self_key(item))
+  admitted_key(registered_key(registry, self_key_candidate(item)))
 
 def parsed_value(kind: J.Json, fields: Maybe<&2, +List<FieldValue>>) -> Maybe<&2, Value>:
   match kind fields:
@@ -807,22 +896,21 @@ def parsed_value(kind: J.Json, fields: Maybe<&2, +List<FieldValue>>) -> Maybe<&2
 def value(+item: J.Json) -> Maybe<&2, Value>:
   parsed_value(J.get(item, "type"), field_values(J.get(item, "fields")))
 
-def snapshot_from_parts(same: Bool, definition: Definition, identity: +List<FieldValue>, revision: String, fields: +List<FieldValue>) -> Maybe<&2, Snapshot>:
-  match same:
-    case True{}: construct_snapshot(definition, identity, revision, fields)
-    case False{}: None{}
-
 def parsed_snapshot(key: Maybe<&2, Key>, revision: J.Json, value: Maybe<&2, Value>) -> Maybe<&2, Snapshot>:
   match key revision value:
-    case Some{ContextKey{+definition, identity}} J.Text{revision} Some{Record{kind, fields}}:
-      snapshot_from_parts(String.eq(kind, definition_kind(definition)), definition, identity, revision, fields)
+    case Some{key} J.Text{revision} Some{value}: Some{Snapshot{key, revision, value}}
     case _ _ _: None{}
 
-def self_snapshot(+item: J.Json) -> Maybe<&2, Snapshot>:
-  parsed_snapshot(self_key(J.get(item, "key")), J.get(item, "revision"), value(J.get(item, "value")))
+def admitted_snapshot(candidate: Maybe<&2, Snapshot>) -> Maybe<&2, Snapshot>:
+  match candidate:
+    case None{}: None{}
+    case Some{+snapshot}: snapshot_checked(valid_snapshot(snapshot), snapshot)
 
-def snapshot(registry: +List<Definition>, +item: J.Json) -> Maybe<&2, Snapshot>:
-  parsed_snapshot(key(registry, J.get(item, "key")), J.get(item, "revision"), value(J.get(item, "value")))
+def self_snapshot(+item: J.Json) -> Maybe<&2, Snapshot>:
+  admitted_snapshot(parsed_snapshot(self_key_candidate(J.get(item, "key")), J.get(item, "revision"), value(J.get(item, "value"))))
+
+def snapshot_candidate(registry: +List<Definition>, +item: J.Json) -> Maybe<&2, Snapshot>:
+  parsed_snapshot(registered_key(registry, self_key_candidate(J.get(item, "key"))), J.get(item, "revision"), value(J.get(item, "value")))
 def parsed_edit(start: Maybe<&2, Nat>, removed: J.Json, inserted: J.Json) -> Maybe<&2, TextEdit>:
   match start removed inserted:
     case Some{start} J.Text{removed} J.Text{inserted}: Some{TextEdit{start, removed, inserted}}
@@ -885,7 +973,7 @@ def parsed_observation(kind: String, snapshot: Maybe<&2, Snapshot>, patch: Maybe
     case _ _ _ _ _: None{}
 
 def observation(+registry: +List<Definition>, +item: J.Json) -> Maybe<&2, Observation>:
-  parsed_observation(J.text(J.get(item, "type")), snapshot(registry, J.get(item, "snapshot")), patch(J.get(item, "patch")), key(registry, J.get(item, "key")), J.get(item, "message"))
+  parsed_observation(J.text(J.get(item, "type")), snapshot_candidate(registry, J.get(item, "snapshot")), patch(J.get(item, "patch")), key(registry, J.get(item, "key")), J.get(item, "message"))
 
 def prepend_observation(head: Maybe<&2, Observation>, tail: Maybe<&2, +List<Observation>>) -> Maybe<&2, +List<Observation>>:
   match head tail:

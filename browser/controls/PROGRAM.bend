@@ -739,7 +739,7 @@ def feedback_for(purpose: Purpose) -> Feedback:
     case CopyCode{Code.CopySucceeded{ticket}}: Succeeded{"Code copied"}
     case CopyCode{Code.CopyFailed{ticket}}: Failed{"Could not copy code"}
     case Connect{Services.Connecting{ticket}}: Working{"Connecting"}
-    case Connect{Services.ConnectionLost{reason}}: Failed{reason}
+    case Connect{Services.ConnectionLost{ticket, reason}}: Failed{reason}
     case _: Quiet{}
 
 def tooltip(text: String) -> Help:

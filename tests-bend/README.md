@@ -1,93 +1,67 @@
-# Verification responsibilities
+# Test responsibilities
 
-The formal entry is [PROOF.bend](../PROOF.bend), with production obligations in
-[LAWS.bend](../harness/LAWS.bend), [INVARIANTS.bend](../harness/INVARIANTS.bend),
-[interaction/presentation/PROGRAM.bend](../interaction/presentation/PROGRAM.bend). Follow those entries for the executable
-requirements and their evidence. Universal properties belong to production
-constructions and proofs. Tests exercise actual generated execution, translator
-source-data boundaries and external behavior; they do not re-test Bend acceptance
-or rejection of source code, proofs or certificates.
+For each property, prefer construction in the domain language, then types, then
+proofs, then focused tests, and finally end-to-end tests. Inspect the actual
+production binding before claiming a property is guaranteed. Do not test it again
+at a later layer.
 
-| Boundary or fault model | Evidence owner |
-| --- | --- |
-| Generic clients execute affine operational memberships and observe complete execution and application results without concrete state | `model-abstraction.test.mjs` |
-| JavaScript translators reject unsupported source AST, constants, inductives, proof syntax, changed statements and reflection premises | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
-| Category admission and intersection execute and extract actual admitted values, with Some/None outcomes | `categories.test.mjs` |
-| Generic input, movable-source and recovery clients execute native fields and check emitted nodes, bindings and filtering | `control-categories.test.mjs` |
-| Component extensions with unrelated source and clients frozen; actual native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
-| Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; JavaScript source and configuration boundary checks |
-| Bend-generated JavaScript, Worker and codec transport: Unicode, embedded controls, exact numeric lexemes and malformed completion envelopes | `kernel-boundaries.test.mjs` |
-| Committed instruction/guidance deltas, Unicode edits, source withdrawal versus read failure, fork/compaction/restart and Responses/Web continuation payloads | `context-deltas.test.mjs`, `project-context.test.mjs`; loopback HTTP and SQLite |
-| Explicit and discovered skill metadata, Git ancestor/nested/multiple-root guidance, override selection, discovery budgets and failure retention, bounded nofollow observations, live configuration and skill body isolation | `context-sources.test.mjs`, `project-context.test.mjs`; real temporary files and generated host boundary |
-| New text and arbitrary-field metadata definitions with generic sources, context selection and proofs frozen; compiled observation, committed deltas and provider rendering | `context-definitions.test.mjs`; compiled kernel extension and real temporary files |
-| Pending approval decoder rejects extra authority fields, absent reasons, invalid decisions and oversized reasons | `approval-decoding.test.mjs` |
-| HTTP approval, SQLite grants and actual subprocess authorization, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs`, `fixtures/approved-tool.mjs`; the child checks its committed grant before writing outside the workspace |
-| Actual adaptive history through providerInput/responseBody: complete history prefixes, recorded reasoning changes, audit encoding and request effort; nested private continuation projection | `reasoning-boundaries.test.mjs` |
-| Typed Jev HTTP payloads, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch, bounded evaluator previews after raw history exceeds a kernel frame, and restart | `reasoning.test.mjs` |
-| SQLite journal framing, commit faults, replay and restart | `journal.test.mjs`, `service-recovery.test.mjs` |
-| Atomic graph installation, accepted-output handoffs, rejected deliveries, live replacement, commit rollback and SQLite replay | `task-graph.test.mjs`; actual native decisions, Worker execution and journal commits |
-| Native graph tool capabilities, immediate service replies, restart, canonical workspace observations and refreshed creation guidance | `task-graph-service.test.mjs`; actual service effects and frozen model tool catalogs |
-| Subprocess execution, real tool results, deferred input and cancellation | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
-| Filesystem observations, Seatbelt quoting, seccomp ABI encoding and actual OS write isolation | `sandbox.test.mjs` |
-| Idle-task execution configuration, in-flight model/approval rejection, unchanged project/workspace/history, actual next-provider routing, task-local ChatGPT Web root restart after model or policy changes, and preserved continuation after no-op configuration or another task's change | `task-execution.test.mjs`, `approvals.test.mjs`; authenticated loopback HTTP, actual native commands and provider fixtures |
-| Canonical workspace observations, committed execution plans, real subprocess cwd/permissions and journal reopen | `workspaces.test.mjs` |
-| Managed Git worktree creation/archive after SQLite commit, checkout-relative guidance and skill metadata/tool reads, checkout failures without source-workspace fallback, detached checkout and local changes, empty primaries, multi-root and shared-fork sandbox isolation, archive ownership, repository filter/hook isolation, service-home separation, large receipt recovery and journal reopen | `worktrees.test.mjs`; real Git repositories, filesystem moves and sandboxed subprocesses |
-| Configured/global/project snapshots, actual override source paths, root order, inherited and explicit fork prefixes, scoped discovery changes and committed dispatch/compaction/restart | `project-context.test.mjs`, `context-deltas.test.mjs` |
-| Context-limit failure without summary/retry; complete history and completed file mutations survive restart | `context-recovery.test.mjs` |
-| Provider/MCP/plugin wire formats, faults, cancellation and commit-before-callback | `providers.test.mjs`, `plugins.test.mjs`, `after-hooks.test.mjs`, `service-recovery.test.mjs` |
-| ChatGPT Web v1 predecessors, durable same-key observation, tool batches, concurrent/deferred inputs, cancellation, reviews/drafts and restart | `chatgpt-web.test.mjs`, `fixtures/chatgpt-web.mjs`; loopback HTTP, SQLite and sandboxed subprocesses |
-| ChatGPT account authorization, public Responses/model discovery, native compact request and complete replacement window, retained original history, cancellation and restart | `auth.test.mjs`, `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`, `fixtures/chatgpt.mjs`; signed loopback OAuth/OIDC and HTTP/SSE fixtures, not a live account |
-| Advertised hidden Codex reviewer discovery, same-account default selection, explicit reviewer overrides, request reasoning and actual approved subprocesses | `chatgpt-models.test.mjs`, `ui-verification.test.mjs`; account catalog, HTTP, native selection and browser-generated commands |
-| Committed context measurements, readable UTF-8 upper-bound fallback, frozen/stopped observation quiescence, complete request budgets, background continuation, hard-threshold waiting, oversized concurrent suffix reconstruction, idle revisions and endpoint switching | `automatic-compaction.test.mjs`, `fixtures/compaction.mjs`; real service, SQLite journal and HTTP token-count/compact fixtures |
-| Production browser boot catalog observation, manual model preference persistence/restoration, unchanged existing task model and actual next-created task provider routing; empty-catalog unavailability; generated task reasoning single-choice controls encoded by the production semantic surface and accepted by authenticated HTTP for all approval policies, with complete unrelated task state preserved | `chatgpt-models.test.mjs`; compiled browser runtime and signed loopback account/provider fixtures |
-| Authentication, HTTP/SSE delivery and committed service dispatch | `auth.test.mjs`, `service.test.mjs` |
-| Cloudflare workerd/DO hibernation, local pairing approval, authenticated relay commands, lost replies, SQLite restart, revocation, disconnect without task cancellation, and remote snapshots preserving project task trees and descendant navigation through the production UI | `remote-control.test.mjs`, `remote-support.mjs`; real local Cloudflare runtime, no deployed account |
-| Outbound WebSocket negotiation, heartbeat, bounded queues, snapshot stream cut, authorization and reconnect fencing | `remote-connector.test.mjs`; real loopback HTTP/WebSocket transport |
-| CLI enrollment and local management, private identity files and secret-free output | `remote-cli.test.mjs`; child CLI, real filesystem and loopback service |
-| Committed forks through the HTTP-visible world into nested semantic sidebar rows and browser-authored indentation; project boundaries, shared-worktree ownership across projects, archive preservation, descendant navigation, selection, status and project disclosure | `ui-verification.test.mjs`; compiled production UI, real service and Git, without a physical browser geometry claim |
-| Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
-| Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
+A test also needs a convincing likelihood of real failure relative to its setup,
+runtime and maintenance cost. A possible error, an unproved property or an
+external boundary alone is insufficient; default to deletion when the case is
+unconvincing. Merge related checks and setup. Do not preserve scenario matrices
+inside one large test merely to reduce the reported test count.
 
-Use Bun 1.4.2 or later and the pinned Bend compiler installed by
-`bash scripts/bootstrap.sh`; see [the repository workflow](../README.md).
-`bun run check` checks source boundaries, certificates, the production proof root
-and script syntax. `bun run test` builds the kernel/browser JavaScript libraries
-before running this directory with one isolated worker.
-The runner enforces a 15-minute watchdog for each test file, terminates its
-process group on timeout, and treats abnormal exits or missing test-result
-footers as failures.
-`bun run test:locality` selects source-boundary checks and actual native extension
-round trips.
-`bun run build:native` is the optional native entry build and requires a C compiler.
-Locality native probes also require that toolchain.
+The mandatory [production proof root](../PROOF.bend), source-ownership gate and
+certificate checks run through `bun run check` and ordinary builds. They own
+semantic requirements, component refinement and unrelated-state preservation.
+Tests do not recompile hypothetical application extensions or repeat semantic
+traces through HTTP and SQLite.
 
-Production proof and certificate gates remain mandatory in ordinary checks and
-builds. Translator tests use their existing source-data and reflection-premise
-assertions; actual compilation tests inspect generated execution results. The
-locality fixture emits an effect intention and does not provide a new physical
-host interpreter for that effect.
+The small physical suite targets failure mechanisms that the model cannot rule
+out: SQLite failing after a kernel transition, execution before durable authority,
+subprocess pipe pressure and process-tree cleanup, filesystem links and content
+integrity, byte-split network decoding, credential rotation and secret-file
+handling, transport teardown, and observed browser connection/IME regressions.
+The handwritten source scanners retain small syntax regressions. These checks
+exercise the actual production paths rather than test-only models.
 
-Open categories and admission predicates are specified in their owning model
-entries and [bendlib/categories.bend](../bendlib/categories.bend). Their universal
-properties are supplied by the production constructions and proofs. Runtime
-fixtures check the concrete values and external boundaries listed above.
+Managed worktrees add focused real-Git checks for copying local edits without
+executing repository programs, archive/recovery and interrupted checkout ownership.
+Project task hierarchy, shared-worktree archive permission and Worktree preference
+propagation remain production construction and proof obligations.
 
-These files describe evidence responsibilities, not results for the current
-checkout. Loopback fixtures do not establish commercial model quality or
-availability. Browser geometry, focus and physical interaction need actual
-browser evidence; no current executable browser fixture supplies it.
+Hierarchical context discovery keeps one filesystem check for Git boundaries,
+multiple roots, override selection, skill metadata and incomplete scans. Context
+admission, deltas, inherited history and provider selection remain native
+construction and proof obligations.
 
-Do not add tests whose only criterion is Bend accepting or rejecting source code,
-proofs or certificates. Keep actual compiler execution, JavaScript translator
-boundaries and external integration assertions distinct from production proof
-requirements.
+Remote control keeps focused physical checks for atomic command receipts across
+SQLite reopen, WebSocket session teardown and the real Durable Object runtime.
+Grant permissions, generations and command classification belong to native
+constructions and their production proofs.
 
-## CI scope
+The remote receipt probe also exercises account-authenticated Codex review and a
+subprocess that inspects its durable grant before writing. Independent Web text
+requests retain a focused regression for effects without task history.
 
-`bun run test:ci` builds the production JavaScript libraries and runs regular
-integration tests on Linux. `locality.test.mjs` and `context-definitions.test.mjs`
-are deferred to `bun run test` and the pre-push hook because they include extension
-compiler workloads. Production
-proofs and certificate checks still run in every PR. The workflow's manual `full`
-input runs the complete suite on Linux and macOS once the workflow is present on
-the default branch.
+Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
+`bash scripts/bootstrap.sh`:
+
+```sh
+bun run check
+bun run test
+bun run index:check
+```
+
+`bun run test` builds the production JavaScript libraries once and invokes Bun's
+standard test runner with sequential tests. Fixtures do not compile more Bend
+programs. The suite uses temporary homes, loopback servers and subprocesses; no
+real model account or paid request is needed. OS isolation requires Seatbelt on
+macOS or bubblewrap/seccomp on Linux. Chromium or Google Chrome is required for
+the focused DOM regression; `SELVEDGE_BROWSER` may name its executable.
+
+A passing physical probe is local evidence, not a proof about all compiler,
+operating-system or provider behavior. Synthetic keyboard events do not establish
+hardware input or operating-system IME behavior. Loopback OAuth and model fixtures
+do not establish commercial service availability or model quality. GitHub Actions
+CI is disabled; run the checks explicitly. Git hooks apply only when installed.

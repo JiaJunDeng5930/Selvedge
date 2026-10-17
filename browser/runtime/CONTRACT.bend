@@ -590,7 +590,7 @@ type RequestRequirements is Type:
         Codec.command_json(M.UpdateProject{id, name, workspace, J.Null{}, create_worktree}) : J.Json},
     agent: @id:Maybe<&2, Nat> -> @revision:Nat -> @name:String -> @profile:String -> @reasoning:String ->
       @instructions:String -> @fields:+List<J.Field> -> @concurrency:Nat ->
-      {Legacy.request_payload(M.FeatureCommand{F2.BoardCommand{B.SaveAgent{id, revision,
+      {Legacy.request_payload(M.FeatureCommand{F2.BoardCommand{B.SaveAgent{id,
           B.AgentProfile{revision, name, profile, reasoning, instructions, J.Object{fields}, concurrency}}}}) ==
           BoardCodec.command("save_board_agent", J.Field{"agent", J.Text{BoardCodec.id_text(id)}} <>
             BoardCodec.agent_fields(B.AgentProfile{revision, name, profile, reasoning, instructions,

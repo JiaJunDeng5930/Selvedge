@@ -56,8 +56,7 @@ def call_history(+plan: J.Json) -> J.Json:
 def call_effect(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
   +plan = J.get(effect, "plan")
-  J.Object{[J.Field{"kind", J.Text{"context_compaction"}}, J.Field{"task_id", J.get(effect, "task_id")}, J.Field{"ticket", J.get(effect, "ticket")},
-    J.Field{"context_selected", J.Boolean{True{}}}, J.Field{"model", J.get(effect, "model")},
+  J.Object{[J.Field{"kind", J.Text{"context_compaction"}}, J.Field{"context_selected", J.Boolean{True{}}}, J.Field{"model", J.get(effect, "model")},
     J.Field{"sampling", J.get(effect, "sampling")}, J.Field{"tools", J.Array{Nil{}}},
     J.Field{"callable", J.Array{Nil{}}}, J.Field{"history", choose(String.eq(J.text(J.get(plan, "method")), "native"), J.get(plan, "history"), call_history(plan))}]}
 
@@ -151,12 +150,35 @@ def scope_changed(+source: J.Json) -> J.Json:
     J.Field{"scope_changed", J.Boolean{(J.boolean(J.get(J.get(source, "effect"), "context_selected")) || String.eq(J.text(J.get(J.get(source, "effect"), "kind")), "context_compaction")) && J.is_text(J.get(J.get(source, "effect"), "context_scope")) &&
       Bool.not(J.same(J.get(J.get(source, "effect"), "context_scope"), J.get(source, "scope")))}}]})
 
+# The encoded request itself determines whether bytes can bound input tokens.
+# This structural classification is never supplied as a host Boolean promise.
+def request_has_opaque_acc(value: J.Json, found: Bool) -> Bool:
+  match value:
+    case J.Array{Con{head, tail}}:
+      request_has_opaque_acc(J.Array{tail}, request_has_opaque_acc(head, found))
+    case J.Object{Con{J.Field{+name, +value}, tail}}:
+      request_has_opaque_acc(J.Object{tail}, request_has_opaque_acc(value,
+        found || (String.eq(name, "encrypted_content") && J.is_text(value) && Bool.not(String.eq(J.text(value), "")))))
+    case _: found
+
+def request_has_opaque(value: J.Json) -> Bool:
+  request_has_opaque_acc(value, False{})
+
+def measurement_local(+source: J.Json) -> J.Json:
+  +plaintext = Bool.not(request_has_opaque(J.get(source, "request")))
+  Model.success(J.Object{[J.Field{"action", J.Text{"local"}}, J.Field{"scope", J.get(source, "scope")},
+    J.Field{"input_tokens", choose(plaintext && Nat.is_lt(natural(J.get(source, "window_tokens")), natural(J.get(source, "bytes"))), J.get(source, "bytes"), J.get(source, "window_tokens"))},
+    J.Field{"tokenizer", choose(plaintext, J.Text{"utf8_upper_bound"}, J.Text{"request_bytes_exceeded"})}]})
+
 def measurement_plan(remote: Bool, +source: J.Json) -> J.Json:
   match remote:
     case True{}: Model.success(J.Object{[J.Field{"action", J.Text{"remote"}}]})
-    case False{}: Model.success(J.Object{[J.Field{"action", J.Text{"local"}}, J.Field{"scope", J.get(source, "scope")},
-      J.Field{"input_tokens", choose(J.boolean(J.get(source, "plaintext")) && Nat.is_lt(natural(J.get(source, "window_tokens")), natural(J.get(source, "bytes"))), J.get(source, "bytes"), J.get(source, "window_tokens"))},
-      J.Field{"tokenizer", choose(J.boolean(J.get(source, "plaintext")), J.Text{"utf8_upper_bound"}, J.Text{"request_bytes_exceeded"})}]})
+    case False{}: measurement_local(source)
+
+def measurement_request(valid: Bool, +source: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure("Context measurement requires the complete encoded request")
+    case True{}: measurement_plan(Nat.is_le(natural(J.get(source, "bytes")), natural(J.get(J.get(source, "limits"), "frame_bytes"))), source)
 
 def unsupported_route(+source: J.Json) -> Bool:
   Bool.not(J.same(J.get(source, "code"), J.Text{"model_not_found"})) &&
@@ -171,8 +193,12 @@ def meter_fallback_checked(allowed: Bool, +source: J.Json) -> J.Json:
     case True{}: Model.success(J.Object{[J.Field{"action", J.Text{"local"}}, J.Field{"scope", J.get(source, "scope")},
       J.Field{"input_tokens", J.get(source, "bytes")}, J.Field{"tokenizer", J.Text{"utf8_upper_bound"}}]})
 
+def meter_fallback_content(opaque: Bool, +source: J.Json) -> J.Json:
+  match opaque:
+    case True{}: Model.success(J.Object{[J.Field{"action", J.Text{"error"}}]})
+    case False{}: meter_fallback_checked(J.is_object(J.get(source, "request")) && unsupported_route(source), source)
 def meter_fallback(+source: J.Json) -> J.Json:
-  meter_fallback_checked(J.boolean(J.get(source, "plaintext")) && unsupported_route(source), source)
+  meter_fallback_content(request_has_opaque(J.get(source, "request")), source)
 
 def unsupported_compaction_model(+source: J.Json) -> Bool:
   J.same(J.get(source, "status"), J.nat(400n)) &&
@@ -208,7 +234,7 @@ def route_12(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
     case False{}: route_13(String.eq(operation, "backend.compaction_meter_fallback"), operation, source)
 def route_11(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: measurement_plan(Nat.is_le(natural(J.get(source, "bytes")), natural(J.get(J.get(source, "limits"), "frame_bytes"))), source)
+    case True{}: measurement_request(J.is_object(J.get(source, "request")), source)
     case False{}: route_12(String.eq(operation, "backend.compaction_scope_changed"), operation, source)
 def route_10(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -267,12 +293,6 @@ def run(+operation: String, +source: J.Json) -> J.Json:
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning_entry(operation, source) : J.Json}
 
-law call_effect_preserves_task_identity:
-  @source:J.Json -> {J.get(call_effect(source), "task_id") == J.get(J.get(source, "effect"), "task_id") : J.Json}
-
-law call_effect_preserves_ticket:
-  @source:J.Json -> {J.get(call_effect(source), "ticket") == J.get(J.get(source, "effect"), "ticket") : J.Json}
-
 law opaque_input_has_no_local_token_estimate:
-  @source:J.Json -> {meter_fallback(put(source, "plaintext", J.Boolean{False{}})) ==
+  @source:J.Json -> @opaque:{request_has_opaque(J.get(source, "request")) == True{} : Bool} -> {meter_fallback(source) ==
     Model.success(J.Object{[J.Field{"action", J.Text{"error"}}]}) : J.Json}

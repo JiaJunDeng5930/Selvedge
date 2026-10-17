@@ -48,10 +48,9 @@ and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,
 order, automatic dispatch and execution association remain native.
 
-The suite also exercises browser OAuth login and serialized credential refresh against a
-loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
-notifications during shutdown, and suppression of effects withdrawn within a
-commit. Credential parsing errors must not quote file contents into task history.
+The focused suite includes loopback OAuth and serialized credential refresh,
+HTTP stream teardown and physical commit-before-execution checks.
+Credential parsing errors must not quote file contents into task history.
 Use `bun run test` to run these checks; they require no real credentials or model calls.
 
 [chatgpt-account.mjs](chatgpt-account.mjs) performs ChatGPT discovery, login,
@@ -146,7 +145,13 @@ and harness assembly govern task initialization and resource association.
 Creation rejects a service home inside the source Git repository before copying
 files, preventing private service state from entering a checkout.
 Sandbox launches admit a writable exception only for the task's committed managed
-checkout; service state and other checkouts retain their protection.
+checkout; service state and other checkouts retain their protection. Git
+administration outside the selected workspace receives no additional write
+permission. Native host operations derive managed paths, admit receipts and
+construct completion coordinates; the interpreter supplies bounded UTF-8 file
+observations. A directory is reserved before Git starts, so partial failures
+retain their actual owned path until cleanup succeeds. Recovery observes the
+receipt and Git registration without repeating checkout or archive operations.
 
 [stdio-rpc.mjs](stdio-rpc.mjs) is the shared bounded process transport for MCP and
 plugins. [RPC.bend](adapters/RPC.bend) owns response classification and correlation
@@ -179,7 +184,10 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-Format 6 is independent of build provenance. Persisted formats are not migrated;
+Replay returns every complete decision for validation; it transfers the final
+world snapshot once after all rows pass, rather than cloning each intermediate
+world into the main thread. Ordinary requests still return their world snapshot.
+The journal format is independent of build provenance. Persisted formats are not migrated;
 unknown formats and incompatible decisions fail without altering the journal. Existing execution plans retain
 their meaning after a restart in another launch directory. No workspace migration
 or global directory binding is involved. Different operations and service homes
@@ -234,8 +242,11 @@ replacement window. Context selection appends only messages committed after the
 captured prefix. Native account compaction uses `/responses/compact`; portable
 rebuilding processes readable original records through bounded summary calls.
 The feature in Bend owns thresholds, idle observations, call correlation and
-adoption. The host meters the actual request, performs each committed call, and
-reports its result. Background jobs run independently of normal inference; a
+adoption. The host meters the encoded request and dispatches those same bytes
+through the same provider session. Portable calls share the ordinary model SSE
+transport, including header retry, credential refresh and cancellation, without
+resolving another consumer or rebuilding the request. The host reports each
+committed call's result. Background jobs run independently of normal inference; a
 blocking threshold waits for compaction and remeasures the replacement with the
 current suffix before dispatch. Supplied portable summaries enter the same
 replacement path without a model call.
