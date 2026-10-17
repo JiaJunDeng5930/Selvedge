@@ -31,8 +31,8 @@ function failure(code, record, status) {
 
 function credential(profile) {
   const token = process.env[profile.api_key_env];
-  const bindingInput = boundary('web.credential', { profile, token });
-  return { token, binding: digest(bindingInput) };
+  if (!token) throw new Error(`Set ${profile.api_key_env} to use this provider`);
+  return { token, binding: digest([profile.endpoint, token]) };
 }
 
 function toolsFor(effect) { return boundary('web.tools', { effect }); }

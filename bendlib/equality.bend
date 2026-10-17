@@ -151,8 +151,8 @@ def inherited_creation(+budget: Nat, left: D.Contract, right: D.Contract) -> Boo
 
 def execution(+budget: Nat, left: D.ExecutionConfiguration, right: D.ExecutionConfiguration) -> Bool:
   match left right:
-    case D.ExecutionConfiguration{profile_a, reasoning_a, model_a, sandbox_a, approval_a} D.ExecutionConfiguration{profile_b, reasoning_b, model_b, sandbox_b, approval_b}:
-      string_equal(profile_a, profile_b) && string_equal(reasoning_a, reasoning_b) && model(model_a, model_b) &&
+    case D.ExecutionConfiguration{model_a, sandbox_a, approval_a} D.ExecutionConfiguration{model_b, sandbox_b, approval_b}:
+      model(model_a, model_b) &&
         json(budget, D.sandbox_json(sandbox_a), D.sandbox_json(sandbox_b)) && approval(approval_a, approval_b)
 
 def call(budget: Nat, left: D.Call, right: D.Call) -> Bool:

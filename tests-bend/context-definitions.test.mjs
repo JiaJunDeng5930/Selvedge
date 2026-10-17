@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { auditComponents } from '../scripts/check-components.mjs';
 import { Kernel } from '../host/kernel.mjs';
-import { specimen, unchanged } from './locality-support.mjs';
+import { specimen, unchanged, verifySpecimenProof } from './locality-support.mjs';
 import { definitionAssembly, extendTrackedContexts } from './fixtures/context-definitions.mjs';
 
 const contextChanges = page => page.messages.filter(item => item.type === 'context_change').map(item => item.change);
@@ -22,6 +22,7 @@ test('text and record definitions extend actual observation, history and provide
   const audit = await auditComponents(copy.directory);
   assert.equal(audit.ok, true, audit.errors.join('\n'));
   await unchanged(copy, [definitionAssembly]);
+  verifySpecimenProof(copy);
   await compileJavaScript({ entry, output: module, sourceRoot: copy.directory,
     exports: { initial: 'initial', packet: 'packet', envelope: 'envelope', show: 'show', state: 'state', run: 'run' } });
   const [{ observeContextSources }, { defaultConfig, validateConfig }, { responseBody }] = await Promise.all([

@@ -263,14 +263,9 @@ def distinct_operations(operations: +List<D.Operation()>, +tasks: +List<D.Task>)
     case Con{+operation, rest}:
       Bool.not(has_ticket(tasks, Ops.ticket(operation))) && Bool.not(has_ticket(tasks, Ops.callback(operation))) && distinct_operations(rest, tasks)
 
-def execution_configuration(+current: D.ExecutionConfiguration, contract: D.Contract) -> Bool:
-  match current:
-    case D.ExecutionConfiguration{profile, reasoning, +model, sandbox, approval}:
-      String.eq(profile, D.profile_key(D.model_profile(model))) && String.eq(reasoning, D.model_selection(model))
-
 def task_checked(task: D.Task, +effective: D.Contract, expected_id: Nat, +all: +List<D.Task>, +next_ticket: Nat, +budget: Nat) -> Bool:
   D.Task{+id, ancestors, +frozen, +current, +status, +history, queued, +pending, +operations, notified} = task
-  Nat.is_eq(id, expected_id) && contract(frozen) && execution_configuration(current, frozen) && contract(effective) &&
+  Nat.is_eq(id, expected_id) && contract(frozen) && contract(effective) &&
     project_context(D.history_project(history)) && Workspace.guidance_member(Workspace.primary(Workspace.workspace(D.contract_context(frozen))), D.history_project(history)) &&
     lineage(ancestors, id, frozen, all, budget) &&
     Nat.is_le(T.descendant_count(all, id), T.contract_limit(frozen)) &&

@@ -1519,18 +1519,18 @@ type BoundaryRequirements is Type:
     accepted_auth: @+state:Services.State -> @ticket:Nat ->
       @owned:{Services.expected_access(Services.access(state), ticket) == True{} : Bool} ->
       {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
-        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state)), [Services.SessionReady{}]} : Services.Decision},
+        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision},
     failed_auth: @+state:Services.State -> @reason:String ->
       {Services.authentication_calculation(state, Fail{reason}) ==
-        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}} : Services.Decision},
+        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]} : Services.Decision},
     unowned_auth: @+state:Services.State -> @result:Result<&2, &2, String, Unit> ->
       {Services.authentication_admitted(None{}, state) == Services.Decision{state, Nil{}} : Services.Decision},
     readiness_attention: @+state:Services.State -> @+application:E.Application ->
       {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
-        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision},
+        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision},
     failed_auth_no_attention: @+state:Services.State -> @reason:String -> @application:E.Application ->
       {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
-        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}) : InteractionTypes.Decision},
+        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]) : InteractionTypes.Decision},
     unowned_auth_no_attention: @state:Services.State -> @result:Result<&2, &2, String, Unit> -> @application:E.Application ->
       {Core.service_result(Services.authentication_admitted(None{}, state), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : InteractionTypes.Decision},
     readiness_is_internal: {Core.external_effect(Services.SessionReady{}) == False{} : Bool},

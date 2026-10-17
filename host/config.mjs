@@ -44,34 +44,33 @@ function configurationHead(value, observer) {
 }
 
 /** Observe mutable context configuration without changing frozen task policy. */
-export function contextConfiguration(value, definitions = contextDefinitions, limits = { project_context_bytes: 1024 * 1024 }) {
-  const current = configurationHead(value, configurationObserver());
-  return Object.fromEntries(contextSettings(definitions).map(definition => {
+export function contextConfiguration(value, definitions = contextDefinitions) {
+  const observer = configurationObserver();
+  const current = configurationHead(value, observer);
+  const settings = Object.fromEntries(contextSettings(definitions).map(definition => {
     const { type, setting } = definition.observer;
-    const item = Object.hasOwn(current, setting) ? current[setting] : (type === 'config_text' ? '' : []);
-    if (type === 'config_text') {
-      if (typeof item !== 'string' || !item.isWellFormed() || item.includes('\0') || Buffer.byteLength(item, 'utf8') > limits.project_context_bytes) {
-        throw new TypeError(`Context setting ${setting} must be a bounded UTF-8 string`);
-      }
-    } else if (!Array.isArray(item) || item.length > 64 || !item.every(filename => typeof filename === 'string' &&
-      filename.length > 0 && filename.isWellFormed() && !filename.includes('\0') && Buffer.byteLength(filename, 'utf8') <= 4096)) {
-      throw new TypeError(`Context setting ${setting} must contain at most 64 bounded UTF-8 file paths`);
-    }
-    return [setting, item];
+    return [setting, Object.hasOwn(current, setting) ? current[setting] : (type === 'config_text' ? '' : [])];
   }));
+  observer.execute('config.context_transport', contextTransport(settings, definitions, observer));
+  return settings;
 }
 
-function contextFieldObservations(config) {
-  return Object.fromEntries(contextSettings().map(definition => {
-    const setting = definition.observer.setting;
-    const value = config[setting];
-    return [setting, {
-      bytes: typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : null,
-      well_formed: typeof value === 'string' && value.isWellFormed() && !value.includes('\0'),
-      paths_well_formed: Array.isArray(value) && value.every(filename => typeof filename === 'string' && filename.length > 0 &&
-        filename.isWellFormed() && !filename.includes('\0') && Buffer.byteLength(filename, 'utf8') <= 4096),
-    }];
-  }));
+function textObservation(value) {
+  return { bytes: typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : null,
+    well_formed: typeof value === 'string' && value.isWellFormed() && !value.includes('\0') };
+}
+
+function contextTransport(config, definitions, observer) {
+  return { definitions,
+    values: Object.fromEntries(contextSettings(definitions).map(definition => {
+      const setting = definition.observer.setting;
+      return [setting, observer.observe(config[setting])];
+    })),
+    observations: Object.fromEntries(contextSettings(definitions).map(definition => {
+      const setting = definition.observer.setting;
+      const value = config[setting];
+      return [setting, { ...textObservation(value), items: Array.isArray(value) ? value.map(textObservation) : [] }];
+    })) };
 }
 
 export function validateConfig(value) {
@@ -81,10 +80,9 @@ export function validateConfig(value) {
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
   observer.execute('config.configuration_transport', {
-    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles',
-      ...contextSettings().map(definition => definition.observer.setting)].map(key =>
+    transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles'].map(key =>
       [key, observer.observe(config[key], { shallow: key === 'profiles' })])),
-    context_fields: contextFieldObservations(config),
+    context: contextTransport(config, contextDefinitions, observer),
   });
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     profileBoundary('backend.profile_head', { key, profile: source });

@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { auditComponents, checkComponents } from '../scripts/check-components.mjs';
-import { specimen, unchanged, modify, replaceDefinition, nativeProbe } from './locality-support.mjs';
+import { specimen, unchanged, modify, replaceDefinition, nativeProbe, verifySpecimenProof } from './locality-support.mjs';
 import { extendCounter, assemblyChanges, counterProbe } from './fixtures/locality-extension.mjs';
 
 async function extendRemainders(directory) {
@@ -188,7 +187,7 @@ test('model representation policy rejects malformed, unknown and duplicate owner
   await unchanged(copy, ['components.json']);
 });
 
-test('a matching native build cache cannot bypass the actual-source boundary gate', async t => {
+test('a matching production JavaScript cache cannot bypass the component boundary policy', { timeout: 300_000 }, async t => {
   const copy = await specimen(t);
   const root = fileURLToPath(new URL('../', import.meta.url));
   for (const filename of ['scripts', 'theory', 'bend-version']) {
@@ -197,25 +196,34 @@ test('a matching native build cache cannot bypass the actual-source boundary gat
   const pluginBuilder = 'plugins/selvedge-chatgpt/scripts/build-model.mjs';
   await mkdir(path.dirname(path.join(copy.directory, pluginBuilder)), { recursive: true });
   await cp(path.join(root, pluginBuilder), path.join(copy.directory, pluginBuilder));
-  await modify(copy.directory, 'harness/reasoning/PROGRAM.bend', source => source.replace('import Base\n',
-    'import Base\nimport ../MODEL.bend as Application\n'));
-  const compiler = (await readFile(path.join(root, 'bend-version'), 'utf8')).trim();
-  const format = 'selvedge-bend-journal-2';
-  const hash = createHash('sha256').update(`Bend ${compiler}\0${format}\0`);
-  for (const filename of [...copy.originals.keys()].filter(name => name.endsWith('.bend') || name === 'host/transport.c').sort()) {
-    hash.update(filename).update('\0').update(await readFile(path.join(copy.directory, filename))).update('\0');
-  }
-  await mkdir(path.join(copy.directory, '.build'));
-  // Cache selection checks the fingerprint and file presence. The file is never
-  // executed: the structural gate must reject this source before cache selection.
-  await writeFile(path.join(copy.directory, '.build/selvedge-kernel'), 'cache fixture');
-  await writeFile(path.join(copy.directory, '.build/kernel.json'), JSON.stringify({ format, compiler, fingerprint: hash.digest('hex') }));
+  await mkdir(path.join(copy.directory, '.build'), { recursive: true });
+  try {
+    await cp(path.join(root, '.build/javascript-compiler.tar.gz'), path.join(copy.directory, '.build/javascript-compiler.tar.gz'));
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const { compileJavaScript: compileFixtureJavaScript } = await import(pathToFileURL(path.join(copy.directory, 'scripts/compile-javascript.mjs')).href);
+  const request = { entry: 'KERNEL.bend', output: '.build/kernel-model.mjs', sourceRoot: copy.directory,
+    exports: { initial: 'initial', packet: 'packet', state: 'state', envelope: 'envelope', show: 'show' } };
+  const built = await compileFixtureJavaScript(request);
+  assert.equal(built.cached, false);
+  // Component policy is independent of compiler inputs. Tightening it leaves the
+  // production entry, export set, source root and output cache identity unchanged.
+  await modify(copy.directory, 'components.json', source => {
+    const config = JSON.parse(source);
+    const owner = 'harness/reasoning/PROGRAM.bend';
+    const target = 'harness/reasoning/MODEL.bend';
+    assert.ok(config.application_dependencies[owner].includes(target));
+    config.application_dependencies[owner] = config.application_dependencies[owner].filter(value => value !== target);
+    return JSON.stringify(config);
+  });
+  const cached = await compileFixtureJavaScript(request);
+  assert.equal(cached.cached, true, 'The exact production compiler cache must be reusable before the build boundary gate runs');
+  assert.equal(cached.fingerprint, built.fingerprint);
   const result = spawnSync(process.execPath, ['scripts/build.mjs'], { cwd: copy.directory,
     encoding: 'utf8', timeout: 30_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
   assert.equal(result.error, undefined);
   assert.notEqual(result.status, 0);
-  assert.match(result.stdout + result.stderr, /Component boundary check failed:[\s\S]*reasoning\/PROGRAM\.bend -> harness\/MODEL\.bend/);
-  assert.doesNotMatch(result.stdout, /Bend kernel is current|Built Bend kernel/);
+  assert.match(result.stdout + result.stderr, /Component boundary check failed:[\s\S]*reasoning\/PROGRAM\.bend -> harness\/reasoning\/MODEL\.bend/);
+  assert.doesNotMatch(result.stdout, /Bend JavaScript kernel is current|Bend JavaScript kernel built/);
 });
 
 test('a kernel feature extends all kernel alphabets with existing clients and proofs frozen', { timeout: 420_000 }, async t => {
@@ -234,6 +242,7 @@ test('a kernel feature extends all kernel alphabets with existing clients and pr
   const audit = await auditComponents(copy.directory);
   assert.equal(audit.ok, true, audit.errors.join('\n'));
   await unchanged(copy, assemblyChanges);
+  verifySpecimenProof(copy);
   const output = path.join(copy.directory, 'locality-kernel.mjs');
   await compileJavaScript({ entry: path.join(copy.directory, 'KERNEL.bend'), output, sourceRoot: copy.directory,
     exports: { initial: 'initial', packet: 'packet', envelope: 'envelope', show: 'show', state: 'state' } });

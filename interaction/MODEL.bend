@@ -32,7 +32,9 @@ type Input is Data:
   ClipboardCompleted{identity: Code.Identity, ticket: Nat, success: Bool}
   ClipboardFeedbackExpired{identity: Code.Identity, ticket: Nat}
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
-  Disconnected{reason: String}
+  Disconnected{ticket: Nat, reason: String}
+  RetryConnection{ticket: Nat}
+  AppearanceRestored{stored: Maybe<&2, String>}
   Uploaded{ticket: Nat, result: Result<&2, &2, String, B.Attachment>}
   DirectoryListed{ticket: Nat, result: Result<&2, &2, String, Services.DirectoryCatalog>}
   AttachmentRead{ticket: Nat, result: Result<&2, &2, String, String>}
@@ -59,7 +61,9 @@ def step(input: Input, state: InteractionTypes.State) -> InteractionTypes.Decisi
     case ClipboardCompleted{identity, ticket, success}: Core.step(InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.Copied{ticket, success}}}, state)
     case ClipboardFeedbackExpired{identity, ticket}: Core.step(InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.ExpireFeedback{ticket}}}, state)
     case Authenticated{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.Authenticated{ticket, result}}, state)
-    case Disconnected{reason}: Core.step(InteractionTypes.ServiceInput{Services.Disconnected{reason}}, state)
+    case Disconnected{ticket, reason}: Core.step(InteractionTypes.ServiceInput{Services.Disconnected{ticket, reason}}, state)
+    case RetryConnection{ticket}: Core.step(InteractionTypes.ServiceInput{Services.RetryConnection{ticket}}, state)
+    case AppearanceRestored{stored}: Core.step(InteractionTypes.ServiceInput{Services.AppearanceRestored{stored}}, state)
     case Uploaded{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.Uploaded{ticket, result}}, state)
     case DirectoryListed{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.DirectoryListed{ticket, result}}, state)
     case AttachmentRead{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.Previewed{ticket, result}}, state)

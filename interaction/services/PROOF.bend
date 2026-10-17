@@ -3,6 +3,7 @@ import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../submission/FIELDS.bend as Forms
 import Base
+import ./connection-proof.bend as ConnectionProof
 import ../IDENTITY.bend as Identity
 import ./CONTRACT.bend as Rule
 import ../../bendlib/stdlib.bend as Std

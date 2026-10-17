@@ -374,7 +374,9 @@ test('output reserve blocks dispatch even when measured input is below the hard 
   assert.deepEqual(running.failures, []);
 });
 
-test('a large Unicode rebuild keeps actual compact effects within the kernel frame and preserves its carry', { timeout: 180_000 }, async t => {
+// NOTE: Include native setup windows and complete journal replay in the total
+// budget; the reconstruction below retains its separate operation deadline.
+test('a large Unicode rebuild keeps actual compact effects within the kernel frame and preserves its carry', { timeout: 360_000 }, async t => {
   const window = 1_048_576, reserve = 65_536;
   const perRecord = 131_072, records = 10, carryCharacters = 10_000;
   const originals = Array.from({ length: records }, (_, index) => `UNICODE_${index}_START` + '🙂'.repeat(perRecord) + `UNICODE_${index}_END`);
@@ -420,18 +422,21 @@ test('a large Unicode rebuild keeps actual compact effects within the kernel fra
       ? { op: 'create', profile: 'fixture', message } : { op: 'send', task_id: 0, message })).reply.ok, true);
     let cursor;
     await until(`the original Unicode generation ${index + 1}`, async () => {
+      if (seeded !== index + 1) return false;
       const page = (await running.service.command({ op: 'read', task_id: 0, limit: 1 })).reply.result;
       cursor = page.task.cursor;
       return seeded === index + 1 && page.task.phase === 'idle';
     }, 15_000);
     assert.equal((await running.service.command({ op: 'compact', task_id: 0 })).reply.ok, true);
     await until(`the original native Unicode window ${index + 1}`, async () => {
+      if (native !== index + 1) return false;
       const page = (await running.service.command({ op: 'read', task_id: 0, limit: 1 })).reply.result;
       if (page.task.cursor <= cursor) return false;
       const last = (await running.service.command({ op: 'read', task_id: 0, after: page.task.cursor - 1, limit: 1 })).reply.result;
       return last.messages.at(-1)?.role === 'context_replacement';
     }, 15_000);
   }
+  assert.equal(native, records, 'The old endpoint installs each original native window before the endpoint switch');
   assert.ok(perRecord * records > window, 'The source exceeds the old one-window character chunk');
   await running.restart(config => ({ ...config, profiles: { ...config.profiles,
     fixture: { ...config.profiles.fixture, endpoint: `http://127.0.0.1:${target.address().port}/v1/responses` } },
@@ -439,6 +444,7 @@ test('a large Unicode rebuild keeps actual compact effects within the kernel fra
     output_reserve_tokens: reserve, cache_ttl_ms: null, method: 'summary' }] } }));
   assert.equal((await running.service.command({ op: 'send', task_id: 0, message: 'Continue after switching the Unicode task endpoint.' })).reply.ok, true);
   await until('the complete framed Unicode reconstruction', async () => {
+    if (ordinary !== 1) return false;
     const page = (await running.service.command({ op: 'read', task_id: 0, limit: 1 })).reply.result;
     return ordinary === 1 && page.task.phase === 'idle';
   }, 60_000);

@@ -2,7 +2,9 @@ import * as Bend from './generated/browser-model.mjs';
 import { boundary } from './model-boundary.mjs';
 import { bendValue, bendTag, decodeBendValue, encodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
-import { EventFrames } from './events.mjs';
+import { observeConnection } from './connection.mjs';
+import { editorKeyboard } from './keyboard.mjs';
+import { appearanceObservation, persistAppearance } from './appearance.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { parseJson, tokenizeJsonValue } from './json-tokens.mjs';
@@ -319,7 +321,6 @@ function snapshot(body) {
   step(bendValue('browser/runtime/SEMANTICS.Snapshot', { sequence: BigInt(body.sequence), program: decodeBendValue(body.program) }));
   streamFacts();
 }
-async function refresh() { snapshot(await request('/api/browser/state')); }
 function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
 function result(ok, payload) { return ok ? bendValue('Done', { value: payload }) : bendValue('Fail', { error: payload }); }
 async function execute(effect) {
@@ -355,18 +356,35 @@ async function execute(effect) {
 async function service(effect) {
   switch (bendTag(effect)) {
     case 'Authenticate': {
-      try {
-        const body = await request('/api/browser/state');
-        snapshot(body); product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(true, bendValue('Unit')) }));
-        connection?.abort(); connection = new AbortController();
-        void watch(connection.signal);
-      } catch (error) { product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(false, error.message) })); }
+      connection?.abort();
+      const controller = new AbortController();
+      connection = controller;
+      void observeConnection({
+        request: (url, signal) => request(url, { signal }),
+        fetchEvents: (url, signal) => fetch(url, { credentials: 'same-origin', signal }),
+        signal: controller.signal,
+        sequence: () => revision,
+        snapshot,
+        ready: () => product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(true, bendValue('Unit')) })),
+        notice: streamNotice,
+      }).catch(error => {
+        if (controller.signal.aborted || disposed) return;
+        controller.abort();
+        product(bendValue('interaction/MODEL.Disconnected', { ticket: effect.ticket, reason: error.message }));
+      });
+      break;
+    }
+    case 'ScheduleReconnect': {
+      if (disposed) break;
+      const timer = setTimeout(() => {
+        feedbackTimers.delete(timer);
+        if (!disposed) product(bendValue('interaction/MODEL.RetryConnection', { ticket: effect.ticket }));
+      }, safeNumber(effect.delay_ms, 'connection retry delay'));
+      feedbackTimers.add(timer);
       break;
     }
     case 'StoreAppearance': {
-      const appearance = bendTag(effect.appearance);
-      localStorage.setItem('selvedge-appearance', appearance);
-      document.documentElement.style.colorScheme = appearance === 'DarkAppearance' ? 'dark' : appearance === 'LightAppearance' ? 'light' : 'light dark';
+      persistAppearance(localStorage, effect.appearance);
       break;
     }
     case 'Upload': {
@@ -648,27 +666,6 @@ function streamNotice(notice) {
   if (next.publish) streamFacts();
 }
 
-async function watch(signal) {
-  while (!signal.aborted) {
-    try {
-      const response = await fetch(`/api/events?after=${revision}`, { credentials: 'same-origin', signal });
-      if (!response.ok || !response.body) throw new Error(`Event connection: HTTP ${response.status}`);
-      const reader = response.body.getReader(); const decoder = new TextDecoder();
-      const frames = new EventFrames(notice => {
-        if (signal.aborted) return;
-        if (notice.type === 'commit') { revision = Math.max(revision, notice.sequence); void refresh().catch(error => product(bendValue('interaction/MODEL.Disconnected', { reason: error.message }))); }
-        else if (notice.type === 'fatal') throw new Error(notice.message);
-        else streamNotice(notice);
-      });
-      for (;;) { const { done, value: chunk } = await reader.read(); if (done) break; frames.write(decoder.decode(chunk, { stream: true })); }
-      throw new Error('Event connection ended');
-    } catch (error) {
-      if (signal.aborted) return;
-      product(bendValue('interaction/MODEL.Disconnected', { reason: error.message }));
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-}
 function environmentInput() {
   const fontSize = getComputedStyle(document.documentElement).fontSize;
   if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(fontSize)) throw new TypeError(`Invalid observed root font size: ${fontSize}`);
@@ -728,6 +725,15 @@ window.addEventListener('pagehide', () => {
   for (const resource of resources) URL.revokeObjectURL(resource);
 });
 const bootEffects = [];
+const appearanceDecision = Bend.step(bendValue('browser/runtime/SEMANTICS.Native', {
+  input: bendValue('browser/MODEL.PlatformInput', {
+    input: bendValue('browser/runtime/PLATFORM.ProductInput', {
+      input: appearanceObservation(localStorage),
+    }),
+  }),
+}), state);
+state = appearanceDecision.state;
+bootEffects.push(...list(appearanceDecision.effects));
 let storedModelPreference;
 try { storedModelPreference = JSON.parse(localStorage.getItem('selvedge-model-preference')); } catch {}
 if (storedModelPreference && typeof storedModelPreference.profile === 'string' && typeof storedModelPreference.reasoning === 'string') {
@@ -768,10 +774,8 @@ root.addEventListener('keydown', event => {
     commit(result.decision);
     return;
   }
-  if (event.key === 'Enter' && event.target.hasAttribute('data-native-editor-key')) {
-    if (!event.isComposing && !event.shiftKey && !event.altKey) event.preventDefault();
-    editorEvent(event.target, bendValue('browser/editor/MODEL.Enter', { shift: bool(event.shiftKey), alt: bool(event.altKey), modified: bool(event.ctrlKey || event.metaKey) }));
-  }
+  if (event.target.hasAttribute('data-native-editor-key')) editorKeyboard(event,
+    observation => Bend.native_editor_key(observation), input => editorEvent(event.target, input));
 });
 root.addEventListener('select', event => {
   const node = event.target;

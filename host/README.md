@@ -159,7 +159,10 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-Format 3 is independent of build provenance. Persisted formats are not migrated;
+Replay returns every complete decision for validation; it transfers the final
+world snapshot once after all rows pass, rather than cloning each intermediate
+world into the main thread. Ordinary requests still return their world snapshot.
+The journal format is independent of build provenance. Persisted formats are not migrated;
 unknown formats and incompatible decisions fail without altering the journal. Existing execution plans retain
 their meaning after a restart in another launch directory. No workspace migration
 or global directory binding is involved. Different operations and service homes
@@ -214,8 +217,11 @@ replacement window. Context selection appends only messages committed after the
 captured prefix. Native account compaction uses `/responses/compact`; portable
 rebuilding processes readable original records through bounded summary calls.
 The feature in Bend owns thresholds, idle observations, call correlation and
-adoption. The host meters the actual request, performs each committed call, and
-reports its result. Background jobs run independently of normal inference; a
+adoption. The host meters the encoded request and dispatches those same bytes
+through the same provider session. Portable calls share the ordinary model SSE
+transport, including header retry, credential refresh and cancellation, without
+resolving another consumer or rebuilding the request. The host reports each
+committed call's result. Background jobs run independently of normal inference; a
 blocking threshold waits for compaction and remeasures the replacement with the
 current suffix before dispatch. Supplied portable summaries enter the same
 replacement path without a model call.

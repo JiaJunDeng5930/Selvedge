@@ -15,6 +15,22 @@ type EditorEvent is Data:
 type Decision is Data:
   Decision{editor: Editor, submit: Bool}
 
+type KeyObservation is Data:
+  KeyObservation{keyboard: String, composing: Bool, key_code: U32,
+    shift: Bool, alt: Bool, modified: Bool}
+
+type NativeKey is Data:
+  NativeKey{event: Maybe<&2, EditorEvent>, prevent_default: Bool}
+
+def native_key_ready(ready: Bool, +shift: Bool, +alt: Bool, modified: Bool) -> NativeKey:
+  match ready:
+    case False{}: NativeKey{None{}, False{}}
+    case True{}: NativeKey{Some{Enter{shift, alt, modified}}, Bool.not(shift) && Bool.not(alt)}
+
+def native_key(observation: KeyObservation) -> NativeKey:
+  KeyObservation{keyboard, composing, key_code, shift, alt, modified} = observation
+  native_key_ready(String.eq(keyboard, "Enter") && Bool.not(composing) && Bool.not(U32.is_eq(key_code, 229)), shift, alt, modified)
+
 def step(editor: Editor, event: EditorEvent, enabled: Bool, pending: Bool) -> Decision:
   Editor{owner, selection, +composing} = editor
   match event:

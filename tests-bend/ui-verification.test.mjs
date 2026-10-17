@@ -174,8 +174,8 @@ const actualUIInput = (value, tag) => {
   return undefined;
 };
 
-// These observations deliberately stop at the emitted semantic tree. Physical
-// geometry needs the actual browser: this repository has no DOM/measurement fixture.
+// These observations stop at the emitted semantic tree. Physical geometry is
+// exercised by browser-dom.test.mjs in Chromium.
 test('production activity surfaces retain current decisions and project obstructions', { timeout: 240_000 }, async t => {
   const [ui, input] = await Promise.all([browserUI(t, { sourceAdmission: true }), activityInput(t)]);
   const upstream = await chatgptFixture(t, (request, response) => {

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { bendSources } from '../scripts/check-components.mjs';
 import { compiler } from '../scripts/toolchain.mjs';
+import { verifyProof } from '../scripts/verify-proof.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const binary = compiler();
@@ -31,6 +32,10 @@ export async function unchanged({ directory, originals }, allowed = []) {
       assert.deepEqual(await readFile(path.join(directory, filename)), source, `Existing source must remain byte-identical: ${filename}`);
     }
   }
+}
+
+export function verifySpecimenProof({ directory }) {
+  return verifyProof({ cwd: directory });
 }
 
 export function replaceOnce(source, before, after) {

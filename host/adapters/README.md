@@ -22,6 +22,14 @@ External observations remain explicit inputs to these calculations. Existing
 ChatGPT CODEC entry kinds. Annotation membership binds the native route and
 matching hints; query preservation follows the harness observation laws, and
 cancellation stabilization follows the owning ChatGPT component evidence.
+Its MCP input schemas project those same native command and execution-argument
+declarations, removing authenticated coordinates and flattening execution fields.
+Only the local connection's optional argument defaults belong to this projection.
+
+`plugin.http_response` owns HTTP-reply parsing and the single reply admission.
+Its consumer requires both wire-syntax and payload memberships of the same
+reply and constructs the MCP output directly. The host strictly decodes external
+UTF-8 bytes before supplying that observation.
 
 Credential strings, lengths, hashes, and Bearer bytes remain outside Bend.
 For API-key model consumers, the host hashes the complete target and resolved

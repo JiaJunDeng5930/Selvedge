@@ -8,6 +8,12 @@ contain the existing definitions and their business-specific projections.
 families to actual snapshot admission, patch application and history operations.
 Adding a definition reuses those properties rather than adding another proof.
 
+The wire parser produces snapshot candidates once. `observed_resolution` owns their
+single semantic admission and consumes the admitted snapshot when producing an
+introduction or amendment. Absent and failed observations admit their keys at
+decoding. Host callers of `definition`, `self_key` and `self_snapshot` use those
+separate checked boundaries for their own observations.
+
 The definition controls which source is observed, which fields may change and
 which fields must agree with source identity. Internal revisions reject patches
 against an obsolete baseline. Models receive the source identity and concrete

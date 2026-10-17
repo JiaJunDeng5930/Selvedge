@@ -25,6 +25,7 @@ def task_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackHook{}: {==}
     case E.CallbackAfterHook{}: {==}
     case E.CallbackContext{}: {==}
+    case E.CallbackCompaction{completed}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
     case E.CallbackDefaultTool{}: {==}
@@ -41,6 +42,7 @@ def ticket_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackHook{}: {==}
     case E.CallbackAfterHook{}: {==}
     case E.CallbackContext{}: {==}
+    case E.CallbackCompaction{completed}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
     case E.CallbackDefaultTool{}: {==}
@@ -57,6 +59,7 @@ def operation_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackHook{}: {==}
     case E.CallbackAfterHook{}: {==}
     case E.CallbackContext{}: {==}
+    case E.CallbackCompaction{completed}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
     case E.CallbackDefaultTool{}: {==}
@@ -73,6 +76,7 @@ def card_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackHook{}: {==}
     case E.CallbackAfterHook{}: {==}
     case E.CallbackContext{}: {==}
+    case E.CallbackCompaction{completed}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
     case E.CallbackDefaultTool{}: {==}
@@ -99,6 +103,7 @@ def context_limit_field_case(+context_limit: Bool, +kind: E.CallbackKind, +effec
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -110,6 +115,7 @@ def context_limit_field_case(+context_limit: Bool, +kind: E.CallbackKind, +effec
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -129,6 +135,7 @@ def preserves_kind_case(+context_limit: Bool, +kind: E.CallbackKind, +effect: J.
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -148,6 +155,7 @@ def preserves_task_id_case(+context_limit: Bool, +kind: E.CallbackKind, +effect:
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -167,6 +175,7 @@ def preserves_ticket_case(+context_limit: Bool, +kind: E.CallbackKind, +effect: 
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -186,6 +195,7 @@ def preserves_operation_id_case(+context_limit: Bool, +kind: E.CallbackKind, +ef
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -205,6 +215,7 @@ def preserves_card_id_case(+context_limit: Bool, +kind: E.CallbackKind, +effect:
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -224,6 +235,7 @@ def preserves_ok_case(+context_limit: Bool, +kind: E.CallbackKind, +effect: J.Js
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -243,6 +255,7 @@ def preserves_message_case(+context_limit: Bool, +kind: E.CallbackKind, +effect:
         case E.CallbackChatgptExec{}: {==}
         case E.CallbackBoardText{}: {==}
         case E.CallbackContext{}: {==}
+        case E.CallbackCompaction{completed}: {==}
         case E.CallbackReasoning{}: {==}
         case E.CallbackHook{}: {==}
         case E.CallbackApproval{}: {==}
@@ -359,3 +372,10 @@ def E.context_callback_kind():
   effect => result => {==}
 def E.context_failure_kind():
   effect => message => {==}
+
+def E.compaction_callback_result():
+  completed => effect => result => {==}
+def E.compaction_callback_error():
+  completed => effect => result => {==}
+def E.compaction_failure_error():
+  completed => effect => message => {==}

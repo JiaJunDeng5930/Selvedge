@@ -352,7 +352,7 @@ def configuration_reasoning(permitted: Bool, +task: D.Task, +profile: D.Profile,
     case False{}: Refuse{"invalid_reasoning", "Select a permitted reasoning effort for the execution profile"}
     case True{}:
       model : D.Model = D.Model{profile, reasoning}
-      configuration_policy(Workspace.valid_approval(approval), task, D.ExecutionConfiguration{D.profile_key(profile), reasoning, model, sandbox, approval})
+      configuration_policy(Workspace.valid_approval(approval), task, D.ExecutionConfiguration{model, sandbox, approval})
 
 def configuration_profile(found: Maybe<&2, D.Profile>, task: D.Task, +reasoning: String, sandbox: D.Sandbox, approval: D.ApprovalPolicy) -> Operation:
   match found:
@@ -438,8 +438,8 @@ def configuration_input(input: M.Input, +before: M.World()) -> Maybe<&2, Configu
 # Unlike bounded persisted-state validation, this comparison cannot run out of fuel.
 def configuration_session_same(left: D.ExecutionConfiguration, right: D.ExecutionConfiguration) -> Bool:
   match left right:
-    case D.ExecutionConfiguration{profile_a, reasoning_a, model_a, D.Sandbox{mode_a, network_a}, approval_a} D.ExecutionConfiguration{profile_b, reasoning_b, model_b, D.Sandbox{mode_b, network_b}, approval_b}:
-      String.eq(profile_a, profile_b) && String.eq(reasoning_a, reasoning_b) && Same.model(model_a, model_b) &&
+    case D.ExecutionConfiguration{model_a, D.Sandbox{mode_a, network_a}, approval_a} D.ExecutionConfiguration{model_b, D.Sandbox{mode_b, network_b}, approval_b}:
+      Same.model(model_a, model_b) &&
         String.eq(D.sandbox_mode_name(mode_a), D.sandbox_mode_name(mode_b)) && Same.booleans(network_a, network_b) && Same.approval(approval_a, approval_b)
 
 def configuration_changed(found: Maybe<&2, D.Task>, configuration: D.ExecutionConfiguration) -> Bool:

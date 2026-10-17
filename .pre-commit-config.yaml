@@ -16,7 +16,7 @@ repos:
         always_run: true
         stages: [pre-commit, manual]
       - id: bend-test
-        name: Native Bend and host integration
+        name: Generated Bend execution and host integration
         entry: bun run test
         language: system
         pass_filenames: false

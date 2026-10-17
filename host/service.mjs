@@ -6,7 +6,7 @@ import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
-import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
+import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
 import { observeContextSources } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
@@ -51,7 +51,7 @@ export class Service extends EventEmitter {
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
-      service.instructions = { configured: configuredInstructions(config, service.limits),
+      service.instructions = { configured: config.instructions,
         global: await snapshotGlobalInstructions(home, service.limits) };
       const discovered = await withAccountModels(config, home, {
         onDiagnostic: message => service.notify({ type: 'diagnostic', message }),
@@ -254,8 +254,7 @@ export class Service extends EventEmitter {
         const result = effect.kind === 'context_measure' || effect.kind === 'context_scope'
           ? await observeModelRequest(effect, this.config, this.home, this.limits, { signal })
           : await requestCompaction(effect, this.config, this.home, this.limits, { signal });
-        input = { kind: effect.kind === 'context_measure' || effect.kind === 'context_scope' ? 'compaction_measured' : 'compaction_completed',
-          task_id: effect.task_id, ticket: effect.ticket, result, error: false };
+        input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'model') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onObservation: value => { observation = value; }, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
@@ -320,11 +319,6 @@ export class Service extends EventEmitter {
   }
 
   #failureInput(effect, message, context_limit = false) {
-    if (effect.kind === 'context_scope' || effect.kind === 'context_measure' || effect.kind === 'context_compaction') {
-      return { kind: effect.kind === 'context_measure' || effect.kind === 'context_scope' ? 'compaction_measured' : 'compaction_completed',
-        task_id: effect.task_id, ticket: effect.ticket,
-        result: { message: String(message || 'External execution failed').toWellFormed() }, error: true };
-    }
     return boundary('effect.failure', { effect, message: String(message || 'External execution failed').toWellFormed(), context_limit });
   }
 
@@ -345,7 +339,7 @@ export class Service extends EventEmitter {
     try {
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
-      const instructions = { configured: configuredInstructions(this.config, this.limits),
+      const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
       const observed = await observeWorkspaceCommand(command, this.limits, {

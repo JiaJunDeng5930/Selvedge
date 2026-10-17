@@ -5,19 +5,12 @@ import path from 'node:path';
 import { configurationFilename, contextConfiguration, defaultConfig } from './config.mjs';
 import { snapshotContextFile } from './project.mjs';
 import { proposeContextPatch } from './context-patches.mjs';
+import { boundary } from './public/model-boundary.mjs';
 
 const configFileLimit = 1024 * 1024;
 
 function revision(value) {
   return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
-}
-
-function boundedText(value, field, maximum, required = false) {
-  if (typeof value !== 'string' || !value.isWellFormed() || value.includes('\0') ||
-    (required && !value.trim()) || Buffer.byteLength(value, 'utf8') > maximum) {
-    throw new TypeError(`Context ${field} must be a ${required ? 'nonempty ' : ''}bounded UTF-8 string`);
-  }
-  return value;
 }
 
 function fieldRecord(entries) {
@@ -36,7 +29,8 @@ function identityValue(source, environment) {
 
 function contextKey(definition, environment) {
   const identity = fieldRecord(definition.identity.map(field => [field.name,
-    boundedText(identityValue(field.source, environment), field.name, 4096, field.required)]));
+    boundary('config.context_field', { definition, identity: true, field: field.name,
+      value: identityValue(field.source, environment) })]));
   return { type: definition.kind, definition, identity };
 }
 
@@ -66,7 +60,7 @@ async function snapshotSource(definition, environment, key, limits, options) {
       case 'identity': value = key.identity[field.source.field]; break;
       default: throw new TypeError('Unknown context field source');
     }
-    return [field.name, boundedText(value, field.name, limits.project_context_bytes, field.required)];
+    return [field.name, boundary('config.context_field', { definition, identity: false, field: field.name, value })];
   }));
   const value = { type: definition.kind, fields };
   return { key, revision: revision(value), value };
@@ -74,13 +68,13 @@ async function snapshotSource(definition, environment, key, limits, options) {
 
 async function mutableConfiguration(config, definitions, limits, options) {
   const filename = configurationFilename(config);
-  if (filename === undefined) return contextConfiguration(config, definitions, limits);
+  if (filename === undefined) return contextConfiguration(config, definitions);
   const file = await snapshotContextFile(filename, { ...limits, project_context_bytes: configFileLimit }, options);
-  if (file === null) return contextConfiguration(defaultConfig, definitions, limits);
+  if (file === null) return contextConfiguration(defaultConfig, definitions);
   let value;
   try { value = JSON.parse(file.content); }
   catch { throw new TypeError('Context configuration is not valid JSON'); }
-  return contextConfiguration(value, definitions, limits);
+  return contextConfiguration(value, definitions);
 }
 
 /** Interpret native source descriptors; only the native history operation admits changes. */

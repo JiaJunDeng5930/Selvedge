@@ -220,12 +220,14 @@ def escaped_other(control: Bool, +code: U32) -> String:
     case False{}:
       SCon{Chr{code}, SNil{}}
 
-def escaped_char(code: U32) -> String:
-  match code:
-    case 34: "\\\""
-    case 92: "\\\\"
-    case +other:
-      escaped_other(U32.is_lt(other, 32), other)
+def escaped_decision(quote: Bool, backslash: Bool, +code: U32) -> String:
+  match quote backslash:
+    case True{} _: "\\\""
+    case False{} True{}: "\\\\"
+    case False{} False{}: escaped_other(U32.is_lt(code, 32), code)
+
+def escaped_char(+code: U32) -> String:
+  escaped_decision(U32.is_eq(code, 34), U32.is_eq(code, 92), code)
 
 # Each escaped character contributes at most six characters, bounding append depth.
 

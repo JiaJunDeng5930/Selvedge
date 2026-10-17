@@ -25,9 +25,9 @@ This file is for coding agents working in this repository.
 
 ## Git Hooks
 
-- `pre-commit` runs `bun scripts/check.mjs` to check actual component boundaries, the pinned compiler, reproducible imported certificates, Bend proof obligations, the native entry point and host/script syntax. `scripts/build.mjs` checks the same source boundaries before using a cached binary.
+- `pre-commit` runs `bun scripts/check.mjs` to check actual component boundaries, the pinned compiler, reproducible imported certificates, Bend proof obligations, generated JavaScript libraries, the native entry point and host/script syntax. `scripts/build.mjs` checks the same source boundaries before using cached build artifacts.
 - `pre-commit` runs `bun scripts/agents-index.mjs check` to check the tracked-file index.
-- `pre-push` runs `bun run test` for native kernel and host integration tests.
+- `pre-push` runs `bun run test` for generated execution and host integration tests, including native extension probes.
 - `just hooks` runs both configured stages.
 
 ## Persistent Data Formats
@@ -114,13 +114,13 @@ This file is for coding agents working in this repository.
 |harness/workspace:{CONTRACT.bend,PROJECTS.bend,PROOF.bend,README.md,WORKSPACE.bend}
 |host:{README.md,adapters/,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,compaction.mjs,config.mjs,context-patches.mjs,context-sources.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
 |host/adapters:{ACCOUNTS.bend,BACKENDS.bend,BROWSER.bend,COMPACTION.bend,CONFIGURATION.bend,EFFECTS.bend,EVALUATOR.bend,HTTP.bend,MODEL.bend,PLUGINS.bend,PROGRAM.bend,PROOF.bend,README.md,RPC.bend,WEB.bend,accounts-proof.bend,backends-proof.bend,browser-proof.bend,compaction-proof.bend,configuration-proof.bend,effects-proof.bend,evaluator-proof.bend,http-proof.bend,plugins-proof.bend,rpc-proof.bend,web-proof.bend}
-|host/public:{README.md,app.mjs,bend-value.mjs,bootstrap.mjs,events.mjs,index.html,json-tokens.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
+|host/public:{README.md,app.mjs,appearance.mjs,bend-value.mjs,bootstrap.mjs,connection.mjs,events.mjs,index.html,json-tokens.mjs,keyboard.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
 |host/public/vendor:{README.md,desktop-source.json,desktop-tokens.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
 |interaction:{CONTRACT.bend,IDENTITY.bend,INPUT.bend,MODEL.bend,PROOF.bend,README.md,STATE.bend,TYPES.bend,conversation/,experience/,identity-laws.bend,presentation/,services/,session/,submission/}
 |interaction/conversation:{CODE.bend,CONTRACT.bend,MODEL.bend,OUTPUT.bend,PROOF.bend,README.md}
 |interaction/experience:{ACTIVITY.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |interaction/presentation:{COMPOSITION.bend,CONTRACT.bend,INFORMATION.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SURFACE.bend,VIEW.bend,interaction-proof.bend,scene-proof.bend,surface-proof.bend}
-|interaction/services:{CONTEXT.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
+|interaction/services:{CONTEXT.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,connection-contract.bend,connection-proof.bend}
 |interaction/session:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |interaction/submission:{CONTRACT.bend,FIELDS.bend,MODEL.bend,PROOF.bend,README.md,field-options.bend}
 |plugins:{selvedge-chatgpt/}
@@ -131,8 +131,8 @@ This file is for coding agents working in this repository.
 |plugins/selvedge-chatgpt/skills/local-projects:{SKILL.md}
 |plugins/selvedge-chatgpt/src:{client.mjs,server.mjs}
 |scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,test.mjs,theory-index.mjs,toolchain.mjs,ui-verification.mjs,verify-proof.mjs}
-|tests-bend:{README.md,after-hooks.test.mjs,approval-decoding.test.mjs,approvals.test.mjs,association-map.test.mjs,async-service.test.mjs,auth.test.mjs,automatic-compaction.test.mjs,board-files.test.mjs,board-service.test.mjs,board-text.test.mjs,categories.test.mjs,chatgpt-compaction.test.mjs,chatgpt-models.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin-sandbox.test.mjs,chatgpt-plugin-support.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,chatgpt.test.mjs,coding.test.mjs,context-definitions.test.mjs,context-deltas.test.mjs,context-recovery.test.mjs,context-sources.test.mjs,control-categories.test.mjs,fixtures/,journal.test.mjs,kernel-boundaries.test.mjs,locality-support.mjs,locality.test.mjs,model-abstraction.test.mjs,plugin-support.mjs,plugins.test.mjs,process-identity.mjs,process.test.mjs,project-context.test.mjs,providers.test.mjs,reasoning-boundaries.test.mjs,reasoning.test.mjs,relations.test.mjs,sandbox.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,task-execution.test.mjs,task-graph-service.test.mjs,task-graph.test.mjs,ui-verification.test.mjs,workspaces.test.mjs}
-|tests-bend/fixtures:{approved-tool.mjs,catalog.mjs,chatgpt-web.mjs,chatgpt.mjs,committed-tool.mjs,compaction.mjs,context-definitions.mjs,context.mjs,locality-extension.mjs,mcp.mjs,plugin.mjs,task-graph.mjs}
+|tests-bend:{README.md,after-hooks.test.mjs,approval-decoding.test.mjs,approvals.test.mjs,association-map.test.mjs,async-service.test.mjs,auth.test.mjs,automatic-compaction.test.mjs,board-files.test.mjs,board-service.test.mjs,board-text.test.mjs,browser-connection.test.mjs,browser-dom.test.mjs,browser-model-support.mjs,categories.test.mjs,chatgpt-compaction.test.mjs,chatgpt-models.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin-sandbox.test.mjs,chatgpt-plugin-support.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,chatgpt.test.mjs,coding.test.mjs,context-definitions.test.mjs,context-deltas.test.mjs,context-recovery.test.mjs,context-sources.test.mjs,control-categories.test.mjs,fixtures/,journal.test.mjs,kernel-boundaries.test.mjs,locality-support.mjs,locality.test.mjs,model-abstraction.test.mjs,plugin-support.mjs,plugins.test.mjs,process-identity.mjs,process.test.mjs,project-context.test.mjs,providers.test.mjs,reasoning-boundaries.test.mjs,reasoning.test.mjs,relations.test.mjs,sandbox.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,task-execution.test.mjs,task-graph-service.test.mjs,task-graph.test.mjs,ui-verification.test.mjs,workspaces.test.mjs}
+|tests-bend/fixtures:{approved-tool.mjs,browser-dom.mjs,catalog.mjs,chatgpt-web.mjs,chatgpt.mjs,committed-tool.mjs,compaction.mjs,context-definitions.mjs,context.mjs,locality-extension.mjs,mcp.mjs,plugin.mjs,task-graph.mjs}
 |theory:{EXTLIB-LICENSE,LICENSE,README.md,relation-certificates.json,rocq-maps.json,stdlib-certificates.json}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

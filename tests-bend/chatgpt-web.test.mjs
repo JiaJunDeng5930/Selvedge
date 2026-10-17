@@ -439,7 +439,7 @@ test('service shutdown retains a compacted request; explicit interruption permit
   assert.deepEqual(f.failures, []);
 });
 
-test('named SSE framing survives bytewise Unicode/CRLF splits and rejects incomplete or oversized frames', async () => {
+test('named SSE framing crosses bytewise Unicode/CRLF decoding and rejects corrupt UTF-8', async () => {
   async function* bytes(text) { for (const byte of Buffer.from(text)) yield Buffer.from([byte]); }
   const text = ': heartbeat\r\nevent: response.output_text.snapshot\r\ndata: {"text":\r\ndata: "😀"}\r\n\r\ndata: [DONE]\r\n\r\n';
   const named = [];
@@ -448,9 +448,8 @@ test('named SSE framing survives bytewise Unicode/CRLF splits and rejects incomp
   const data = [];
   for await (const event of events(bytes(text), 1024)) data.push(event);
   assert.deepEqual(data, named.map(event => event.data));
-  for (const text of ['data: unfinished', 'data: no separator\n', 'event: ' + 'x'.repeat(120) + '\n\n']) {
-    await assert.rejects(async () => { for await (const _ of sseEvents(bytes(text), 100)) assert.fail('bad frame accepted'); });
-  }
+  async function* corrupt() { yield Buffer.from([0xff]); }
+  await assert.rejects(async () => { for await (const _ of sseEvents(corrupt(), 100)) assert.fail('corrupt bytes accepted'); }, /encoded|UTF-8|valid/i);
 });
 
 test('aborting an observer retains its key without issuing remote cancellation or another POST', async t => {

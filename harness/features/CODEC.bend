@@ -48,7 +48,7 @@ def construct(kind: F.CommandKind, body: J.Json) -> M.Command:
 
 def valid(kind: F.CommandKind, body: J.Json) -> Bool:
   match kind:
-    case F.ChatGPTKind{kind}: ChatGPTCodec.valid(kind, body)
+    case F.ChatGPTKind{kind}: ChatGPTCodec.additional_constraints(kind, body)
     case F.BoardKind{kind}: Board.valid(kind, body)
     case F.TaskGraphKind{kind}: TaskGraphCodec.entry_valid(kind, body)
 

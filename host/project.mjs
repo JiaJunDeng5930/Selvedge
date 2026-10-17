@@ -51,19 +51,6 @@ export async function snapshotGlobalInstructions(home, limits, options) {
   return snapshotContextFile(path.join(await realpath(home), 'AGENTS.md'), limits, options);
 }
 
-export function configuredInstructions(config, limits) {
-  const value = config.instructions;
-  const maximum = limits.project_context_bytes;
-  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('The kernel did not declare an instruction bound');
-  if (typeof value !== 'string' || !value.isWellFormed() || value.includes('\0')) {
-    throw new TypeError('Configured instructions must be a valid UTF-8 string without NUL bytes');
-  }
-  if (Buffer.byteLength(value, 'utf8') > maximum) {
-    throw new RangeError('Configured instructions exceed the instruction byte limit');
-  }
-  return value;
-}
-
 /**
  * Observe only directories explicitly selected by the user. Project default
  * selection and fork inheritance remain in the native command resolver.

@@ -17,6 +17,39 @@ type Target is Data:
 type Policy is Data:
   Policy{enabled: Bool, background: Nat, blocking: Nat, idle_lead: Nat, targets: +List<Target>}
 
+# A measured budget stores only the room above the method's legal minimums.
+# There is no zero-window or undersized-reserve representation.
+type TokenBudget is Data:
+  TokenBudget{reserve_room: Nat, window_room: Nat}
+
+def reserve_tokens(budget: TokenBudget) -> Nat:
+  TokenBudget{reserve_room, window_room} = budget
+  Nat.add(Bounded.minimum_reserve(), reserve_room)
+
+def window_tokens(+budget: TokenBudget) -> Nat:
+  TokenBudget{reserve_room, window_room} = budget
+  Nat.add(Nat.max(Bounded.minimum_window(), Nat.mul(4n, reserve_tokens(budget))), window_room)
+
+type InputCount is Data:
+  InputCount{scope: String, tokens: Nat, budget: TokenBudget}
+
+type Inspection is Data:
+  ScopeObserved{scope: String}
+  InputMeasured{count: InputCount}
+  InspectionFailed{message: String}
+
+def count_scope(count: InputCount) -> String:
+  InputCount{scope, tokens, budget} = count
+  scope
+
+def count_tokens(count: InputCount) -> Nat:
+  InputCount{scope, tokens, budget} = count
+  tokens
+
+def count_budget(count: InputCount) -> TokenBudget:
+  InputCount{scope, tokens, budget} = count
+  budget
+
 type Measurement is Data:
   Unmeasured{}
   Oversized{history: D.History, model: D.Model, scope: String, window: Nat, reserve: Nat}
@@ -49,7 +82,7 @@ type Completion is Data:
   Configure{policy: Policy, now: Nat}
   Clock{now: Nat}
   Activity{task_id: Nat, source_length: Nat, now: Nat, scope: String}
-  MeasuredInput{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
+  MeasuredInput{task_id: Nat, ticket: Nat, outcome: Inspection}
   Completed{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
 
 def initial_policy() -> Policy:

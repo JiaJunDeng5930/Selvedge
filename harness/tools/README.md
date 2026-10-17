@@ -45,7 +45,9 @@ This capability introduces no dependency from the core tool grammar to concrete
 features and requires no interpreter branch for an authored workflow.
 
 Construction certifies the declared bindings and checks supported schema shapes,
-unique argument names, required declarations and numeric bounds. It rejects
+unique argument names, required declarations and numeric bounds. Required numeric
+arguments have no fallback. Optional constant defaults are checked during tool
+construction; a caller-dependent default is checked with its invoking task. It rejects
 empty names or descriptions, duplicate argument bindings and unsupported or
 invalid schemas. `catalog_entry` includes only accepted descriptors; configuration
 limits constrain `max_fork` to `1..4294967295` before the native catalog is built.

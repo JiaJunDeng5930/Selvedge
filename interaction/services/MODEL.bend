@@ -12,8 +12,8 @@ type Appearance is Data:
 type Access is Data:
   NotConnected{}
   Connecting{ticket: Nat}
-  Connected{}
-  ConnectionLost{reason: String}
+  Connected{ticket: Nat}
+  ConnectionLost{ticket: Nat, reason: String}
 
 type SelectedFile is Data:
   SelectedFile{handle: String, name: String, mime: String, bytes: U32}
@@ -89,8 +89,10 @@ type Input is Data:
   CloseSettings{}
   Connect{}
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
-  Disconnected{reason: String}
+  Disconnected{ticket: Nat, reason: String}
+  RetryConnection{ticket: Nat}
   ChooseAppearance{appearance: Appearance}
+  AppearanceRestored{stored: Maybe<&2, String>}
   AddFile{editor: U.Editor, file: SelectedFile}
   RetryUpload{ticket: Nat}
   CancelUpload{ticket: Nat}
@@ -109,7 +111,9 @@ type Input is Data:
 
 type Effect is Data:
   SessionReady{}
+  SessionEnded{}
   Authenticate{ticket: Nat}
+  ScheduleReconnect{ticket: Nat, delay_ms: Nat}
   StoreAppearance{appearance: Appearance}
   Upload{ticket: Nat, file: SelectedFile}
   CancelTransfer{ticket: Nat}
@@ -127,8 +131,21 @@ def initial() -> State:
 
 def connected(access: Access) -> Bool:
   match access:
-    case Connected{}: True{}
+    case Connected{ticket}: True{}
     case _: False{}
+
+def connection_ticket(value: Access) -> Nat:
+  match value:
+    case NotConnected{}: 0n
+    case Connecting{ticket}: ticket
+    case Connected{ticket}: ticket
+    case ConnectionLost{ticket, reason}: ticket
+
+def restored_appearance(stored: Maybe<&2, String>) -> Appearance:
+  match stored:
+    case Some{"LightAppearance"}: LightAppearance{}
+    case Some{"DarkAppearance"}: DarkAppearance{}
+    case _: SystemAppearance{}
 
 def transfer_editor(transfer: Transfer) -> U.Editor:
   match transfer:
@@ -158,10 +175,10 @@ def authentication_owned(request: AuthenticationRequest) -> Bool:
   expected_access(access(state), ticket)
 
 def authentication_calculation(state: State, result: Result<&2, &2, String, Unit>) -> Decision:
-  State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+  State{+access, settings, appearance, next, transfers, preview, directory_picker} = state
   match result:
-    case Done{unit}: Decision{State{Connected{}, False{}, appearance, next, transfers, preview, directory_picker}, [SessionReady{}]}
-    case Fail{reason}: Decision{State{ConnectionLost{reason}, True{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
+    case Done{unit}: Decision{State{Connected{connection_ticket(access)}, False{}, appearance, next, transfers, preview, directory_picker}, [SessionReady{}]}
+    case Fail{reason}: Decision{State{ConnectionLost{connection_ticket(access), reason}, True{}, appearance, next, transfers, preview, directory_picker}, [ScheduleReconnect{connection_ticket(access), 1000n}]}
 
 def authentication(member: Categories.Membership<AuthenticationRequest, Categories.holds(AuthenticationRequest, authentication_owned)>) -> Decision:
   Categories.Membership{AuthenticationRequest{ticket, state, result}, evidence} = member
@@ -209,11 +226,28 @@ def upload_admitted(found: Maybe<&1, Categories.Membership<UploadRequest, Catego
 def request_upload(editor: U.Editor, file: SelectedFile, +state: State) -> Decision:
   upload_admitted(Categories.admit(UploadRequest, upload_connected, UploadRequest{editor, file, state}), state)
 
-def retry(found: Maybe<&2, Transfer>, ticket: Nat, state: State) -> Decision:
+type UploadRetry is Data:
+  UploadRetry{ticket: Nat, editor: U.Editor, file: SelectedFile, state: State}
+
+def retry_connected(request: UploadRetry) -> Bool:
+  UploadRetry{ticket, editor, file, state} = request
+  connected(access(state))
+
+def retry_upload(member: Categories.Membership<UploadRetry, Categories.holds(UploadRetry, retry_connected)>) -> Decision:
+  Categories.Membership{UploadRetry{ticket, editor, file, state}, evidence} = member
+  State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+  upload_calculation(editor, file, State{access, settings, appearance, next,
+    Finite.remove(~Transfer, transfers, ticket), preview, directory_picker})
+
+def retry_admitted(found: Maybe<&1, Categories.Membership<UploadRetry, Categories.holds(UploadRetry, retry_connected)>>, state: State) -> Decision:
+  match found:
+    case None{}: Decision{state, Nil{}}
+    case Some{member}: retry_upload(member)
+
+def retry(found: Maybe<&2, Transfer>, ticket: Nat, +state: State) -> Decision:
   match found:
     case Some{UploadFailed{editor, file, reason}}:
-      State{+access, settings, appearance, next, transfers, preview, directory_picker} = state
-      request_upload(editor, file, State{access, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker})
+      retry_admitted(Categories.admit(UploadRetry, retry_connected, UploadRetry{ticket, editor, file, state}), state)
     case _: Decision{state, Nil{}}
 
 type PreviewResult is Data:
@@ -256,10 +290,34 @@ def lose_transfers(transfers: +List<Finite.Entry(Transfer)>, +reason: String) ->
 
 def connect_calculation(state: State) -> Decision:
   State{access, settings, appearance, +next, transfers, preview, directory_picker} = state
-  Decision{State{Connecting{next}, settings, appearance, (next + 1n : Nat), lose_transfers(transfers, "Connection replaced"), NoPreview{}, directory_picker}, [Authenticate{next}]}
+  Decision{State{Connecting{next}, settings, appearance, (next + 1n : Nat), lose_transfers(transfers, "Connection replaced"), NoPreview{}, directory_picker}, [SessionEnded{}, Authenticate{next}]}
 
 def connect(state: State) -> Decision:
   connect_calculation(state)
+
+def live_connection(value: Access, ticket: Nat) -> Bool:
+  match value:
+    case Connecting{current}: Nat.is_eq(current, ticket)
+    case Connected{current}: Nat.is_eq(current, ticket)
+    case _: False{}
+
+def waiting_reconnect(value: Access, ticket: Nat) -> Bool:
+  match value:
+    case ConnectionLost{current, reason}: Nat.is_eq(current, ticket)
+    case _: False{}
+
+def connection_lost(owned: Bool, +ticket: Nat, +reason: String, state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}:
+      State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+      Decision{State{ConnectionLost{ticket, reason}, settings, appearance, next,
+        lose_transfers(transfers, reason), NoPreview{}, directory_picker}, [SessionEnded{}, ScheduleReconnect{ticket, 1000n}]}
+
+def reconnect(owned: Bool, state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: connect(state)
 
 def replace_directory(state: State, directory_picker: DirectoryPicker) -> State:
   State{access, settings, appearance, next, transfers, preview, old_picker} = state
@@ -337,8 +395,10 @@ def dispatch(state: State, input: Input) -> Decision:
     case CloseSettings{}: Decision{State{access, False{}, appearance, next, transfers, preview, directory_picker}, Nil{}}
     case Connect{}: connect(State{access, settings, appearance, next, transfers, preview, directory_picker})
     case Authenticated{+ticket, result}: authentication_admitted(Categories.admit(AuthenticationRequest, authentication_owned, AuthenticationRequest{ticket, State{access, settings, appearance, next, transfers, preview, directory_picker}, result}), State{access, settings, appearance, next, transfers, preview, directory_picker})
-    case Disconnected{+reason}: Decision{State{ConnectionLost{reason}, settings, appearance, next, lose_transfers(transfers, reason), NoPreview{}, directory_picker}, Nil{}}
+    case Disconnected{+ticket, +reason}: connection_lost(live_connection(access, ticket), ticket, reason, State{access, settings, appearance, next, transfers, preview, directory_picker})
+    case RetryConnection{+ticket}: reconnect(waiting_reconnect(access, ticket), State{access, settings, appearance, next, transfers, preview, directory_picker})
     case ChooseAppearance{+selected}: Decision{State{access, settings, selected, next, transfers, preview, directory_picker}, [StoreAppearance{selected}]}
+    case AppearanceRestored{stored}: Decision{State{access, settings, restored_appearance(stored), next, transfers, preview, directory_picker}, Nil{}}
     case AddFile{editor, +file}: request_upload(editor, file, State{access, settings, appearance, next, transfers, preview, directory_picker})
     case RetryUpload{+ticket}: retry(Finite.find(~Transfer, transfers, ticket), ticket, State{access, settings, appearance, next, transfers, preview, directory_picker})
     case CancelUpload{+ticket}: Decision{State{access, settings, appearance, next, Finite.remove(~Transfer, transfers, ticket), preview, directory_picker}, [CancelTransfer{ticket}]}

@@ -123,6 +123,7 @@ def service_effects(effects: +List<Services.Effect>, +application: E.Application
       service_effects(rest, attached(edit_attachment(editor, Some{file}, file_id(file), application)))
     case Con{Services.DirectoryChosen{editor, path}, rest}: service_effects(rest, directory_chosen(editor, path, application))
     case Con{Services.SessionReady{}, rest}: service_effects(rest, application)
+    case Con{Services.SessionEnded{}, rest}: service_effects(rest, attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case Con{other, rest}: service_effects(rest, application)
 
 def external_effect(effect: Services.Effect) -> Bool:
@@ -130,6 +131,7 @@ def external_effect(effect: Services.Effect) -> Bool:
     case Services.AttachToDraft{editor, file}: False{}
     case Services.DirectoryChosen{editor, path}: False{}
     case Services.SessionReady{}: False{}
+    case Services.SessionEnded{}: False{}
     case _: True{}
 
 def application_result_with_services(decision: E.Decision, services: Services.State, effects: +List<Services.Effect>) -> InteractionTypes.Decision:
@@ -256,8 +258,6 @@ def service_input(input: Services.Input, +application: E.Application, +services:
       directory_request_admitted(Categories.admit(ServiceRequest, directory_request_available, ServiceRequest{Services.OpenDirectoryPicker{editor, path, trigger}, application, services}), application, services)
     case Services.AddFile{+editor, file}:
       file_request_admitted(Categories.admit(ServiceRequest, file_request_available, ServiceRequest{Services.AddFile{editor, file}, application, services}), application, services)
-    case Services.Connect{}: service_result(Services.step(Services.Connect{}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
-    case Services.Disconnected{reason}: service_result(Services.step(Services.Disconnected{reason}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case other: service_result(Services.step(other, services), application)
 
 def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:

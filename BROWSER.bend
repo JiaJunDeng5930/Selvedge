@@ -55,6 +55,8 @@ def code_sources(generation: Nat, observations: +List<CodeObservation.Observatio
 
 def editor_event(key: String, event: Editor.EditorEvent, state: Browser.State) -> Browser.Decision: Browser.editor_event(key, event, state)
 
+def native_editor_key(observation: Editor.KeyObservation) -> Editor.NativeKey: Editor.native_key(observation)
+
 def reading(task: Nat, generation: Nat, event: Reading.ReadingEvent, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
 
 def streams(body: J.Json, state: Browser.State) -> Browser.Decision: Browser.streams(body, state)

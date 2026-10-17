@@ -210,7 +210,6 @@ def source_shape(operation: String, +source: J.Json) -> Bool:
     case "options": J.is_object(get(source, "effect"))
     case "contract": J.is_object(get(source, "effect")) && J.is_object(get(source, "request")) && is_array(get(source, "tools"))
     case "invocation": J.is_object(get(source, "effect")) && J.is_object(get(source, "profile")) && J.is_object(get(source, "body")) && J.is_text(get(source, "owner")) && natural(get(source, "stage")) && boolean_value(get(source, "reset"))
-    case "credential": J.is_object(get(source, "profile")) && J.is_text(get(get(source, "profile"), "api_key_env"))
     case "http": J.is_object(get(source, "record")) && natural(get(source, "status"))
     case "retained": J.is_object(get(source, "record"))
     case "failure": J.is_object(get(source, "record"))
@@ -826,13 +825,30 @@ def sse_work_output(work: SseWork) -> J.Json:
 def sse_work_error(work: SseWork, error: String) -> SseWork:
   SseWork{state, frames, previous_error} = work
   SseWork{state, frames, error}
-def sse_pending_error(valid: Bool, +work: SseWork) -> SseWork:
-  match valid:
-    case True{}: work
-    case False{}: sse_work_error(work, "SSE line exceeds the configured limit")
-def sse_pending_budget(+work: SseWork, maximum: Nat) -> SseWork:
-  SseWork{SseState{pending, data, size, name}, frames, error} = work
-  sse_pending_error(Bool.not(String.eq(error, "")) || Nat.is_le(J.utf8_length(pending), maximum), work)
+def sse_state_line_within(state: SseState, maximum: Nat) -> Bool:
+  SseState{pending, data, size, name} = state
+  Nat.is_le(J.utf8_length(pending), maximum)
+
+def sse_line_error(error: String, within: Bool) -> Bool:
+  match error:
+    case SCon{head, tail}: True{}
+    case SNil{}: within
+
+def sse_line_within(work: SseWork, maximum: Nat) -> Bool:
+  SseWork{state, frames, error} = work
+  sse_line_error(error, sse_state_line_within(state, maximum))
+
+def SseLineWithin(-maximum: Nat) -> SseWork -> Type:
+  Categories.holds(SseWork, work => sse_line_within(work, maximum))
+
+def sse_pending_admission(work: SseWork, -maximum: Nat, candidate: Maybe<&1, Categories.Membership<SseWork, SseLineWithin(maximum)>>) -> SseWork:
+  match candidate:
+    case None{}: sse_work_error(work, "SSE line exceeds the configured limit")
+    case Some{member}: Categories.value(SseWork, SseLineWithin(maximum), member)
+
+def sse_pending_budget(+work: SseWork, +maximum: Nat) -> SseWork:
+  sse_pending_admission(work, maximum, Categories.admit(SseWork, (work => sse_line_within(work, maximum)), work))
+
 def sse_work_character(character: Char, work: SseWork) -> SseWork:
   SseWork{SseState{pending, data, size, name}, frames, error} = work
   SseWork{SseState{pending ++ SCon{character, SNil{}}, data, size, name}, frames, error}
@@ -856,12 +872,83 @@ def sse_work_blank(blank: Bool, line: String, +work: SseWork, maximum: Nat) -> S
 def sse_work_line(+work: SseWork, maximum: Nat) -> SseWork:
   SseWork{SseState{+pending, data, size, name}, frames, error} = work
   sse_work_blank(String.eq(cr_strip(pending), ""), cr_strip(pending), work, maximum)
-def sse_scan(chunk: String, +work: SseWork, +maximum: Nat) -> SseWork:
-  match chunk work:
-    case _ SseWork{state, frames, SCon{first, rest}}: work
-    case SNil{} SseWork{state, frames, SNil{}}: sse_pending_budget(work, maximum)
-    case SCon{'\n', rest} SseWork{state, frames, SNil{}}: sse_scan(rest, sse_work_line(work, maximum), maximum)
-    case SCon{character, rest} SseWork{state, frames, SNil{}}: sse_scan(rest, sse_work_character(character, work), maximum)
+# One character is the transition unit. HTTP chunk boundaries never determine
+# whether an overlong line is admitted, including ignored fields and comments.
+def sse_newline(character: Char) -> Bool:
+  Chr{code} = character
+  U32.is_eq(code, 10)
+
+def sse_character_selected(newline: Bool, character: Char, work: SseWork, maximum: Nat) -> SseWork:
+  match newline:
+    case True{}: sse_work_line(work, maximum)
+    case False{}: sse_work_character(character, work)
+
+def sse_character_action(+character: Char, work: SseWork, maximum: Nat) -> SseWork:
+  sse_character_selected(sse_newline(character), character, work, maximum)
+
+def sse_character(character: Char, +work: SseWork, +maximum: Nat) -> SseWork:
+  match work:
+    case SseWork{state, frames, SCon{first, rest}}: work
+    case SseWork{state, frames, SNil{}}: sse_pending_budget(sse_character_action(character, work, maximum), maximum)
+
+def sse_required_scan(chunk: String, work: SseWork, +maximum: Nat) -> SseWork:
+  match chunk:
+    case SNil{}: work
+    case SCon{character, rest}: sse_required_scan(rest, sse_character(character, work, maximum), maximum)
+
+# The counter is local to one feed; it is reconstructed from actual pending
+# bytes at admission and is never serialized as a second source of truth.
+type SseCounted is Data:
+  SseCounted{work: SseWork, bytes: Nat}
+
+def sse_pending_bytes(work: SseWork) -> Nat:
+  SseWork{SseState{pending, data, size, name}, frames, error} = work
+  J.utf8_length(pending)
+
+def sse_counted(+work: SseWork) -> SseCounted:
+  SseCounted{work, sse_pending_bytes(work)}
+
+def sse_counted_work(counted: SseCounted) -> SseWork:
+  SseCounted{work, bytes} = counted
+  work
+
+def sse_work_limit(allowed: Bool, +work: SseWork) -> SseWork:
+  match allowed:
+    case True{}: work
+    case False{}: sse_work_error(work, "SSE line exceeds the configured limit")
+
+def sse_counted_budget(counted: SseCounted, +maximum: Nat) -> SseCounted:
+  SseCounted{SseWork{state, frames, +error}, +bytes} = counted
+  SseCounted{sse_work_limit(sse_line_error(error, Nat.is_le(bytes, maximum)), SseWork{state, frames, error}), bytes}
+
+def sse_character_bytes(character: Char) -> Nat:
+  Chr{+code} = character
+  J.char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536))
+
+def sse_counted_selected(newline: Bool, +character: Char, counted: SseCounted, maximum: Nat) -> SseCounted:
+  match newline:
+    case True{}: sse_counted(sse_work_line(sse_counted_work(counted), maximum))
+    case False{}:
+      SseCounted{work, bytes} = counted
+      SseCounted{sse_work_character(character, work), Nat.add(bytes, sse_character_bytes(character))}
+
+def sse_counted_action(+character: Char, counted: SseCounted, maximum: Nat) -> SseCounted:
+  sse_counted_selected(sse_newline(character), character, counted, maximum)
+
+def sse_counted_character(character: Char, +counted: SseCounted, +maximum: Nat) -> SseCounted:
+  SseCounted{SseWork{state, frames, error}, bytes} = counted
+  match error:
+    case SCon{first, rest}: counted
+    case SNil{}: sse_counted_budget(sse_counted_action(character, counted, maximum), maximum)
+
+def sse_counted_scan(chunk: String, counted: SseCounted, +maximum: Nat) -> SseCounted:
+  match chunk:
+    case SNil{}: counted
+    case SCon{character, rest}: sse_counted_scan(rest, sse_counted_character(character, counted, maximum), maximum)
+
+def sse_scan(chunk: String, work: SseWork, +maximum: Nat) -> SseWork:
+  sse_counted_work(sse_counted_scan(chunk, sse_counted_budget(sse_counted(work), maximum), maximum))
+
 def string_list_empty(items: +List<String>) -> Bool:
   match items:
     case Nil{}: True{}
@@ -1160,16 +1247,6 @@ def calculation_options(+source: J.Json) -> J.Json:
   Model.success(object(field("snapshots", J.Boolean{eq(get(source, "effect"), "kind", "model")}) <> field("receipt", J.Boolean{eq(get(source, "effect"), "kind", "model")}) <> field("stages", J.nat(2n)) <> Nil{}))
 def calculation_invocation(+source: J.Json) -> J.Json:
   Model.success(object(field("invocation", text(name(source, "owner") ++ ":" ++ name_or_number(get(get(source, "effect"), "ticket")) ++ ":" ++ name_or_number(get(source, "stage")) ++ replacement_suffix(get(source, "effect")))) <> field("owner", get(source, "owner")) <> field("profile", get(get(get(source, "effect"), "model"), "profile")) <> field("endpoint", get(get(source, "profile"), "endpoint")) <> field("binding", get(source, "binding")) <> field("body", get(source, "body")) <> field("reset", get(source, "reset")) <> Nil{}))
-def credential_present(present: Bool, +source: J.Json) -> J.Json:
-  match present:
-    case True{}: Model.success(J.Array{get(get(source, "profile"), "endpoint") <> get(source, "token") <> Nil{}})
-    case False{}: Model.failure("Set " ++ name(get(source, "profile"), "api_key_env") ++ " to use this provider")
-
-# Every operation receives the complete original JSON source. Wire membership is
-# independent of protocol categories; no host Boolean supplies that evidence.
-def calculation_credential(+source: J.Json) -> J.Json:
-  credential_present(truthy(get(source, "token")), source)
-
 def owned_messages(member: Categories.Membership<J.Json, source_category("messages")>) -> J.Json:
   Categories.Membership{source, evidence} = member
   calculation_messages(source)
@@ -1746,26 +1823,6 @@ def invocation(source: J.Json) -> J.Json:
 law invocation_correspondence:
   @source:J.Json -> {invocation(source) == meaning_invocation(source) : J.Json}
 
-def owned_credential(member: Categories.Membership<J.Json, source_category("credential")>) -> J.Json:
-  Categories.Membership{source, evidence} = member
-  calculation_credential(source)
-def admitted_credential(candidate: Maybe<&1, Categories.Membership<J.Json, source_category("credential")>>) -> J.Json:
-  match candidate:
-    case None{}: Model.failure("Invalid ChatGPT Web JSON source")
-    case Some{member}: owned_credential(member)
-def meaning_credential(+source: J.Json) -> J.Json:
-  admitted_credential(Categories.admit(J.Json, (source => source_valid("credential", source)), source))
-def actual_credential(+source: J.Json) -> J.Json:
-  admitted_credential(Categories.admit(J.Json, (source => source_valid("credential", source)), source))
-def credential_adapter() -> Model.Adapter((value => meaning_credential(value))):
-  Model.adapter((value => meaning_credential(value)), (value => actual_credential(value)), source => {==})
-def credential(source: J.Json) -> J.Json:
-  Model.execute((value => meaning_credential(value)), credential_adapter(), source)
-law credential_correspondence:
-  @source:J.Json -> {credential(source) == meaning_credential(source) : J.Json}
-
-# These equations concern actual protocol transitions, independently of the
-# complete construction equation. Cancellation certifies intention only.
 law immutable_body_refusal:
   @source:J.Json -> {prepare_immutable(False{}, source) == Model.failure("A committed ChatGPT Web request cannot change its body or connection") : J.Json}
 law retired_is_retained:
@@ -1950,14 +2007,10 @@ def route_cancellation(selected: Bool, +operation: String, +source: J.Json) -> J
   match selected:
     case True{}: cancellation(source)
     case False{}: route_store_latest(String.eq(operation, "web.store_latest"), operation, source)
-def route_34(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
-  match selected:
-    case True{}: credential(source)
-    case False{}: route_cancellation(String.eq(operation, "web.cancellation"), operation, source)
 def route_33(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
   match selected:
     case True{}: invocation(source)
-    case False{}: route_34(String.eq(operation, "web.credential"), operation, source)
+    case False{}: route_cancellation(String.eq(operation, "web.cancellation"), operation, source)
 
 def route_32(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
   match selected:
@@ -2288,14 +2341,10 @@ def meaning_route_cancellation(selected: Bool, +operation: String, +source: J.Js
   match selected:
     case True{}: meaning_cancellation(source)
     case False{}: meaning_route_store_latest(String.eq(operation, "web.store_latest"), operation, source)
-def meaning_route_34(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
-  match selected:
-    case True{}: meaning_credential(source)
-    case False{}: meaning_route_cancellation(String.eq(operation, "web.cancellation"), operation, source)
 def meaning_route_33(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
   match selected:
     case True{}: meaning_invocation(source)
-    case False{}: meaning_route_34(String.eq(operation, "web.credential"), operation, source)
+    case False{}: meaning_route_cancellation(String.eq(operation, "web.cancellation"), operation, source)
 
 def meaning_route_32(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
   match selected:
@@ -2492,3 +2541,34 @@ law approval_record_history_success:
   @item:J.Json -> {history_item(Backend.put(item, "role", J.Text{"approval_record"})) == history_data(Backend.put(item, "role", J.Text{"approval_record"})) : Result<&2, &2, String, List<&2, J.Json>>}
 law approval_record_history_data:
   @item:J.Json -> {history_item_role("approval_record", item) == Done{message("user", text("Committed task history data:\n" ++ shown(item))) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}
+
+# These laws apply to the production feed, including its initial admission.
+law sse_chunk_composition:
+  @first:String -> @second:String -> @work:SseWork -> @maximum:Nat ->
+  {sse_scan(first ++ second, work, maximum) == sse_scan(second, sse_scan(first, work, maximum), maximum) : SseWork}
+
+law sse_pending_budget_line_bound:
+  @work:SseWork -> @maximum:Nat ->
+  {sse_line_within(sse_pending_budget(work, maximum), maximum) == True{} : Bool}
+
+law sse_character_line_bound:
+  @character:Char -> @work:SseWork -> @maximum:Nat ->
+  {sse_line_within(sse_character(character, work, maximum), maximum) == True{} : Bool}
+
+law sse_scan_line_bound:
+  @chunk:String -> @work:SseWork -> @maximum:Nat ->
+  {sse_line_within(sse_scan(chunk, work, maximum), maximum) == True{} : Bool}
+
+law sse_unfinished_line_rejected:
+  @head:Char -> @rest:String -> @data:List<&2, String> -> @size:Nat -> @name:String -> @chunk:String ->
+  {sse_end(SseState{SCon{head, rest}, data, size, name}, chunk) ==
+    SseWork{SseState{SCon{head, rest} ++ chunk, data, size, name}, Nil{}, "The SSE stream ended inside an event"} : SseWork}
+
+law sse_unfinished_data_rejected:
+  @first:String -> @rest:List<&2, String> -> @size:Nat -> @name:String ->
+  {sse_end(SseState{"", Con{first, rest}, size, name}, "") ==
+    SseWork{SseState{"", Con{first, rest}, size, name}, Nil{}, "The SSE stream ended inside an event"} : SseWork}
+
+law sse_complete_eof:
+  @size:Nat -> @name:String ->
+  {sse_end(SseState{"", Nil{}, size, name}, "") == SseWork{SseState{"", Nil{}, size, name}, Nil{}, ""} : SseWork}

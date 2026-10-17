@@ -284,7 +284,9 @@ def operation_availability(operation: Commands.Operation) -> ViewTypes.Availabil
     case _: ViewTypes.Available{}
 
 def current_execution_availability(+task: Nat, +current: D.ExecutionConfiguration, +world: M.World()) -> ViewTypes.Availability:
-  D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  D.ExecutionConfiguration{+model, sandbox, approval} = current
+  profile = D.profile_key(D.model_profile(model))
+  reasoning = D.model_selection(model)
   operation_availability(Commands.resolve(M.ConfigureTaskExecution{task, profile, reasoning, sandbox, approval}, world))
 
 def task_execution_availability(+found: Maybe<&2, D.Task>, +world: M.World()) -> ViewTypes.Availability:

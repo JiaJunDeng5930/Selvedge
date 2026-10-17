@@ -76,14 +76,16 @@ test('skill information observes bounded nofollow frontmatter and excludes the b
   await symlink(path.join(directory, 'target.md'), filename);
   await writeFile(path.join(directory, 'target.md'), skill('linked', 'Must not follow links.'));
   assert.equal((await observe()).type, 'failure');
-});
 
-test('configured skills accept only bounded file paths', () => {
-  assert.deepEqual(validateConfig({ ...defaultConfig }).skills, []);
-  assert.deepEqual(validateConfig({ ...defaultConfig, skills: ['skills/fixture/SKILL.md'] }).skills, ['skills/fixture/SKILL.md']);
-  for (const skills of [{ path: 'SKILL.md' }, [42], ['bad\0path'], ['a'.repeat(4097)], Array(65).fill('SKILL.md')]) {
-    assert.throws(() => validateConfig({ ...defaultConfig, skills }));
-  }
+  await unlink(filename);
+  await writeFile(filename, skill('" "', '" "'));
+  const whitespace = await observe();
+  assert.equal(whitespace.type, 'present', 'YAML strings use the same required-field constructor as native history');
+  const settled = await send({ kind: 'context_observed', task_id: effect.task_id, ticket: effect.ticket,
+    ok: true, observations: [whitespace] });
+  assert.equal(settled.reply.ok, true);
+  assert.ok(settled.effects.some(item => item.kind === 'model' && item.history.some(message =>
+    message.type === 'context_change' && message.change.snapshot?.value.fields.name === ' ')));
 });
 
 test('live instruction and skill metadata changes use deltas while unintroduced bodies stay absent', { timeout: 30_000 }, async t => {

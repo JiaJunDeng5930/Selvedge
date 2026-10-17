@@ -318,6 +318,7 @@ type CallbackKind is Data:
   CallbackHook{}
   CallbackAfterHook{}
   CallbackContext{}
+  CallbackCompaction{completed: Bool}
   CallbackReasoning{}
   CallbackModel{}
   CallbackDefaultTool{}
@@ -330,9 +331,21 @@ def classify_callback_kind(+kind: String) -> CallbackKind:
     case "hook": CallbackHook{}
     case "after_hook": CallbackAfterHook{}
     case "observe_context": CallbackContext{}
+    case "context_scope": CallbackCompaction{False{}}
+    case "context_measure": CallbackCompaction{False{}}
+    case "context_compaction": CallbackCompaction{True{}}
     case "reasoning": CallbackReasoning{}
     case "model": CallbackModel{}
     case _: CallbackDefaultTool{}
+
+def compaction_callback_kind(completed: Bool) -> String:
+  match completed:
+    case True{}: "compaction_completed"
+    case False{}: "compaction_measured"
+
+def compaction_callback(completed: Bool, +effect: J.Json, result: J.Json, error: Bool) -> J.Json:
+  J.Object{List.append(&2, J.Field, callback_base(effect, compaction_callback_kind(completed)),
+    [field("result", result), field("error", J.Boolean{error})])}
 
 def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -> J.Json:
   match kind:
@@ -342,6 +355,7 @@ def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -
     case CallbackHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "hook"), Con{field("outcome", result), Nil{}})}
     case CallbackAfterHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "after_hook"), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("outcome", result), Nil{}}})}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{True{}}), Con{field("observations", J.get(result, "observations")), Nil{}}})}
+    case CallbackCompaction{completed}: compaction_callback(completed, effect, result, False{})
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{True{}}), callback_result_fields(fields(result), ["kind", "task_id", "ticket", "ok"])})}
     case CallbackModel{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
     case CallbackDefaultTool{}: J.Object{List.append(&2, J.Field, callback_base(effect, "tool"), callback_result_fields(fields(result), ["kind", "task_id", "ticket"]))}
@@ -371,6 +385,7 @@ def failure_classified(+kind: CallbackKind, +effect: J.Json, +message: String) -
     case CallbackChatgptExec{}: J.Object{Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("error", J.Boolean{True{}}), Con{field("value", error_value(message)), Nil{}}}}}}
     case CallbackBoardText{}: J.Object{Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}}}}}}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
+    case CallbackCompaction{completed}: compaction_callback(completed, effect, J.Object{[field("message", J.Text{message})]}, True{})
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
     case CallbackHook{}: failed_outcome(effect, "hook", message)
     case CallbackApproval{}: failed_outcome(effect, "approval", take(message, 400n))
@@ -1528,3 +1543,13 @@ law context_callback_kind:
 law context_failure_kind:
   @effect:J.Json -> @message:String ->
   {J.get(failure_classified(CallbackContext{}, effect, message), "kind") == J.Text{"context_observed"} : J.Json}
+
+law compaction_callback_result:
+  @completed:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackCompaction{completed}, effect, result), "result") == result : J.Json}
+law compaction_callback_error:
+  @completed:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackCompaction{completed}, effect, result), "error") == J.Boolean{False{}} : J.Json}
+law compaction_failure_error:
+  @completed:Bool -> @effect:J.Json -> @message:String ->
+  {J.get(failure_classified(CallbackCompaction{completed}, effect, message), "error") == J.Boolean{True{}} : J.Json}

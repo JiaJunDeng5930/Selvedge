@@ -14,7 +14,6 @@ export const output = { kind: 'output' };
 export const literal = value => ({ kind: 'literal', value });
 export const concat = (...parts) => ({ kind: 'concat', parts });
 export const node = (key, message = key, extra = {}) => ({ key, profile: 'fixture', message, ...extra });
-export const reference = (key, task_id) => ({ key, task_id });
 export const rule = (key, source, ...actions) => ({ key, source, actions });
 export const action = (target, message = output) => ({ target, message });
 export const command = command => ({ kind: 'command', command });
