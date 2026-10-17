@@ -23,10 +23,17 @@ export async function remoteGitRepository(t) {
   const git = (...args) => execute('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
     '-c', 'user.name=Remote fixture', '-c', 'user.email=remote@example.test', '-C', source, ...args], { env });
   await git('init', '--initial-branch=main');
+  const context = { guidance: 'Use the override in the managed remote checkout.',
+    skillPath: path.join('.agents', 'skills', 'remote-checkout', 'SKILL.md'), skillName: 'remote-checkout',
+    skillDescription: 'Inspect the managed remote checkout.', skillBody: 'REMOTE_WORKTREE_SKILL_BODY_IS_NOT_TRACKED' };
+  await mkdir(path.join(source, path.dirname(context.skillPath)), { recursive: true });
+  await writeFile(path.join(source, 'AGENTS.override.md'), context.guidance);
+  await writeFile(path.join(source, context.skillPath),
+    `---\nname: ${context.skillName}\ndescription: ${context.skillDescription}\n---\n${context.skillBody}`);
   await writeFile(path.join(source, 'tracked.txt'), 'Source repository contents');
   await git('add', '.');
   await git('commit', '-m', 'Initial remote worktree fixture');
-  return { source, directory: path.join(base, 'state') };
+  return { source, directory: path.join(base, 'state'), context };
 }
 
 export async function eventually(label, condition, timeout = 10_000) {

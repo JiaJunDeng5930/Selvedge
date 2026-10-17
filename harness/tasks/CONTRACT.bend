@@ -24,7 +24,7 @@ def initial_global(snapshot: Maybe<&2, D.InstructionSnapshot>, history: D.Histor
 def initial_project(project: D.ProjectContext, history: D.History) -> D.History:
   match project:
     case D.NoProject{}: history
-    case D.ProjectContext{workspace, revision, content}: initial_context(D.project_guidance_context(workspace, revision, content), history)
+    case D.ProjectContext{workspace, path, revision, content}: initial_context(D.project_guidance_context(workspace, path, revision, content), history)
 
 def initial_history(instructions: D.InitialInstructions, project: D.ProjectContext, context: D.TaskContext,
   profile: D.Profile, reasoning: String, message: String, history: D.History) -> D.History:

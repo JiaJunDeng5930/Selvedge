@@ -147,7 +147,7 @@ test('a bad graph workspace observation aborts all node creation and does not ac
   });
   await assert.rejects(service.command({ op: 'create_task_graph', name: 'No forged guidance', nodes: [first,
     { key: 'forged', profile: 'demo', message: 'forged', settings: {
-      guidance: { workspace: base, revision: 'absent', instructions: '' },
+      guidance: { workspace: base, path: '', revision: 'absent', instructions: '' },
     } },
   ], rules: [] }), error => {
     assert.ok(error instanceof CommandNotSubmitted);

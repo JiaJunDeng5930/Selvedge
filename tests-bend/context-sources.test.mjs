@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultConfig, loadConfig, validateConfig } from '../host/config.mjs';
 import { observeContextSources } from '../host/context-sources.mjs';
@@ -83,6 +83,166 @@ test('configured skills accept only bounded file paths', () => {
   assert.deepEqual(validateConfig({ ...defaultConfig, skills: ['skills/fixture/SKILL.md'] }).skills, ['skills/fixture/SKILL.md']);
   for (const skills of [{ path: 'SKILL.md' }, [42], ['bad\0path'], ['a'.repeat(4097)], Array(65).fill('SKILL.md')]) {
     assert.throws(() => validateConfig({ ...defaultConfig, skills }));
+  }
+});
+
+test('hierarchical discovery observes scoped guidance and skill catalogs without following links or losing failed scans', async t => {
+  const directory = await realpath(await home(t));
+  const state = path.join(directory, 'state');
+  const repository = path.join(directory, 'repository');
+  const workspace = path.join(repository, 'packages', 'app');
+  const nested = [path.join(workspace, 'src'), path.join(workspace, 'src', 'api'), path.join(workspace, 'src', 'api', 'internal')];
+  const second = path.join(directory, 'second');
+  await Promise.all([state, path.join(repository, '.git'), nested.at(-1), path.join(second, '.git')].map(filename => mkdir(filename, { recursive: true })));
+  const write = async (filename, content) => {
+    await mkdir(path.dirname(filename), { recursive: true });
+    await writeFile(filename, content);
+    return filename;
+  };
+  await write(path.join(directory, 'AGENTS.md'), 'OUTSIDE-GIT-BOUNDARY');
+  await write(path.join(repository, 'AGENTS.md'), 'Repository policy.');
+  await write(path.join(workspace, 'AGENTS.md'), 'Primary root policy.');
+  for (let index = 0; index < nested.length; index++) await write(path.join(nested[index], 'AGENTS.md'), `Nested policy ${index}.`);
+  await write(path.join(second, 'AGENTS.md'), 'Secondary root policy.');
+  const userSkill = await write(path.join(state, '.agents', 'skills', 'shared', 'SKILL.md'), skill('shared', 'User skill.', 'PRIVATE-USER-BODY'));
+  await write(path.join(state, 'skills', 'legacy', 'SKILL.md'), skill('legacy', 'Service home skill.'));
+  const ancestorSkill = await write(path.join(repository, '.agents', 'skills', 'shared', 'SKILL.md'), skill('shared', 'Repository skill.'));
+  const nestedSkill = await write(path.join(nested.at(-1), '.claude', 'skills', 'shared', 'SKILL.md'), skill('shared', 'Nested skill.', 'PRIVATE-NESTED-BODY-A'));
+  const configuredSkill = await write(path.join(workspace, '.agents', 'skills', 'configured', 'SKILL.md'), skill('explicit', 'Configured once.'));
+  const secondSkill = await write(path.join(second, '.agents', 'skills', 'shared', 'SKILL.md'), skill('shared', 'Secondary root skill.'));
+  await write(path.join(workspace, 'node_modules', 'dependency', 'AGENTS.md'), 'IGNORED-DEPENDENCY-GUIDANCE');
+  await write(path.join(workspace, 'dist', '.agents', 'skills', 'ignored', 'SKILL.md'), skill('ignored', 'IGNORED-BUILD-SKILL'));
+  await write(path.join(repository, '.git', 'AGENTS.md'), 'IGNORED-GIT-GUIDANCE');
+  const external = path.join(directory, 'external');
+  await write(path.join(external, 'AGENTS.md'), 'MUST-NOT-FOLLOW-DIRECTORY-LINK');
+  await symlink(external, path.join(workspace, 'linked-directory'));
+
+  const kernel = new Kernel();
+  t.after(() => kernel.close());
+  const contract = await kernel.initialize();
+  const send = async input => (await kernel.request(input)).value;
+  assert.equal((await send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null },
+    project: { workspace, path: '', revision: 'absent', instructions: '' },
+    profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }],
+    tools: [], max_fork: 4, max_descendants: 8 })).reply.ok, true);
+  const created = await send({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'observe hierarchy' } });
+  const initialEffect = created.effects.find(effect => effect.kind === 'observe_context');
+  assert.ok(initialEffect);
+  const expectedKinds = ['project_guidance', 'directory_guidance', 'user_skill_information', 'workspace_skill_information'];
+  for (const kind of expectedKinds) assert.ok(initialEffect.definitions.some(definition => definition.kind === kind), kind);
+  let config = validateConfig({ ...defaultConfig, instructions: 'Fixture instructions', skills: [configuredSkill] });
+  let bindings = [];
+  const observe = () => observeContextSources({ ...initialEffect, bindings,
+    settings: { ...initialEffect.settings, workspace: { roots: [workspace, second], primary_root: workspace } } },
+  { home: state, config, limits: contract.limits });
+  const first = await observe();
+  assert.equal(first.some(observation => observation.type === 'failure'), false, JSON.stringify(first));
+  bindings = first.filter(observation => observation.type === 'present').map(observation => observation.snapshot);
+  const byPath = filename => bindings.find(snapshot => snapshot.value.fields.path === filename);
+  const directoryGuidance = bindings.filter(snapshot => snapshot.key.type === 'directory_guidance');
+  assert.deepEqual(directoryGuidance.map(snapshot => snapshot.value.fields.path).sort(),
+    [repository, ...nested, second].map(root => path.join(root, 'AGENTS.md')).sort());
+  for (const snapshot of bindings.filter(snapshot => expectedKinds.includes(snapshot.key.type))) {
+    const fields = snapshot.value.fields;
+    if (snapshot.key.type === 'user_skill_information') {
+      assert.equal(fields.applies_to, '*');
+      assert.equal(fields.precedence, state);
+    } else {
+      assert.equal(fields.applies_to, fields.precedence);
+      assert.ok(path.isAbsolute(fields.applies_to));
+    }
+    if (snapshot.key.type.endsWith('guidance')) assert.equal(fields.applies_to, path.dirname(fields.path));
+  }
+  assert.equal(byPath(path.join(workspace, 'AGENTS.md')).key.type, 'project_guidance');
+  assert.equal(byPath(path.join(second, 'AGENTS.md')).key.type, 'directory_guidance');
+  assert.equal(byPath(userSkill).key.type, 'user_skill_information');
+  assert.equal(byPath(nestedSkill).value.fields.applies_to, nested.at(-1));
+  assert.equal(byPath(ancestorSkill).value.fields.applies_to, repository);
+  assert.equal(byPath(secondSkill).value.fields.applies_to, second);
+  assert.equal(bindings.filter(snapshot => snapshot.value.fields.name === 'shared').length, 4, 'Same-name skills remain distinct by source path and scope');
+  assert.equal(bindings.filter(snapshot => snapshot.value.fields.path === configuredSkill).length, 1, 'An explicitly configured discovered path is introduced once');
+  assert.equal(byPath(configuredSkill).key.type, 'skill_information');
+  assert.equal(JSON.stringify(bindings).includes('PRIVATE-'), false);
+  for (const hidden of ['OUTSIDE-GIT-BOUNDARY', 'IGNORED-', 'MUST-NOT-FOLLOW']) assert.equal(JSON.stringify(bindings).includes(hidden), false);
+
+  const originalNestedSkill = byPath(nestedSkill);
+  await writeFile(nestedSkill, skill('shared', 'Nested skill.', 'PRIVATE-NESTED-BODY-B'));
+  const bodyOnly = await observe();
+  assert.deepEqual(bodyOnly.find(observation => observation.type === 'present' && observation.snapshot.value.fields.path === nestedSkill).snapshot, originalNestedSkill);
+  await writeFile(nestedSkill, skill('shared', 'Nested skill updated.', 'PRIVATE-NESTED-BODY-C'));
+  const metadataObserved = await observe();
+  const metadata = metadataObserved.find(observation => observation.type === 'present' && observation.snapshot.value.fields.path === nestedSkill);
+  assert.notEqual(metadata.snapshot.revision, originalNestedSkill.revision);
+  assert.equal(applyEdits('Nested skill.', edits(metadata.patch, 'description')), 'Nested skill updated.');
+  bindings = metadataObserved.filter(observation => observation.type === 'present').map(observation => observation.snapshot);
+
+  config = validateConfig({ ...defaultConfig, instructions: 'Fixture instructions', skills: [configuredSkill, nestedSkill] });
+  await writeFile(nestedSkill, 'Broken frontmatter during explicit-path handoff.');
+  const failedHandoff = await observe();
+  assert.ok(failedHandoff.some(observation => observation.type === 'failure' && JSON.stringify(observation.key) === JSON.stringify(metadata.snapshot.key)));
+  assert.equal(failedHandoff.some(observation => observation.type === 'absent' && JSON.stringify(observation.key) === JSON.stringify(metadata.snapshot.key)), false,
+    'An unreadable explicit replacement cannot withdraw its last accepted automatic metadata');
+  await writeFile(nestedSkill, skill('shared', 'Nested skill updated.', 'PRIVATE-NESTED-BODY-D'));
+  const explicitHandoff = await observe();
+  assert.ok(explicitHandoff.some(observation => observation.type === 'present' && observation.snapshot.key.type === 'skill_information' && observation.snapshot.value.fields.path === nestedSkill));
+  assert.ok(explicitHandoff.some(observation => observation.type === 'absent' && JSON.stringify(observation.key) === JSON.stringify(metadata.snapshot.key)));
+  bindings = explicitHandoff.filter(observation => observation.type === 'present').map(observation => observation.snapshot);
+  config = validateConfig({ ...defaultConfig, instructions: 'Fixture instructions', skills: [configuredSkill] });
+  const automaticHandoff = await observe();
+  assert.ok(automaticHandoff.some(observation => observation.type === 'present' && observation.snapshot.key.type === 'workspace_skill_information' && observation.snapshot.value.fields.path === nestedSkill));
+  assert.ok(automaticHandoff.some(observation => observation.type === 'absent' && observation.key.type === 'skill_information' && observation.key.identity.path === nestedSkill));
+  bindings = automaticHandoff.filter(observation => observation.type === 'present').map(observation => observation.snapshot);
+
+  const agents = path.join(nested[1], 'AGENTS.md');
+  const override = path.join(nested[1], 'AGENTS.override.md');
+  await writeFile(override, 'Override policy.');
+  const overridden = await observe();
+  assert.ok(overridden.some(observation => observation.type === 'present' && observation.snapshot.value.fields.path === override
+    && observation.snapshot.value.fields.content === 'Override policy.'));
+  assert.ok(overridden.some(observation => observation.type === 'absent' && observation.key.identity.path === agents));
+  bindings = overridden.filter(observation => observation.type === 'present').map(observation => observation.snapshot);
+  await unlink(override);
+  const fallback = await observe();
+  assert.ok(fallback.some(observation => observation.type === 'present' && observation.snapshot.value.fields.path === agents));
+  assert.ok(fallback.some(observation => observation.type === 'absent' && observation.key.identity.path === override));
+  bindings = fallback.filter(observation => observation.type === 'present').map(observation => observation.snapshot);
+
+  await unlink(agents); await symlink(path.join(repository, 'AGENTS.md'), agents);
+  const unreadable = await observe();
+  const previousGuidance = bindings.filter(snapshot => snapshot.key.type === 'directory_guidance');
+  assert.equal(unreadable.filter(observation => observation.type === 'absent' && observation.key.type === 'directory_guidance').length, 0);
+  for (const snapshot of previousGuidance) assert.ok(unreadable.some(observation => observation.type === 'failure'
+    && JSON.stringify(observation.key) === JSON.stringify(snapshot.key)), 'A failed guidance collection preserves every accepted baseline');
+  await unlink(agents); await writeFile(agents, 'Nested policy 1.');
+
+  const moved = `${workspace}-moved`;
+  await rename(workspace, moved); await symlink(moved, workspace);
+  const failedScan = await observe();
+  for (const snapshot of bindings.filter(snapshot => ['directory_guidance', 'workspace_skill_information'].includes(snapshot.key.type))) {
+    assert.ok(failedScan.some(observation => observation.type === 'failure' && JSON.stringify(observation.key) === JSON.stringify(snapshot.key)));
+    assert.equal(failedScan.some(observation => observation.type === 'absent' && JSON.stringify(observation.key) === JSON.stringify(snapshot.key)), false);
+  }
+  assert.ok(failedScan.some(observation => observation.type === 'present' && observation.snapshot.value.fields.path === userSkill), 'Independent user catalogs continue refreshing after a workspace scan fails');
+  await unlink(workspace); await rename(moved, workspace);
+
+  await unlink(path.join(nested.at(-1), 'AGENTS.md')); await unlink(nestedSkill);
+  const removed = await observe();
+  for (const filename of [path.join(nested.at(-1), 'AGENTS.md'), nestedSkill]) {
+    const before = bindings.find(snapshot => snapshot.value.fields.path === filename);
+    assert.ok(removed.some(observation => observation.type === 'absent' && JSON.stringify(observation.key) === JSON.stringify(before.key)));
+  }
+
+  const guidanceDefinition = initialEffect.definitions.find(definition => definition.kind === 'directory_guidance');
+  for (const [bound, maximum] of [['max_sources', 1], ['max_directories', 1], ['max_entries', 1], ['max_bytes', 1]]) {
+    const definition = structuredClone(guidanceDefinition);
+    definition.observer.policy[bound] = maximum;
+    const boundedBindings = previousGuidance.map(snapshot => ({ ...snapshot, key: { ...snapshot.key, definition } }));
+    const bounded = await observeContextSources({ ...initialEffect, definitions: [definition], bindings: boundedBindings,
+      settings: { ...initialEffect.settings, workspace: { roots: [workspace, second], primary_root: workspace } } },
+    { home: state, config, limits: contract.limits });
+    assert.equal(bounded.length, boundedBindings.length);
+    assert.ok(bounded.every(observation => observation.type === 'failure' && /budget exceeded/.test(observation.message)), bound);
+    for (const snapshot of boundedBindings) assert.ok(bounded.some(observation => JSON.stringify(observation.key) === JSON.stringify(snapshot.key)), 'A budget failure preserves every accepted binding');
   }
 });
 

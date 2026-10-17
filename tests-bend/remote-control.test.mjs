@@ -143,13 +143,40 @@ test('lost command replies and host restart retain the same receipt without repe
 });
 
 test('relay worktree execution and archive preserve project task trees and descendant navigation', { timeout: 240_000 }, async t => {
-  const { source, directory } = await remoteGitRepository(t);
+  const { source, directory, context } = await remoteGitRepository(t);
   const api_key_env = `SELVEDGE_REMOTE_WORKTREE_${randomBytes(8).toString('hex')}`;
   process.env[api_key_env] = 'fixture-key';
   t.after(() => { delete process.env[api_key_env]; });
-  const model = await responsesServer(t, body => {
-    const created = journal(directory).find(row => row.input.kind === 'worktree_created' && row.input.ok);
+  const model = await responsesServer(t, (body, index) => {
+    const rows = journal(directory);
+    const created = rows.find(row => row.input.kind === 'worktree_created' && row.input.ok);
     assert.ok(created, 'Checkout completion must be committed before native model execution');
+    if (index === 0) {
+      const primary = created.input.workspace.primary_root;
+      assert.equal(created.input.guidance.path, path.join(primary, 'AGENTS.override.md'));
+      assert.equal(created.input.guidance.instructions, context.guidance);
+      const observed = rows.filter(row => row.input.kind === 'context_observed' && row.input.task_id === created.input.task_id).at(-1);
+      assert.ok(observed, 'Remote task discovery is committed before its first provider request');
+      const snapshots = observed.input.observations.filter(item => item.type === 'present').map(item => item.snapshot);
+      const guidance = snapshots.find(snapshot => snapshot.key.type === 'project_guidance');
+      assert.ok(guidance, 'The remote task observes its managed primary guidance');
+      assert.equal(guidance.key.identity.workspace, primary);
+      assert.equal(guidance.value.fields.path, path.join(primary, 'AGENTS.override.md'));
+      assert.equal(guidance.value.fields.applies_to, primary);
+      const skill = snapshots.find(snapshot => snapshot.key.type === 'workspace_skill_information');
+      assert.ok(skill, 'The remote task discovers skill metadata from its managed checkout');
+      assert.equal(skill.key.identity.workspace, primary);
+      assert.equal(skill.value.fields.path, path.join(primary, context.skillPath));
+      assert.equal(skill.value.fields.applies_to, primary);
+      assert.equal(skill.value.fields.name, context.skillName);
+      assert.equal(skill.value.fields.description, context.skillDescription);
+      const input = JSON.stringify(body.input);
+      for (const text of [context.guidance, context.skillName, context.skillDescription, path.join(primary, context.skillPath)]) {
+        assert.ok(input.includes(text), text);
+      }
+      assert.equal(input.includes(context.skillBody), false, 'An unread skill body never enters the provider input');
+      assert.equal(JSON.stringify(snapshots).includes(context.skillBody), false, 'Tracked discovery contains metadata only');
+    }
     const output = body.input.find(item => item.type === 'function_call_output' && item.call_id === 'remote-worktree-write');
     if (!output) return [{ type: 'function_call', call_id: 'remote-worktree-write', name: 'bash',
       arguments: JSON.stringify({ command: 'printf remote-execution > remote-execution.txt\npwd' }) }];

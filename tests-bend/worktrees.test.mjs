@@ -222,18 +222,75 @@ test('worktree creation recreates an empty or ignored-only primary directory omi
 test('forked tasks write their shared worktree and keep it active until every user is archived', { timeout: 30000 }, async t => {
   const { base, root, primary } = await repository(t);
   const state = path.join(base, 'state');
+  const skillRelative = path.join('.agents', 'skills', 'worktree-guide', 'SKILL.md');
+  const skillHeader = '---\nname: worktree-guide\ndescription: Inspect the selected managed checkout.\n---\n';
+  const skillBody = 'WORKTREE_SKILL_BODY_ONLY_FROM_ORDINARY_TOOL_READ';
+  const changedSkillBody = 'WORKTREE_CHANGED_BODY_REMAINS_OUTSIDE_TRACKED_CONTEXT';
+  const rootGuidance = 'Repository guidance stops at this checkout Git marker.';
+  const overrideGuidance = 'Use the primary override from this managed checkout.';
+  const nestedGuidance = 'Nested source guidance applies inside src.';
+  const storageGuidance = 'PRIVATE_STORAGE_GUIDANCE_MUST_NOT_BECOME_A_WORKSPACE_ANCESTOR';
+  await Promise.all([mkdir(path.join(root, path.dirname(skillRelative)), { recursive: true }),
+    mkdir(path.join(primary, 'src')), mkdir(path.join(state, 'worktrees'), { recursive: true })]);
+  await Promise.all([
+    writeFile(path.join(root, 'AGENTS.md'), rootGuidance),
+    writeFile(path.join(primary, 'AGENTS.override.md'), overrideGuidance),
+    writeFile(path.join(primary, 'src', 'AGENTS.md'), nestedGuidance),
+    writeFile(path.join(root, skillRelative), skillHeader + skillBody),
+    writeFile(path.join(state, 'worktrees', 'AGENTS.md'), storageGuidance),
+  ]);
+  const contextFiles = ['AGENTS.md', 'packages/app/AGENTS.override.md', 'packages/app/src/AGENTS.md', skillRelative];
+  await git(root, 'add', '--', ...contextFiles);
+  await git(root, 'commit', '--only', '-m', 'Add hierarchical worktree context', '--', ...contextFiles);
+  const contextChanges = messages => messages.filter(item => item.type === 'context_change').map(item => item.change);
   const childMessage = 'Write from the child in the shared worktree.';
   let childTurns = 0;
   let ownerPrimary;
-  const model = await responsesServer(t, body => {
+  const model = await responsesServer(t, async (body, index) => {
+    if (index === 0) {
+      const rows = journalRows(state);
+      const created = rows.find(row => row.input.kind === 'worktree_created' && row.input.ok);
+      const requested = rows.find(row => row.decision.effects.some(effect => effect.kind === 'model'
+        && effect.task_id === created?.input.task_id));
+      assert.ok(created, 'Worktree context must be committed before its first model request');
+      assert.ok(requested, 'The provider request must have its own committed model effect');
+      assert.ok(requested.sequence >= created.sequence);
+      const managedRoot = created.input.root;
+      const managedPrimary = created.input.workspace.primary_root;
+      assert.equal(created.input.guidance.path, path.join(managedPrimary, 'AGENTS.override.md'));
+      assert.equal(created.input.guidance.instructions, overrideGuidance);
+      assert.match(await readFile(path.join(managedRoot, '.git'), 'utf8'), /^gitdir: /);
+      const observed = rows.filter(row => row.input.kind === 'context_observed'
+        && row.input.task_id === created.input.task_id).at(-1);
+      assert.ok(observed, 'Discovery observations must be durable before model execution');
+      const snapshots = observed.input.observations.filter(item => item.type === 'present').map(item => item.snapshot);
+      for (const relative of ['AGENTS.md', 'packages/app/AGENTS.override.md', 'packages/app/src/AGENTS.md', skillRelative]) {
+        assert.ok(snapshots.some(snapshot => snapshot.value.fields.path === path.join(managedRoot, relative)), relative);
+      }
+      for (const snapshot of snapshots.filter(snapshot => ['project_guidance', 'directory_guidance', 'workspace_skill_information'].includes(snapshot.key.type))) {
+        assert.equal(snapshot.key.identity.workspace, managedPrimary);
+        assert.ok(snapshot.value.fields.path.startsWith(managedRoot + path.sep));
+      }
+      const skill = snapshots.find(snapshot => snapshot.key.type === 'workspace_skill_information');
+      assert.ok(skill, 'Repository-level skills are discovered through the managed checkout ancestors');
+      assert.equal(skill.value.fields.name, 'worktree-guide');
+      assert.equal(skill.value.fields.description, 'Inspect the selected managed checkout.');
+      assert.equal(skill.value.fields.applies_to, managedRoot);
+      assert.equal(JSON.stringify(snapshots).includes(skillBody), false);
+      const input = JSON.stringify(body.input);
+      for (const text of [rootGuidance, overrideGuidance, nestedGuidance, 'worktree-guide']) assert.ok(input.includes(text));
+      assert.equal(input.includes(storageGuidance), false, 'The worktree .git file stops discovery before private storage');
+      assert.equal(input.includes(skillBody), false, 'Skill bodies are absent until an ordinary tool reads them');
+    }
     if (!body.input.some(item => item.role === 'user' && item.content === childMessage)) return answer('Owner task is ready.');
     childTurns += 1;
     const output = body.input.find(item => item.type === 'function_call_output' && item.call_id === 'shared-worktree-write');
     if (!output) return [{ type: 'function_call', call_id: 'shared-worktree-write', name: 'bash',
-      arguments: JSON.stringify({ command: 'set -eu\nprintf child > child-write.txt\npwd' }) }];
+      arguments: JSON.stringify({ command: `set -eu\nprintf child > child-write.txt\npwd\ncat ../../${skillRelative}` }) }];
     const result = JSON.parse(output.output);
     assert.equal(result.is_error, false, JSON.stringify(result));
     assert.ok(result.value.stdout.includes(ownerPrimary));
+    assert.ok(result.value.stdout.includes(skillBody), 'A shared borrower reads the body as an ordinary tool result');
     return answer('The child wrote in the shared checkout.');
   });
   const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: {
@@ -247,7 +304,7 @@ test('forked tasks write their shared worktree and keep it active until every us
   const ownerId = started.reply.result.task_id;
   const owner = await worktreeStatus(service, ownerId, 'ready');
   ownerPrimary = owner.target_primary;
-  await taskIdle(service, ownerId);
+  const initialOwner = await taskIdle(service, ownerId);
   const forked = await service.command({ op: 'fork', task_id: ownerId, child_count: 1, messages: [childMessage] });
   assert.equal(forked.reply.ok, true, JSON.stringify(forked.reply));
   const [childId] = forked.reply.result.children;
@@ -259,6 +316,8 @@ test('forked tasks write their shared worktree and keep it active until every us
   assert.deepEqual(model.failures, []);
   assert.equal(childTurns, 2);
   assert.deepEqual(child.task.settings.workspace, { roots: [owner.target_primary], primary_root: owner.target_primary });
+  assert.deepEqual(contextChanges(child.messages), contextChanges(initialOwner.messages), 'A shared fork keeps its inherited tracked baselines');
+  assert.equal(JSON.stringify(contextChanges(child.messages)).includes(skillBody), false);
   const shared = await service.command({ op: 'read_worktree', task_id: childId });
   assert.equal(shared.reply.ok, true, JSON.stringify(shared.reply));
   assert.equal(shared.reply.result.root, owner.root);
@@ -266,6 +325,15 @@ test('forked tasks write their shared worktree and keep it active until every us
   assert.equal(shared.reply.result.status, 'ready');
   assert.equal(await readFile(path.join(owner.target_primary, 'child-write.txt'), 'utf8'), 'child');
   await assert.rejects(access(path.join(primary, 'child-write.txt')), { code: 'ENOENT' });
+  const beforeBodyEdit = await taskIdle(service, ownerId);
+  await writeFile(path.join(owner.root, skillRelative), skillHeader + changedSkillBody);
+  const continued = await service.command({ op: 'send', task_id: ownerId, message: 'Continue after a skill body-only edit.' });
+  assert.equal(continued.reply.ok, true, JSON.stringify(continued.reply));
+  const afterBodyEdit = await taskIdle(service, ownerId);
+  assert.deepEqual(contextChanges(afterBodyEdit.messages.slice(beforeBodyEdit.messages.length)), [],
+    'Body-only changes do not amend tracked skill metadata');
+  assert.equal(JSON.stringify(contextChanges(afterBodyEdit.messages)).includes(changedSkillBody), false);
+  assert.equal(await readFile(path.join(root, skillRelative), 'utf8'), skillHeader + skillBody);
   const blocked = await service.command({ op: 'archive', task_id: ownerId });
   assert.equal(blocked.reply.ok, false, JSON.stringify(blocked.reply));
   assert.equal(blocked.reply.error.code, 'worktree_in_use');
@@ -287,6 +355,7 @@ test('forked tasks write their shared worktree and keep it active until every us
   assert.equal(archived.root, archivedRoot);
   await assert.rejects(access(owner.root), { code: 'ENOENT' });
   assert.equal(await readFile(path.join(archivedRoot, 'packages', 'app', 'child-write.txt'), 'utf8'), 'child');
+  assert.equal(await readFile(path.join(archivedRoot, skillRelative), 'utf8'), skillHeader + changedSkillBody);
   assert.equal(journalRows(state).flatMap(row => row.decision.effects).filter(effect => effect.kind === 'worktree_archive').length, 1);
 });
 

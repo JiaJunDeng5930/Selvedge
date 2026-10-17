@@ -265,13 +265,13 @@ test('native graph and Task creation cannot forge host observations or partially
   const controllerId = pending.task_id;
   const forbidden = [
     { name: 'create_task_graph', arguments: { name: 'Forged guidance', nodes: [node('first'),
-      node('forged', 'forged', { settings: { guidance: { workspace: '/unobserved', revision: 'absent', instructions: '' } } }),
+      node('forged', 'forged', { settings: { guidance: { workspace: '/unobserved', path: '', revision: 'absent', instructions: '' } } }),
     ], rules: [] } },
     { name: 'create_task_graph', arguments: { name: 'Unobserved root', nodes: [node('first'),
       node('forged', 'forged', { settings: { workspace: { roots: ['/unobserved'], primary_root: '/unobserved' } } }),
     ], rules: [] } },
     { name: 'create_task', arguments: { profile: 'fixture', message: 'forged direct child', settings: {
-      guidance: { workspace: '/unobserved', revision: 'absent', instructions: '' },
+      guidance: { workspace: '/unobserved', path: '', revision: 'absent', instructions: '' },
     } } },
   ];
   for (const [index, call] of forbidden.entries()) {

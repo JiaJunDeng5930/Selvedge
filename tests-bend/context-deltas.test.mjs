@@ -170,6 +170,178 @@ test('changed AGENTS sources append patches, reversals and removal without repla
   assert.deepEqual(model.failures, []);
 });
 
+test('discovered context commits before dispatch and survives scoped forks, compaction and restart', { timeout: 35_000 }, async t => {
+  const directory = await realpath(await home(t));
+  const state = path.join(directory, 'state');
+  const repository = path.join(directory, 'repository');
+  const workspace = path.join(repository, 'app');
+  const nested = path.join(workspace, 'src', 'api', 'internal');
+  const secondary = path.join(directory, 'secondary');
+  const alternate = path.join(directory, 'alternate');
+  await Promise.all([state, path.join(repository, '.git'), nested, path.join(secondary, '.git'), path.join(alternate, '.git')].map(filename => mkdir(filename, { recursive: true })));
+  await writeFile(path.join(repository, 'AGENTS.md'), 'Repository ancestor policy.');
+  await writeFile(path.join(workspace, 'AGENTS.md'), 'Primary workspace policy.');
+  const primaryOverride = path.join(workspace, 'AGENTS.override.md');
+  await writeFile(primaryOverride, 'Primary override policy.');
+  await writeFile(path.join(secondary, 'AGENTS.md'), 'Secondary workspace policy.');
+  const nestedGuidance = path.join(nested, 'AGENTS.md');
+  const skillDirectory = path.join(nested, '.agents', 'skills', 'inspect');
+  await mkdir(skillDirectory, { recursive: true });
+  const skillFile = path.join(skillDirectory, 'SKILL.md');
+  const metadata = (description, body) => `---\nname: inspect\ndescription: ${description}\n---\n${body}\n`;
+  await writeFile(nestedGuidance, 'Keep 🧵 the nested prefix.\nUse npm.\nKeep the tail.\n');
+  await writeFile(skillFile, metadata('Inspect version A.', 'PRIVATE-DISCOVERED-BODY-A'));
+  const userSkillDirectory = path.join(state, '.agents', 'skills', 'user');
+  await mkdir(userSkillDirectory, { recursive: true });
+  await writeFile(path.join(userSkillDirectory, 'SKILL.md'), metadata('User inspection skill.', 'PRIVATE-USER-BODY'));
+  const effects = [];
+  const model = await responsesServer(t, async body => {
+    const db = new DatabaseSync(path.join(state, 'journal.sqlite'), { readOnly: true });
+    let committed;
+    try { committed = db.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 30').all()
+      .flatMap(row => JSON.parse(row.decision).effects); }
+    finally { db.close(); }
+    if (body.tool_choice === 'none') {
+      const effect = committed.find(effect => effect.kind === 'context_compaction');
+      assert.ok(effect, 'Summary transport follows its committed compaction effect');
+      assert.equal(effect.plan.chunk.includes('PRIVATE-'), false);
+      return answer('Continue following the retained directory instructions and skill catalog.');
+    }
+    const effect = committed.find(effect => effect.kind === 'model' && body.input.some(item => item.role === 'user'
+      && item.content === effect.history.filter(item => item.role === 'user').at(-1)?.content));
+    assert.ok(effect, 'Every provider request is backed by its committed model history');
+    const developer = body.input.filter(item => item.role === 'developer').map(item => item.content).join('\n');
+    for (const change of changes(effect.history)) {
+      const key = change.type === 'introduce' ? change.snapshot.key : change.key;
+      assert.ok(developer.includes(JSON.stringify({ type: key.type, identity: key.identity })));
+      if (change.type === 'introduce') {
+        for (const value of Object.values(change.snapshot.value.fields)) assert.ok(developer.includes(value));
+      }
+    }
+    assert.equal(JSON.stringify(body.input).includes('PRIVATE-'), false, 'Discovery injects metadata without skill bodies');
+    effects.push(effect);
+    return answer('done');
+  }, { measure: () => 100 });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: { fixture: {
+    provider: 'responses', model: 'fixture', endpoint: model.endpoint,
+    api_key_env: credentials(t, 'SELVEDGE_HIERARCHICAL_CONTEXT_FIXTURE_KEY'), timeout_ms: 5000,
+  } }, compaction: { enabled: false, background_percent: 65, blocking_percent: 90, idle_lead_ms: 0,
+    targets: [{ profile: 'fixture', window_tokens: 65_536, output_reserve_tokens: 2048, cache_ttl_ms: null, method: 'summary' }] } });
+  let service = await Service.open({ home: state, cwd: workspace, config });
+  t.after(() => service.close());
+  assert.equal((await service.command({ op: 'create', profile: 'fixture', message: 'inspect discovered context',
+    settings: { workspace: { roots: [workspace, secondary, alternate], primary_root: workspace } } })).reply.ok, true);
+  let page = await taskIdle(service);
+  const initial = page.messages;
+  const introduced = changes(initial).filter(change => change.type === 'introduce').map(change => change.snapshot);
+  const guidance = introduced.find(snapshot => snapshot.key.type === 'directory_guidance' && snapshot.value.fields.path === nestedGuidance);
+  const primaryGuidance = introduced.find(snapshot => snapshot.key.type === 'project_guidance');
+  const skill = introduced.find(snapshot => snapshot.key.type === 'workspace_skill_information');
+  const userSkill = introduced.find(snapshot => snapshot.key.type === 'user_skill_information');
+  assert.ok(guidance); assert.ok(skill); assert.ok(userSkill);
+  assert.equal(primaryGuidance.value.fields.path, primaryOverride);
+  assert.equal(primaryGuidance.value.fields.content, 'Primary override policy.');
+  assert.equal(changes(initial).some(change => change.type === 'amend' && change.key.type === 'project_guidance'), false, 'Initial root guidance already records its selected override path');
+  assert.equal(guidance.value.fields.applies_to, nested);
+  assert.equal(skill.value.fields.applies_to, nested);
+  assert.ok(introduced.some(snapshot => snapshot.key.type === 'directory_guidance' && snapshot.value.fields.applies_to === secondary));
+  const settings = structuredClone(page.task.settings);
+  const send = async message => {
+    const before = page.messages;
+    assert.equal((await service.command({ op: 'send', task_id: 0, message })).reply.ok, true);
+    page = await taskIdle(service);
+    assert.deepEqual(page.messages.slice(0, before.length), before);
+    assert.deepEqual(page.task.settings, settings);
+    return changes(page.messages.slice(before.length));
+  };
+  await writeFile(skillFile, metadata('Inspect version A.', 'PRIVATE-DISCOVERED-BODY-B'));
+  assert.deepEqual(await send('body-only discovery update'), []);
+  const updatedGuidance = 'Keep 🧵 the nested prefix.\nUse bun.\nKeep the tail.\n';
+  await writeFile(nestedGuidance, updatedGuidance);
+  await writeFile(skillFile, metadata('Inspect version B.', 'PRIVATE-DISCOVERED-BODY-C'));
+  const amended = await send('change discovered guidance and metadata');
+  assert.equal(amended.length, 2);
+  const amendedGuidance = amended.find(change => change.key.type === 'directory_guidance');
+  const amendedSkill = amended.find(change => change.key.type === 'workspace_skill_information');
+  assert.equal(amendedGuidance.base_revision, guidance.revision);
+  assert.equal(textFromPatch(guidance.value.fields.content, edits(amendedGuidance.patch)), updatedGuidance);
+  assert.equal(amendedSkill.base_revision, skill.revision);
+  assert.equal(textFromPatch('Inspect version A.', edits(amendedSkill.patch, 'description')), 'Inspect version B.');
+
+  await unlink(nestedGuidance); await symlink(path.join(repository, 'AGENTS.md'), nestedGuidance);
+  const beforeFailure = page.messages.length;
+  assert.deepEqual(await send('unreadable discovered guidance'), []);
+  assert.ok(page.messages.slice(beforeFailure).some(item => item.role === 'error'));
+  await unlink(nestedGuidance); await writeFile(nestedGuidance, updatedGuidance);
+  assert.deepEqual(await send('readable discovered guidance restored'), []);
+
+  const beforeCompaction = page.messages;
+  const compactedGuidance = updatedGuidance + 'Preserve this directory scope after compaction.\n';
+  await writeFile(nestedGuidance, compactedGuidance);
+  assert.equal((await service.command({ op: 'compact', task_id: 0 })).reply.ok, true);
+  await contextReplaced(service);
+  page = await taskIdle(service);
+  assert.deepEqual(page.messages.slice(0, beforeCompaction.length), beforeCompaction);
+  const compactedChanges = changes(page.messages.slice(beforeCompaction.length));
+  assert.equal(compactedChanges.length, 1);
+  assert.equal(compactedChanges[0].base_revision, amendedGuidance.revision);
+  assert.equal(textFromPatch(updatedGuidance, edits(compactedChanges[0].patch)), compactedGuidance);
+  assert.deepEqual(await send('continue after directory context compaction'), []);
+  assert.deepEqual(changes(effects.at(-1).history), changes(page.messages), 'Compressed provider input retains every tracked baseline and edit');
+
+  const parent = page.messages;
+  const roots = [workspace, secondary, alternate];
+  assert.equal((await service.command({ op: 'fork', task_id: 0, child_count: 1, messages: ['switch primary to root without guidance'],
+    settings: { workspace: { roots, primary_root: alternate } } })).reply.ok, true);
+  const switched = await taskIdle(service, 1); await taskIdle(service);
+  const switchedChanges = changes(switched.messages.slice(parent.length));
+  assert.ok(switchedChanges.some(change => change.type === 'remove' && JSON.stringify(change.key) === JSON.stringify(primaryGuidance.key)));
+  assert.equal(switchedChanges.some(change => change.type === 'introduce' && change.snapshot.key.type === 'project_guidance'), false,
+    'An empty new primary root cannot retain or introduce a primary guidance slot');
+  assert.ok(switchedChanges.some(change => change.type === 'introduce' && change.snapshot.key.type === 'directory_guidance'
+    && change.snapshot.value.fields.path === primaryOverride), 'Guidance from the former primary remains available within its directory scope');
+  assert.equal((await service.command({ op: 'fork', task_id: 1, child_count: 1, messages: ['restore guided primary root'],
+    settings: { workspace: { roots, primary_root: workspace } } })).reply.ok, true);
+  const restoredPrimary = await taskIdle(service, 2); await taskIdle(service, 1);
+  const restoredSlot = changes(restoredPrimary.messages.slice(switched.messages.length)).find(change => change.type === 'introduce' && change.snapshot.key.type === 'project_guidance');
+  assert.ok(restoredSlot);
+  assert.equal(restoredSlot.snapshot.value.fields.path, primaryOverride);
+  assert.equal(restoredSlot.snapshot.value.fields.content, 'Primary override policy.');
+  assert.equal((await service.command({ op: 'fork', task_id: 2, child_count: 1, messages: ['switch primary back to empty root'],
+    settings: { workspace: { roots, primary_root: alternate } } })).reply.ok, true);
+  const switchedAgain = await taskIdle(service, 3); await taskIdle(service, 2);
+  const switchedAgainChanges = changes(switchedAgain.messages.slice(restoredPrimary.messages.length));
+  assert.ok(switchedAgainChanges.some(change => change.type === 'remove' && JSON.stringify(change.key) === JSON.stringify(restoredSlot.snapshot.key)));
+  assert.equal(switchedAgainChanges.some(change => change.type === 'introduce' && change.snapshot.key.type === 'project_guidance'), false);
+  assert.equal((await service.command({ op: 'fork', task_id: 0, child_count: 1, messages: ['keep primary but remove secondary root'],
+    settings: { workspace: { roots: [workspace], primary_root: workspace } } })).reply.ok, true);
+  const primaryOnly = await taskIdle(service, 4); await taskIdle(service);
+  const primaryOnlyChanges = changes(primaryOnly.messages.slice(parent.length));
+  const secondaryGuidance = introduced.find(snapshot => snapshot.key.type === 'directory_guidance' && snapshot.value.fields.applies_to === secondary);
+  assert.ok(primaryOnlyChanges.some(change => change.type === 'remove' && JSON.stringify(change.key) === JSON.stringify(secondaryGuidance.key)));
+  assert.equal(primaryOnlyChanges.some(change => JSON.stringify(change.key ?? change.snapshot?.key) === JSON.stringify(guidance.key)), false,
+    'A secondary-root change preserves existing primary-directory baselines');
+  const inheritedWorkspace = introduced.filter(snapshot => ['project_guidance', 'directory_guidance', 'workspace_skill_information'].includes(snapshot.key.type));
+  assert.equal((await service.command({ op: 'fork', task_id: 0, child_count: 1, messages: ['inspect alternate workspace'],
+    settings: { workspace: { roots: [alternate], primary_root: alternate } } })).reply.ok, true);
+  const child = await taskIdle(service, 5); await taskIdle(service);
+  assert.deepEqual(child.messages.slice(0, parent.length), parent);
+  const childChanges = changes(child.messages.slice(parent.length));
+  for (const snapshot of inheritedWorkspace) assert.ok(childChanges.some(change => change.type === 'remove'
+    && JSON.stringify(change.key) === JSON.stringify(snapshot.key)), `Alternate roots withdraw ${snapshot.key.type}`);
+  assert.equal(childChanges.some(change => (change.key ?? change.snapshot?.key).type === 'user_skill_information'), false, 'User skills retain their global baseline across a workspace fork');
+  await service.close();
+  service = await Service.open({ home: state, cwd: alternate, config });
+  assert.deepEqual((await taskIdle(service, 5)).messages, child.messages);
+  assert.equal((await service.command({ op: 'send', task_id: 5, message: 'continue scoped child after restart' })).reply.ok, true);
+  assert.deepEqual(changes((await taskIdle(service, 5)).messages), changes(child.messages));
+  assert.equal((await service.command({ op: 'send', task_id: 0, message: 'continue parent after restart' })).reply.ok, true);
+  const restoredParent = await taskIdle(service);
+  assert.deepEqual(changes(restoredParent.messages), changes(parent));
+  assert.deepEqual(changes(effects.at(-1).history), changes(parent));
+  assert.deepEqual(model.failures, []);
+});
+
 test('ChatGPT Web sends context amendments as the verified continuation suffix', async t => {
   const directory = await home(t);
   const kernel = new Kernel();

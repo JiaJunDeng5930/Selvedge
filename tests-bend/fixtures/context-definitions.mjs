@@ -23,7 +23,7 @@ export async function extendTrackedContexts(copy) {
   await cp(path.join(root, 'host'), path.join(copy.directory, 'host'), { recursive: true });
   await symlink(path.join(root, 'node_modules'), path.join(copy.directory, 'node_modules'), 'dir');
   await modify(copy.directory, definitionAssembly, source => {
-    const registered = replaceOnce(source, 'SkillInformation.definition()]', 'SkillInformation.definition(), review_notes(), review_policy()]');
+    const registered = replaceOnce(source, 'SkillInformation.workspace()]', 'SkillInformation.workspace(), review_notes(), review_policy()]');
     return replaceOnce(registered, 'def definitions()', `def review_notes() -> C.Definition:
   C.text_context("review_notes", "Workspace review guidance.",
     C.WorkspaceScope{}, C.WorkspaceFile{".review.md"},
