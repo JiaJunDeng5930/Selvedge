@@ -12,7 +12,7 @@ def forbidden() -> J.Json:
 def project(+id: Nat, found: Maybe<&2, D.Project>, sandbox: D.Sandbox) -> J.Json:
   match found:
     case None{}: J.Null{}
-    case Some{D.Project{name, D.Workspace{roots, primary}, guidance}}:
+    case Some{D.Project{name, D.Workspace{roots, primary}, guidance, create_worktree}}:
       J.Object{[J.Field{"project_id", J.nat(id)}, J.Field{"name", J.Text{name}},
         J.Field{"root_count", J.nat(List.length(&2, String, roots))}, J.Field{"primary_root", D.optional_string(primary)},
         J.Field{"sandbox", D.sandbox_json(sandbox)}]}

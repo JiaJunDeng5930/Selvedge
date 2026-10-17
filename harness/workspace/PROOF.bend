@@ -11,6 +11,7 @@ import ./CONTRACT.bend as A
 import ../../bendlib/association-map.bend as Finite
 import ../protocol/PROGRAM.bend as Protocol
 import ../../bendlib/json-proof.bend as JsonProof
+import ../../bendlib/json.bend as J
 import ../../bendlib/equality.bend as Same
 import ../../bendlib/equality-proof.bend as EqualityProof
 
@@ -49,6 +50,17 @@ def removal(registry:D.Projects, +id:Nat) ->
   D.Projects{entries, next_id} = registry
   Finite.removal_absence(~D.Project, entries, id)
 
+def worktree_preference_preserved(name:Maybe<&2, String>, workspace:J.Json, guidance:J.Json, +previous:D.Project) ->
+  {Projects.create_worktree(Projects.proposal(name, workspace, guidance, J.Null{}, previous)) ==
+    Projects.create_worktree(previous) : Bool}:
+  D.Project{previous_name, previous_workspace, previous_guidance, previous_create_worktree} = previous
+  {==}
+
+def worktree_preference_selected(name:Maybe<&2, String>, workspace:J.Json, guidance:J.Json, +selected:Bool, previous:D.Project) ->
+  {Projects.create_worktree(Projects.proposal(name, workspace, guidance, J.Boolean{selected}, previous)) == selected : Bool}:
+  D.Project{previous_name, previous_workspace, previous_guidance, previous_create_worktree} = previous
+  {==}
+
 def A.context_boundary():
   A.ContextBoundary{
     EqualityProof.public_refines,
@@ -59,6 +71,8 @@ def A.context_boundary():
     (context => guidance => task => override_context(context, guidance, task)),
     (registry => world => project_frame(registry, world)),
     (registry => id => removal(registry, id)),
+    worktree_preference_preserved,
+    worktree_preference_selected,
     ({==}, (profile => {==})),
     (context => guidance => parent => count => messages => rejected =>
       Equal.trans(Protocol.Invocation,

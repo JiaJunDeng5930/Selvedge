@@ -97,7 +97,7 @@ def profile_label(profile: Maybe<&2, D.Profile>, fallback: String) -> String:
 def execution_project_source(found: Maybe<&2, D.Project>, project: Nat) -> String:
   match found:
     case None{}: "Project " ++ Nat.show(project) ++ " defaults"
-    case Some{D.Project{name, workspace, guidance}}: "Project defaults: " ++ name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: "Project defaults: " ++ name
 
 def execution_origin_source(origin: Context.Origin, +world: M.World()) -> String:
   match origin:
@@ -220,7 +220,7 @@ def committed_observation(found: Maybe<&2, Context.EffectiveContext>) -> Maybe<&
 def creation_project(found: Maybe<&2, D.Project>, id: Nat) -> Maybe<&2, ViewTypes.ProjectChoice>:
   match found:
     case None{}: None{}
-    case Some{D.Project{name, workspace, guidance}}: Some{ViewTypes.ProjectChoice{id, name, workspace}}
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: Some{ViewTypes.ProjectChoice{id, name, workspace}}
 
 def creation_selected_project(context: Maybe<&2, Context.Preview>, world: M.World()) -> Maybe<&2, ViewTypes.ProjectChoice>:
   match context:
@@ -325,7 +325,7 @@ def model_composer_control(+profile: String, +reasoning: String, +world: M.World
   ViewTypes.ComposerControl{UX.model_property(U.NewTaskEditor{}, profile, reasoning, world), ViewTypes.ControlDeclaration{"composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile) ++ " · " ++ reasoning, ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}}, selection_available(E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning))}}
 def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()) -> Maybe<&2, ViewTypes.ComposerScene>:
   match body:
-    case U.NewTask{message, +profile, reasoning, context}:
+    case U.NewTask{message, +profile, reasoning, context, create_worktree}:
       ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
       +observation: Context.Observation = Context.DraftExecution{Context.preview(context, world)}
       Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Creation{},
@@ -343,7 +343,7 @@ def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()
 def project_choices(entries: +List<Finite.Entry(D.Project)>) -> +List<ViewTypes.ProjectChoice>:
   match entries:
     case Nil{}: Nil{}
-    case Con{(id, D.Project{name, workspace, guidance}), rest}: ViewTypes.ProjectChoice{id, name, workspace} <> project_choices(rest)
+    case Con{(id, D.Project{name, workspace, guidance, create_worktree}), rest}: ViewTypes.ProjectChoice{id, name, workspace} <> project_choices(rest)
 
 def projects(world: M.World()) -> +List<ViewTypes.ProjectChoice>:
   project_choices(Projects.entries(Projects.registry(F.State(), world)))
@@ -450,10 +450,10 @@ def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List
 
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
-    case U.NewTask{message, profile, reasoning, context}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
+    case U.NewTask{message, profile, reasoning, context, create_worktree}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
     case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
     case U.TaskGraph{graph, declaration, parsed}: [ViewTypes.TaskGraphInput{declaration}]
-    case U.Project{id, name, +workspace}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
+    case U.Project{id, name, +workspace, create_worktree}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
         B.priorities(), card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
@@ -464,7 +464,7 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>
 
 def submit_label(body: U.Body) -> String:
   match body:
-    case U.NewTask{message, profile, reasoning, context}: "Start task"
+    case U.NewTask{message, profile, reasoning, context, create_worktree}: "Start task"
     case U.Message{task, message, delivery}: U.delivery_caption(delivery)
     case U.Fork{task, count, messages, context}: "Fork task"
     case U.Compact{task, summary}: "Compact history"
@@ -535,7 +535,7 @@ def task_project(found: Maybe<&2, D.Task>) -> Maybe<&2, Nat>:
 
 def draft_project(found: Maybe<&2, U.Draft>, +world: M.World()) -> Maybe<&2, Nat>:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, configuration}, feedback, directory_entry}}:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, configuration, create_worktree}, feedback, directory_entry}}:
       project_choice_id(creation_selected_project(Some{Context.preview(configuration, world)}, world))
     case _: None{}
 
@@ -580,7 +580,7 @@ def project_tasks(tasks: +List<D.Task>, +project: Maybe<&2, Nat>) -> +List<D.Tas
     case Con{+task, rest}: keep_task(same_project(Workspace.project_id(D.task_context(task)), project), task, project_tasks(rest, project))
 
 def project_entry(+id: Nat, project: D.Project, tasks: +List<D.Task>, +route: U.Route, selected: Maybe<&2, Nat>, navigation: E.NavigationState) -> ViewTypes.ProjectEntry:
-  D.Project{+name, workspace, guidance} = project
+  D.Project{+name, workspace, guidance, create_worktree} = project
   ViewTypes.ProjectEntry{id, name, workspace, selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), task_entries(project_tasks(tasks, Some{id}), route),
     control("project/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}),
     control("project/toggle/" ++ Nat.show(id), "Toggle project tasks", U.ToggleProjectGroup{id}),
@@ -629,7 +629,7 @@ def task_page(found: Maybe<&2, D.Task>, session: E.Session, world: M.World()) ->
     case Some{task}: ViewTypes.TaskPage{task_scene(task, session, world)}
 
 def project_scene(+id: Nat, project: D.Project, route: U.Route, +world: M.World()) -> ViewTypes.ProjectScene:
-  D.Project{name, workspace, guidance} = project
+  D.Project{name, workspace, guidance, create_worktree} = project
   ViewTypes.ProjectScene{id, name, workspace, guidance, task_entries(project_tasks(Commands.entries(world), Some{id}), route),
     [control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}), control("project/edit/" ++ Nat.show(id), "Edit project", U.EditProject{Some{id}}),
       native("project/delete/" ++ Nat.show(id), "Delete project", ViewTypes.Destructive{}, U.DeleteProject{id}, world)]}
@@ -713,7 +713,7 @@ def columns(stages: +List<B.Stage>, +cards: +List<Finite.Entry(B.Card)>, +route:
 def face_project_name(found: Maybe<&2, D.Project>, id: Nat) -> String:
   match found:
     case None{}: "项目 #" ++ Nat.show(id) ++ " 不可用"
-    case Some{D.Project{name, workspace, guidance}}: name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: name
 
 def face_project(found: Maybe<&2, Nat>, +world: M.World()) -> String:
   match found:

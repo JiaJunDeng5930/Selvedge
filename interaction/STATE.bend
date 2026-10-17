@@ -151,9 +151,15 @@ def service_attention(decision: E.Decision, effects: +List<Services.Effect>) -> 
   E.Decision{+application, reply, runtime, interaction, durable} = decision
   E.Decision{application, reply, runtime, service_interactions(effects, application), durable}
 
+def refresh_directory_services(effects: +List<Services.Effect>, decision: E.Decision) -> E.Decision:
+  match effects:
+    case Nil{}: decision
+    case Con{Services.DirectoryChosen{U.NewTaskEditor{}, path}, rest}: E.observe_workspace_git(decision)
+    case Con{other, rest}: refresh_directory_services(rest, decision)
+
 def service_result(decision: Services.Decision, application: E.Application) -> InteractionTypes.Decision:
   Services.Decision{services, +effects} = decision
-  application_result_with_services(service_attention(E.unchanged(service_effects(effects, application)), effects), services,
+  application_result_with_services(refresh_directory_services(effects, service_attention(E.unchanged(service_effects(effects, application)), effects)), services,
     List.filter(~Services.Effect, external_effect, effects))
 
 def command_offline(command: Maybe<&2, M.Command>, access: Services.Access) -> Bool:

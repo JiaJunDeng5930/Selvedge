@@ -242,10 +242,10 @@ def transition_calculation_certificate(input: M.Input, +world: M.World()) ->
       update_certificate(M.UserCommand{M.Fork{id, count, messages, options}}, world)
     case M.UserCommand{M.Compact{id, summary}}:
       update_certificate(M.UserCommand{M.Compact{id, summary}}, world)
-    case M.UserCommand{M.CreateProject{name, workspace, guidance}}:
-      update_certificate(M.UserCommand{M.CreateProject{name, workspace, guidance}}, world)
-    case M.UserCommand{M.UpdateProject{id, name, workspace, guidance}}:
-      update_certificate(M.UserCommand{M.UpdateProject{id, name, workspace, guidance}}, world)
+    case M.UserCommand{M.CreateProject{name, workspace, guidance, create_worktree}}:
+      update_certificate(M.UserCommand{M.CreateProject{name, workspace, guidance, create_worktree}}, world)
+    case M.UserCommand{M.UpdateProject{id, name, workspace, guidance, create_worktree}}:
+      update_certificate(M.UserCommand{M.UpdateProject{id, name, workspace, guidance, create_worktree}}, world)
     case M.UserCommand{M.DeleteProject{id}}:
       update_certificate(M.UserCommand{M.DeleteProject{id}}, world)
     case M.UserCommand{M.ReviewApproval{id, operation, outcome}}:

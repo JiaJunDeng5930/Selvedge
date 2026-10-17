@@ -1,4 +1,5 @@
 import Base
+import ./worktree-spec.bend as WorktreeSpec
 import ../../features/compaction/SPEC.bend as Compaction
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
@@ -14,6 +15,8 @@ import ./graph-spec.bend as TaskGraph
 # executable assembler supplies its implementation to feature-execution.
 def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case O.StartWorktree{profile, reasoning, message, selection}: WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world)
+    case O.RetryWorktreeArchive{id}: WorktreeSpec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change(change, world)
     case O.StartCard{id, card, now, profile, reasoning, message, selection}:
@@ -23,6 +26,7 @@ def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+wo
 
 def event(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.WorktreeResult{completion}: WorktreeSpec.complete(completion, world)
     case O.CompactionResult{completion}: Compaction.meaning(Compaction.resolve(completion, world), world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)

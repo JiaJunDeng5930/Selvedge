@@ -49,12 +49,12 @@ def command_json(command: M.Command) -> J.Json:
     case M.Observe{M.Describe{}}: J.Object{[J.Field{"op", J.Text{"describe"}}]}
     case M.Observe{M.ListProjects{}}: J.Object{[J.Field{"op", J.Text{"list_projects"}}]}
     case M.Observe{M.ReadProject{id}}: J.Object{[J.Field{"op", J.Text{"read_project"}}, J.Field{"project_id", J.nat(id)}]}
-    case M.CreateProject{name, workspace, guidance}:
-      J.Object{optional_field("guidance", guidance, [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}},
-        J.Field{"workspace", workspace}])}
-    case M.UpdateProject{id, name, workspace, guidance}:
-      J.Object{optional_field("guidance", guidance, optional_field("workspace", workspace,
-        optional_field("name", D.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}])))}
+    case M.CreateProject{name, workspace, guidance, create_worktree}:
+      J.Object{optional_field("create_worktree", create_worktree, optional_field("guidance", guidance,
+        [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]))}
+    case M.UpdateProject{id, name, workspace, guidance, create_worktree}:
+      J.Object{optional_field("create_worktree", create_worktree, optional_field("guidance", guidance, optional_field("workspace", workspace,
+        optional_field("name", D.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}]))))}
     case M.DeleteProject{id}: J.Object{[J.Field{"op", J.Text{"delete_project"}}, J.Field{"project_id", J.nat(id)}]}
     case M.ReviewApproval{id, operation, +outcome}:
       J.Object{[J.Field{"op", J.Text{"review_approval"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)},

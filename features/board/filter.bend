@@ -157,7 +157,7 @@ def owners(+world: M.World()) -> +List<Choice>:
 def project_choices(+entries: +List<Finite.Entry(D.Project)>) -> +List<Choice>:
   match entries:
     case Nil{}: Nil{}
-    case Con{(id, D.Project{name, workspace, guidance}), rest}: choice(Nat.show(id), name, Project{}) <> project_choices(rest)
+    case Con{(id, D.Project{name, workspace, guidance, create_worktree}), rest}: choice(Nat.show(id), name, Project{}) <> project_choices(rest)
 
 def projects(+world: M.World()) -> +List<Choice>:
   choice("", "未分配项目", Project{}) <> project_choices(Projects.entries(Projects.registry(F.State(), world)))
@@ -201,7 +201,7 @@ def count(+filter: B.Filter) -> Nat:
 def project_name(+found: Maybe<&2, D.Project>) -> String:
   match found:
     case None{}: "未分配项目"
-    case Some{D.Project{name, workspace, guidance}}: name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: name
 
 def project_label(+id: Maybe<&2, Nat>, +world: M.World()) -> String:
   match id:

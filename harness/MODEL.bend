@@ -37,8 +37,8 @@ type Command is Data:
   Fork{task_id: Nat, count: Nat, messages: +List<String>, settings: J.Json}
   Compact{task_id: Nat, summary: Maybe<&2, String>}
   Observe{query: Query}
-  CreateProject{name: String, workspace: J.Json, guidance: J.Json}
-  UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json}
+  CreateProject{name: String, workspace: J.Json, guidance: J.Json, create_worktree: J.Json}
+  UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json, create_worktree: J.Json}
   DeleteProject{project_id: Nat}
   ReviewApproval{task_id: Nat, operation_id: Nat, outcome: D.ApprovalOutcome}
   ConfigureTaskExecution{task: Nat, profile: String, reasoning: String, sandbox: D.Sandbox, approval: D.ApprovalPolicy}
@@ -120,10 +120,13 @@ def commands() -> +List<CommandSpec>:
      D.command_schema(Nil{}, Nil{})},
    CommandSpec{"create_project", "Create an organizational project with default workspace roots; existing tasks never follow later default changes.", CreateProjectCommand{},
      D.command_schema([J.Field{"name", D.string_schema("Project name")}, J.Field{"workspace", D.workspace_schema()},
-       J.Field{"guidance", D.guidance_schema()}], [J.Text{"name"}, J.Text{"workspace"}])},
+       J.Field{"guidance", D.guidance_schema()}, J.Field{"create_worktree", J.Object{[J.Field{"type", J.Text{"boolean"}},
+         J.Field{"description", J.Text{"Create a Git worktree for new tasks by default"}}]}}], [J.Text{"name"}, J.Text{"workspace"}])},
    CommandSpec{"update_project", "Change the project's name or workspace defaults without rewriting task contracts.", UpdateProjectCommand{},
      D.command_schema([J.Field{"project_id", D.task_id_schema()}, J.Field{"name", D.string_schema("Project name")},
-       J.Field{"workspace", D.workspace_schema()}, J.Field{"guidance", D.guidance_schema()}], [J.Text{"project_id"}])},
+       J.Field{"workspace", D.workspace_schema()}, J.Field{"guidance", D.guidance_schema()},
+       J.Field{"create_worktree", J.Object{[J.Field{"type", J.Text{"boolean"}},
+         J.Field{"description", J.Text{"Create a Git worktree for new tasks by default"}}]}}], [J.Text{"project_id"}])},
    CommandSpec{"delete_project", "Delete an empty project. A project referenced by any task cannot be deleted.", DeleteProjectCommand{},
      D.command_schema([J.Field{"project_id", D.task_id_schema()}], [J.Text{"project_id"}])},
    CommandSpec{"list_projects", "Read project summaries without advancing tasks.", ListProjectsCommand{}, D.command_schema(Nil{}, Nil{})},

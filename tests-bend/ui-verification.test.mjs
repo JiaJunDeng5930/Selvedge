@@ -12,6 +12,7 @@ import { startServer } from '../host/server.mjs';
 import browserModel from '../host/public/generated/browser-model.mjs';
 import { chatgptFixture, jsonResponse, modelResponse } from './fixtures/chatgpt.mjs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { checkUiSeparation, prepareUiVerification } from '../scripts/ui-verification.mjs';
 
 const firstRule = 'browser/sample/first-laws.bend';
@@ -134,6 +135,19 @@ import ../../interaction/TYPES.bend as Core
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/presentation/SURFACE.bend as Surface
 import ../../interaction/presentation/surface-proof.bend as SurfaceProof
+import ../../interaction/session/MODEL.bend as E
+import ../../harness/transport/command-codec.bend as Codec
+import ../../bendlib/json.bend as J
+
+def commands_list(effects: +List<E.Effect>) -> List<&2, J.Json>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{E.RequestCommand{command, completion}, rest}: Codec.command_json(command) <> commands_list(rest)
+    case Con{other, rest}: commands_list(rest)
+
+def commands(result: Core.Decision) -> Result<&2, &2, String, String>:
+  Core.Decision{state, reply, runtime, interaction, service, durable} = result
+  J.show(J.Array{commands_list(interaction)})
 
 def decide(input: Core.Input, state: Core.State) -> Core.Decision:
   UI.step(UI.InterfaceInput{input}, state)
@@ -148,7 +162,7 @@ def state_from_step(result: Core.Decision) -> Core.State:
 def apply(input: Core.Input, state: Core.State) -> Core.State:
   state_from_step(UI.step(UI.InterfaceInput{input}, state))
 `);
-  await compileJavaScript({ entry, output, sourceRoot: repository, exports: { apply: 'apply', decide: 'decide', press: 'press' } });
+  await compileJavaScript({ entry, output, sourceRoot: repository, exports: { apply: 'apply', decide: 'decide', press: 'press', commands: 'commands' } });
   return import(pathToFileURL(output).href);
 }
 
@@ -636,4 +650,158 @@ test('production activity choices complete and compound cancellation discards bu
     assert.equal(projectDraft(state).directory_entry, '');
     assert.equal(bendTag(layer(state).parameter_buffer), 'None');
   });
+});
+
+
+test('compiled task creation gates Git observations and saves the project choice before creating', { timeout: 240_000 }, async t => {
+  const repository = await home(t);
+  const alternateRepository = await home(t);
+  const serviceHome = await home(t);
+  const ordinary = await home(t);
+  for (const cwd of [repository, alternateRepository]) {
+    for (const args of [['init', '-q'], ['-c', 'user.name=UI Test', '-c', 'user.email=ui@example.test', 'commit', '--allow-empty', '-qm', 'initial']]) {
+      const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+    }
+  }
+  const server = await startServer({ home: serviceHome, cwd: repository,
+    config: validateConfig({ ...defaultConfig, chatgpt: false, port: 0 }) });
+  t.after(() => server.close());
+  const gitProject = await server.service.command({ op: 'create_project', name: 'Git project', workspace: { roots: [repository], primary_root: repository } });
+  const localProject = await server.service.command({ op: 'create_project', name: 'Local project', create_worktree: true, workspace: { roots: [ordinary], primary_root: ordinary } });
+  assert.equal(gitProject.reply.ok, true);
+  assert.equal(localProject.reply.ok, true);
+  const [ui, input] = await Promise.all([browserUI(t), activityInput(t)]);
+  const connected = ui.authenticated(server.service.browserSnapshot().program, 0n);
+  assert.equal(bendTag(connected), 'Done');
+  let state = connected.value;
+  const owner = uiValue('NewTaskEditor');
+  const application = value => bendValue('interaction/TYPES.ApplicationInput', { input: value });
+  const decide = value => input.decide(application(value), state);
+  const user = value => bendValue('interaction/session/MODEL.UserInput', { input: value });
+  const commands = result => {
+    const encoded = input.commands(result);
+    assert.equal(bendTag(encoded), 'Done');
+    return JSON.parse(encoded.value);
+  };
+  const linked = items => items.reduceRight((tail, head) => bendValue('Con', { head, tail }), bendValue('Nil'));
+  const json = value => {
+    if (value === null) return bendValue('bendlib/json.Null');
+    if (typeof value === 'boolean') return bendValue('bendlib/json.Boolean', { value });
+    if (typeof value === 'number') return bendValue('bendlib/json.Number', { lexeme: String(value) });
+    if (typeof value === 'string') return bendValue('bendlib/json.Text', { value });
+    if (Array.isArray(value)) return bendValue('bendlib/json.Array', { items: linked(value.map(json)) });
+    return bendValue('bendlib/json.Object', { fields: linked(Object.entries(value).map(([name, item]) => bendValue('bendlib/json.Field', { name, value: json(item) }))) });
+  };
+  const setWorkspace = primary => {
+    const result = decide(user(uiValue('EditDraft', { editor: owner, edit: uiValue('ConfigureContext', {
+      change: bendValue('interaction/services/CONTEXT.SetWorkspace', { workspace: bendValue('harness/DOMAIN.Workspace', {
+        roots: linked([primary]), primary: bendValue('Some', { value: primary }),
+      }) }),
+    }) })));
+    state = result.state;
+    const probe = listValues(result.interaction_effects).find(effect => bendTag(effect) === 'ObserveWorkspaceGit');
+    assert.ok(probe);
+    return probe;
+  };
+  const begin = id => {
+    const result = decide(user(uiValue('Activate', { action: uiValue('BeginTask', { project: bendValue('Some', { value: BigInt(id) }) }) })));
+    state = result.state;
+    const probe = listValues(result.interaction_effects).find(effect => bendTag(effect) === 'ObserveWorkspaceGit');
+    assert.ok(probe, 'Project selection must request the current primary Git observation');
+    return probe;
+  };
+  const observed = (ticket, available) => {
+    state = decide(bendValue('interaction/session/MODEL.WorkspaceGitObserved', { ticket, available })).state;
+  };
+  const openWorkspace = () => {
+    const result = decide(user(uiValue('Activate', { action: uiValue('OpenPanel', { panel: uiValue('WorkspaceConfiguration', { editor: owner }), trigger: 'git-test' }) })));
+    state = result.state;
+    return listValues(result.interaction_effects).find(effect => bendTag(effect) === 'ObserveWorkspaceGit');
+  };
+  const fields = () => surfaceNodes(ui.surface_state(state)).filter(node => bendTag(node.meaning.field) === 'CreateWorktree');
+  const oldProbe = begin(gitProject.reply.result.project_id);
+  const currentProbe = begin(localProject.reply.result.project_id);
+  state = decide(user(uiValue('EditDraft', { editor: owner, edit: uiValue('WriteMessage', { message: uiValue('Text', { value: 'Wait for the selected workspace.' }) }) }))).state;
+  const unverified = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
+  assert.deepEqual(commands(unverified), [], 'A remembered worktree choice cannot submit before Git verification');
+  assert.equal(listValues(unverified.interaction_effects).length, 0, 'Git verification must precede directory preparation');
+  observed(oldProbe.ticket, true);
+  assert.equal(state.application.session.workspace_git.ticket, currentProbe.ticket, 'An older result cannot settle the current primary');
+  observed(currentProbe.ticket, false);
+  const localProbe = openWorkspace();
+  observed(localProbe.ticket, false);
+  assert.equal(fields().length, 0, 'A non-Git primary must omit worktree creation');
+  state = decide(user(uiValue('EditDraft', { editor: owner, edit: uiValue('WriteMessage', { message: uiValue('Text', { value: 'Use the ordinary workspace.' }) }) }))).state;
+  const fallback = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
+  const fallbackEncoded = input.commands(fallback);
+  assert.equal(bendTag(fallbackEncoded), 'Done');
+  assert.equal(JSON.parse(fallbackEncoded.value)[0].op, 'create', 'Unavailable worktrees use ordinary creation without writing a preference');
+  const remembered = await server.service.command({ op: 'read_project', project_id: localProject.reply.result.project_id });
+  assert.equal(remembered.reply.result.create_worktree, true, 'A non-Git primary must retain its stored project preference');
+  begin(gitProject.reply.result.project_id);
+  const gitProbe = openWorkspace();
+  const capability = await server.service.browserObservation({ kind: 'workspace-git', primary: gitProbe.primary });
+  assert.equal(capability.available, true);
+  observed(gitProbe.ticket, capability.available);
+  assert.equal(fields().length, 1, 'The current Git primary must expose exactly one creation choice');
+  const toggle = input.decide(bendValue('interaction/TYPES.EditField', { editor: owner,
+    field: bendValue('interaction/submission/FIELDS.CreateWorktree'), value: bendValue('interaction/submission/FIELDS.Toggle', { enabled: true }) }), state);
+  state = toggle.state;
+  state = decide(user(uiValue('EditDraft', { editor: owner, edit: uiValue('WriteMessage', { message: uiValue('Text', { value: 'Create from the selected repository.' }) }) }))).state;
+  const beforePreparationRace = state;
+  const preparationProbe = setWorkspace(repository);
+  observed(preparationProbe.ticket, true);
+  const preparation = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
+  assert.deepEqual(commands(preparation), []);
+  const directoryRequest = listValues(preparation.interaction_effects).find(effect => bendTag(effect) === 'ObserveDirectories');
+  assert.ok(directoryRequest, 'An explicit primary must use the actual preparation path');
+  state = preparation.state;
+  const alternateProbe = setWorkspace(alternateRepository);
+  observed(alternateProbe.ticket, true);
+  const outdatedPreparation = decide(bendValue('interaction/session/MODEL.DirectoriesObserved', {
+    ticket: directoryRequest.ticket,
+    result: bendValue('Done', { value: bendValue('interaction/services/CONTEXT.DirectoryObservation', {
+      workspace: directoryRequest.entered, guidance: bendValue('harness/DOMAIN.NoProject'),
+    }) }),
+  }));
+  assert.deepEqual(commands(outdatedPreparation), [], 'A prepared snapshot cannot use a capability for a different primary');
+  assert.equal(listValues(outdatedPreparation.interaction_effects).some(effect => bendTag(effect) === 'RequestCommand'), false);
+  state = beforePreparationRace;
+  const submitted = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
+  assert.deepEqual(commands(submitted), [{ op: 'update_project', project_id: gitProject.reply.result.project_id, create_worktree: true }]);
+  const pending = listValues(submitted.interaction_effects).find(effect => bendTag(effect) === 'RequestCommand');
+  assert.equal(bendTag(pending.completion), 'WorktreePreferenceCompletion');
+  state = submitted.state;
+  const refused = decide(bendValue('interaction/session/MODEL.CommandCompleted', { program: server.service.browserSnapshot().program,
+    reply: json({ ok: false, error: { code: 'project_not_found', message: 'The project no longer exists' } }), completion: pending.completion }));
+  assert.deepEqual(commands(refused), [], 'A failed preference write must stop before task creation');
+  const saved = await server.service.browserCommand(commands(submitted)[0]);
+  assert.equal(saved.reply.ok, true);
+  const submittedState = state;
+  const changedDuringSave = setWorkspace(alternateRepository);
+  observed(changedDuringSave.ticket, true);
+  const outdatedPreference = decide(bendValue('interaction/session/MODEL.CommandCompleted', { program: saved.program, reply: json(saved.reply), completion: pending.completion }));
+  assert.deepEqual(commands(outdatedPreference), [], 'A saved preference cannot create from an unverified captured primary');
+  state = submittedState;
+  const continued = decide(bendValue('interaction/session/MODEL.CommandCompleted', { program: saved.program, reply: json(saved.reply), completion: pending.completion }));
+  const createdCommands = commands(continued);
+  assert.equal(createdCommands.length, 1);
+  assert.equal(createdCommands[0].op, 'create_worktree_task');
+  assert.equal(createdCommands[0].settings.project_id, gitProject.reply.result.project_id);
+  const created = await server.service.browserCommand(createdCommands[0]);
+  assert.equal(created.reply.ok, true);
+  const stored = await server.service.command({ op: 'read_project', project_id: gitProject.reply.result.project_id });
+  assert.equal(stored.reply.result.create_worktree, true);
+  state = continued.state;
+  const reopen = begin(gitProject.reply.result.project_id);
+  assert.ok(reopen);
+  const draft = listValues(state.application.session.drafts).find(item => bendTag(item.body) === 'NewTask');
+  assert.equal(draft.body.create_worktree, true, 'Opening the project again must load its saved creation choice');
+  state = decide(user(uiValue('EditDraft', { editor: owner, edit: uiValue('WriteMessage', { message: uiValue('Text', { value: 'Use the remembered Git choice.' }) }) }))).state;
+  const loadingAgain = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
+  assert.deepEqual(commands(loadingAgain), [], 'A remembered positive choice must await its new Git observation');
+  observed(reopen.ticket, true);
+  const verifiedAgain = decide(user(uiValue('Activate', { action: uiValue('Submit', { editor: owner }) })));
+  assert.equal(commands(verifiedAgain)[0].op, 'create_worktree_task', 'A positive matching observation permits creation without rewriting the saved preference');
 });
