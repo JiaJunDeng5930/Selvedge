@@ -191,6 +191,9 @@ def feature_result(found: Maybe<&2, FeatureOps.ResolvedEvent>) -> ResolvedEvent:
 def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
+    case M.RemoteCommand{request, command, environment}: Ignore{}
+    case M.RemoteProbe{request, command}: Ignore{}
+    case M.RemoteCheck{controller_id, grant_epoch}: Ignore{}
     case M.ContextObserved{id, ticket, outcome}: context_observed(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)

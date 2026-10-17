@@ -105,6 +105,9 @@ def updated_input_semantics(+input: M.Input, +world: M.World()) ->
 
 def Laws.interaction_transition(input, world):
   match input:
+    case M.RemoteCommand{request, command, environment}: {==}
+    case M.RemoteProbe{request, command}: {==}
+    case M.RemoteCheck{controller, epoch}: {==}
     case M.UserCommand{command}: Laws.command_transition(command, world)
     case M.ContextObserved{id, ticket, outcome}: updated_input_semantics(M.ContextObserved{id, ticket, outcome}, world)
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)

@@ -41,6 +41,9 @@ or rejection of source code, proofs or certificates.
 | Committed context measurements, readable UTF-8 upper-bound fallback, frozen/stopped observation quiescence, complete request budgets, background continuation, hard-threshold waiting, oversized concurrent suffix reconstruction, idle revisions and endpoint switching | `automatic-compaction.test.mjs`, `fixtures/compaction.mjs`; real service, SQLite journal and HTTP token-count/compact fixtures |
 | Production browser boot catalog observation, manual model preference persistence/restoration, unchanged existing task model and actual next-created task provider routing; empty-catalog unavailability; generated task reasoning single-choice controls encoded by the production semantic surface and accepted by authenticated HTTP for all approval policies, with complete unrelated task state preserved | `chatgpt-models.test.mjs`; compiled browser runtime and signed loopback account/provider fixtures |
 | Authentication, HTTP/SSE delivery and committed service dispatch | `auth.test.mjs`, `service.test.mjs` |
+| Cloudflare workerd/DO hibernation, local pairing approval, authenticated relay commands, lost replies, SQLite restart, revocation, disconnect without task cancellation, and remote snapshots preserving project task trees and descendant navigation through the production UI | `remote-control.test.mjs`, `remote-support.mjs`; real local Cloudflare runtime, no deployed account |
+| Outbound WebSocket negotiation, heartbeat, bounded queues, snapshot stream cut, authorization and reconnect fencing | `remote-connector.test.mjs`; real loopback HTTP/WebSocket transport |
+| CLI enrollment and local management, private identity files and secret-free output | `remote-cli.test.mjs`; child CLI, real filesystem and loopback service |
 | Committed forks through the HTTP-visible world into nested semantic sidebar rows and browser-authored indentation; project boundaries, shared-worktree ownership across projects, archive preservation, descendant navigation, selection, status and project disclosure | `ui-verification.test.mjs`; compiled production UI, real service and Git, without a physical browser geometry claim |
 | Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
 | Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
@@ -50,6 +53,9 @@ Use Bun 1.4.2 or later and the pinned Bend compiler installed by
 `bun run check` checks source boundaries, certificates, the production proof root
 and script syntax. `bun run test` builds the kernel/browser JavaScript libraries
 before running this directory with one isolated worker.
+The runner enforces a 15-minute watchdog for each test file, terminates its
+process group on timeout, and treats abnormal exits or missing test-result
+footers as failures.
 `bun run test:locality` selects source-boundary checks and actual native extension
 round trips.
 `bun run build:native` is the optional native entry build and requires a C compiler.

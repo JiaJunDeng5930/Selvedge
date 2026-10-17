@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
 import ../context/MODEL.bend as Context
 import ../context/KINDS.bend as ContextKinds
 import ../tools/MODEL.bend as Tools
@@ -569,9 +570,71 @@ def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> 
     case Fail{reason}: Fail{reason}
     case Done{completion}: Done{M.FeatureCompleted{completion}}
 
+def remote_request(+body: J.Json) -> Remote.Request:
+  Remote.Request{J.text(J.get(body, "controller_id")), Protocol.number(body, "grant_epoch", 0n),
+    J.text(J.get(body, "request_id")), J.get(body, "intent")}
+
+def remote_request_shape(+body: J.Json) -> Bool:
+  J.is_text(J.get(body, "controller_id")) && Shape.is_natural(J.get(body, "grant_epoch")) &&
+    J.is_text(J.get(body, "request_id")) && J.is_object(J.get(body, "intent")) && Remote.request_valid(remote_request(body))
+
+def remote_probe_command(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.UserCommand{command}}: Done{M.RemoteProbe{request, command}}
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote command intent"}
+
+def remote_probe_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote probe"}
+    case True{}: remote_probe_command(decode_command(J.get(body, "intent")), remote_request(body))
+
+def root_environment_command(command: M.Command) -> Bool:
+  match command:
+    case M.Create{profile, reasoning, message, settings}: True{}
+    case M.Fork{task, count, messages, settings}: True{}
+    case M.FeatureCommand{command}: Features.root_environment(command)
+    case _: False{}
+
+def remote_configured(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request, command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.Configure{environment}}: Done{M.RemoteCommand{request, command, Some{environment}}}
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote environment observation"}
+
+def remote_configuration_valid(valid: Bool, configuration: J.Json, request: Remote.Request, command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Remote environment observations are limited to task creation"}
+    case True{}: remote_configured(decode_config(configuration), request, command)
+
+def remote_configuration(+configuration: J.Json, request: Remote.Request, +command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match configuration:
+    case J.Null{}: Done{M.RemoteCommand{request, command, None{}}}
+    case other: remote_configuration_valid(String.eq(J.text(J.get(other, "kind")), "configure") && root_environment_command(command), other, request, command)
+
+def remote_decoded_command(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request, configuration: J.Json) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.UserCommand{command}}: remote_configuration(configuration, request, command)
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote prepared command"}
+
+def remote_command_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote command envelope"}
+    case True{}: remote_decoded_command(decode_command(J.get(body, "command")), remote_request(body), J.get(body, "configuration"))
+
+def remote_check_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote observation authorization"}
+    case True{}: Done{M.RemoteCheck{J.text(J.get(body, "controller_id")), Protocol.number(body, "grant_epoch", 0n)}}
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
+    case "remote_probe": remote_probe_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch", "request_id", "intent"]) && remote_request_shape(body), body)
+    case "remote_command": remote_command_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch", "request_id", "intent", "command", "configuration"]) && remote_request_shape(body), body)
+    case "remote_check": remote_check_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch"]) &&
+      J.is_text(J.get(body, "controller_id")) && Shape.is_natural(J.get(body, "grant_epoch")), body)
     case "context_observed": decode_context(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)
