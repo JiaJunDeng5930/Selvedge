@@ -131,6 +131,9 @@ test('installing a connection to an existing Task does not replay historical out
 
 test('tool continuations and compaction summaries do not escape through the output hook', async t => {
   const fixture = await journalFixture(t);
+  await fixture.send({ kind: 'compaction_configure', now: 0, policy: { enabled: false,
+    background_percent: 65, blocking_percent: 90, idle_lead_ms: 0, targets: [{ profile: 'fixture',
+      window_tokens: 65536, output_reserve_tokens: 1024, cache_ttl_ms: null, method: 'summary' }] } });
   const { decision, graph } = await install(fixture, [node('tests'), node('implementation')],
     [rule('handoff', 'tests', action('implementation'))]);
   const source = taskId(graph, 'tests');
@@ -143,8 +146,24 @@ test('tool continuations and compaction summaries do not escape through the outp
   assert.equal((await page(fixture, target)).task.queued, 1);
   const compacted = await fixture.command({ op: 'compact', task_id: source });
   assert.equal(compacted.reply.ok, true, JSON.stringify(compacted.reply));
-  const summary = modelEffect(compacted, source, 'summary');
-  await fixture.send(model(summary, [say('private continuation summary')]));
+  const scope = modelEffect(compacted, source, 'context_scope');
+  const inspected = await fixture.send({ kind: 'compaction_measured', task_id: source, ticket: scope.ticket,
+    error: false, result: { scope: 'fixture-scope', now: 1 } });
+  const initialMeasure = modelEffect(inspected, source, 'context_measure');
+  const prepared = await fixture.send({ kind: 'compaction_measured', task_id: source, ticket: initialMeasure.ticket,
+    error: false, result: { scope: 'fixture-scope', input_tokens: 100, window_tokens: 65536,
+      output_reserve_tokens: 1024, now: 1 } });
+  const summary = modelEffect(prepared, source, 'context_compaction');
+  const summarized = await fixture.send({ kind: 'compaction_completed', task_id: source, ticket: summary.ticket,
+    error: false, result: { scope: 'fixture-scope', summary_text: 'private continuation summary' } });
+  const validationScope = modelEffect(summarized, source, 'context_scope');
+  const validation = await fixture.send({ kind: 'compaction_measured', task_id: source, ticket: validationScope.ticket,
+    error: false, result: { scope: 'fixture-scope', now: 2 } });
+  const measured = modelEffect(validation, source, 'context_measure');
+  const adopted = await fixture.send({ kind: 'compaction_measured', task_id: source, ticket: measured.ticket,
+    error: false, result: { scope: 'fixture-scope', input_tokens: 100, window_tokens: summary.plan.window_tokens,
+      output_reserve_tokens: summary.plan.output_reserve_tokens, now: 2 } });
+  assert.equal(adopted.reply.ok, true, JSON.stringify(adopted.reply));
   assert.equal((await page(fixture, target)).task.queued, 1);
   assert.equal((await readGraph(fixture, graph.graph_id)).receipts.length, 1);
 });

@@ -103,6 +103,7 @@ test('changing endpoint rebuilds incompatible native context from long local his
     `Historic finding ${index}: retain requirement ${index * 17}, result ${index * 31}.`).join('\n')}\n${sourceEnd}`;
   const oldCheckpoint = checkpoint('old-endpoint');
   const summaries = [], resumed = [], failures = [];
+  const window = 8192, reserve = 256;
   const measured = body => encode(JSON.stringify({ input: body.input, instructions: body.instructions ?? '', tools: body.tools ?? [] })).length + 100;
   const target = http.createServer((request, response) => {
     void (async () => {
@@ -118,7 +119,7 @@ test('changing endpoint rebuilds incompatible native context from long local his
         'An incompatible opaque artifact must not be sent even to the new meter');
       if (request.url === '/v1/responses/input_tokens') return inputTokensResponse(response, measured(body));
       assert.equal(request.url, '/v1/responses');
-      assert.ok(measured(body) + 256 <= 4096, 'Every actual model call fits the new target window');
+      assert.ok(measured(body) + reserve <= window, 'Every actual model call fits the new target window');
       if (body.tool_choice === 'none') {
         summaries.push(body.input);
         modelResponse(response, [assistant(`PORTABLE_CONTEXT_${summaries.length}`)]);
@@ -137,10 +138,10 @@ test('changing endpoint rebuilds incompatible native context from long local his
   await taskIdle(running.service);
   await running.service.command({ op: 'compact', task_id: 0 });
   await contextReplaced(running.service);
-  assert.ok(measured({ input: [{ role: 'assistant', content: originalSource }] }) > 4096);
+  assert.ok(measured({ input: [{ role: 'assistant', content: originalSource }] }) > window);
   await running.restart(config => ({ ...config, profiles: { ...config.profiles,
     fixture: { ...config.profiles.fixture, endpoint } }, compaction: { ...policy(null),
-    targets: [{ profile: 'fixture', window_tokens: 4096, output_reserve_tokens: 256, cache_ttl_ms: null, method: 'summary' }] } }));
+    targets: [{ profile: 'fixture', window_tokens: window, output_reserve_tokens: reserve, cache_ttl_ms: null, method: 'summary' }] } }));
   await running.service.command({ op: 'send', task_id: 0, message: 'Continue on the new endpoint.' });
   let page;
   await until('bounded reconstruction and continuation', async () => {
@@ -161,8 +162,8 @@ test('changing endpoint rebuilds incompatible native context from long local his
 
 test('a third-party Responses endpoint without token counting still compacts readable history with a conservative bound', { timeout: 20_000 }, async t => {
   const directory = await home(t);
-  const source = 'Retain this original requirement and its recorded constraints. '.repeat(500);
-  const window = 8192, reserve = 512;
+  const source = 'Retain this original requirement and its recorded constraints. '.repeat(1000);
+  const window = 32768, reserve = 512;
   assert.ok(Buffer.byteLength(source) > window);
   const key = 'SELVEDGE_COMPACTION_FALLBACK_KEY';
   const previous = process.env[key]; process.env[key] = 'fixture-only';
