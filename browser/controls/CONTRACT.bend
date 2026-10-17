@@ -1045,6 +1045,7 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.PanelToggle{expanded, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: SurfaceTypes.Region{}
     case SurfaceTypes.TaskRow{task, status, selected}: SurfaceTypes.Region{}
+    case SurfaceTypes.TaskChildren{task}: SurfaceTypes.Region{}
     case SurfaceTypes.ProjectChooser{selected}: SurfaceTypes.Region{}
     case SurfaceTypes.DirectoryRow{path, primary}: SurfaceTypes.Region{}
     case SurfaceTypes.ContextSummary{observation}: SurfaceTypes.Region{}
@@ -1560,6 +1561,10 @@ type NavigationPolicyRequirements is Type:
       {Navigation.revealed(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Bool.not(capable) || Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool},
     project_depth: @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+depth:Nat ->
       {Navigation.descend(SurfaceTypes.ProjectGroup{project, selected, expanded}, depth) == (depth + 1n : Nat) : Nat},
+    task_children_depth: @+task:Nat -> @+depth:Nat ->
+      {Navigation.descend(SurfaceTypes.TaskChildren{task}, depth) == (depth + 1n : Nat) : Nat},
+    task_row_depth: @+task:Nat -> @+status:View.TaskStatus -> @+selected:Bool -> @+depth:Nat ->
+      {Navigation.descend(SurfaceTypes.TaskRow{task, status, selected}, depth) == depth : Nat},
     nullable_owner: @+nodes:+List<SurfaceTypes.Node> -> {Navigation.admitted(None{}, nodes) == True{} : Bool}}
 
 type NavigationRequirements is Type:
@@ -1587,6 +1592,12 @@ type NavigationRequirements is Type:
 
 law navigation_evidence:
   NavigationRequirements
+
+law task_children_collection:
+  @+key:UIIdentity.Key -> @+task:Nat -> @+label:String -> @+visual:Design.Style -> @+content:+List<Source.Node> ->
+  {Authored.navigation_collection(key, SurfaceTypes.TaskChildren{task}, label, visual, content) ==
+    Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Sidebar.collection_frame(Sidebar.Members{})),
+      [Source.DataAttribute{"task-parent", Nat.show(task)}, Source.RoleAttribute{"group"}, Source.AriaAttribute{"label", label}], content} : Source.Node}
 
 
 law navigation_entry_selected:
