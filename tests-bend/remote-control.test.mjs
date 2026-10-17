@@ -4,11 +4,11 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { encodeBendValue } from '../host/public/bend-value.mjs';
+import { bendTag, decodeBendValue, encodeBendValue } from '../host/public/bend-value.mjs';
 import { validateConfig, defaultConfig } from '../host/config.mjs';
 import { startServer } from '../host/server.mjs';
 import { MAX_REMOTE_FRAME_BYTES } from '../remote/protocol.mjs';
-import { home, taskIdle, responsesServer } from './support.mjs';
+import { browserUI, home, surfaceNodes, taskIdle, responsesServer } from './support.mjs';
 import { controlPermission, readPermission, eventually, relayPost, remoteFixture } from './remote-support.mjs';
 
 function journal(directory) {
@@ -140,6 +140,64 @@ test('lost command replies and host restart retain the same receipt without repe
   const committedRemote = journal(f.directory).filter(row => row.input.kind === 'remote_command');
   assert.equal(committedRemote.filter(row => row.input.request_id === request_id).length, 1);
   assert.equal(committedRemote.filter(row => row.input.request_id === send_id).length, 1);
+});
+
+test('relay snapshots preserve project task trees and executable descendant navigation', { timeout: 240_000 }, async t => {
+  const f = await remoteFixture(t);
+  const { client } = await f.pair({ ...controlPermission, configure: true });
+  const command = async value => business(await client.command(value));
+  const alpha = (await command({ op: 'create_project', name: 'Remote Alpha', workspace: { roots: [] } })).project_id;
+  const beta = (await command({ op: 'create_project', name: 'Remote Beta', workspace: { roots: [] } })).project_id;
+  const root = (await command({ op: 'create', profile: 'demo', message: 'Remote project root 世界', settings: { project_id: alpha } })).task_id;
+  await taskIdle(f.service, root);
+  const fork = async (task_id, message, project_id) => {
+    const { children } = await command({ op: 'fork', task_id, child_count: 1, messages: [message],
+      ...(project_id === undefined ? {} : { settings: { project_id } }) });
+    await Promise.all([task_id, ...children].map(id => taskIdle(f.service, id)));
+    return children[0];
+  };
+  const child = await fork(root, 'Remote child');
+  const descendant = await fork(child, 'Remote grandchild');
+  const crossProject = await fork(root, 'Fork into Beta', beta);
+  const betaChild = await fork(crossProject, 'Child within Beta');
+  const response = await client.request('snapshot');
+  assert.equal(response.error, undefined, JSON.stringify(response));
+  const ui = await browserUI(t);
+  const authenticated = ui.authenticated(decodeBendValue(response.result.program), BigInt(root));
+  assert.equal(bendTag(authenticated), 'Done');
+  let state = authenticated.value;
+  const nodes = () => surfaceNodes(ui.surface_state(state));
+  const children = node => {
+    const values = [];
+    for (let list = node.children; bendTag(list) === 'Con'; list = list.tail) values.push(list.head);
+    return values;
+  };
+  const hierarchy = [];
+  const visit = (node, project = null, parent = null) => {
+    const tag = bendTag(node.meaning);
+    if (tag === 'ProjectGroup') project = Number(node.meaning.project);
+    if (tag === 'TaskRow') hierarchy.push({ task: Number(node.meaning.task), project, parent });
+    if (tag === 'TaskChildren') parent = Number(node.meaning.task);
+    for (const child of children(node)) visit(child, project, parent);
+  };
+  visit(nodes().find(node => bendTag(node.role) === 'Navigation'));
+  assert.deepEqual(hierarchy, [
+    { task: root, project: alpha, parent: null }, { task: child, project: alpha, parent: root },
+    { task: descendant, project: alpha, parent: child },
+    { task: crossProject, project: beta, parent: null }, { task: betaChild, project: beta, parent: crossProject },
+  ], 'Every remote-created task appears once; same-project forks nest and a cross-project fork starts its destination tree');
+  const navigate = value => {
+    if (!value || typeof value !== 'object') return undefined;
+    if (bendTag(value) === 'Navigate') return value;
+    return Object.values(value).map(navigate).find(Boolean);
+  };
+  const subtree = node => [node, ...children(node).flatMap(subtree)];
+  const row = nodes().find(node => bendTag(node.meaning) === 'TaskRow' && node.meaning.task === BigInt(descendant));
+  const open = subtree(row).find(node => navigate(node.meaning.input)?.route.task === BigInt(descendant));
+  assert.ok(open, 'The remote descendant retains its actual navigation input');
+  state = ui.activate_state(state, ui.key(open));
+  assert.deepEqual(nodes().filter(node => bendTag(node.meaning) === 'TaskRow' && node.meaning.selected)
+    .map(node => Number(node.meaning.task)), [descendant]);
 });
 
 test('native scope and current grants protect established sockets, reads, receipts and local administration', { timeout: 40_000 }, async t => {
