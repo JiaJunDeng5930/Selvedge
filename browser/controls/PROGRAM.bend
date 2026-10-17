@@ -508,6 +508,7 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
   match action:
     case UserInput.Submit{editor}: submit_purpose(editor)
     case UserInput.RetryWorkspace{editor}: NamedAction{}
+    case UserInput.RetryWorktreeArchive{task}: NamedAction{}
     case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
     case UserInput.BeginTask{None{}}: CreateItem{}
     case UserInput.BeginTask{Some{project}}: ProjectTaskCreation{}

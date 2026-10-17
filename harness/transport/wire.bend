@@ -72,9 +72,9 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), J.optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
     case M.CreateProjectCommand{}:
-      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance"), J.get(body, "create_worktree")}
     case M.UpdateProjectCommand{}:
-      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance"), J.get(body, "create_worktree")}
     case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
     case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
     case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}

@@ -39,8 +39,8 @@ function ancestors(root, includeSelf) {
   }
 }
 
-export function seatbeltProfile({ writableRoots, scratch, readOnlyPaths = [], networkAccess, readableRoots }) {
-  return boundary('effect.seatbelt', { writableRoots, scratch, readOnlyPaths, networkAccess, readableRoots,
+export function seatbeltProfile({ writableRoots, scratch, readOnlyPaths = [], readOnlyExceptions = [], networkAccess, readableRoots }) {
+  return boundary('effect.seatbelt', { writableRoots, scratch, readOnlyPaths, readOnlyExceptions, networkAccess, readableRoots,
     protectedAncestors: readOnlyPaths.map(root => ancestors(root, true)),
     readAncestors: readableRoots ? [...readableRoots, scratch].map(root => ancestors(root, false)) : [] });
 }
@@ -91,9 +91,9 @@ async function runtimeReads(platform) {
  * to unrestricted execution. Policy selection/approval is not implemented here.
  */
 export async function prepareSandbox(plan, { platform = process.platform, architecture = process.arch,
-  readOnlyPaths = [], signal } = {}) {
+  readOnlyPaths = [], managedWorktreeRoot, signal } = {}) {
   signal?.throwIfAborted();
-  const options = { platform, architecture, readOnlyPaths };
+  const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot };
   boundary('effect.sandbox_admit', { plan, options });
   const workspace = await canonicalWorkspace(plan.workspace);
   const source = { plan, options, workspace, root_observations: workspaceObservations(plan.workspace, workspace) };
@@ -110,7 +110,8 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
   };
   try {
     const protectedRoots = await Promise.all(readOnlyPaths.map(root => realpath(root)));
-    const context = { ...source, scratch, protectedRoots, separator: path.sep };
+    const managedRoot = managedWorktreeRoot === undefined ? null : await realpath(managedWorktreeRoot);
+    const context = { ...source, scratch, protectedRoots, managedWorktreeRoot: managedRoot, separator: path.sep };
     boundary('effect.protected_workspace', { ...context, projectOnly });
     const preparation = boundary('effect.sandbox_prepare', context);
     signal?.throwIfAborted();

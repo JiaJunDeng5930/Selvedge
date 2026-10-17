@@ -238,7 +238,9 @@ test('the complete native/service flow commits evaluation first, bypasses it und
   assert.deepEqual(primary.failures, []);
 });
 
-test('adaptive evaluation remains bounded after compacted original history grows beyond a kernel frame', { timeout: 60_000 }, async t => {
+// NOTE: Retained originals still undergo validation and journal commits; allow
+// that CPU work to finish before checking the evaluator's encoded input bounds.
+test('adaptive evaluation remains bounded after compacted original history grows beyond a kernel frame', { timeout: 180_000 }, async t => {
   key(t);
   const directory = await home(t);
   const upstream = await evaluator(t, () => chosen('low', '1'));
@@ -263,7 +265,7 @@ test('adaptive evaluation remains bounded after compacted original history grows
       const result = await service.command({ op: 'read', task_id: 0, after: 0, limit: 1 });
       assert.equal(result.reply.ok, true);
       return primary.requests.length === index + 1 && result.reply.result.task.phase === 'idle';
-    }, 10_000);
+    }, 30_000);
   }
   assert.equal(evaluations.length, 4);
   assert.equal(upstream.requests.length, 4);

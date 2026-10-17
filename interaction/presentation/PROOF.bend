@@ -128,7 +128,7 @@ def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
 
 def Rule.card_ordered_movement(view, parent, state):
   V.CardScene{id, value, open, actions, linked, destinations, candidates} = view
-  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = state
+  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}}, services} = state
   {==}
 
 def Rule.card_surface_placement(key, semantic, label, face, children, target): {==}
@@ -203,6 +203,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorkspace{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorktreeArchive{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ControlTask{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CancelOperation{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ReviewApproval{p0, p1, p2, p3}}}}: {==}
@@ -229,6 +230,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.DirectoriesObserved{p0, p1}}: {==}
     case InteractionTypes.ApplicationInput{E.ClockObserved{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.ModelPreferenceRestored{p0, p1}}: {==}
+    case InteractionTypes.ApplicationInput{E.WorkspaceGitObserved{p0, p1}}: {==}
     case InteractionTypes.ServiceInput{p0}: {==}
     case InteractionTypes.EditField{p0, p1, p2}: {==}
     case InteractionTypes.RemoveAttachment{p0, p1}: {==}

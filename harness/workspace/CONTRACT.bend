@@ -28,6 +28,11 @@ type ContextBoundary is Type:
       {Commands.entries(Projects.store(F.State(), registry, world)) == Commands.entries(world) : +List<D.Task>},
     removal: @registry:D.Projects -> @+id:Nat ->
       {Projects.find(Projects.remove(id, registry), id) == None{} : Maybe<&2, D.Project>},
+    worktree_preference_preserved: @name:Maybe<&2, String> -> @workspace:J.Json -> @guidance:J.Json -> @+previous:D.Project ->
+      {Projects.create_worktree(Projects.proposal(name, workspace, guidance, J.Null{}, previous)) ==
+        Projects.create_worktree(previous) : Bool},
+    worktree_preference_selected: @name:Maybe<&2, String> -> @workspace:J.Json -> @guidance:J.Json -> @+selected:Bool -> @previous:D.Project ->
+      {Projects.create_worktree(Projects.proposal(name, workspace, guidance, J.Boolean{selected}, previous)) == selected : Bool},
     protected_review: ({W.review_no_broader(D.FullAccess{}, D.AskForApproval{}) == False{} : Bool} &
       (@profile:D.Profile -> {W.review_no_broader(D.FullAccess{}, D.ApprovalForMe{profile}) == False{} : Bool})),
     refused_delegation: @+context:D.TaskContext -> @+guidance:D.ProjectContext -> @+parent:D.TaskContext -> @+count:Nat -> @+messages:+List<String> ->
