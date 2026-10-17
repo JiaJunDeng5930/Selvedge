@@ -1,3 +1,4 @@
+import ./layout/natural-size.bend as NaturalSize
 import Base
 import ../harness/MODEL.bend as M
 import ../interaction/MODEL.bend as Product
@@ -148,7 +149,7 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
     Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>}) ->
   {Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks) ==
     [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>}:
-  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer} = session
+  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer, model_preference, draft_model_manual} = session
   reader = E.reader(readers, task)
   generation_observed = Equal.cong(E.Reader, Nat, E.reader_generation, reader,
     E.Reader{generation, U.ReadHistory{}, disclosures}, reader_observed)
@@ -427,6 +428,7 @@ def synchronize_retained_entry(found: Maybe<&2, U.Draft>, editor: Editor.Editor,
     case None{} Unit{}: {==}
     case Some{U.Draft{revision, body, U.Editing{}, directory_entry}} Unit{}: {==}
     case Some{U.Draft{revision, body, U.Rejected{revision, reason}, directory_entry}} Unit{}: {==}
+    case Some{U.Draft{revision, body, U.WorkspaceRejected{revision, reason}, directory_entry}} Unit{}: {==}
     case Some{U.Draft{revision, body, U.Accepted{revision, reply}, directory_entry}} impossible:
       match impossible:
 
@@ -522,11 +524,11 @@ def idle_product(application: Platform.State, generation: Nat, realization: Rend
     case Platform.State{core, platform}: {==}
 
 def production_typography_product(owned: Bool, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, environment: Design.Environment, font: F.State, observation: F.Observation) ->
+  realization: Rendered.State, environment: Design.Environment, +font: F.State, observation: F.Observation) ->
   {Model.product(Model.production_typography_owned(owned, application, generation, realization, environment, font, observation)) ==
     Platform.unchanged(Rule.model_core(application)) : InteractionTypes.Decision}:
   match owned:
-    case True{}: idle_product(application, generation, realization, environment, F.accept(font, Nil{}, observation))
+    case True{}: idle_product(application, generation, realization, environment, F.accept(font, F.activity_specifications(NaturalSize.limit(), F.scale(font)), observation))
     case False{}: idle_product(application, generation, realization, environment, font)
 
 def typography_product(+state: Model.State, +observation: F.Observation) ->

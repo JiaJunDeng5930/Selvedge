@@ -67,7 +67,8 @@ def execute_start_environment(profile: D.Profile, reasoning: String, message: St
     case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
       +next_task = D.state_next_task(task_state)
-      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context},
+      +contract : D.Contract = D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context}
+      task : D.Task = D.Task{next_task, Nil{}, contract, D.execution_configuration(contract),
         D.Active{}, D.EmptyHistory{}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
       task = D.initialize_history(instructions, guidance, message, task)
       respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
@@ -148,10 +149,11 @@ def review_result(resolution: Approvals.Resolution, world: M.World()) -> M.Decis
 
 def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case Commands.ConfigureExecution{task, configuration}: Commands.configured_task(task, configuration, world)
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Review{resolution}: review_result(resolution, world)
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
-    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(execute_start, operation, world)
+    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(~execute_start, operation, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)
     case Commands.Steer{+task, message}:
       C.Decision{store(T.steer(message, task), world), D.success(id_result(D.task_id(task))),
@@ -177,13 +179,18 @@ def realize(member: Commands.ConstructedCommand()) -> M.Decision():
 def apply_command(command: M.Command, +world: M.World()) -> M.Decision():
   realize(Commands.construct_command(command, world))
 
+def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision():
+  apply_command(M.Send{target, message}, world)
+
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
 
-def model_matched(same: Bool, outcome: D.Outcome, allowed: +List<String>, task: D.Task, world: M.World()) -> M.Decision():
+def model_matched(same: Bool, +outcome: D.Outcome, allowed: +List<String>, +task: D.Task, world: M.World()) -> M.Decision():
   match same:
     case False{}: respond(world, accepted(False{}))
-    case True{}: respond(store(T.model_outcome(outcome, allowed, task), world), accepted(True{}))
+    case True{}:
+      Protocol.accepted_reaction(FeatureExec.react_outputs(~output_send, D.task_id(task), T.reply_outputs(outcome),
+        store(T.model_outcome(outcome, allowed, task), world)))
 
 def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Bool, task: D.Task, world: M.World()) -> M.Decision():
   match same:
@@ -412,7 +419,7 @@ def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   Commit.checked(decision, previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
-  deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
+  deliver(M.durable(input), checked(Commit.configuration_checked(input, Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world), world)
 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)

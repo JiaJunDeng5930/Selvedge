@@ -11,6 +11,7 @@ import ./CONCEPTS.bend as Entry
 import ./harness/reasoning/PROOF.bend as ReasoningProof
 import ./harness/tasks/PROOF.bend as TasksProof
 import ./features/board/PROOF.bend as BoardProof
+import ./features/task_graph/PROOF.bend as TaskGraphProof
 import ./harness/features/laws.bend as FeatureLaws
 import ./harness/protocol/PROOF.bend as ProtocolProof
 import ./harness/execution/PROOF.bend as ExecutionProof
@@ -44,6 +45,7 @@ import ./interaction/submission/PROOF.bend as CoreSubmissionFeedbackProof
 import ./interaction/presentation/scene-proof.bend as SplitInteractionPresentationSceneProof
 import ./interaction/services/PROOF.bend as CoreExecutionContextProof
 import ./interaction/session/PROOF.bend as CoreSessionProof
+import ./interaction/experience/PROOF.bend as ExperienceProof
 import ./interaction/PROOF.bend as UIProof
 
 import ./bendlib/categories.bend as Categories

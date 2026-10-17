@@ -23,7 +23,7 @@ type Change is Data:
   Change{state: A.State, task: Maybe<&2, D.Task>, reserve_ticket: Bool, effects: +List<A.Effect>}
 
 def model(+task: D.Task) -> D.Model:
-  T.task_model(D.task_contract(task))
+  D.task_model(task)
 
 def provider(+value: D.Model) -> String:
   D.Model{D.Profile{+key, +provider, +name, +policy, +options}, +effort} = value

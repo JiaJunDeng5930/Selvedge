@@ -86,9 +86,30 @@ def toggle_center_offset(value: ToggleGeometry) -> Nat:
 def native_field_appearance(kind: NativeFieldKind) -> String:
   "none"
 
+type Exposure is Data:
+  Exposed{}
+  Concealed{}
+
+def exposed(value: Exposure) -> Bool:
+  match value:
+    case Exposed{}: True{}
+    case Concealed{}: False{}
+
+def combine_exposure(parent: Exposure, own: Exposure) -> Exposure:
+  match parent:
+    case Exposed{}: own
+    case Concealed{}: Concealed{}
+
+def exposure_name(value: Exposure) -> String:
+  match value:
+    case Exposed{}: "visible"
+    case Concealed{}: "hidden"
+
 type Attribute is Data:
+  ExposureAttribute{value: Exposure}
   ReadingAttribute{binding: ReadingBinding.Binding}
   EditorBindingAttribute{key: Identity.Key}
+  IdAttribute{value: String}
   DataAttribute{name: String, value: String}
   AriaAttribute{name: String, value: String}
   RoleAttribute{value: String}
@@ -157,6 +178,20 @@ type Node is Data:
     accessible_name: String, enabled: Bool, first_event: Doc.DOMEvent, remaining_events: +List<Doc.DOMEvent>}
   RichText{key: Identity.Key, style: Style, content: RichContent, attachments: +List<Node>, native_owner: Maybe<&2, String>}
 
+def attributes_exposure(values: +List<Attribute>) -> Exposure:
+  match values:
+    case Nil{}: Exposed{}
+    case Con{ExposureAttribute{value}, rest}: combine_exposure(value, attributes_exposure(rest))
+    case Con{other, rest}: attributes_exposure(rest)
+
+def node_exposure(node: Node) -> Exposure:
+  match node:
+    case NativeAttachment{key, target, attributes, style, children}: attributes_exposure(attributes)
+    case Box{key, tag, style, attributes, children}: attributes_exposure(attributes)
+    case Control{key, tag, style, attributes, name, enabled, first, remaining, children}: attributes_exposure(attributes)
+    case Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}: attributes_exposure(attributes)
+    case _: Exposed{}
+
 def resolve_font(choice: FontChoice, parent: T.Presentation) -> T.Presentation:
   match choice:
     case InheritFont{}: parent
@@ -214,9 +249,11 @@ def control_tag_name(tag: ControlTag) -> String:
 
 def attribute_properties(attribute: Attribute) -> +List<Doc.Property>:
   match attribute:
+    case ExposureAttribute{value}: [Doc.Property{"data-presentation-visibility", exposure_name(value)}]
     case ReadingAttribute{ReadingBinding.Binding{ReadingBinding.Context{task, generation}, part}}:
       [Doc.Property{"data-reading-task", Nat.show(task)}, Doc.Property{"data-reading-generation", Nat.show(generation)}, Doc.Property{"data-reading-" ++ ReadingBinding.part_name(part), ""}]
     case EditorBindingAttribute{key}: [Doc.Property{"data-native-editor-key", Identity.encode(key)}]
+    case IdAttribute{value}: [Doc.Property{"id", value}]
     case DataAttribute{name, value}: [Doc.Property{"data-" ++ name, value}]
     case AriaAttribute{name, value}: [Doc.Property{"aria-" ++ name, value}]
     case RoleAttribute{value}: [Doc.Property{"role", value}]
@@ -681,3 +718,17 @@ def construct_control(+request: ControlRequest) -> Categories.Membership<Control
 def constructed_control_node(constructed: Categories.Membership<ControlObservation, authored_control>) -> Node:
   Categories.Membership{ControlObservation{request, result}, evidence} = constructed
   result
+
+def attributes_inert(attributes: +List<Attribute>) -> Bool:
+  match attributes:
+    case Nil{}: False{}
+    case Con{InertAttribute{}, rest}: True{}
+    case Con{other, rest}: attributes_inert(rest)
+
+def node_inert(node: Node) -> Bool:
+  match node:
+    case NativeAttachment{key, target, attrs, style, children}: attributes_inert(attrs)
+    case Box{key, tag, style, attrs, children}: attributes_inert(attrs)
+    case Control{key, tag, style, attrs, name, enabled, first, remaining, children}: attributes_inert(attrs)
+    case Field{key, kind, style, attrs, value, placeholder, options, policy, name, enabled, first, remaining}: attributes_inert(attrs)
+    case _: False{}

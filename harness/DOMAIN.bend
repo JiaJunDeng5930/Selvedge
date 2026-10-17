@@ -335,10 +335,6 @@ def reasoning_options_same(left: Maybe<&2, ReasoningOptions>, right: Maybe<&2, R
     case Some{ReasoningOptions{a, xs}} Some{ReasoningOptions{b, ys}}: String.eq(a, b) && Reasoning.equal_strings(xs, ys)
     case _ _: False{}
 
-def profile_key(profile: Profile) -> String:
-  Profile{key, provider, name, policy, options} = profile
-  key
-
 def profile_options(profile: Profile) -> Maybe<&2, ReasoningOptions>:
   Profile{key, provider, name, reasoning, options} = profile
   options
@@ -819,56 +815,108 @@ def is_model_request(work: Work) -> Bool:
     case RequestNextModel{}: True{}
     case _: False{}
 
+type ExecutionConfiguration is Data:
+  ExecutionConfiguration{profile: String, reasoning: String, model: Model, sandbox: Sandbox, approval: ApprovalPolicy}
+
 type Task is Data:
-  Task{id: Nat, lineage: +List<Nat>, contract: Contract, status: Status,
+  Task{id: Nat, lineage: +List<Nat>, contract: Contract, current: ExecutionConfiguration, status: Status,
     history: History, queued: +List<String>, phase: Phase,
     operations: +List<Operation()>, notified: Bool}
 
 def task_id(task: Task) -> Nat:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   id
 
 def task_status(task: Task) -> Status:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   status
 
 def task_history(task: Task) -> History:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   history
 
 def task_contract(task: Task) -> Contract:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   contract
 
 def contract_context(contract: Contract) -> TaskContext:
   Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   context
 
-def task_context(task: Task) -> TaskContext:
-  contract_context(task_contract(task))
+def profile_key(profile: Profile) -> String:
+  Profile{key, provider, name, policy, options} = profile
+  key
+
+def execution_configuration(contract: Contract) -> ExecutionConfiguration:
+  Contract{+model, tools, max_fork, max_descendants, plugins, TaskContext{workspace, sandbox, approval, project_id}} = contract
+  ExecutionConfiguration{profile_key(model_profile(model)), model_selection(model), model, sandbox, approval}
+
+def task_execution(task: Task) -> ExecutionConfiguration:
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  current
+
+def execution_model(current: ExecutionConfiguration) -> Model:
+  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  model
+
+def execution_profile(current: ExecutionConfiguration) -> String:
+  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  profile
+
+def execution_reasoning(current: ExecutionConfiguration) -> String:
+  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  reasoning
+
+def task_model(task: Task) -> Model:
+  execution_model(task_execution(task))
+
+def task_profile(task: Task) -> String:
+  execution_profile(task_execution(task))
+
+def task_reasoning(task: Task) -> String:
+  execution_reasoning(task_execution(task))
+
+def execution_context(current: ExecutionConfiguration, context: TaskContext) -> TaskContext:
+  match current context:
+    case ExecutionConfiguration{profile, reasoning, model, sandbox, approval} TaskContext{workspace, original_sandbox, original_approval, project_id}:
+      TaskContext{workspace, sandbox, approval, project_id}
+
+def task_context(+task: Task) -> TaskContext:
+  execution_context(task_execution(task), contract_context(task_contract(task)))
+
+def effective_contract_parts(model: Model, context: TaskContext, contract: Contract) -> Contract:
+  Contract{previous_model, tools, max_fork, max_descendants, plugins, previous_context} = contract
+  Contract{model, tools, max_fork, max_descendants, plugins, context}
+
+def effective_contract(+task: Task) -> Contract:
+  effective_contract_parts(task_model(task), task_context(task), task_contract(task))
+
+def with_execution(current: ExecutionConfiguration, task: Task) -> Task:
+  Task{id, lineage, contract, previous, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def with_contract(contract: Contract, task: Task) -> Task:
-  Task{id, lineage, previous, status, history, queued, phase, operations, notified} = task
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+  Task{id, lineage, previous, current, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def task_lineage(task: Task) -> +List<Nat>:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   lineage
 
 def task_phase(task: Task) -> Phase:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   phase
 
 def task_queue(task: Task) -> +List<String>:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   queued
 
 def task_operations(task: Task) -> +List<Operation()>:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   operations
 
 def task_notified(task: Task) -> Bool:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   notified
 
 def operations_pending(operations: +List<Operation()>) -> Bool:
@@ -901,25 +949,39 @@ def task_work(+task: Task) -> Work:
     enabled_work(work(task_status(task), task_phase(task)),
       operations_pending(task_operations(task)), task_notified(task)))
 
+def execution_idle(phase: Phase) -> Bool:
+  match phase:
+    case Idle{}: True{}
+    case _: False{}
+
+def execution_queue_empty(queued: +List<String>) -> Bool:
+  match queued:
+    case Nil{}: True{}
+    case Con{message, rest}: False{}
+
+def task_execution_quiescent(+task: Task) -> Bool:
+  execution_queue_empty(task_queue(task)) && execution_idle(task_phase(task)) &&
+    Bool.not(operations_pending(task_operations(task))) && Bool.not(has_work(task_work(task)))
+
 def with_status(status: Status, task: Task) -> Task:
-  Task{id, lineage, contract, old, history, queued, phase, operations, notified} = task
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+  Task{id, lineage, contract, current, old, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def with_phase(phase: Phase, task: Task) -> Task:
-  Task{id, lineage, contract, status, history, queued, old, operations, notified} = task
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+  Task{id, lineage, contract, current, status, history, queued, old, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def with_history(history: History, task: Task) -> Task:
-  Task{id, lineage, contract, status, old, queued, phase, operations, notified} = task
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+  Task{id, lineage, contract, current, status, old, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def with_operations(operations: +List<Operation()>, task: Task) -> Task:
-  Task{id, lineage, contract, status, history, queued, phase, old, notified} = task
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+  Task{id, lineage, contract, current, status, history, queued, phase, old, notified} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def with_notified(notified: Bool, task: Task) -> Task:
-  Task{id, lineage, contract, status, history, queued, phase, operations, old} = task
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, old} = task
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
 
 def wake_phase(phase: Phase) -> Phase:
   match phase:
@@ -930,8 +992,8 @@ def notify(+task: Task) -> Task:
   with_notified(Bool.or(task_notified(task), True{}), with_phase(wake_phase(task_phase(task)), task))
 
 def append_message(message: Message, task: Task) -> Task:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
-  Task{id, lineage, contract, status, HistoryNode{history, message}, queued, phase, operations, notified}
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, HistoryNode{history, message}, queued, phase, operations, notified}
 
 def history_append_context(context: HistoryContext, history: History) -> History:
   history_step(history, ContextMessage{context})
@@ -980,8 +1042,8 @@ def initialize_history(instructions: InitialInstructions, project: ProjectContex
   initialize_contract(instructions, project, message, task_contract(task), task)
 
 def queue_message(text: String, task: Task) -> Task:
-  Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
-  Task{id, lineage, contract, status, history, List.append(&2, String, queued, [text]), phase, operations, notified}
+  Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, current, status, history, List.append(&2, String, queued, [text]), phase, operations, notified}
 
 type Environment is Data:
   Environment{catalog: +List<Tool>, profiles: +List<Profile>, max_fork: Nat, max_descendants: Nat, project: ProjectContext, plugins: +List<Plugin>, instructions: InitialInstructions}

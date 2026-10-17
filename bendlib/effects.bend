@@ -13,6 +13,7 @@ type Effect<-X: Data> is Data:
   CheckTool{task_id: Nat, ticket: Nat, plugin: D.PluginRef, tool: D.Tool, call: D.Call}
   CheckResult{task_id: Nat, ticket: Nat, operation_id: Nat, plugin: D.PluginRef, call: D.Call, value: J.Json, error: Bool}
   NotifyPlugins{events: +List<D.Notice>}
+  ResetModelSession{task: Nat}
   CancelTask{task_id: Nat}
   CancelTicket{task_id: Nat, ticket: Nat}
   ContinueScheduling{}

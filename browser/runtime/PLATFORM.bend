@@ -84,6 +84,9 @@ type Input is Data:
   FocusApplied{ticket: Nat, target: Focus.Target, observed: Maybe<&2, Focus.Target>}
   PublicationFocusObserved{ticket: Nat, before: Maybe<&2, Focus.Target>, after: Maybe<&2, Focus.Target>}
   MotionPreference{reduced: Bool}
+  NavigationPointerObserved{owner: Maybe<&2, String>}
+  NavigationFocusObserved{owner: Maybe<&2, String>}
+  NavigationHoverObserved{capable: Bool}
 
 type Effect is Data:
   ApplyReading{task: Nat, generation: Nat, effect: Reading.Effect}
@@ -292,6 +295,7 @@ def active_focus(core: InteractionTypes.State, capacity: View.Capacity, identity
 def found_content_owner(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
   match found:
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReadOnly{text}, children}}: True{}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InformationText{information_role}, children}}: True{}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.RichText{source, value}, children}}: True{}
     case _: False{}
 
@@ -373,6 +377,9 @@ def dispatch(+state: State, +input: Input) -> Decision:
     case EditorInput{+owner, event}:
       edit_result(Editor.step(find_editor(editors, owner), event, editor_enabled(observed_state_1, owner, capacity) && Focus.permits_composer(scope), False{}), owner, observed_state_1, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
     case CapacityObserved{value}: after_core(unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, value, scope})
+    case NavigationPointerObserved{owner}: Decision{unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Nil{}}
+    case NavigationFocusObserved{owner}: Decision{unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Nil{}}
+    case NavigationHoverObserved{capable}: Decision{unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Nil{}}
     case FocusObserved{+identity}: observed_focus(Platform{readers, editors, focused, ticket, reduced, capacity, scope}, active_focus(observed_state_1, capacity, identity), Focus.Product{identity}, observed_state_1)
     case ContentFocusObserved{+owner, identity}: observed_focus(Platform{readers, editors, focused, ticket, reduced, capacity, scope}, active_content_owner(observed_state_1, capacity, owner), Focus.Content{owner, identity}, observed_state_1)
     case FocusApplied{expected, +identity, observed}: focus_result((Nat.is_eq(expected, ticket) && active_target(observed_state_1, capacity, identity)) && focus_confirmed(identity, observed), identity, observed_state_1, Platform{readers, editors, focused, ticket, reduced, capacity, scope})

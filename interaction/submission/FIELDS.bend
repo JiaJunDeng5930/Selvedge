@@ -1,11 +1,16 @@
 import Base
+import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../bendlib/categories.bend as Categories
+import ../../bendlib/json.bend as J
 import ../../harness/COMMANDS.bend as Commands
 import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
+import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../features/board/MODEL.bend as B
 import ../INPUT.bend as U
 import ../services/CONTEXT.bend as Context
+import ../../features/board/STATE.bend as Board
+import ../../harness/workspace/WORKSPACE.bend as Workspace
 
 type ChoiceValue is Data:
   ChoiceValue{value: String, label: String}
@@ -19,6 +24,7 @@ type Field is Data:
   SandboxMode{}
   NetworkAccess{}
   ApprovalPolicy{}
+  ApprovalReviewer{}
   ModelProfile{}
   ReasoningEffort{}
   DeliveryIntent{}
@@ -39,11 +45,13 @@ type Field is Data:
   ForkCount{}
   ForkMessages{}
   CompactionSummary{}
+  TaskGraphDeclaration{}
 
 type Entry is Data:
   DisplayOnly{}
   SingleLine{}
   Multiline{}
+  StructuredText{}
   Choice{}
   MultipleChoices{}
   PositiveInteger{}
@@ -62,6 +70,7 @@ type Section is Data:
 type Value is Data:
   Toggle{enabled: Bool}
   Text{value: String}
+  StructuredValue{source: String, parsed: Maybe<&2, J.Json>}
   Count{value: Nat}
   Strings{values: +List<String>}
   Stage{value: B.Stage}
@@ -82,7 +91,7 @@ type Observed is Data:
   CountValue{count: Nat}
   TextsValue{values: +List<String>}
   WorkspaceValue{workspace: D.Workspace}
-  ContextValue{preview: Context.Preview}
+  ContextValue{preview: Context.Preview, reviewers: +List<D.Profile>}
   ModelValue{profile: String, reasoning: String}
   DeliveryValue{delivery: U.Delivery}
   StageValue{stage: B.Stage}
@@ -94,13 +103,23 @@ type Observed is Data:
   OptionalTextValue{text: Maybe<&2, String>}
   NotApplicable{}
 
+def policy_entry(policy: Reasoning.Policy) -> Entry:
+  match policy:
+    case Reasoning.Fixed{}: SingleLine{}
+    case _: DisplayOnly{}
+
+def profile_effort_entry(profile: D.Profile) -> Entry:
+  match profile:
+    case D.Profile{key, provider, name, Reasoning.Fixed{}, Some{options}}: Choice{}
+    case D.Profile{key, provider, name, policy, options}: policy_entry(policy)
+
 def execution() -> Section:
   Section{"Execution context", [FieldScene{ContextOrigin{}, "Defaults from", Choice{}},
     FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}},
     FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}},
     FieldScene{SandboxMode{}, "Filesystem access", Choice{}},
     FieldScene{NetworkAccess{}, "Network access", Choice{}},
-    FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}]}
+    FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}
 
 def model() -> Section:
   Section{"Model", [FieldScene{ModelProfile{}, "Model", Choice{}}, FieldScene{ReasoningEffort{}, "Reasoning effort", Choice{}}]}
@@ -115,10 +134,10 @@ def structure(body: U.Body) -> +List<Section>:
     case U.NewTask{message, profile, reasoning, context}:
       [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution()]
     case U.Message{task, message, delivery}:
-      [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}]
+      [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}]
     case U.Project{id, name, workspace}:
       [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}]},
-       Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}, FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}}]}]
+       Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}]}]
     case U.Card{id, revision, draft, assist, profile, keep_open}:
       List.append(&2, Section, [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
        Section{"Organization", [FieldScene{CardStage{}, "Stage", Choice{}}, FieldScene{CardPriority{}, "Priority", Choice{}},
@@ -130,6 +149,8 @@ def structure(body: U.Body) -> +List<Section>:
       [Section{"Fork", [FieldScene{ForkCount{}, "Number of tasks", PositiveInteger{}}, FieldScene{ForkMessages{}, "Initial messages", Multiline{}}]}, execution()]
     case U.Compact{task, summary}:
       [Section{"Compaction", [FieldScene{CompactionSummary{}, "Summary override", Multiline{}}]}]
+    case U.TaskGraph{graph, declaration, parsed}:
+      [Section{"Task graph", [FieldScene{TaskGraphDeclaration{}, "Declaration", StructuredText{}}]}]
 
 def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
@@ -143,6 +164,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case SandboxMode{} ContextChange{Context.SetSandbox{sandbox}}: Some{U.ConfigureContext{Context.SetSandbox{sandbox}}}
     case NetworkAccess{} ContextChange{Context.SetSandbox{sandbox}}: Some{U.ConfigureContext{Context.SetSandbox{sandbox}}}
     case ApprovalPolicy{} ContextChange{Context.SetApproval{approval}}: Some{U.ConfigureContext{Context.SetApproval{approval}}}
+    case ApprovalReviewer{} ContextChange{Context.SetApproval{Context.AutomaticReview{profile}}}: Some{U.ConfigureContext{Context.SetApproval{Context.AutomaticReview{profile}}}}
     case ModelProfile{} Model{profile, reasoning}: Some{U.ChooseModel{profile, reasoning}}
     case ReasoningEffort{} Model{profile, reasoning}: Some{U.ChooseModel{profile, reasoning}}
     case DeliveryIntent{} Delivery{delivery}: Some{U.ChooseDelivery{delivery}}
@@ -161,6 +183,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case ForkCount{} Fork{count, messages}: Some{U.SetFork{count, messages}}
     case ForkMessages{} Fork{count, messages}: Some{U.SetFork{count, messages}}
     case CompactionSummary{} Summary{summary}: Some{U.WriteSummary{summary}}
+    case TaskGraphDeclaration{} StructuredValue{source, parsed}: Some{U.WriteTaskGraph{source, parsed}}
     case _ _: None{}
 
 def key(field: Field) -> String:
@@ -173,6 +196,7 @@ def key(field: Field) -> String:
     case SandboxMode{}: "sandbox-mode"
     case NetworkAccess{}: "network-access"
     case ApprovalPolicy{}: "approval-policy"
+    case ApprovalReviewer{}: "approval-reviewer"
     case ModelProfile{}: "model-profile"
     case ReasoningEffort{}: "reasoning-effort"
     case DeliveryIntent{}: "delivery-intent"
@@ -193,6 +217,18 @@ def key(field: Field) -> String:
     case ForkCount{}: "fork-count"
     case ForkMessages{}: "fork-messages"
     case CompactionSummary{}: "compaction-summary"
+    case TaskGraphDeclaration{}: "task-graph-declaration"
+
+def choice_field_by_key(value: String) -> Maybe<&2, Field>:
+  match value:
+    case "model-profile": Some{ModelProfile{}}
+    case "reasoning-effort": Some{ReasoningEffort{}}
+    case "sandbox-mode": Some{SandboxMode{}}
+    case "network-access": Some{NetworkAccess{}}
+    case "approval-policy": Some{ApprovalPolicy{}}
+    case "approval-reviewer": Some{ApprovalReviewer{}}
+    case "workspace-primary": Some{WorkspacePrimary{}}
+    case _: None{}
 
 def field_present(fields: +List<FieldScene>, +wanted: Field) -> Bool:
   match fields:
@@ -207,14 +243,18 @@ def section_present(sections: +List<Section>, +wanted: Field) -> Bool:
 def exposed(body: U.Body, field: Field) -> Bool:
   section_present(structure(body), field)
 
-def context_value(field: Field, config: Context.Configuration, world: M.World()) -> Observed:
+def reviewers(world: M.World()) -> +List<D.Profile>:
+  List.filter(~D.Profile, (profile => Workspace.valid_reviewer_profile(profile)), Board.profiles(world))
+
+def context_value(field: Field, config: Context.Configuration, +world: M.World()) -> Observed:
   match field:
-    case ContextOrigin{}: ContextValue{Context.preview(config, world)}
-    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world)}
-    case WorkspacePrimary{}: ContextValue{Context.preview(config, world)}
-    case SandboxMode{}: ContextValue{Context.preview(config, world)}
-    case NetworkAccess{}: ContextValue{Context.preview(config, world)}
-    case ApprovalPolicy{}: ContextValue{Context.preview(config, world)}
+    case ContextOrigin{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case WorkspacePrimary{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case SandboxMode{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case NetworkAccess{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case ApprovalPolicy{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case ApprovalReviewer{}: ContextValue{Context.preview(config, world), reviewers(world)}
     case _: NotApplicable{}
 
 def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:
@@ -268,15 +308,38 @@ def fork_value(field: Field, count: Nat, messages: +List<String>, config: Contex
     case ForkMessages{}: TextsValue{messages}
     case other: context_value(other, config, world)
 
-def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
+def task_graph_value(field: Field, declaration: String) -> Observed:
+  match field:
+    case TaskGraphDeclaration{}: TextValue{declaration}
+    case _: NotApplicable{}
+
+def task_message_field(field: Field, message: U.Text, delivery: U.Delivery, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:
+  match field:
+    case MessageText{}: TextValue{U.text(message)}
+    case DeliveryIntent{}: DeliveryValue{delivery}
+    case ModelProfile{}: ModelValue{profile, reasoning}
+    case ReasoningEffort{}: ModelValue{profile, reasoning}
+    case other: context_value(other, config, world)
+
+def task_context_field(+field: Field, +message: U.Text, delivery: U.Delivery, +task: D.Task, context: D.TaskContext, +world: M.World()) -> Observed:
+  D.TaskContext{workspace, sandbox, approval, project} = context
+  task_message_field(field, message, delivery, D.task_profile(task), D.task_reasoning(task), Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, world)
+
+def task_field(found: Maybe<&2, D.Task>, field: Field, message: U.Text, delivery: U.Delivery, world: M.World()) -> Observed:
+  match found:
+    case None{}: message_value(field, message, delivery)
+    case Some{+task}: task_context_field(field, message, delivery, task, D.task_context(task), world)
+
+def observed(body: U.Body, field: Field, +world: M.World()) -> Observed:
   match body:
     case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
-    case U.Message{task, message, delivery}: message_value(field, message, delivery)
+    case U.Message{task, message, delivery}: task_field(Tasks.find(Commands.entries(world), task), field, message, delivery, world)
     case U.Project{id, name, workspace}: project_value(field, name, workspace)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_value(draft, field, assist, profile, keep_open)
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
+    case U.TaskGraph{graph, declaration, parsed}: task_graph_value(field, declaration)
 
 type ModelSelection is Data:
   ModelSelection{profile: D.Profile, reasoning: String}

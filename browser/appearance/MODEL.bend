@@ -1,4 +1,8 @@
+import ../controls/NAVIGATION.bend as Navigation
+import ../layout/ACTIVITY.bend as Activity
+import ../layout/HIERARCHY.bend as Hierarchy
 import Base
+import ../../interaction/presentation/INFORMATION.bend as Information
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/GEOMETRY.bend as SpatialModel
 import ../layout/enclosure.bend as Enclosure
@@ -85,8 +89,14 @@ def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
     default_focus_indicator()
   }
 
+def content_chrome(typography: T.Presentation) -> Design.Chrome:
+  T.Presentation{tier, emphasis, scale} = typography
+  match tier:
+    case T.ActivitySupport{}: chrome(Design.TextForeground{Surfaces.SecondaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{})
+    case _: base_chrome()
+
 def base_style(+typography: T.Presentation) -> Design.Style:
-  fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
+  fields(typography, content_chrome(typography), SpatialModel.Stretch{}, SpatialModel.BlockFlow{},
     SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
 
 def surface_style(flow: SpatialModel.Flow, overflow: SpatialModel.Overflow, padding_inline: Nat,
@@ -115,6 +125,15 @@ def primary_button(+typography: T.Presentation) -> Design.Style:
 
 def destructive_button(+typography: T.Presentation) -> Design.Style:
   button_style(Design.SurfaceForeground{Surfaces.DestructiveAction{}}, Surfaces.DestructiveAction{}, T.Medium{}, typography)
+
+def transparent_rest(value: Design.Style) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, Design.Transparent{}, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}
+
+def alternative_button(selected: Bool, +typography: T.Presentation) -> Design.Style:
+  match selected:
+    case True{}: transparent_rest(button_style(Design.SurfaceForeground{Surfaces.Choice{True{}}}, Surfaces.Choice{True{}}, T.Medium{}, typography))
+    case False{}: button_style(Design.SurfaceForeground{Surfaces.Choice{False{}}}, Surfaces.Choice{False{}}, T.Medium{}, typography)
 
 def choice_button(selected: Bool, +typography: T.Presentation) -> Design.Style:
   match selected:
@@ -165,7 +184,7 @@ def ordinary_field_style(entry: Forms.Entry, +typography: T.Presentation) -> Des
 def widget_field_style(widget: Controls.Widget, entry: Forms.Entry, +typography: T.Presentation) -> Design.Style:
   match widget:
     case Controls.ToggleInput{}: toggle_field(typography)
-    case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}, typography), Enclosure.area(Enclosure.Field{}))
+    case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}, typography), Enclosure.area(Enclosure.EmbeddedEditor{}))
     case _: ordinary_field_style(entry, typography)
 
 def text_line_height(capacity: Nat, value: T.Presentation) -> Nat:
@@ -195,9 +214,9 @@ def work_description_field(+value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
   field_values(NaturalSize.limit(), value, 0n, 110n, radius)
 
-def message_field(+value: Design.Style) -> Design.Style:
+def message_field(+capacity: Nat, +value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border_paint, border, +radius, shadow}, alignment, flow, overflow, frame, +minimum, maximum, states} = value
-  field_values(NaturalSize.limit(), value, 0n, 44n, radius)
+  field_values(capacity, value, 0n, 0n, radius)
 
 def normalize_text_field(kind: EditorLayout.FieldKind, value: Design.Style) -> Design.Style:
   match kind:
@@ -209,12 +228,21 @@ def normalize_text_area(kind: EditorLayout.FieldKind, value: Design.Style) -> De
     case EditorLayout.WorkDescription{}: work_description_field(value)
     case _: value
 
-def normalize_field(kind: EditorLayout.FieldKind, widget: Controls.Widget, value: Design.Style) -> Design.Style:
+def select_field_constructor(kind: EditorLayout.FieldKind, widget: Controls.Widget) -> Nat -> Design.Style -> Design.Style:
   match widget:
-    case Controls.TextInput{}: normalize_text_field(kind, value)
-    case Controls.TextArea{}: normalize_text_area(kind, value)
-    case Controls.MessageInput{}: message_field(value)
-    case _: value
+    case Controls.TextInput{}: capacity => value => normalize_text_field(kind, value)
+    case Controls.TextArea{}: capacity => value => normalize_text_area(kind, value)
+    case Controls.MessageInput{}: capacity => value => message_field(capacity, value)
+    case _: capacity => value => value
+
+def normalize_field(kind: EditorLayout.FieldKind, +widget: Controls.Widget, value: Design.Style) -> Design.Style:
+  match widget:
+    case Controls.MessageInput{}:
+      constructor = select_field_constructor(kind, widget)
+      constructor(NaturalSize.limit(), value)
+    case _:
+      constructor = select_field_constructor(kind, widget)
+      constructor(0n, value)
 
 def search_field_style(+typography: T.Presentation) -> Design.Style:
   field_values(NaturalSize.limit(), with_content_area(field_surface(Surfaces.Inset{}, typography), Enclosure.area(Enclosure.SearchField{})), 1n, 32n, 6n)
@@ -226,6 +254,13 @@ def field_style(meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> D
       normalize_field(EditorLayout.field_kind(meaning), Controls.widget_for(entry, field, value), widget_field_style(Controls.widget_for(entry, field, value), entry, typography))
     case _: editable_field(typography)
 
+def navigation_family_style(selected: Bool, gap: Nat, radius: Nat, +typography: T.Presentation) -> Design.Style:
+  +role: Surfaces.Role = Surfaces.Choice{selected}
+  +foreground: Design.Paint = Design.TextForeground{Surfaces.PrimaryText{}}
+  with_content_area(fields(T.activity(typography), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
+    SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
+    Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
+
 def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Design.Style:
   match role:
     case SurfaceTypes.Navigation{}:
@@ -233,6 +268,9 @@ def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T
         surface(Surfaces.Navigation{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         SpatialModel.Stretch{}, SpatialModel.ColumnFlow{}, SpatialModel.ScrollFlow{}, 8n, 8n, 4n,
         0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{})), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
+    case SurfaceTypes.NavigationEntry{selected}: navigation_family_style(selected, 6n, 5n, typography)
+    case SurfaceTypes.NavigationCollection{}: base_style(typography)
+    case SurfaceTypes.NavigationSection{}: base_style(typography)
     case SurfaceTypes.NavigationHeader{}:
       fields(typography, base_chrome(),
         SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 4n, 8n,
@@ -261,7 +299,7 @@ def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T
         SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.Composer{}:
       with_content_area(fields(typography, surface_chrome(16n, True{}), SpatialModel.Stretch{},
-        SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
+        SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 12n, 0n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
     case SurfaceTypes.DialogActions{}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
     case SurfaceTypes.ComposerActions{}: toolbar_style(SpatialModel.SplitRowFlow{}, typography)
     case SurfaceTypes.Approval{}:
@@ -305,7 +343,7 @@ def style(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +typography: T
 
 def navigation_row(style_value: Design.Style) -> Design.Style:
   Design.Style{text, style_chrome, alignment, flow, overflow, +content_frame, minimum_height, maximum_width_percent, states} = style_value
-  Design.Style{T.with_tier(text, T.Support{}), style_chrome, alignment, flow, overflow, content_frame, 29n, maximum_width_percent, states}
+  Design.Style{T.activity(text), style_chrome, alignment, flow, overflow, content_frame, Activity.supporting_minimum(Activity.initial()), maximum_width_percent, states}
 
 def style_in_context(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning,
   inside_navigation: Bool, +typography: T.Presentation) -> Design.Style:
@@ -316,7 +354,7 @@ def style_in_context(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning,
 
 def navigation_context(context: Controls.Context) -> Bool:
   match context:
-    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution, source_family}: True{}
+    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth}: True{}
     case _: False{}
 
 def rounded_chrome(value: Design.Chrome, radius: Nat) -> Design.Chrome:
@@ -353,6 +391,10 @@ def intrinsic_content_height(face: Controls.Face, +text: T.Presentation, +geomet
     case Controls.SingleLineFace{label}: text_line_height(NaturalSize.limit(), text)
     case Controls.IconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.UnbrokenIconTextFace{icon, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
+    # Property text demand is measured by layout/SOURCE; this is only the glyph floor.
+    case Controls.PropertyFace{property}: geometry_icon_size(geometry)
+    case Controls.CompactPropertyFace{property}: geometry_icon_size(geometry)
+    case Controls.SettingFace{subject, title, current}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.PickerFace{leading, label}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.DisclosureFace{label, expanded}: Nat.max(text_line_height(NaturalSize.limit(), text), geometry_icon_size(geometry))
     case Controls.ChoiceFace{label, description, icon, checked}: choice_intrinsic_height(description, text, Controls.choice_content_layout(geometry))
@@ -386,9 +428,9 @@ def action_style(+value: Design.Style, +face: Controls.Face, +geometry: Controls
 def selection_style(value: Design.Style, behavior: Controls.Behavior, +typography: T.Presentation) -> Design.Style:
   match behavior:
     case Controls.Radio{selected}: choice_button(selected, Design.style_text(value))
-    case Controls.ChoiceRadio{selected}: choice_button(selected, Design.style_text(value))
+    case Controls.ChoiceRadio{selected}: alternative_button(selected, Design.style_text(value))
     case Controls.MenuCheckbox{selected}: choice_button(selected, Design.style_text(value))
-    case Controls.ChoiceCheckbox{selected}: choice_button(selected, Design.style_text(value))
+    case Controls.ChoiceCheckbox{selected}: alternative_button(selected, Design.style_text(value))
     case Controls.Toggle{selected}: choice_button(selected, Design.style_text(value))
     case _: value
 
@@ -402,6 +444,29 @@ def control_style(value: Design.Style, representation: Controls.Representation, 
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       action_style(feedback_style(selection_style(value, behavior, typography), feedback, typography), face, geometry)
     case _: value
+
+def activity_content_height(face: Controls.Face, +text: T.Presentation, +geometry: Controls.Geometry) -> Nat:
+  match face:
+    case Controls.ChoiceFace{label, description, icon, checked}:
+      choice_intrinsic_height(description, text, Controls.ChoiceContentLayout{Activity.length(NaturalSize.limit(), text, 2n), Activity.slot(NaturalSize.limit(), text), Activity.icon(NaturalSize.limit(), text)})
+    case _: intrinsic_content_height(face, text, geometry)
+
+def activity_control_style_when(enabled: Bool, +value: Design.Style, representation: Controls.Representation) -> Design.Style:
+  match enabled representation:
+    case True{} Controls.Action{Controls.Button{input, availability, name, +face, behavior, +geometry, placement, feedback}}:
+      +text = Design.style_text(value)
+      +scaled = Controls.geometry_at(text, geometry)
+      +layout = Controls.content_layout_at(text, face)
+      with_flow(action_content_style(value, layout, scaled, activity_content_height(face, text, scaled)), action_flow(face, layout))
+    case True{} Controls.Input{Controls.FormInput{meaning, name, Controls.ToggleInput{}, label, availability}}: value
+    case True{} Controls.Input{input}:
+      +text = Design.style_text(value)
+      field_values(NaturalSize.limit(), with_content_area(value, Enclosure.frame_content(Activity.row_frame(NaturalSize.limit(), text))),
+        style_border_width(value), Activity.target(NaturalSize.limit(), text, Design.style_minimum_height(value)), Activity.length(NaturalSize.limit(), text, 6n))
+    case _ _: value
+
+def activity_control_style(+value: Design.Style, representation: Controls.Representation) -> Design.Style:
+  activity_control_style_when(T.is_activity(Design.style_text(value)), value, representation)
 
 def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
   match semantic:
@@ -419,13 +484,6 @@ def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
 def modeled_container(value: Design.Style, flow: SpatialModel.Flow, gap: Nat) -> Design.Style:
   Design.Style{text, chrome, alignment, old_flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
   Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content, Enclosure.EmbeddedContent{gap}}, minimum, maximum, states}
-
-def navigation_family_style(selected: Bool, gap: Nat, radius: Nat, +typography: T.Presentation) -> Design.Style:
-  +role: Surfaces.Role = Surfaces.Choice{selected}
-  +foreground: Design.Paint = Design.TextForeground{Surfaces.PrimaryText{}}
-  with_content_area(fields(T.with_tier(typography, T.Support{}), chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, radius, False{}),
-    SpatialModel.Stretch{}, SpatialModel.RowFlow{}, SpatialModel.ContentFlow{}, 8n, 4n, gap, 0n, 100n,
-    Design.SurfaceFeedback{Design.PhasePaint{foreground, surface(role, Surfaces.Hovered{})}, Design.PhasePaint{foreground, surface(role, Surfaces.Pressed{})}}), Enclosure.area(Enclosure.NavigationRow{}))
 
 def embedded_control(value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
@@ -475,15 +533,50 @@ def lane_style(value: Design.Style) -> Design.Style:
   Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value
   Design.Style{text, Design.Chrome{foreground, surface(Surfaces.Lane{Surfaces.Neutral{}}, Surfaces.Rest{}), border, width, radius, shadow}, alignment, flow, overflow, Enclosure.Frame{Enclosure.area(Enclosure.Lane{}), arrangement}, minimum, maximum, states}
 
+def action_focus_states(+chrome: Design.Chrome, states: Design.ControlStates) -> Design.ControlStates:
+  Design.Chrome{+foreground, +background, +border, width, radius, shadow} = chrome
+  match states:
+    case Design.Interactive{hover, pressed, opacity, focus}: Design.Interactive{hover, pressed, opacity, Design.FocusIndicator{border, 1n, 0n}}
+    case Design.SurfaceFeedback{hover, pressed}: Design.Interactive{hover, pressed, 40n, Design.FocusIndicator{border, 1n, 0n}}
+    case Design.Passive{}: Design.Interactive{Design.PhasePaint{foreground, background}, Design.PhasePaint{foreground, background}, 40n, Design.FocusIndicator{border, 1n, 0n}}
+
+def action_unit_style(value: Design.Style) -> Design.Style:
+  Design.Style{text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, Activity.frame(Activity.initial()), minimum, maximum, action_focus_states(chrome, states)}
+
+def activity_action_unit_style_when(enabled: Bool, value: Design.Style) -> Design.Style:
+  match enabled:
+    case False{}: action_unit_style(value)
+    case True{}:
+      Design.Style{+text, +chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      Design.Style{text, chrome, alignment, flow, overflow, Hierarchy.heading_frame(Hierarchy.for_text(NaturalSize.limit(), text)), minimum, maximum, action_focus_states(chrome, states)}
+
+def activity_action_unit_style(+value: Design.Style) -> Design.Style:
+  activity_action_unit_style_when(T.is_activity(Design.style_text(value)), value)
+
+def activity_member_style_when(enabled: Bool, +value: Design.Style) -> Design.Style:
+  match enabled:
+    case False{}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
+    case True{}:
+      Design.Style{+text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      Design.Style{text, chrome, alignment, SpatialModel.RowFlow{}, overflow, Activity.row_frame(NaturalSize.limit(), text), Nat.max(minimum, Activity.length(NaturalSize.limit(), text, 32n)), maximum, states}
+
+def activity_member_style(+value: Design.Style) -> Design.Style:
+  activity_member_style_when(T.is_activity(Design.style_text(value)), value)
+
 def family_style(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: Controls.SourceFamily, representation: Controls.Representation, +value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match meaning:
     case SurfaceTypes.BoardLane{stage, count}: lane_style(value)
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: project_group_style(typography)
     case SurfaceTypes.TaskRow{task, status, selected}: navigation_family_style(selected, 6n, 5n, typography)
+    case SurfaceTypes.InformationText{Information.NavigationCaption{}}: fields(T.information_role(Information.NavigationCaption{}, T.presentation_scale(typography)), chrome(Design.TextForeground{Surfaces.SecondaryText{}}, transparent(), transparent(), 0n, 0n, False{}), SpatialModel.Leading{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, T.scaled(NaturalSize.limit(), 8n, T.presentation_scale(typography)), 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.ProjectChooser{selected}: fields(typography, base_chrome(), SpatialModel.Stretch{}, SpatialModel.InlineControlFlow{SpatialModel.LeadingContents{}}, SpatialModel.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case SurfaceTypes.ContextSummary{observation}: with_content_area(modeled_container(value, SpatialModel.ColumnFlow{}, 4n), Enclosure.ambient(8n, Enclosure.block(Enclosure.frame_content(Design.style_frame(value)))))
-    case SurfaceTypes.DirectoryRow{path, primary}: modeled_container(value, SpatialModel.ColumnFlow{}, 8n)
+    case SurfaceTypes.DirectoryRow{path, primary}: activity_member_style(value)
     case SurfaceTypes.ChoiceGroup{}: choice_group_style(value)
+    case SurfaceTypes.DecisionGroup{decision}: choice_group_style(value)
+    case SurfaceTypes.WorkspaceMember{collection, path}: activity_member_style(value)
+    case SurfaceTypes.ActionUnit{action}: activity_action_unit_style(value)
     case SurfaceTypes.Region{}: source_header_style(key, family, value, typography)
     case SurfaceTypes.PageContext{conversation}: source_header_style(key, family, value, typography)
     case SurfaceTypes.ActivityContent{expanded, audit}: source_header_style(key, family, value, typography)
@@ -505,12 +598,28 @@ def resolved_source_style(content: Controls.SourceContent, representation: Contr
 
 def source_action_style(meaning: SurfaceTypes.Meaning, context: Controls.Context, +representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match meaning:
+    case SurfaceTypes.SettingEntry{subject, current, input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case SurfaceTypes.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
     case _: value
 
+def feedback_phase(active:Bool) -> Surfaces.Phase:
+  match active:
+    case True{}: Surfaces.Hovered{}
+    case False{}: Surfaces.Rest{}
+
+def resolved_feedback_chrome(value:Design.Style, background:Design.Paint) -> Design.Style:
+  Design.Style{text, Design.Chrome{foreground, old_background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states}
+
+# NOTE: Project headers are regions; native-control state channels alone cannot paint their whole row.
+def project_row_feedback(meaning:SurfaceTypes.Meaning, representation:Controls.Representation, +value:Design.Style) -> Design.Style:
+  match meaning representation:
+    case SurfaceTypes.Region{} Controls.NavigationRow{owner, depth, visible, active}: resolved_feedback_chrome(value, phase_background(value, feedback_phase(active)))
+    case _ _: value
+
 def final_style(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   +family_style_value = family_style(key, meaning, Controls.source_reference(context), representation, value, typography)
-  source_action_style(meaning, context, representation, family_style_value)
+  source_action_style(meaning, context, representation, project_row_feedback(meaning, representation, family_style_value))
 
 def start_page(content: InteractionTypes.Scene) -> Bool:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -536,9 +645,10 @@ def field_tier(meaning: SurfaceTypes.Meaning) -> T.Tier:
 
 def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, inherited: T.Presentation, in_main: Bool, start: Bool, +scale: T.Scale) -> T.Presentation:
   match role meaning:
-    case _ SurfaceTypes.PageRegion{Composition.CreationContext{}, position}: T.Presentation{T.Support{}, T.Regular{}, scale}
-    case SurfaceTypes.Navigation{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
+    case SurfaceTypes.Navigation{} _: T.Presentation{T.ActivityPrimary{}, T.Regular{}, scale}
     case SurfaceTypes.NavigationHeader{} _: T.Presentation{T.Body{}, T.Medium{}, scale}
+    case SurfaceTypes.NavigationEntry{selected} _: T.Presentation{T.ActivityPrimary{}, T.Regular{}, scale}
+    case _ SurfaceTypes.InformationText{Information.NavigationCaption{}}: T.Presentation{T.ActivitySupport{}, T.Regular{}, scale}
     case SurfaceTypes.Heading{} _: T.Presentation{heading_tier(in_main, start), T.Medium{}, scale}
     case SurfaceTypes.Activity{} _: T.Presentation{T.Support{}, T.Regular{}, scale}
     case SurfaceTypes.UserMessage{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
@@ -558,8 +668,15 @@ def information_role_fields(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Mean
     case SurfaceTypes.ComposerActions{} _: T.Presentation{T.Body{}, T.Regular{}, scale}
     case _ _: inherited
 
-def information_role(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
-  information_role_fields(role, meaning, inherited, in_main, start, T.presentation_scale(inherited))
+def information_activity(meaning: SurfaceTypes.Meaning, inherited: T.Presentation, resolved: T.Presentation) -> T.Presentation:
+  match meaning:
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: T.activity(resolved)
+    case SurfaceTypes.ActivityRow{SurfaceTypes.SupportingRow{}}: T.supporting(T.activity(resolved))
+    case SurfaceTypes.ActivityRow{row}: T.activity(resolved)
+    case _: T.inherit_activity(inherited, resolved)
+
+def information_role(role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
+  information_activity(meaning, inherited, information_role_fields(role, meaning, inherited, in_main, start, T.presentation_scale(inherited)))
 
 def alert_style(role: SurfaceTypes.Role, value: Design.Style) -> Design.Style:
   match role:
@@ -569,9 +686,28 @@ def alert_style(role: SurfaceTypes.Role, value: Design.Style) -> Design.Style:
         Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, SpatialModel.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
     case _: value
 
+def activity_controls(role: SurfaceTypes.Role, context: Controls.Context, value: Design.Style) -> Design.Style:
+  match role context:
+    case SurfaceTypes.Toolbar{} Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth}:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      modeled_container(Design.Style{text, chrome, SpatialModel.Leading{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.RowFlow{}, Activity.clearance(Activity.initial()))
+    case SurfaceTypes.ComposerActions{} _:
+      Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      modeled_container(Design.Style{text, chrome, SpatialModel.Trailing{}, flow, overflow, frame, minimum, maximum, states}, SpatialModel.SplitRowFlow{}, Activity.clearance(Activity.initial()))
+    case _ _: value
+
+def navigation_heading_style(value: Design.Style) -> Design.Style:
+  Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  Design.Style{text, chrome, SpatialModel.Leading{}, SpatialModel.BlockFlow{}, overflow, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, maximum, states}
+
+def navigation_role_style(role: SurfaceTypes.Role, family: Controls.SourceFamily, value: Design.Style) -> Design.Style:
+  match role family:
+    case SurfaceTypes.Heading{} Controls.SourceFamily{SurfaceTypes.Node{key, semantic, label, row_role, SurfaceTypes.ActivityRow{SurfaceTypes.NavigationRow{}}, children}}: navigation_heading_style(value)
+    case _ _: value
+
 def prepared_style(+key: UIIdentity.Key, semantic: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
-  alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))
+  activity_control_style(navigation_role_style(role, Controls.source_reference(local), activity_controls(role, local, alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography)))), control)
 
 def nodes_at(values: +List<SurfaceTypes.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
   match values:
@@ -605,3 +741,12 @@ def present_fields(+content: InteractionTypes.Scene, base: +List<SurfaceTypes.No
 def present(surface: SurfaceTypes.Surface, system_dark: Bool, scale: T.Scale) -> Design.Surface:
   SurfaceTypes.Surface{+content, base, overlays, active_scope} = surface
   present_fields(content, base, overlays, Controls.initial(content), system_dark, active_scope, scale)
+
+
+def present_supporting(surface: SurfaceTypes.Surface, system_dark: Bool, scale: T.Scale, form: Controls.SupportingForm) -> Design.Surface:
+  SurfaceTypes.Surface{+content, base, overlays, active_scope} = surface
+  present_fields(content, base, overlays, Controls.with_supporting_form(Controls.initial(content), form), system_dark, active_scope, scale)
+
+def present_supporting_navigation(surface: SurfaceTypes.Surface, system_dark: Bool, scale: T.Scale, form: Controls.SupportingForm, attention: Navigation.Attention) -> Design.Surface:
+  SurfaceTypes.Surface{+content, base, overlays, active_scope} = surface
+  present_fields(content, base, overlays, Controls.with_navigation(Controls.with_supporting_form(Controls.initial(content), form), attention), system_dark, active_scope, scale)

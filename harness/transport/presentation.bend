@@ -84,6 +84,8 @@ def effect(effect: M.Effect()) -> J.Json:
           J.Field{"reasoning", J.Text{D.profile_default(D.Profile{key, provider, name, policy, options})}}]}},
         J.Field{"instructions", J.Text{Approvals.instructions()}}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"call", T.call_json(call)}, J.Field{"user_requests", J.Array{Approvals.user_requests(4n, history)}}]}
+    case Effects.ResetModelSession{task_id}:
+      J.Object{[J.Field{"kind", J.Text{"reset_model_session"}}, J.Field{"task_id", J.nat(task_id)}]}
     case Effects.CancelTask{task_id}:
       J.Object{[J.Field{"kind", J.Text{"cancel"}}, J.Field{"task_id", J.nat(task_id)}]}
     case Effects.CancelTicket{task_id, ticket}:

@@ -1,4 +1,8 @@
+import ./activity-proof.bend as ActivityProof
+import ./activity-contract.bend as ActivityRules
 import Base
+import ./adaptation-proof.bend as AdaptationProof
+import ./ADAPTATION.bend as Adaptation
 import ./measurement-contract.bend as RulePhysicalContentRules
 import ./CONTENT.bend as Content
 import ../../interaction/presentation/MODEL.bend as View
@@ -29,18 +33,18 @@ def publication(+world: Content.AllocatedWorld, capacity: View.Capacity, +legacy
 
 def state_authored_evidence(+model_state: Browser.State, +source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: SpatialModel.Box, +semantic: SurfaceTypes.Surface) ->
   RulePhysicalContentRules.authored_claim(model_state, source, index, capacity, font, viewport, semantic):
-  Browser.State{+legacy, +serial, +anchors, +lifecycle, +displayed} = model_state
+  Browser.State{+legacy, +serial, +anchors, +lifecycle, +displayed, +attention} = model_state
   {==}
 
 def state_measured_evidence(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +tokens: +List<String>, +semantic: SurfaceTypes.Surface, +round: Nat) ->
   RulePhysicalContentRules.measurement_claim(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), index, capacity, engine, tokens, semantic, round):
-  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
+  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed, +attention} = model_state
   {==}
 
 def state_remeasure_evidence(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +semantic: SurfaceTypes.Surface, +round: Nat) ->
   {Browser.remeasure(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
-        Browser.refreeze(index, capacity, engine, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic) : Browser.Decision}:
-  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed} = model_state
+        Browser.build(0n, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) : Browser.Decision}:
+  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed, +attention} = model_state
   {==}
 
 def RulePhysicalContentRules.evidence():
@@ -76,7 +80,7 @@ def rejection(+valid: Bool, +request: Content.Request, +observation: Content.Obs
     proof)
 
 def RuleContract.evidence():
-  RuleContract.Requirements{+generation => +receipts => +engine => proof => stale(generation, receipts, engine, proof),
+  RuleContract.Requirements{ActivityRules.evidence(), Adaptation.evidence(),+generation => +receipts => +engine => proof => stale(generation, receipts, engine, proof),
     +valid => +request => +observation => +batch => proof => rejection(valid, request, observation, batch, proof),
     +engine => ProofSizingProof.production(engine), RulePhysicalSourceRules.width_evidence(~Content.Value, ~Doc.DOMEvent),
     RulePhysicalSourceRules.height_evidence(~Content.Value, ~Doc.DOMEvent), RulePhysicalSourceRules.allocation_population_evidence(~Content.Value, ~Doc.DOMEvent)}

@@ -213,7 +213,7 @@ def deliver_certificate(+durable: Bool, +decision: M.Decision(), +previous: M.Wo
 
 def update_certificate(+input: M.Input, +world: M.World()) -> Laws.Admitted(world, P.update(input, world)):
   +raw = P.apply(input, world)
-  +candidate = Notifications.decorate(input, world, P.scheduled(Commit.schedules(input, raw), raw))
+  +candidate = Commit.configuration_checked(input, Notifications.decorate(input, world, P.scheduled(Commit.schedules(input, raw), raw)), world)
   deliver_certificate(M.durable(input), P.checked(candidate, world), world, checked_certificate(candidate, world))
 
 def observe_certificate(query: M.Query, +world: M.World()) ->
@@ -226,6 +226,8 @@ def transition_calculation_certificate(input: M.Input, +world: M.World()) ->
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
     case M.UserCommand{M.FeatureCommand{command}}:
       update_certificate(M.UserCommand{M.FeatureCommand{command}}, world)
+    case M.UserCommand{M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}}:
+      update_certificate(M.UserCommand{M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}}, world)
     case M.UserCommand{M.Create{profile, reasoning, message, options}}:
       update_certificate(M.UserCommand{M.Create{profile, reasoning, message, options}}, world)
     case M.UserCommand{M.Send{id, message}}:

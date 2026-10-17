@@ -1,6 +1,15 @@
+import ../layout/HIERARCHY.bend as Hierarchy
+import ../../interaction/experience/ACTIVITY.bend as UXActivity
+import ../document/SOURCE.bend as Source
+import ./NAVIGATION.bend as Navigation
+import ./SIDEBAR.bend as Sidebar
+import ../../interaction/experience/MODEL.bend as UXTypes
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/presentation/INFORMATION.bend as Information
 import Base
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../layout/SPACE.bend as Space
+import ../layout/natural-size.bend as NaturalSize
 import ../appearance/TYPOGRAPHY.bend as T
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/INPUT.bend as User
@@ -15,6 +24,7 @@ import ../appearance/DESIGN.bend as Design
 import ../appearance/MODEL.bend as Appearance
 import ../reading/MODEL.bend as Reading
 import ../layout/enclosure.bend as E
+import ../layout/ACTIVITY.bend as Activity
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/VIEW.bend as View2
@@ -59,6 +69,7 @@ def actual_face(value: Controls.Representation) -> Maybe<&2, Controls.Face>:
 def first_drawing(values: +List<S.Node>) -> Maybe<&2, S.Drawing>:
   match values:
     case Con{S.Glyph{key, drawing, style}, rest}: Some{drawing}
+    case Con{S.Box{key, tag, style, attributes, children}, rest}: first_drawing(children)
     case _: None{}
 
 def selection_drawing(values: +List<S.Node>) -> Maybe<&2, S.Drawing>:
@@ -73,7 +84,7 @@ def selected_drawing(selected: Bool, size: Nat) -> Maybe<&2, S.Drawing>:
     case False{}: None{}
 
 def actual_face_law(-key: UIIdentity.Key, -kind: SurfaceTypes.ChoiceKind, -classification: Maybe<&2, Filter.Classification>, -selected: Bool, -description: String, -input: InteractionTypes.Input, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, +context: Controls.Context) -> Type:
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   {actual_face(Controls.make_choice(key, kind, classification, selected, description, input, availability, label, role, context)) ==
     Some{Controls.ChoiceFace{Controls.name_for(Controls.purpose_fields(key, input, selection, code, appearance, access, open, layers), label), Controls.choice_description(description), Controls.classification_icon(classification), selected}} : Maybe<&2, Controls.Face>}
 
@@ -92,10 +103,10 @@ type ChoiceRequirements is Type:
     selection_roles: @+kind:SurfaceTypes.ChoiceKind -> @+area:Controls.Area -> @+selected:Bool ->
       {A.behavior(Controls.choice_behavior(kind, area, selected)) == [S.RoleAttribute{selection_role(kind, area)}, S.AriaAttribute{"checked", Fields.boolean(selected)}] : +List<S.Attribute>},
     semantic_face: @+key:UIIdentity.Key -> @+kind:SurfaceTypes.ChoiceKind -> @+classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @+description:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+label:String -> @+role:SurfaceTypes.Role -> @+context:Controls.Context -> actual_face_law(key, kind, classification, selected, description, input, availability, label, role, context),
-    leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:Controls.Icon -> @selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
-      {first_drawing(A.face_members(Controls.ChoiceFace{text, description, Some{icon}, selected}, key, parent, geometry)) == Some{I.drawing(icon, A.face_icon_size(geometry))} : Maybe<&2, S.Drawing>},
-    selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry ->
-      {selection_drawing(A.face_members(Controls.ChoiceFace{text, description, icon, selected}, key, parent, geometry)) == selected_drawing(selected, A.face_icon_size(geometry)) : Maybe<&2, S.Drawing>}}
+    leading_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @+icon:Controls.Icon -> @selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {first_drawing(A.face_members(Controls.ChoiceFace{text, description, Some{icon}, selected}, key, parent, geometry, parameters)) == Some{I.drawing(icon, A.face_icon_size(geometry))} : Maybe<&2, S.Drawing>},
+    selected_measured_glyph: @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {selection_drawing(A.face_members(Controls.ChoiceFace{text, description, icon, selected}, key, parent, geometry, parameters)) == selected_drawing(selected, A.face_icon_size(geometry)) : Maybe<&2, S.Drawing>}}
 
 law choice_evidence:
   ChoiceRequirements
@@ -216,13 +227,26 @@ def measure_width(parameters: Design.LayoutParameters, heading: Composition.Head
 
 def beside_main_style(style: S.Style, +required: Nat) -> Type:
   S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  {Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{Nat.max(minimum_width, required), minimum_height}, scroll, position}, font, chrome, states} : S.Style}
+  {Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{Nat.max(minimum_width, Nat.sub(required, Shell.main_clearance(frame, chrome))), minimum_height}, scroll, position}, font, chrome, states} : S.Style}
 
 def compact_main_style(style: S.Style, required: Nat) -> Type:
   {Shell.beside_style(False{}, required, style) == style : S.Style}
 
 def main_population(key: UIIdentity.Key, tag: S.BoxTag, style: S.Style, attributes: +List<S.Attribute>, children: +List<S.Node>, rest: +List<S.Node>, structure: Design.MainStructure, maximum: Nat, beside: Bool, required: Nat) -> Type:
-  {Shell.main_nodes(S.Box{key, tag, style, attributes, children} <> rest, structure, maximum, beside, required) == Shell.main_box(structure, key, tag, Shell.beside_style(beside, required, style), attributes, children, maximum) <> Shell.main_nodes(rest, structure, maximum, beside, required) : +List<S.Node>}
+  {Shell.main_nodes(S.Box{key, tag, style, attributes, children} <> rest, structure, maximum, beside, required) == Shell.reserved_main_node(beside, required, Shell.main_box(structure, key, tag, style, attributes, children, maximum)) <> Shell.main_nodes(rest, structure, maximum, beside, required) : +List<S.Node>}
+
+def second_calculation(values: +List<NaturalSize.Calculation>) -> Maybe<&2, NaturalSize.Calculation>:
+  match values:
+    case Con{first, Con{second, rest}}: Some{second}
+    case _: None{}
+
+def editable_main_minimum(capacity: Nat, +scale: T.Scale, height: Nat, +advance: Nat, primary_advance: Nat, support_advance: Nat) -> Type:
+  {second_calculation(Design.parameter_calculations(capacity, scale, height, advance, primary_advance, support_advance)) ==
+    Some{NaturalSize.Maximum{T.scaling_calculation(360n, scale), Design.editable_minimum_calculation(advance, scale)}} : Maybe<&2, NaturalSize.Calculation>}
+
+def reading_main_minimum(+advance: Nat, +scale: T.Scale) -> Type:
+  {Design.reading_minimum_calculation(advance, scale) ==
+    NaturalSize.Sum{NaturalSize.Product{NaturalSize.Value{advance}, NaturalSize.Value{64n}}, NaturalSize.Product{NaturalSize.Value{2n}, T.scaling_calculation(16n, scale)}} : NaturalSize.Calculation}
 
 def main_placement_input(placement: View.NavigationPlacement, parameters: Design.LayoutParameters, structure: Design.MainStructure, reading_width: Nat, navigation: +List<S.Node>, main: +List<S.Node>, settings: +List<S.Node>, other: +List<S.Node>, docked: +List<S.Node>, font: T.Presentation) -> Type:
   match placement:
@@ -235,9 +259,11 @@ def root_minimum(node: S.Node) -> E.Extent:
     case S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}: minimum
     case _: E.Extent{0n, 0n}
 
-def beside_box_floor(structure: Design.MainStructure, key: UIIdentity.Key, tag: S.BoxTag, style: S.Style, attributes: +List<S.Attribute>, children: +List<S.Node>, maximum: Nat, +required: Nat) -> Type:
-  S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
-  {root_minimum(Shell.main_box(structure, key, tag, Shell.beside_style(True{}, required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}), attributes, children, maximum)) == E.Extent{Nat.max(minimum_width, required), minimum_height} : E.Extent}
+def beside_box_floor(node: S.Node, +required: Nat) -> Type:
+  match node:
+    case S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}, attributes, children}:
+      {root_minimum(Shell.reserved_main_node(True{}, required, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}, attributes, children})) == E.Extent{Nat.max(minimum_width, Nat.sub(required, Shell.main_clearance(frame, chrome))), minimum_height} : E.Extent}
+    case other: {Shell.reserved_main_node(True{}, required, other) == other : S.Node}
 
 def navigation_projection(content: InteractionTypes.Scene) -> Type:
   InteractionTypes.Scene{View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -325,6 +351,17 @@ def task_action_flow(+visual: Design.Style, position: Composition.Position) -> T
         E.Frame{E.ambient(0n, 0n), E.SeparateFrames{E.InlineControls{}}}),
       Model.Horizontal{}), Spatial.Leading{}, Spatial.Centered{}) : S.Style}
 
+def responsive_action_group_style(+typography: T.Presentation) -> S.Style:
+  S.Style{S.Layout{Model.ResponsiveHorizontal{}, Spatial.Leading{}, Spatial.Stretch{},
+    E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{4n}}, Model.StretchSize{}, Model.NaturalSize{},
+    E.Extent{0n, 32n}, Model.Confined{}, Spatial.InFlow{}}, S.ExplicitFont{typography}, Appearance.base_chrome(), Design.Passive{}}
+
+def toolbar_responsive(+meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Type:
+  {Authored.role_style(Appearance.style(SurfaceTypes.Toolbar{}, meaning, typography), SurfaceTypes.Toolbar{}) == responsive_action_group_style(typography) : S.Style}
+
+def composer_actions_responsive(+meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Type:
+  {Authored.role_style(Appearance.style(SurfaceTypes.ComposerActions{}, meaning, typography), SurfaceTypes.ComposerActions{}) == responsive_action_group_style(typography) : S.Style}
+
 type AuthoredShellRequirements is Type:
   AuthoredShellRequirements{
     conversation_title_font: @+font:S.FontChoice -> conversation_title_font(font),
@@ -342,12 +379,16 @@ type AuthoredShellRequirements is Type:
     conversation_main: @+measure:Composition.Measure -> @+key:UIIdentity.Key -> @tag:S.BoxTag -> @+style:S.Style -> @attributes:+List<S.Attribute> -> @title:S.Node -> @actions:S.Node -> @remaining:+List<S.Node> -> @+maximum:Nat -> conversation_main(measure, key, tag, style, attributes, title, actions, remaining, maximum),
     conversation_header: @+key:UIIdentity.Key -> @+style:S.Style -> @title:S.Node -> @actions:S.Node -> conversation_header(key, style, title, actions),
     task_action_flow: @+visual:Design.Style -> @position:Composition.Position -> task_action_flow(visual, position),
+    toolbar_responsive: @+meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> toolbar_responsive(meaning, typography),
+    composer_actions_responsive: @+meaning:SurfaceTypes.Meaning -> @+typography:T.Presentation -> composer_actions_responsive(meaning, typography),
     navigation_projection: @content:InteractionTypes.Scene -> navigation_projection(content),
     assembly_placement: @+content:InteractionTypes.Scene -> @+theme:Design.Theme -> @+base:+List<Design.Node> -> @+overlays:+List<Design.Node> -> @scope:Maybe<&2, String> -> @+base_nodes:+List<S.Node> -> @+overlay_nodes:+List<S.Node> -> @+capacity:View.Capacity -> @+parameters:Design.LayoutParameters -> @+layers:+List<View.Layer> -> @+anchors:+List<Shell.Anchor> -> @+font:T.Presentation -> @placement:View.NavigationPlacement -> @projected:{Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement} -> assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement),
-    beside_box_floor: @structure:Design.MainStructure -> @key:UIIdentity.Key -> @tag:S.BoxTag -> @style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @maximum:Nat -> @+required:Nat -> beside_box_floor(structure, key, tag, style, attributes, children, maximum, required),
+    beside_box_floor: @node:S.Node -> @+required:Nat -> beside_box_floor(node, required),
     beside_main_style: @style:S.Style -> @+required:Nat -> beside_main_style(style, required),
     compact_main_style: @style:S.Style -> @required:Nat -> compact_main_style(style, required),
     main_population: @key:UIIdentity.Key -> @tag:S.BoxTag -> @style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @rest:+List<S.Node> -> @structure:Design.MainStructure -> @maximum:Nat -> @beside:Bool -> @required:Nat -> main_population(key, tag, style, attributes, children, rest, structure, maximum, beside, required),
+    editable_main_minimum: @capacity:Nat -> @+scale:T.Scale -> @height:Nat -> @+advance:Nat -> @primary_advance:Nat -> @support_advance:Nat -> editable_main_minimum(capacity, scale, height, advance, primary_advance, support_advance),
+    reading_main_minimum: @+advance:Nat -> @+scale:T.Scale -> reading_main_minimum(advance, scale),
     main_placement_input: @placement:View.NavigationPlacement -> @parameters:Design.LayoutParameters -> @structure:Design.MainStructure -> @reading_width:Nat -> @navigation:+List<S.Node> -> @main:+List<S.Node> -> @settings:+List<S.Node> -> @other:+List<S.Node> -> @docked:+List<S.Node> -> @font:T.Presentation -> main_placement_input(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font),
     measure_width: @parameters:Design.LayoutParameters -> @heading:Composition.Heading -> @organization:Composition.Body -> measure_width(parameters, heading, organization),
     recipe_structure: @recipe:Composition.Recipe -> recipe_structure(recipe),
@@ -491,25 +532,30 @@ law dialog_reading_span:
   for +line_height: Nat
   for creation_height: Nat
   for lane_width: Nat
-  {Shell.dialog_reading_width(Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width}) == Nat.min(reading_width, Nat.mul(24n, line_height)) : Nat}
+  for navigation_minimum_width: Nat
+  for activity_primary_advance: Nat
+  for activity_support_advance: Nat
+  {Shell.dialog_reading_width(Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance}) == Nat.min(reading_width, Nat.mul(24n, line_height)) : Nat}
 
 def dialog_clearance(parameters: Design.LayoutParameters) -> E.Insets:
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width} = parameters
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   Shell.outside_insets(Nat.max(1n, Nat.div(line_height, 4n)))
 
 law dialog_floating_geometry:
+  for +coordinate_capacity: Nat
   for +node: S.Node
   for +parameters: Design.LayoutParameters
   for layers: +List<View.Layer>
   for base: +List<Design.Node>
-  for overlays: +List<Design.Node>
+  for +overlays: +List<Design.Node>
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.float_overlay(SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, Shell.resize(node, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}, Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
+  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
+    Shell.OverlayParts{docked, Shell.resize(node, Shell.outer_width(coordinate_capacity, parameters, S.key_of(node), overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
 
 law dialog_floating_box_preserved:
+  for +coordinate_capacity: Nat
   for +key: UIIdentity.Key
   for +tag: S.BoxTag
   for +direction: Model.Direction
@@ -529,12 +575,12 @@ law dialog_floating_box_preserved:
   for +parameters: Design.LayoutParameters
   for layers: +List<View.Layer>
   for base: +List<Design.Node>
-  for overlays: +List<Design.Node>
+  for +overlays: +List<Design.Node>
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.float_overlay(SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}, Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
+  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
+    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.outer_width(coordinate_capacity, parameters, key, overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
 
 def reading_encoding(+task: Nat, +generation: Nat, +part: Reading.Part) -> Type:
   {S.attribute_properties(S.ReadingAttribute{Reading.Binding{Reading.Context{task, generation}, part}}) ==
@@ -551,16 +597,16 @@ def cleared_context(+previous: Maybe<&2, Reading.Context>) -> Type:
 
 # This equation binds the context propagation to the production forest descent.
 
-def scoped_node(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Design.Node>, +rest: +List<Design.Node>, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
-  {Authored.forest_in_context(Design.Node{key, semantic, label, role, meaning, visual, control, children} <> rest, parameters, context) ==
-    Authored.combine(Authored.construct_in_context(Authored.forest_in_context(children, parameters, Authored.context_from_meaning(context, meaning)), key, semantic, label, role, meaning, visual, control, parameters, Authored.context_from_meaning(context, meaning)), Authored.forest_in_context(rest, parameters, context)) : Authored.Forest}
+def scoped_node(+capacity: Nat, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Design.Node>, +rest: +List<Design.Node>, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
+  {Authored.forest_in_context(capacity, Design.Node{key, semantic, label, role, meaning, visual, control, children} <> rest, parameters, context) ==
+    Authored.combine(Authored.construct_in_context(capacity, Authored.forest_in_context(capacity, children, parameters, Authored.context_from_meaning(context, meaning)), key, semantic, label, role, meaning, visual, control, parameters, Authored.context_from_meaning(context, meaning)), Authored.forest_in_context(capacity, rest, parameters, context)) : Authored.Forest}
 
-def partition_frame(+key: UIIdentity.Key, +tag: S.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: E.Part, +arrangement: E.Arrangement, +content: +List<S.Node>) -> Type:
-  {Authored.dialog_partition(key, tag, visual, direction, part, arrangement, content) ==
-    S.Box{key, tag, Authored.dialog_partition_style(part, Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), E.Frame{E.partition(part), arrangement})), Nil{}, content} : S.Node}
+def partition_frame(+capacity: Nat, +key: UIIdentity.Key, +tag: S.BoxTag, +visual: Design.Style, +direction: Model.Direction, +part: E.Part, +arrangement: E.Arrangement, +content: +List<S.Node>) -> Type:
+  {Authored.dialog_partition(capacity, key, tag, visual, direction, part, arrangement, content) ==
+    S.Box{key, tag, Authored.dialog_partition_style(part, Factory.with_frame(Factory.content_style(visual, direction, Model.StretchSize{}, Model.NaturalSize{}, 0n), Authored.dialog_partition_frame(capacity, visual, part, arrangement))), Nil{}, content} : S.Node}
 
-def dialog_construction(+key: UIIdentity.Key, +label: String, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters) -> Type:
-  {Authored.regular(key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) == Authored.regular_content(key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters, Authored.dialog_content(key, label, visual, children)) : S.Node}
+def dialog_construction(+capacity: Nat, +key: UIIdentity.Key, +label: String, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters) -> Type:
+  {Authored.regular(capacity, key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) == Authored.regular_content(capacity, key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters, Authored.dialog_content(capacity, key, label, visual, children)) : S.Node}
 
 def timeline_root(+context: Reading.Context, +key: UIIdentity.Key, +tag: S.BoxTag, +style: S.Style, +attributes: +List<S.Attribute>, +children: +List<S.Node>, +visual: Design.Style) -> Type:
   {Authored.reading_box(context, SurfaceTypes.Timeline{}, S.Box{key, tag, style, attributes, children}, visual) ==
@@ -571,9 +617,9 @@ def composer_root(+context: Reading.Context, +key: UIIdentity.Key, +tag: S.BoxTa
   {Authored.reading_box(context, SurfaceTypes.Composer{}, S.Box{key, tag, style, attributes, children}, visual) ==
     S.Box{key, tag, style, List.append(&2, S.Attribute, attributes, [S.ReadingAttribute{Reading.Binding{context, Reading.Dock{}}}]), children} : S.Node}
 
-def bound_construction(+children: +List<Authored.Child>, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
-  {Authored.construct_in_context(Authored.Ready{children}, key, semantic, label, role, meaning, visual, control, parameters, context) ==
-    Authored.finish_node(Authored.reading_root(context, key, role, Authored.authored_node(key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control) : Authored.Forest}
+def bound_construction(+capacity: Nat, +children: +List<Authored.Child>, +key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +parameters: Design.LayoutParameters, +context: Maybe<&2, Reading.Context>) -> Type:
+  {Authored.construct_in_context(capacity, Authored.Ready{children}, key, semantic, label, role, meaning, visual, control, parameters, context) ==
+    Authored.finish_node(Authored.reading_root(context, key, role, Authored.authored_node(capacity, key, label, role, meaning, visual, control, children, parameters), visual), key, semantic, role, meaning, control) : Authored.Forest}
 
 def body_scroll_allocation(value: S.Style) -> Bool:
   S.Style{layout, font, chrome, states} = value
@@ -632,7 +678,7 @@ law authored_containment_evidence:
   AuthoredContainmentRequirements
 
 def execution_observation(context: Controls.Context) -> Maybe<&2, Context.Observation>:
-  Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family} = context
+  Controls.Context{area, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   execution
 
 def page_observation(content: InteractionTypes.Scene) -> Maybe<&2, Context.Observation>:
@@ -663,13 +709,20 @@ def selection_widget(widget: Controls.Widget) -> Bool:
     case Controls.ToggleInput{}: True{}
     case _: False{}
 
+def expected_workspace_picker(found: Maybe<&2, Domain.Workspace>, +editor: User.Editor, +parent: UIIdentity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: [SurfaceTypes.Node{UIIdentity.Part{parent, "unavailable"}, "context/unavailable", "Workspace is unavailable", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Workspace is unavailable"}, Nil{}}]
+    case Some{workspace}:
+      +collection = UX.collection(editor, workspace)
+      [SurfaceTypes.Node{UIIdentity.Part{parent, "workspace"}, "workspace/collection", "Working directories", SurfaceTypes.Section{}, SurfaceTypes.WorkspaceCollection{collection},
+        SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Add directories and choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}} <>
+        SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, InterfaceView.unadded_directory_status(String.eq(InterfaceView.pending_directory(state, editor), ""), UIIdentity.Part{parent, "add"})} <>
+        InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <>
+        InterfaceView.collection_rows(UX.collection_members(collection), collection, parent, state)}]
+
 type PickerRequirements is Type:
   PickerRequirements{service: CoreDirectory.DirectoryPickerRequirements,
-    open_and_browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) ==
-          SurfaceTypes.Node{UIIdentity.Part{parent, "instruction"}, "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
-          SurfaceTypes.Node{UIIdentity.Part{parent, "add"}, "workspace/add", "Add working directory", SurfaceTypes.Field{}, SurfaceTypes.EnterDirectory{editor, InterfaceView.pending_directory(state, editor)}, Nil{}} <>
-          InterfaceView.directory_confirm(editor, parent, state) <> InterfaceView.directory_browse(editor, parent, state) <>
-          InterfaceView.directory_values(InterfaceView.workspace_observed(InterfaceView.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<SurfaceTypes.Node>},
+    open_and_browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) == expected_workspace_picker(InterfaceView.workspace_observed(InterfaceView.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<SurfaceTypes.Node>},
     finite_choice: @+field:Forms.Field -> @+value:Forms.Observed -> {selection_widget(Controls.widget_for(Forms.Choice{}, field, value)) == True{} : Bool},
     location_binding: @value:String -> @+path:String -> {InterfaceView.bind(SurfaceTypes.DirectoryBrowserLocation{value}, SurfaceTypes.Directory{path}) == Some{InteractionTypes.ServiceInput{Services.WriteDirectoryLocation{path}}} : Maybe<&2, InteractionTypes.Input>},
     browse: @+editor:User.Editor -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State -> {InterfaceView.directory_browse(editor, parent, state) == InterfaceView.product_action(parent, "workspace/browse", "Browse folders",
@@ -745,6 +798,7 @@ law dialog_ordinary_activation:
     Authored.BodyAndActions{List.append(&2, S.Node, Authored.ordinary(nodes), Authored.dialog_body(rest)), Authored.dialog_actions(rest)} : Authored.DialogParts}
 
 law dialog_rejects_invalid_order:
+  for +capacity: Nat
   for key: UIIdentity.Key
   for label: String
   for meaning: SurfaceTypes.Meaning
@@ -753,7 +807,7 @@ law dialog_rejects_invalid_order:
   for +children: +List<Authored.Child>
   for parameters: Design.LayoutParameters
   for invalid: {Authored.dialog_ordered(children) == False{} : Bool}
-  {Authored.authored_node(key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) ==
+  {Authored.authored_node(capacity, key, label, SurfaceTypes.Dialog{}, meaning, visual, control, children, parameters) ==
     Authored.Rejected{key, Authored.InvalidDialogOrder{}} : Authored.Authorship}
 
 def selected_background_wash_percent(background: Surfaces.Color) -> Nat:
@@ -763,6 +817,12 @@ def selected_background_wash_percent(background: Surfaces.Color) -> Nat:
 
 def selected_wash_percent(phase: Surfaces.Phase) -> Nat:
   selected_background_wash_percent(Surfaces.background(Surfaces.Choice{True{}}, phase))
+
+def alternative_phase_background(phase: Surfaces.Phase) -> Design.Paint:
+  match phase:
+    case Surfaces.Rest{}: Design.Transparent{}
+    case Surfaces.Hovered{}: Design.SurfacePaint{Surfaces.Choice{True{}}, Surfaces.Hovered{}}
+    case Surfaces.Pressed{}: Design.SurfacePaint{Surfaces.Choice{True{}}, Surfaces.Pressed{}}
 
 type SurfaceRequirements is Type:
   SurfaceRequirements{
@@ -794,7 +854,7 @@ type SurfaceRequirements is Type:
     board_search_surface: @+typography:T.Presentation -> @filter:Board.Filter -> {Appearance.style_background(Appearance.field_style(SurfaceTypes.BoardSearch{filter}, typography)) == Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}} : Design.Paint},
     selected_control_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.Radio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint},
     toggle_control_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.Toggle{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint},
-    menu_choice_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == Design.SurfacePaint{Surfaces.Choice{True{}}, phase} : Design.Paint}}
+    menu_choice_phase: @+typography:T.Presentation -> @value:Design.Style -> @phase:Surfaces.Phase -> {Appearance.phase_background(Appearance.selection_style(value, Controls.ChoiceRadio{True{}}, typography), phase) == alternative_phase_background(phase) : Design.Paint}}
 
 law surface_evidence:
   SurfaceRequirements
@@ -886,7 +946,8 @@ law picker_face_caption:
   for +parent: Design.Style
   for leading: Maybe<&2,Controls.Icon>
   for geometry: Controls.Geometry
-  {trigger_caption(A.face(key,Controls.PickerFace{leading,text},parent,geometry)) ==
+  for +parameters: Design.LayoutParameters
+  {trigger_caption(A.face(key,Controls.PickerFace{leading,text},parent, geometry, parameters)) ==
     Some{S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.SingleLine{}}} : Maybe<&2,S.Node>}
 
 law disclosure_face_caption:
@@ -895,7 +956,8 @@ law disclosure_face_caption:
   for +parent: Design.Style
   for expanded: Bool
   for geometry: Controls.Geometry
-  {trigger_caption(A.face(key,Controls.DisclosureFace{text,expanded},parent,geometry)) ==
+  for +parameters: Design.LayoutParameters
+  {trigger_caption(A.face(key,Controls.DisclosureFace{text,expanded},parent, geometry, parameters)) ==
     Some{S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.SingleLine{}}} : Maybe<&2,S.Node>}
 
 law unbroken_caption:
@@ -907,11 +969,16 @@ law unbroken_face_caption:
   for +text: String
   for +parent: Design.Style
   for geometry: Controls.Geometry
-  {A.face(key,Controls.UnbrokenFace{text},parent,geometry) ==
+  for +parameters: Design.LayoutParameters
+  {A.face(key,Controls.UnbrokenFace{text},parent, geometry, parameters) ==
     [S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.UnbrokenLine{}}] : +List<S.Node>}
 
 type ControlContentRequirements is Type:
   ControlContentRequirements{
+    model_profile_text: @+profile:String -> @reasoning:String ->
+      {A.field_text(Forms.ModelProfile{}, Forms.ModelValue{profile, reasoning}) == profile : String},
+    model_reasoning_text: @profile:String -> @+reasoning:String ->
+      {A.field_text(Forms.ReasoningEffort{}, Forms.ModelValue{profile, reasoning}) == reasoning : String},
     enabled_matches_interface: @+availability:View.Availability ->
       {A.enabled(availability) == InterfaceView.available(availability) : Bool},
     choice_caption_words: @text:String -> @description:Maybe<&2,String> -> @icon:Maybe<&2,Controls.Icon> -> @checked:Bool ->
@@ -922,9 +989,9 @@ type ControlContentRequirements is Type:
     choice_caption_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style -> @description:Maybe<&2,String> -> @icon:Maybe<&2,Controls.Icon> -> @checked:Bool ->
       {A.caption(key,text,parent,Controls.caption_wrapping(Controls.ChoiceFace{text,description,icon,checked})) ==
         S.Text{key,text,S.ExplicitFont{A.parent_font(parent)},T.NormalWords{}} : S.Node},
-    choice_description_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style ->
-      {A.face_description(Some{text},key,parent) ==
-        [S.Text{UIIdentity.part(key,"description"),text,S.ExplicitFont{T.supporting(A.parent_font(parent))},T.NormalWords{}}] : +List<S.Node>},
+    choice_description_source: @+key:UIIdentity.Key -> @+text:String -> @+parent:Design.Style -> @+parameters:Design.LayoutParameters ->
+      {A.face_description(Some{text},key,parent,parameters) ==
+        [S.Box{A.information_key(key, Information.Description{}), S.Span{}, A.description_style(parent, parameters), [S.IdAttribute{UIIdentity.encode(A.information_key(key, Information.Description{}))}, S.DataAttribute{"information-owner", UIIdentity.encode(key)}, S.DataAttribute{"information-role", "description"}], [S.Text{UIIdentity.part(A.information_key(key, Information.Description{}), "text"), text, S.ExplicitFont{T.information(Information.Description{}, A.parent_font(parent))}, T.NormalWords{}}]}] : +List<S.Node>},
     permission_layout: @filesystem:Controls.Icon -> @network:Controls.Icon -> @approval:Controls.Icon ->
       {Controls.content_layout(Controls.PermissionFace{filesystem, network, approval}) == Controls.ContentLayout{Spatial.LeadingContents{}, E.area(E.TextControl{}), 6n} : Controls.ContentLayout},
     icon_layout: @icon:Controls.Icon ->
@@ -948,7 +1015,8 @@ law unbroken_icon_face_caption:
   for +text: String
   for +parent: Design.Style
   for geometry: Controls.Geometry
-  {trigger_caption(A.face(key,Controls.UnbrokenIconTextFace{icon,text},parent,geometry)) ==
+  for +parameters: Design.LayoutParameters
+  {trigger_caption(A.face(key,Controls.UnbrokenIconTextFace{icon,text},parent, geometry, parameters)) ==
     Some{S.Text{UIIdentity.part(key,"caption"),text,S.ExplicitFont{A.parent_font(parent)},T.UnbrokenLine{}}} : Maybe<&2,S.Node>}
 
 law named_text_caption:
@@ -961,11 +1029,19 @@ law named_icon_caption:
   for text: String
   {Controls.named_face(Some{icon},text,False{}) == Controls.UnbrokenIconTextFace{icon,text} : Controls.Face}
 
+def source_support_binding(visible: Bool, input: InteractionTypes.Input, availability: View.Availability) -> SurfaceTypes.Meaning:
+  match visible:
+    case True{}: SurfaceTypes.Activate{input, availability}
+    case False{}: SurfaceTypes.Region{}
+
 def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
   match meaning:
     case SurfaceTypes.PageRegion{region, position}: SurfaceTypes.Region{}
     case SurfaceTypes.Region{}: SurfaceTypes.Region{}
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActivityRow{row}: SurfaceTypes.Region{}
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.PanelToggle{expanded, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: SurfaceTypes.Region{}
     case SurfaceTypes.TaskRow{task, status, selected}: SurfaceTypes.Region{}
@@ -973,12 +1049,21 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.DirectoryRow{path, primary}: SurfaceTypes.Region{}
     case SurfaceTypes.ContextSummary{observation}: SurfaceTypes.Region{}
     case SurfaceTypes.ChoiceGroup{}: SurfaceTypes.Region{}
-    case SurfaceTypes.ComposerAction{subject, input, availability}: SurfaceTypes.Activate{input, availability}
+    case SurfaceTypes.DecisionGroup{decision}: SurfaceTypes.Region{}
+    case SurfaceTypes.ObjectGroup{object}: SurfaceTypes.Region{}
+    case SurfaceTypes.WorkspaceCollection{collection}: SurfaceTypes.Region{}
+    case SurfaceTypes.WorkspaceMember{collection, path}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionUnit{action}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionExplanation{assessment}: SurfaceTypes.Region{}
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: SurfaceTypes.Activate{input, Controls.assessment_availability(assessment, availability)}
+    case SurfaceTypes.ActionFeedback{feedback}: SurfaceTypes.Region{}
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: source_support_binding(UX.support_visible(support), input, availability)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.BoardLane{stage, count}: SurfaceTypes.Region{}
     case SurfaceTypes.CardArchive{count}: SurfaceTypes.Region{}
     case SurfaceTypes.CardContent{face}: SurfaceTypes.Region{}
     case SurfaceTypes.BoardGroup{grouping}: SurfaceTypes.Region{}
+    case SurfaceTypes.InformationText{role}: SurfaceTypes.Region{}
     case SurfaceTypes.ReadOnly{text}: SurfaceTypes.Region{}
     case SurfaceTypes.Fact{value}: SurfaceTypes.Region{}
     case SurfaceTypes.RichText{source, value}: SurfaceTypes.Region{}
@@ -993,6 +1078,8 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
 def binding(representation: Controls.Representation) -> SurfaceTypes.Meaning:
   match representation:
     case Controls.NoControl{}: SurfaceTypes.Region{}
+    case Controls.NavigationGroup{depth}: SurfaceTypes.Region{}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: SurfaceTypes.Region{}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       SurfaceTypes.Activate{input, availability}
     case Controls.Input{Controls.FormInput{meaning, name, widget, label, availability}}: meaning
@@ -1007,15 +1094,17 @@ type ContextControlRequirements is Type:
     choice_observed_tabs: @+key:UIIdentity.Key -> @semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @kind:SurfaceTypes.ChoiceKind -> @classification:Maybe<&2, Filter.Classification> -> @+selected:Bool -> @description:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
       {Observed.expected_tabs([SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Choice{kind, classification, selected, description, input, availability}, Nil{}}], elements, native_focus) == Observed.tab_entry(Observed.enabled(availability) && Observed.tab_stop(Observed.find_element(elements, UIIdentity.encode(key))), UIIdentity.encode(key), Nil{}) : +List<String>},
     workspace_label: @+label:String -> @expanded:Bool -> {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    permissions_label: @+label:String -> @current:Controls.Face -> @+execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face},
+    property_contents: @+property:UXTypes.Property -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {A.face_members(Controls.PropertyFace{property}, key, parent, geometry, parameters) ==
+        List.append(&2, S.Node, A.leading_icon(Controls.property_icon(property), key, parent, A.face_icon_size(geometry)),
+        [S.Box{UIIdentity.part(key, "value"), S.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, A.property_text(property, key, parent)},
+         A.glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, A.face_icon_size(geometry))]) : +List<S.Node>},
     initial_execution: @+content:InteractionTypes.Scene -> {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2,Context.Observation>},
     draft_permission_face: @+origin:Context.Origin -> @+project:Maybe<&2,Nat> -> @+workspace:Context.WorkspaceValue -> @+sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @+guidance:Context.GuidancePreview -> {Controls.permission_face(Some{Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}) == Controls.permission_values_face(Context.unwrap_sandbox(sandbox), Context.observed_approval(approval)) : Controls.Face},
     committed_permission_face: @+task:Nat -> @+workspace:Domain.Workspace -> @+sandbox:Domain.Sandbox -> @+approval:Domain.ApprovalPolicy -> @+project:Maybe<&2,Nat> -> @+guidance:Domain.ProjectContext -> @+access:Domain.ExecutionAccess -> {Controls.permission_face(Some{Context.CommittedExecution{Context.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, access}}}) == Controls.permission_values_face(sandbox, Context.approval_choice(approval)) : Controls.Face},
     unavailable_permission_face: @+reason:String -> {Controls.permission_face(Some{Context.DraftExecution{Context.ContextUnavailable{reason}}}) == Controls.IconFace{Controls.Warning{}} : Controls.Face},
-    permission_accessible_name: @+label:String -> {Controls.composer_name(View.PermissionsSubject{}, label) == "Permissions: " ++ label : String},
+    property_accessible_name: @+property:UXTypes.Property -> @area:Controls.Area -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback -> {Controls.supporting_fields(property, area, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) == Controls.Action{Controls.Button{input, availability, UX.property_help(property), Controls.PropertyFace{property}, behavior, Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.PropertyFace{property}, area), placement, feedback}} : Controls.Representation},
     permission_help: @+filesystem:Controls.Icon -> @+network:Controls.Icon -> @+approval:Controls.Icon -> @+name:String -> {Controls.help_for(Controls.PermissionFace{filesystem, network, approval}, View.Available{}, Controls.Quiet{}, name) == Controls.tooltip(name) : Controls.Help},
-    delivery_send_face: @+label:String -> @current:Controls.Face -> @execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.DeliverySubject{User.Send{}}, label, current, execution) == Controls.IconFace{Controls.ArrowUp{}} : Controls.Face},
-    delivery_steer_face: @+label:String -> @current:Controls.Face -> @execution:Maybe<&2,Context.Observation> -> {Controls.composer_face(View.DeliverySubject{User.Steer{}}, label, current, execution) == Controls.IconFace{Controls.Branch{}} : Controls.Face},
     filesystem_write_icon: {Controls.filesystem_icon(Domain.WorkspaceWrite{}) == Controls.Pencil{} : Controls.Icon},
     filesystem_read_icon: {Controls.filesystem_icon(Domain.ReadOnly{}) == Controls.Eye{} : Controls.Icon},
     network_enabled_icon: {Controls.network_icon(True{}) == Controls.Globe{} : Controls.Icon},
@@ -1067,12 +1156,12 @@ def expected_message(+editor: User.Editor, +availability: View.Availability, +la
 
 def message_uses_arrow_law(-key: UIIdentity.Key, -task: Nat, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.MessageEditor{task}}}}}, availability},
-      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
+      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n}) ==
       expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation}
 
 def creation_uses_arrow_law(-key: UIIdentity.Key, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
-      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}}) ==
+      label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n}) ==
       expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation}
 
 def menu_text(face: Controls.Face) -> Maybe<&2, String>:
@@ -1083,9 +1172,12 @@ def menu_text(face: Controls.Face) -> Maybe<&2, String>:
     case Controls.SingleLineFace{text}: Some{text}
     case Controls.IconTextFace{icon, text}: Some{text}
     case Controls.UnbrokenIconTextFace{icon, text}: Some{text}
+    case Controls.SettingFace{subject, title, value}: Some{title ++ " · " ++ value}
     case Controls.PickerFace{icon, text}: Some{text}
     case Controls.ChoiceFace{text, description, icon, checked}: Some{text}
     case Controls.DisclosureFace{text, expanded}: Some{text}
+    case Controls.PropertyFace{property}: Some{UX.property_value(property)}
+    case Controls.CompactPropertyFace{property}: Some{UX.property_value(property)}
     case Controls.PermissionFace{filesystem, network, approval}: None{}
 
 def required_menu_text(purpose: Controls.Purpose, label: String) -> Maybe<&2, String>:
@@ -1131,7 +1223,7 @@ def workspace_removal_faces(workspace: View.WorkspaceControls, parent: UIIdentit
 def approval_keeps_label_law(-key: UIIdentity.Key, -task: Nat, -operation: Nat, -allow: Bool, -reason: String, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
   {action_text(Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{
       User.Activate{User.ReviewApproval{task, operation, allow, reason}}}}, availability}, label, role,
-      Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+      Controls.Context{Controls.ApprovalArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n})) ==
       Some{label} : Maybe<&2, String>}
 
 type HelpAccess is Data:
@@ -1168,14 +1260,14 @@ type Requirements is Type:
       @appearance:Services.Appearance -> @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{
           User.EditDraft{editor, User.ChooseModel{profile, reasoning}}}}, View.Available{}}, label, role,
-          Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+          Controls.Context{Controls.MenuArea{}, Controls.ModelSelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n})) ==
           Some{Choice{Controls.ChoiceFace{label, None{}, None{}, String.eq(profile, current)}, Controls.Radio{String.eq(profile, current)}}} : Maybe<&2, Choice>},
     delivery_option_marks_current: @+key:UIIdentity.Key -> @task:Nat -> @+delivery:User.Delivery -> @+current:User.Delivery ->
       @+label:String -> @role:SurfaceTypes.Role -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       {choice(Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{
           User.EditDraft{User.MessageEditor{task}, User.ChooseDelivery{delivery}}}}, View.Available{}}, label, role,
-          Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}})) ==
+          Controls.Context{Controls.MenuArea{}, Controls.DeliverySelection{current}, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n})) ==
           Some{Choice{Controls.ChoiceFace{label, None{}, None{}, Controls.same_delivery(delivery, current)},
             Controls.Radio{Controls.same_delivery(delivery, current)}}} : Maybe<&2, Choice>},
     approval_keeps_label: @key:UIIdentity.Key -> @task:Nat -> @operation:Nat -> @allow:Bool -> @reason:String ->
@@ -1341,3 +1433,367 @@ type FormInputRequirements is Type:
 
 law form_input_evidence:
   FormInputRequirements
+
+
+type FocusOwnershipRequirements is Type:
+  FocusOwnershipRequirements{
+    message_embedded: {A.widget_focus(Controls.MessageInput{}) == A.EmbeddedFocus{} : A.FocusOwnership},
+    independent_attributes: {A.focus_attributes(A.IndependentFocus{}) == Nil{} : +List<S.Attribute>},
+    aggregate_attributes: {A.focus_attributes(A.AggregateFocus{}) == [S.DataAttribute{"focus-owner", "aggregate"}] : +List<S.Attribute>},
+    embedded_attributes: {A.focus_attributes(A.EmbeddedFocus{}) == [S.DataAttribute{"focus-owner", "embedded"}] : +List<S.Attribute>},
+    composer_preserves_children: @+key:UIIdentity.Key -> @+tag:S.BoxTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+children:+List<S.Node> ->
+      {Authored.composer_focus(SurfaceTypes.Composer{}, S.Box{key, tag, style, attributes, children}) == S.Box{key, tag, style, List.append(&2, S.Attribute, attributes, [S.DataAttribute{"focus-owner", "aggregate"}]), children} : S.Node}}
+
+law focus_ownership_evidence:
+  FocusOwnershipRequirements
+
+
+# A recognition unit is a horizontal, non-wrapping row of subject-bound roles.
+# Both roles retain the exact same font and line box; colour carries dependency.
+law summary_value_roles:
+  for secondary: Bool
+  for +subject: UXTypes.Subject
+  for value: String
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  {A.summary_value_node(secondary,UXTypes.SummaryValue{subject,value},key,parent) ==
+    S.Box{key,S.Span{},A.summary_value_style(secondary,parent),
+      [S.DataAttribute{"summary-role",A.summary_role_name(secondary)},S.DataAttribute{"summary-subject",UX.subject_key(subject)}],
+      [A.caption(UIIdentity.part(key,"text"),value,parent,T.UnbrokenLine{})]} : S.Node}
+
+law summary_value_shared_line:
+  for secondary: Bool
+  for +parent: Design.Style
+  {A.summary_value_style(secondary,parent) ==
+    A.information_foreground(secondary,Factory.with_alignments(Factory.content_style(parent,Model.Horizontal{},Model.NaturalSize{},Model.NaturalSize{},0n),Spatial.Leading{},Spatial.Centered{})) : S.Style}
+
+law summary_indivisible_row:
+  for +parent: Design.Style
+  {A.summary_style(parent) ==
+    Factory.with_alignments(Factory.content_style(parent,Model.Horizontal{},Model.NaturalSize{},Model.NaturalSize{},Nat.div(A.parent_gap(parent),2n)),Spatial.Leading{},Spatial.Centered{}) : S.Style}
+
+law property_summary_projection:
+  for full: Bool
+  for +property: UXTypes.Property
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  {A.property_summary_text(full,property,key,parent) ==
+    [S.Box{UIIdentity.part(key,"property-value"),S.Span{},A.summary_style(parent),
+      [S.DataAttribute{"summary-owner",UX.object_key(UX.property_owner(property))}],
+      A.summary_members(UX.summary_projection(full,UX.property_recognition_summary(property)),UIIdentity.part(key,"property-value"),parent)}] : +List<S.Node>}
+
+law property_current_values:
+  for property: UXTypes.Property
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.property_text(property,key,parent) == A.property_summary_text(True{},property,key,parent) : +List<S.Node>}
+
+law compact_property_current_values:
+  for property: UXTypes.Property
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.compact_property_text(property,key,parent) == A.property_summary_text(False{},property,key,parent) : +List<S.Node>}
+
+law property_caption_wraps:
+  for property: UXTypes.Property
+  {Controls.caption_wrapping(Controls.PropertyFace{property}) == T.UnbrokenLine{} : T.Wrapping}
+
+# Native policy owns the writing-line count; layout resolves its measured height.
+law native_field_policy_correspondence:
+  for +widget: Controls.Widget
+  for +maximum_lines: Nat
+  {A.native_field_policy(widget, maximum_lines) ==
+    S.field_policy(0n, Nat.sub(A.native_minimum_lines(widget), 1n), Nat.sub(Nat.max(A.native_minimum_lines(widget), maximum_lines), A.native_minimum_lines(widget))) : S.FieldPolicy}
+
+law native_message_minimum_lines:
+  for maximum_lines: Nat
+  {A.policy_minimum_lines(A.native_field_policy(Controls.MessageInput{}, maximum_lines)) == Activity.writing_lines(Activity.initial()) : Nat}
+
+law native_input_policy:
+  for +key: UIIdentity.Key
+  for meaning: SurfaceTypes.Meaning
+  for name: String
+  for +widget: Controls.Widget
+  for label: Controls.LabelPlacement
+  for availability: View.Availability
+  for +visual: Design.Style
+  for +parameters: Design.LayoutParameters
+  {A.request_policy(A.native_input_request(key, Controls.FormInput{meaning, name, widget, label, availability}, visual, parameters)) ==
+    A.native_field_policy(widget, A.maximum_lines(widget, visual, parameters)) : S.FieldPolicy}
+
+# Presentation form is independent of the semantic command and complete help.
+type AdaptiveSupportingRequirements is Type:
+  AdaptiveSupportingRequirements{
+    full: @+property:UXTypes.Property -> @+area:Controls.Area -> @+value:Controls.Representation ->
+      {Controls.supporting_fields_at(Controls.FullSupporting{}, property, area, value) == Controls.supporting_fields(property, area, value) : Controls.Representation},
+    compact_action: @+property:UXTypes.Property -> @area:Controls.Area -> @input:InteractionTypes.Input -> @+availability:View.Availability -> @name:String -> @face:Controls.Face -> @behavior:Controls.Behavior -> @geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Controls.supporting_fields_at(Controls.CompactSupporting{}, property, area, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
+        Controls.Action{Controls.Button{input, availability, UX.property_help(property), Controls.CompactPropertyFace{property}, behavior, Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.CompactPropertyFace{property}, area), placement, feedback}} : Controls.Representation},
+    accessible_help: @+property:UXTypes.Property -> @+availability:View.Availability -> @+feedback:Controls.Feedback -> @name:String ->
+      {Controls.help_for(Controls.CompactPropertyFace{property}, availability, feedback, name) == Controls.tooltip(Controls.help_text(availability, feedback, UX.property_help(property))) : Controls.Help},
+    region_stretch: @key:UIIdentity.Key -> @tag:S.BoxTag -> @+style:S.Style -> @attributes:+List<S.Attribute> -> @children:+List<S.Node> -> @form:Controls.SupportingForm ->
+      {Authored.supporting_region_box(True{}, key, tag, style, attributes, children, form) ==
+        S.Box{key, tag, Authored.supporting_region_style(style), List.append(&2, S.Attribute, attributes, [S.DataAttribute{"allocated-region", "supporting-controls"}, S.DataAttribute{"supporting-form", Authored.supporting_form_name(form)}]), children} : S.Node}}
+
+law adaptive_supporting_evidence:
+  AdaptiveSupportingRequirements
+
+law supporting_region_content_slot:
+  for direction: Model.Direction
+  for main: Spatial.Alignment
+  for cross: Spatial.Alignment
+  for frame: E.Frame
+  for width: Model.AxisSize
+  for height: Model.AxisSize
+  for minimum: E.Extent
+  for scroll: Model.Scroll
+  for position: Spatial.Position
+  for font: S.FontChoice
+  for chrome: Design.Chrome
+  for states: Design.ControlStates
+  {Authored.supporting_region_style(S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) ==
+    S.Style{S.Layout{direction, Spatial.Leading{}, cross, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : S.Style}
+
+type NavigationPolicyRequirements is Type:
+  NavigationPolicyRequirements{
+    interest: @+hovered:Maybe<&2, String> -> @+focused:Maybe<&2, String> -> @+capable:Bool -> @+owner:String -> @+menu:Bool ->
+      {Navigation.revealed(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Bool.not(capable) || Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool},
+    project_depth: @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+depth:Nat ->
+      {Navigation.descend(SurfaceTypes.ProjectGroup{project, selected, expanded}, depth) == (depth + 1n : Nat) : Nat},
+    nullable_owner: @+nodes:+List<SurfaceTypes.Node> -> {Navigation.admitted(None{}, nodes) == True{} : Bool}}
+
+type NavigationRequirements is Type:
+  NavigationRequirements{
+    policy: NavigationPolicyRequirements,
+    context_interest: @+node:SurfaceTypes.Node -> @+context:Controls.Context ->
+      {Controls.navigation_attention(Controls.enter(node, context)) == Controls.navigation_attention(context) : Navigation.Attention},
+    context_depth: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+context:Controls.Context ->
+      {Controls.navigation_depth(Controls.enter(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, context)) == Navigation.descend(meaning, Controls.navigation_depth(context)) : Nat},
+    idle_truth: {Controls.task_status_glyph(View.TaskStatus{Domain.Active{}, False{}}) == Controls.IdleCircle{} : Controls.Icon},
+    actual_visibility: @+owner:UIIdentity.Key -> @+project:Nat -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+      {Controls.navigation_header(True{}, owner, project, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)}))), Navigation.feedback_active(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
+    exposed_slot: @+capacity:Nat -> @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
+      {Sidebar.slot_at(capacity, key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap_at(capacity, visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
+    concealed_slot: @+capacity:Nat -> @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
+      {Sidebar.slot_at(capacity, key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap_at(capacity, visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
+    caption_frame: @+content:E.ContentArea -> @arrangement:E.Arrangement ->
+      {Sidebar.navigation_caption_frame(E.Frame{content, arrangement}) == E.Frame{E.ambient(0n, E.block(content)), arrangement} : E.Frame},
+    title_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:Source.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
+      {Sidebar.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, Sidebar.navigation_caption_frame(frame), Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
+    title_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> ->
+      {Sidebar.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Sidebar.attributes(Source.Control{key, tag, Sidebar.navigation_title_style(style), attributes, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}]) : Source.Node},
+    complete_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> -> @+width:Model.AxisSize ->
+      {Sidebar.sized(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, width) == Source.Control{key, tag, Sidebar.sized_style(style, width), attributes, name, enabled, first, remaining, children} : Source.Node}}
+
+law navigation_evidence:
+  NavigationRequirements
+
+
+law navigation_entry_selected:
+  @selected:Bool -> {Controls.selected_role(SurfaceTypes.NavigationEntry{selected}) == selected : Bool}
+
+law navigation_caption_secondary:
+  {A.information_secondary(Information.NavigationCaption{}) == True{} : Bool}
+
+
+law navigation_feedback_active:
+  @+hovered:Maybe<&2, String> -> @+focused:Maybe<&2, String> -> @capable:Bool -> @+owner:String -> @+menu:Bool ->
+    {Navigation.feedback_active(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool}
+
+law navigation_fields_project_feedback:
+  @+key:UIIdentity.Key -> @+owner:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+project:Nat -> @selected:Bool -> @expanded:Bool -> @children:+List<SurfaceTypes.Node> -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+    {Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}, depth, attention, layers, fallback) == Controls.navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.part(owner, "actions"))), owner, project, depth, attention, layers, fallback) : Controls.Representation}
+
+law navigation_fields_task_feedback:
+  @+key:UIIdentity.Key -> @task:Nat -> @status:View.TaskStatus -> @selected:Bool -> @family:Controls.SourceFamily -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+    {Controls.navigation_fields(key, SurfaceTypes.TaskRow{task, status, selected}, family, depth, attention, layers, fallback) == Controls.NavigationRow{key, depth, True{}, Navigation.feedback_active(attention, UIIdentity.encode(key), False{})} : Controls.Representation}
+
+# Activity geometry is bound to the observed outer surface and its actual children.
+type ActivityRequirements is Type:
+  ActivityRequirements{
+    shared_row: @capacity:Nat -> @+key:UIIdentity.Key -> @label:String -> @role:SurfaceTypes.Role -> @+row:SurfaceTypes.ActivityRowRole -> @+visual:Design.Style -> @representation:Controls.Representation -> @children:+List<Authored.Child> -> @+parameters:Design.LayoutParameters -> @+content:+List<S.Node> ->
+      {Authored.regular_content(capacity, key, label, role, SurfaceTypes.ActivityRow{row}, visual, representation, children, parameters, content) == Authored.activity_row(capacity, key, row, visual, parameters, content) : S.Node},
+    terminal_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:S.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
+      {Authored.terminal_group_style(S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == S.Style{S.Layout{direction, Spatial.Trailing{}, Spatial.Centered{}, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : S.Style},
+    terminal_group: @+key:UIIdentity.Key -> @+tag:S.BoxTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+children:+List<S.Node> -> @+rest:+List<S.Node> ->
+      {Authored.activity_row_content(SurfaceTypes.TerminalRow{}, S.Box{key, tag, style, attributes, children} <> rest) == S.Box{key, tag, Authored.terminal_group_style(style), attributes, children} <> Authored.terminal_groups(rest) : +List<S.Node>},
+    support_measure: @+parameters:Design.LayoutParameters ->
+      {Authored.activity_row_width(SurfaceTypes.SupportingRow{}, parameters) == Activity.description_width(Design.activity_support_advance(parameters)) : Model.AxisSize},
+    member_measure: @+key:UIIdentity.Key -> @+collection:UXTypes.Collection -> @+path:String -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @content:+List<S.Node> ->
+      {Authored.workspace_member(key, collection, path, visual, parameters, content) ==
+       Authored.box(key, S.Div{}, Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+         List.append(&2, S.Attribute, Authored.subject_attributes(Authored.collection_subject(collection)), [S.AriaAttribute{"label", path}, S.DataAttribute{"member", path}, S.DataAttribute{"reference-property", UX.subject_key(UXTypes.Subject{UX.collection_editor(collection), Forms.WorkspacePrimary{}})}, S.DataAttribute{"primary", Fields.boolean(UX.is_primary(collection, path))}]),
+         [Authored.box(UIIdentity.part(key, "path"), S.Span{}, Factory.content_style(visual, Model.Horizontal{}, Activity.member_width(Design.activity_primary_advance(parameters)), Model.NaturalSize{}, 0n), [S.TitleAttribute{path}], [Authored.text(UIIdentity.part(UIIdentity.part(key, "path"), "text"), path, visual, T.Body{}, T.Regular{})]), Authored.group(UIIdentity.part(key, "controls"), visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, content)]) : S.Node},
+    typography: @role:SurfaceTypes.Role -> @activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+inherited:T.Presentation -> @inside:Bool -> @start:Bool ->
+      {Appearance.information_role(role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, inherited, inside, start) ==
+        T.activity(Appearance.information_role_fields(role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, inherited, inside, start, T.presentation_scale(inherited))) : T.Presentation},
+    reading: @+capacity:Nat -> @+parameters:Design.LayoutParameters -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @visual:Design.Style -> @fallback:Model.AxisSize ->
+      {Shell.activity_width(capacity, parameters, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, fallback) ==
+        Activity.surface_width(capacity, Design.style_text(visual), Design.activity_primary_advance(parameters)) : Model.AxisSize},
+    outer: @+capacity:Nat -> @+parameters:Design.LayoutParameters -> @+key:UIIdentity.Key -> @+current:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @control:Controls.Representation -> @children:+List<Design.Node> -> @rest:+List<Design.Node> -> @fallback:Model.AxisSize -> @same:{UIIdentity.same(key, current) == True{} : Bool} ->
+      {Shell.outer_width(capacity, parameters, key, Design.Node{current, semantic, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, control, children} <> rest, fallback) ==
+        Activity.surface_width(capacity, Design.style_text(visual), Design.activity_primary_advance(parameters)) : Model.AxisSize},
+    source: @+capacity:Nat -> @+key:UIIdentity.Key -> @+label:String -> @+role:SurfaceTypes.Role -> @+activity:UXActivity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool -> @+visual:Design.Style -> @representation:Controls.Representation -> @+children:+List<Authored.Child> -> @parameters:Design.LayoutParameters -> @+content:+List<S.Node> ->
+      {Authored.regular_content(capacity, key, label, role, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}, visual, representation, children, parameters, content) ==
+        Authored.box(key, Authored.role_tag(role), Factory.with_frame(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}),
+          E.Frame{E.ambient(Activity.length(capacity, Design.style_text(visual), 8n), Activity.length(capacity, Design.style_text(visual), 8n)), E.EmbeddedContent{Activity.length(capacity, Design.style_text(visual), 4n)}}),
+          List.append(&2, S.Attribute, Authored.activity_layer_attributes(key, label, activity, SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}), [S.DataAttribute{"activity-owner", UX.object_key(UXActivity.object(activity))}]), Authored.activity_group_heading(Authored.has_activity_navigation(children), role, key, label, visual, content)) : S.Node},
+    row: @+value:Design.Style -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Appearance.activity_control_style_when(True{}, value, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
+        Appearance.with_flow(Appearance.action_content_style(value, Controls.content_layout_at(Design.style_text(value), face), Controls.geometry_at(Design.style_text(value), geometry), Appearance.activity_content_height(face, Design.style_text(value), Controls.geometry_at(Design.style_text(value), geometry))),
+          Appearance.action_flow(face, Controls.content_layout_at(Design.style_text(value), face))) : Design.Style},
+    production: @+value:Design.Style -> @+representation:Controls.Representation -> @active:{T.is_activity(Design.style_text(value)) == True{} : Bool} ->
+      {Appearance.activity_control_style(value, representation) == Appearance.activity_control_style_when(True{}, value, representation) : Design.Style},
+    minimum: @+value:Design.Style -> @input:InteractionTypes.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @placement:Controls.Placement -> @feedback:Controls.Feedback ->
+      {Design.style_minimum_height(Appearance.activity_control_style_when(True{}, value, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}})) ==
+        Nat.max(Controls.geometry_minimum_height(Controls.geometry_at(Design.style_text(value), geometry)), E.extent_height(E.required_extent(0n,
+          Appearance.activity_content_height(face, Design.style_text(value), Controls.geometry_at(Design.style_text(value), geometry)), Appearance.style_border_width(value),
+          Controls.layout_content_area(Controls.content_layout_at(Design.style_text(value), face))))) : Nat},
+    decoration: @+key:UIIdentity.Key -> @+visual:Design.Style -> @+text:String -> @description:Maybe<&2, String> -> @icon:Maybe<&2, Controls.Icon> -> @+selected:Bool -> @+geometry:Controls.Geometry -> @+parameters:Design.LayoutParameters ->
+      {selection_drawing(A.face(key, Controls.ChoiceFace{text, description, icon, selected}, visual, geometry, parameters)) ==
+        selected_drawing(selected, A.face_icon_size(Controls.geometry_at(A.parent_font(visual), geometry))) : Maybe<&2, S.Drawing>}}
+
+law activity_evidence:
+  ActivityRequirements
+
+# Native field ownership survives enclosing its real supporting content.
+type InputSupportRequirements is Type:
+  InputSupportRequirements{
+    empty: @+capacity:Nat -> @+key:UIIdentity.Key -> @+input:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters ->
+      {Authored.input_with_support(capacity, key, Controls.Input{input}, visual, parameters, Nil{}) == Authored.input_source(key, Controls.Input{input}, visual, parameters) : S.Node},
+    content: @+capacity:Nat -> @+key:UIIdentity.Key -> @+input:Controls.FormInput -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @+first:S.Node -> @+rest:+List<S.Node> ->
+      {Authored.input_with_support(capacity, key, Controls.Input{input}, visual, parameters, first <> rest) ==
+        Authored.box(UIIdentity.part(key, "@input-support"), S.Div{}, Factory.content_style(visual, Model.Vertical{}, Authored.input_node_width(Authored.input_source(key, Controls.Input{input}, visual, parameters)), Model.NaturalSize{}, Hierarchy.member_gap(Hierarchy.for_text(capacity, Design.style_text(visual)))),
+          Nil{}, Authored.input_source(key, Controls.Input{input}, visual, parameters) <> first <> rest) : S.Node},
+    other: @+capacity:Nat -> @+key:UIIdentity.Key -> @+visual:Design.Style -> @+parameters:Design.LayoutParameters -> @content:+List<S.Node> ->
+      {Authored.input_with_support(capacity, key, Controls.NoControl{}, visual, parameters, content) == Authored.input_source(key, Controls.NoControl{}, visual, parameters) : S.Node}}
+
+law input_support_evidence:
+  InputSupportRequirements
+
+# Membership consumes the inherited group form, not an entry-specific fit decision.
+law supporting_member_uses_group:
+  for key: UIIdentity.Key
+  for support: UXTypes.Support
+  for property: UXTypes.Property
+  for input: InteractionTypes.Input
+  for availability: View.Availability
+  for label: String
+  for role: SurfaceTypes.Role
+  for +context: Controls.Context
+  {Controls.make_support_visible(True{},key,support,property,input,availability,label,role,context) ==
+    Controls.supporting_fields_at(Controls.supporting_form(context),property,Controls.context_area(context),Controls.represent_action(key,input,availability,label,role,context)) : Controls.Representation}
+
+law supporting_group_form_inherited:
+  for +node: SurfaceTypes.Node
+  for +context: Controls.Context
+  {Controls.supporting_form(Controls.enter(node,context)) == Controls.supporting_form(context) : Controls.SupportingForm}
+
+law compact_summary_keeps_recognition:
+  for +property: UXTypes.Property
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  for +geometry: Controls.Geometry
+  {A.compact_property_members(property,key,parent,geometry) ==
+    List.append(&2,S.Node,A.leading_icon(Controls.property_icon(property),key,parent,A.face_icon_size(geometry)),
+      [S.Box{UIIdentity.part(key,"value"),S.Span{},Factory.content_style(parent,Model.Horizontal{},Model.NaturalSize{},Model.NaturalSize{},0n),Nil{},A.compact_property_text(property,key,parent)},
+        A.glyph(UIIdentity.part(key,"chevron"),Controls.ChevronDown{},parent,A.face_icon_size(geometry))]) : +List<S.Node>}
+
+law summary_members_preserve_roles:
+  for property: UXTypes.Property
+  for principal: UXTypes.SummaryValue
+  for secondary: Maybe<&2,UXTypes.SummaryValue>
+  for +key: UIIdentity.Key
+  for +parent: Design.Style
+  {A.summary_members(UXTypes.RecognitionSummary{property,principal,secondary},key,parent) ==
+    A.summary_value_node(False{},principal,UIIdentity.part(key,"principal"),parent) <> A.summary_secondary_nodes(secondary,key,parent) : +List<S.Node>}
+
+law summary_absent_detail:
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.summary_secondary_nodes(None{},key,parent) == Nil{} : +List<S.Node>}
+
+law summary_dependent_detail:
+  for subject: UXTypes.Subject
+  for value: String
+  for key: UIIdentity.Key
+  for parent: Design.Style
+  {A.summary_secondary_nodes(Some{UXTypes.SummaryValue{subject,value}},key,parent) ==
+    [A.summary_value_node(True{},UXTypes.SummaryValue{subject,"· " ++ value},UIIdentity.part(key,"secondary"),parent)] : +List<S.Node>}
+
+# Settings retain separate reading roles while reusing the original native button.
+law setting_face_preserves_actual_button_binding:
+  @+subject:UXTypes.Subject -> @+title:String -> @+value:String -> @+input:InteractionTypes.Input -> @+availability:View.Availability -> @+name:String -> @face:Controls.Face -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+feedback:Controls.Feedback ->
+  {Controls.setting_representation(subject, title, value, Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}) ==
+    Controls.Action{Controls.Button{input, availability, name, Controls.SettingFace{subject, title, value}, behavior, geometry, placement, feedback}} : Controls.Representation}
+
+law setting_face_has_whole_row_allocation:
+  @subject:UXTypes.Subject -> @title:String -> @value:String -> @visual:Design.Style ->
+  {A.action_width(Controls.SettingFace{subject, title, value}, visual) == Model.StretchSize{} : Model.AxisSize}
+
+law setting_face_keeps_leading_reading_axis:
+  @subject:UXTypes.Subject -> @title:String -> @value:String ->
+  {A.action_alignment(Controls.SettingFace{subject, title, value}) == Spatial.Leading{} : Spatial.Alignment}
+
+law setting_face_interprets_distinct_subject_roles:
+  @+subject:UXTypes.Subject -> @+title:String -> @+value:String -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @+geometry:Controls.Geometry -> @parameters:Design.LayoutParameters ->
+  {A.face_members(Controls.SettingFace{subject, title, value}, key, parent, geometry, parameters) == A.setting_members(subject, title, value, key, parent, geometry) : +List<S.Node>}
+
+law activity_navigation_is_a_shared_horizontal_row:
+  {Authored.activity_row_direction(SurfaceTypes.NavigationRow{}) == Model.Horizontal{} : Model.Direction}
+
+law current_navigation_heading_suppresses_duplicate_outer_heading:
+  @role:SurfaceTypes.Role -> @key:UIIdentity.Key -> @label:String -> @visual:Design.Style -> @+content:+List<S.Node> ->
+  {Authored.activity_group_heading(True{}, role, key, label, visual, content) == content : +List<S.Node>}
+
+law setting_row_keeps_subject_roles_and_opposite_reading_axes:
+  @+subject:UXTypes.Subject -> @title:String -> @value:String -> @+key:UIIdentity.Key -> @+parent:Design.Style -> @geometry:Controls.Geometry ->
+  {A.setting_members(subject, title, value, key, parent, geometry) ==
+    [S.Box{UIIdentity.part(key, "setting-label"), S.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Spatial.Leading{}, Spatial.Centered{}),
+       [S.DataAttribute{"setting-role", "label"}, S.DataAttribute{"setting-subject", UX.subject_key(subject)}], [A.caption(UIIdentity.part(key, "setting-label/text"), title, parent, T.SingleLine{})]},
+     S.Box{UIIdentity.part(key, "setting-value"), S.Span{}, A.information_foreground(True{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Spatial.Trailing{}, Spatial.Centered{})),
+       [S.DataAttribute{"setting-role", "value"}, S.DataAttribute{"setting-subject", UX.subject_key(subject)}], [A.caption(UIIdentity.part(key, "setting-value/text"), value, parent, T.SingleLine{})]},
+     A.glyph(UIIdentity.part(key, "chevron"), Controls.ChevronRight{}, parent, A.face_icon_size(geometry))] : +List<S.Node>}
+
+law shared_navigation_row_reads_from_the_leading_edge:
+  {Authored.activity_row_alignment(SurfaceTypes.NavigationRow{}) == Spatial.Leading{} : Spatial.Alignment}
+
+law activity_layer_accessibility_uses_actual_view_identity:
+  @+label:String -> @+activity:UXActivity.Activity -> @first:S.Attribute -> @+rest:+List<S.Attribute> ->
+  {Authored.activity_layer_name(label, activity, first <> rest) == S.AriaAttribute{"label", Authored.activity_accessible_name(label, activity)} <> rest : +List<S.Attribute>}
+
+law nested_information_navigation_retains_layer_dismissal_attributes:
+  @+key:UIIdentity.Key -> @+label:String -> @+meaning:SurfaceTypes.Meaning ->
+  {Authored.navigation_layer_attributes(True{}, key, label, meaning) == Authored.named_layer_attributes(label, Authored.layer_attributes(key, meaning)) : +List<S.Attribute>}
+
+law property_source_requests_readonly_inspection:
+  @origin:User.Panel -> @+expanded:Bool ->
+  {Controls.panel_purpose(User.PropertySource{origin}, expanded) == Controls.OpenPanel{Controls.Inspector{}, True{}, expanded} : Controls.Purpose}
+
+law shared_navigation_centers_original_control_and_title_boxes:
+  @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:S.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
+  {Authored.navigation_group_style(S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) ==
+    S.Style{S.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, frame, Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : S.Style}
+
+law navigation_heading_uses_intrinsic_line_box:
+  @text:T.Presentation -> @chrome:Design.Chrome -> @alignment:Spatial.Alignment -> @flow:Spatial.Flow -> @overflow:Spatial.Overflow -> @frame:E.Frame -> @minimum:Nat -> @maximum:Nat -> @states:Design.ControlStates ->
+  {Appearance.navigation_heading_style(Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}) ==
+    Design.Style{text, chrome, Spatial.Leading{}, Spatial.BlockFlow{}, overflow, E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}}, 0n, maximum, states} : Design.Style}
+
+law navigation_heading_consumes_its_actual_parent_role:
+  @key:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @children:+List<SurfaceTypes.Node> -> @+style:Design.Style ->
+  {Appearance.navigation_role_style(SurfaceTypes.Heading{}, Controls.SourceFamily{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ActivityRow{SurfaceTypes.NavigationRow{}}, children}}, style) == Appearance.navigation_heading_style(style) : Design.Style}
+
+law navigation_caption_keeps_its_full_measured_width:
+  @+key:UIIdentity.Key -> @+value:String -> @+font:S.FontChoice -> @wrapping:T.Wrapping -> @+rest:+List<S.Node> ->
+  {Authored.navigation_unbroken(S.Text{key, value, font, wrapping} <> rest) == S.Text{key, value, font, T.UnbrokenLine{}} <> Authored.navigation_unbroken(rest) : +List<S.Node>}
+
+law navigation_preserves_actual_return_control:
+  @+key:UIIdentity.Key -> @+tag:S.ControlTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<S.Node> -> @+rest:+List<S.Node> ->
+  {Authored.navigation_unbroken(S.Control{key, tag, style, attributes, name, enabled, first, remaining, children} <> rest) ==
+    S.Control{key, tag, style, attributes, name, enabled, first, remaining, Authored.navigation_unbroken(children)} <> Authored.navigation_unbroken(rest) : +List<S.Node>}
+
+law navigation_group_combines_whole_control_and_title_demand:
+  @+key:UIIdentity.Key -> @+tag:S.BoxTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+children:+List<S.Node> -> @+rest:+List<S.Node> ->
+  {Authored.navigation_groups(S.Box{key, tag, style, attributes, children} <> rest) ==
+    S.Box{key, tag, Authored.navigation_group_style(style), attributes, Authored.navigation_unbroken(children)} <> Authored.navigation_groups(rest) : +List<S.Node>}

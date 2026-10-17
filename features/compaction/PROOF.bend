@@ -29,8 +29,8 @@ def supplied(+summary: String, +task: D.Task, +world: M.World()) ->
   ({Actual.supplied(summary, task, world) == Spec.meaning(Spec.supplied(summary, task, world), world) : M.Decision()} &
    Contract.local_summary(summary, task, Spec.supplied(summary, task, world)) & Contract.accepted(Actual.supplied(summary, task, world))):
   match task:
-    case D.Task{+id, +lineage, +contract, +status, +history, +queued, +phase, +operations, +notified}:
-      +original: D.Task = D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+    case D.Task{+id, +lineage, +contract, +current, +status, +history, +queued, +phase, +operations, +notified}:
+      +original: D.Task = D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}
       (meaning(Spec.supplied(summary, original, world), world), ({==}, {==}), {==})
 
 def captured_watermark(+snapshot: D.History, +entry: A.Entry, +measurement: A.Measurement) ->

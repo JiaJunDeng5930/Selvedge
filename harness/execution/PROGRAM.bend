@@ -46,7 +46,7 @@ def catalog(+world: M.World()) -> +List<D.Tool>:
   catalog_environment(world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def context(+task: D.Task) -> J.Json:
-  J.Object{[J.Field{"model", View.model_json(T.task_model(D.task_contract(task)))},
+  J.Object{[J.Field{"model", View.model_json(D.task_model(task))},
     J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}},
     J.Field{"history", J.Array{T.messages_json(D.history_messages(D.task_history(task), Nil{}))}}]}
 

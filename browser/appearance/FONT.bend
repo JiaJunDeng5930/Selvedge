@@ -14,6 +14,20 @@ type State is Data:
   Ready{generation: Nat, scale: T.Scale, body: T.Metric, content: +List<T.Measured>}
   Failed{generation: Nat, scale: T.Scale}
 
+type ActivityMetrics is Data:
+  ActivityMetrics{primary: T.Metric, support: T.Metric}
+
+def activity_primary_specification(capacity: Nat, scale: T.Scale) -> T.MeasurementSpec:
+  T.spec(T.Probe{"@font/activity-primary", "0", T.resolve_presentation(capacity,
+    T.Presentation{T.ActivityPrimary{}, T.Regular{}, scale}), T.WrapWords{}, None{}, "0"})
+
+def activity_support_specification(capacity: Nat, scale: T.Scale) -> T.MeasurementSpec:
+  T.spec(T.Probe{"@font/activity-support", "0", T.resolve_presentation(capacity,
+    T.Presentation{T.ActivitySupport{}, T.Regular{}, scale}), T.WrapWords{}, None{}, "0"})
+
+def activity_specifications(+capacity: Nat, +scale: T.Scale) -> +List<T.MeasurementSpec>:
+  [activity_primary_specification(capacity, scale), activity_support_specification(capacity, scale)]
+
 def root_scale(root_font_size_milli: Nat) -> T.Scale:
   T.Scale{Nat.sub(Nat.max(1000n, Nat.div(root_font_size_milli, 16n)), 1000n)}
 
@@ -72,6 +86,22 @@ def cached(+specification: T.MeasurementSpec, content: +List<T.Measured>) -> May
     case Con{measured, rest}:
       cached_admitted(specification, cached(specification, rest), Categories.admit(T.Measured, cached_valid(specification), measured))
 
+def activity_metrics_pair(primary: Maybe<&2, T.Measured>, support: Maybe<&2, T.Measured>) -> Maybe<&2, ActivityMetrics>:
+  match primary support:
+    case Some{T.Measured{primary_specification, primary}} Some{T.Measured{support_specification, support}}:
+      Some{ActivityMetrics{primary, support}}
+    case _ _: None{}
+
+def activity_metrics_at(+capacity: Nat, state: State) -> Maybe<&2, ActivityMetrics>:
+  match state:
+    case Ready{generation, +scale, body, +content}:
+      activity_metrics_pair(cached(activity_primary_specification(capacity, scale), content),
+        cached(activity_support_specification(capacity, scale), content))
+    case _: None{}
+
+def activity_metrics(state: State) -> Maybe<&2, ActivityMetrics>:
+  activity_metrics_at(NaturalSize.limit(), state)
+
 def missing_item(found: Maybe<&2, T.Measured>, specification: T.MeasurementSpec, rest: +List<T.MeasurementSpec>) -> +List<T.MeasurementSpec>:
   match found:
     case Some{measured}: rest
@@ -90,6 +120,29 @@ def request_at(capacity: Nat, state: State, specifications: +List<T.MeasurementS
 
 def request(state: State, specifications: +List<T.MeasurementSpec>) -> Plan:
   request_at(NaturalSize.limit(), state, specifications)
+
+# The request retains evidence for the caller's actual capacity and font cache.
+type ActivityRequest<-capacity: Nat, -font: State> is Type:
+  ActivityRequest{plan: Plan,
+    correspondence: {plan == request_at(capacity, font, activity_specifications(capacity, scale(font))) : Plan}}
+
+def activity_request(+capacity: Nat, +font: State) -> ActivityRequest<capacity, font>:
+  ActivityRequest{request_at(capacity, font, activity_specifications(capacity, scale(font))), {==}}
+
+def activity_request_value(-capacity: Nat, -font: State, constructed: ActivityRequest<capacity, font>) -> Plan:
+  ActivityRequest{plan, correspondence} = constructed
+  plan
+
+def activity_request_plan(+capacity: Nat, +font: State) -> Plan:
+  activity_request_value(capacity, font, activity_request(capacity, font))
+
+law activity_request_value_correspondence:
+  @+capacity:Nat -> @+font:State -> @constructed:ActivityRequest<capacity, font> ->
+  {activity_request_value(capacity, font, constructed) == request_at(capacity, font, activity_specifications(capacity, scale(font))) : Plan}
+
+law activity_request_correspondence:
+  @+capacity:Nat -> @+font:State ->
+  {activity_request_plan(capacity, font) == request_at(capacity, font, activity_specifications(capacity, scale(font))) : Plan}
 
 def body_metric(metric: T.Metric) -> Type:
   Categories.holds(T.Metric, T.valid_body)(metric)

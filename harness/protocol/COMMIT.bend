@@ -112,8 +112,16 @@ def deliver(+durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.
 def finish(durable: Bool, decision: M.Decision(), +previous: M.World()) -> M.Decision():
   deliver(durable, checked(decision, previous), previous)
 
+def configuration_admitted(allowed: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
+  match allowed:
+    case True{}: decision
+    case False{}: reject(previous, "configuration_violation", "The candidate changes execution settings outside the resolved configuration command")
+
+def configuration_checked(input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
+  configuration_admitted(Commands.configuration_allowed(input, previous, decision), decision, previous)
+
 def update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  finish(M.durable(input), Notifications.decorate(input, previous, schedule(schedules(input, decision), decision)), previous)
+  finish(M.durable(input), configuration_checked(input, Notifications.decorate(input, previous, schedule(schedules(input, decision), decision)), previous), previous)
 
 # Scheduling is a supplied deterministic transducer, constrained by the exact
 # zero/idle/successor equations in LAWS, not a fairness or termination assumption.

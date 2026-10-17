@@ -368,8 +368,7 @@ law accepted_model_settlement:
   for +task: D.Task
   for +world: M.World()
   {P.model_matched(True{}, outcome, allowed, task, world) ==
-    C.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world),
-      D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision()}
+    Protocol.model_result(task, outcome, allowed, world) : M.Decision()}
 
 law accepted_tool_settlement:
   for +operation: D.Operation()
@@ -433,6 +432,7 @@ law archived_terminal:
   {D.control(D.Archived{}, request) == None{} : Maybe<&2, D.Status>}
 
 law archived_input_unchanged:
+  for +current: D.ExecutionConfiguration
   for +id: Nat
   for +lineage: +List<Nat>
   for +contract: D.Contract
@@ -442,8 +442,8 @@ law archived_input_unchanged:
   for text: String
   for +operations: +List<D.Operation()>
   for +notified: Bool
-  {T.receive(text, D.Task{id, lineage, contract, D.Archived{}, history, queue, phase, operations, notified}) ==
-    D.Task{id, lineage, contract, D.Archived{}, history, queue, phase, operations, notified} : D.Task}
+  {T.receive(text, D.Task{id, lineage, contract, current, D.Archived{}, history, queue, phase, operations, notified}) ==
+    D.Task{id, lineage, contract, current, D.Archived{}, history, queue, phase, operations, notified} : D.Task}
 
 # Freeze suspends dispatch; stop permits settlement but never requests a model.
 
@@ -495,8 +495,8 @@ law queue_order:
   {D.task_queue(D.queue_message(second, D.queue_message(first, task))) ==
     List.append(&2, String, D.task_queue(task), [first, second]) : +List<String>}
 
-# A child shares the parent's history prefix and immutable contract, has a new
-# task-parent edge, and receives no copy of the parent's waiting user messages.
+# A child snapshots the parent's effective execution contract at the actual fork,
+# has a new parent edge and receives no copy of waiting user messages.
 
 law child_contract:
   for id: Nat
@@ -505,7 +505,16 @@ law child_contract:
   for branch: Nat
   for remaining: +List<D.Attempt>
   for message: Maybe<&2, String>
-  {D.task_contract(P.child(id, parent, call, branch, remaining, message)) == D.task_contract(parent) : D.Contract}
+  {D.task_contract(P.child(id, parent, call, branch, remaining, message)) == D.effective_contract(parent) : D.Contract}
+
+law child_execution:
+  for id: Nat
+  for +parent: D.Task
+  for call: String
+  for branch: Nat
+  for remaining: +List<D.Attempt>
+  for message: Maybe<&2, String>
+  {D.task_execution(P.child(id, parent, call, branch, remaining, message)) == D.execution_configuration(D.effective_contract(parent)) : D.ExecutionConfiguration}
 
 law child_history_prefix:
   for +id: Nat
@@ -655,6 +664,34 @@ law input_consumer_correspondence:
   for member: Protocol.ConstructedInput()
   {P.realize_event(member) == P.input_consumer_correspondence_required(member) : M.Decision()}
 
+law execution_configuration_status:
+  for configuration: D.ExecutionConfiguration
+  for +task: D.Task
+  {D.task_status(D.with_execution(configuration, task)) == D.task_status(task) : D.Status}
+
+law execution_configuration_creation:
+  for configuration: D.ExecutionConfiguration
+  for +task: D.Task
+  {D.task_contract(D.with_execution(configuration, task)) == D.task_contract(task) : D.Contract}
+
+law execution_configuration_current:
+  for +configuration: D.ExecutionConfiguration
+  for task: D.Task
+  {D.task_execution(D.with_execution(configuration, task)) == configuration : D.ExecutionConfiguration}
+
+law queued_execution_configuration_rejected:
+  for id: Nat
+  for lineage: +List<Nat>
+  for contract: D.Contract
+  for current: D.ExecutionConfiguration
+  for status: D.Status
+  for history: D.History
+  for first: String
+  for rest: +List<String>
+  for phase: D.Phase
+  for operations: +List<D.Operation()>
+  for notified: Bool
+  {D.task_execution_quiescent(D.Task{id, lineage, contract, current, status, history, first <> rest, phase, operations, notified}) == False{} : Bool}
 
 law initial_history_order:
   for +instructions: D.InitialInstructions
@@ -669,6 +706,7 @@ law initial_history_order:
   for +max_descendants: Nat
   for +plugins: +List<D.Plugin>
   for +context: D.TaskContext
+  for +current: D.ExecutionConfiguration
   for +status: D.Status
   for +history: D.History
   for +queued: +List<String>
@@ -676,7 +714,7 @@ law initial_history_order:
   for +operations: +List<D.Operation()>
   for +notified: Bool
   {D.task_history(D.initialize_history(instructions, project, message,
-    D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context}, status, history, queued, phase, operations, notified})) ==
+    D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified})) ==
     TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, history) : D.History}
 
 law context_append_preserves_prefix:
@@ -714,7 +752,7 @@ law model_request_full_history:
   for instructions: D.InitialInstructions
   {P.decision_effects(ActualReasoning.request_environment(F.State(), F.Effect, task, C.Frame{state, board},
     D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions})) ==
-    [Effects.RequestModel{D.task_id(task), D.state_next_ticket(state), T.task_model(D.task_contract(task)), D.task_history(task),
+    [Effects.RequestModel{D.task_id(task), D.state_next_ticket(state), D.task_model(task), D.task_history(task),
       T.task_tools(D.task_contract(task)), T.callable(T.task_tools(D.task_contract(task)), catalog), D.task_context(task), "", 0n}] : +List<M.Effect()>}
 
 law root_initial_history:
@@ -735,5 +773,6 @@ law root_initial_history:
     Workspace.Selection{context, project}, C.Frame{state, board},
     D.Environment{catalog, profiles, forks, descendants, D.NoProject{}, plugins, instructions})))) ==
     List.append(&2, D.Task, D.state_tasks(state), [D.Task{D.state_next_task(state), Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context},
+      D.execution_configuration(D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context}),
       D.Active{}, TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, D.EmptyHistory{}),
       Nil{}, D.Ready{Nil{}}, Nil{}, True{}}]) : +List<D.Task>}

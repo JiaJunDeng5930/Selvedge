@@ -51,13 +51,13 @@ def Laws.recovery_partition(first, second):
   Std.map_app(~D.Task, ~D.Task, ~Protocol.recover, first, second)
 
 def Laws.task_view_partition(first, second):
-  Std.map_app(~D.Task, ~J.Json, ~T.summary, first, second)
+  Std.map_app(~D.Task, ~J.Json, ~(task => T.summary(task)), first, second)
 
 def Laws.branch_result_partition(first, second):
   Std.map_app(~D.Task, ~J.Json, ~Commands.identity, first, second)
 
 def Laws.recovery_view_composition(tasks):
-  Std.map_map(~D.Task, ~D.Task, ~J.Json, ~Protocol.recover, ~T.summary, tasks)
+  Std.map_map(~D.Task, ~D.Task, ~J.Json, ~Protocol.recover, ~(task => T.summary(task)), tasks)
 
 def decision_associativity(+first: M.Decision(), +second: M.Decision(), +third: M.Decision()) ->
   {P.combine(P.combine(first, second), third) == P.combine(first, P.combine(second, third)) : M.Decision()}:

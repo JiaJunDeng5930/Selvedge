@@ -6,7 +6,7 @@ import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
-import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand } from './project.mjs';
+import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
 import { observeBoardCommand } from './board-files.mjs';
@@ -16,6 +16,7 @@ import { browseDirectories } from './directories.mjs';
 import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
+import { WebRequestStore } from './chatgpt-web-store.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class CommandNotSubmitted extends Error {
@@ -146,6 +147,11 @@ export class Service extends EventEmitter {
 
   #dispatch(effect, sequence, firstOrdinal = 0) {
     if (this.#closing || this.#failure) return;
+    if (effect.kind === 'reset_model_session') {
+      try { WebRequestStore.resetExisting(this.home, effect.task_id); }
+      catch (error) { this.#fatal(error); }
+      return;
+    }
     if (effect.kind === 'plugin_events') {
       effect.events.forEach(({ recipients, ...event }, index) => {
         for (const reference of recipients) {
@@ -320,7 +326,7 @@ export class Service extends EventEmitter {
   async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    if (command?.op === 'create') {
+    if (hasRootTaskCreation(command)) {
       // Keep each root's observed defaults adjacent to its command even when
       // catalog refreshes and other root births arrive concurrently.
       const next = this.#catalogTail.then(() => this.#createRoot(command));
@@ -337,13 +343,12 @@ export class Service extends EventEmitter {
       const instructions = { configured: configuredInstructions(this.config, this.limits),
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
-      const settings = command.settings;
-      if (settings && typeof settings === 'object' && !Array.isArray(settings) &&
-          settings.workspace === undefined && Number.isSafeInteger(settings.project_id)) {
-        const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id: settings.project_id } });
-        if (result.reply.ok) command = { ...command, settings: { ...settings, workspace: result.reply.result.workspace } };
-      }
-      const observed = await observeWorkspaceCommand(command, this.limits);
+      const observed = await observeWorkspaceCommand(command, this.limits, {
+        projectWorkspace: async project_id => {
+          const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
+          return result.reply.ok ? result.reply.result.workspace : undefined;
+        },
+      });
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }

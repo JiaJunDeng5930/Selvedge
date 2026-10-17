@@ -3,9 +3,9 @@ import ../tools/MODEL.bend as Tools
 import ../../bendlib/categories.bend as Categories
 import ../features/CODEC.bend as FeatureCodec
 import ./wire-shape.bend as Shape
+import ../workspace/WORKSPACE.bend as Workspace
 import ../features/MODEL.bend as Features
 import ../DOMAIN.bend as D
-import ../workspace/WORKSPACE.bend as Workspace
 import ../MODEL.bend as M
 import ../protocol/PROGRAM.bend as Protocol
 import ../../bendlib/json.bend as J
@@ -33,8 +33,23 @@ def approval_outcome(kind: String, +value: J.Json) -> D.ApprovalOutcome:
     case "deny": D.ApprovalDenied{J.text_or(J.get(value, "reason"), "")}
     case _: D.ApprovalFailed{J.text_or(J.get(value, "reason"), "The review did not return a valid decision")}
 
+def execution_sandbox(read_only: Bool, network: Bool) -> D.Sandbox:
+  match read_only:
+    case True{}: D.Sandbox{D.ReadOnly{}, network}
+    case False{}: D.Sandbox{D.WorkspaceWrite{}, network}
+
+def execution_approval(mode: String, key: String) -> D.ApprovalPolicy:
+  match mode:
+    case "full-access": D.FullAccess{}
+    case "ask-for-approval": D.AskForApproval{}
+    case _: D.ApprovalForMe{D.Profile{key, "", "", Reasoning.Fixed{}, None{}}}
+
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
+    case M.ConfigureTaskExecutionCommand{}:
+      M.ConfigureTaskExecution{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "profile")), J.text(J.get(body, "reasoning")),
+        execution_sandbox(String.eq(J.text(J.get(J.get(body, "sandbox"), "mode")), "read-only"), J.boolean(J.get(J.get(body, "sandbox"), "network_access"))),
+        execution_approval(J.text(J.get(J.get(body, "approval"), "mode")), J.text_or(J.get(J.get(body, "approval"), "reviewer_profile"), J.text(J.get(body, "profile"))))}
     case M.FeatureKind{kind}: FeatureCodec.construct(kind, body)
     case M.CreateCommand{}:
       M.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
@@ -64,8 +79,12 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.ReviewApprovalCommand{}: M.ReviewApproval{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n),
       approval_outcome(J.text(J.get(body, "decision")), body)}
 
-def command_constraints(kind: M.CommandKind, body: J.Json) -> Bool:
+def command_constraints(kind: M.CommandKind, +body: J.Json) -> Bool:
   match kind:
+    case M.ConfigureTaskExecutionCommand{}:
+      ((String.eq(J.text(J.get(J.get(body, "sandbox"), "mode")), "workspace-write")) || (String.eq(J.text(J.get(J.get(body, "sandbox"), "mode")), "read-only"))) &&
+        Shape.is_bool(J.get(J.get(body, "sandbox"), "network_access")) &&
+        ((String.eq(J.text(J.get(J.get(body, "approval"), "mode")), "full-access")) || (String.eq(J.text(J.get(J.get(body, "approval"), "mode")), "ask-for-approval")) || (String.eq(J.text(J.get(J.get(body, "approval"), "mode")), "approval-for-me")))
     case M.FeatureKind{kind}: FeatureCodec.valid(kind, body)
     case _: True{}
 
@@ -396,7 +415,8 @@ def config_payload(+body: J.Json) -> Bool:
 def config_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => config_payload(value)))>) -> Result<&2, &2, String, M.Input>:
   Categories.Membership{+body, evidence} = member
   +max_fork = Protocol.number(body, "max_fork", 0n)
-  Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork), remote_tools(J.items(J.get(body, "tools")))),
+  Done{M.Configure{D.Environment{List.append(&2, D.Tool, Tools.catalog(max_fork),
+      List.append(&2, D.Tool, Features.native_catalog(D.task_settings_schema()), remote_tools(J.items(J.get(body, "tools"))))),
     profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
     plugin_values(J.items(J.get(body, "plugins"))), initial_instructions(J.get(body, "instructions"))}}}
 

@@ -27,9 +27,9 @@ def authored_claim(+model_state: Browser.State, +source: Source.Node, +index: Na
 
 def measurement_claim(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +tokens: +List<String>, +semantic: SurfaceTypes.Surface, +round: Nat) -> Type:
   {Browser.measured_pending(tokens, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
-    Browser.receipt_selection(World.receipt_status(World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine)),
+    Browser.utility_if_needed(Browser.receipt_selection(World.receipt_status(World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine)),
       index, capacity, World.receive(World.snapshot_generation(World.snapshot(engine)), tokens, engine),
-      Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic, (round + 1n : Nat)) : Browser.Decision}
+      Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic, (round + 1n : Nat))) : Browser.Decision}
 
 type Requirements is Type:
   Requirements{
@@ -48,9 +48,9 @@ type Requirements is Type:
     remeasure: @+model_state:Browser.State ->  @+index:Nat ->
       @+capacity:View.Capacity -> @+engine:World.Engine -> @+semantic:SurfaceTypes.Surface -> @+round:Nat ->
       {Browser.remeasure(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
-        Browser.refreeze(index, capacity, engine, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), semantic) : Browser.Decision},
+        Browser.build(0n, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) : Browser.Decision},
     ready: @world:Content.AllocatedWorld -> @index:Nat -> @capacity:View.Capacity -> @engine:World.Engine -> @state:Browser.State -> @semantic:SurfaceTypes.Surface -> @round:Nat ->
-      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.Stopped{Browser.admit(world, capacity, engine, state, semantic)} : Browser.Search}}
+      {Browser.selected(Plan.Ready{world}, index, capacity, engine, state, semantic, round) == Browser.selected_supporting(Browser.supporting_admitted(index, world), world, index, capacity, engine, state, semantic) : Browser.Search}}
 
 law evidence:
   Requirements

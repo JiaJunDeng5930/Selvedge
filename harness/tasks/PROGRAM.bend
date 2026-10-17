@@ -141,19 +141,23 @@ def phase_name(phase: D.Phase) -> String:
     case D.ModelPending{ticket, callable}: "model_pending"
     case D.ReasoningPending{ticket, revision}: "reasoning_pending"
 
-def summary(task: D.Task) -> J.Json:
-  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy, options}, reasoning}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
-  J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
-    J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
-    J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
-    J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(D.history_length(history))},
-    J.Field{"queued", J.nat(List.length(&2, String, queued))},
-    J.Field{"operations", J.Array{Ops.summaries(operations)}},
-    J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"settings", D.task_context_json(context)},
-    J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
+def execution_summary(task: D.Task, model_value: D.Model, context: D.TaskContext) -> J.Json:
+  match task model_value:
+    case D.Task{id, lineage, D.Contract{creation_model, tools, max_fork, max_descendants, plugins, creation_context}, current, +status, history, queued, phase, operations, notified} D.Model{D.Profile{profile, provider, model, policy, options}, reasoning}:
+      J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
+        J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
+        J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
+        J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(D.history_length(history))},
+        J.Field{"queued", J.nat(List.length(&2, String, queued))},
+        J.Field{"operations", J.Array{Ops.summaries(operations)}},
+        J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"settings", D.task_context_json(context)},
+        J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
+
+def summary(+task: D.Task) -> J.Json:
+  execution_summary(task, D.task_model(task), D.task_context(task))
 
 def summaries(tasks: +List<D.Task>) -> +List<J.Json>:
-  Std.map(~D.Task, ~J.Json, ~summary, tasks)
+  Std.map(~D.Task, ~J.Json, ~(task => summary(task)), tasks)
 
 def page(+task: D.Task, +after: Nat, +limit: Nat) -> J.Json:
   +history = D.task_history(task)
@@ -170,10 +174,10 @@ def user_messages(inputs: +List<String>) -> +List<D.Message>:
 
 def drain(task: D.Task) -> D.Task:
   match task:
-    case D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}:
-      D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}
-    case D.Task{id, lineage, contract, status, history, Con{text, rest}, phase, operations, notified}:
-      D.Task{id, lineage, contract, status, D.history_append(user_messages(text <> rest), history), Nil{}, D.Ready{Nil{}}, operations, True{}}
+    case D.Task{id, lineage, contract, current, status, history, Nil{}, phase, operations, notified}:
+      D.Task{id, lineage, contract, current, status, history, Nil{}, phase, operations, notified}
+    case D.Task{id, lineage, contract, current, status, history, Con{text, rest}, phase, operations, notified}:
+      D.Task{id, lineage, contract, current, status, D.history_append(user_messages(text <> rest), history), Nil{}, D.Ready{Nil{}}, operations, True{}}
 
 def promote_when(status: D.Status, phase: D.Phase, task: D.Task) -> D.Task:
   match status phase:
@@ -233,6 +237,31 @@ def item_messages(items: +List<D.ModelItem>) -> +List<D.Message>:
     case Con{D.Say{text}, rest}: D.AssistantMessage{text} <> item_messages(rest)
     case Con{D.Invoke{call}, rest}: D.FunctionCall{call} <> item_messages(rest)
     case Con{D.Context{value}, rest}: D.ModelContext{value} <> item_messages(rest)
+
+def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<String>:
+  match nonempty:
+    case True{}: text <> rest
+    case False{}: rest
+
+def output_items(items: +List<D.ModelItem>) -> +List<String>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{D.Say{+text}, rest}:
+      output_text(Bool.not(String.is_empty(text)), text, output_items(rest))
+    case Con{other, rest}: output_items(rest)
+
+def normal_output_items(calls: +List<D.Call>, items: +List<D.ModelItem>) -> +List<String>:
+  match calls:
+    case Nil{}: output_items(items)
+    case Con{call, rest}: Nil{}
+
+# A reply with tool calls is still a continuation, even when it also has text.
+# Output hooks observe accepted reply text rather than the resulting Idle phase.
+def reply_outputs(outcome: D.Outcome) -> +List<String>:
+  match outcome:
+    case D.ModelReply{+items}:
+      normal_output_items(item_calls(items), items)
+    case _: Nil{}
 
 def settled_model(notified: Bool, task: D.Task) -> D.Task:
   match notified:
@@ -315,8 +344,8 @@ def interrupted_history(phase: D.Phase, history: D.History) -> D.History:
     case D.Ready{attempts}: interrupt_attempts(attempts, history)
 
 def interrupted_task(task: D.Task) -> D.Task:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
-  D.Task{id, lineage, contract, D.Stopped{}, interrupted_history(phase, history), queued, D.Idle{}, Nil{}, False{}}
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, D.Stopped{}, interrupted_history(phase, history), queued, D.Idle{}, Nil{}, False{}}
 
 def interrupt(task: D.Task) -> D.Task:
   interrupted_task(Ops.abandoned(task))
@@ -336,8 +365,8 @@ def steering_status(status: D.Status) -> D.Status:
     case other: other
 
 def steer(text: String, task: D.Task) -> D.Task:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
-  D.Task{id, lineage, contract, steering_status(status),
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, steering_status(status),
     D.HistoryNode{interrupted_history(phase, history), D.UserMessage{text}}, queued,
     D.Ready{Nil{}}, operations, True{}}
 

@@ -163,6 +163,31 @@ def receipt_source(+source: J.Json) -> Bool:
   +resource = get(source, "resource")
   eq(effect, "kind", "model") && J.is_object(resource) && J.is_object(record) && is_array(get(source, "deferred")) && natural(get(source, "input_count")) && natural(get(source, "output_count")) && Nat.is_lt(0n, number(get(source, "output_count"))) && nonempty(get(source, "input_hash")) && nonempty(get(source, "store_identity")) && (eq(resource, "status", "completed") || eq(resource, "status", "requires_action")) && Model.same_json(get(record, "response_id"), get(resource, "id")) && Model.same_json(get(record, "binding"), get(source, "binding")) && Model.same_json(get(record, "owner"), get(calculation_owner(object(field("effect", effect) <> Nil{})), "value")) && Model.same_json(resource, get(source, "response_observation")) && resource_admissible(object(field("value", resource) <> field("body", get(source, "body_observation")) <> field("model", get(get(effect, "model"), "name")) <> field("tools", get(source, "tools")) <> Nil{}))
 
+type RetirementReason is Data:
+  Active{}
+  Cancelled{}
+  ConfigurationChanged{}
+
+def retirement_code(reason: RetirementReason) -> J.Json:
+  match reason:
+    case Active{}: J.nat(0n)
+    case Cancelled{}: J.nat(1n)
+    case ConfigurationChanged{}: J.nat(2n)
+
+def retirement_matches(reason: RetirementReason, record: J.Json) -> Bool:
+  Model.same_json(retirement_code(reason), get(record, "retired"))
+
+def retirement_valid(+record: J.Json) -> Bool:
+  retirement_matches(Active{}, record) || retirement_matches(Cancelled{}, record) || retirement_matches(ConfigurationChanged{}, record)
+
+def retirement_optional(+record: J.Json) -> Bool:
+  is_null(record) || retirement_valid(record)
+
+def retirement_records(records: +List<J.Json>) -> Bool:
+  match records:
+    case Nil{}: True{}
+    case Con{record, rest}: retirement_valid(record) && retirement_records(rest)
+
 def source_shape(operation: String, +source: J.Json) -> Bool:
   match operation:
     case "http_json": J.is_object(get(source, "response")) && boolean_value(get(get(source, "response"), "ok")) && natural(get(get(source, "response"), "status")) && J.is_text(get(source, "text")) && J.is_object(get(source, "observation")) && Model.same_json(get(get(source, "observation"), "text"), get(source, "text")) && (is_array(get(get(source, "observation"), "tokens")) || J.is_text(get(get(source, "observation"), "error")))
@@ -175,8 +200,9 @@ def source_shape(operation: String, +source: J.Json) -> Bool:
     case "store_finish": J.is_object(get(source, "record")) && J.is_object(get(source, "current")) && J.is_object(get(source, "response"))
     case "store_reject": J.is_object(get(source, "record"))
     case "store_retire": J.is_object(get(source, "record"))
+    case "reset_session": natural(get(source, "task_id")) && is_array(get(source, "records")) && retirement_records(J.items(get(source, "records"))) && is_array(get(source, "rows")) && Model.same_json(get(source, "created"), J.Boolean{False{}}) && J.is_text(get(source, "new_identity"))
     case "retire_existing": is_array(get(source, "records")) && J.is_text(get(source, "owner")) && is_array(get(source, "rows")) && Model.same_json(get(source, "created"), J.Boolean{False{}}) && J.is_text(get(source, "new_identity"))
-    case "store_latest": is_array(get(source, "records")) && J.is_text(get(source, "owner"))
+    case "store_latest": is_array(get(source, "records")) && retirement_records(J.items(get(source, "records"))) && J.is_text(get(source, "owner"))
     case "store_metadata": is_array(get(source, "rows")) && J.is_text(get(source, "new_identity")) && boolean_value(get(source, "created"))
     case "receipt": receipt_source(source)
     case "owner": J.is_object(get(source, "effect"))
@@ -192,7 +218,7 @@ def source_shape(operation: String, +source: J.Json) -> Bool:
     case "settle": J.is_object(get(source, "resource")) && J.is_object(get(source, "effect")) && is_array(get(source, "deferred"))
     case _: J.is_object(source)
 def source_valid(operation: String, +source: J.Json) -> Bool:
-  J.is_object(source) && wire(source) && source_shape(operation, source)
+  J.is_object(source) && wire(source) && source_shape(operation, source) && retirement_optional(get(source, "record")) && retirement_optional(get(source, "previous")) && retirement_optional(get(source, "current"))
 
 # Every operation receives the complete original JSON source. Wire membership is
 # independent of protocol categories; no host Boolean supplies that evidence.
@@ -520,7 +546,7 @@ def rejection_updates(admitted: Bool) -> J.Json:
 def calculation_store_reject(source: J.Json) -> J.Json:
   Model.success(object(field("updates", rejection_updates(truthy(get(get(source, "record"), "response_id")))) <> Nil{}))
 def calculation_store_retire(source: J.Json) -> J.Json:
-  Model.success(object(field("updates", object(field("retired", J.nat(1n)) <> Nil{})) <> Nil{}))
+  Model.success(object(field("updates", object(field("retired", retirement_code(Cancelled{})) <> Nil{})) <> Nil{}))
 def prepare_decision(action: String, record: J.Json) -> J.Json:
   Model.success(object(field("action", text(action)) <> field("record", record) <> Nil{}))
 def prepare_immutable(valid: Bool, source: J.Json) -> J.Json:
@@ -538,10 +564,10 @@ def prepare_retired(retired: Bool, +source: J.Json) -> J.Json:
 def prepare_blocked(blocked: Bool, +source: J.Json) -> J.Json:
   match blocked:
     case True{}: prepare_decision("retained", get(source, "previous"))
-    case False{}: prepare_decision("insert", object(append_fields(subset(get(source, "request"), "invocation" <> "owner" <> "profile" <> "endpoint" <> "binding" <> Nil{}), field("request_key", get(source, "new_key")) <> field("body", text(shown(get(get(source, "request"), "body")))) <> field("response_id", J.Null{}) <> field("response", J.Null{}) <> field("rejected", J.nat(0n)) <> field("retired", J.nat(0n)) <> Nil{})))
+    case False{}: prepare_decision("insert", object(append_fields(subset(get(source, "request"), "invocation" <> "owner" <> "profile" <> "endpoint" <> "binding" <> Nil{}), field("request_key", get(source, "new_key")) <> field("body", text(shown(get(get(source, "request"), "body")))) <> field("response_id", J.Null{}) <> field("response", J.Null{}) <> field("rejected", J.nat(0n)) <> field("retired", retirement_code(Active{})) <> Nil{})))
 def predecessor_blocked(successor: Bool, +previous: J.Json, +request: J.Json) -> Bool:
   match successor:
-    case True{}: truthy(get(previous, "retired")) || Bool.not(Model.same_json(get(previous, "response_id"), get(get(request, "body"), "previous_response_id"))) || Bool.not(truthy(get(previous, "response")))
+    case True{}: Bool.not(retirement_matches(Active{}, previous)) || Bool.not(Model.same_json(get(previous, "response_id"), get(get(request, "body"), "previous_response_id"))) || Bool.not(truthy(get(previous, "response")))
     case False{}: Bool.not(truthy(get(request, "reset")))
 def predecessor_required(+source: J.Json) -> Bool:
   +previous = get(source, "previous")
@@ -550,13 +576,15 @@ def predecessor_required(+source: J.Json) -> Bool:
 def prepare_predecessor(+source: J.Json) -> J.Json: prepare_blocked(predecessor_required(source), source)
 def prepare_existing(found: Bool, +source: J.Json) -> J.Json:
   match found:
-    case True{}: prepare_retired(truthy(get(get(source, "record"), "retired")), source)
+    case True{}: prepare_retired(Bool.not(retirement_matches(Active{}, get(source, "record"))), source)
     case False{}: prepare_predecessor(source)
 def calculation_store_prepare(+source: J.Json) -> J.Json: prepare_existing(truthy(get(source, "record")), source)
+def invocation_ticket(+invocation: String, +ticket: String) -> Bool:
+  String.eq(invocation, ticket) || String.starts_with(invocation, ticket ++ ":context:")
 def retire_ticket(absent: Bool, +record: J.Json, +source: J.Json) -> Bool:
   match absent:
     case True{}: True{}
-    case False{}: eq(record, "invocation", name(source, "owner") ++ ":" ++ name_or_number(get(source, "ticket")) ++ ":0") || eq(record, "invocation", name(source, "owner") ++ ":" ++ name_or_number(get(source, "ticket")) ++ ":1")
+    case False{}: invocation_ticket(name(record, "invocation"), name(source, "owner") ++ ":" ++ name_or_number(get(source, "ticket")) ++ ":0") || invocation_ticket(name(record, "invocation"), name(source, "owner") ++ ":" ++ name_or_number(get(source, "ticket")) ++ ":1")
 def retire_match(+record: J.Json, +source: J.Json) -> Bool:
   Model.same_json(get(record, "owner"), get(source, "owner")) && Model.same_json(get(record, "rejected"), J.nat(0n)) && retire_ticket(Bool.not(has(source, "ticket")), record, source)
 def later_record(later: Bool, record: J.Json, previous: J.Json) -> +List<J.Json>:
@@ -578,7 +606,7 @@ def retire_candidates(records: +List<J.Json>, +source: J.Json) -> +List<J.Json>:
 def retire_writes(records: +List<J.Json>) -> +List<J.Json>:
   match records:
     case Nil{}: Nil{}
-    case Con{+record, rest}: object(field("record", record) <> field("request_key", get(record, "request_key")) <> field("updates", object(field("retired", J.nat(1n)) <> Nil{})) <> Nil{}) <> Nil{}
+    case Con{+record, rest}: object(field("record", record) <> field("request_key", get(record, "request_key")) <> field("updates", object(field("retired", retirement_code(Cancelled{})) <> Nil{})) <> Nil{}) <> Nil{}
 def history_take(items: +List<J.Json>, count: Nat) -> +List<J.Json>:
   match items count:
     case Nil{} _: Nil{}
@@ -592,7 +620,9 @@ def history_drop(+items: +List<J.Json>, count: Nat) -> +List<J.Json>:
 def continuation_receipt(+source: J.Json) -> J.Json:
   get(history_at(J.items(get(get(source, "effect"), "history")), number(get(source, "receipt_position"))), "content")
 def cancelled(+source: J.Json) -> Bool:
-  eq(get(source, "effect"), "kind", "model") && Model.same_json(get(get(source, "previous"), "retired"), J.nat(1n))
+  eq(get(source, "effect"), "kind", "model") && retirement_matches(Cancelled{}, get(source, "previous"))
+def configuration_reset(+source: J.Json) -> Bool:
+  eq(get(source, "effect"), "kind", "model") && retirement_matches(ConfigurationChanged{}, get(source, "previous"))
 def replacement_source_suffix(source: Maybe<&2, Nat>) -> String:
   match source:
     case Some{source}: ":context:" ++ Nat.show(source)
@@ -610,11 +640,11 @@ def replaced_root(+source: J.Json) -> Bool:
     Bool.not(Model.same_json(get(get(source, "previous"), "owner"), get(source, "owner")) &&
       String.ends_with(name(get(source, "previous"), "invocation"), replacement_suffix(get(source, "effect"))))
 def page_reset(+source: J.Json) -> Bool:
-  cancelled(source) || replaced_root(source)
+  cancelled(source) || configuration_reset(source) || replaced_root(source)
 def continuation_owner(+source: J.Json) -> Bool:
   +effect = get(source, "effect")
   +receipt = continuation_receipt(source)
-  eq(effect, "kind", "model") && natural(get(source, "receipt_position")) && Model.same_json(history_receipt_index(J.items(get(effect, "history")), 0n, J.Null{}), get(source, "receipt_position")) && Model.same_json(get(receipt, "task_id"), get(effect, "task_id")) && Bool.not(cancelled(source))
+  eq(effect, "kind", "model") && natural(get(source, "receipt_position")) && Model.same_json(history_receipt_index(J.items(get(effect, "history")), 0n, J.Null{}), get(source, "receipt_position")) && Model.same_json(get(receipt, "task_id"), get(effect, "task_id")) && Bool.not(cancelled(source) || configuration_reset(source))
 def continuation_binding(+source: J.Json) -> Bool:
   +receipt = continuation_receipt(source)
   Model.same_json(get(receipt, "store_id"), get(source, "store_identity")) && Model.same_json(get(receipt, "binding"), get(source, "binding")) && Model.same_json(get(receipt, "contract"), get(source, "contract")) && nonempty(get(receipt, "response_id")) && is_array(get(receipt, "deferred"))
@@ -723,7 +753,7 @@ def continuation_cancelled(valid: Bool, +source: J.Json) -> J.Json:
 def continuation_effort(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("ChatGPT Web effort is fixed by its model profile")
-    case True{}: continuation_cancelled(Bool.not(cancelled(source)) || Model.same_json(get(get(source, "previous"), "binding"), get(source, "binding")), source)
+    case True{}: continuation_cancelled(configuration_reset(source) || Bool.not(cancelled(source)) || Model.same_json(get(get(source, "previous"), "binding"), get(source, "binding")), source)
 def calculation_continuation(+source: J.Json) -> J.Json:
   continuation_effort(Bool.not(truthy(get(get(get(source, "effect"), "model"), "adaptive_reasoning"))), source)
 
@@ -2095,8 +2125,66 @@ def route_0(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
     case True{}: messages(source)
     case False{}: route_1(String.eq(operation, "web.tools"), operation, source)
 
+def reset_write(selected: Bool, +record: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  match selected:
+    case False{}: rest
+    case True{}: object(field("request_key", get(record, "request_key")) <> field("updates", object(field("retired", retirement_code(ConfigurationChanged{})) <> Nil{})) <> Nil{}) <> rest
+
+def reset_writes(records: +List<J.Json>, +owner: String) -> +List<J.Json>:
+  match records:
+    case Nil{}: Nil{}
+    case Con{+record, rest}:
+      reset_write(eq(record, "owner", owner), record, reset_writes(rest, owner))
+
+def reset_metadata(valid: Bool, metadata: J.Json, +source: J.Json) -> J.Json:
+  match valid:
+    case False{}: metadata
+    case True{}: Model.success(J.Array{reset_writes(J.items(get(source, "records")), "task:" ++ name_or_number(get(source, "task_id")))})
+
+def reset_observed(+metadata: J.Json, source: J.Json) -> J.Json:
+  reset_metadata(J.boolean(get(metadata, "ok")), metadata, source)
+
+def calculation_reset_session(+source: J.Json) -> J.Json:
+  reset_observed(store_metadata(source), source)
+
+def owned_reset_session(member: Categories.Membership<J.Json, source_category("reset_session")>) -> J.Json:
+  Categories.Membership{source, evidence} = member
+  calculation_reset_session(source)
+
+def admitted_reset_session(candidate: Maybe<&1, Categories.Membership<J.Json, source_category("reset_session")>>) -> J.Json:
+  match candidate:
+    case None{}: Model.failure("Invalid ChatGPT Web reset source")
+    case Some{member}: owned_reset_session(member)
+
+def meaning_reset_session(+source: J.Json) -> J.Json:
+  admitted_reset_session(Categories.admit(J.Json, (source => source_valid("reset_session", source)), source))
+
+def actual_reset_session(+source: J.Json) -> J.Json:
+  admitted_reset_session(Categories.admit(J.Json, (source => source_valid("reset_session", source)), source))
+
+def reset_session_adapter() -> Model.Adapter((value => meaning_reset_session(value))):
+  Model.adapter((value => meaning_reset_session(value)), (value => actual_reset_session(value)), source => {==})
+
+def reset_session(source: J.Json) -> J.Json:
+  Model.execute((value => meaning_reset_session(value)), reset_session_adapter(), source)
+
+law reset_session_correspondence:
+  @source:J.Json -> {reset_session(source) == meaning_reset_session(source) : J.Json}
+
+law reset_write_scope:
+  @record:J.Json -> @rest:+List<J.Json> -> {reset_write(False{}, record, rest) == rest : +List<J.Json>}
+
+law reset_write_reason:
+  @+record:J.Json -> @rest:+List<J.Json> ->
+    {reset_write(True{}, record, rest) == object(field("request_key", get(record, "request_key")) <> field("updates", object(field("retired", retirement_code(ConfigurationChanged{})) <> Nil{})) <> Nil{}) <> rest : +List<J.Json>}
+
+def route_reset(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match selected:
+    case True{}: reset_session(source)
+    case False{}: route_0(String.eq(operation, "web.messages"), operation, source)
+
 def run(+operation: String, source: J.Json) -> J.Json:
-  route_0(String.eq(operation, "web.messages"), operation, source)
+  route_reset(String.eq(operation, "web.reset_session"), operation, source)
 
 
 # Accepted resource consumers expose each independently reusable membership.
@@ -2376,8 +2464,13 @@ def meaning_route_0(selected: Bool, +operation: String, +source: J.Json) -> J.Js
     case False{}: meaning_route_1(String.eq(operation, "web.tools"), operation, source)
 
 
+def meaning_route_reset(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match selected:
+    case True{}: meaning_reset_session(source)
+    case False{}: meaning_route_0(String.eq(operation, "web.messages"), operation, source)
+
 def meaning(+operation: String, source: J.Json) -> J.Json:
-  meaning_route_0(String.eq(operation, "web.messages"), operation, source)
+  meaning_route_reset(String.eq(operation, "web.reset_session"), operation, source)
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}
 

@@ -72,6 +72,7 @@ type Input is Data:
   Rejected{ticket: Nat, error: String}
 
 type Effect is Data:
+  PersistModelPreference{profile: String, reasoning: String}
   BrowserEffect{effect: Web.Effect}
   Command{ticket: Nat, command: J.Json}
   Service{effect: Services.Effect}
@@ -134,8 +135,10 @@ def busy(pending: +List<Pending>, +key: String) -> Bool:
 
 def mask_meaning(blocked: Bool, meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
   match blocked meaning:
-    case True{} SurfaceTypes.ComposerAction{subject, input, availability}: SurfaceTypes.ComposerAction{subject, input, View.Unavailable{"Request pending"}}
+    case True{} SurfaceTypes.ActionCommit{assessment, input, availability}: SurfaceTypes.ActionCommit{assessment, input, View.Unavailable{"Request pending"}}
+    case True{} SurfaceTypes.SupportingControl{support, property, input, availability}: SurfaceTypes.SupportingControl{support, property, input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.Activate{input, availability}: SurfaceTypes.Activate{input, View.Unavailable{"Request pending"}}
+    case True{} SurfaceTypes.SettingEntry{subject, value, input, availability}: SurfaceTypes.SettingEntry{subject, value, input, View.Unavailable{"Request pending"}}
     case True{} SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: SurfaceTypes.Choice{kind, icon, selected, description, input, View.Unavailable{"Request pending"}}
     case _ other: other
 
@@ -272,7 +275,7 @@ def sandbox_mode(sandbox: D.Sandbox, text: String) -> Maybe<&2, SurfaceTypes.Ges
 
 def sandbox_gesture(value: Forms.Observed, text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
   match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: sandbox_mode(Context.unwrap_sandbox(sandbox), text)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: sandbox_mode(Context.unwrap_sandbox(sandbox), text)
     case _: None{}
 
 def model_field(profile: String, reasoning: String, text: String, effort: Bool) -> Maybe<&2, SurfaceTypes.Gesture>:
@@ -328,7 +331,7 @@ def network_gesture(sandbox: D.Sandbox, enabled: Bool) -> Maybe<&2, SurfaceTypes
 def toggle_gesture(found: Maybe<&2, SurfaceTypes.Node>, enabled: Bool) -> Maybe<&2, SurfaceTypes.Gesture>:
   match found:
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{previous, profile}, choices}, children}}: Some{SurfaceTypes.Change{Forms.Assistance{enabled, profile}}}
-    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, choices}, children}}: network_gesture(Context.unwrap_sandbox(sandbox), enabled)
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, choices}, children}}: network_gesture(Context.unwrap_sandbox(sandbox), enabled)
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{previous}, choices}, children}}: Some{SurfaceTypes.Change{Forms.Toggle{enabled}}}
     case _: None{}
 
@@ -344,6 +347,7 @@ def collect_one(effect: E.Effect, origin: String, +state: State) -> Decision:
     case E.RequestCommand{command, completion}:
       +wire = request_payload(command)
       request_ready(contains_command(pending_of(state), wire), wire, completion, origin, state)
+    case E.PersistModelPreference{profile, reasoning}: Decision{state, [PersistModelPreference{profile, reasoning}]}
     case E.ObserveDirectories{ticket, entered}: Decision{state, [Directories{ticket, entered}]}
     case _: Decision{state, Nil{}}
 
@@ -640,6 +644,7 @@ def field_text(editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: 
     case Forms.WorkspacePrimary{}: Some{SurfaceTypes.Change{Forms.WorkspaceChange{Context.ChoosePrimary{text}}}}
     case Forms.SandboxMode{}: sandbox_gesture(value, text)
     case Forms.ApprovalPolicy{}: approval_gesture(text)
+    case Forms.ApprovalReviewer{}: approval_gesture(text)
     case Forms.ModelProfile{}: model_gesture(value, text, False{})
     case Forms.ReasoningEffort{}: model_gesture(value, text, True{})
     case Forms.DeliveryIntent{}: delivery_gesture(text)
@@ -672,6 +677,22 @@ def edit_gesture(found: Maybe<&2, SurfaceTypes.Node>, text: String, state: State
 def edit_text(+key: String, text: String, +state: State) -> Decision:
   apply_gesture(edit_gesture(found_node(key, state), text, state), key, state)
 
+def structured_text_source(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, field, Forms.StructuredText{}, value, choices}, children}}: True{}
+    case _: False{}
+
+def structured_text_gesture_when(admitted: Bool, text: String, parsed: Maybe<&2, J.Json>) -> Maybe<&2, SurfaceTypes.Gesture>:
+  match admitted:
+    case True{}: Some{SurfaceTypes.Change{Forms.StructuredValue{text, parsed}}}
+    case False{}: None{}
+
+def structured_text_gesture(found: Maybe<&2, SurfaceTypes.Node>, text: String, parsed: Maybe<&2, J.Json>) -> Maybe<&2, SurfaceTypes.Gesture>:
+  structured_text_gesture_when(structured_text_source(found), text, parsed)
+
+def edit_structured_text(+key: String, text: String, parsed: Maybe<&2, J.Json>, +state: State) -> Decision:
+  apply_gesture(structured_text_gesture(found_node(key, state), text, parsed), key, state)
+
 def confirmation_key(keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool) -> Bool:
   String.eq(keyboard, "Enter") && Bool.not(composing) && Bool.not(control) && Bool.not(alt) && Bool.not(shift) && Bool.not(meta)
 
@@ -700,13 +721,16 @@ def first_dismiss_target(found: Maybe<&2, DismissTarget>, fallback: Maybe<&2, Di
     case Some{target}: Some{target}
     case None{}: fallback
 
+def declared_dismiss_target(found: Maybe<&2, SurfaceTypes.LayerBehavior>, key: UIIdentity.Key, fallback: Maybe<&2, DismissTarget>) -> Maybe<&2, DismissTarget>:
+  match found:
+    case Some{SurfaceTypes.LayerBehavior{input, outside, escape}}: Some{DismissTarget{UIIdentity.encode(key), input, outside, escape}}
+    case None{}: fallback
+
 def dismiss_target(values: +List<SurfaceTypes.Node>) -> Maybe<&2, DismissTarget>:
   match values:
     case Nil{}: None{}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.LayerRegion{input, outside, escape}, children}, rest}:
-      Some{DismissTarget{UIIdentity.encode(key), input, outside, escape}}
     case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}:
-      first_dismiss_target(dismiss_target(children), dismiss_target(rest))
+      declared_dismiss_target(SurfaceTypes.layer_region(meaning), key, first_dismiss_target(dismiss_target(children), dismiss_target(rest)))
 
 def dismiss_permitted(allowed: Bool, input: InteractionTypes.Input, state: State) -> Decision:
   match allowed:
@@ -857,3 +881,7 @@ def operation_receipt(state: State) -> Maybe<&2, Receipt.Receipt>:
 def decision_receipt(decision: Decision) -> Maybe<&2, Receipt.Receipt>:
   Decision{state, effects} = decision
   operation_receipt(state)
+
+def observe_frame_with(received: Nat, surface: SurfaceTypes.Surface, frame: Rendered.Frame, state: State, expectations: Rendered.FrameExpectations) -> Decision:
+  State{web, sequence, next, pending, receipt} = state
+  finish(Web.observe_frame_with(received, surface, frame, web, expectations), sequence, next, pending, "", receipt)

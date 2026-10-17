@@ -24,6 +24,25 @@ function storedJson(text) {
 // ticket authorizes creation; replay never calls this interpreter. Commit the
 // original body/key before HTTP so an unknown outcome cannot acquire a new key.
 export class WebRequestStore {
+  static resetExisting(home, taskId) {
+    const filename = path.join(home, 'providers', 'chatgpt-web', 'requests.sqlite');
+    if (!existsSync(filename)) return;
+    const info = lstatSync(filename);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('Invalid ChatGPT Web receipt database');
+    const db = new DatabaseSync(filename);
+    try {
+      db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+      const rows = db.prepare('SELECT * FROM metadata').all();
+      const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(`task:${taskId}`);
+      const writes = boundary('web.reset_session', { rows, records, task_id: taskId,
+        created: false, new_identity: randomUUID(), format });
+      for (const write of writes) {
+        db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
+      }
+      db.exec('COMMIT');
+    } finally { db.close(); }
+  }
+
   static retireExisting(home, owner, ticket) {
     // Snapshot the target before yielding: a later task input must not cause
     // cancellation to retarget a newly admitted successor.

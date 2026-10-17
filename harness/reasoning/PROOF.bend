@@ -114,7 +114,7 @@ def A.completion_meaning(revision, outcome, task):
 def contract_frame(effort: String, remaining: Nat, +task: D.Task) ->
   {D.task_contract(Context.generation(effort, remaining, task)) == D.task_contract(task) : D.Contract}:
   match task:
-    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def A.reasoning_boundary():
   A.ReasoningBoundary{

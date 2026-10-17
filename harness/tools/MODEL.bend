@@ -49,10 +49,10 @@ def texts_binding(term: Native.Texts) -> Bindings:
         J.Field{"items", D.string_schema(description)}]}, required)
     case _: empty_bindings()
 
-def settings_binding(term: Native.Settings) -> Bindings:
+def settings_binding(schema: J.Json, term: Native.Settings) -> Bindings:
   match term:
     case Native.SettingsArgument{key, required}:
-      argument_binding(key, D.fork_settings_schema(), required)
+      argument_binding(key, schema, required)
     case _: empty_bindings()
 
 def query_bindings(query: Native.Query) -> Bindings:
@@ -65,12 +65,15 @@ def query_bindings(query: Native.Query) -> Bindings:
 def body_bindings(program: Native.Body) -> Bindings:
   match program:
     case Native.Observe{query}: query_bindings(query)
+    case Native.Create{profile, reasoning, message, settings}:
+      join(text_binding(profile), join(text_binding(reasoning), join(text_binding(message), settings_binding(D.task_settings_schema(), settings))))
+    case Native.Feature{operation, schema}: empty_bindings()
     case Native.Send{task, message}: join(natural_binding(task), text_binding(message))
     case Native.Steer{task, message}: join(natural_binding(task), text_binding(message))
     case Native.Archive{task}: natural_binding(task)
     case Native.Cancel{task, operation}: join(natural_binding(operation), natural_binding(task))
     case Native.Fork{count, messages, settings}:
-      join(natural_binding(count), join(texts_binding(messages), settings_binding(settings)))
+      join(natural_binding(count), join(texts_binding(messages), settings_binding(D.fork_settings_schema(), settings)))
     case Native.Process{}: empty_bindings()
 
 def bound_schema(bindings: Bindings) -> J.Json:
@@ -80,6 +83,7 @@ def bound_schema(bindings: Bindings) -> J.Json:
 def schema(program: Native.Body) -> J.Json:
   match program:
     case Native.Process{}: D.process_schema()
+    case Native.Feature{operation, schema}: Schema.command_arguments(schema)
     case other: bound_schema(body_bindings(other))
 
 def source(request: Request) -> D.Tool:
@@ -123,9 +127,16 @@ def description_present(text: String) -> Bool:
     case SNil{}: False{}
     case SCon{head, rest}: Bool.not(Char.is_space(head)) || description_present(rest)
 
+def valid_source(source: D.Source) -> Bool:
+  match source:
+    case D.Harness{Native.Feature{+operation, +schema}}:
+      D.nonempty(operation) && Schema.command_supported(schema) &&
+        Schema.valid(J.get(J.get(schema, "properties"), "op"), J.Text{operation})
+    case _: True{}
+
 def valid_tool(+tool: D.Tool) -> Bool:
   D.Tool{name, description, schema, source} = tool
-  D.nonempty(name) && description_present(description) && Schema.supported(schema)
+  D.nonempty(name) && description_present(description) && Schema.supported(schema) && valid_source(source)
 
 def admissible(observation: Observation) -> Type:
   Categories.holds(Observation, (value => valid_tool(observation_tool(value))))(observation)
@@ -213,6 +224,10 @@ def catalog_entry(request: Request) -> +List<D.Tool>:
   catalog_constructed(construct(request))
 
 def catalog(max_fork: Nat) -> +List<D.Tool>:
+  List.append(&2, D.Tool, catalog_entry(Request{"create_task", "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.",
+    Native.Create{Native.TextArgument{"profile", "Configured model profile", True{}, ""},
+      Native.TextArgument{"reasoning", "Reasoning effort; defaults to the selected profile", False{}, "default"},
+      Native.TextArgument{"message", "Initial nonempty user request", True{}, ""}, Native.SettingsArgument{"settings", False{}}}}),
   List.append(&2, D.Tool, catalog_entry(Request{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
     Native.Fork{Native.NumberArgument{"child_count", "Number of children", 1, U32.from_nat(max_fork), True{}, Native.ConstantDefault{0n}}, Native.TextsArgument{"messages", "Initial child message", False{}}, Native.SettingsArgument{"settings", False{}}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
@@ -224,4 +239,4 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
     List.append(&2, D.Tool, catalog_entry(Request{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
     Native.Process{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.NumberArgument{"task_id", "Task identity; defaults to this task", 0, 4294967295, False{}, Native.CallerDefault{}}, Native.NumberArgument{"operation_id", "Task identity", 0, 4294967295, True{}, Native.ConstantDefault{0n}}}}))))))
+    Native.Cancel{Native.NumberArgument{"task_id", "Task identity; defaults to this task", 0, 4294967295, False{}, Native.CallerDefault{}}, Native.NumberArgument{"operation_id", "Task identity", 0, 4294967295, True{}, Native.ConstantDefault{0n}}}})))))))

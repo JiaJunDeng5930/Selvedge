@@ -11,6 +11,41 @@ import ../../bendlib/theory.bend as Theory
 import ../CONTRACT.bend as Concepts
 import ../../bendlib/json.bend as J
 
+def output_text_meaning(nonempty: Bool, +text: String, +rest: +List<String>) ->
+  {Tasks.output_text(nonempty, text, rest) == Spec.output_text(nonempty, text, rest) : +List<String>}:
+  match nonempty:
+    case True{}: {==}
+    case False{}: {==}
+
+def output_items_meaning(+items: +List<D.ModelItem>) ->
+  {Tasks.output_items(items) == Spec.assistant_outputs(Tasks.item_messages(items)) : +List<String>}:
+  match items:
+    case Nil{}: {==}
+    case Con{D.Say{+text}, +rest}:
+      Equal.trans(+List<String>,
+        Tasks.output_text(Bool.not(String.is_empty(text)), text, Tasks.output_items(rest)),
+        Tasks.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))),
+        Spec.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))),
+        Equal.cong(+List<String>, +List<String>, values => Tasks.output_text(Bool.not(String.is_empty(text)), text, values),
+          Tasks.output_items(rest), Spec.assistant_outputs(Tasks.item_messages(rest)), output_items_meaning(rest)),
+        output_text_meaning(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))))
+    case Con{D.Invoke{call}, +rest}: output_items_meaning(rest)
+    case Con{D.Context{value}, +rest}: output_items_meaning(rest)
+
+def normal_outputs_meaning(calls: +List<D.Call>, +items: +List<D.ModelItem>) ->
+  {Tasks.normal_output_items(calls, items) == Spec.normal_output_messages(calls, Tasks.item_messages(items)) : +List<String>}:
+  match calls:
+    case Nil{}: output_items_meaning(items)
+    case Con{call, rest}: {==}
+
+def reply_outputs_meaning(+outcome: D.Outcome) ->
+  {Tasks.reply_outputs(outcome) == Spec.reply_outputs(outcome) : +List<String>}:
+  match outcome:
+    case D.ModelReply{+items}:
+      normal_outputs_meaning(Tasks.item_calls(items), items)
+    case D.ModelFailure{message}: {==}
+    case D.ContextLimit{}: {==}
+
 def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
   {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
   {==}
@@ -27,7 +62,7 @@ def Laws.context_limit_stops(task):
 
 def Laws.context_replacement_preserves_project_contract(task, replacement):
   match task:
-    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def Laws.bash_recovery_blocked(call):
   {==}
@@ -43,7 +78,7 @@ def Laws.archived_terminal(request):
     case D.Interrupt{}: {==}
     case D.Archive{}: {==}
 
-def Laws.archived_input_unchanged(id, lineage, contract, history, queue, phase, text, operations, notified):
+def Laws.archived_input_unchanged(current, id, lineage, contract, history, queue, phase, text, operations, notified):
   {==}
 
 def Laws.frozen_no_dispatch(phase):
@@ -63,48 +98,51 @@ def Laws.stopped_input_reactivates():
 
 def Laws.interrupt_preserves_contract(task):
   match task:
-    case D.Task{id, lineage, contract, status, history, queue, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queue, phase, operations, notified}: {==}
 
 def Laws.interrupt_preserves_queue(task):
   match task:
-    case D.Task{id, lineage, contract, status, history, queue, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queue, phase, operations, notified}: {==}
 
 def Laws.interrupt_settles_phase(task):
   match task:
-    case D.Task{id, lineage, contract, status, history, queue, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queue, phase, operations, notified}: {==}
 
 def Laws.interrupt_idempotent(task):
   match task:
-    case D.Task{id, lineage, contract, status, history, queue, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queue, phase, operations, notified}: {==}
 
 def Laws.status_preserves_contract(status, task):
   match task:
-    case D.Task{id, lineage, contract, old, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, old, history, queued, phase, operations, notified}: {==}
 
 def Laws.phase_preserves_contract(phase, task):
   match task:
-    case D.Task{id, lineage, contract, status, history, queued, old, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queued, old, operations, notified}: {==}
 
 def Laws.queue_order(first, second, task):
   match task:
-    case D.Task{id, lineage, contract, status, history, +queued, phase, operations, notified}:
+    case D.Task{id, lineage, contract, current, status, history, +queued, phase, operations, notified}:
       Theory.append_associative(String, queued, [first], [second])
 
 def Laws.child_contract(id, parent, call, branch, remaining, message):
   match parent:
-    case D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+
+def Laws.child_execution(id, parent, call, branch, remaining, message):
+  {==}
 
 def Laws.child_history_prefix(id, parent, call, branch, remaining):
   match parent:
-    case D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def Laws.child_lineage(id, parent, call, branch, remaining, message):
   match parent:
-    case D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def Laws.child_queue_empty(id, parent, call, branch, remaining, message):
   match parent:
-    case D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def Laws.unknown_effect_not_repeated(call):
   {==}
@@ -129,7 +167,22 @@ def Laws.unmatched_tool_result_unchanged(operation, value, error, task, world):
 def Laws.context_has_no_call_authority(value):
   {==}
 
-def Laws.initial_history_order(instructions, project, message, id, lineage, profile, reasoning, tools, max_fork, max_descendants, plugins, context, status, history, queued, phase, operations, notified):
+def Laws.execution_configuration_status(configuration, task):
+  match task:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+
+def Laws.execution_configuration_creation(configuration, task):
+  match task:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+
+def Laws.execution_configuration_current(configuration, task):
+  match task:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+
+def Laws.queued_execution_configuration_rejected(id, lineage, contract, current, status, history, first, rest, phase, operations, notified):
+  {==}
+
+def Laws.initial_history_order(instructions, project, message, id, lineage, profile, reasoning, tools, max_fork, max_descendants, plugins, context, current, status, history, queued, phase, operations, notified):
   match instructions project:
     case D.InitialInstructions{configured, None{}} D.NoProject{}: {==}
     case D.InitialInstructions{configured, None{}} D.ProjectContext{root, revision, content}: {==}
@@ -138,12 +191,12 @@ def Laws.initial_history_order(instructions, project, message, id, lineage, prof
 
 def Laws.context_append_preserves_prefix(context, task):
   match task:
-    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def Laws.recorded_selection_history(changed, selection, parent):
   match changed selection parent:
-    case False{} Workspace.Selection{context, guidance} D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, old_context}, status, history, queued, phase, operations, notified}: {==}
-    case True{} Workspace.Selection{context, guidance} D.Task{id, lineage, D.Contract{D.Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, old_context}, status, history, queued, phase, operations, notified}: {==}
+    case False{} Workspace.Selection{context, guidance} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case True{} Workspace.Selection{context, guidance} D.Task{id, lineage, contract, D.ExecutionConfiguration{current_profile, current_reasoning, D.Model{profile, reasoning}, sandbox, approval}, status, history, queued, phase, operations, notified}: {==}
 
 
 def Laws.selected_parent_history(context, guidance, parent):

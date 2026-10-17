@@ -394,9 +394,9 @@ test('committed steering cancels the original page and authorizes one explicit r
   assert.deepEqual(f.failures, []);
 });
 
-test('service shutdown detaches observation without remote Stop or resend; explicit interruption permits replacement', { timeout: 10_000 }, async t => {
+test('service shutdown retains a compacted request; explicit interruption permits replacement without retiring another task', { timeout: 10_000 }, async t => {
   const f = await fixture(t, async (_, index, transport) => {
-    if (index === 0) { hold(transport); return; }
+    if (index === 2) { hold(transport); return; }
     return { output: answer('explicitly resumed task') };
   });
   const state = path.join(f.directory, 'state');
@@ -404,22 +404,36 @@ test('service shutdown detaches observation without remote Stop or resend; expli
   t.after(() => service.close());
   const notices = []; service.on('notice', notice => notices.push(notice));
   await service.command({ op: 'create', profile: 'web', message: 'keep original task' });
+  await taskIdle(service);
+  await service.command({ op: 'create', profile: 'web', message: 'keep another task receipt' });
+  await taskIdle(service, 1);
+  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit context before interruption' })).reply.ok, true);
+  await service.command({ op: 'send', task_id: 0, message: 'observe the compacted root' });
   await eventually(() => notices.some(notice => notice.type === 'snapshot'));
+  assert.equal(f.requests[2].body.previous_response_id, undefined);
+  assert.ok(JSON.stringify(f.requests[2].body.input).includes('explicit context before interruption'));
   await service.close();
   assert.equal(f.controls.length, 0);
   service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 3);
   await service.command({ op: 'send', task_id: 0, message: 'ordinary retry must not duplicate unknown work' });
   let page = await taskIdle(service);
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 3);
   assert.ok(page.messages.some(item => item.role === 'error' && item.content.includes('request retained')));
   await service.command({ op: 'interrupt', task_id: 0 });
   await eventually(() => f.controls.length === 1);
+  const receipts = new DatabaseSync(path.join(state, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+  try {
+    const interrupted = receipts.prepare('SELECT invocation, retired FROM requests WHERE request_key=?').get(f.requests[2].key);
+    assert.match(interrupted.invocation, /:context:\d+$/);
+    assert.equal(interrupted.retired, 1);
+    assert.equal(receipts.prepare('SELECT retired FROM requests WHERE owner=?').get('task:1').retired, 0);
+  } finally { receipts.close(); }
   await service.command({ op: 'send', task_id: 0, message: 'explicit replacement after interruption' });
   page = await taskIdle(service);
   assert.ok(page.messages.some(item => item.role === 'assistant' && item.content === 'explicitly resumed task'), JSON.stringify(page));
-  assert.equal(f.requests.length, 2);
-  assert.equal(f.requests[1].body.previous_response_id, undefined);
+  assert.equal(f.requests.length, 4);
+  assert.equal(f.requests[3].body.previous_response_id, undefined);
   assert.deepEqual(f.failures, []);
 });
 
