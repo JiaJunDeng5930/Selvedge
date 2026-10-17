@@ -410,8 +410,10 @@ test('service shutdown retains a compacted request; explicit interruption permit
   await service.command({ op: 'create', profile: 'web', message: 'keep another task receipt' });
   await taskIdle(service, 1);
   assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit context before interruption' })).reply.ok, true);
+  const compactedNotices = notices.length;
   await service.command({ op: 'send', task_id: 0, message: 'observe the compacted root' });
-  await eventually(() => f.requests.length === 3 && notices.some(notice => notice.type === 'snapshot'));
+  await eventually(() => f.requests.length === 3 && notices.slice(compactedNotices).some(notice =>
+    notice.type === 'snapshot' && notice.task_id === 0 && notice.text === 'working'));
   assert.equal(f.requests[2].body.previous_response_id, undefined);
   assert.ok(JSON.stringify(f.requests[2].body.input).includes('explicit context before interruption'));
   await service.close();

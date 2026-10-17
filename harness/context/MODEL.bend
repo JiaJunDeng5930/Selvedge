@@ -8,12 +8,35 @@ import ../../bendlib/string-equality.bend as Text
 type Scope is Data:
   GlobalScope{}
   WorkspaceScope{}
+  PrimaryWorkspaceScope{}
+
+# Directory discovery is bounded as one collection. A failed or incomplete
+# collection preserves its previous accepted bindings instead of withdrawing them.
+type DiscoveryPolicy is Data:
+  DiscoveryPolicy{files: +List<String>, directories: +List<String>, repository_markers: +List<String>, excluded: +List<String>, max_directories: Nat, max_entries: Nat, max_sources: Nat, max_bytes: Nat}
+
+def discovery_excluded() -> +List<String>:
+  [".git", ".hg", ".svn", "node_modules", "vendor", ".build", "dist", "build", "target", ".next", ".cache", ".workpad", "__pycache__", ".venv", "venv", ".agents", ".claude"]
+
+def guidance_policy() -> DiscoveryPolicy:
+  DiscoveryPolicy{["AGENTS.override.md", "AGENTS.md"], Nil{}, [".git"], discovery_excluded(), 10000n, 100000n, 1024n, 262144n}
+
+def home_skills_policy() -> DiscoveryPolicy:
+  DiscoveryPolicy{["SKILL.md"], ["skills", ".agents/skills"], [".git"], discovery_excluded(), 10000n, 100000n, 1024n, 262144n}
+
+def workspace_skills_policy() -> DiscoveryPolicy:
+  DiscoveryPolicy{["SKILL.md"], [".agents/skills", ".claude/skills"], [".git"], discovery_excluded(), 10000n, 100000n, 1024n, 262144n}
 
 type Observer is Data:
   ConfigText{setting: String}
   HomeFile{relative: String}
   WorkspaceFile{relative: String}
   ConfigFiles{setting: String}
+  HomeGuidance{policy: DiscoveryPolicy}
+  PrimaryGuidance{policy: DiscoveryPolicy}
+  WorkspaceGuidance{policy: DiscoveryPolicy}
+  HomeSkills{policy: DiscoveryPolicy}
+  WorkspaceSkills{policy: DiscoveryPolicy}
 
 type IdentitySource is Data:
   Constant{value: String}
@@ -27,6 +50,7 @@ type IdentityField is Data:
 type TextSource is Data:
   Body{}
   Metadata{field: String}
+  ObservationField{field: String}
 
 type ValueField is Data:
   TextField{name: String, source: TextSource, required: Bool}
@@ -107,10 +131,20 @@ def scoped_workspace(scope: Scope, schema: +List<IdentityField>, values: +List<F
   match scope:
     case GlobalScope{}: None{}
     case WorkspaceScope{}: workspace_identity(schema, values)
+    case PrimaryWorkspaceScope{}: workspace_identity(schema, values)
 
 def key_workspace(key: Key) -> Maybe<&2, String>:
   ContextKey{Definition{kind, semantics, scope, observer, identity, fields}, values} = key
   scoped_workspace(scope, identity, values)
+
+def scoped_primary_workspace(scope: Scope, schema: +List<IdentityField>, values: +List<FieldValue>) -> Maybe<&2, String>:
+  match scope:
+    case PrimaryWorkspaceScope{}: workspace_identity(schema, values)
+    case _: None{}
+
+def key_primary_workspace(key: Key) -> Maybe<&2, String>:
+  ContextKey{Definition{kind, semantics, scope, observer, identity, fields}, values} = key
+  scoped_primary_workspace(scope, identity, values)
 
 def value_fields(value: Value) -> +List<FieldValue>:
   Record{kind, fields} = value
@@ -153,6 +187,16 @@ def scope_json(scope: Scope) -> J.Json:
   match scope:
     case GlobalScope{}: J.Text{"global"}
     case WorkspaceScope{}: J.Text{"workspace"}
+    case PrimaryWorkspaceScope{}: J.Text{"primary_workspace"}
+
+def discovery_policy_json(policy: DiscoveryPolicy) -> J.Json:
+  DiscoveryPolicy{files, directories, repository_markers, excluded, max_directories, max_entries, max_sources, max_bytes} = policy
+  J.Object{[J.Field{"files", J.Array{J.text_items(files)}}, J.Field{"directories", J.Array{J.text_items(directories)}},
+    J.Field{"repository_markers", J.Array{J.text_items(repository_markers)}}, J.Field{"excluded", J.Array{J.text_items(excluded)}},
+    J.Field{"max_directories", J.nat(max_directories)}, J.Field{"max_entries", J.nat(max_entries)}, J.Field{"max_sources", J.nat(max_sources)}, J.Field{"max_bytes", J.nat(max_bytes)}]}
+
+def discovery_observer_json(kind: String, policy: DiscoveryPolicy) -> J.Json:
+  J.Object{[J.Field{"type", J.Text{kind}}, J.Field{"policy", discovery_policy_json(policy)}]}
 
 def observer_json(observer: Observer) -> J.Json:
   match observer:
@@ -160,6 +204,11 @@ def observer_json(observer: Observer) -> J.Json:
     case HomeFile{relative}: J.Object{[J.Field{"type", J.Text{"home_file"}}, J.Field{"relative", J.Text{relative}}]}
     case WorkspaceFile{relative}: J.Object{[J.Field{"type", J.Text{"workspace_file"}}, J.Field{"relative", J.Text{relative}}]}
     case ConfigFiles{setting}: J.Object{[J.Field{"type", J.Text{"config_files"}}, J.Field{"setting", J.Text{setting}}]}
+    case HomeGuidance{policy}: discovery_observer_json("home_guidance", policy)
+    case PrimaryGuidance{policy}: discovery_observer_json("primary_guidance", policy)
+    case WorkspaceGuidance{policy}: discovery_observer_json("workspace_guidance", policy)
+    case HomeSkills{policy}: discovery_observer_json("home_skills", policy)
+    case WorkspaceSkills{policy}: discovery_observer_json("workspace_skills", policy)
 
 def identity_source_json(source: IdentitySource) -> J.Json:
   match source:
@@ -176,6 +225,7 @@ def text_source_json(source: TextSource) -> J.Json:
   match source:
     case Body{}: J.Object{[J.Field{"type", J.Text{"body"}}]}
     case Metadata{field}: J.Object{[J.Field{"type", J.Text{"metadata"}}, J.Field{"field", J.Text{field}}]}
+    case ObservationField{field}: J.Object{[J.Field{"type", J.Text{"observation_field"}}, J.Field{"field", J.Text{field}}]}
 
 def value_field_json(field: ValueField) -> J.Json:
   match field:
@@ -246,6 +296,7 @@ def valid_scope(scope: Scope, identity: +List<IdentityField>) -> Bool:
   match scope:
     case GlobalScope{}: True{}
     case WorkspaceScope{}: has_workspace_identity(identity)
+    case PrimaryWorkspaceScope{}: has_workspace_identity(identity)
 
 def valid_definition(+definition: Definition) -> Bool:
   Definition{kind, semantics, scope, observer, +identity, +fields} = definition
@@ -569,18 +620,51 @@ def parsed_scope(item: J.Json) -> Maybe<&2, Scope>:
   match item:
     case J.Text{"global"}: Some{GlobalScope{}}
     case J.Text{"workspace"}: Some{WorkspaceScope{}}
+    case J.Text{"primary_workspace"}: Some{PrimaryWorkspaceScope{}}
     case _: None{}
 
-def parsed_observer(kind: String, setting: J.Json, relative: J.Json) -> Maybe<&2, Observer>:
-  match kind setting relative:
-    case "config_text" J.Text{setting} _: Some{ConfigText{setting}}
-    case "config_files" J.Text{setting} _: Some{ConfigFiles{setting}}
-    case "home_file" _ J.Text{relative}: Some{HomeFile{relative}}
-    case "workspace_file" _ J.Text{relative}: Some{WorkspaceFile{relative}}
-    case _ _ _: None{}
+def prepend_discovery_string(head: J.Json, tail: Maybe<&2, +List<String>>) -> Maybe<&2, +List<String>>:
+  match head tail:
+    case J.Text{text} Some{tail}: Some{text <> tail}
+    case _ _: None{}
+
+def discovery_string_items(items: +List<J.Json>) -> Maybe<&2, +List<String>>:
+  match items:
+    case Nil{}: Some{Nil{}}
+    case Con{head, tail}: prepend_discovery_string(head, discovery_string_items(tail))
+
+def discovery_strings(item: J.Json) -> Maybe<&2, +List<String>>:
+  match item:
+    case J.Array{items}: discovery_string_items(items)
+    case _: None{}
+
+def parsed_discovery_policy(files: Maybe<&2, +List<String>>, directories: Maybe<&2, +List<String>>, repository_markers: Maybe<&2, +List<String>>, excluded: Maybe<&2, +List<String>>,
+  max_directories: Maybe<&2, Nat>, max_entries: Maybe<&2, Nat>, max_sources: Maybe<&2, Nat>, max_bytes: Maybe<&2, Nat>) -> Maybe<&2, DiscoveryPolicy>:
+  match files directories repository_markers excluded max_directories max_entries max_sources max_bytes:
+    case Some{files} Some{directories} Some{repository_markers} Some{excluded} Some{max_directories} Some{max_entries} Some{max_sources} Some{max_bytes}:
+      Some{DiscoveryPolicy{files, directories, repository_markers, excluded, max_directories, max_entries, max_sources, max_bytes}}
+    case _ _ _ _ _ _ _ _: None{}
+
+def discovery_policy(+item: J.Json) -> Maybe<&2, DiscoveryPolicy>:
+  parsed_discovery_policy(discovery_strings(J.get(item, "files")), discovery_strings(J.get(item, "directories")),
+    discovery_strings(J.get(item, "repository_markers")), discovery_strings(J.get(item, "excluded")),
+    J.natural(J.get(item, "max_directories")), J.natural(J.get(item, "max_entries")), J.natural(J.get(item, "max_sources")), J.natural(J.get(item, "max_bytes")))
+
+def parsed_observer(kind: String, setting: J.Json, relative: J.Json, policy: Maybe<&2, DiscoveryPolicy>) -> Maybe<&2, Observer>:
+  match kind setting relative policy:
+    case "config_text" J.Text{setting} _ _: Some{ConfigText{setting}}
+    case "config_files" J.Text{setting} _ _: Some{ConfigFiles{setting}}
+    case "home_file" _ J.Text{relative} _: Some{HomeFile{relative}}
+    case "workspace_file" _ J.Text{relative} _: Some{WorkspaceFile{relative}}
+    case "home_guidance" _ _ Some{policy}: Some{HomeGuidance{policy}}
+    case "primary_guidance" _ _ Some{policy}: Some{PrimaryGuidance{policy}}
+    case "workspace_guidance" _ _ Some{policy}: Some{WorkspaceGuidance{policy}}
+    case "home_skills" _ _ Some{policy}: Some{HomeSkills{policy}}
+    case "workspace_skills" _ _ Some{policy}: Some{WorkspaceSkills{policy}}
+    case _ _ _ _: None{}
 
 def observer(+item: J.Json) -> Maybe<&2, Observer>:
-  parsed_observer(J.text(J.get(item, "type")), J.get(item, "setting"), J.get(item, "relative"))
+  parsed_observer(J.text(J.get(item, "type")), J.get(item, "setting"), J.get(item, "relative"), discovery_policy(J.get(item, "policy")))
 
 def parsed_identity_source(kind: String, value: J.Json) -> Maybe<&2, IdentitySource>:
   match kind value:
@@ -620,6 +704,7 @@ def parsed_value_field(name: J.Json, source: String, field: J.Json, required: J.
   match name source field required:
     case J.Text{name} "body" _ J.Boolean{required}: Some{TextField{name, Body{}, required}}
     case J.Text{name} "metadata" J.Text{field} J.Boolean{required}: Some{TextField{name, Metadata{field}, required}}
+    case J.Text{name} "observation_field" J.Text{field} J.Boolean{required}: Some{TextField{name, ObservationField{field}, required}}
     case J.Text{name} "identity" J.Text{field} _: Some{IdentityValue{name, field}}
     case _ _ _ _: None{}
 

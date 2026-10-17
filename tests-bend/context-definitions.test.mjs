@@ -47,7 +47,7 @@ test('text and record definitions extend actual observation, history and provide
   const instructions = 'Use the task workspace.';
   const config = validateConfig({ ...defaultConfig, instructions });
   assert.equal((await send({ kind: 'configure', instructions: { configured: instructions, global: null },
-    project: { workspace: root, revision: 'absent', instructions: '' },
+    project: { workspace: root, path: '', revision: 'absent', instructions: '' },
     profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }],
     tools: [], max_fork: 4, max_descendants: 8 })).reply.ok, true);
 

@@ -296,18 +296,31 @@ shell descendants are terminated when the shell exits.
 The executable catalog and `limits` in `describe` are authoritative.
 
 Initial instructions and guidance enter task history with their source identity
-and revision. Before model and summary requests, the service observes configured
-instructions, global `AGENTS.md`, the current primary root's `AGENTS.md`, and
-explicitly configured skill metadata. Accepted changes append verified patches;
-unchanged content adds no record. Removed sources append a withdrawal, while
-failed observations preserve the previously accepted content. Forks inherit the
-recorded baseline and patches. Workspace and sandbox contracts stay frozen.
-Nested module guidance is read on demand through Bash.
+and revision. Before model and summary requests, the service refreshes configured
+instructions, service-home guidance, and guidance across all workspace roots.
+Discovery includes each root's Git ancestor chain and its nested directories.
+Without a Git ancestor, discovery starts at the selected root. Place guidance in
+`AGENTS.md`, or use `AGENTS.override.md` to replace that directory's usual file.
+Each source carries its actual path and applicable directory, so module guidance
+applies to that module's subtree. The executable definitions in
+[harness/context](harness/context/README.md) own source selection and precedence.
 
-Set `skills` in the service home's `config.json` to an array of `SKILL.md` paths
-(relative paths resolve from the service home). The model receives each skill's
-name, description and path; its body is not automatically loaded. Changes to
-unloaded skill bodies do not add context updates.
+Put reusable skills in `<service home>/skills/<name>/SKILL.md` or
+`<service home>/.agents/skills/<name>/SKILL.md`. Project skills are discovered in
+`.agents/skills/` and `.claude/skills/` at ancestor and nested directories, with
+their applicable directory recorded. Same-name skills retain separate paths.
+For explicit entries, set `skills` in the service home's `config.json` to an array
+of `SKILL.md` paths; relative paths resolve from the service home. A path already
+configured explicitly is not repeated by automatic discovery.
+
+The model receives skill names, descriptions and paths, and reads a relevant
+skill's body through ordinary Bash. Skill bodies and referenced materials do not
+become tracked context; body-only changes do not add metadata updates. Directory
+discovery is bounded, skips dependency/build directories, and does not follow
+symbolic links. A failed or incomplete discovery preserves its previous accepted
+collection. Accepted changes append verified patches; confirmed removals append
+withdrawals. Forks inherit the baseline and patches. Workspace and sandbox
+contracts stay frozen.
 
 These controls also appear in the browser from the native model.
 
