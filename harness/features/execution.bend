@@ -1,4 +1,5 @@
 import Base
+import ./worktree-execution.bend as WorktreeExec
 import ../../features/compaction/PROGRAM.bend as Compaction
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
@@ -17,6 +18,8 @@ import ./graph-execution.bend as TaskGraph
 
 def operation_calculation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case O.StartWorktree{profile, reasoning, message, selection}: WorktreeExec.start(~spawn, profile, reasoning, message, selection, world)
+    case O.RetryWorktreeArchive{id}: WorktreeExec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change_calculation(change, world)
     case O.StartCard{id, card, now, profile, reasoning, message, selection}:
@@ -26,6 +29,7 @@ def operation_calculation(~spawn: D.Profile -> String -> String -> Workspace.Sel
 
 def resolved_event_calculation(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.WorktreeResult{completion}: WorktreeExec.complete(completion, world)
     case O.CompactionResult{completion}: Compaction.complete(completion, world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
     case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)

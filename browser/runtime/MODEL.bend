@@ -891,6 +891,8 @@ def place(+key: String, +target: String, +state: State) -> Decision: accept(True
 
 def connect(+state: State) -> Decision: accept(True{}, Legacy.connect(legacy(state)), state)
 
+def workspace_git_completed(+ticket: Nat, +available: Bool, +state: State) -> Decision: accept(True{}, Legacy.workspace_git_completed(ticket, available, legacy(state)), state)
+
 def directories_completed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directories_completed(ticket, ok, body, legacy(state)), state)
 
 def code_same_source(left: Code.Source, right: Code.Source) -> Bool:

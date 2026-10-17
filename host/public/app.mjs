@@ -346,6 +346,13 @@ async function execute(effect) {
       catch (error) { commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state)); }
       break;
     }
+    case 'WorkspaceGit': {
+      let available = false;
+      try { available = (await post('/api/browser/observation', JSON.stringify({ kind: 'workspace-git', primary: effect.primary }))).available === true; }
+      catch { /* A failed observation does not establish Git eligibility. */ }
+      commit(Bend.workspace_git_completed(effect.ticket, bool(available), state));
+      break;
+    }
     case 'PersistModelPreference': localStorage.setItem('selvedge-model-preference', JSON.stringify({ profile: effect.profile, reasoning: effect.reasoning })); break;
     case 'BrowserEffect': await browserEffect(effect.effect); break;
     case 'RenderingFailed': console.error('Bend browser failure', JSON.stringify(encodeBendValue(effect))); break;

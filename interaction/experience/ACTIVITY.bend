@@ -117,7 +117,7 @@ def explanation(+property: M.Property, decision: M.Decision, children: +List<Dep
 def project_relations_from_draft(+property: M.Property, +edit: M.ProjectEdit, draft: U.Draft) -> +List<Relation>:
   U.Draft{revision, body, feedback, entry} = draft
   match body:
-    case U.Project{+id, name, workspace}:
+    case U.Project{+id, name, workspace, create_worktree}:
       [RequiredValue{property}, CollectionMembers{UX.collection(U.ProjectEditor{id}, workspace)},
         SupportingValue{property}, AssessedAction{UX.action(U.ProjectEditor{id}, revision, UX.project_edit_pending(edit)), UX.project_edit_assessment(edit)}]
     case _: [RequiredValue{property}, SupportingValue{property}, AssessedAction{UX.action(U.owner(body), revision, UX.project_edit_pending(edit)), UX.project_edit_assessment(edit)}]

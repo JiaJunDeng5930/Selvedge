@@ -106,3 +106,36 @@ test('workspace observations reject nonexistent roots and forged guidance withou
   const details = await service.command({ op: 'read_project', project_id: empty.reply.result.project_id });
   assert.deepEqual(details.reply.result.workspace, { roots: [], primary_root: null });
 });
+
+test('project worktree preferences use project settings and survive journal reopen', async t => {
+  const base = await realpath(await home(t));
+  const state = path.join(base, 'state');
+  const config = validateConfig({ ...defaultConfig, chatgpt: false });
+  let service = await Service.open({ home: state, cwd: base, config });
+  t.after(() => service.close());
+  const created = await service.command({ op: 'create_project', name: 'Remember worktrees', workspace: { roots: [base] } });
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const project_id = created.reply.result.project_id;
+  const read = async () => (await service.command({ op: 'read_project', project_id })).reply.result;
+  assert.equal((await read()).create_worktree, false);
+  const enabled = await service.command({ op: 'update_project', project_id, create_worktree: true });
+  assert.equal(enabled.reply.ok, true, JSON.stringify(enabled.reply));
+  const renamed = await service.command({ op: 'update_project', project_id, name: 'Remembered selection' });
+  assert.equal(renamed.reply.ok, true, JSON.stringify(renamed.reply));
+  assert.equal((await read()).create_worktree, true);
+  const beforeInvalid = service.journal.sequence;
+  const invalid = await service.command({ op: 'update_project', project_id, create_worktree: 'true' });
+  assert.equal(invalid.reply.ok, false);
+  assert.equal(service.journal.sequence, beforeInvalid);
+  assert.equal((await read()).create_worktree, true);
+  await service.close();
+  service = await Service.open({ home: state, cwd: base, config });
+  assert.equal((await read()).create_worktree, true);
+  const summaries = await service.command({ op: 'list_projects' });
+  assert.equal(summaries.reply.result.find(project => project.project_id === project_id).create_worktree, true);
+  const disabled = await service.command({ op: 'update_project', project_id, create_worktree: false });
+  assert.equal(disabled.reply.ok, true, JSON.stringify(disabled.reply));
+  await service.close();
+  service = await Service.open({ home: state, cwd: base, config });
+  assert.equal((await read()).create_worktree, false);
+});

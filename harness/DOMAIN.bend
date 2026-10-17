@@ -507,7 +507,7 @@ def access_name(access: ExecutionAccess) -> String:
     case Unrestricted{}: "unrestricted"
 
 type Project is Data:
-  Project{name: String, workspace: Workspace, guidance: ProjectContext}
+  Project{name: String, workspace: Workspace, guidance: ProjectContext, create_worktree: Bool}
 
 # Project identities use the same imported finite-map carrier as operation rights.
 

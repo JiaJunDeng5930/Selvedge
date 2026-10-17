@@ -90,8 +90,8 @@ def Laws.command_transition(command, world):
     case M.ChangeStatus{id, control}: updated_command_semantics(M.ChangeStatus{id, control}, world)
     case M.Fork{id, count, messages, options}: updated_command_semantics(M.Fork{id, count, messages, options}, world)
     case M.Compact{id, summary}: updated_command_semantics(M.Compact{id, summary}, world)
-    case M.CreateProject{name, workspace, guidance}: updated_command_semantics(M.CreateProject{name, workspace, guidance}, world)
-    case M.UpdateProject{id, name, workspace, guidance}: updated_command_semantics(M.UpdateProject{id, name, workspace, guidance}, world)
+    case M.CreateProject{name, workspace, guidance, create_worktree}: updated_command_semantics(M.CreateProject{name, workspace, guidance, create_worktree}, world)
+    case M.UpdateProject{id, name, workspace, guidance, create_worktree}: updated_command_semantics(M.UpdateProject{id, name, workspace, guidance, create_worktree}, world)
     case M.DeleteProject{id}: updated_command_semantics(M.DeleteProject{id}, world)
     case M.ReviewApproval{id, operation, outcome}: updated_command_semantics(M.ReviewApproval{id, operation, outcome}, world)
 

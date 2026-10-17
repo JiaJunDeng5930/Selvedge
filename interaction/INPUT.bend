@@ -5,6 +5,8 @@ import ../features/board/MODEL.bend as B
 import ../features/task_graph/MODEL.bend as Graph
 import ../features/task_graph/CODEC.bend as GraphCodec
 import ../harness/features/MODEL.bend as F
+import ../features/worktree/MODEL.bend as Worktree
+import ../harness/workspace/PROJECTS.bend as Projects
 import ../harness/DOMAIN.bend as D
 import ../bendlib/json.bend as J
 import ./services/CONTEXT.bend as Context
@@ -38,9 +40,9 @@ def delivery_caption(delivery: Delivery) -> String:
     case Steer{}: "Steer"
 
 type Body is Data:
-  NewTask{message: Text, profile: String, reasoning: String, context: Context.Configuration}
+  NewTask{message: Text, profile: String, reasoning: String, context: Context.Configuration, create_worktree: Bool}
   Message{task: Nat, message: Text, delivery: Delivery}
-  Project{project: Maybe<&2, Nat>, name: String, workspace: D.Workspace}
+  Project{project: Maybe<&2, Nat>, name: String, workspace: D.Workspace, create_worktree: Bool}
   Card{card: Maybe<&2, Nat>, revision: Nat, value: B.Draft, assist: Bool, profile: String, keep_open: Bool}
   Agent{agent: Maybe<&2, Nat>, revision: Nat, name: String, profile: String, reasoning: String,
     instructions: String, context: Context.Configuration, concurrency: Nat}
@@ -66,6 +68,7 @@ type Edit is Data:
   ChooseModel{profile: String, reasoning: String}
   ConfigureContext{change: Context.Change}
   NameProject{name: String}
+  ChooseWorktree{enabled: Bool}
   ConfigureProjectWorkspace{workspace: D.Workspace}
   WriteCard{patch: B.Patch}
   KeepCaptureOpen{enabled: Bool}
@@ -133,6 +136,7 @@ type Action is Data:
   CancelOperation{task: Nat, operation: Nat}
   ReviewApproval{task: Nat, operation: Nat, allow: Bool, reason: String}
   DeleteProject{project: Nat}
+  RetryWorktreeArchive{task: Nat}
   BoardCommand{command: B.Command}
   OpenPanel{panel: Panel, trigger: String}
   TogglePanel{panel: Panel, trigger: String}
@@ -167,6 +171,7 @@ def direct_command(action: Action) -> Maybe<&2, M.Command>:
     case CancelOperation{task, operation}: Some{M.Cancel{task, operation}}
     case ReviewApproval{task, operation, allow, reason}: Some{M.ReviewApproval{task, operation, approval_outcome(allow, reason)}}
     case DeleteProject{project}: Some{M.DeleteProject{project}}
+    case RetryWorktreeArchive{task}: Some{M.FeatureCommand{F.WorktreeCommand{Worktree.RetryArchive{task}}}}
     case DeleteTaskGraph{graph}: Some{M.FeatureCommand{F.TaskGraphCommand{Graph.Delete{graph}}}}
     case BoardCommand{command}: Some{M.FeatureCommand{F.BoardCommand{command}}}
     case _: None{}
@@ -199,9 +204,9 @@ def initial_text(value: String) -> Text:
 
 def owner(body: Body) -> Editor:
   match body:
-    case NewTask{message, profile, reasoning, context}: NewTaskEditor{}
+    case NewTask{message, profile, reasoning, context, create_worktree}: NewTaskEditor{}
     case Message{task, message, delivery}: MessageEditor{task}
-    case Project{id, name, workspace}: ProjectEditor{id}
+    case Project{id, name, workspace, create_worktree}: ProjectEditor{id}
     case Card{id, revision, value, assist, profile, keep_open}: CardEditor{id}
     case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: AgentEditor{id}
     case Fork{task, count, messages, context}: ForkEditor{task}
@@ -224,7 +229,7 @@ def patch_card(patch: B.Patch, value: B.Draft) -> B.Draft:
 def replace_context(result: Result<&2, &2, String, Context.Configuration>, body: Body) -> Result<&2, &2, String, Body>:
   match result body:
     case Fail{reason} _: Fail{reason}
-    case Done{context} NewTask{message, profile, reasoning, previous}: Done{NewTask{message, profile, reasoning, context}}
+    case Done{context} NewTask{message, profile, reasoning, previous, create_worktree}: Done{NewTask{message, profile, reasoning, context, create_worktree}}
     case Done{context} Agent{id, revision, name, profile, reasoning, instructions, previous, concurrency}:
       Done{Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}}
     case Done{context} Fork{task, count, messages, previous}: Done{Fork{task, count, messages, context}}
@@ -232,9 +237,9 @@ def replace_context(result: Result<&2, &2, String, Context.Configuration>, body:
 
 def apply_workspace(change: Context.WorkspaceEdit, body: Body, world: M.World()) -> Result<&2, &2, String, Body>:
   match body:
-    case Project{id, name, workspace}: Done{Project{id, name, Context.edit_workspace(change, workspace)}}
-    case NewTask{message, profile, reasoning, +context}:
-      replace_context(Context.modify_workspace(context, change, world), NewTask{message, profile, reasoning, context})
+    case Project{id, name, workspace, create_worktree}: Done{Project{id, name, Context.edit_workspace(change, workspace), create_worktree}}
+    case NewTask{message, profile, reasoning, +context, create_worktree}:
+      replace_context(Context.modify_workspace(context, change, world), NewTask{message, profile, reasoning, context, create_worktree})
     case Agent{id, revision, name, profile, reasoning, instructions, +context, concurrency}:
       replace_context(Context.modify_workspace(context, change, world), Agent{id, revision, name, profile, reasoning, instructions, context, concurrency})
     case Fork{task, count, messages, +context}: replace_context(Context.modify_workspace(context, change, world), Fork{task, count, messages, context})
@@ -246,23 +251,37 @@ def fork_change(task: Nat, change: Context.Change) -> Context.Change:
     case Context.ChooseOrigin{Context.EnvironmentDefaults{}}: Context.ChooseOrigin{Context.ParentTask{task}}
     case other: other
 
+def project_worktree(found: Maybe<&2, D.Project>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: create_worktree
+
+def origin_worktree(origin: Context.Origin, world: M.World()) -> Bool:
+  match origin:
+    case Context.ProjectDefaults{id}: project_worktree(Projects.find(Projects.registry(F.State(), world), id))
+    case _: False{}
+
 def apply_edit(change: Edit, body: Body, world: M.World()) -> Result<&2, &2, String, Body>:
   match change body:
     case EditWorkspace{change} body: apply_workspace(change, body, world)
-    case WriteMessage{value} NewTask{old, profile, reasoning, context}: Done{NewTask{value, profile, reasoning, context}}
+    case ChooseWorktree{enabled} NewTask{message, profile, reasoning, context, previous}: Done{NewTask{message, profile, reasoning, context, enabled}}
+    case ChooseWorktree{enabled} Project{id, name, workspace, previous}: Done{Project{id, name, workspace, enabled}}
+    case WriteMessage{value} NewTask{old, profile, reasoning, context, create_worktree}: Done{NewTask{value, profile, reasoning, context, create_worktree}}
     case WriteMessage{value} Message{task, old, delivery}: Done{Message{task, value, delivery}}
     case ChooseDelivery{value} Message{task, message, old}: Done{Message{task, message, value}}
-    case ChooseModel{profile, reasoning} NewTask{message, old_profile, old_reasoning, context}:
-      Done{NewTask{message, profile, reasoning, context}}
+    case ChooseModel{profile, reasoning} NewTask{message, old_profile, old_reasoning, context, create_worktree}:
+      Done{NewTask{message, profile, reasoning, context, create_worktree}}
     case ChooseModel{profile, reasoning} Agent{id, revision, name, old_profile, old_reasoning, instructions, context, concurrency}:
       Done{Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}}
-    case ConfigureContext{change} NewTask{message, profile, reasoning, context}:
-      Done{NewTask{message, profile, reasoning, Context.edit(context, change)}}
+    case ConfigureContext{Context.ChooseOrigin{+origin}} NewTask{message, profile, reasoning, context, previous}:
+      Done{NewTask{message, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), origin_worktree(origin, world)}}
+    case ConfigureContext{change} NewTask{message, profile, reasoning, context, create_worktree}:
+      Done{NewTask{message, profile, reasoning, Context.edit(context, change), create_worktree}}
     case ConfigureContext{change} Fork{+task, count, messages, context}: Done{Fork{task, count, messages, Context.edit(context, fork_change(task, change))}}
     case ConfigureContext{change} Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
       Done{Agent{id, revision, name, profile, reasoning, instructions, Context.edit(context, change), concurrency}}
-    case NameProject{name} Project{id, old, workspace}: Done{Project{id, name, workspace}}
-    case ConfigureProjectWorkspace{workspace} Project{id, name, old}: Done{Project{id, name, workspace}}
+    case NameProject{name} Project{id, old, workspace, create_worktree}: Done{Project{id, name, workspace, create_worktree}}
+    case ConfigureProjectWorkspace{workspace} Project{id, name, old, create_worktree}: Done{Project{id, name, workspace, create_worktree}}
     case WriteCard{patch} Card{id, revision, value, assist, profile, keep_open}: Done{Card{id, revision, patch_card(patch, value), assist, profile, keep_open}}
     case KeepCaptureOpen{enabled} Card{None{}, revision, value, assist, profile, previous}: Done{Card{None{}, revision, value, assist, profile, enabled}}
     case ConfigureCardAssistance{assist, profile} Card{None{}, revision, value, old_assist, old_profile, keep_open}: Done{Card{None{}, revision, value, assist, profile, keep_open}}
@@ -299,10 +318,10 @@ def card_command(id: Maybe<&2, Nat>, revision: Nat, value: B.Draft, assist: Bool
       B.Update{id, revision, B.Patch{Some{title}, Some{description}, Some{stage}, Some{priority}, Some{owner},
         Some{project}, Some{labels}, Some{attachments}}, now}
 
-def project_command(id: Maybe<&2, Nat>, name: String, workspace: J.Json, guidance: J.Json) -> M.Command:
+def project_command(id: Maybe<&2, Nat>, name: String, workspace: J.Json, guidance: J.Json, create_worktree: Bool) -> M.Command:
   match id:
-    case None{}: M.CreateProject{name, workspace, guidance}
-    case Some{id}: M.UpdateProject{id, Some{name}, workspace, guidance}
+    case None{}: M.CreateProject{name, workspace, guidance, J.Boolean{create_worktree}}
+    case Some{id}: M.UpdateProject{id, Some{name}, workspace, guidance, J.Boolean{create_worktree}}
 
 def message_command(delivery: Delivery, task: Nat, message: String) -> M.Command:
   match delivery:
@@ -324,11 +343,17 @@ def graph_command(graph: Maybe<&2, Nat>, parsed: Maybe<&2, J.Json>) -> M.Command
     case None{}: M.FeatureCommand{F.TaskGraphCommand{Graph.Create{GraphCodec.declaration(graph_payload(parsed))}}}
     case Some{id}: M.FeatureCommand{F.TaskGraphCommand{Graph.Update{id, GraphCodec.declaration(graph_payload(parsed))}}}
 
+def task_creation(enabled: Bool, profile: String, reasoning: String, message: String, settings: J.Json) -> M.Command:
+  match enabled:
+    case False{}: M.Create{profile, reasoning, message, settings}
+    case True{}: M.FeatureCommand{F.WorktreeCommand{Worktree.Create{profile, reasoning, message, settings}}}
+
+
 def command(body: Body, now: U32) -> M.Command:
   match body:
-    case NewTask{message, profile, reasoning, context}: M.Create{profile, reasoning, text(message), Context.settings(context)}
+    case NewTask{message, profile, reasoning, context, create_worktree}: task_creation(create_worktree, profile, reasoning, text(message), Context.settings(context))
     case Message{task, message, delivery}: message_command(delivery, task, text(message))
-    case Project{id, name, workspace}: project_command(id, name, D.workspace_json(workspace), J.Null{})
+    case Project{id, name, workspace, create_worktree}: project_command(id, name, D.workspace_json(workspace), J.Null{}, create_worktree)
     case Card{id, revision, value, assist, profile, keep_open}: M.FeatureCommand{F.BoardCommand{card_command(id, revision, value, assist, profile, now)}}
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
       M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.settings(context), concurrency}}}}
@@ -338,26 +363,26 @@ def command(body: Body, now: U32) -> M.Command:
 
 def workspace_operation(body: Body) -> Bool:
   match body:
-    case NewTask{message, profile, reasoning, context}: True{}
-    case Project{id, name, workspace}: True{}
+    case NewTask{message, profile, reasoning, context, create_worktree}: True{}
+    case Project{id, name, workspace, create_worktree}: True{}
     case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
     case Fork{task, count, messages, context}: True{}
     case _: False{}
 
 def required_workspace(body: Body) -> Maybe<&2, D.Workspace>:
   match body:
-    case NewTask{message, profile, reasoning, context}: Context.required_workspace(context)
-    case Project{id, name, workspace}: Some{workspace}
+    case NewTask{message, profile, reasoning, context, create_worktree}: Context.required_workspace(context)
+    case Project{id, name, workspace, create_worktree}: Some{workspace}
     case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: Context.required_workspace(context)
     case Fork{task, count, messages, context}: Context.required_workspace(context)
     case _: None{}
 
 def prepared_command(body: Body, observation: Context.DirectoryObservation, now: U32) -> M.Command:
   match body:
-    case NewTask{message, profile, reasoning, context}: M.Create{profile, reasoning, text(message), Context.observed_settings(context, observation)}
-    case Project{id, name, previous}:
+    case NewTask{message, profile, reasoning, context, create_worktree}: task_creation(create_worktree, profile, reasoning, text(message), Context.observed_settings(context, observation))
+    case Project{id, name, previous, create_worktree}:
       Context.DirectoryObservation{workspace, guidance} = observation
-      project_command(id, name, D.workspace_json(workspace), D.project_json(guidance))
+      project_command(id, name, D.workspace_json(workspace), D.project_json(guidance), create_worktree)
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
       M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.observed_settings(context, observation), concurrency}}}}
     case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.observed_settings(context, observation)}
@@ -377,7 +402,7 @@ def fork_origin(origin: Context.Origin, task: Nat) -> Bool:
 
 def valid_origin(body: Body) -> Bool:
   match body:
-    case NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}}: creation_origin(origin)
+    case NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}, create_worktree}: creation_origin(origin)
     case Agent{id, revision, name, profile, reasoning, instructions, Context.Configuration{origin, workspace, sandbox, approval}, concurrency}: creation_origin(origin)
     case Fork{task, count, messages, Context.Configuration{origin, workspace, sandbox, approval}}: fork_origin(origin, task)
     case _: True{}
@@ -389,7 +414,7 @@ def selected_model_permitted(found: Maybe<&2, D.Profile>, reasoning: String) -> 
 
 def model_permitted(body: Body, world: M.World()) -> Bool:
   match body:
-    case NewTask{message, profile, reasoning, context}: selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning)
+    case NewTask{message, profile, reasoning, context, create_worktree}: selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning)
     case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning)
     case _: True{}
 
@@ -403,7 +428,7 @@ def next_capture(draft: B.Draft) -> B.Draft:
 
 def after_accept(body: Body) -> Body:
   match body:
-    case NewTask{message, profile, reasoning, context}: NewTask{initial_text(""), profile, reasoning, context}
+    case NewTask{message, profile, reasoning, context, create_worktree}: NewTask{initial_text(""), profile, reasoning, context, create_worktree}
     case Message{task, message, delivery}: Message{task, initial_text(""), delivery}
     case Card{None{}, revision, value, assist, profile, keep_open}: Card{None{}, revision, next_capture(value), assist, profile, keep_open}
     case other: other
@@ -417,8 +442,8 @@ def subject_key(subject: Subject) -> String:
 
 def workspace_capable(body: Body) -> Bool:
   match body:
-    case NewTask{message, profile, reasoning, context}: True{}
-    case Project{id, name, workspace}: True{}
+    case NewTask{message, profile, reasoning, context, create_worktree}: True{}
+    case Project{id, name, workspace, create_worktree}: True{}
     case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
     case Fork{task, count, messages, context}: True{}
     case _: False{}

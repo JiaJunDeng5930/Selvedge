@@ -340,6 +340,17 @@ def E.sandbox_launch_context_writes():
   source => {==}
 def E.sandbox_launch_context_scope():
   source => {==}
+def managed_without_root(+roots: List<&2, J.Json>, +separator: String) ->
+  {E.managed_writable_items(roots, J.Null{}, separator) == Nil{} : List<&2, J.Json>}:
+  match roots:
+    case Nil{}: {==}
+    case Con{root, rest}: managed_without_root(rest, separator)
+def E.sandbox_without_managed_root():
+  roots => separator => managed_without_root(roots, separator)
+def E.sandbox_readonly_managed_roots():
+  workspace => root => separator => {==}
+def E.sandbox_managed_binding_order():
+  source => {==}
 def E.sandbox_launch_descriptor_coordinates():
   source => {==}
 def E.sandbox_launch_binding_head():
