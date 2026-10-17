@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { browserUI, surfaceNodes, taskIdle, home } from './support.mjs';
-import { bendValue, bendTag } from '../host/public/bend-value.mjs';
+import { bendValue, bendTag, decodeBendValue } from '../host/public/bend-value.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { startServer } from '../host/server.mjs';
 import browserModel from '../host/public/generated/browser-model.mjs';
@@ -636,4 +636,114 @@ test('production activity choices complete and compound cancellation discards bu
     assert.equal(projectDraft(state).directory_entry, '');
     assert.equal(bendTag(layer(state).parameter_buffer), 'None');
   });
+});
+
+test('committed task forks retain project groups and executable nested sidebar rows', { timeout: 240_000 }, async t => {
+  const ui = await browserUI(t, { sourceAdmission: true });
+  const directory = await home(t);
+  const server = await startServer({ home: path.join(directory, 'state'), cwd: directory,
+    config: validateConfig({ ...defaultConfig, port: 0, chatgpt: false }) });
+  t.after(() => server.close());
+  const command = async value => {
+    const result = await server.service.command(value);
+    assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
+    return result.reply.result;
+  };
+  const project = async name => (await command({ op: 'create_project', name, workspace: { roots: [] } })).project_id;
+  const create = async (message, project_id) => {
+    const { task_id } = await command({ op: 'create', profile: 'demo', message,
+      ...(project_id === undefined ? {} : { settings: { project_id } }) });
+    await taskIdle(server.service, task_id);
+    return task_id;
+  };
+  const fork = async (task_id, messages, project_id) => {
+    await taskIdle(server.service, task_id);
+    const { children } = await command({ op: 'fork', task_id, child_count: messages.length, messages,
+      ...(project_id === undefined ? {} : { settings: { project_id } }) });
+    await Promise.all([task_id, ...children].map(id => taskIdle(server.service, id)));
+    return children;
+  };
+  const alpha = await project('Alpha project');
+  const beta = await project('Beta project');
+  const empty = await project('Empty project');
+  const root = await create('Project root 世界', alpha);
+  const [first, second] = await fork(root, ['First child', 'Second child']);
+  const [grandchild] = await fork(first, ['Grandchild']);
+  const otherRoot = await create('Another project root', alpha);
+  const independent = await create('Independent root');
+  const [independentChild] = await fork(independent, ['Independent child']);
+  const [crossProject] = await fork(root, ['Child in another project'], beta);
+  const [returnedProject] = await fork(crossProject, ['Grandchild back in Alpha'], alpha);
+  const [betaChild] = await fork(crossProject, ['Child within Beta']);
+  await command({ op: 'freeze', task_id: second });
+
+  const response = await fetch(`${server.address}/api/browser/state`, {
+    headers: { authorization: `Bearer ${server.token}` },
+  });
+  assert.equal(response.status, 200);
+  const snapshot = decodeBendValue(await response.json());
+  const authenticated = ui.authenticated(snapshot.program, BigInt(root));
+  assert.equal(bendTag(authenticated), 'Done');
+  let state = authenticated.value;
+  const navigation = () => surfaceNodes(ui.surface_state(state)).find(node => bendTag(node.role) === 'Navigation');
+  const group = id => subtree(navigation()).find(node => bendTag(node.meaning) === 'ProjectGroup'
+    && node.meaning.project === BigInt(id));
+  const rows = () => subtree(navigation()).filter(node => bendTag(node.meaning) === 'TaskRow');
+  const hierarchy = node => {
+    const visit = (current, parent) => {
+      const tag = bendTag(current.meaning);
+      return [
+        ...(tag === 'TaskRow' ? [{ task: Number(current.meaning.task), parent }] : []),
+        ...listValues(current.children).flatMap(child => visit(child, tag === 'TaskChildren' ? Number(current.meaning.task) : parent)),
+      ];
+    };
+    return visit(node, null);
+  };
+  const alphaHierarchy = [
+    { task: root, parent: null }, { task: first, parent: root }, { task: grandchild, parent: first },
+    { task: second, parent: root }, { task: otherRoot, parent: null }, { task: returnedProject, parent: null },
+  ];
+  assert.deepEqual(hierarchy(group(alpha)), alphaHierarchy);
+  assert.deepEqual(hierarchy(group(beta)), [{ task: crossProject, parent: null }, { task: betaChild, parent: crossProject }],
+    'A fork into another project starts a visible tree in that project');
+  assert.deepEqual(hierarchy(group(empty)), [], 'An empty project must retain its group');
+  const independentGroup = subtree(navigation()).find(node => node.semantic === 'independent-tasks');
+  assert.ok(independentGroup);
+  assert.deepEqual(hierarchy(independentGroup), [{ task: independent, parent: null }, { task: independentChild, parent: independent }]);
+  const expectedTasks = [root, first, second, grandchild, otherRoot, independent, independentChild, crossProject, returnedProject, betaChild];
+  assert.deepEqual(rows().map(node => Number(node.meaning.task)).sort((a, b) => a - b), expectedTasks.sort((a, b) => a - b),
+    'Every committed task must appear exactly once');
+  assert.equal(bendTag(rows().find(node => node.meaning.task === BigInt(second)).meaning.status.lifecycle), 'Frozen');
+
+  const descendant = rows().find(node => node.meaning.task === BigInt(grandchild));
+  const open = subtree(descendant).find(node => actualUIInput(node.meaning.input, 'Navigate'));
+  assert.ok(open, 'A nested descendant must retain its actual navigation command');
+  assert.equal(actualUIInput(open.meaning.input, 'Navigate').route.task, BigInt(grandchild));
+  state = ui.activate_state(state, ui.key(open));
+  assert.deepEqual(rows().filter(node => node.meaning.selected).map(node => Number(node.meaning.task)), [grandchild]);
+
+  const authored = ui.source_admission(state);
+  assert.equal(bendTag(authored), 'Done');
+  assert.equal(bendTag(authored.value), 'Ready', 'Nested semantic navigation must reach the production browser source');
+  const sourceNodes = node => [node, ...listValues(node.children).flatMap(sourceNodes)];
+  const data = node => Object.fromEntries(listValues(node.attributes)
+    .filter(attribute => bendTag(attribute) === 'DataAttribute').map(attribute => [attribute.name, attribute.value]));
+  const depths = sourceNodes(authored.value.source).map(data)
+    .filter(attributes => attributes.task !== undefined && attributes['navigation-depth'] !== undefined)
+    .map(attributes => [Number(attributes.task), Number(attributes['navigation-depth'])]);
+  assert.deepEqual(new Map(depths), new Map([
+    [root, 1], [first, 2], [grandchild, 3], [second, 2], [otherRoot, 1], [returnedProject, 1],
+    [crossProject, 1], [betaChild, 2], [independent, 0], [independentChild, 1],
+  ]), 'Browser-authored indentation must follow immediate parents inside each project group');
+
+  const toggle = subtree(group(alpha)).find(node => actualUIInput(node.meaning.input, 'ToggleProjectGroup'));
+  assert.ok(toggle);
+  state = ui.activate_state(state, ui.key(toggle));
+  assert.equal(group(alpha).meaning.expanded, false);
+  assert.deepEqual(hierarchy(group(alpha)), [], 'Project collapse hides its complete task tree');
+  assert.equal(rows().some(node => node.meaning.task === BigInt(betaChild)), true);
+  state = ui.activate_state(state, ui.key(toggle));
+  assert.equal(group(alpha).meaning.expanded, true);
+  assert.deepEqual(hierarchy(group(alpha)), alphaHierarchy);
+  assert.deepEqual(rows().filter(node => node.meaning.selected).map(node => Number(node.meaning.task)), [grandchild]);
 });

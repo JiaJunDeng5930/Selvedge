@@ -360,6 +360,7 @@ def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +rol
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
