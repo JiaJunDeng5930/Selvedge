@@ -26,7 +26,6 @@ def task_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackAfterHook{}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
-    case E.CallbackSummary{}: {==}
     case E.CallbackDefaultTool{}: {==}
 
 def E.callback_task():
@@ -42,7 +41,6 @@ def ticket_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackAfterHook{}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
-    case E.CallbackSummary{}: {==}
     case E.CallbackDefaultTool{}: {==}
 
 def E.callback_ticket():
@@ -58,7 +56,6 @@ def operation_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackAfterHook{}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
-    case E.CallbackSummary{}: {==}
     case E.CallbackDefaultTool{}: {==}
 
 def E.callback_operation():
@@ -74,7 +71,6 @@ def card_case(+kind: E.CallbackKind, +effect: J.Json, +result: J.Json) ->
     case E.CallbackAfterHook{}: {==}
     case E.CallbackReasoning{}: {==}
     case E.CallbackModel{}: {==}
-    case E.CallbackSummary{}: {==}
     case E.CallbackDefaultTool{}: {==}
 
 def E.callback_card():
@@ -103,7 +99,6 @@ def context_limit_field_case(+context_limit: Bool, +kind: E.CallbackKind, +effec
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
     case True{}:
       match kind:
@@ -114,7 +109,6 @@ def context_limit_field_case(+context_limit: Bool, +kind: E.CallbackKind, +effec
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_context_limit_field():
@@ -133,7 +127,6 @@ def preserves_kind_case(+context_limit: Bool, +kind: E.CallbackKind, +effect: J.
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_kind():
@@ -152,7 +145,6 @@ def preserves_task_id_case(+context_limit: Bool, +kind: E.CallbackKind, +effect:
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_task_id():
@@ -171,7 +163,6 @@ def preserves_ticket_case(+context_limit: Bool, +kind: E.CallbackKind, +effect: 
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_ticket():
@@ -190,7 +181,6 @@ def preserves_operation_id_case(+context_limit: Bool, +kind: E.CallbackKind, +ef
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_operation_id():
@@ -209,7 +199,6 @@ def preserves_card_id_case(+context_limit: Bool, +kind: E.CallbackKind, +effect:
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_card_id():
@@ -228,7 +217,6 @@ def preserves_ok_case(+context_limit: Bool, +kind: E.CallbackKind, +effect: J.Js
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_ok():
@@ -247,7 +235,6 @@ def preserves_message_case(+context_limit: Bool, +kind: E.CallbackKind, +effect:
         case E.CallbackApproval{}: {==}
         case E.CallbackAfterHook{}: {==}
         case E.CallbackModel{}: {==}
-        case E.CallbackSummary{}: {==}
         case E.CallbackDefaultTool{}: {==}
 
 def E.failure_preserves_message():

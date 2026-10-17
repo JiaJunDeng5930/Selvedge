@@ -66,7 +66,7 @@ test('shutdown interrupts a remote request; recovery retries it and a truncated 
   await service.command({ op: 'send', task_id: 0, message: 'retry now' });
   const completed = await taskIdle(service);
   assert.equal(requests, 3);
-  assert.equal(completed.messages.at(-1).content.content[0].text, 'recovered');
+  assert.equal(completed.messages.at(-1).content.item.content[0].text, 'recovered');
   assert.equal(completed.messages.filter(message => message.role === 'error').length, 1);
   await service.close();
   service = await Service.open({ home: directory, config });

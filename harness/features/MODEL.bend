@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/MODEL.bend as Compaction
 import ../DOMAIN.bend as D
 import ../../features/board/MODEL.bend as Board
 import ../../features/board/CODEC.bend as BoardCodec
@@ -19,8 +20,11 @@ def Rest() -> Data:
 def initial_rest() -> Rest():
   Unit{}
 
+def CompactionModules() -> Data:
+  C.Frame<Compaction.State, Rest()>
+
 def GraphModules() -> Data:
-  C.Frame<TaskGraph.State, Rest()>
+  C.Frame<TaskGraph.State, CompactionModules()>
 
 def State() -> Data:
   C.Frame<Board.State, Modules()>
@@ -29,7 +33,7 @@ def Modules() -> Data:
   C.Frame<ChatGPT.State, GraphModules()>
 
 def initial() -> State():
-  C.Frame{Board.initial(), C.Frame{ChatGPT.initial(), C.Frame{TaskGraph.initial(), initial_rest()}}}
+  C.Frame{Board.initial(), C.Frame{ChatGPT.initial(), C.Frame{TaskGraph.initial(), C.Frame{Compaction.initial(), initial_rest()}}}}
 
 def board(state: State()) -> Board.State:
   C.local(Board.State, Modules(), state)
@@ -38,7 +42,7 @@ def modules(state: State()) -> Modules():
   C.rest(Board.State, Modules(), state)
 
 def rest(state: State()) -> Rest():
-  C.rest(TaskGraph.State, Rest(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))
+  C.rest(Compaction.State, Rest(), C.rest(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state))))
 
 def with_board(value: Board.State, state: State()) -> State():
   C.constructed_replacement(Board.State, Modules(), C.construct_replace(Board.State, Modules(), value, state))
@@ -50,15 +54,22 @@ def with_chatgpt(value: ChatGPT.State, state: State()) -> State():
   C.map_rest(Board.State, Modules(), rest => C.constructed_replacement(ChatGPT.State, GraphModules(), C.construct_replace(ChatGPT.State, GraphModules(), value, rest)), state)
 
 def with_rest(value: Rest(), state: State()) -> State():
-  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, GraphModules(), graphs => C.map_rest(TaskGraph.State, Rest(), previous => value, graphs), modules), state)
+  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, GraphModules(), graphs => C.map_rest(TaskGraph.State, CompactionModules(), compaction => C.map_rest(Compaction.State, Rest(), previous => value, compaction), graphs), modules), state)
 
 def task_graph(state: State()) -> TaskGraph.State:
-  C.local(TaskGraph.State, Rest(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))
+  C.local(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))
 
 def with_task_graph(value: TaskGraph.State, state: State()) -> State():
-  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, GraphModules(), graphs => C.constructed_replacement(TaskGraph.State, Rest(), C.construct_replace(TaskGraph.State, Rest(), value, graphs)), modules), state)
+  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, GraphModules(), graphs => C.constructed_replacement(TaskGraph.State, CompactionModules(), C.construct_replace(TaskGraph.State, CompactionModules(), value, graphs)), modules), state)
+
+def compaction(state: State()) -> Compaction.State:
+  C.local(Compaction.State, Rest(), C.rest(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state))))
+
+def with_compaction(value: Compaction.State, state: State()) -> State():
+  C.map_rest(Board.State, Modules(), modules => C.map_rest(ChatGPT.State, GraphModules(), graphs => C.map_rest(TaskGraph.State, CompactionModules(), compaction => C.constructed_replacement(Compaction.State, Rest(), C.construct_replace(Compaction.State, Rest(), value, compaction)), graphs), modules), state)
 
 type Effect is Data:
+  CompactionEffect{effect: Compaction.Effect}
   ChatGPTEffect{effect: ChatGPT.Effect}
   RequestBoardText{card_id: Nat, ticket: Nat, profile: D.Profile, prompt: String, retitle: Bool}
 
@@ -78,6 +89,7 @@ type CommandKind is Data:
   TaskGraphKind{kind: TaskGraphCodec.EntryKind}
 
 type Completion is Data:
+  CompactionCompleted{completion: Compaction.Completion}
   ChatGPTCompleted{operation: Nat, value: J.Json, error: Bool}
   BoardTextCompleted{card_id: Nat, ticket: Nat, outcome: Board.Outcome}
 

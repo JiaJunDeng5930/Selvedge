@@ -41,6 +41,7 @@ def board_text(found: Maybe<&2, B.Card>, id: Nat, ticket: Nat, outcome: B.Outcom
 
 def resolve_calculation(completion: F.Completion, world: M.World()) -> Maybe<&2, O.ResolvedEvent>:
   match completion:
+    case F.CompactionCompleted{completion}: Some{O.CompactionResult{completion}}
     case F.ChatGPTCompleted{+id, value, error}: chatgpt(ChatGPT.completion_value(ChatGPT.construct_completion(id, value, error, ChatGPTState.registry(world))))
     case F.BoardTextCompleted{+id, ticket, outcome}: board_text(B.find(State.registry(world), id), id, ticket, outcome)
 

@@ -3,6 +3,7 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
 import ../../harness/DOMAIN.bend as D
+import ../../harness/compaction/MODEL.bend as Compaction
 
 # Sources are observations of persisted JSON. Original UTF-16 strings and
 # environment bytes remain in host; reconstruction plans select original refs.
@@ -143,6 +144,146 @@ def config_env_fields(values: +List<J.Json>) -> Bool:
     case Con{head, rest}: config_kind(J.get(head, "value"), "string") && config_env_fields(rest)
 def config_environment(+value: J.Json) -> Bool:
   Bool.not(config_defined(value)) || (config_kind(value, "object") && config_env_fields(J.items(J.get(value, "fields"))))
+# Automatic context maintenance is configured independently of model identity.
+# Only actual advertised windows or explicit target settings admit automation.
+def compact_has_fields(fields: +List<J.Field>, +name: String) -> Bool:
+  match fields:
+    case Nil{}: False{}
+    case Con{J.Field{key, value}, rest}: String.eq(key, name) || compact_has_fields(rest, name)
+def compact_has(value: J.Json, name: String) -> Bool:
+  match value:
+    case J.Object{fields}: compact_has_fields(fields, name)
+    case _: False{}
+def compact_field(+value: J.Json, +name: String, fallback: J.Json) -> J.Json:
+  config_select(compact_has(value, name), J.get(value, name), fallback)
+def compact_contains(values: +List<String>, +text: String) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{head, rest}: String.eq(head, text) || compact_contains(rest, text)
+def compact_keys(fields: +List<J.Field>, +allowed: +List<String>) -> Bool:
+  match fields:
+    case Nil{}: True{}
+    case Con{J.Field{key, value}, rest}:
+      compact_contains(allowed, key) && compact_keys(rest, allowed)
+def compact_object(value: J.Json, allowed: +List<String>) -> Bool:
+  match value:
+    case J.Object{fields}: compact_keys(fields, allowed)
+    case _: False{}
+def compact_number(+value: J.Json, minimum: String, maximum: String) -> Bool:
+  Model.nonnegative_le(value, maximum) && Model.decimal_le(minimum, config_number_text(value))
+def compact_nat(value: J.Json) -> Nat:
+  J.natural_or(J.natural(value), 0n)
+def compact_array(value: J.Json) -> Bool:
+  match value:
+    case J.Array{items}: True{}
+    case _: False{}
+def compact_boolean(value: J.Json) -> Bool:
+  match value:
+    case J.Boolean{observed}: True{}
+    case _: False{}
+def compact_defaults() -> J.Json:
+  J.Object{[J.Field{"enabled", J.Boolean{True{}}}, J.Field{"background_percent", J.nat(65n)}, J.Field{"blocking_percent", J.nat(90n)}, J.Field{"idle_lead_ms", J.nat(60000n)}, J.Field{"targets", J.Array{Nil{}}}]}
+def compact_value(+source: J.Json) -> J.Json:
+  compact_field(J.get(source, "config"), "compaction", compact_defaults())
+def compact_policy_field(+source: J.Json, +name: String) -> J.Json:
+  compact_field(compact_value(source), name, J.get(compact_defaults(), name))
+def compact_threshold_requirements(+source: J.Json) -> Bool:
+  compact_object(compact_value(source), ["enabled", "background_percent", "blocking_percent", "idle_lead_ms", "targets"]) &&
+    compact_boolean(compact_policy_field(source, "enabled")) &&
+    compact_number(compact_policy_field(source, "background_percent"), "1", "98") &&
+    compact_number(compact_policy_field(source, "blocking_percent"), "2", "99") &&
+    Nat.is_lt(compact_nat(compact_policy_field(source, "background_percent")), compact_nat(compact_policy_field(source, "blocking_percent"))) &&
+    compact_number(compact_policy_field(source, "idle_lead_ms"), "0", "9007199254740991")
+def compact_target_reserve(+target: J.Json) -> J.Json:
+  compact_field(target, "output_reserve_tokens", J.nat(Nat.min(8192n, Nat.div(compact_nat(J.get(target, "window_tokens")), 8n))))
+def compact_target_method(target: J.Json) -> J.Json:
+  compact_field(target, "method", J.Text{"auto"})
+def compact_target_cache(target: J.Json) -> J.Json:
+  compact_field(target, "cache_ttl_ms", J.Null{})
+def compact_target_budget(+target: J.Json) -> Bool:
+  compact_number(J.get(target, "window_tokens"), "0", "4294967295") &&
+    compact_number(compact_target_reserve(target), "0", "4294967295") &&
+    Compaction.legal_budget(compact_nat(J.get(target, "window_tokens")), compact_nat(compact_target_reserve(target)))
+def compact_supported_provider(profile: J.Json) -> Bool:
+  compact_contains(["responses", "chatgpt"], J.text(J.get(profile, "provider")))
+def compact_target_valid(+target: J.Json, +profiles: J.Json, +lead: Nat, +seen: +List<String>) -> Bool:
+  +profile = J.get(target, "profile")
+  +cache = compact_target_cache(target)
+  compact_object(target, ["profile", "window_tokens", "output_reserve_tokens", "cache_ttl_ms", "method"]) &&
+    (Bool.not(String.is_empty(J.text(profile)))) && Bool.not(compact_contains(seen, J.text(profile))) &&
+    (Bool.not(compact_has(profiles, J.text(profile))) || compact_supported_provider(J.get(profiles, J.text(profile)))) &&
+    compact_target_budget(target) &&
+    compact_contains(["auto", "summary"], J.text(compact_target_method(target))) &&
+    (J.same(cache, J.Null{}) || (compact_number(cache, "1", "9007199254740991") && Nat.is_lt(lead, compact_nat(cache))))
+def compact_targets_valid(values: +List<J.Json>, +profiles: J.Json, +lead: Nat, +seen: +List<String>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{+target, rest}: compact_target_valid(target, profiles, lead, seen) &&
+      compact_targets_valid(rest, profiles, lead, Con{J.text(J.get(target, "profile")), seen})
+def compact_target_requirements(+source: J.Json) -> Bool:
+  +targets = compact_policy_field(source, "targets")
+  compact_array(targets) && compact_targets_valid(J.items(targets), J.get(source, "profiles"), compact_nat(compact_policy_field(source, "idle_lead_ms")), Nil{})
+def compact_target(+target: J.Json) -> J.Json:
+  J.Object{[J.Field{"profile", J.get(target, "profile")}, J.Field{"window_tokens", J.get(target, "window_tokens")},
+    J.Field{"output_reserve_tokens", compact_target_reserve(target)}, J.Field{"cache_ttl_ms", compact_target_cache(target)}, J.Field{"method", compact_target_method(target)}]}
+def compact_targets(values: +List<J.Json>) -> +List<J.Json>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{head, rest}: Con{compact_target(head), compact_targets(rest)}
+def compact_policy(+source: J.Json, targets: +List<J.Json>) -> J.Json:
+  J.Object{[J.Field{"enabled", compact_policy_field(source, "enabled")}, J.Field{"background_percent", compact_policy_field(source, "background_percent")},
+    J.Field{"blocking_percent", compact_policy_field(source, "blocking_percent")}, J.Field{"idle_lead_ms", compact_policy_field(source, "idle_lead_ms")}, J.Field{"targets", J.Array{targets}}]}
+def compact_projection(+source: J.Json) -> J.Json:
+  Model.success(compact_policy(source, compact_targets(J.items(compact_policy_field(source, "targets")))))
+def compact_admitted(member: Maybe<&1, Categories.Membership<J.Json, (candidate => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => compact_threshold_requirements(candidate))), Categories.holds(J.Json, (candidate => compact_target_requirements(candidate))), candidate))>>) -> J.Json:
+  match member:
+    case None{}: Model.failure("Invalid compaction settings: require 1 <= background < blocking < 100, unique Responses-model targets, valid window/reserve headroom and cache TTL greater than idle lead")
+    case Some{member}: compact_projection(Categories.value(J.Json, (candidate => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => compact_threshold_requirements(candidate))), Categories.holds(J.Json, (candidate => compact_target_requirements(candidate))), candidate)), member))
+def config_compaction(+source: J.Json) -> J.Json:
+  compact_admitted(Categories.admit_intersection(J.Json, (candidate => compact_threshold_requirements(candidate)), (candidate => compact_target_requirements(candidate)), source))
+def compact_find_target(values: +List<J.Json>, +key: String) -> J.Json:
+  match values:
+    case Nil{}: J.Null{}
+    case Con{+head, rest}: config_select(String.eq(J.text(J.get(head, "profile")), key), head, compact_find_target(rest, key))
+def compact_model_window(+model: J.Json) -> Nat:
+  +percent = compact_field(model, "effective_context_window_percent", J.nat(100n))
+  Nat.div(Nat.mul(compact_nat(J.get(model, "context_window")), compact_nat(percent)), 100n)
+def compact_discovered_target(+key: String, +profile: J.Json) -> J.Json:
+  compact_target(J.Object{[J.Field{"profile", J.Text{key}}, J.Field{"window_tokens", J.nat(compact_model_window(J.get(profile, "model_info")))}]})
+def compact_runtime_item(+key: String, +profile: J.Json, +explicit: J.Json) -> J.Json:
+  config_select(J.same(explicit, J.Null{}), compact_discovered_target(key, profile), explicit)
+def compact_runtime_cons(include: Bool, target: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  match include:
+    case True{}: Con{target, rest}
+    case False{}: rest
+def compact_runtime_targets(values: +List<J.Field>, +configured: +List<J.Json>) -> +List<J.Json>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{J.Field{+key, +profile}, rest}:
+      +target = compact_runtime_item(key, profile, compact_find_target(configured, key))
+      compact_runtime_cons(compact_supported_provider(profile) && compact_target_budget(target), target, compact_runtime_targets(rest, configured))
+def compact_profile_fields(value: J.Json) -> +List<J.Field>:
+  match value:
+    case J.Object{fields}: fields
+    case _: Nil{}
+def compact_runtime_references(values: +List<J.Json>, +profiles: J.Json) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{+head, rest}: compact_has(profiles, J.text(J.get(head, "profile"))) && compact_supported_provider(J.get(profiles, J.text(J.get(head, "profile")))) && compact_runtime_references(rest, profiles)
+def compact_policy_runtime(+source: J.Json) -> J.Json:
+  +config = J.get(source, "config")
+  +profile_set = J.get(config, "profiles")
+  +settings: J.Json = J.Object{[J.Field{"config", config}, J.Field{"profiles", profile_set}]}
+  Model.success(compact_policy(settings, compact_runtime_targets(compact_profile_fields(profile_set), J.items(J.get(J.get(config, "compaction"), "targets")))))
+def compact_runtime_checked(valid: Bool, +source: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure("Compaction target must resolve to an available responses or chatgpt model profile")
+    case True{}: compact_policy_runtime(source)
+def config_compaction_runtime(+source: J.Json) -> J.Json:
+  +config = J.get(source, "config")
+  +settings: J.Json = J.Object{[J.Field{"config", config}, J.Field{"profiles", J.get(config, "profiles")}]}
+  compact_runtime_checked(compact_threshold_requirements(settings) && compact_target_requirements(settings) && compact_runtime_references(J.items(J.get(J.get(config, "compaction"), "targets")), J.get(config, "profiles")), source)
+
 def configured_instruction(instructions: D.InitialInstructions) -> String:
   D.InitialInstructions{configured, global} = instructions
   configured
@@ -151,7 +292,7 @@ def configured_default() -> String:
   configured_instruction(D.default_instructions())
 
 def config_defaults(+source: J.Json) -> J.Json:
-  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}]}
+  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"compaction", compact_defaults()}]}
 def config_head_format(+valid: Bool, +value: J.Json) -> J.Json:
   match valid:
     case True{}: J.Object{[J.Field{"base", J.get(value, "ref")}, J.Field{"fields", J.Array{[J.Object{[J.Field{"key", J.Text{"host"}}, J.Field{"value", config_value(config_get(value, "host"), J.get(config_defaults(J.Null{}), "host"))}]}, J.Object{[J.Field{"key", J.Text{"port"}}, J.Field{"value", config_value(config_get(value, "port"), J.get(config_defaults(J.Null{}), "port"))}]}, J.Object{[J.Field{"key", J.Text{"max_fork"}}, J.Field{"value", config_value(config_get(value, "max_fork"), J.get(config_defaults(J.Null{}), "max_fork"))}]}, J.Object{[J.Field{"key", J.Text{"max_descendants"}}, J.Field{"value", config_value(config_get(value, "max_descendants"), J.get(config_defaults(J.Null{}), "max_descendants"))}]}, J.Object{[J.Field{"key", J.Text{"instructions"}}, J.Field{"value", config_value(config_get(value, "instructions"), J.get(config_defaults(J.Null{}), "instructions"))}]}, J.Object{[J.Field{"key", J.Text{"profiles"}}, J.Field{"value", config_value(config_get(value, "profiles"), J.get(config_defaults(J.Null{}), "profiles"))}]}, J.Object{[J.Field{"key", J.Text{"mcp"}}, J.Field{"value", config_value(config_get(value, "mcp"), J.get(config_defaults(J.Null{}), "mcp"))}]}, J.Object{[J.Field{"key", J.Text{"plugins"}}, J.Field{"value", config_value(config_get(value, "plugins"), J.get(config_defaults(J.Null{}), "plugins"))}]}]}}]}
@@ -162,7 +303,7 @@ def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
 def config_configuration_head(+source: J.Json) -> J.Json:
   +value = J.get(source, "value")
   config_guard(config_kind(value, "object"), config_failure("configuration must be an object"),
-    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), Con{"format", Con{"host", Con{"port", Con{"max_fork", Con{"max_descendants", Con{"profiles", Con{"chatgpt", Con{"mcp", Con{"plugins", Con{"reasoning_evaluators", Con{"chatgpt_plugin", Con{"instructions", Nil{}}}}}}}}}}}}}), value))
+    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), Con{"format", Con{"host", Con{"port", Con{"max_fork", Con{"max_descendants", Con{"profiles", Con{"chatgpt", Con{"mcp", Con{"plugins", Con{"reasoning_evaluators", Con{"chatgpt_plugin", Con{"instructions", Con{"compaction", Nil{}}}}}}}}}}}}}}), value))
 def config_configuration_transport(+source: J.Json) -> J.Json:
   +value = J.get(source, "transport")
   config_guard(config_text_equal(J.get(value, "host"), "127.0.0.1") || config_text_equal(J.get(value, "host"), "::1"), config_failure("The local server requires a loopback address"),
@@ -426,8 +567,16 @@ def config_meaning_defaults(accepted: Bool, +operation: String, +source: J.Json)
   match accepted:
     case True{}: Model.success(config_defaults(source))
     case False{}: config_meaning_route_0(String.eq(operation, "config.configuration_head"), operation, source)
+def config_compaction_runtime_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: config_compaction_runtime(source)
+    case False{}: config_meaning_defaults(String.eq(operation, "config.defaults"), operation, source)
+def config_compaction_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: config_compaction(source)
+    case False{}: config_compaction_runtime_route(String.eq(operation, "config.compaction_runtime"), operation, source)
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  config_meaning_defaults(String.eq(operation, "config.defaults"), operation, source)
+  config_compaction_route(String.eq(operation, "config.compaction"), operation, source)
 def factory(+operation: String) -> Model.Adapter((source => meaning(operation, source))):
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})
 def run(+operation: String, source: J.Json) -> J.Json:

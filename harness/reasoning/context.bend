@@ -2,6 +2,10 @@ import Base
 import ../DOMAIN.bend as D
 import ./MODEL.bend as R
 import ../../bendlib/json.bend as J
+import ../conversation/PROGRAM.bend as Content
+
+def provider_checkpoint(value: J.Json) -> Bool:
+  String.eq(J.text(J.get(Content.provider_value(value), "type")), "compaction")
 
 # These are observations of the one native audit history. There is no host-side
 # lease cache, turn counter or mutable copy of the task's reasoning settings.
@@ -31,9 +35,9 @@ def lease(history: D.History, +owner: Nat) -> R.Lease:
       recorded(Nat.is_eq(owner, other), effort, remaining)
     case D.HistoryNode{previous, D.UserMessage{text}}: R.NoLease{}
     case D.HistoryNode{previous, D.FailureMessage{text}}: R.NoLease{}
-    case D.HistoryNode{previous, D.ContextCheckpoint{text}}: R.NoLease{}
+    case D.HistoryNode{previous, D.ContextReplacement{text}}: R.NoLease{}
     case D.HistoryNode{previous, D.ModelContext{value}}:
-      valid_after(D.is_provider_checkpoint(value), lease(previous, owner))
+      valid_after(provider_checkpoint(value), lease(previous, owner))
     case D.HistoryNode{previous, D.FunctionOutput{call, value, error}}:
       valid_after(failed_result(error, value), lease(previous, owner))
     case D.HistoryNode{previous, D.OperationResult{operation, call, tool, value, error}}:
@@ -51,7 +55,7 @@ def last_update(history: D.History) -> Maybe<&2, String>:
   match history:
     case D.EmptyHistory{}: None{}
     case D.HistoryNode{previous, D.ContextMessage{D.ReasoningConfiguration{effort}}}: Some{effort}
-    case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: last_update(previous)
+    case D.HistoryNode{previous, D.ContextReplacement{summary}}: last_update(previous)
     case D.HistoryNode{previous, other}: last_update(previous)
 
 def changed(previous: Maybe<&2, String>, effort: String) -> Bool:
@@ -96,9 +100,9 @@ def last_record(history: D.History, +owner: Nat, +fallback: String) -> String:
     case D.EmptyHistory{}: fallback
     case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, True{}}}:
       select_record(Nat.is_eq(other, owner), effort, fallback)
-    case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: fallback
+    case D.HistoryNode{previous, D.ContextReplacement{summary}}: fallback
     case D.HistoryNode{previous, D.ModelContext{+value}}:
-      select_record(D.is_provider_checkpoint(value), fallback, last_record(previous, owner, fallback))
+      select_record(provider_checkpoint(value), fallback, last_record(previous, owner, fallback))
     case D.HistoryNode{previous, other}: last_record(previous, owner, fallback)
 
 def update_effort(previous: Maybe<&2, String>, baseline: String) -> String:
@@ -160,6 +164,10 @@ def public_context_named(kind: String, +value: J.Json, rest: +List<J.Json>) -> +
       J.Object{[J.Field{"role", J.Text{"reasoning_summary"}}, J.Field{"content", J.Array{public_parts(J.items(J.get(value, "summary")))}}]} <> rest
     case _: rest
 
+def public_context(value: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  +item = Content.provider_value(value)
+  public_context_named(J.text(J.get(item, "type")), item, rest)
+
 # read_task can return another task's provider items inside ordinary tool JSON.
 # Project public structure recursively before it becomes evaluator text. This
 # also handles structured MCP results; it does not guess at arbitrary strings.
@@ -201,8 +209,8 @@ def public_message(message: D.Message, rest: +List<J.Json>) -> +List<J.Json>:
     case D.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.AssistantMessage{text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.FailureMessage{text}: J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case D.ContextCheckpoint{text}: J.Object{[J.Field{"role", J.Text{"context_summary"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case D.ModelContext{+value}: public_context_named(J.text(J.get(value, "type")), value, rest)
+    case D.ContextReplacement{value}: rest
+    case D.ModelContext{value}: public_context(value, rest)
     case D.FunctionCall{D.Call{id, name, arguments}}:
       J.Object{[J.Field{"role", J.Text{"function_call"}}, J.Field{"call_id", J.Text{id}},
         J.Field{"name", J.Text{name}}, J.Field{"arguments", public_value(512n, arguments)}]} <> rest

@@ -89,10 +89,6 @@ type ResultBoundary is Type:
       @pending: +List<D.PluginRef> -> @value: J.Json -> @error: Bool -> @task: D.Task -> @duplicate: J.Json -> @duplicate_error: Bool ->
       {Protocol.tool_operation(Some{(id, D.OperationBody{call, announced, D.ResultPending{ticket, plugin, pending, value, error}})},
         task, duplicate, duplicate_error) == Protocol.Ignore{} : Protocol.ResolvedEvent},
-    audit: @+history: D.History -> @+owner: Nat -> @+operation: Nat -> @call: D.Call -> @value: J.Json -> @error: Bool ->
-      @plugin: D.PluginRef -> @outcome: D.AfterOutcome ->
-      ({D.context_history(D.HistoryNode{history, D.ToolReceipt{owner, operation, call, value, error}}) == D.HistoryNode{history, D.ToolReceipt{owner, operation, call, value, error}} : D.History} &
-       {D.context_history(D.HistoryNode{history, D.AfterRecord{owner, operation, plugin, outcome}}) == D.HistoryNode{history, D.AfterRecord{owner, operation, plugin, outcome}} : D.History}),
     control_frame: @+task: D.Task -> @operation: D.Operation() ->
       {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase},
     completion_record: @+outcome: D.AfterOutcome -> @+plugin: D.PluginRef -> @+pending: +List<D.PluginRef> ->
@@ -206,14 +202,7 @@ def DecisionComposition() -> Type:
 law decisions:
   DecisionComposition()
 
-# A context cut, recovery normalization, and interruption are three different
-# idempotent projections. Idempotence does not assert summary fidelity or undo.
-
-def ContextProjection() -> Type:
-  @+history:D.History -> {D.context_history(D.context_history(history)) == D.context_history(history) : D.History}
-
-law context:
-  ContextProjection()
+# Recovery normalization and interruption are idempotent projections.
 
 def RecoveryProjection() -> Type:
   @+phase:D.Phase -> {T.recover_phase(T.recover_phase(phase)) == T.recover_phase(phase) : D.Phase}

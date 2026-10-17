@@ -309,23 +309,23 @@ bun host/cli.mjs steer --task-id 0 --message 'Prioritize this instruction.'
 bun host/cli.mjs cancel_operation --task-id 0 --operation-id 12
 ```
 
-On an active idle task, `compact` requests a summary
-without starting another assistant turn. A supplied summary requires no provider
-and also works on stopped or frozen idle tasks:
+`compact` starts context compaction without starting another assistant turn. A
+supplied summary requires no provider call and also works on stopped or frozen
+idle tasks:
 
 ```bash
 bun host/cli.mjs compact --task-id 0
 bun host/cli.mjs interrupt --task-id 0
 bun host/cli.mjs compact --task-id 0 --summary 'Completed work, verified results, unresolved problems, and next steps.'
-bun host/cli.mjs send --task-id 0 --message 'Continue from the checkpoint.'
+bun host/cli.mjs send --task-id 0 --message 'Continue from the replacement context.'
 ```
 
-Summaries are fallible continuation data appended to the original history. The
-summary request prompt is also recorded, and subsequent model requests retain the
-complete history. A provider context-limit error stops the generation; it does not
-request compaction automatically. Empty, oversized, tool-bearing, stale, or
-cancelled summaries are rejected. Failed summaries retain the original history
-and do not strand independently queued user input.
+Original task history remains readable. Later requests use a compatible complete
+replacement window followed by messages committed after its captured source.
+When a new endpoint cannot consume native opaque content, portable rebuilding
+uses the readable original records. See [harness/context](harness/context/README.md),
+[harness/compaction](harness/compaction/README.md), and
+[features/compaction](features/compaction/README.md) for the executable rules.
 
 ## Model and tool configuration
 
@@ -375,6 +375,49 @@ A Responses API profile uses `provider: "responses"`, `model`, and optionally
 `mcp` uses its server name as the key and `command`, `args`, optional `cwd`, and
 optional string-valued `env` as its process settings. Unknown fields are rejected;
 [host/config.mjs](host/config.mjs) is the configuration parser.
+
+Automatic context compaction has an independent top-level `compaction` setting.
+The defaults start background work at 65% and block a later model request at 90%
+of its effective window. Account model discovery supplies a window only when the
+catalog advertises `context_window`; `effective_context_window_percent` is applied
+when present. Other profiles need an explicit target budget, for example:
+
+```json
+"compaction": {
+  "enabled": true,
+  "background_percent": 65,
+  "blocking_percent": 90,
+  "idle_lead_ms": 60000,
+  "targets": [
+    {
+      "profile": "coding",
+      "window_tokens": 131072,
+      "output_reserve_tokens": 8192,
+      "cache_ttl_ms": null,
+      "method": "auto"
+    }
+  ]
+}
+```
+
+Use an existing profile key and the window supported by that connection.
+`method: "auto"` prefers supported native compaction and uses the client summary
+method for reconstruction; `"summary"` selects the client method. Compaction
+targets use the `responses` or `chatgpt` provider. The offline `echo` profile and
+the separate `chatgpt-web` continuation protocol cannot be compaction targets.
+Responses connections without a token-counting route use an explicitly recorded
+UTF-8 upper bound for readable inputs. Budgets must leave the summary method's
+minimum input and output room. An omitted output reserve is the smaller
+of 8192 tokens and one eighth of the target window. Thresholds must satisfy
+`1 <= background_percent < blocking_percent < 100`.
+
+`enabled: false` disables automatic triggers while retaining manual compaction
+budgets. A `null` cache lifetime disables the idle cost trigger. Set
+`cache_ttl_ms` only from the connection's known cache policy, with a value greater
+than `idle_lead_ms`; it is an estimate for scheduling cost, not an expiry date for
+history or compaction output. No account cache lifetime is assumed. Configuration
+is checked at startup and the resolved policy is passed into the native feature;
+`compactionSettings(config)` in `host/config.mjs` returns that same resolved policy.
 
 Each task retains its selected model identity and complete tool definitions.
 Later MCP catalog notifications change availability without rewriting that

@@ -24,6 +24,10 @@ matching hints; query preservation follows the harness observation laws, and
 cancellation stabilization follows the owning ChatGPT component evidence.
 
 Credential strings, lengths, hashes, and Bearer bytes remain outside Bend.
+For API-key model consumers, the host hashes the complete target and resolved
+credential together; only that final consumer-scope digest crosses the boundary.
+This lets the same target reuse its opaque receipts while a credential change
+invalidates them, without exposing a separate credential fingerprint.
 `plugin.credential_plan` emits requirements interpreted by
 [opaque-credentials.mjs](../opaque-credentials.mjs), which is also copied verbatim
 into the standalone plugin's generated assets. This opaque-string interpreter
@@ -36,6 +40,10 @@ plugin operations.
 `CONFIGURATION.bend` owns the `config.` operations used by `loadConfig` for the
 current JSON configuration. Environment values remain opaque references retained
 by the host interpreter. No obsolete configuration format is accepted or converted.
+`config.compaction` admits independent threshold and target-budget settings;
+`config.compaction_runtime` resolves explicit budgets and advertised account model
+windows after discovery. The summary method owns the shared legal-budget predicate
+in `harness/compaction/MODEL.bend`; configuration does not duplicate its limits.
 
 `EVALUATOR.bend` owns the `evaluator.` reasoning operations that produce committed
 native effects. Tokenizer, clock and URL parsing results are explicit observations;

@@ -333,6 +333,9 @@ state reveals a missing correspondence to the already chosen list/FIFO model.
 
 ### Context compaction is an idempotent view, not a theorem about summarization
 
+The checkpoint implementation described here is superseded by
+[ADR 0041](adr/0041-context-compaction.md). This section records the earlier exploration.
+
 `History` remains the append-only record used by replay, audit, task branching,
 and `read_task`. `context_history` selects the latest checkpoint plus its suffix
 for a model request. Its idempotence and checkpoint-cut equations are checked

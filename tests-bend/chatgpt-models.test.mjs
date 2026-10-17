@@ -173,7 +173,8 @@ test('login CLI hot-refresh selects the discovered model in the browser draft wi
   const created = await server.service.command({ op: 'create', profile: key, message: 'Use the discovered model.' });
   assert.equal(created.reply.ok, true);
   const finished = await taskIdle(server.service);
-  assert.ok(finished.messages.some(message => message.role === 'model_context' && message.content.content?.[0]?.text === 'Discovered model answered.'));
+  assert.ok(finished.messages.some(message => message.role === 'model_context' && message.content.type === 'provider_receipt' &&
+    message.content.item.content?.[0]?.text === 'Discovered model answered.'));
   await server.close();
   server = await startServer({ home: upstream.directory, config, cwd: upstream.directory });
   assert.ok(Object.hasOwn(server.service.config.profiles, key));

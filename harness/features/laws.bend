@@ -1,4 +1,5 @@
 import Base
+import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/json.bend as J
 import ./MODEL.bend as F
@@ -49,11 +50,12 @@ def meaning(
 def event(event: O.ResolvedEvent, world: M.World()) ->
   {Actual.event_calculation(event, world) == Spec.event(event, world) : M.Decision()}:
   match event:
+    case O.CompactionResult{completion}: CompactionProof.completion(completion, world)
     case O.ChatGPTResult{change}: ChatGPTProof.assembled(change, world)
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage()}
+  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary()}
 
 def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
   ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),

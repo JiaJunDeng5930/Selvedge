@@ -5,6 +5,7 @@ import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
+import ./context/PROGRAM.bend as Context
 import ./reasoning/MODEL.bend as Reasoning
 import ./reasoning/context.bend as ReasoningContext
 import ./MODEL.bend as M
@@ -80,14 +81,8 @@ def lineage(lineage: +List<Nat>, child: Nat, contract: D.Contract, tasks: +List<
     case Nil{}: True{}
     case Con{parent, tail}: lineage_parent(T.find(tasks, parent), child, tail, contract, budget)
 
-def has_output(history: D.History, +id: String) -> Bool:
-  match history:
-    case D.EmptyHistory{}: False{}
-    case D.HistoryNode{previous, D.FunctionOutput{call_id, value, error}}:
-      String.eq(call_id, id) || has_output(previous, id)
-    case D.HistoryNode{previous, D.ForkResult{owner, call_id, branch}}:
-      String.eq(call_id, id) || has_output(previous, id)
-    case D.HistoryNode{previous, other}: has_output(previous, id)
+def has_output(history: D.History, id: String) -> Bool:
+  Context.has_output(history, id)
 
 def has_attempt(attempts: +List<D.Attempt>, +id: String) -> Bool:
   match attempts:
@@ -119,7 +114,6 @@ def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.
     case _ D.Ready{pending}: attempts(pending, history)
     case _ D.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ D.ReasoningPending{ticket, revision}: Nat.is_lt(ticket, next_ticket) && Nat.is_le(revision, D.history_length(history))
-    case _ D.SummaryPending{ticket, resume}: Nat.is_lt(ticket, next_ticket)
     case _ D.HookPending{ticket, reference, call, pending, remaining}:
       Nat.is_lt(ticket, next_ticket) && attempts(D.CheckedAttempt{call, reference <> pending} <> remaining, history)
 
@@ -127,7 +121,6 @@ def ticket_is(phase: D.Phase, ticket: Nat) -> Bool:
   match phase:
     case D.ModelPending{expected, callable}: Nat.is_eq(expected, ticket)
     case D.ReasoningPending{expected, revision}: Nat.is_eq(expected, ticket)
-    case D.SummaryPending{expected, resume}: Nat.is_eq(expected, ticket)
     case D.HookPending{expected, reference, call, pending, remaining}: Nat.is_eq(expected, ticket)
     case _: False{}
 
@@ -258,7 +251,6 @@ def distinct_ticket(phase: D.Phase, tasks: +List<D.Task>) -> Bool:
   match phase:
     case D.ModelPending{ticket, callable}: Bool.not(has_ticket(tasks, ticket))
     case D.ReasoningPending{ticket, revision}: Bool.not(has_ticket(tasks, ticket))
-    case D.SummaryPending{ticket, resume}: Bool.not(has_ticket(tasks, ticket))
     case D.HookPending{ticket, reference, call, pending, remaining}: Bool.not(has_ticket(tasks, ticket))
     case _: True{}
 
@@ -443,15 +435,12 @@ def after_pending(found: Maybe<&2, D.Task>, operation: Nat, ticket: Nat) -> Bool
 def retained_effects(effects: +List<M.Effect()>, +cancellations: +List<M.Effect()>, +tasks: +List<D.Task>) -> +List<M.Effect()>:
   match effects:
     case Nil{}: Nil{}
-    case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context}, rest}:
+    case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context, scope, output_reserve}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
-        Effects.RequestModel{id, ticket, model, history, tools, callable, context}, retained_effects(rest, cancellations, tasks))
+        Effects.RequestModel{id, ticket, model, history, tools, callable, context, scope, output_reserve}, retained_effects(rest, cancellations, tasks))
     case Con{Effects.RequestReasoning{+id, +ticket, model, history}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         Effects.RequestReasoning{id, ticket, model, history}, retained_effects(rest, cancellations, tasks))
-    case Con{Effects.RequestSummary{+id, +ticket, model, history, context}, rest}:
-      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
-        Effects.RequestSummary{id, ticket, model, history, context}, retained_effects(rest, cancellations, tasks))
     case Con{Effects.ExecuteTool{+id, +ticket, tool, call, context, access}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         Effects.ExecuteTool{id, ticket, tool, call, context, access}, retained_effects(rest, cancellations, tasks))
@@ -475,7 +464,7 @@ def model_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, sent_his
     case Some{D.Task{id, lineage, +contract, +current, D.Active{}, +history, queued, D.ModelPending{expected, allowed}, operations, notified}}:
       Nat.is_eq(ticket, expected) && Same.model(model, D.execution_model(current)) &&
         ReasoningContext.valid_sample(D.model_reasoning(D.execution_model(current)), id, history) &&
-        Same.history(budget, sent_history, D.context_history(history)) && Same.tools(budget, tools, T.task_tools(contract)) && Same.strings(callable, allowed)
+        Same.history(budget, sent_history, history) && Same.tools(budget, tools, T.task_tools(contract)) && Same.strings(callable, allowed)
     case _: False{}
 
 def reasoning_effect(found: Maybe<&2, D.Task>, ticket: Nat, +model: D.Model, sent_history: D.History, +budget: Nat) -> Bool:
@@ -485,22 +474,8 @@ def reasoning_effect(found: Maybe<&2, D.Task>, ticket: Nat, +model: D.Model, sen
         Reasoning.automatic(D.model_reasoning(model)) && Same.model(model, D.execution_model(current)) && Same.history(budget, sent_history, history)
     case _: False{}
 
-def settled_calls(remaining: D.History, +whole: D.History) -> Bool:
-  match remaining:
-    case D.EmptyHistory{}: True{}
-    case D.HistoryNode{previous, D.FunctionCall{D.Call{id, name, arguments}}}:
-      has_output(whole, id) && settled_calls(previous, whole)
-    case D.HistoryNode{previous, other}: settled_calls(previous, whole)
-
-# Summary requests retain every call and require its result to be committed.
-# The same admission certificate used for all effects enforces this precondition.
-
-def summary_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, +sent_history: D.History, +budget: Nat) -> Bool:
-  match found:
-    case Some{D.Task{id, lineage, contract, +current, D.Active{}, history, queued, D.SummaryPending{expected, resume}, operations, notified}}:
-      Bool.not(D.operations_pending(operations)) && Nat.is_eq(ticket, expected) && Same.model(model, D.execution_model(current)) &&
-        Same.history(budget, sent_history, D.context_history(history)) && settled_calls(sent_history, sent_history)
-    case _: False{}
+def settled_calls(remaining: D.History, whole: D.History) -> Bool:
+  Context.settled_calls(remaining, whole)
 
 def tool_member(tools: +List<D.Tool>, +tool: D.Tool, +budget: Nat) -> Bool:
   match tools:
@@ -539,7 +514,7 @@ def tool_effect(found: Maybe<&2, D.Task>, ticket: Nat, tool: D.Tool, call: D.Cal
 
 def hook_effect(found: Maybe<&2, D.Task>, ticket: Nat, plugin: D.PluginRef, +tool: D.Tool, +call: D.Call, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, contract, +current, status, history, queued, D.HookPending{expected, reference, +current, pending, remaining}, operations, notified}}:
+    case Some{D.Task{id, lineage, contract, execution, status, history, queued, D.HookPending{expected, reference, +current, pending, remaining}, operations, notified}}:
       runs_tools(status) && Nat.is_eq(ticket, expected) && D.plugin_same(plugin, reference) && Same.call(budget, call, current) &&
         String.eq(D.tool_name(tool), T.call_name(call)) && tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
@@ -552,14 +527,12 @@ def feature_ticket_matches(found: Maybe<&2, Nat>, ticket: Nat) -> Bool:
 def has_effect_ticket(effects: +List<M.Effect()>, +ticket: Nat) -> Bool:
   match effects:
     case Nil{}: False{}
-    case Con{Effects.RequestModel{id, other, model, history, tools, callable, context}, rest}:
+    case Con{Effects.RequestModel{id, other, model, history, tools, callable, context, scope, output_reserve}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.RequestReasoning{id, other, model, history}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.FeatureEffect{effect}, rest}:
       feature_ticket_matches(FeatureState.effect_ticket(effect), ticket) || has_effect_ticket(rest, ticket)
-    case Con{Effects.RequestSummary{id, other, model, history, context}, rest}:
-      Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.RequestApproval{id, other, reviewer, call, context, history}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.ExecuteTool{id, other, tool, call, context, access}, rest}:
@@ -619,7 +592,7 @@ def effects(pending: +List<M.Effect()>, +tasks: +List<D.Task>, +first_ticket: Na
     case Nil{}: True{}
     case Con{Effects.NotifyPlugins{events}, rest}: effects(rest, tasks, first_ticket, budget)
     case Con{Effects.ResetModelSession{id}, rest}: Bool.not(missing_task(T.find(tasks, id))) && effects(rest, tasks, first_ticket, budget)
-    case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context}, +rest}:
+    case Con{Effects.RequestModel{+id, +ticket, model, history, tools, callable, context, scope, output_reserve}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && model_effect(T.find(tasks, id), ticket, model, history, tools, callable, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.RequestReasoning{id, +ticket, model, history}, +rest}:
@@ -627,9 +600,6 @@ def effects(pending: +List<M.Effect()>, +tasks: +List<D.Task>, +first_ticket: Na
         reasoning_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.FeatureEffect{effect}, +rest}:
       feature_ticket_fresh(FeatureState.effect_ticket(effect), rest, first_ticket) && effects(rest, tasks, first_ticket, budget)
-    case Con{Effects.RequestSummary{+id, +ticket, model, history, context}, +rest}:
-      Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
-        context_effect(T.find(tasks, id), context, budget) && summary_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.ExecuteTool{+id, +ticket, tool, call, context, access}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && default_access_effect(T.find(tasks, id), ticket, access) &&

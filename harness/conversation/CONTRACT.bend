@@ -34,7 +34,7 @@ def text(source: D.Message) -> String:
   match source:
     case D.UserMessage{value}: value
     case D.AssistantMessage{value}: value
-    case D.ModelContext{value}: Content.content_parts(J.items(J.get(value, "content")))
+    case D.ModelContext{value}: Content.provider_text(value)
     case _: ""
 
 def text_agreement(groups: +List<Actual.Group>) -> Type:

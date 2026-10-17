@@ -1,4 +1,6 @@
 import Base
+import ../../features/compaction/MODEL.bend as CompactionResult
+import ../../features/compaction/CODEC.bend as Compaction
 import ./MODEL.bend as F
 import ../MODEL.bend as M
 import ../../features/board/MODEL.bend as B
@@ -52,6 +54,7 @@ def valid(kind: F.CommandKind, body: J.Json) -> Bool:
 
 def effect_json(model_json: D.Model -> J.Json, effect: F.Effect) -> J.Json:
   match effect:
+    case F.CompactionEffect{effect}: Compaction.effect_json(model_json, effect)
     case F.ChatGPTEffect{effect}: ChatGPT.effect_json(effect)
     case F.RequestBoardText{card_id, ticket, profile, prompt, retitle}:
       J.Object{[J.Field{"kind", J.Text{"board_text"}}, J.Field{"card_id", J.nat(card_id)}, J.Field{"ticket", J.nat(ticket)},
@@ -80,6 +83,11 @@ def chatgpt_completed(valid: Bool, +body: J.Json) -> Result<&2, &2, String, F.Co
     case False{}: Fail{"Malformed ChatGPT operation completion"}
     case True{}: Done{F.ChatGPTCompleted{ChatGPTCodec.number(J.get(body, "operation_id")), J.get(body, "value"), J.boolean(J.get(body, "error"))}}
 
+def compaction_completion(value: Result<&2, &2, String, CompactionResult.Completion>) -> Result<&2, &2, String, F.Completion>:
+  match value:
+    case Fail{message}: Fail{message}
+    case Done{completion}: Done{F.CompactionCompleted{completion}}
+
 def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, F.Completion>:
   match kind:
     case "chatgpt_result": chatgpt_completed(Shape.object_keys(body, ["kind", "operation_id", "value", "error"]) &&
@@ -87,4 +95,7 @@ def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, F.Completi
     case "board_text":
       board_text_valid(Schema.valid(Board.integer_schema(), J.get(body, "card_id")) && Shape.is_natural(J.get(body, "ticket")) &&
         Shape.is_bool(J.get(body, "ok")) && board_text_payload(J.boolean(J.get(body, "ok")), body), body)
-    case _: Fail{"Unknown input envelope"}
+    case other: compaction_completion(Compaction.completion(other, body))
+
+def compaction_json(state: F.State()) -> J.Json:
+  Compaction.state_json(F.compaction(state))

@@ -18,8 +18,10 @@ test('ChatGPT Responses uses the official namespace and preserves opaque reasoni
     modelResponse(response, output);
   });
   const result = await requestModel(modelEffect(), { profiles: { fixture: upstream.profile } }, upstream.directory, wireLimits);
-  assert.deepEqual(result.map(item => item.value), output);
-  assert.deepEqual(providerInput(result.map(item => ({ role: 'model_context', content: item.value }))), output);
+  assert.ok(result.every(item => item.value.type === 'provider_receipt' && item.value.scope === result[0].value.scope));
+  assert.deepEqual(result.map(item => item.value.item), output);
+  assert.deepEqual(providerInput(result.map(item => ({ role: 'model_context', content: item.value })),
+    { scope: result[0].value.scope }), output);
   assert.deepEqual(upstream.failures, []);
   assert.equal(responseBody({ ...modelEffect(), callable: [] }, { provider: 'chatgpt' }).tool_choice, 'none');
   assert.deepEqual(responseBody({ ...modelEffect(), callable: [] }, { provider: 'chatgpt' }).tools, []);

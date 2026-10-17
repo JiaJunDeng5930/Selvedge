@@ -37,13 +37,12 @@ type Composition is Type:
     history: A.HistoryAction(),
     decisions: A.DecisionComposition()}
 
-# Context cuts and interruption are idempotent projections, not inverse actions.
+# Interruption and recovery normalization are idempotent projections.
 # Recovery distributes over independent task collections as a homomorphism.
 # These facts do not permit replaying an external mutation of unknown outcome.
 
 type Recovery is Type:
-  Recovery{context: A.ContextProjection(),
-    interruption: A.InterruptionProjection(),
+  Recovery{interruption: A.InterruptionProjection(),
     phase_normalization: A.RecoveryProjection(),
     batches: A.RecoveryBatches()}
 

@@ -430,7 +430,7 @@ def public_text(+value: J.Json) -> Bool:
     case _: False{}
 
 def note_role(+role: J.Json) -> Bool:
-  equal(role, "assistant") || equal(role, "reasoning_summary") || equal(role, "context_summary") || equal(role, "error")
+  equal(role, "assistant") || equal(role, "reasoning_summary") || equal(role, "error")
 
 
 def users_selected_1(selected: Bool, +recursive_tail: +List<J.Json>, +item: J.Json) -> +List<J.Json>:

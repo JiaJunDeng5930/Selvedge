@@ -21,7 +21,7 @@ const call = (id, name, args) => [{ type: 'function_call', call_id: id, name, ar
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
 const output = (body, id) => JSON.parse(body.input.find(item => item.type === 'function_call_output' && item.call_id === id).output);
 
-test('coding loop reads, writes, edits, tests, compacts, and restarts through committed native effects', { timeout: 15_000 }, async t => {
+test('coding loop reads, writes, edits, tests and restarts through committed native effects', { timeout: 15_000 }, async t => {
   const directory = await home(t);
   const api_key_env = credentials(t);
   await writeFile(path.join(directory, 'math.mjs'), 'export const add = (a, b) => a - b;\n');
@@ -29,7 +29,7 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
     const database = new DatabaseSync(path.join(directory, 'state', 'journal.sqlite'), { readOnly: true });
     const decision = JSON.parse(database.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get().decision);
     database.close();
-    assert.ok(decision.effects.some(effect => ['model', 'summary'].includes(effect.kind)), 'request must follow the committed intent');
+    assert.ok(decision.effects.some(effect => effect.kind === 'model'), 'request must follow the committed intent');
     switch (index) {
       case 0:
         assert.ok(!body.instructions);
@@ -55,15 +55,8 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
         assert.equal(await readFile(path.join(directory, 'math.mjs'), 'utf8'), 'export const add = (a, b) => a + b;\n');
         return answer('Implemented addition; the actual Node assertion passed.');
       case 5:
-        assert.equal(body.tool_choice, 'none');
-        assert.deepEqual(body.tools, []);
-        assert.match(JSON.stringify(body.input), /Summarize this task/);
-        return answer('math.mjs addition fixed. check.mjs verified add(2, 3) = 5. No unfinished side effects.');
-      case 6:
-        assert.match(JSON.stringify(body.input), /Task continuation summary/);
-        assert.match(JSON.stringify(body.input), /addition fixed/);
         assert.equal(body.input.some(item => item.content === 'Fix the addition bug and run a real test.'), true);
-        return answer('Continuing from the preserved checkpoint.');
+        return answer('Continuing without repeating the completed work.');
       default: throw new Error(`Unexpected model request ${index}`);
     }
   });
@@ -76,17 +69,14 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
   const completed = await taskIdle(service);
   assert.equal(completed.messages.filter(message => message.role === 'function_output').length, 4);
   assert.deepEqual(model.failures, []);
-  assert.equal((await service.command({ op: 'compact', task_id: 0 })).reply.ok, true);
-  const compacted = await taskIdle(service);
-  assert.equal(compacted.messages.at(-1).role, 'context_summary');
   await service.close();
   service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
-  assert.deepEqual((await taskIdle(service)).messages, compacted.messages);
-  assert.equal(model.requests.length, 6);
+  assert.deepEqual((await taskIdle(service)).messages, completed.messages);
+  assert.equal(model.requests.length, 5);
   await service.command({ op: 'send', task_id: 0, message: 'Continue without rerunning the test.' });
   await taskIdle(service);
   assert.deepEqual(model.failures, []);
-  assert.equal(model.requests.length, 7);
+  assert.equal(model.requests.length, 6);
   assert.equal(await readFile(path.join(directory, 'executions'), 'utf8'), 'ran\n');
 });
 

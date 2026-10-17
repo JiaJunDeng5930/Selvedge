@@ -259,7 +259,6 @@ def task_activity(+task: D.Task) -> String:
     case D.Task{id, lineage, contract, current, D.Stopped{}, history, queued, D.Idle{}, Nil{}, notified}: "interrupted"
     case D.Task{id, lineage, contract, current, D.Frozen{}, history, queued, phase, operations, notified}: "paused"
     case D.Task{id, lineage, contract, current, status, history, queued, D.ReasoningPending{ticket, revision}, operations, notified}: "evaluating"
-    case D.Task{id, lineage, contract, current, status, history, queued, D.SummaryPending{ticket, resume}, operations, notified}: "compacting"
     case _: activity_flags(awaiting(D.task_operations(task)), busy_task(task), latest_failure(D.task_history(task)))
 
 def activity_task(found: Maybe<&2, D.Task>, queued: Bool) -> String:

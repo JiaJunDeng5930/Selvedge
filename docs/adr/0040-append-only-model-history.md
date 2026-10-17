@@ -1,5 +1,8 @@
 # ADR 0040: append-only model history
 
+The context-selection decision is superseded by [ADR 0041](0041-context-compaction.md).
+The requirement to retain immutable original history remains in force.
+
 ## Context
 
 Task requests assembled assistant instructions, settings and project guidance at

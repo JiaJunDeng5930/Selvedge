@@ -1,4 +1,6 @@
 import Base
+import ../../features/compaction/MODEL.bend as Compaction
+import ../../features/compaction/STATE.bend as CompactionState
 import ./MODEL.bend as F
 import ../MODEL.bend as M
 import ../../features/board/MODEL.bend as B
@@ -19,14 +21,14 @@ import ./graph-state.bend as TaskGraphState
 # State and resource obligations are assembled here. Adding a component must
 # provide its own validity, evolution, recovery and effect-authority clauses.
 def valid(+world: M.World()) -> Bool:
-  Board.valid(world) && ChatGPTState.valid(world) && TaskGraphState.valid(world)
+  Board.valid(world) && ChatGPTState.valid(world) && TaskGraphState.valid(world) && CompactionState.valid(world)
 
 def evolution(+previous: F.State(), +candidate: F.State()) -> Bool:
   Board.evolution(F.board(previous), F.board(candidate)) && Nat.is_le(ChatGPT.next(F.chatgpt(previous)), ChatGPT.next(F.chatgpt(candidate))) &&
-    Nat.is_le(TaskGraph.next(F.task_graph(previous)), TaskGraph.next(F.task_graph(candidate)))
+    Nat.is_le(TaskGraph.next(F.task_graph(previous)), TaskGraph.next(F.task_graph(candidate))) && Compaction.evolution(F.compaction(previous), F.compaction(candidate))
 
 def recover(+state: F.State()) -> F.State():
-  F.with_chatgpt(ChatGPT.recover(F.chatgpt(state)), F.with_board(Board.recover(F.board(state)), state))
+  F.with_compaction(Compaction.recover(F.compaction(state)), F.with_chatgpt(ChatGPT.recover(F.chatgpt(state)), F.with_board(Board.recover(F.board(state)), state)))
 
 def project_used(+id: Nat, +world: M.World()) -> Bool:
   Board.project_used(B.cards(Board.registry(world)), id) || ChatGPT.project_used(ChatGPTState.registry(world), id)
@@ -47,11 +49,12 @@ def board_tickets(cards: +List<Finite.Entry(B.Card)>) -> +List<Nat>:
     case Nil{}: Nil{}
     case Con{(id, card), rest}: prepend_ticket(B.enrichment(card), board_tickets(rest))
 
-def pending_tickets(state: F.State()) -> +List<Nat>:
-  board_tickets(B.cards(F.board(state)))
+def pending_tickets(+state: F.State()) -> +List<Nat>:
+  List.append(&2, Nat, board_tickets(B.cards(F.board(state))), CompactionState.pending(Compaction.entries(F.compaction(state))))
 
 def effect_ticket(effect: F.Effect) -> Maybe<&2, Nat>:
   match effect:
+    case F.CompactionEffect{effect}: CompactionState.effect_ticket(effect)
     case F.ChatGPTEffect{effect}: None{}
     case F.RequestBoardText{id, ticket, profile, prompt, retitle}: Some{ticket}
 
@@ -74,7 +77,13 @@ def board_request(found: Maybe<&2, B.Card>, ticket: Nat, prompt: String, +retitl
 
 def effect_valid(effect: F.Effect, state: F.State(), profiles: +List<D.Profile>) -> Bool:
   match effect:
+    case F.CompactionEffect{effect}: CompactionState.effect_valid(effect, F.compaction(state))
     case F.ChatGPTEffect{effect}: ChatGPT.effect_valid(effect, F.chatgpt(state))
     case F.RequestBoardText{id, ticket, D.Profile{+key, +provider, +name, +policy, options}, prompt, retitle}:
       configured_board_profile(D.find_profile(profiles, key), D.Profile{key, provider, name, policy, options}) &&
         board_request(B.find(F.board(state), id), ticket, prompt, retitle)
+
+# Catalog changes invalidate request measurements atomically with Environment.
+# No new dispatch can reuse a meter result from a different callable layout.
+def reconfigure(+state: F.State()) -> F.State():
+  F.with_compaction(Compaction.recover(F.compaction(state)), state)

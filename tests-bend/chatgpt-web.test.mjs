@@ -154,22 +154,17 @@ test('missing, repeated and foreign results fail before admitting another reques
   assert.equal(f.requests.length, 1);
 });
 
-test('forks start explicit roots and recorded summaries retain the verified continuation prefix', async t => {
+test('forks start explicit roots while ordinary continuation retains the verified prefix', async t => {
   const f = await fixture(t, async () => ({ output: answer('answer'), snapshots: ['preview'] }));
   const root = baseEffect(); const first = await f.run(root);
   const history = append(root.history, first);
   await f.run({ ...root, task_id: 8, ticket: 2, history: [...history, { role: 'user', content: 'child task' }] });
   assert.equal(f.requests[1].body.previous_response_id, undefined);
   assert.ok(f.requests[1].body.input.some(item => item.content === 'first question'));
-  const summary = await f.run({ ...root, ticket: 3, kind: 'summary', history: [...history, { role: 'user', content: 'Summarize this task for this request only; then resume the original task.' }] },
-    { onSnapshot: () => assert.fail('summary previews must not be displayed') });
-  assert.deepEqual(summary, [{ type: 'text', text: 'answer' }]);
-  assert.deepEqual(f.requests[2].body.tools, []);
-  assert.ok(f.requests[2].body.input.every(item => item.type === 'message'));
-  await f.run({ ...root, ticket: 4, history: [...history, { role: 'context_summary', content: 'recorded summary' }, { role: 'user', content: 'continue' }] });
-  assert.equal(f.requests[3].body.previous_response_id, first.at(-1).value.response_id);
+  await f.run({ ...root, ticket: 3, history: [...history, { role: 'user', content: 'continue' }] });
+  assert.equal(f.requests[2].body.previous_response_id, first.at(-1).value.response_id);
   assert.ok(history.some(item => item.content === 'first question'));
-  assert.ok(JSON.stringify(f.requests[3].body).includes('recorded summary'));
+  assert.equal(f.requests[2].body.input.at(-1).content, 'continue');
   assert.deepEqual(f.failures, []);
 });
 
@@ -264,7 +259,7 @@ test('admitted HTTP failures preserve their identity and do not expose upstream 
   assert.equal(f.requests.length, 1);
 });
 
-test('web transport crosses real native execution, SQLite commit, restart, fork and checkpoint boundaries', { timeout: 20_000 }, async t => {
+test('web transport crosses real native execution, SQLite commit, restart, fork and context replacement boundaries', { timeout: 20_000 }, async t => {
   const f = await fixture(t, async (body, index, { request }) => {
     const database = new DatabaseSync(path.join(f.directory, 'state', 'journal.sqlite'), { readOnly: true });
     const decisions = database.prepare('SELECT decision FROM journal ORDER BY seq').all().map(row => JSON.parse(row.decision));
@@ -285,7 +280,7 @@ test('web transport crosses real native execution, SQLite commit, restart, fork 
       // The final task page below must contain the actual stdout in either case.
       if (result.value.status !== 'running') assert.match(result.value.stdout, /tool ok/);
     }
-    return { output: answer(`native answer ${index}`) };
+    return { output: answer(`native answer ${index}`), interrupted: body.input.at(-1).content === 'continue with summary' };
   });
   const state = path.join(f.directory, 'state');
   let service = await Service.open({ home: state, cwd: f.directory, config: f.config });
@@ -317,8 +312,21 @@ test('web transport crosses real native execution, SQLite commit, restart, fork 
   assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit recorded summary' })).reply.ok, true);
   assert.equal((await service.command({ op: 'send', task_id: 0, message: 'continue with summary' })).reply.ok, true);
   await taskIdle(service);
-  assert.ok(f.requests.at(-1).body.previous_response_id);
+  assert.equal(f.requests.at(-1).body.previous_response_id, undefined,
+    'Replacing the full context starts a new remote root instead of reviving the old prefix');
   assert.ok(JSON.stringify(f.requests.at(-1).body.input).includes('explicit recorded summary'));
+  const retainedCount = f.requests.length;
+  await service.command({ op: 'send', task_id: 0, message: 'retry the same compacted context' });
+  page = await taskIdle(service);
+  assert.equal(f.requests.length, retainedCount,
+    'The same context replacement cannot reset an unknown request again under a new ticket');
+  assert.ok(page.messages.some(item => item.role === 'error' && item.content.includes('request retained')));
+  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'second explicitly recorded summary' })).reply.ok, true);
+  await service.command({ op: 'send', task_id: 0, message: 'continue after another explicit compaction' });
+  await taskIdle(service);
+  assert.equal(f.requests.length, retainedCount + 1, 'A new explicit replacement permits one new root');
+  assert.equal(f.requests.at(-1).body.previous_response_id, undefined);
+  assert.ok(JSON.stringify(f.requests.at(-1).body.input).includes('second explicitly recorded summary'));
   assert.equal(await readFile(path.join(f.directory, 'executions'), 'utf8'), 'ran\n', 'no tool replay after restart or branch');
   assert.ok(notices.some(value => value.type === 'snapshot'));
   assert.deepEqual(f.failures, []);
@@ -386,9 +394,9 @@ test('committed steering cancels the original page and authorizes one explicit r
   assert.deepEqual(f.failures, []);
 });
 
-test('service shutdown detaches observation without remote Stop or resend; explicit interruption permits replacement', { timeout: 10_000 }, async t => {
+test('service shutdown retains a compacted request; explicit interruption permits replacement without retiring another task', { timeout: 10_000 }, async t => {
   const f = await fixture(t, async (_, index, transport) => {
-    if (index === 0) { hold(transport); return; }
+    if (index === 2) { hold(transport); return; }
     return { output: answer('explicitly resumed task') };
   });
   const state = path.join(f.directory, 'state');
@@ -396,22 +404,36 @@ test('service shutdown detaches observation without remote Stop or resend; expli
   t.after(() => service.close());
   const notices = []; service.on('notice', notice => notices.push(notice));
   await service.command({ op: 'create', profile: 'web', message: 'keep original task' });
-  await eventually(() => notices.some(notice => notice.type === 'snapshot'));
+  await taskIdle(service);
+  await service.command({ op: 'create', profile: 'web', message: 'keep another task receipt' });
+  await taskIdle(service, 1);
+  assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit context before interruption' })).reply.ok, true);
+  await service.command({ op: 'send', task_id: 0, message: 'observe the compacted root' });
+  await eventually(() => f.requests.length === 3 && notices.some(notice => notice.type === 'snapshot'));
+  assert.equal(f.requests[2].body.previous_response_id, undefined);
+  assert.ok(JSON.stringify(f.requests[2].body.input).includes('explicit context before interruption'));
   await service.close();
   assert.equal(f.controls.length, 0);
   service = await Service.open({ home: state, cwd: f.directory, config: f.config });
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 3);
   await service.command({ op: 'send', task_id: 0, message: 'ordinary retry must not duplicate unknown work' });
   let page = await taskIdle(service);
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 3);
   assert.ok(page.messages.some(item => item.role === 'error' && item.content.includes('request retained')));
   await service.command({ op: 'interrupt', task_id: 0 });
   await eventually(() => f.controls.length === 1);
+  const receipts = new DatabaseSync(path.join(state, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+  try {
+    const interrupted = receipts.prepare('SELECT invocation, retired FROM requests WHERE request_key=?').get(f.requests[2].key);
+    assert.match(interrupted.invocation, /:context:\d+$/);
+    assert.equal(interrupted.retired, 1);
+    assert.equal(receipts.prepare('SELECT retired FROM requests WHERE owner=?').get('task:1').retired, 0);
+  } finally { receipts.close(); }
   await service.command({ op: 'send', task_id: 0, message: 'explicit replacement after interruption' });
   page = await taskIdle(service);
   assert.ok(page.messages.some(item => item.role === 'assistant' && item.content === 'explicitly resumed task'), JSON.stringify(page));
-  assert.equal(f.requests.length, 2);
-  assert.equal(f.requests[1].body.previous_response_id, undefined);
+  assert.equal(f.requests.length, 4);
+  assert.equal(f.requests[3].body.previous_response_id, undefined);
   assert.deepEqual(f.failures, []);
 });
 

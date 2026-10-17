@@ -1,6 +1,8 @@
 import Base
+import ../features/compaction/SPEC.bend as Compaction
 import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
+import ./features/CODEC.bend as FeatureCodec
 import ./features/resolution.bend as FeatureResolution
 import ./features/operations.bend as FeatureOps
 import ./features/SPEC.bend as FeatureSpec
@@ -92,13 +94,13 @@ def cancel_permitted(operation: Operation) -> Bool:
 
 def summary_permitted(operation: Operation) -> Bool:
   match operation:
-    case Summarize{task}: Bool.not(D.operations_pending(D.task_operations(task)))
+    case Summarize{task}: True{}
     case _: False{}
 
 def checkpoint_permitted(operation: Operation) -> Bool:
   match operation:
     case Checkpoint{+task, text}:
-      +context = D.context_history(D.task_history(task))
+      +context = D.task_history(task)
       Bool.not(D.operations_pending(D.task_operations(task))) && D.valid_summary(text) && I.settled_calls(context, context)
     case _: False{}
 
@@ -502,12 +504,12 @@ def start(profile: D.Profile, reasoning: String, message: String, selection: Wor
 def status_change(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match next:
     case D.Archived{}:
-      changed(D.task_id(task), T.archive(task), world, [Effects.CancelTask{D.task_id(task)}])
+      C.Decision{Compaction.cancelled_world(task, replace(T.archive(task), world)), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
     case status: changed(D.task_id(task), T.promote(D.with_status(status, task)), world, Nil{})
 
 def lifecycle(request: D.Control, next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match request:
-    case D.Interrupt{}: changed(D.task_id(task), T.interrupt(task), world, [Effects.CancelTask{D.task_id(task)}])
+    case D.Interrupt{}: C.Decision{Compaction.cancelled_world(task, replace(T.interrupt(task), world)), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
     case _: status_change(next, task, world)
 
 def initial_message(message: Maybe<&2, String>, history: D.History) -> D.History:
@@ -564,14 +566,8 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
   +parent = D.append_message(D.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
-def summarize(task: D.Task, world: M.World()) -> M.Decision():
-  C.Frame{+task_state, +board} = world
-  +task = D.append_message(D.UserMessage{D.summary_instructions()}, task)
-  tasks = D.state_tasks(task_state)
-  +next_ticket = D.state_next_ticket(task_state)
-  next = D.with_notified(False{}, D.with_phase(D.SummaryPending{next_ticket, False{}}, task))
-  C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, D.success(id_result(D.task_id(task))),
-    [Effects.RequestSummary{D.task_id(task), next_ticket, D.task_model(task), D.context_history(D.task_history(task)), D.task_context(task)}]}
+def summarize(task: D.Task, +world: M.World()) -> M.Decision():
+  Compaction.meaning(Compaction.manual(task, world), world)
 
 def page_checked(valid: Bool, task: D.Task, after: Nat, limit: Nat) -> J.Json:
   match valid:
@@ -590,7 +586,7 @@ def listing_environment(world: M.World(), environment_value: D.Environment) -> J
       tasks = D.state_tasks(task_state)
       D.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
         J.Field{"profiles", J.Array{D.profiles_json(profiles)}}, J.Field{"tools", J.Array{D.tools_json(catalog)}},
-        J.Field{"plugins", D.plugins_json(plugins)},
+        J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"compaction", FeatureCodec.compaction_json(board)},
         J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
 
 def listing(+world: M.World()) -> J.Json:
@@ -640,8 +636,7 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
     case Control{task, request, next}: lifecycle(request, next, task, world)
     case Branch{task, count, messages, selection}: branch(task, count, messages, selection, world)
     case Summarize{task}: summarize(task, world)
-    case Checkpoint{+task, summary}:
-      C.Decision{replace(D.append_message(D.ContextCheckpoint{summary}, task), world), D.success(id_result(D.task_id(task))), Nil{}}
+    case Checkpoint{+task, summary}: Compaction.meaning(Compaction.supplied(summary, task, world), world)
     case Observe{request}: C.Decision{world, query(request, world), Nil{}}
     case StoreProject{+id, project, next_id}:
       C.Decision{Projects.store(F.State(), Projects.put(id, project, Projects.registry(F.State(), world), next_id), world),
