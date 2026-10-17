@@ -149,7 +149,7 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
     Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>}) ->
   {Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks) ==
     [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>}:
-  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   reader = E.reader(readers, task)
   generation_observed = Equal.cong(E.Reader, Nat, E.reader_generation, reader,
     E.Reader{generation, U.ReadHistory{}, disclosures}, reader_observed)

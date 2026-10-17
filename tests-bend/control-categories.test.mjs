@@ -84,8 +84,10 @@ async function fixture(t) {
     await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   }
   await writeFile(path.join(directory, 'CLIENT.bend'), concrete);
+  // NOTE: Check the complete production proof tree with the production gate's
+  // budget before evaluating the unchanged client and execution oracle.
   const compile = () => spawnSync(bend, ['CLIENT.bend'], {
-    cwd: directory, encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024,
+    cwd: directory, encoding: 'utf8', timeout: 300_000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
   return { directory, compile };
@@ -97,7 +99,7 @@ function accepted(result) {
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
-test('generic input and movable clients project production memberships and execute native fields', { timeout: 180_000 }, async t => {
+test('generic input and movable clients project production memberships and execute native fields', { timeout: 360_000 }, async t => {
   assert.equal(compiler(), bend, 'Use the pinned workspace compiler');
   const { compile } = await fixture(t);
   const executed = compile();

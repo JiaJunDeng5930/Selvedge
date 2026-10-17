@@ -18,6 +18,15 @@ the complete decisions to ordinary task creation and message delivery.
 [graph-state.bend](graph-state.bend) owns the graph-to-task reference checks and
 the graph registry's position in the assembled world.
 
+Managed task worktrees are assembled in [worktree-execution.bend](worktree-execution.bend)
+against the independent complete decisions in [worktree-spec.bend](worktree-spec.bend).
+[worktree-state.bend](worktree-state.bend) owns task references, completion correlation,
+Git effect authority and the single pending workspace initialization coordinate.
+[worktree-proof.bend](worktree-proof.bend) and
+[worktree-storage-proof.bend](worktree-storage-proof.bend) bind those requirements and
+unrelated-state guarantees to production. The component's wire vocabulary and registry
+are described by [the worktree feature](../../features/worktree/README.md).
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;

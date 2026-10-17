@@ -18,6 +18,7 @@ type ChoiceValue is Data:
 type Field is Data:
   MessageText{}
   ProjectName{}
+  CreateWorktree{}
   WorkspaceDirectories{}
   WorkspacePrimary{}
   ContextOrigin{}
@@ -131,12 +132,12 @@ def capture_structure(id: Maybe<&2, Nat>) -> +List<Section>:
 
 def structure(body: U.Body) -> +List<Section>:
   match body:
-    case U.NewTask{message, profile, reasoning, context}:
-      [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution()]
+    case U.NewTask{message, profile, reasoning, context, create_worktree}:
+      [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution(), Section{"Workspace", [FieldScene{CreateWorktree{}, "Create worktree", Choice{}}]}]
     case U.Message{task, message, delivery}:
       [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}]
-    case U.Project{id, name, workspace}:
-      [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}]},
+    case U.Project{id, name, workspace, create_worktree}:
+      [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}, FieldScene{CreateWorktree{}, "Create worktree for new tasks", Choice{}}]},
        Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}]}]
     case U.Card{id, revision, draft, assist, profile, keep_open}:
       List.append(&2, Section, [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
@@ -156,6 +157,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
     case ContinueCapture{} Toggle{enabled}: Some{U.KeepCaptureOpen{enabled}}
     case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text}}}
+    case CreateWorktree{} Toggle{enabled}: Some{U.ChooseWorktree{enabled}}
     case ProjectName{} Text{text}: Some{U.NameProject{text}}
     case WorkspaceDirectories{} WorkspaceChange{Context.AddRoot{path}}: Some{U.EditWorkspace{Context.AddRoot{path}}}
     case WorkspaceDirectories{} WorkspaceChange{Context.RemoveRoot{path}}: Some{U.EditWorkspace{Context.RemoveRoot{path}}}
@@ -190,6 +192,7 @@ def key(field: Field) -> String:
   match field:
     case MessageText{}: "message-text"
     case ProjectName{}: "project-name"
+    case CreateWorktree{}: "create-worktree"
     case WorkspaceDirectories{}: "workspace-directories"
     case WorkspacePrimary{}: "workspace-primary"
     case ContextOrigin{}: "context-origin"
@@ -257,8 +260,9 @@ def context_value(field: Field, config: Context.Configuration, +world: M.World()
     case ApprovalReviewer{}: ContextValue{Context.preview(config, world), reviewers(world)}
     case _: NotApplicable{}
 
-def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:
+def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, create_worktree: Bool, world: M.World()) -> Observed:
   match field:
+    case CreateWorktree{}: ToggleValue{create_worktree}
     case MessageText{}: TextValue{U.text(message)}
     case ModelProfile{}: ModelValue{profile, reasoning}
     case ReasoningEffort{}: ModelValue{profile, reasoning}
@@ -270,8 +274,9 @@ def message_value(field: Field, message: U.Text, delivery: U.Delivery) -> Observ
     case DeliveryIntent{}: DeliveryValue{delivery}
     case _: NotApplicable{}
 
-def project_value(field: Field, name: String, workspace: D.Workspace) -> Observed:
+def project_value(field: Field, name: String, workspace: D.Workspace, create_worktree: Bool) -> Observed:
   match field:
+    case CreateWorktree{}: ToggleValue{create_worktree}
     case ProjectName{}: TextValue{name}
     case WorkspaceDirectories{}: WorkspaceValue{workspace}
     case WorkspacePrimary{}: WorkspaceValue{workspace}
@@ -332,9 +337,9 @@ def task_field(found: Maybe<&2, D.Task>, field: Field, message: U.Text, delivery
 
 def observed(body: U.Body, field: Field, +world: M.World()) -> Observed:
   match body:
-    case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
+    case U.NewTask{message, profile, reasoning, config, create_worktree}: new_task_value(field, message, profile, reasoning, config, create_worktree, world)
     case U.Message{task, message, delivery}: task_field(Tasks.find(Commands.entries(world), task), field, message, delivery, world)
-    case U.Project{id, name, workspace}: project_value(field, name, workspace)
+    case U.Project{id, name, workspace, create_worktree}: project_value(field, name, workspace, create_worktree)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_value(draft, field, assist, profile, keep_open)
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
@@ -423,7 +428,7 @@ def fork_edit(field: Field, value: Value, count: Nat, messages: +List<String>, c
 
 def edit_for(body: U.Body, field: Field, value: Value, world: M.World()) -> Maybe<&2, U.Edit>:
   match body:
-    case U.NewTask{message, profile, reasoning, context}: configured_edit(field, value, profile, reasoning, context, world)
+    case U.NewTask{message, profile, reasoning, context, create_worktree}: configured_edit(field, value, profile, reasoning, context, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: configured_edit(field, value, profile, reasoning, context, world)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_edit(field, value, assist, profile)
     case U.Fork{task, count, messages, context}: fork_edit(field, value, count, messages, context, world)

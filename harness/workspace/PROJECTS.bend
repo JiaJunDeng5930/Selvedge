@@ -32,7 +32,7 @@ def find(registry: D.Projects, id: Nat) -> Maybe<&2, D.Project>:
 def observed_project_roots(projects: +List<Finite.Entry(D.Project)>) -> +List<String>:
   match projects:
     case Nil{}: Nil{}
-    case Con{(id, D.Project{name, workspace, guidance}), rest}:
+    case Con{(id, D.Project{name, workspace, guidance, create_worktree}), rest}:
       List.append(&2, String, W.roots(workspace), observed_project_roots(rest))
 
 def observed_creation_roots(caller: D.TaskContext, environment: D.Environment, registry: D.Projects) -> +List<String>:
@@ -80,7 +80,7 @@ def name_valid(+name: String) -> Bool:
   D.nonempty(name) && Nat.is_le(J.utf8_length(name), 256n)
 
 def valid_project(project: D.Project) -> Bool:
-  D.Project{+name, +workspace, +guidance} = project
+  D.Project{+name, +workspace, +guidance, create_worktree} = project
   name_valid(name) && W.valid(workspace) &&
     W.valid_guidance(guidance) && W.guidance_member(W.primary(workspace), guidance)
 
@@ -116,10 +116,10 @@ def task_count(tasks: +List<D.Task>, +id: Nat) -> Nat:
     case Con{task, rest}: counted(D.matches_optional_id(id, W.project_id(D.task_context(task))), task_count(rest, id))
 
 def projected(+id: Nat, project: D.Project, tasks: +List<D.Task>) -> J.Json:
-  D.Project{name, D.Workspace{roots, primary}, guidance} = project
+  D.Project{name, D.Workspace{roots, primary}, guidance, create_worktree} = project
   J.Object{[J.Field{"project_id", J.nat(id)}, J.Field{"name", J.Text{name}},
     J.Field{"root_count", J.nat(List.length(&2, String, roots))}, J.Field{"primary_root", D.optional_string(primary)},
-    J.Field{"task_count", J.nat(task_count(tasks, id))}]}
+    J.Field{"task_count", J.nat(task_count(tasks, id))}, J.Field{"create_worktree", J.Boolean{create_worktree}}]}
 
 def summaries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Task>) -> +List<J.Json>:
   match entries:
@@ -129,14 +129,15 @@ def summaries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Task>) ->
 def detail(id: Nat, found: Maybe<&2, D.Project>) -> J.Json:
   match found:
     case None{}: D.failure("project_not_found", "The project does not exist")
-    case Some{D.Project{name, workspace, guidance}}:
+    case Some{D.Project{name, workspace, guidance, create_worktree}}:
       D.success(J.Object{[J.Field{"project_id", J.nat(id)}, J.Field{"name", J.Text{name}},
-        J.Field{"workspace", D.workspace_json(workspace)}, J.Field{"guidance", D.project_json(guidance)}]})
+        J.Field{"workspace", D.workspace_json(workspace)}, J.Field{"guidance", D.project_json(guidance)},
+        J.Field{"create_worktree", J.Boolean{create_worktree}}]})
 
 def selected(found: Maybe<&2, D.Project>, id: Nat, base: D.TaskContext) -> Result<&2, &2, String, W.Selection>:
   match found:
     case None{}: Fail{"The selected project does not exist"}
-    case Some{D.Project{name, workspace, guidance}}:
+    case Some{D.Project{name, workspace, guidance, create_worktree}}:
       D.TaskContext{previous, sandbox, approval, old_id} = base
       Done{W.Selection{D.TaskContext{workspace, sandbox, approval, Some{id}}, guidance}}
 
@@ -167,7 +168,17 @@ def rename(name: Maybe<&2, String>, fallback: String) -> String:
     case None{}: fallback
     case Some{name}: name
 
-def proposal(name: Maybe<&2, String>, +workspace: J.Json, +guidance: J.Json, previous: D.Project) -> D.Project:
-  D.Project{previous_name, previous_workspace, previous_guidance} = previous
+def worktree_preference(value: J.Json, fallback: Bool) -> Bool:
+  match value:
+    case J.Boolean{create_worktree}: create_worktree
+    case _: fallback
+
+def create_worktree(project: D.Project) -> Bool:
+  D.Project{name, workspace, guidance, create_worktree} = project
+  create_worktree
+
+def proposal(name: Maybe<&2, String>, +workspace: J.Json, +guidance: J.Json, create_worktree: J.Json, previous: D.Project) -> D.Project:
+  D.Project{previous_name, previous_workspace, previous_guidance, previous_create_worktree} = previous
   +workspace = W.read_workspace(workspace, previous_workspace)
-  D.Project{rename(name, previous_name), workspace, W.read_guidance(guidance, workspace, previous_guidance)}
+  D.Project{rename(name, previous_name), workspace, W.read_guidance(guidance, workspace, previous_guidance),
+    worktree_preference(create_worktree, previous_create_worktree)}

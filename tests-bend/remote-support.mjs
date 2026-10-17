@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { provisionRemote } from '../host/remote-control.mjs';
@@ -9,6 +13,21 @@ import { home } from './support.mjs';
 
 export const readPermission = { read: true, control: false, configure: false, approve: false };
 export const controlPermission = { ...readPermission, control: true };
+
+export async function remoteGitRepository(t) {
+  const base = await realpath(await home(t));
+  const source = path.join(base, 'source repository');
+  await mkdir(source);
+  const execute = promisify(execFile);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
+  const git = (...args) => execute('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+    '-c', 'user.name=Remote fixture', '-c', 'user.email=remote@example.test', '-C', source, ...args], { env });
+  await git('init', '--initial-branch=main');
+  await writeFile(path.join(source, 'tracked.txt'), 'Source repository contents');
+  await git('add', '.');
+  await git('commit', '-m', 'Initial remote worktree fixture');
+  return { source, directory: path.join(base, 'state') };
+}
 
 export async function eventually(label, condition, timeout = 10_000) {
   const deadline = Date.now() + timeout;

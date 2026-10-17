@@ -371,10 +371,20 @@ def branch_accepts(request: BranchRequest) -> Bool:
 def branch_category() -> BranchRequest -> Type:
   Categories.holds(BranchRequest, branch_accepts)
 
+def branch_workspace_available(selection: Result<&2, &2, String, Workspace.Selection>, world: M.World()) -> Bool:
+  match selection:
+    case Fail{reason}: True{}
+    case Done{Workspace.Selection{context, guidance}}: FeatureState.workspace_available(Workspace.workspace(context), world)
+
+def workspace_invocation(available: Bool, invocation: Invocation) -> Invocation:
+  match available:
+    case True{}: invocation
+    case False{}: Internal{Commands.Refuse{"worktree_unavailable", "This managed worktree is not ready. Select an available workspace or wait for its operation to finish."}}
+
 def branch_accepted(member: Categories.Membership<BranchRequest, branch_category()>) -> Invocation:
   Categories.Membership{request, evidence} = member
   BranchRequest{+count, +texts, +selection, +task, +world} = request
-  branch_selection(selection, count, texts, D.task_context(task))
+  workspace_invocation(branch_workspace_available(selection, world), branch_selection(selection, count, texts, D.task_context(task)))
 
 def branch_admitted(admission: Maybe<&1, Categories.Membership<BranchRequest, branch_category()>>, request: BranchRequest) -> Invocation:
   match admission:
@@ -482,8 +492,13 @@ def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, 
     case Native.Process{}:
       Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
 
+def executable_invocation(allowed: Bool, invocation: Invocation) -> Invocation:
+  match allowed:
+    case True{}: invocation
+    case False{}: Internal{Commands.Refuse{"worktree_creation_failed", "Worktree creation failed. Archive this task and create a new task to retry; native tools cannot execute in its original workspace."}}
+
 def invocation(tool: Native.Body, +arguments: J.Json, +task: D.Task, +world: M.World()) -> Invocation:
-  invocation_with_caller(tool, arguments, D.task_id(task), task, world)
+  executable_invocation(FeatureState.execution_allowed(D.task_id(task), world), invocation_with_caller(tool, arguments, D.task_id(task), task, world))
 
 def result(found: Maybe<&2, D.Task>, call: D.Call, remaining: +List<D.Attempt>, decision: M.Decision()) -> M.Decision():
   match found:

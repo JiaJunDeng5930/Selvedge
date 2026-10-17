@@ -164,6 +164,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.ControlTask{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ControlTask{p0, p1}), access))
     case E.UserInput{U.Activate{U.CancelOperation{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CancelOperation{p0, p1}), access))
     case E.UserInput{U.Activate{U.ReviewApproval{+p0, +p1, +p2, +p3}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ReviewApproval{p0, p1, p2, p3}), access))
+    case E.UserInput{U.Activate{U.RetryWorktreeArchive{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.RetryWorktreeArchive{p0}), access))
     case E.UserInput{U.Activate{U.DeleteProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteProject{p0}), access))
     case E.UserInput{U.Activate{U.DeleteTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteTaskGraph{p0}), access))
     case E.UserInput{U.Activate{U.BoardCommand{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BoardCommand{p0}), access))
@@ -188,3 +189,4 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.DirectoriesObserved{+p0, +p1}: {==}
     case E.ClockObserved{+p0}: {==}
     case E.ModelPreferenceRestored{+p0, +p1}: {==}
+    case E.WorkspaceGitObserved{+p0, +p1}: {==}

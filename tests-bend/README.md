@@ -31,6 +31,7 @@ or rejection of source code, proofs or certificates.
 | Filesystem observations, Seatbelt quoting, seccomp ABI encoding and actual OS write isolation | `sandbox.test.mjs` |
 | Idle-task execution configuration, in-flight model/approval rejection, unchanged project/workspace/history, actual next-provider routing, task-local ChatGPT Web root restart after model or policy changes, and preserved continuation after no-op configuration or another task's change | `task-execution.test.mjs`, `approvals.test.mjs`; authenticated loopback HTTP, actual native commands and provider fixtures |
 | Canonical workspace observations, committed execution plans, real subprocess cwd/permissions and journal reopen | `workspaces.test.mjs` |
+| Managed Git worktree creation/archive after SQLite commit, checkout failures without source-workspace fallback, detached checkout and local changes, empty primaries, multi-root and shared-fork sandbox isolation, archive ownership, repository filter/hook isolation, service-home separation, large receipt recovery and journal reopen | `worktrees.test.mjs`; real Git repositories, filesystem moves and sandboxed subprocesses |
 | Configured/global/project snapshots, root order, inherited and explicit fork prefixes, file changes and committed dispatch/restart | `project-context.test.mjs` |
 | Context-limit failure without summary/retry; complete history and completed file mutations survive restart | `context-recovery.test.mjs` |
 | Provider/MCP/plugin wire formats, faults, cancellation and commit-before-callback | `providers.test.mjs`, `plugins.test.mjs`, `after-hooks.test.mjs`, `service-recovery.test.mjs` |
@@ -42,7 +43,7 @@ or rejection of source code, proofs or certificates.
 | Cloudflare workerd/DO hibernation, local pairing approval, authenticated relay commands, lost replies, SQLite restart, revocation, disconnect without task cancellation, and remote snapshots preserving project task trees and descendant navigation through the production UI | `remote-control.test.mjs`, `remote-support.mjs`; real local Cloudflare runtime, no deployed account |
 | Outbound WebSocket negotiation, heartbeat, bounded queues, snapshot stream cut, authorization and reconnect fencing | `remote-connector.test.mjs`; real loopback HTTP/WebSocket transport |
 | CLI enrollment and local management, private identity files and secret-free output | `remote-cli.test.mjs`; child CLI, real filesystem and loopback service |
-| Committed forks through the HTTP-visible world into nested semantic sidebar rows and browser-authored indentation; project boundaries, descendant navigation, selection, status and project disclosure | `ui-verification.test.mjs`; compiled production UI and real service, without a physical browser geometry claim |
+| Committed forks through the HTTP-visible world into nested semantic sidebar rows and browser-authored indentation; project boundaries, shared-worktree ownership across projects, archive preservation, descendant navigation, selection, status and project disclosure | `ui-verification.test.mjs`; compiled production UI, real service and Git, without a physical browser geometry claim |
 | Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
 | Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
 
@@ -51,6 +52,9 @@ Use Bun 1.4.2 or later and the pinned Bend compiler installed by
 `bun run check` checks source boundaries, certificates, the production proof root
 and script syntax. `bun run test` builds the kernel/browser JavaScript libraries
 before running this directory with one isolated worker.
+The runner enforces a 15-minute watchdog for each test file, terminates its
+process group on timeout, and treats abnormal exits or missing test-result
+footers as failures.
 `bun run test:locality` selects source-boundary checks and actual native extension
 round trips.
 `bun run build:native` is the optional native entry build and requires a C compiler.

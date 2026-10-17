@@ -83,8 +83,8 @@ def execute_delivery(text: String, +task: D.Task, world: M.World()) -> M.Decisio
 def change_to(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match next:
     case D.Archived{}:
-      C.Decision{CompactionSpec.cancelled_world(task, store(T.archive(task), world)),
-        D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
+      FeatureState.archived_task(D.task_id(task), C.Decision{CompactionSpec.cancelled_world(task, store(T.archive(task), world)),
+        D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]})
     case other:
       respond(store(T.promote(D.with_status(other, task)), world), id_result(D.task_id(task)))
 

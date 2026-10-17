@@ -1,5 +1,6 @@
 import Base
 import ../../features/remote/MODEL.bend as Remote
+import ../../features/worktree/MODEL.bend as Worktree
 import ../../features/compaction/MODEL.bend as Compaction
 import ../DOMAIN.bend as D
 import ../../features/board/MODEL.bend as Board
@@ -16,6 +17,8 @@ type GraphNode is Data:
 # the command resolver by constructing them through the wire protocol.
 type Operation is Data:
   RemoteChange{change: Remote.Change}
+  StartWorktree{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  RetryWorktreeArchive{task_id: Nat}
   ChatGPTChange{change: ChatGPT.Change}
   BoardChange{change: Resolution.Change}
   StartCard{id: Nat, card: Board.Card, now: U32, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
@@ -23,6 +26,7 @@ type Operation is Data:
   DeleteGraph{id: Nat}
 
 type ResolvedEvent is Data:
+  WorktreeResult{completion: Worktree.Completion}
   CompactionResult{completion: Compaction.Completion}
   ChatGPTResult{change: ChatGPT.Change}
   BoardTextResult{id: Nat, card: Board.Card, outcome: Board.Outcome, retitle: Bool}

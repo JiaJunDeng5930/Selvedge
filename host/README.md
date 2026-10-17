@@ -134,6 +134,14 @@ its committed plan; `service.cwd` is not a process permission or task directory.
 Keep the service home separate from writable projects: it is read-only inside a
 restricted Bash process, even when a workspace includes its ancestor.
 
+`worktrees.mjs` interprets committed Git worktree effects and observes their
+filesystem receipts on restart. The owning [feature](../features/worktree/README.md)
+and harness assembly govern task initialization and resource association.
+Creation rejects a service home inside the source Git repository before copying
+files, preventing private service state from entering a checkout.
+Sandbox launches admit a writable exception only for the task's committed managed
+checkout; service state and other checkouts retain their protection.
+
 [stdio-rpc.mjs](stdio-rpc.mjs) is the shared bounded process transport for MCP and
 plugins. [RPC.bend](adapters/RPC.bend) owns response classification and correlation
 calculations over the transport observations.

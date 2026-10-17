@@ -87,7 +87,7 @@ async function hashPrefix(file, length) {
 }
 
 /** Execute an already validated Bend Bash effect, draining both pipes concurrently. */
-export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory, execution, readOnlyPaths } = {}) {
+export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } = {}) {
   signal?.throwIfAborted();
   // Preserve malformed UTF-16 units so the native guard can reject the observed command.
   const observedArguments = typeof arguments_?.command === 'string' && !arguments_.command.isWellFormed()
@@ -95,14 +95,14 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       (_, index) => arguments_.command.charCodeAt(index)) } }
     : arguments_;
   const { timeout, maximum } = boundary('effect.bash_arguments', { arguments: observedArguments, arguments_: observedArguments, limits,
-    options: { cwd, artifactDirectory, execution, readOnlyPaths } });
+    options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
   const artifacts = [];
   let child;
   let launch;
   try {
-    if (execution) launch = await prepareSandbox(execution, { signal, readOnlyPaths });
+    if (execution) launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
     if (artifactDirectory) {
-      boundary('effect.artifact_limit', { arguments: arguments_, arguments_, limits, options: { cwd, artifactDirectory, execution, readOnlyPaths } });
+      boundary('effect.artifact_limit', { arguments: arguments_, arguments_, limits, options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
       const directory = await mkdtemp(path.join(artifactDirectory, 'bash-'));
       for (const stream of ['stdout', 'stderr']) {
@@ -194,7 +194,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       const out = stdout.result();
       const err = stderr.result();
       resolve(boundary('effect.process_result', { arguments: arguments_, arguments_, limits,
-        options: { cwd, artifactDirectory, execution, readOnlyPaths }, exitCode, exitSignal, out, err, outArtifact, errArtifact, reason }));
+        options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot }, exitCode, exitSignal, out, err, outArtifact, errArtifact, reason }));
     });
   });
 }

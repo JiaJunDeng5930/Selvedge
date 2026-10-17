@@ -1,6 +1,7 @@
 import Base
 import ../../features/remote/PROGRAM.bend as Remote
 import ./remote.bend as RemoteState
+import ../../features/worktree/MODEL.bend as Worktree
 import ../../bendlib/categories.bend as Categories
 import ../DOMAIN.bend as D
 import ../../bendlib/json.bend as J
@@ -17,6 +18,7 @@ import ../../features/task_graph/MODEL.bend as G
 import ./graph-state.bend as GraphState
 import ../../bendlib/component.bend as C
 import ../tasks/PROGRAM.bend as Tasks
+import ./worktree-state.bend as WorktreeState
 
 type Start is Data:
   Start{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
@@ -131,9 +133,37 @@ def chatgpt(resolution: ChatGPT.Resolution) -> Resolution:
     case ChatGPT.Refuse{code, reason}: Refuse{code, reason}
     case ChatGPT.Accept{change}: Accept{O.ChatGPTChange{change}}
 
+def worktree_selected(has_primary: Bool, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection) -> Resolution:
+  match has_primary:
+    case False{}: Refuse{"worktree_requires_git", "A worktree requires a primary workspace in a Git repository"}
+    case True{}: Accept{O.StartWorktree{profile, reasoning, message, selection}}
+
+def worktree_start(start: Start) -> Resolution:
+  match start:
+    case Start{profile, reasoning, message, +selection}:
+      worktree_selected(D.nonempty(WorktreeState.selection_primary(selection)), profile, reasoning, message, selection)
+    case StartRefused{code, reason}: Refuse{code, reason}
+    case InvalidStart{}: Refuse{"invalid_worktree_start", "Worktree creation must resolve through ordinary task creation"}
+
+def worktree_retry(allowed: Bool, id: Nat) -> Resolution:
+  match allowed:
+    case False{}: Refuse{"worktree_archive_not_retryable", "Only a failed worktree archive with a retained root can be retried"}
+    case True{}: Accept{O.RetryWorktreeArchive{id}}
+
+def worktree_archive_available(allowed: Bool, resolution: Resolution) -> Resolution:
+  match allowed:
+    case True{}: resolution
+    case False{}: Refuse{"worktree_in_use", "This worktree is shared by other tasks. Archive those tasks before archiving its owner."}
+
+def worktree(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: Worktree.Command, +world: M.World()) -> Resolution:
+  match command:
+    case Worktree.Create{profile, reasoning, message, settings}: worktree_start(start(profile, reasoning, message, settings, world))
+    case Worktree.RetryArchive{+id}: worktree_archive_available(WorktreeState.archive_allowed(id, world), worktree_retry(WorktreeState.retry_allowed(id, world), id))
+
 def resolve_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   match command:
     case F.RemoteCommand{command}: Accept{O.RemoteChange{Remote.admin(command, RemoteState.registry(world))}}
+    case F.WorktreeCommand{command}: worktree(~start, command, world)
     case F.ChatGPTCommand{command}: chatgpt(ChatGPT.resolve(command, ChatGPTState.registry(world), Projects.registry(F.State(), world)))
     case F.BoardCommand{command}: board(~start, Board.change_resolution(Board.construct_command(command, world)), world)
     case F.TaskGraphCommand{command}: graph(~start, command, world)

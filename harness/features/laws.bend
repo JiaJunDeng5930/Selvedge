@@ -1,6 +1,9 @@
 import Base
 import ../../features/remote/CONTRACT.bend as Remote
 import ../../features/remote/PROOF.bend as RemoteProof
+import ./worktree-proof.bend as WorktreeProof
+import ./worktree-sharing-proof.bend as WorktreeSharingProof
+import ../../features/worktree/PROOF.bend as WorktreeRegistryProof
 import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/json.bend as J
@@ -36,6 +39,8 @@ def meaning(
   {Actual.realize_calculation(~actual_spawn, operation, world) == Spec.meaning(~spec_spawn, operation, world) : M.Decision()}:
   match operation:
     case O.RemoteChange{change}: {==}
+    case O.StartWorktree{profile, reasoning, message, selection}: WorktreeProof.start(~actual_spawn, ~spec_spawn, ~creation, profile, reasoning, message, selection, world)
+    case O.RetryWorktreeArchive{id}: WorktreeProof.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTProof.assembled(change, world)
     case O.BoardChange{change}: Boundary.change_meaning(change, world)
     case O.StartCard{+id, +card, +now, +profile, +reasoning, +message, +selection}:
@@ -53,12 +58,13 @@ def meaning(
 def event(event: O.ResolvedEvent, world: M.World()) ->
   {Actual.event_calculation(event, world) == Spec.event(event, world) : M.Decision()}:
   match event:
+    case O.WorktreeResult{completion}: WorktreeProof.complete(completion, world)
     case O.CompactionResult{completion}: CompactionProof.completion(completion, world)
     case O.ChatGPTResult{change}: ChatGPTProof.assembled(change, world)
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary()}
+  Architecture.Features{Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, source => root => message => primary => {==}, source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary()}
 
 def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
   ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),

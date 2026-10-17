@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { readFile, stat } from 'node:fs/promises';
+import { access, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { bendTag, decodeBendValue, encodeBendValue } from '../host/public/bend-value.mjs';
 import { validateConfig, defaultConfig } from '../host/config.mjs';
 import { startServer } from '../host/server.mjs';
 import { MAX_REMOTE_FRAME_BYTES } from '../remote/protocol.mjs';
 import { browserUI, home, surfaceNodes, taskIdle, responsesServer } from './support.mjs';
-import { controlPermission, readPermission, eventually, relayPost, remoteFixture } from './remote-support.mjs';
+import { controlPermission, readPermission, eventually, relayPost, remoteFixture, remoteGitRepository } from './remote-support.mjs';
 
 function journal(directory) {
   const db = new DatabaseSync(path.join(directory, 'journal.sqlite'), { readOnly: true });
@@ -142,24 +142,59 @@ test('lost command replies and host restart retain the same receipt without repe
   assert.equal(committedRemote.filter(row => row.input.request_id === send_id).length, 1);
 });
 
-test('relay snapshots preserve project task trees and executable descendant navigation', { timeout: 240_000 }, async t => {
-  const f = await remoteFixture(t);
+test('relay worktree execution and archive preserve project task trees and descendant navigation', { timeout: 240_000 }, async t => {
+  const { source, directory } = await remoteGitRepository(t);
+  const api_key_env = `SELVEDGE_REMOTE_WORKTREE_${randomBytes(8).toString('hex')}`;
+  process.env[api_key_env] = 'fixture-key';
+  t.after(() => { delete process.env[api_key_env]; });
+  const model = await responsesServer(t, body => {
+    const created = journal(directory).find(row => row.input.kind === 'worktree_created' && row.input.ok);
+    assert.ok(created, 'Checkout completion must be committed before native model execution');
+    const output = body.input.find(item => item.type === 'function_call_output' && item.call_id === 'remote-worktree-write');
+    if (!output) return [{ type: 'function_call', call_id: 'remote-worktree-write', name: 'bash',
+      arguments: JSON.stringify({ command: 'printf remote-execution > remote-execution.txt\npwd' }) }];
+    const result = JSON.parse(output.output);
+    assert.equal(result.is_error, false, JSON.stringify(result));
+    assert.equal(result.value.stdout.trim(), created.input.workspace.primary_root);
+    return [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Executed in the managed checkout' }] }];
+  });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: { ...defaultConfig.profiles, fixture: {
+    provider: 'responses', model: 'fixture', endpoint: model.endpoint, api_key_env,
+  } } });
+  const f = await remoteFixture(t, { config, directory });
   const { client } = await f.pair({ ...controlPermission, configure: true });
   const command = async value => business(await client.command(value));
-  const alpha = (await command({ op: 'create_project', name: 'Remote Alpha', workspace: { roots: [] } })).project_id;
+  const alpha = (await command({ op: 'create_project', name: 'Remote Alpha',
+    workspace: { roots: [source], primary_root: source }, create_worktree: true })).project_id;
   const beta = (await command({ op: 'create_project', name: 'Remote Beta', workspace: { roots: [] } })).project_id;
-  const root = (await command({ op: 'create', profile: 'demo', message: 'Remote project root 世界', settings: { project_id: alpha } })).task_id;
-  await taskIdle(f.service, root);
-  const fork = async (task_id, message, project_id) => {
+  assert.equal((await command({ op: 'read_project', project_id: alpha })).create_worktree, true);
+  const worktree = (task_id, status) => eventually(`remote task ${task_id} worktree ${status}`, async () => {
+    const entry = await command({ op: 'read_worktree', task_id });
+    assert.ok(!['create_failed', 'archive_failed'].includes(entry.status), JSON.stringify(entry));
+    return entry.status === status && entry;
+  });
+  const root = (await command({ op: 'create_worktree_task', profile: 'fixture', message: 'Remote project root 世界',
+    settings: { project_id: alpha } })).task_id;
+  const owner = await worktree(root, 'ready');
+  const ownerPage = await taskIdle(f.service, root);
+  const creation = journal(directory).find(row => row.input.kind === 'remote_command' && row.input.intent.op === 'create_worktree_task');
+  assert.ok(creation.decision.effects.some(effect => effect.kind === 'worktree_create' && effect.task_id === root));
+  assert.equal(await readFile(path.join(owner.target_primary, 'remote-execution.txt'), 'utf8'), 'remote-execution');
+  await assert.rejects(access(path.join(source, 'remote-execution.txt')), { code: 'ENOENT' });
+  const fork = async (task_id, message, project_id, workspace) => {
     const { children } = await command({ op: 'fork', task_id, child_count: 1, messages: [message],
-      ...(project_id === undefined ? {} : { settings: { project_id } }) });
+      ...(project_id === undefined ? {} : { settings: { project_id, ...(workspace ? { workspace } : {}) } }) });
     await Promise.all([task_id, ...children].map(id => taskIdle(f.service, id)));
     return children[0];
   };
   const child = await fork(root, 'Remote child');
   const descendant = await fork(child, 'Remote grandchild');
-  const crossProject = await fork(root, 'Fork into Beta', beta);
+  const crossProject = await fork(root, 'Fork into Beta', beta, ownerPage.task.settings.workspace);
   const betaChild = await fork(crossProject, 'Child within Beta');
+  assert.equal((await worktree(crossProject, 'ready')).root, owner.root);
+  const unrelated = (await command({ op: 'create', profile: 'demo', message: 'Unrelated Alpha task', settings: { project_id: alpha } })).task_id;
+  await taskIdle(f.service, unrelated);
+  assert.deepEqual(model.failures, []);
   const response = await client.request('snapshot');
   assert.equal(response.error, undefined, JSON.stringify(response));
   const ui = await browserUI(t);
@@ -184,12 +219,13 @@ test('relay snapshots preserve project task trees and executable descendant navi
   assert.deepEqual(hierarchy.filter(row => row.project === alpha), [
     { task: root, project: alpha, parent: null }, { task: child, project: alpha, parent: root },
     { task: descendant, project: alpha, parent: child },
+    { task: unrelated, project: alpha, parent: null },
   ], 'Same-project remote forks retain their nested task order');
   assert.deepEqual(hierarchy.filter(row => row.project === beta), [
     { task: crossProject, project: beta, parent: null }, { task: betaChild, project: beta, parent: crossProject },
   ], 'A cross-project remote fork starts its destination tree');
   assert.deepEqual(hierarchy.map(row => row.task).sort((left, right) => left - right),
-    [root, child, descendant, crossProject, betaChild].sort((left, right) => left - right),
+    [root, child, descendant, crossProject, betaChild, unrelated].sort((left, right) => left - right),
     'Every remote-created task appears exactly once across project groups');
   const navigate = value => {
     if (!value || typeof value !== 'object') return undefined;
@@ -203,6 +239,29 @@ test('relay snapshots preserve project task trees and executable descendant navi
   state = ui.activate_state(state, ui.key(open));
   assert.deepEqual(nodes().filter(node => bendTag(node.meaning) === 'TaskRow' && node.meaning.selected)
     .map(node => Number(node.meaning.task)), [descendant]);
+  for (const task_id of [descendant, child, betaChild]) await command({ op: 'archive', task_id });
+  const blocked = await client.command({ op: 'archive', task_id: root });
+  assert.equal(blocked.result.reply.ok, false);
+  assert.equal(blocked.result.reply.error.code, 'worktree_in_use', 'A live cross-project borrower protects the owner checkout');
+  assert.equal((await command({ op: 'read', task_id: root })).task.status, 'active');
+  await command({ op: 'archive', task_id: crossProject });
+  await access(owner.root);
+  await command({ op: 'archive', task_id: root });
+  const archived = await worktree(root, 'archived');
+  assert.equal(archived.root, path.join(directory, 'worktrees', 'archived', `task-${root}`));
+  await assert.rejects(access(owner.root), { code: 'ENOENT' });
+  assert.equal(await readFile(path.join(archived.root, 'remote-execution.txt'), 'utf8'), 'remote-execution');
+  assert.equal((await command({ op: 'read', task_id: unrelated })).task.status, 'active');
+  assert.equal(journal(directory).flatMap(row => row.decision.effects).filter(effect => effect.kind === 'worktree_archive').length, 1);
+  const archivedSnapshot = await client.request('snapshot');
+  assert.equal(archivedSnapshot.error, undefined, JSON.stringify(archivedSnapshot));
+  const archivedView = ui.authenticated(decodeBendValue(archivedSnapshot.result.program), BigInt(descendant));
+  assert.equal(bendTag(archivedView), 'Done');
+  state = archivedView.value;
+  const rows = nodes().filter(node => bendTag(node.meaning) === 'TaskRow');
+  assert.equal(bendTag(rows.find(row => row.meaning.task === BigInt(root)).meaning.status.lifecycle), 'Archived');
+  assert.equal(bendTag(rows.find(row => row.meaning.task === BigInt(unrelated)).meaning.status.lifecycle), 'Active',
+    'Archiving the remote checkout owner does not cascade through its project group');
 });
 
 test('native scope and current grants protect established sockets, reads, receipts and local administration', { timeout: 40_000 }, async t => {
@@ -216,6 +275,12 @@ test('native scope and current grants protect established sockets, reads, receip
   const admin = await reader.client.command({ op: 'remote_enable' });
   assert.equal(admin.result?.reply.ok ?? false, false);
   const controller = await f.pair();
+  const beforeWorktree = f.service.journal.sequence;
+  const deniedWorktree = await controller.client.command({ op: 'create_worktree_task', profile: 'demo', message: 'Keep this workspace unchanged' });
+  assert.equal(deniedWorktree.result.reply.error.code, 'remote_permission_denied',
+    'Worktree creation without configure authority fails before Git observes the non-repository service directory');
+  assert.equal(f.service.journal.sequence, beforeWorktree);
+  await assert.rejects(access(path.join(f.directory, 'worktrees')), { code: 'ENOENT' });
   const command = { op: 'create', profile: 'demo', message: 'One authorized task' };
   const request_id = randomUUID();
   const original = await controller.client.command(command, request_id);

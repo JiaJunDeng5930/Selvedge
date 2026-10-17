@@ -33,6 +33,8 @@ def named_permission(name: String, +body: J.Json) -> Maybe<&2, R.Rights>:
     case "list": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "describe": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "list_projects": Some{R.Rights{True{}, False{}, False{}, False{}}}
+    case "list_worktrees": Some{R.Rights{True{}, False{}, False{}, False{}}}
+    case "read_worktree": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "read_project": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "list_cards": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "read_card": Some{R.Rights{True{}, False{}, False{}, False{}}}
@@ -40,6 +42,8 @@ def named_permission(name: String, +body: J.Json) -> Maybe<&2, R.Rights>:
     case "list_task_graphs": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "read_task_graph": Some{R.Rights{True{}, False{}, False{}, False{}}}
     case "create": Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")), False{}}}
+    case "create_worktree_task": Some{R.Rights{False{}, True{}, True{}, False{}}}
+    case "retry_worktree_archive": Some{R.Rights{False{}, True{}, False{}, False{}}}
     case "fork": Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")), False{}}}
     case "send": Some{R.Rights{False{}, True{}, False{}, False{}}}
     case "steer": Some{R.Rights{False{}, True{}, False{}, False{}}}
