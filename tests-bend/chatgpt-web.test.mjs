@@ -404,14 +404,19 @@ test('service shutdown retains a compacted request; explicit interruption permit
   const state = path.join(f.directory, 'state');
   let service = await Service.open({ home: state, cwd: f.directory, config: f.config });
   t.after(() => service.close());
-  const notices = []; service.on('notice', notice => notices.push(notice));
   await service.command({ op: 'create', profile: 'web', message: 'keep original task' });
   await taskIdle(service);
   await service.command({ op: 'create', profile: 'web', message: 'keep another task receipt' });
   await taskIdle(service, 1);
   assert.equal((await service.command({ op: 'compact', task_id: 0, summary: 'explicit context before interruption' })).reply.ok, true);
   await service.command({ op: 'send', task_id: 0, message: 'observe the compacted root' });
-  await eventually(() => f.requests.length === 3 && notices.some(notice => notice.type === 'snapshot'));
+  // NOTE: Earlier requests already emitted snapshots; this request needs its own
+  // durable response identity before shutdown can later authorize remote cancellation.
+  const observedReceipts = new DatabaseSync(path.join(state, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+  try {
+    const identified = observedReceipts.prepare('SELECT response_id FROM requests WHERE owner=? AND request_key=?');
+    await eventually(() => f.requests.length === 3 && Boolean(identified.get('task:0', f.requests[2].key)?.response_id));
+  } finally { observedReceipts.close(); }
   assert.equal(f.requests[2].body.previous_response_id, undefined);
   assert.ok(JSON.stringify(f.requests[2].body.input).includes('explicit context before interruption'));
   await service.close();
