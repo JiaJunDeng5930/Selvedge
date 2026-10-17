@@ -1,4 +1,5 @@
 import Base
+import ./remote.bend as RemoteState
 import ./worktree-spec.bend as WorktreeSpec
 import ../../features/compaction/SPEC.bend as Compaction
 import ../DOMAIN.bend as D
@@ -15,6 +16,7 @@ import ./graph-spec.bend as TaskGraph
 # executable assembler supplies its implementation to feature-execution.
 def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeSpec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)

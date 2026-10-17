@@ -17,6 +17,11 @@ explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection gran
 apply across conversations, and local operations run in the selected project's
 Workspace.
 
+[Remote control](docs/remote-control.md) connects an authorized device through a
+Cloudflare Workers and Durable Objects relay. The host initiates HTTPS/WSS on
+TCP 443 and retains task execution and its journal. No public host IP, VPS or
+phone interface is required by the host implementation.
+
 ## Read the program
 
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
@@ -471,7 +476,7 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-The current journal format is `selvedge-bend-journal-4`, independent of build
+The current journal format is `selvedge-bend-journal-6`, independent of build
 fingerprints and compiler versions, with task-local workspace settings stored in
 its inputs. Reopening validates integrity and complete committed decisions
 against the current kernel. Ordinary source, compiler and UI updates do not

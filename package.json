@@ -17,7 +17,9 @@
     "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
     "build:native": "bun scripts/build.mjs --native",
     "test:ci": "bun run build && bun scripts/test.mjs --ci",
-    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs"
+    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs",
+    "test:remote": "bun run build && bun test --max-concurrency 1 tests-bend/remote-control.test.mjs tests-bend/remote-connector.test.mjs tests-bend/remote-cli.test.mjs",
+    "test:relay": "bun --cwd relay run test"
   },
   "dependencies": {
     "diff": "9.0.0",
@@ -26,7 +28,8 @@
   },
   "packageManager": "bun@1.4.2",
   "workspaces": [
-    "plugins/selvedge-chatgpt"
+    "plugins/selvedge-chatgpt",
+    "relay"
   ],
   "devDependencies": {
     "jose": "6.2.12"

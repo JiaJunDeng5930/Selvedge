@@ -163,7 +163,9 @@
       "browser/PROOF.bend",
       "browser/runtime/SEMANTICS.bend",
       "browser/runtime/PROOF.bend",
-      "browser/controls/PROOF.bend"
+      "browser/controls/PROOF.bend",
+      "features/remote/PROOF.bend",
+      "harness/features/remote-proof.bend"
     ],
     "bendlib/categories.bend": [],
     "bendlib/equality-proof.bend": [
@@ -1645,7 +1647,8 @@
       "bendlib/component.bend",
       "harness/DOMAIN.bend",
       "harness/reasoning/MODEL.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "features/remote/MODEL.bend"
     ],
     "harness/PROOF.bend": [
       "harness/tasks/PROOF.bend",
@@ -1667,7 +1670,11 @@
       "features/compaction/SPEC.bend",
       "harness/protocol/COMMIT.bend",
       "bendlib/categories.bend",
-      "harness/execution/notifications.bend"
+      "harness/execution/notifications.bend",
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "harness/features/remote.bend",
+      "harness/execution/PROGRAM.bend"
     ],
     "harness/approval/HOOKS.bend": [
       "bendlib/categories.bend",
@@ -1746,6 +1753,8 @@
       "features/chatgpt/MODEL.bend",
       "features/chatgpt/CODEC.bend",
       "features/task_graph/CODEC.bend",
+      "features/remote/MODEL.bend",
+      "features/remote/CODEC.bend",
       "features/worktree/CODEC.bend",
       "features/worktree/MODEL.bend"
     ],
@@ -1763,11 +1772,13 @@
       "features/chatgpt/MODEL.bend",
       "features/compaction/MODEL.bend",
       "features/task_graph/MODEL.bend",
+      "features/remote/CONTRACT.bend",
       "harness/features/worktree-state.bend",
       "features/worktree/MODEL.bend",
       "features/worktree/CONTRACT.bend",
       "bendlib/association-map.bend",
-      "harness/workspace/WORKSPACE.bend"
+      "harness/workspace/WORKSPACE.bend",
+      "features/remote/MODEL.bend"
     ],
     "harness/features/PROOF.bend": [
       "harness/features/MODEL.bend",
@@ -1781,7 +1792,8 @@
       "harness/MODEL.bend",
       "harness/DOMAIN.bend",
       "harness/features/worktree-storage-proof.bend",
-      "features/worktree/MODEL.bend"
+      "features/worktree/MODEL.bend",
+      "features/remote/MODEL.bend"
     ],
     "harness/features/SPEC.bend": [
       "features/compaction/SPEC.bend",
@@ -1794,6 +1806,7 @@
       "features/chatgpt/SPEC.bend",
       "features/chatgpt/STATE.bend",
       "harness/features/graph-spec.bend",
+      "harness/features/remote.bend",
       "harness/features/worktree-spec.bend"
     ],
     "harness/features/STATE.bend": [
@@ -1815,6 +1828,8 @@
       "features/task_graph/MODEL.bend",
       "features/task_graph/CODEC.bend",
       "harness/features/graph-state.bend",
+      "bendlib/component.bend",
+      "features/remote/MODEL.bend",
       "features/worktree/MODEL.bend",
       "features/worktree/CODEC.bend",
       "harness/features/worktree-state.bend"
@@ -1835,6 +1850,7 @@
       "features/chatgpt/PROGRAM.bend",
       "features/chatgpt/STATE.bend",
       "harness/features/graph-execution.bend",
+      "harness/features/remote.bend",
       "harness/features/worktree-execution.bend"
     ],
     "harness/features/laws.bend": [
@@ -1861,6 +1877,8 @@
       "features/task_graph/PROOF.bend",
       "harness/features/graph-proof.bend",
       "harness/features/PROOF.bend",
+      "features/remote/CONTRACT.bend",
+      "features/remote/PROOF.bend",
       "harness/features/worktree-proof.bend",
       "features/worktree/PROOF.bend",
       "harness/features/worktree-sharing-proof.bend"
@@ -1894,6 +1912,8 @@
       "harness/features/graph-state.bend",
       "bendlib/component.bend",
       "harness/tasks/PROGRAM.bend",
+      "features/remote/PROGRAM.bend",
+      "harness/features/remote.bend",
       "features/worktree/MODEL.bend",
       "harness/features/worktree-state.bend"
     ],
@@ -1908,7 +1928,11 @@
       "bendlib/json.bend",
       "harness/transport/presentation.bend",
       "harness/protocol/PROGRAM.bend",
-      "harness/execution/notifications.bend"
+      "harness/execution/notifications.bend",
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "harness/features/remote.bend",
+      "harness/transport/command-codec.bend"
     ],
     "harness/protocol/PROGRAM.bend": [
       "features/compaction/SPEC.bend",
@@ -2089,7 +2113,8 @@
       "harness/INVARIANTS.bend",
       "harness/approval/HOOKS.bend",
       "harness/approval/MODEL.bend",
-      "harness/reasoning/MODEL.bend"
+      "harness/reasoning/MODEL.bend",
+      "features/remote/MODEL.bend"
     ],
     "harness/workspace/CONTRACT.bend": [
       "harness/features/MODEL.bend",
@@ -2863,7 +2888,8 @@
       "harness/approval/MODEL.bend",
       "harness/reasoning/PROGRAM.bend",
       "features/board/scheduling.bend",
-      "features/board/scheduling-spec.bend"
+      "features/board/scheduling-spec.bend",
+      "harness/features/remote.bend"
     ],
     "harness/execution/PROOF.bend": [
       "features/compaction/PROOF.bend",
@@ -3172,6 +3198,8 @@
       "features/task_graph/CODEC.bend",
       "harness/tools/MODEL.bend",
       "harness/tools/SYNTAX.bend",
+      "features/remote/MODEL.bend",
+      "features/remote/CODEC.bend",
       "features/worktree/MODEL.bend",
       "features/worktree/CODEC.bend"
     ],
@@ -3206,6 +3234,7 @@
       "features/board/resolution.bend",
       "features/chatgpt/MODEL.bend",
       "features/task_graph/MODEL.bend",
+      "features/remote/MODEL.bend",
       "features/worktree/MODEL.bend"
     ],
     "features/task_graph/PROOF.bend": [
@@ -3316,6 +3345,61 @@
       "harness/DOMAIN.bend",
       "bendlib/json.bend"
     ],
+    "features/remote/CONTRACT.bend": [
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "features/remote/SPEC.bend",
+      "bendlib/json.bend"
+    ],
+    "features/remote/PROOF.bend": [
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "features/remote/SPEC.bend",
+      "features/remote/CONTRACT.bend",
+      "bendlib/json.bend"
+    ],
+    "features/remote/SPEC.bend": [
+      "features/remote/MODEL.bend",
+      "bendlib/json.bend"
+    ],
+    "features/remote/CODEC.bend": [
+      "features/remote/MODEL.bend",
+      "bendlib/json.bend",
+      "bendlib/string-equality.bend"
+    ],
+    "features/remote/PROGRAM.bend": [
+      "features/remote/MODEL.bend",
+      "bendlib/json.bend"
+    ],
+    "features/remote/MODEL.bend": [
+      "bendlib/json.bend",
+      "bendlib/string-equality.bend"
+    ],
+    "harness/features/remote.bend": [
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "harness/features/MODEL.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "bendlib/component.bend",
+      "bendlib/json.bend"
+    ],
+    "harness/features/remote-proof.bend": [
+      "harness/features/MODEL.bend",
+      "harness/features/remote.bend",
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "features/board/MODEL.bend",
+      "features/chatgpt/MODEL.bend",
+      "features/task_graph/MODEL.bend",
+      "features/compaction/MODEL.bend",
+      "bendlib/component.bend",
+      "bendlib/json.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/protocol/COMMIT.bend",
+      "features/worktree/MODEL.bend"
+    ],
     "features/worktree/CODEC.bend": [
       "features/worktree/MODEL.bend",
       "harness/DOMAIN.bend",
@@ -3394,7 +3478,8 @@
       "features/compaction/MODEL.bend",
       "bendlib/component.bend",
       "harness/MODEL.bend",
-      "harness/DOMAIN.bend"
+      "harness/DOMAIN.bend",
+      "features/remote/MODEL.bend"
     ],
     "features/worktree/PROOF.bend": [
       "features/worktree/MODEL.bend",
@@ -3680,6 +3765,22 @@
         "interaction/experience/ACTIVITY.bend",
         "interaction/experience/CONTRACT.bend",
         "interaction/experience/PROOF.bend"
+      ]
+    },
+    {
+      "module": "features/remote/MODEL.bend",
+      "constructors": [
+        "State",
+        "Grant",
+        "Receipt"
+      ],
+      "owners": [
+        "features/remote/MODEL.bend",
+        "features/remote/SPEC.bend",
+        "features/remote/PROGRAM.bend",
+        "features/remote/PROOF.bend",
+        "features/remote/CONTRACT.bend",
+        "features/remote/CODEC.bend"
       ]
     }
   ],

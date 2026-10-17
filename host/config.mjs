@@ -25,7 +25,7 @@ export function configurationFilename(config) {
 function urlObservation(value) {
   try {
     const url = new URL(value);
-    return Object.fromEntries(['href', 'protocol', 'hostname', 'username', 'password', 'hash', 'pathname', 'search', 'origin'].map(key => [key, url[key]]));
+    return Object.fromEntries(['href', 'protocol', 'hostname', 'port', 'username', 'password', 'hash', 'pathname', 'search', 'origin'].map(key => [key, url[key]]));
   } catch { return null; }
 }
 
@@ -80,6 +80,10 @@ export function validateConfig(value) {
   config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
+  config.remote = profileBoundary('config.remote', {
+    remote: value.remote === undefined ? false : value.remote,
+    endpoint_observation: urlObservation(value.remote?.relay_url),
+  });
   observer.execute('config.configuration_transport', {
     transport: Object.fromEntries(['host', 'port', 'max_fork', 'max_descendants', 'profiles',
       ...contextSettings().map(definition => definition.observer.setting)].map(key =>

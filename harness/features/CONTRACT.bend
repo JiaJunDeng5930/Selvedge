@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/CONTRACT.bend as Remote
 import ../../features/compaction/CONTRACT.bend as Compaction
 import ../../features/board/CONTRACT.bend as Board
 import ../../features/chatgpt/CONTRACT.bend as ChatGPT
@@ -17,6 +18,7 @@ import ../../features/chatgpt/MODEL.bend as ChatGPTModel
 import ../../features/compaction/MODEL.bend as CompactionModel
 import ../../features/task_graph/MODEL.bend as TaskGraphModel
 import ../../features/worktree/MODEL.bend as WorktreeModel
+import ../../features/remote/MODEL.bend as RemoteModel
 
 type TaskGraphStorage is Type:
   TaskGraphStorage{
@@ -30,6 +32,8 @@ type TaskGraphStorage is Type:
       {F.compaction(F.with_task_graph(value, state)) == F.compaction(state) : CompactionModel.State},
     worktree: @value:TaskGraphModel.State -> @+state:F.State() ->
       {F.worktree(F.with_task_graph(value, state)) == F.worktree(state) : WorktreeModel.State},
+    remote: @value:TaskGraphModel.State -> @+state:F.State() ->
+      {F.remote(F.with_task_graph(value, state)) == F.remote(state) : RemoteModel.State},
     remainder: @value:TaskGraphModel.State -> @+state:F.State() ->
       {F.rest(F.with_task_graph(value, state)) == F.rest(state) : F.Rest()},
     core: @value:TaskGraphModel.State -> @+world:M.World() ->
@@ -48,6 +52,8 @@ type WorktreeStorage is Type:
       {F.task_graph(F.with_worktree(value, state)) == F.task_graph(state) : TaskGraphModel.State},
     compaction: @value:WorktreeModel.State -> @+state:F.State() ->
       {F.compaction(F.with_worktree(value, state)) == F.compaction(state) : CompactionModel.State},
+    remote: @value:WorktreeModel.State -> @+state:F.State() ->
+      {F.remote(F.with_worktree(value, state)) == F.remote(state) : RemoteModel.State},
     remainder: @value:WorktreeModel.State -> @+state:F.State() ->
       {F.rest(F.with_worktree(value, state)) == F.rest(state) : F.Rest()},
     core: @value:WorktreeModel.State -> @+world:M.World() ->
@@ -122,4 +128,4 @@ type WorktreeSharing is Type:
 # Feature-specific guarantees are assembled without extending every consumer
 # of the root harness interface.
 type Features is Type:
-  Features{board: Board.BoardBoundary, chatgpt: ChatGPT.Boundary, task_graph: TaskGraph.RegistryBoundary, task_graph_storage: TaskGraphStorage, compaction: Compaction.Boundary, worktree_storage: WorktreeStorage, worktree_registry: Worktree.Boundary, worktree_initialization: WorktreeInitialization, worktree_sharing: WorktreeSharing}
+  Features{remote: Remote.Boundary, board: Board.BoardBoundary, chatgpt: ChatGPT.Boundary, task_graph: TaskGraph.RegistryBoundary, task_graph_storage: TaskGraphStorage, compaction: Compaction.Boundary, worktree_storage: WorktreeStorage, worktree_registry: Worktree.Boundary, worktree_initialization: WorktreeInitialization, worktree_sharing: WorktreeSharing}

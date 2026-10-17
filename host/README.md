@@ -9,6 +9,12 @@ SQLite before publishing replies, world snapshots or starting effects. A failed
 commit terminates the kernel; committed inputs replay through the same Bend
 transition at the next start.
 
+`remote-control.mjs` manages local installation credentials and owner-approved
+device pairing. `remote-connector.mjs` connects outbound to the Cloudflare relay;
+its command path keeps the original intent separate from workspace observations
+and commits the native command with its retained receipt. Closing a transport
+leaves the Service and its tasks running. See [remote setup](../docs/remote-control.md).
+
 Pure host semantics belong to [adapters](adapters/README.md), whose domain
 modules construct results from the complete JSON source and consume the resulting
 category membership. [MODEL.bend](adapters/MODEL.bend) supplies the shared
@@ -167,7 +173,7 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-Format 3 is independent of build provenance. Persisted formats are not migrated;
+Format 6 is independent of build provenance. Persisted formats are not migrated;
 unknown formats and incompatible decisions fail without altering the journal. Existing execution plans retain
 their meaning after a restart in another launch directory. No workspace migration
 or global directory binding is involved. Different operations and service homes

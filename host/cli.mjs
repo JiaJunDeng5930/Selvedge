@@ -2,12 +2,14 @@
 import { readFile, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadConfig, homeDirectory, defaultConfig } from './config.mjs';
+import { loadConfig, homeDirectory, defaultConfig, validateConfig } from './config.mjs';
 import { login } from './chatgpt-account.mjs';
 import { loginAccount, discoverAccount, withAccountModels } from './chatgpt-models.mjs';
 import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
 import { parseJson, stringifyJson } from './codec.mjs';
+import { writeAtomic } from './files.mjs';
+import { provisionRemote } from './remote-control.mjs';
 
 function parseOptions(args) {
   const values = [];
@@ -40,6 +42,65 @@ export function commandArguments(spec, args) {
     result[name] = property.type === 'string' ? args[i + 1] : parseJson(args[i + 1]);
   }
   return result;
+}
+
+function remoteArguments(args, required) {
+  const result = {};
+  for (let index = 0; index < args.length; index += 2) {
+    const option = args[index];
+    const name = option?.startsWith('--') ? option.slice(2).replaceAll('-', '_') : '';
+    if (!required.includes(name) || Object.hasOwn(result, name) || args[index + 1] === undefined) {
+      throw new Error('Remote arguments must be the required --name value pairs');
+    }
+    result[name] = name === 'permissions' ? parseJson(args[index + 1]) : args[index + 1];
+  }
+  if (required.some(name => !Object.hasOwn(result, name))) {
+    throw new Error(`Remote command requires ${required.map(name => `--${name.replaceAll('_', '-')}`).join(', ')}`);
+  }
+  return result;
+}
+
+async function remoteCommand(global, args) {
+  const [operation, ...rest] = args;
+  if (operation === 'init') {
+    const { relay_url } = remoteArguments(rest, ['relay_url']);
+    const enrollmentToken = process.env.SELVEDGE_RELAY_ENROLLMENT_TOKEN;
+    if (!enrollmentToken) throw new Error('Set SELVEDGE_RELAY_ENROLLMENT_TOKEN before remote init; credentials are not accepted as command arguments');
+    const settings = await loadConfig(global);
+    let raw;
+    try { raw = JSON.parse(await readFile(settings.filename, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; raw = structuredClone(defaultConfig); }
+    const proposed = { ...raw, remote: { relay_url } };
+    const remote = validateConfig(proposed).remote;
+    const result = await provisionRemote({ home: settings.home, relayUrl: remote.relay_url, enrollmentToken });
+    await writeAtomic(settings.filename, { ...raw, remote });
+    console.log(stringifyJson({ ok: true, result, restart_required: true }));
+    console.error('Remote relay configured. Restart the local server, then run remote enable.');
+    return;
+  }
+  let body;
+  switch (operation) {
+    case 'status': case 'pending':
+      remoteArguments(rest, []);
+      break;
+    case 'enable': case 'disable': case 'pair':
+      body = remoteArguments(rest, []);
+      break;
+    case 'approve':
+      body = remoteArguments(rest, ['request_id', 'permissions']);
+      break;
+    case 'revoke':
+      body = remoteArguments(rest, ['controller_id']);
+      break;
+    default: throw new Error('Usage: remote init --relay-url URL | status | enable | disable | pair | pending | approve --request-id ID --permissions JSON | revoke --controller-id ID');
+  }
+  const local = await connection(global.home);
+  const response = await requestJson(`${local.address}/api/remote/${operation}`, {
+    method: body === undefined ? 'GET' : 'POST', body,
+    headers: { authorization: `Bearer ${local.token}` },
+  });
+  console.log(stringifyJson(response.value));
+  if (!response.ok || !response.value?.ok) process.exitCode = 1;
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -113,8 +174,12 @@ export async function main(args = process.argv.slice(2)) {
     for (const [key, profile] of Object.entries(result.config.profiles)) console.log(`${key}\t${profile.provider}\t${profile.model}`);
     return;
   }
+  if (operation === 'remote') {
+    await remoteCommand(global, rest);
+    return;
+  }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
+    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
     return;
   }
   const local = await connection(global.home);

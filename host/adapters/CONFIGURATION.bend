@@ -286,6 +286,33 @@ def config_compaction_runtime(+source: J.Json) -> J.Json:
   +settings: J.Json = J.Object{[J.Field{"config", config}, J.Field{"profiles", J.get(config, "profiles")}]}
   compact_runtime_checked(compact_threshold_requirements(settings) && compact_target_requirements(settings) && compact_runtime_references(J.items(J.get(J.get(config, "compaction"), "targets")), J.get(config, "profiles")), source)
 
+# URL parsing is an external observation. Admission owns the public transport
+# boundary; private host credentials never enter configuration or this source.
+def remote_origin_requirements(+source: J.Json) -> Bool:
+  +endpoint = J.get(source, "endpoint_observation")
+  String.eq(J.text(J.get(endpoint, "protocol")), "https:") &&
+    String.eq(J.text(J.get(endpoint, "port")), "") &&
+    Bool.not(String.is_empty(J.text(J.get(endpoint, "hostname")))) &&
+    String.eq(J.text(J.get(endpoint, "username")), "") && String.eq(J.text(J.get(endpoint, "password")), "") &&
+    String.eq(J.text(J.get(endpoint, "pathname")), "/") && String.eq(J.text(J.get(endpoint, "search")), "") &&
+    String.eq(J.text(J.get(endpoint, "hash")), "")
+def remote_configuration_requirements(+source: J.Json) -> Bool:
+  +remote = J.get(source, "remote")
+  compact_object(remote, ["relay_url"]) && compact_has(remote, "relay_url") &&
+    Bool.not(String.is_empty(J.text(J.get(remote, "relay_url")))) && remote_origin_requirements(source)
+def remote_configuration_projection(+source: J.Json) -> J.Json:
+  Model.success(J.Object{[J.Field{"relay_url", J.get(J.get(source, "endpoint_observation"), "origin")}]})
+def remote_configuration_admitted(member: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (candidate => remote_configuration_requirements(candidate)))>>) -> J.Json:
+  match member:
+    case None{}: Model.failure_code("TypeError", "remote requires only relay_url: an HTTPS origin on TCP 443 without credentials, path, query or fragment")
+    case Some{member}: remote_configuration_projection(Categories.value(J.Json, Categories.holds(J.Json, (candidate => remote_configuration_requirements(candidate))), member))
+def remote_configuration_checked(disabled: Bool, +source: J.Json) -> J.Json:
+  match disabled:
+    case True{}: Model.success(J.Boolean{False{}})
+    case False{}: remote_configuration_admitted(Categories.admit(J.Json, (candidate => remote_configuration_requirements(candidate)), source))
+def config_remote(+source: J.Json) -> J.Json:
+  remote_configuration_checked(J.same(J.get(source, "remote"), J.Boolean{False{}}), source)
+
 def configured_instruction(instructions: D.InitialInstructions) -> String:
   D.InitialInstructions{configured, global} = instructions
   configured
@@ -294,7 +321,7 @@ def configured_default() -> String:
   configured_instruction(D.default_instructions())
 
 def config_base_defaults(+source: J.Json) -> J.Json:
-  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}, J.Field{"compaction", compact_defaults()}]}
+  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}, J.Field{"remote", J.Boolean{False{}}}, J.Field{"compaction", compact_defaults()}]}
 def config_context_definitions() -> J.Json:
   Context.definitions_json(ContextKinds.definitions())
 def config_context_observer(+definition: J.Json) -> J.Json:
@@ -352,7 +379,7 @@ def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
 def config_configuration_head(+source: J.Json) -> J.Json:
   +value = J.get(source, "value")
   config_guard(config_kind(value, "object"), config_failure("configuration must be an object"),
-    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin", "compaction"])), value))
+    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin", "remote", "compaction"])), value))
 def config_context_transport_value_case(text: Bool, +value: J.Json, +observation: J.Json) -> Bool:
   match text:
     case True{}: config_kind(value, "string") && J.boolean(J.get(observation, "well_formed")) && Model.nonnegative_le(J.get(observation, "bytes"), Nat.show(D.project_limit()))
@@ -639,8 +666,12 @@ def config_meaning_context_definitions(accepted: Bool, +operation: String, +sour
   match accepted:
     case True{}: Model.success(config_context_definitions())
     case False{}: config_compaction_route(String.eq(operation, "config.compaction"), operation, source)
+def config_meaning_remote(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: config_remote(source)
+    case False{}: config_meaning_context_definitions(String.eq(operation, "config.context_definitions"), operation, source)
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  config_meaning_context_definitions(String.eq(operation, "config.context_definitions"), operation, source)
+  config_meaning_remote(String.eq(operation, "config.remote"), operation, source)
 def factory(+operation: String) -> Model.Adapter((source => meaning(operation, source))):
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})
 def run(+operation: String, source: J.Json) -> J.Json:

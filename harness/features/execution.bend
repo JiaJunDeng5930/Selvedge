@@ -1,4 +1,5 @@
 import Base
+import ./remote.bend as RemoteState
 import ./worktree-execution.bend as WorktreeExec
 import ../../features/compaction/PROGRAM.bend as Compaction
 import ../../bendlib/categories.bend as Categories
@@ -18,6 +19,7 @@ import ./graph-execution.bend as TaskGraph
 
 def operation_calculation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeExec.start(~spawn, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeExec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
