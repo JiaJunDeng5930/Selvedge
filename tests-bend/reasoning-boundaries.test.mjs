@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Kernel } from '../host/kernel.mjs';
 import { providerInput, responseBody } from '../host/providers.mjs';
+import { settleContextObservations } from './support.mjs';
 
 const policy = (transport = 'configuration_update', extra = {}) => ({ evaluator: 'separate-evaluator',
   efforts: ['low', 'medium', 'high'], baseline: 'medium', transport, max_lease: 10, ...extra });
@@ -17,7 +18,8 @@ async function kernel(t, adaptive = policy()) {
   const k = new Kernel({ timeout: 5000 });
   t.after(() => k.close());
   await k.initialize();
-  const send = async input => (await k.request(input)).value;
+  const raw = async input => (await k.request(input)).value;
+  const send = async input => settleContextObservations(raw, await raw(input));
   const command = command => send({ kind: 'command', command });
   const configured = await send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [
     { key: 'fixed', provider: 'responses', name: 'ordinary-model', reasoning_options: null }, profile(adaptive),

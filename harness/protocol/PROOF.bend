@@ -3,6 +3,7 @@ import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../features/compaction/SPEC.bend as CompactionSpec
 import ../../bendlib/categories.bend as Categories
 import ../features/laws.bend as FeatureLaws
+import ../features/MODEL.bend as Features
 import ../features/execution.bend as FeatureExec
 import ../features/SPEC.bend as FeatureSpec
 import ../../bendlib/component.bend as C
@@ -123,7 +124,7 @@ def Laws.operation_semantics(operation, world):
       +parent = D.append_message(D.FunctionCall{call}, task)
       branch_commit_semantics(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages),
         call, parent, C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board})
-    case Commands.Summarize{task} _: CompactionProof.meaning(CompactionSpec.manual(task, world), world)
+    case Commands.Summarize{task} _: ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{}, world)
     case Commands.Checkpoint{task, summary} _: CompactionProof.meaning(CompactionSpec.supplied(summary, task, world), world)
     case Commands.Observe{+query} _:
       Equal.cong(J.Json, M.Decision(), (reply => C.Decision{world, reply, Nil{}}),
@@ -154,12 +155,27 @@ def model_result_semantics(+task: D.Task, +outcome: D.Outcome, +allowed: +List<S
             (outputs => FeatureSpec.react_outputs(~Commands.output_send, source, outputs, stored)),
             T.reply_outputs(outcome), TaskRequirements.reply_outputs(outcome), TaskProof.reply_outputs_meaning(outcome))))
 
+def context_result_semantics(waiting: Bool, +task: D.Task, +revision: Nat, +purpose: D.ContextPurpose,
+  +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +world: M.World()) ->
+  {P.context_result_calculation(waiting, task, revision, purpose, outcome, world) ==
+    Protocol.context_result_calculation(waiting, task, revision, purpose, outcome, world) : M.Decision()}:
+  match waiting:
+    case True{}: {==}
+    case False{}:
+      Equal.cong(M.Decision(), M.Decision(),
+        (decision => Protocol.context_followup(Protocol.context_compaction(purpose, revision, task), D.task_id(task), decision)),
+        ActualReasoning.context_completed(Features.State(), Features.Effect, revision, purpose, outcome, task, world),
+        RequiredReasoning.context_completed(Features.State(), Features.Effect, revision, purpose, outcome, task, world),
+        ReasoningProof.context_completed_meaning(Features.State(), Features.Effect, revision, purpose, outcome, task, world))
+
 def Laws.event_semantics(event, world):
   match event world:
     case Protocol.FeatureEvent{event} _: FeatureLaws.event(event, world)
     case Protocol.User{operation} _: Laws.operation_semantics(operation, world)
     case Protocol.Ignore{} _: {==}
     case Protocol.Review{resolution} _: Laws.review_semantics(resolution, world)
+    case Protocol.ContextResult{+task, +revision, +purpose, +outcome} _:
+      context_result_semantics(Protocol.context_waits(revision, purpose, outcome, task, world), task, revision, purpose, outcome, world)
     case Protocol.ModelResult{task, outcome, allowed} _: model_result_semantics(task, outcome, allowed, world)
     case Protocol.ReasoningResult{+task, +revision, +outcome} _:
       Equal.cong(D.Task, M.Decision(), (next => C.Decision{

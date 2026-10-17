@@ -215,6 +215,15 @@ def Laws.tool_dispatch(board, tool, call, remaining, task, state):
   D.State{tasks, next_task, ticket, environment, limits, projects} = state
   {==}
 
+def Laws.full_history_dispatch(task, world):
+  {==}
+
+def Laws.model_has_no_context_preflight(task, world):
+  {==}
+
+def Laws.summary_context_observation(task, world):
+  ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{}, world)
+
 # Stable operation identity is the association-list key. The project proves
 # only the value adapter; deletion absence is the original ExtLib theorem.
 

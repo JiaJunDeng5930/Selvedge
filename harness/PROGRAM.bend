@@ -118,7 +118,7 @@ def commit_fork(built: Commands.Children, call: D.Call, remaining: +List<D.Attem
         J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]})
 
 def summary_request(task: D.Task, world: M.World()) -> M.Decision():
-  Compaction.manual(task, world)
+  Reasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world)
 
 def execute_checkpoint(summary: String, task: D.Task, world: M.World()) -> M.Decision():
   Compaction.supplied(summary, task, world)
@@ -200,10 +200,20 @@ def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Boo
 def recover_tasks(tasks: +List<D.Task>) -> +List<D.Task>:
   Protocol.recovery(tasks)
 
-def realize_event_calculation(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision():
+def context_result_calculation(waiting: Bool, +task: D.Task, +revision: Nat, +purpose: D.ContextPurpose,
+  outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, world: M.World()) -> M.Decision():
+  match waiting:
+    case True{}: Protocol.context_wait(outcome, task, world)
+    case False{}:
+      Protocol.context_followup(Protocol.context_compaction(purpose, revision, task), D.task_id(task),
+        Reasoning.context_completed(F.State(), F.Effect, revision, purpose, outcome, task, world))
+
+def realize_event_calculation(event: Protocol.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
     case Protocol.User{operation}: realize_calculation(operation, world)
     case Protocol.Ignore{}: respond(world, accepted(False{}))
+    case Protocol.ContextResult{+task, +revision, +purpose, +outcome}:
+      context_result_calculation(Protocol.context_waits(revision, purpose, outcome, task, world), task, revision, purpose, outcome, world)
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
     case Protocol.ReasoningResult{task, revision, outcome}:
       respond(store(Reasoning.complete(revision, outcome, task), world), accepted(True{}))

@@ -4,7 +4,7 @@ import ../conversation/CODEC.bend as Codec
 import ../conversation/PROGRAM.bend as Content
 import ../../bendlib/json.bend as J
 import ../../bendlib/equality.bend as Same
-import ./MODEL.bend as Spec
+import ./selection.bend as Spec
 
 def has_output(history: D.History, +id: String) -> Bool:
   match history:

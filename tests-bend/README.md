@@ -17,6 +17,9 @@ or rejection of source code, proofs or certificates.
 | Component extensions with unrelated source and clients frozen; actual native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
 | Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; JavaScript source and configuration boundary checks |
 | Bend-generated JavaScript, Worker and codec transport: Unicode, embedded controls, exact numeric lexemes and malformed completion envelopes | `kernel-boundaries.test.mjs` |
+| Committed instruction/guidance deltas, Unicode edits, source withdrawal versus read failure, fork/compaction/restart and Responses/Web continuation payloads | `context-deltas.test.mjs`, `project-context.test.mjs`; loopback HTTP and SQLite |
+| Explicit skill metadata files, bounded nofollow observations, live context configuration and unloaded skill body isolation | `context-sources.test.mjs`; real temporary files and generated host boundary |
+| New text and arbitrary-field metadata definitions with generic sources, context selection and proofs frozen; compiled observation, committed deltas and provider rendering | `context-definitions.test.mjs`; compiled kernel extension and real temporary files |
 | Pending approval decoder rejects extra authority fields, absent reasons, invalid decisions and oversized reasons | `approval-decoding.test.mjs` |
 | HTTP approval, SQLite grants and actual subprocess authorization, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs`, `fixtures/approved-tool.mjs`; the child checks its committed grant before writing outside the workspace |
 | Actual adaptive history through providerInput/responseBody: complete history prefixes, recorded reasoning changes, audit encoding and request effort; nested private continuation projection | `reasoning-boundaries.test.mjs` |
@@ -73,8 +76,9 @@ requirements.
 ## CI scope
 
 `bun run test:ci` builds the production JavaScript libraries and runs regular
-integration tests on Linux. Only `locality.test.mjs` is deferred to `bun run test`
-and the pre-push hook because it includes native extension builds. Production
+integration tests on Linux. `locality.test.mjs` and `context-definitions.test.mjs`
+are deferred to `bun run test` and the pre-push hook because they include extension
+compiler workloads. Production
 proofs and certificate checks still run in every PR. The workflow's manual `full`
 input runs the complete suite on Linux and macOS once the workflow is present on
 the default branch.

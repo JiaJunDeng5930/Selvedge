@@ -1,5 +1,5 @@
 import Base
-import ../../harness/context/PROOF.bend as ContextProof
+import ../../harness/context/selection-proof.bend as ContextProof
 import ../../harness/compaction/PROOF.bend as BoundedProof
 import ./MODEL.bend as A
 import ./STATE.bend as State

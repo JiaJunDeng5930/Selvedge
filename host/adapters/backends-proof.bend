@@ -70,3 +70,11 @@ def B.approval_record_input_success():
   message => profile => {==}
 def B.approval_record_input_data():
   message => profile => {==}
+
+
+def B.context_change_input_encoding():
+  message => profile => {==}
+def B.context_amendment_patch_encoding():
+  key => base_revision => revision => patch => {==}
+def B.context_removal_encoding():
+  key => base_revision => {==}

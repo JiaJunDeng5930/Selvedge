@@ -20,6 +20,7 @@
     "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs"
   },
   "dependencies": {
+    "diff": "9.0.0",
     "gpt-tokenizer": "4.0.0",
     "openid-client": "6.8.8"
   },

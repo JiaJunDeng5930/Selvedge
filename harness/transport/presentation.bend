@@ -1,4 +1,6 @@
 import Base
+import ../context/MODEL.bend as Context
+import ../context/KINDS.bend as ContextKinds
 import ../features/CODEC.bend as FeatureCodec
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as Component
@@ -9,8 +11,8 @@ import ../../bendlib/json.bend as J
 import ../tasks/PROGRAM.bend as T
 import ../reasoning/context.bend as ReasoningContext
 import ../reasoning/view.bend as ReasoningView
-import ../context/PROGRAM.bend as Context
-import ../context/MODEL.bend as ContextModel
+import ../context/PROGRAM.bend as Selection
+import ../context/selection.bend as SelectionModel
 import ./model-json.bend as ModelJSON
 
 def model_json(model: D.Model) -> J.Json:
@@ -43,13 +45,13 @@ def notices(items: +List<D.Notice>) -> +List<J.Json>:
 # windows before encoding, while retaining suffix receipts for authorization.
 def model_history(selected: Bool, +history: D.History, scope: String) -> +List<J.Json>:
   match selected:
-    case True{}: Context.target_messages(Context.history_json(history), scope)
-    case False{}: Context.portable_messages(Context.history_json(history))
+    case True{}: Selection.target_messages(Selection.history_json(history), scope)
+    case False{}: Selection.portable_messages(Selection.history_json(history))
 
 def model_replacement_source(selected: Bool, history: D.History, scope: String) -> Maybe<&2, Nat>:
   match selected:
-    case True{}: Context.replacement_source(Context.latest(Context.history_json(history), scope, 0n, ContextModel.Original{}))
-    case False{}: Context.replacement_source(Context.latest(Context.history_json(history), "", 0n, ContextModel.Original{}))
+    case True{}: Selection.replacement_source(Selection.latest(Selection.history_json(history), scope, 0n, SelectionModel.Original{}))
+    case False{}: Selection.replacement_source(Selection.latest(Selection.history_json(history), "", 0n, SelectionModel.Original{}))
 
 def effect(effect: M.Effect()) -> J.Json:
   match effect:
@@ -61,6 +63,9 @@ def effect(effect: M.Effect()) -> J.Json:
       J.Object{[J.Field{"kind", J.Text{"after_hook"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"operation_id", J.nat(operation)}, J.Field{"plugin", D.plugin_json(plugin)}, J.Field{"call", T.call_json(call)},
         J.Field{"value", value}, J.Field{"error", J.Boolean{error}}]}
+    case Effects.ObserveContext{task_id, ticket, history, context}:
+      J.Object{[J.Field{"kind", J.Text{"observe_context"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"settings", D.task_context_json(context)}, J.Field{"definitions", Context.definitions_json(ContextKinds.definitions())}, J.Field{"bindings", Context.snapshots_json(D.context_bindings(history))}]}
     case Effects.RequestModel{+task_id, ticket, +model, +history, tools, callable, context, +scope, +reserve}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},

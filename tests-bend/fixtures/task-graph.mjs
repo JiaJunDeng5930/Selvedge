@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Journal } from '../../host/journal.mjs';
+import { settleContextObservations } from '../support.mjs';
 
 export const environment = {
   kind: 'configure', instructions: { configured: 'Task graph fixture', global: null },
@@ -27,11 +28,12 @@ export async function journalFixture(t) {
   let journal = await Journal.open(filename);
   t.after(async () => { await journal.close(); await rm(directory, { recursive: true, force: true }); });
   assert.equal((await journal.execute(environment)).reply.ok, true);
+  const send = async input => settleContextObservations(value => journal.execute(value), await journal.execute(input));
   return {
     filename,
     get journal() { return journal; },
-    send: input => journal.execute(input),
-    command: body => journal.execute(command(body)),
+    send,
+    command: body => send(command(body)),
     async reopen() { await journal.close(); journal = await Journal.open(filename); return journal; },
   };
 }

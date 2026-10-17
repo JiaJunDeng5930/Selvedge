@@ -14,13 +14,15 @@ import { defaultConfig, validateConfig, profileCatalog } from '../host/config.mj
 import { Service } from '../host/service.mjs';
 import { home, taskIdle } from './support.mjs';
 import { webServer, answer, call } from './fixtures/chatgpt-web.mjs';
+import { configuredContext, projectContext } from './fixtures/context.mjs';
 
 const limits = { frame_bytes: 1024 * 1024, approval_reason_bytes: 400,
   model_retry: { delays_ms: [1, 2], statuses: [429, 500, 502, 503, 504], max_retry_after_ms: 1000 } };
 const tool = { name: 'work', description: 'A fixture function', parameters: { type: 'object', properties: { path: { type: 'string' } } } };
 const baseEffect = () => ({ kind: 'model', task_id: 0, ticket: 1,
   model: { profile: 'web', provider: 'chatgpt-web', name: 'chatgpt-web/high', reasoning: 'medium' },
-  history: [{ role: 'task_context', type: 'instruction', source: 'configured', content: 'Follow the user.' }, { role: 'user', content: 'first question' }], tools: [tool], callable: ['work'], settings: { workspace: '/fixture' } });
+  history: [configuredContext('Follow the user.'), { role: 'user', content: 'first question' }],
+  tools: [tool], callable: ['work'], settings: { workspace: '/fixture' } });
 
 function append(history, items) {
   return [...history, ...items.map(item => item.type === 'text' ? { role: 'assistant', content: item.text } :
@@ -59,14 +61,14 @@ test('root requests use named snapshots and retain only authoritative output plu
   const f = await fixture(t, async body => {
     assert.equal(body.model, 'chatgpt-web/high');
     assert.ok(!body.instructions);
-    assert.equal(body.input[0].content, 'Follow the user.');
+    assert.equal(body.input[0].content, 'Committed context object introduced.\nContext: {"type":"configured_instruction","identity":{"origin":"configured"}}\nInstructions configured for this task.\nApplies to: global\nField: content\nFollow the user.\n');
     assert.equal(body.input[0].role, 'developer');
     assert.ok(JSON.stringify(body.input).includes('project data'));
     assert.equal(body.input.at(-1).content, 'first question');
     assert.deepEqual(body.tools, [{ type: 'function', ...tool }]);
     return { output: answer('final 😀'), snapshots: ['provisional longer text', 'short', 'corrected 😀'] };
   });
-  const effect = baseEffect(); effect.history.splice(1, 0, { role: 'task_context', type: 'project', content: { workspace: '/fixture', instructions: 'project data', revision: 'a'.repeat(64) } });
+  const effect = baseEffect(); effect.history.splice(1, 0, projectContext('/fixture', 'a'.repeat(64), 'project data'));
   const snapshots = [];
   const items = await f.run(effect, { onSnapshot: (text, index) => snapshots.push([text, index]), onDelta: () => assert.fail('snapshots are not deltas') });
   assert.deepEqual(snapshots, [['provisional longer text', 0], ['short', 0], ['corrected 😀', 0], ['final 😀', 0]]);
@@ -227,7 +229,7 @@ test('connection and contract changes cannot consume a retained predecessor', as
   const f = await fixture(t, async () => ({ output: answer('done') }));
   const root = baseEffect(); const first = await f.run(root);
   const next = { ...root, ticket: 2, history: [...append(root.history, first), { role: 'user', content: 'next' }] };
-  const altered = structuredClone(next); altered.history[0].content = 'changed configured instruction';
+  const altered = structuredClone(next); altered.history[0].change.snapshot.value.fields.content = 'changed configured instruction';
   await assert.rejects(f.run(altered), /prefix|contract changed|history no longer matches/);
   const alien = structuredClone(next); alien.history.find(item => item.role === 'model_context' && item.content.type === 'provider_receipt').content.store_id = 'different-home';
   await assert.rejects(f.run(alien), /connection or contract changed/);
@@ -474,7 +476,7 @@ test('receipt input coverage preserves arrivals committed before the model reply
   const next = { ...root, ticket: 2, history: append([...root.history, arriving], first) };
   await f.run(next);
   assert.equal(f.requests[1].body.input.filter(item => item.content?.includes('arrived during HTTP')).length, 1);
-  const changed = structuredClone(next); changed.history[0].content = 'mutated committed history';
+  const changed = structuredClone(next); changed.history[0].change.snapshot.value.fields.content = 'mutated committed history';
   await assert.rejects(f.run(changed), /history no longer matches/);
   assert.equal(f.requests.length, 2);
 });

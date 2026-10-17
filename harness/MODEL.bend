@@ -149,6 +149,7 @@ def description() -> J.Json:
 
 type Input is Data:
   UserCommand{command: Command}
+  ContextObserved{task_id: Nat, ticket: Nat, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: D.Outcome}
   ReasoningCompleted{task_id: Nat, ticket: Nat, outcome: Reasoning.Outcome}
   FeatureCompleted{completion: F.Completion}

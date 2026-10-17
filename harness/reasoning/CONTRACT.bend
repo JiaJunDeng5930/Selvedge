@@ -6,6 +6,7 @@ import ./MODEL.bend as R
 import ../../bendlib/json.bend as J
 import ../tasks/PROGRAM.bend as T
 import ./context.bend as Context
+import ../context/MODEL.bend as Tracked
 import ./PROGRAM.bend as Actual
 import ./SPEC.bend as Spec
 import ../protocol/PROGRAM.bend as Protocol
@@ -92,7 +93,9 @@ type ReasoningBoundary is Type:
     public_tool_result: @+id:String -> @+value:J.Json -> @+error:Bool -> @+tail:+List<J.Json> ->
       {Context.public_message(D.FunctionOutput{id, value, error}, tail) ==
         (J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},
-          J.Field{"content", Context.public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> tail) : +List<J.Json>}
+          J.Field{"content", Context.public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> tail) : +List<J.Json>},
+    tracked_context: @history:D.History -> @change:Tracked.Change -> @owner:Nat ->
+      {Context.lease(D.HistoryNode{history, D.ContextMessage{D.ContextChange{change}}}, owner) == R.NoLease{} : R.Lease}
   }
 
 law reasoning_boundary:

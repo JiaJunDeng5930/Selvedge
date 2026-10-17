@@ -1,168 +1,67 @@
 import Base
+import ./MODEL.bend as C
+import ./CONTRACT.bend as Spec
 import ../DOMAIN.bend as D
 import ../../bendlib/json.bend as J
-import ../../bendlib/stdlib.bend as Std
-import ./MODEL.bend as Spec
-import ./PROGRAM.bend as Actual
+import ./patch-proof.bend as Patch
+import ./constructor-proof.bend as Constructor
 
-def empty_source_has_no_open_calls(history: D.History) ->
-  {Actual.settled_calls(D.EmptyHistory{}, history) == True{} : Bool}:
+# Production history is retained verbatim. Replacement windows are additional
+# records and cannot change source values reconstructed from that history.
+def append(+context: D.HistoryContext, +task: D.Task) ->
+  {D.task_history(D.append_context(context, task)) == D.HistoryNode{D.task_history(task), D.ContextMessage{context}} : D.History}:
+  match task:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+
+def replacement_bindings(+history: D.History, value: J.Json) ->
+  {D.context_bindings(D.HistoryNode{history, D.ContextReplacement{value}}) == D.context_bindings(history) : +List<C.Snapshot>}:
   {==}
 
-def captured_call_requires_its_output(+history: D.History, +whole: D.History, +id: String, name: String, arguments: J.Json) ->
-  {Actual.settled_calls(D.HistoryNode{history, D.FunctionCall{D.Call{id, name, arguments}}}, whole) ==
-    (Actual.has_output(whole, id) && Actual.settled_calls(history, whole)) : Bool}:
+def context_reconstruction(+history: D.History, +change: C.Change) ->
+  {D.context_bindings(D.HistoryNode{history, D.ContextMessage{D.ContextChange{change}}}) == C.apply_change(change, D.context_bindings(history)) : +List<C.Snapshot>}:
   {==}
 
-def unresolved_call_cannot_enter_source(+history: D.History, +whole: D.History, +id: String, name: String, arguments: J.Json,
-  missing: {Actual.has_output(whole, id) == False{} : Bool}) ->
-  {Actual.settled_calls(D.HistoryNode{history, D.FunctionCall{D.Call{id, name, arguments}}}, whole) == False{} : Bool}:
-  Equal.cong(Bool, Bool, present => present && Actual.settled_calls(history, whole), Actual.has_output(whole, id), False{}, missing)
+def diagnostic_contract(known: Bool, message: String, +task: D.Task) ->
+  {D.task_contract(D.context_diagnostic(known, message, task)) == D.task_contract(task) : D.Contract}:
+  match known task:
+    case True{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case False{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
-# A selected complete window replaces one captured prefix. In particular, no
-# record retained inside that window is independently appended from the prefix.
-def prefix_snapshot(+snapshot: +List<J.Json>, +tail: +List<J.Json>) ->
-  {Actual.prefix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)) == snapshot : +List<J.Json>}:
-  match snapshot:
+def diagnose_contract(+message: String, +task: D.Task) ->
+  {D.task_contract(D.diagnose_context(message, task)) == D.task_contract(task) : D.Contract}:
+  diagnostic_contract(D.context_failure_seen(D.task_history(task), message), message, task)
+
+def changed_contract(change: Maybe<&2, C.Change>, unchanged: Bool, +task: D.Task) ->
+  {D.task_contract(D.append_context_change(change, unchanged, task)) == D.task_contract(task) : D.Contract}:
+  match change unchanged task:
+    case Some{change} _ D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case None{} True{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case None{} False{} other: diagnose_contract("Context update rejected: invalid revision or patch for tracked source.", other)
+
+def observation_contract(observation: C.Observation, +task: D.Task) ->
+  {D.task_contract(D.apply_context_observation(observation, task)) == D.task_contract(task) : D.Contract}:
+  match observation:
+    case C.Present{+snapshot, +patch}: changed_contract(
+      C.observation_change(D.context_bindings(D.task_history(task)), C.Present{snapshot, patch}),
+      D.same_observation(C.find(D.context_bindings(D.task_history(task)), C.snapshot_key(snapshot)), snapshot), task)
+    case C.Absent{key}: changed_contract(C.observation_change(D.context_bindings(D.task_history(task)), C.Absent{key}), True{}, task)
+    case C.ObservationFailure{key, message}: diagnose_contract(String.concat(["Context source observation failed: ", message]), task)
+
+def observations_contract(+observations: +List<C.Observation>, +task: D.Task) ->
+  {D.task_contract(D.context_observations_go(observations, task)) == D.task_contract(task) : D.Contract}:
+  match observations:
     case Nil{}: {==}
-    case Con{+item, +rest}:
-      Equal.cong(+List<J.Json>, +List<J.Json>, remaining => item <> remaining,
-        Actual.prefix(List.length(&2, J.Json, rest), List.append(&2, J.Json, rest, tail)), rest,
-        prefix_snapshot(rest, tail))
+    case Con{+observation, rest}:
+      Equal.trans(D.Contract,
+        D.task_contract(D.context_observations_go(rest, D.apply_context_observation(observation, task))),
+        D.task_contract(D.apply_context_observation(observation, task)), D.task_contract(task),
+        observations_contract(rest, D.apply_context_observation(observation, task)), observation_contract(observation, task))
 
-def suffix_snapshot(+snapshot: +List<J.Json>, +tail: +List<J.Json>) ->
-  {Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)) == tail : +List<J.Json>}:
-  match snapshot:
-    case Nil{}: {==}
-    case Con{item, +rest}: suffix_snapshot(rest, tail)
+def preserved_contract(+task: D.Task, observations: +List<C.Observation>) ->
+  {D.task_contract(D.apply_context_observations(task, observations)) == D.task_contract(task) : D.Contract}:
+  observations_contract(observations, task)
 
-def replacement_keeps_exact_suffix(+snapshot: +List<J.Json>, +tail: +List<J.Json>, +items: +List<J.Json>, +scope: String) ->
-  {Actual.assemble(Spec.Replacement{List.length(&2, J.Json, snapshot), items}, List.append(&2, J.Json, snapshot, tail), scope) ==
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.scoped_messages(tail, scope))) : +List<J.Json>}:
-  Equal.trans(+List<J.Json>,
-    Actual.assemble(Spec.Replacement{List.length(&2, J.Json, snapshot), items}, List.append(&2, J.Json, snapshot, tail), scope),
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items),
-      Actual.scoped_messages(Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)), scope))),
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.scoped_messages(tail, scope))),
-    Equal.cong(+List<J.Json>, +List<J.Json>, first => List.append(&2, J.Json, Actual.fixed(first),
-      List.append(&2, J.Json, Actual.dialogue(items), Actual.scoped_messages(Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)), scope))),
-      Actual.prefix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)), snapshot, prefix_snapshot(snapshot, tail)),
-    Equal.cong(+List<J.Json>, +List<J.Json>, last => List.append(&2, J.Json, Actual.fixed(snapshot),
-      List.append(&2, J.Json, Actual.dialogue(items), Actual.scoped_messages(last, scope))),
-      Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)), tail, suffix_snapshot(snapshot, tail)))
-
-def selected_request_keeps_exact_suffix(+snapshot: +List<J.Json>, +tail: +List<J.Json>, +items: +List<J.Json>, +scope: String,
-  selected: {Actual.latest(List.append(&2, J.Json, snapshot, tail), scope, 0n, Spec.Original{}) ==
-    Spec.Replacement{List.length(&2, J.Json, snapshot), items} : Spec.Selection}) ->
-  {Actual.target_messages(List.append(&2, J.Json, snapshot, tail), scope) ==
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.scoped_messages(tail, scope))) : +List<J.Json>}:
-  Equal.trans(+List<J.Json>, Actual.target_messages(List.append(&2, J.Json, snapshot, tail), scope),
-    Actual.assemble(Spec.Replacement{List.length(&2, J.Json, snapshot), items}, List.append(&2, J.Json, snapshot, tail), scope),
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.scoped_messages(tail, scope))),
-    Equal.cong(Spec.Selection, +List<J.Json>, selection => Actual.assemble(selection, List.append(&2, J.Json, snapshot, tail), scope),
-      Actual.latest(List.append(&2, J.Json, snapshot, tail), scope, 0n, Spec.Original{}), Spec.Replacement{List.length(&2, J.Json, snapshot), items}, selected),
-    replacement_keeps_exact_suffix(snapshot, tail, items, scope))
-
-def portable_replacement_keeps_exact_suffix(+snapshot: +List<J.Json>, +tail: +List<J.Json>, +items: +List<J.Json>) ->
-  {Actual.portable_assemble(Spec.Replacement{List.length(&2, J.Json, snapshot), items}, List.append(&2, J.Json, snapshot, tail)) ==
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.retained_messages(tail))) : +List<J.Json>}:
-  Equal.trans(+List<J.Json>,
-    Actual.portable_assemble(Spec.Replacement{List.length(&2, J.Json, snapshot), items}, List.append(&2, J.Json, snapshot, tail)),
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items),
-      Actual.retained_messages(Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail))))),
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.retained_messages(tail))),
-    Equal.cong(+List<J.Json>, +List<J.Json>, first => List.append(&2, J.Json, Actual.fixed(first),
-      List.append(&2, J.Json, Actual.dialogue(items), Actual.retained_messages(Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail))))),
-      Actual.prefix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)), snapshot, prefix_snapshot(snapshot, tail)),
-    Equal.cong(+List<J.Json>, +List<J.Json>, last => List.append(&2, J.Json, Actual.fixed(snapshot),
-      List.append(&2, J.Json, Actual.dialogue(items), Actual.retained_messages(last))),
-      Actual.suffix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)), tail, suffix_snapshot(snapshot, tail)))
-
-def unmeasured_tail_keeps_native_receipt(+value: J.Json, +tail: +List<J.Json>) ->
-  {Actual.retained_messages(J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", value}]} <> tail) ==
-    J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", value}]} <> Actual.retained_messages(tail) : +List<J.Json>}:
-  {==}
-
-def selected_portable_request_keeps_exact_suffix(+snapshot: +List<J.Json>, +tail: +List<J.Json>, +items: +List<J.Json>,
-  selected: {Actual.latest(List.append(&2, J.Json, snapshot, tail), "", 0n, Spec.Original{}) ==
-    Spec.Replacement{List.length(&2, J.Json, snapshot), items} : Spec.Selection}) ->
-  {Actual.portable_messages(List.append(&2, J.Json, snapshot, tail)) ==
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.retained_messages(tail))) : +List<J.Json>}:
-  Equal.trans(+List<J.Json>, Actual.portable_messages(List.append(&2, J.Json, snapshot, tail)),
-    Actual.portable_assemble(Spec.Replacement{List.length(&2, J.Json, snapshot), items}, List.append(&2, J.Json, snapshot, tail)),
-    List.append(&2, J.Json, Actual.fixed(snapshot), List.append(&2, J.Json, Actual.dialogue(items), Actual.retained_messages(tail))),
-    Equal.cong(Spec.Selection, +List<J.Json>, selection => Actual.portable_assemble(selection, List.append(&2, J.Json, snapshot, tail)),
-      Actual.latest(List.append(&2, J.Json, snapshot, tail), "", 0n, Spec.Original{}), Spec.Replacement{List.length(&2, J.Json, snapshot), items}, selected),
-    portable_replacement_keeps_exact_suffix(snapshot, tail, items))
-
-def raw_history_composes(+first: +List<J.Json>, +second: +List<J.Json>) ->
-  {Actual.raw_messages(List.append(&2, J.Json, first, second)) ==
-    List.append(&2, J.Json, Actual.raw_messages(first), Actual.raw_messages(second)) : +List<J.Json>}:
-  match first:
-    case Nil{}: {==}
-    case Con{+message, +rest}:
-      Equal.trans(+List<J.Json>, Actual.raw_messages(List.append(&2, J.Json, message <> rest, second)),
-        List.append(&2, J.Json, Actual.readable_message(message), List.append(&2, J.Json, Actual.raw_messages(rest), Actual.raw_messages(second))),
-        List.append(&2, J.Json, Actual.raw_messages(message <> rest), Actual.raw_messages(second)),
-        Equal.cong(+List<J.Json>, +List<J.Json>, tail => List.append(&2, J.Json, Actual.readable_message(message), tail),
-          Actual.raw_messages(List.append(&2, J.Json, rest, second)), List.append(&2, J.Json, Actual.raw_messages(rest), Actual.raw_messages(second)), raw_history_composes(rest, second)),
-        Std.app_assoc(J.Json, Actual.readable_message(message), Actual.raw_messages(rest), Actual.raw_messages(second)))
-
-def raw_user_is_retained(+text: String, +tail: +List<J.Json>) ->
-  {Actual.raw_messages(J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> tail) ==
-    J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> Actual.raw_messages(tail) : +List<J.Json>}:
-  {==}
-
-def raw_replacement_is_not_a_source(+value: J.Json, +tail: +List<J.Json>) ->
-  {Actual.raw_messages(J.Object{[J.Field{"role", J.Text{"context_replacement"}}, J.Field{"content", value}]} <> tail) == Actual.raw_messages(tail) : +List<J.Json>}:
-  {==}
-
-def rejected_result_preserves_history(snapshot: D.History, candidate: J.Json, +current: D.History) ->
-  {Actual.commit(False{}, snapshot, candidate, current) == current : D.History}:
-  {==}
-
-def accepted_result_preserves_history(+snapshot: D.History, +candidate: J.Json, +current: D.History) ->
-  {Actual.commit(True{}, snapshot, candidate, current) ==
-    D.HistoryNode{current, Spec.record(D.history_length(snapshot), candidate)} : D.History}:
-  {==}
-
-def adopted_result_preserves_history(+snapshot: D.History, +candidate: J.Json, +current: D.History,
-  accepted: {Actual.adoptable(snapshot, candidate, current) == True{} : Bool}) ->
-  {Actual.adopt(snapshot, candidate, current) == D.HistoryNode{current, Spec.record(D.history_length(snapshot), candidate)} : D.History}:
-  Equal.cong(Bool, D.History, allowed => Actual.commit(allowed, snapshot, candidate, current),
-    Actual.adoptable(snapshot, candidate, current), True{}, accepted)
-
-def and_false(+value: Bool) -> {value && False{} == False{} : Bool}:
-  match value:
-    case True{}: {==}
-    case False{}: {==}
-
-def native_scope_is_checked(+scope: String, +other: String,
-  different: {String.eq(scope, other) == False{} : Bool}) ->
-  {Spec.consumes("native", scope, other) == False{} : Bool}:
-  Equal.trans(Bool, Spec.consumes("native", scope, other), Bool.not(String.eq(scope, "")) && False{}, False{},
-    Equal.cong(Bool, Bool, same => Bool.not(String.eq(scope, "")) && same, String.eq(scope, other), False{}, different),
-    and_false(Bool.not(String.eq(scope, ""))))
-
-def portable_scope_is_independent(producer: String, target: String) ->
-  {Spec.consumes("portable", producer, target) == True{} : Bool}:
-  {==}
-
-def incompatible_replacement_keeps_selection(+message: J.Json, +position: Nat, +scope: String, +previous: Spec.Selection,
-  incompatible: {Spec.compatible(J.get(message, "content"), scope) == False{} : Bool}) ->
-  {Spec.event_kind("context_replacement", message, position, scope, previous) == previous : Spec.Selection}:
-  Equal.cong(Bool, Spec.Selection, compatible => Spec.selected(compatible && Spec.source_valid(J.get(message, "content"), position), J.get(message, "content"), previous),
-    Spec.compatible(J.get(message, "content"), scope), False{}, incompatible)
-
-def actual_scan_skips_incompatible_replacement(+message: J.Json, +tail: +List<J.Json>, +position: Nat, +scope: String, +previous: Spec.Selection,
-  role: {J.text(J.get(message, "role")) == "context_replacement" : String},
-  incompatible: {Spec.compatible(J.get(message, "content"), scope) == False{} : Bool}) ->
-  {Actual.latest(message <> tail, scope, position, previous) == Actual.latest(tail, scope, 1n+position, previous) : Spec.Selection}:
-  Equal.trans(Spec.Selection, Actual.latest(message <> tail, scope, position, previous),
-    Actual.latest(tail, scope, 1n+position, Spec.event_kind("context_replacement", message, position, scope, previous)),
-    Actual.latest(tail, scope, 1n+position, previous),
-    Equal.cong(String, Spec.Selection, kind => Actual.latest(tail, scope, 1n+position, Spec.event_kind(kind, message, position, scope, previous)),
-      J.text(J.get(message, "role")), "context_replacement", role),
-    Equal.cong(Spec.Selection, Spec.Selection, selected => Actual.latest(tail, scope, 1n+position, selected),
-      Spec.event_kind("context_replacement", message, position, scope, previous), previous,
-      incompatible_replacement_keeps_selection(message, position, scope, previous, incompatible)))
+def instance() -> Spec.Evidence:
+  Spec.Evidence{append, replacement_bindings, context_reconstruction,
+    Patch.unchanged_observation, preserved_contract, Patch.observed_amendment_origin,
+    Patch.apply_amendment, Patch.observed_amendment_patch, Patch.accepted_snapshot, Constructor.family}

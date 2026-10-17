@@ -28,6 +28,7 @@ import ./workspace/WORKSPACE.bend as Workspace
 import ./approval/MODEL.bend as Approvals
 import ../bendlib/equality.bend as Same
 import ./reasoning/PROGRAM.bend as ActualReasoning
+import ./reasoning/SPEC.bend as RequiredReasoning
 import ../features/compaction/SPEC.bend as CompactionSpec
 import ../features/compaction/STATE.bend as CompactionState
 
@@ -361,6 +362,22 @@ law tool_dispatch:
     C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(state),
       D.with_state_tasks(T.replace(D.state_tasks(state), T.promote(Ops.started(D.state_next_ticket(state), call, remaining, task))), state)), board},
       J.Null{}, [Effects.ExecuteTool{D.task_id(task), D.state_next_ticket(state), tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]} : M.Decision()}
+
+law full_history_dispatch:
+  for +task: D.Task
+  for +world: M.World()
+  {P.model_request(task, world) == P.model_request_direct(task, world) : M.Decision()}
+
+law model_has_no_context_preflight:
+  for +task: D.Task
+  for world: M.World()
+  {Execution.model(task, world) == Execution.Model{task} : Execution.Action}
+
+law summary_context_observation:
+  for +task: D.Task
+  for +world: M.World()
+  {P.summary_request(task, world) ==
+    RequiredReasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world) : M.Decision()}
 
 law accepted_model_settlement:
   for +outcome: D.Outcome

@@ -289,8 +289,7 @@ def history_data(+item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
   Done{message("user", text("Committed task history data:\n" ++ shown(item))) <> Nil{}}
 def history_context_kind(kind: String, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
   match kind:
-    case "instruction": Done{message("developer", get(item, "content")) <> Nil{}}
-    case "project": Done{message("developer", text("Committed project guidance snapshot:\n" ++ shown(item))) <> Nil{}}
+    case "context_change": Done{message("developer", text(Backend.context_change_text(get(item, "change")))) <> Nil{}}
     case "reasoning_configuration": Done{message("developer", text("Committed reasoning effort for subsequent responses: " ++ J.text(get(item, "effort")))) <> Nil{}}
     case _: history_data(item)
 def history_context_checked(valid: Bool, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
@@ -2476,8 +2475,8 @@ law complete_correspondence:
 
 law continuation_preserves_page_reset_policy:
   @body:J.Json -> @deferred:List<&2, J.Json> -> @source:J.Json -> {get(get(continuation_result(body, deferred, source), "value"), "reset") == J.Boolean{page_reset(source)} : J.Json}
-law instruction_context_encoding:
-  @item:J.Json -> {history_context_kind("instruction", item) == Done{message("developer", get(item, "content")) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}
+law context_change_encoding:
+  @item:J.Json -> {history_context_kind("context_change", item) == Done{message("developer", text(Backend.context_change_text(get(item, "change")))) <> Nil{}} : Result<&2, &2, String, List<&2, J.Json>>}
 
 law tool_receipt_history_success:
   @item:J.Json -> {history_item(Backend.put(item, "role", J.Text{"tool_receipt"})) == history_data(Backend.put(item, "role", J.Text{"tool_receipt"})) : Result<&2, &2, String, List<&2, J.Json>>}

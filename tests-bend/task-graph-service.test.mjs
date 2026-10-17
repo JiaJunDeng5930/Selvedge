@@ -87,7 +87,7 @@ test('a model can create, inspect, replace and remove graphs through frozen nati
   t.after(() => service.close());
   const created = await service.command({ op: 'create', profile: 'fixture', message: 'Build and revise a graph.' });
   assert.equal(created.reply.ok, true);
-  const controller = created.effects.find(effect => effect.kind === 'model').task_id;
+  const controller = created.reply.result.task_id;
   const completed = await taskIdle(service, controller);
   assert.deepEqual(model.failures, []);
   assert.equal(model.requests.length, 6);
@@ -182,8 +182,10 @@ test('new graph nodes refresh global and selected-project guidance while referen
   assert.equal(installed.reply.ok, true, JSON.stringify(installed.reply));
   const graph = installed.reply.result;
   const original = await taskIdle(service, taskId(graph, 'original'));
-  assert.equal(original.messages.find(message => message.source === 'global_agents').content, 'Global graph guidance A');
-  assert.equal(original.messages.find(message => message.type === 'project').content.instructions, 'Launch graph guidance A');
+  const introduced = (page, kind) => page.messages.find(message => message.type === 'context_change'
+    && message.change.type === 'introduce' && message.change.snapshot.key.type === kind).change.snapshot;
+  assert.equal(introduced(original, 'global_agents').value.fields.content, 'Global graph guidance A');
+  assert.equal(introduced(original, 'project_guidance').value.fields.content, 'Launch graph guidance A');
   await Promise.all([
     writeFile(path.join(state, 'AGENTS.md'), 'Global graph guidance B'),
     writeFile(path.join(cwd, 'AGENTS.md'), 'Launch graph guidance B'),
@@ -198,10 +200,10 @@ test('new graph nodes refresh global and selected-project guidance while referen
   const fresh = await taskIdle(service, taskId(updated.reply.result, 'fresh'));
   const selectedPage = await taskIdle(service, taskId(updated.reply.result, 'selected'));
   for (const page of [fresh, selectedPage]) {
-    assert.equal(page.messages.find(message => message.source === 'global_agents').content, 'Global graph guidance B');
+    assert.equal(introduced(page, 'global_agents').value.fields.content, 'Global graph guidance B');
   }
-  assert.equal(fresh.messages.find(message => message.type === 'project').content.instructions, 'Launch graph guidance B');
-  assert.equal(selectedPage.messages.find(message => message.type === 'project').content.instructions, 'Selected graph guidance B');
+  assert.equal(introduced(fresh, 'project_guidance').value.fields.content, 'Launch graph guidance B');
+  assert.equal(introduced(selectedPage, 'project_guidance').value.fields.content, 'Selected graph guidance B');
   assert.deepEqual(selectedPage.task.settings.workspace, { roots: [selected], primary_root: selected });
   assert.deepEqual(await taskIdle(service, original.task.id), original);
   await Promise.all([

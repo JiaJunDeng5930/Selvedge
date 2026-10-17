@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Journal } from '../host/journal.mjs';
+import { settleContextObservations } from './support.mjs';
 
 async function temporary(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-bend-test-'));
@@ -20,11 +21,13 @@ test('committed inputs reconstruct the actual Bend state; recovery does not reis
   let journal = await Journal.open(filename);
   t.after(() => journal.close());
   await journal.execute(environment);
-  await journal.execute(command({ op: 'create', profile: 'fixture', message: 'once' }));
-  const intent = await journal.execute(model(0, 0, [{ id: 'external', name: 'bash', arguments: { command: 'printf once' } }]));
+  const created = await settleContextObservations(input => journal.execute(input),
+    await journal.execute(command({ op: 'create', profile: 'fixture', message: 'once' })));
+  const intent = await journal.execute(model(0, created.effects.find(effect => effect.kind === 'model').ticket,
+    [{ id: 'external', name: 'bash', arguments: { command: 'printf once' } }]));
   assert.equal(intent.effects[0].kind, 'tool');
   const before = await journal.execute(command({ op: 'read', task_id: 0 }));
-  assert.equal(before.sequence, 3);
+  assert.equal(before.sequence, 4);
   await journal.close();
   journal = await Journal.open(filename);
   assert.deepEqual((await journal.execute(command({ op: 'read', task_id: 0 }))).reply, before.reply);
@@ -32,7 +35,7 @@ test('committed inputs reconstruct the actual Bend state; recovery does not reis
   assert.equal(recovered.effects.some(effect => effect.kind === 'tool'), false);
   const after = await journal.execute(command({ op: 'read', task_id: 0 }));
   assert.equal(after.reply.result.messages.at(-1).content.error.code, 'outcome_unknown');
-  assert.deepEqual(journal.events(2), [{ sequence: 3 }, { sequence: 4 }]);
+  assert.deepEqual(journal.events(2), [{ sequence: 3 }, { sequence: 4 }, { sequence: 5 }]);
 });
 
 test('an actual SQLite commit failure publishes no decision and discards the advanced kernel', async t => {
@@ -64,7 +67,7 @@ test('one journal has one owner, and the OS-backed lock is released on close', a
   await second.close();
 });
 
-test('obsolete schemas and unknown journal formats fail without changing saved data', async t => {
+test('obsolete schemas and journal formats fail without changing saved data', async t => {
   const filename = await temporary(t);
   const old = new DatabaseSync(filename);
   old.exec('CREATE TABLE obsolete (value TEXT)');
@@ -75,13 +78,18 @@ test('obsolete schemas and unknown journal formats fail without changing saved d
   untouched.close();
   const currentFile = `${filename}.current`;
   const current = await Journal.open(currentFile);
+  await current.execute(environment);
   await current.close();
   const database = new DatabaseSync(currentFile);
-  database.prepare("UPDATE meta SET value = ? WHERE key='format'").run('unknown-format');
-  const before = database.prepare('SELECT key, value FROM meta ORDER BY key').all();
-  await assert.rejects(Journal.open(currentFile), /current Selvedge Bend journal format/);
-  assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all(), before);
-  assert.equal(database.prepare('SELECT count(*) AS n FROM journal').get().n, 0);
+  for (const format of ['selvedge-bend-journal-5', 'unknown-format']) {
+    database.prepare("UPDATE meta SET value = ? WHERE key='format'").run(format);
+    const metadata = database.prepare('SELECT key, value FROM meta ORDER BY key').all();
+    const saved = database.prepare('SELECT * FROM journal ORDER BY seq').all();
+    assert.equal(saved.length, 1);
+    await assert.rejects(Journal.open(currentFile), /current Selvedge Bend journal format/);
+    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all(), metadata);
+    assert.deepEqual(database.prepare('SELECT * FROM journal ORDER BY seq').all(), saved);
+  }
   database.close();
 });
 
@@ -109,7 +117,7 @@ test('the journal stores task workspaces rather than a service-wide cwd identity
   assert.deepEqual((await reopened.execute(command({ op: 'read', task_id: 0 }))).reply, original.reply);
   const database = new DatabaseSync(filename, { readOnly: true });
   try {
-    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-3' }]);
+    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-6' }]);
   } finally { database.close(); }
   await reopened.close();
 });
@@ -119,7 +127,8 @@ test('public observations leave pending work and the SQLite journal unchanged, i
   const journal = await Journal.open(filename);
   t.after(() => journal.close());
   await journal.execute(environment);
-  await journal.execute(command({ op: 'create', profile: 'fixture', message: 'still pending' }));
+  const created = await settleContextObservations(input => journal.execute(input),
+    await journal.execute(command({ op: 'create', profile: 'fixture', message: 'still pending' })));
   const before = await journal.execute(command({ op: 'read', task_id: 0 }));
   let commits = 0;
   journal.on('commit', () => commits++);
@@ -136,7 +145,7 @@ test('public observations leave pending work and the SQLite journal unchanged, i
   const database = new DatabaseSync(filename, { readOnly: true });
   try { assert.equal(database.prepare('SELECT count(*) AS n FROM journal').get().n, before.sequence); }
   finally { database.close(); }
-  const settled = await journal.execute(model(0, 0));
+  const settled = await journal.execute(model(0, created.effects.find(effect => effect.kind === 'model').ticket));
   assert.equal(settled.reply.result.accepted, true);
   assert.equal(settled.sequence, before.sequence + 1);
 });

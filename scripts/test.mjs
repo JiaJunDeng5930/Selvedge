@@ -13,8 +13,8 @@ const build = Bun.spawn([process.execPath, 'scripts/build.mjs'], {
 });
 const buildExitCode = await build.exited;
 if (buildExitCode !== 0) process.exit(buildExitCode);
-// NOTE: Native extension builds remain in full validation.
-const fullValidationOnly = new Set(['locality.test.mjs']);
+// NOTE: Extension compiler workloads remain in full validation.
+const fullValidationOnly = new Set(['locality.test.mjs', 'context-definitions.test.mjs']);
 const files = (await readdir(new URL('../tests-bend/', import.meta.url)))
   .filter(name => name.endsWith('.test.mjs') && (!ci || !fullValidationOnly.has(name)))
   .sort().map(name => `tests-bend/${name}`);

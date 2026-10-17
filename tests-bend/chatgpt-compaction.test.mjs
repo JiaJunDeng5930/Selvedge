@@ -14,7 +14,9 @@ const replacementEvents = page => page.messages.filter(message => message.role =
 
 test('account native compaction replaces the sent window, keeps original history and survives journal recovery', { timeout: 15_000 }, async t => {
   const originalRequest = 'Original user request.';
-  const longAnswer = 'Original answer retained in history. '.repeat(80);
+  const longAnswer = 'x'.repeat(20000);
+  const firstAssistant = messages => messages.filter(message => message.role === 'model_context')
+    .map(message => message.content.item).find(item => item?.type === 'message' && item.role === 'assistant');
   let compactCalls = 0, modelCalls = 0;
   const retained = { role: 'user', content: originalRequest };
   const running = await fixtureService(t, (request, response) => {
@@ -42,15 +44,17 @@ test('account native compaction replaces the sent window, keeps original history
   const after = await contextReplaced(running.service);
   assert.deepEqual(after.messages.slice(0, before.messages.length), before.messages);
   assert.equal(replacementEvents(after).length, 1);
+  assert.deepEqual(firstAssistant(after.messages), assistant(longAnswer));
   assert.equal(modelCalls, 1, 'Compaction does not start another ordinary turn');
   await running.service.command({ op: 'send', task_id: 0, message: 'Continue after compaction.' });
   await taskIdle(running.service);
   await running.restart();
   await running.service.command({ op: 'send', task_id: 0, message: 'Continue after restart.' });
   const recovered = await taskIdle(running.service);
-  assert.ok(JSON.stringify(recovered.messages).includes(longAnswer));
+  assert.deepEqual(firstAssistant(recovered.messages), assistant(longAnswer));
   assert.equal(replacementEvents(recovered).length, 1);
   assert.equal(compactCalls, 1); assert.equal(modelCalls, 3);
+
   assert.deepEqual(running.failures, []);
 });
 

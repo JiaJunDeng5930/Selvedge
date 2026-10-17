@@ -10,6 +10,26 @@ import { setTimeout as delay } from 'node:timers/promises';
 const repository = fileURLToPath(new URL('../', import.meta.url));
 const productionUI = new Map();
 
+// Kernel-only fixtures keep their accepted bindings while exercising the real
+// observation completion before handling the next externally owned effect.
+export async function settleContextObservations(send, decision) {
+  const effects = [];
+  const pending = [...decision.effects];
+  let sequence = decision.sequence;
+  let durable = decision.durable;
+  while (pending.length) {
+    const effect = pending.shift();
+    if (effect.kind !== 'observe_context') { effects.push(effect); continue; }
+    const completed = await send({ kind: 'context_observed', task_id: effect.task_id,
+      ticket: effect.ticket, ok: true, observations: [] });
+    assert.equal(completed.reply.ok, true, JSON.stringify(completed.reply));
+    pending.push(...completed.effects);
+    sequence = completed.sequence ?? sequence;
+    durable ||= completed.durable;
+  }
+  return { ...decision, effects, ...(sequence === undefined ? {} : { sequence }), durable };
+}
+
 // A checked facade invokes the production UI against the HTTP-visible program.
 export async function browserUI(t, { sourceAdmission = false } = {}) {
   const variant = sourceAdmission ? 'source' : 'runtime';
@@ -184,7 +204,7 @@ export async function taskIdle(service, taskId = 0) {
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);
 }
 
-export async function responsesServer(t, respond) {
+export async function responsesServer(t, respond, { measure } = {}) {
   const requests = [];
   const failures = [];
   const server = http.createServer((request, response) => {
@@ -192,6 +212,12 @@ export async function responsesServer(t, respond) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (measure && request.url.endsWith('/input_tokens')) {
+        const input_tokens = await measure(body, request);
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ input_tokens }));
+        return;
+      }
       requests.push(body);
       const output = await respond(body, requests.length - 1, request);
       response.writeHead(200, { 'content-type': 'text/event-stream' });

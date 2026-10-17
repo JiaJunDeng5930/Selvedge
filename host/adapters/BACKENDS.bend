@@ -4,8 +4,9 @@ import ../../bendlib/stdlib.bend as Std
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
 import ./ACCOUNTS.bend as Account
+import ../../harness/context/MODEL.bend as Context
 import ./COMPACTION.bend as Compaction
-import ../../harness/context/PROGRAM.bend as Context
+import ../../harness/context/PROGRAM.bend as ContextSelection
 
 def typed_json_object(fields: +List<&2, J.Field>) -> J.Json:
   J.Object{fields}
@@ -409,21 +410,107 @@ def history_data(+message: J.Json) -> J.Json:
 def history_developer(+content: J.Json) -> J.Json:
   Model.success(J.Array{[J.Object{[J.Field{"role", J.Text{"developer"}}, J.Field{"content", content}]}]})
 
-def instruction_valid(+message: J.Json) -> Bool:
-  J.is_text(J.get(message, "content")) && (equal(J.get(message, "source"), "configured") || (equal(J.get(message, "source"), "global_agents") && text(J.get(message, "path")) && text(J.get(message, "revision"))))
+def context_key_parsed(key: Maybe<&2, Context.Key>) -> Bool:
+  match key:
+    case Some{key}: True{}
+    case None{}: False{}
+
+def context_key_valid(key: J.Json) -> Bool:
+  context_key_parsed(Context.self_key(key))
+
+def context_natural(value: Maybe<&2, Nat>) -> Bool:
+  match value:
+    case Some{number}: True{}
+    case None{}: False{}
+
+def context_edits_valid(edits: +List<J.Json>) -> Bool:
+  match edits:
+    case Nil{}: True{}
+    case Con{+edit, rest}: J.is_object(edit) && context_natural(J.natural(J.get(edit, "start"))) && J.is_text(J.get(edit, "removed")) && J.is_text(J.get(edit, "inserted")) && Bool.not(J.same(J.get(edit, "removed"), J.get(edit, "inserted"))) && context_edits_valid(rest)
+
+def context_field_edits_valid(edits: +List<J.Json>) -> Bool:
+  match edits:
+    case Nil{}: True{}
+    case Con{+field, rest}:
+      is_array(J.get(field, "edits")) && Bool.not(List.is_empty(&2, J.Json, J.items(J.get(field, "edits")))) && context_edits_valid(J.items(J.get(field, "edits"))) && context_field_edits_valid(rest)
+
+def context_patch_parsed(key: Maybe<&2, Context.Key>, patch: Maybe<&2, Context.Patch>) -> Bool:
+  match key patch:
+    case Some{key} Some{patch}: Context.valid_patch(key, patch)
+    case _ _: False{}
+
+def context_patch_valid(+key: J.Json, +patch: J.Json) -> Bool:
+  context_patch_parsed(Context.self_key(key), Context.patch(patch)) && is_array(J.get(patch, "fields")) && Bool.not(List.is_empty(&2, J.Json, J.items(J.get(patch, "fields")))) && context_field_edits_valid(J.items(J.get(patch, "fields")))
+
+def context_snapshot_parsed(snapshot: Maybe<&2, Context.Snapshot>) -> Bool:
+  match snapshot:
+    case Some{snapshot}: True{}
+    case None{}: False{}
+
+def context_snapshot_valid(snapshot: J.Json) -> Bool:
+  context_snapshot_parsed(Context.self_snapshot(snapshot))
+
+def context_change_valid_kind(kind: String, +change: J.Json) -> Bool:
+  match kind:
+    case "introduce": context_snapshot_valid(J.get(change, "snapshot"))
+    case "amend": text(J.get(change, "base_revision")) && text(J.get(change, "revision")) && Bool.not(J.same(J.get(change, "base_revision"), J.get(change, "revision"))) && context_patch_valid(J.get(change, "key"), J.get(change, "patch"))
+    case "remove": context_key_valid(J.get(change, "key")) && text(J.get(change, "base_revision"))
+    case _: False{}
+
+def context_change_valid(+change: J.Json) -> Bool:
+  J.is_object(change) && context_change_valid_kind(J.text(J.get(change, "type")), change)
 
 def context_valid(kind: String, +message: J.Json) -> Bool:
   match kind:
-    case "instruction": instruction_valid(message)
-    case "project": has(message, "content") && (J.same(J.get(message, "content"), J.Null{}) || (J.is_object(J.get(message, "content")) && J.is_text(J.get(J.get(message, "content"), "instructions")) && text(J.get(J.get(message, "content"), "workspace")) && text(J.get(J.get(message, "content"), "revision"))))
+    case "context_change": context_change_valid(J.get(message, "change"))
     case "settings": J.is_object(J.get(message, "content")) && text(J.get(message, "profile")) && text(J.get(message, "reasoning"))
     case "reasoning_configuration": text(J.get(message, "effort"))
     case _: False{}
 
+# Descriptors govern admission; repeating them in every amendment would consume
+# model context without adding a change to the tracked object.
+def context_identity(+key: J.Json) -> J.Json:
+  J.Object{[J.Field{"type", J.get(key, "type")}, J.Field{"identity", J.get(key, "identity")}]}
+
+def context_fields_text(values: +List<J.Field>) -> String:
+  match values:
+    case Nil{}: ""
+    case Con{J.Field{name, value}, rest}: "Field: " ++ name ++ "\n" ++ J.text(value) ++ "\n" ++ context_fields_text(rest)
+
+def context_introduction_text(+snapshot: J.Json) -> String:
+  +key = J.get(snapshot, "key")
+  +definition = J.get(key, "definition")
+  "Committed context object introduced.\nContext: " ++ json_text(context_identity(key)) ++ "\n" ++ J.text(J.get(definition, "semantics")) ++ "\nApplies to: " ++ J.text(J.get(definition, "scope")) ++ "\n" ++ context_fields_text(fields(J.get(J.get(snapshot, "value"), "fields")))
+
+# JSON string literals keep deletions and insertions exact, including newlines.
+def context_edits_text(edits: +List<J.Json>) -> String:
+  match edits:
+    case Nil{}: ""
+    case Con{+edit, rest}: "@@ code point " ++ json_text(J.get(edit, "start")) ++ " @@\n- " ++ json_text(J.get(edit, "removed")) ++ "\n+ " ++ json_text(J.get(edit, "inserted")) ++ "\n" ++ context_edits_text(rest)
+
+def context_patch_fields_text(fields: +List<J.Json>) -> String:
+  match fields:
+    case Nil{}: ""
+    case Con{+field, rest}: "Field: " ++ J.text(J.get(field, "field")) ++ "\n" ++ context_edits_text(J.items(J.get(field, "edits"))) ++ context_patch_fields_text(rest)
+
+def context_amendment_text(+key: J.Json, +patch: J.Json) -> String:
+  "Committed context object update.\nContext: " ++ json_text(context_identity(key)) ++ "\nApply these edits to this object's previous content. Removed content ceases to apply; inserted content keeps the source's authority and scope. Positions are Unicode code points in that content. Deleted and inserted values are JSON string literals.\n" ++ context_patch_fields_text(J.items(J.get(patch, "fields")))
+
+def context_removal_text(key: J.Json) -> String:
+  "Committed context object removed.\nContext: " ++ json_text(context_identity(key)) ++ "\nThe content previously introduced for this object no longer applies."
+
+def context_change_text_kind(kind: String, +change: J.Json) -> String:
+  match kind:
+    case "introduce": context_introduction_text(J.get(change, "snapshot"))
+    case "amend": context_amendment_text(J.get(change, "key"), J.get(change, "patch"))
+    case _: context_removal_text(J.get(change, "key"))
+
+def context_change_text(+change: J.Json) -> String:
+  context_change_text_kind(J.text(J.get(change, "type")), change)
+
 def context_item_kind(kind: String, +message: J.Json, profile: J.Json) -> J.Json:
   match kind:
-    case "instruction": history_developer(J.get(message, "content"))
-    case "project": history_developer(J.Text{"Committed project guidance snapshot:\n" ++ json_text(message)})
+    case "context_change": history_developer(J.Text{context_change_text(J.get(message, "change"))})
     case "reasoning_configuration": choose(account(profile), history_developer(J.Text{"Committed reasoning effort for subsequent responses: " ++ J.text(J.get(message, "effort"))}), Model.success(J.Array{[J.Object{[J.Field{"type", J.Text{"configuration_update"}}, J.Field{"reasoning", J.Object{[J.Field{"effort", J.get(message, "effort")}]}}]}]}))
     case _: history_data(message)
 
@@ -472,7 +559,7 @@ def input_items(items: +List<J.Json>, +profile: J.Json) -> J.Json:
 def scoped_input(selected: Bool, +source: J.Json) -> J.Json:
   match selected:
     case False{}: input_items(J.items(J.get(source, "history")), J.get(source, "profile"))
-    case True{}: input_items(Context.target_messages(J.items(J.get(source, "history")), J.text(J.get(J.get(source, "profile"), "scope"))), J.get(source, "profile"))
+    case True{}: input_items(ContextSelection.target_messages(J.items(J.get(source, "history")), J.text(J.get(J.get(source, "profile"), "scope"))), J.get(source, "profile"))
 
 def input(+source: J.Json) -> J.Json:
   scoped_input(J.is_text(J.get(J.get(source, "profile"), "scope")), source)
@@ -1492,3 +1579,14 @@ law approval_record_input_success:
   @message:J.Json -> @profile:J.Json -> {J.get(input_item(put(message, "role", J.Text{"approval_record"}), profile), "ok") == J.Boolean{True{}} : J.Json}
 law approval_record_input_data:
   @message:J.Json -> @profile:J.Json -> {input_item_role("approval_record", message, profile) == history_data(message) : J.Json}
+
+
+law context_change_input_encoding:
+  @message:J.Json -> @profile:J.Json ->
+  {context_item_kind("context_change", message, profile) == history_developer(J.Text{context_change_text(J.get(message, "change"))}) : J.Json}
+law context_amendment_patch_encoding:
+  @key:J.Json -> @base_revision:J.Json -> @revision:J.Json -> @patch:J.Json ->
+  {context_change_text_kind("amend", J.Object{[J.Field{"key", key}, J.Field{"base_revision", base_revision}, J.Field{"revision", revision}, J.Field{"patch", patch}]}) == context_amendment_text(key, patch) : String}
+law context_removal_encoding:
+  @key:J.Json -> @base_revision:J.Json ->
+  {context_change_text_kind("remove", J.Object{[J.Field{"key", key}, J.Field{"base_revision", base_revision}]}) == context_removal_text(key) : String}

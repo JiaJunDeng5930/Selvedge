@@ -21,6 +21,7 @@ import ./workspace/WORKSPACE.bend as Workspace
 import ./workspace/PROJECTS.bend as Projects
 import ./transport/schema.bend as Schema
 import ./approval/MODEL.bend as Approvals
+import ./reasoning/SPEC.bend as RequiredReasoning
 import ./reasoning/context.bend as ReasoningContext
 import ./reasoning/MODEL.bend as Reasoning
 
@@ -165,7 +166,7 @@ def record_selection(changed: Bool, +selection: Workspace.Selection, +parent: D.
       Workspace.Selection{+context, guidance} = selection
       +model = D.task_model(parent)
       D.append_context(D.TaskSettings{context, D.profile_key(D.model_profile(model)), D.model_selection(model)},
-        D.append_context(D.ProjectGuidance{guidance}, selected_execution(selection, parent)))
+        D.selected_project(guidance, selected_execution(selection, parent)))
 
 def selected_parent(+selection: Workspace.Selection, +parent: D.Task) -> D.Task:
   Workspace.Selection{context, guidance} = selection
@@ -566,8 +567,8 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
   +parent = D.append_message(D.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
-def summarize(task: D.Task, +world: M.World()) -> M.Decision():
-  Compaction.meaning(Compaction.manual(task, world), world)
+def summarize(task: D.Task, world: M.World()) -> M.Decision():
+  RequiredReasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world)
 
 def page_checked(valid: Bool, task: D.Task, after: Nat, limit: Nat) -> J.Json:
   match valid:

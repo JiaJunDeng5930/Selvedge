@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { encode } from 'gpt-tokenizer';
@@ -23,6 +24,8 @@ test('background compaction permits work until the hard threshold, then installs
   const hardAnswer = 'HARD_CONTEXT_MARKER';
   const backgroundMessage = 'Continue while compaction is running.';
   const blockedMessage = 'Continue after the hard threshold.';
+  const originalGuidance = 'Keep the original workspace guidance. Use npm.\n';
+  const updatedGuidance = 'Keep the original workspace guidance. Use bun.\n';
   let pending, compactions = 0, models = 0, hardMeasurements = 0, resumedInput;
   const running = await accountCompactionService(t, (request, response) => {
     if (request.url === '/v1/responses/compact') {
@@ -43,8 +46,11 @@ test('background compaction permits work until the hard threshold, then installs
     if (encoded.includes(softAnswer)) return 7000;
     return 100;
   } });
+  const agents = path.join(running.directory, 'AGENTS.md');
+  await writeFile(agents, originalGuidance);
   await running.service.command({ op: 'create', profile: 'fixture', message: 'Original objective.' });
   await until('the background native request', () => pending !== undefined);
+  await writeFile(agents, updatedGuidance);
   await running.service.command({ op: 'send', task_id: 0, message: backgroundMessage });
   await until('ordinary work during background compaction', () => models === 2 && hardMeasurements > 0);
   await running.service.command({ op: 'send', task_id: 0, message: blockedMessage });
@@ -62,6 +68,19 @@ test('background compaction permits work until the hard threshold, then installs
   assert.ok(JSON.stringify(page.messages).includes(softAnswer));
   assert.ok(JSON.stringify(page.messages).includes(hardAnswer));
   assert.equal(page.messages.filter(item => item.role === 'context_replacement').length, 1);
+  const guidance = page.messages.filter(item => item.type === 'context_change').map(item => item.change)
+    .filter(change => (change.type === 'introduce' ? change.snapshot.key : change.key).type === 'project_guidance');
+  assert.equal(guidance.length, 2);
+  assert.equal(guidance[0].snapshot.value.fields.content, originalGuidance);
+  assert.equal(guidance[1].type, 'amend');
+  assert.equal(guidance[1].base_revision, guidance[0].snapshot.revision);
+  const developer = resumedInput.filter(item => item.role === 'developer').map(item => item.content).join('\n');
+  assert.ok(developer.includes('Keep the original workspace guidance. Use npm.'));
+  assert.ok(developer.includes('Committed context object update.'));
+  for (const edit of guidance[1].patch.fields.find(field => field.field === 'content').edits) {
+    assert.ok(developer.includes(`- ${JSON.stringify(edit.removed)}\n+ ${JSON.stringify(edit.inserted)}`),
+      'A concurrent context amendment retains both its baseline and its exact edits after native compaction');
+  }
   assert.deepEqual(running.failures, []);
 });
 

@@ -1,4 +1,6 @@
 import Base
+import ../../features/compaction/SPEC.bend as Compaction
+import ../../features/compaction/STATE.bend as CompactionState
 import ../tools/SYNTAX.bend as Native
 import ../../bendlib/categories.bend as Categories
 import ../features/STATE.bend as FeatureState
@@ -31,6 +33,7 @@ import ../transport/schema.bend as Schema
 type ResolvedEvent is Data:
   User{operation: Commands.Operation}
   Ignore{}
+  ContextResult{task: D.Task, revision: Nat, purpose: D.ContextPurpose, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>}
   ModelResult{task: D.Task, outcome: D.Outcome, allowed: +List<String>}
   ReasoningResult{task: D.Task, revision: Nat, outcome: R.Outcome}
   FeatureEvent{event: FeatureOps.ResolvedEvent}
@@ -72,6 +75,19 @@ def matching_calculation(same: Bool, event: ResolvedEvent) -> ResolvedEvent:
   match same:
     case True{}: event
     case False{}: Ignore{}
+
+def context_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat,
+  outcome: Result<&2, &2, String, +List<D.ContextObservation()>>) -> ResolvedEvent:
+  match status phase:
+    case D.Archived{} _: Ignore{}
+    case _ D.ContextPending{expected, revision, purpose}:
+      matching(ticket, expected, ContextResult{task, revision, purpose, outcome})
+    case _ _: Ignore{}
+
+def context_observed(found: Maybe<&2, D.Task>, ticket: Nat, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>) -> ResolvedEvent:
+  match found:
+    case None{}: Ignore{}
+    case Some{+task}: context_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
 def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +outcome: D.Outcome) -> ResolvedEvent:
   match status phase:
@@ -175,6 +191,7 @@ def feature_result(found: Maybe<&2, FeatureOps.ResolvedEvent>) -> ResolvedEvent:
 def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
+    case M.ContextObserved{id, ticket, outcome}: context_observed(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)
     case M.FeatureCompleted{completion}: feature_result(FeatureProtocol.resolve(completion, world))
@@ -206,10 +223,57 @@ def model_result(+task: D.Task, +outcome: D.Outcome, allowed: +List<String>, wor
   accepted_reaction(FeatureSpec.react_outputs(~Commands.output_send, D.task_id(task), TaskRequirements.reply_outputs(outcome),
     Commands.replace(T.model_outcome(outcome, allowed, task), world)))
 
-def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
+# A manual summary resumes through the assembled compaction component only
+# after the source observation has committed to the task's current history.
+def context_waits_active(status: D.Status, purpose: D.ContextPurpose, revision: Nat,
+  +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +task: D.Task, world: M.World()) -> Bool:
+  match status purpose:
+    case D.Active{} D.GenerateContext{}:
+      Nat.is_eq(revision, D.history_length(D.task_history(task))) &&
+        Compaction.blocked(Reasoning.observed_context(outcome, task), CompactionState.registry(world))
+    case _ _: False{}
+
+def context_waits(revision: Nat, purpose: D.ContextPurpose, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>,
+  +task: D.Task, world: M.World()) -> Bool:
+  context_waits_active(D.task_status(task), purpose, revision, outcome, task, world)
+
+def context_wait(outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, task: D.Task, world: M.World()) -> M.Decision():
+  C.Decision{Commands.replace(D.with_phase(D.Ready{Nil{}}, Reasoning.observed_context(outcome, task)), world), acknowledgement(True{}), Nil{}}
+
+def context_compaction_active(status: D.Status, purpose: D.ContextPurpose, revision: Nat, length: Nat) -> Bool:
+  match status purpose:
+    case D.Active{} D.SummaryContext{}: Nat.is_eq(revision, length)
+    case _ _: False{}
+
+def context_compaction(purpose: D.ContextPurpose, revision: Nat, +task: D.Task) -> Bool:
+  context_compaction_active(D.task_status(task), purpose, revision, D.history_length(D.task_history(task)))
+
+def context_compaction_found(found: Maybe<&2, D.Task>, +world: M.World(), reply: J.Json, effects: +List<M.Effect()>) -> M.Decision():
+  match found:
+    case None{}: Compaction.attach(C.Decision{world, reply, effects})
+    case Some{+task}: accepted_reaction(Compaction.meaning(Compaction.manual(task, world), world))
+
+def context_followup(compact: Bool, id: Nat, +decision: M.Decision()) -> M.Decision():
+  match compact:
+    case False{}: Compaction.attach(decision)
+    case True{}:
+      C.Decision{+world, reply, effects} = decision
+      context_compaction_found(T.find(Commands.entries(world), id), world, reply, effects)
+
+def context_result_calculation(waiting: Bool, +task: D.Task, +revision: Nat, +purpose: D.ContextPurpose,
+  outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, world: M.World()) -> M.Decision():
+  match waiting:
+    case True{}: context_wait(outcome, task, world)
+    case False{}:
+      context_followup(context_compaction(purpose, revision, task), D.task_id(task),
+        Reasoning.context_completed(F.State(), F.Effect, revision, purpose, outcome, task, world))
+
+def meaning(event: ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
     case User{operation}: Commands.meaning(operation, world)
     case Ignore{}: C.Decision{world, acknowledgement(False{}), Nil{}}
+    case ContextResult{+task, +revision, +purpose, +outcome}:
+      context_result_calculation(context_waits(revision, purpose, outcome, task, world), task, revision, purpose, outcome, world)
     case ModelResult{task, outcome, allowed}:
       model_result(task, outcome, allowed, world)
     case ReasoningResult{task, revision, outcome}:

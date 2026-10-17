@@ -8,7 +8,7 @@ import ../../harness/MODEL.bend as M
 import ../../harness/features/MODEL.bend as F
 import ../../harness/tasks/PROGRAM.bend as T
 import ../../harness/context/PROGRAM.bend as Context
-import ../../harness/context/MODEL.bend as ContextModel
+import ../../harness/context/selection.bend as ContextModel
 import ../../harness/compaction/MODEL.bend as Bounded
 import ../../harness/compaction/PROGRAM.bend as Rebuild
 import ../../bendlib/component.bend as C

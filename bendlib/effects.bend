@@ -5,6 +5,7 @@ import ./json.bend as J
 # The task effect alphabet is independent of every feature's private payload.
 # Its extension parameter is carried opaquely by task-local code.
 type Effect<-X: Data> is Data:
+  ObserveContext{task_id: Nat, ticket: Nat, history: D.History, context: D.TaskContext}
   RequestModel{task_id: Nat, ticket: Nat, model: D.Model, history: D.History,
     tools: +List<D.Tool>, callable: +List<String>, context: D.TaskContext, scope: String, output_reserve: Nat}
   RequestReasoning{task_id: Nat, ticket: Nat, model: D.Model, history: D.History}
