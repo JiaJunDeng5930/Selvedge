@@ -333,6 +333,9 @@ state reveals a missing correspondence to the already chosen list/FIFO model.
 
 ### Context compaction is an idempotent view, not a theorem about summarization
 
+The checkpoint implementation described here is superseded by
+[ADR 0041](adr/0041-context-compaction.md). This section records the earlier exploration.
+
 `History` remains the append-only record used by replay, audit, task branching,
 and `read_task`. `context_history` selects the latest checkpoint plus its suffix
 for a model request. Its idempotence and checkpoint-cut equations are checked
@@ -1580,3 +1583,37 @@ The production proof and certificate gates remain in checks and builds. Earlier
 measurements and checker-mutation outcomes above are historical records. Tests and
 proofs were not run for this removal, and the stopped complete-suite run is not
 reported as passing.
+
+## Activity traversal across hidden representations
+
+Mapping an opaque relation tree to public observations before recursively
+interpreting its children lost the compiler's structural-decrease evidence.
+Keeping the traversal in the relation owner preserves that evidence while a
+consumer receives the observation and already interpreted children.
+
+The pinned compiler rejects a reusable `+handler` with a function type because
+functions inhabit `Type`, rather than duplicable `Data`. Its existing iterator
+mechanism uses leading static `~` parameters. Such a handler must have closed
+arguments; it cannot capture a runtime activity, query or application state.
+Passing those values in a separate `Data` environment lets a closed static
+handler consume them during the owner's traversal. The resulting context-based
+production fold and its local correspondence obligations passed the focused
+experience proof entry. This compiler-boundary result does not establish the
+physical layout or acceptance of the complete browser pipeline.
+
+## Numeric capacity during source refinement
+
+The pinned checker compares terms with definitions rigid before falling back to
+structural reduction. Equivalent source expressions behind different wrappers
+can therefore unfold the physical ceiling, `2^48 - 1`, during conversion. Native
+code generation optimizes natural-number arithmetic; the proof checker does
+not use that execution path. An equivalent literal is unavailable because the
+source parser accepts natural-number literals only through `2^32 - 1`.
+
+Keeping capacity explicit throughout the source construction operations allowed
+their full refinements to quantify over that input. The runtime boundary still
+supplies the original ceiling. The complete UI proof entry passed after the
+source and core input obligations were synchronized. A separate native test
+facade also needed the actual surface proof provider in its import closure;
+production evidence does not automatically carry into an independent compiler
+entry.

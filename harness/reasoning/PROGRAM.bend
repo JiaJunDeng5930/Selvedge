@@ -30,7 +30,7 @@ def request_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, worl
       +allowed = T.callable(tools, catalog)
       next = D.with_phase(D.ModelPending{ticket, allowed}, task)
       C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), rest}, J.Null{},
-        [Effects.RequestModel{D.task_id(task), ticket, T.task_model(contract), D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
+        [Effects.RequestModel{D.task_id(task), ticket, D.task_model(task), D.task_history(task), tools, allowed, D.task_context(task), "", 0n}]}
 
 def request(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   request_environment(StateRest, EffectRest, task, world, D.state_environment(C.local(D.State, StateRest, world)))
@@ -41,7 +41,7 @@ def evaluate(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<
   +ticket = D.state_next_ticket(task_state)
   next = D.with_phase(D.ReasoningPending{ticket, D.history_length(D.task_history(task))}, task)
   C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), rest}, J.Null{},
-    [Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]}
+    [Effects.RequestReasoning{D.task_id(task), ticket, D.task_model(task), D.task_history(task)}]}
 
 def execute(-StateRest: Data, -EffectRest: Data, plan: R.Plan, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match plan:
@@ -62,14 +62,8 @@ def observe_context(-StateRest: Data, -EffectRest: Data, +task: D.Task, +purpose
     D.success(J.Object{[J.Field{"task_id", J.nat(D.task_id(task))}]}),
     [Effects.ObserveContext{D.task_id(task), ticket, D.task_history(task), D.task_context(task)}]}
 
-def summary(-StateRest: Data, -EffectRest: Data, task: D.Task, resume: Bool, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
-  C.Frame{+task_state, +rest} = world
-  +task = D.append_message(D.UserMessage{D.summary_instructions()}, task)
-  +ticket = D.state_next_ticket(task_state)
-  next = D.with_notified(False{}, D.with_phase(D.SummaryPending{ticket, resume}, task))
-  C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(D.state_tasks(task_state), next), task_state)), rest},
-    D.success(J.Object{[J.Field{"task_id", J.nat(D.task_id(task))}]}),
-    [Effects.RequestSummary{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.context_history(D.task_history(task)), D.task_context(task)}]}
+def summary(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  C.Decision{T.update_world(StateRest, D.with_phase(D.Idle{}, task), world), J.Null{}, Nil{}}
 
 def observed_context(outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, task: D.Task) -> D.Task:
   match outcome:
@@ -79,7 +73,7 @@ def observed_context(outcome: Result<&2, &2, String, +List<D.ContextObservation(
 def context_suspended(purpose: D.ContextPurpose, task: D.Task) -> D.Task:
   match purpose:
     case D.GenerateContext{}: T.promote(D.with_phase(D.Ready{Nil{}}, task))
-    case D.SummaryContext{resume}:
+    case D.SummaryContext{}:
       T.promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Context summary was not sent because the task is frozen or stopped; original history retained"}, task)))
 
 def context_active(-StateRest: Data, -EffectRest: Data, status: D.Status, +purpose: D.ContextPurpose, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
@@ -87,7 +81,7 @@ def context_active(-StateRest: Data, -EffectRest: Data, status: D.Status, +purpo
     case D.Active{}:
       match purpose:
         case D.GenerateContext{}: prepared(StateRest, EffectRest, task, world)
-        case D.SummaryContext{resume}: summary(StateRest, EffectRest, task, resume, world)
+        case D.SummaryContext{}: summary(StateRest, EffectRest, task, world)
     case _: C.Decision{T.update_world(StateRest, context_suspended(purpose, task), world), J.Null{}, Nil{}}
 
 def context_continue(-StateRest: Data, -EffectRest: Data, purpose: D.ContextPurpose, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:

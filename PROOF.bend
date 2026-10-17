@@ -9,15 +9,19 @@ import ./harness/reasoning/CONTRACT.bend as Reasoning
 import ./harness/workspace/CONTRACT.bend as Workspace
 import ./CONCEPTS.bend as Entry
 import ./harness/reasoning/PROOF.bend as ReasoningProof
-import ./harness/context/PROOF.bend as ContextProof
+import ./harness/context/PROOF.bend as TrackedContextProof
 import ./harness/tasks/PROOF.bend as TasksProof
 import ./features/board/PROOF.bend as BoardProof
+import ./features/task_graph/PROOF.bend as TaskGraphProof
 import ./harness/features/laws.bend as FeatureLaws
 import ./harness/protocol/PROOF.bend as ProtocolProof
 import ./harness/execution/PROOF.bend as ExecutionProof
 import ./harness/protocol/commit-proof.bend as CommitProof
 import ./harness/PROOF.bend as LocalityProof
 import ./harness/history/PROOF.bend as TracesProof
+import ./harness/context/selection-proof.bend as ContextProof
+import ./harness/compaction/PROOF.bend as CompactionMethodProof
+import ./host/adapters/compaction-proof.bend as CompactionAdapterProof
 import ./harness/transport/CONTRACT.bend as JsonRenderRules
 import ./harness/transport/PROOF.bend as FrontendProof
 import ./bendlib/algebra-proof.bend as AlgebraProof
@@ -42,6 +46,7 @@ import ./interaction/submission/PROOF.bend as CoreSubmissionFeedbackProof
 import ./interaction/presentation/scene-proof.bend as SplitInteractionPresentationSceneProof
 import ./interaction/services/PROOF.bend as CoreExecutionContextProof
 import ./interaction/session/PROOF.bend as CoreSessionProof
+import ./interaction/experience/PROOF.bend as ExperienceProof
 import ./interaction/PROOF.bend as UIProof
 
 import ./bendlib/categories.bend as Categories
@@ -90,11 +95,11 @@ def harness() -> Entry.Harness:
   Entry.Harness{
     Entry.Meaning{Concepts.commands(), Concepts.interactions(), Concepts.actions(), Concepts.scheduling(), Concepts.native_interface()},
     Entry.Composition{Concepts.protocol_reachability(), Concepts.traces(), Concepts.task_machine(), Concepts.persistence(), Concepts.history(), Concepts.decisions()},
-    Entry.Recovery{Concepts.context(), Concepts.interruption(), Concepts.recovery(), Concepts.recovery_batches()},
+    Entry.Recovery{Concepts.interruption(), Concepts.recovery(), Concepts.recovery_batches()},
     Entry.Observation{Concepts.observations(), Concepts.task_views(), Concepts.branch_results(), Concepts.surface()},
     Entry.Concurrency{Concepts.operation_rights(), Concepts.announcement(), Concepts.notifications(), Concepts.coordination()},
     Entry.Extensibility{Concepts.plugin_boundary(), Concepts.result_boundary()}, Workspace.context_boundary(), Approval.approval_boundary(),
-    Reasoning.reasoning_boundary(), FeatureLaws.features(), LocalityProof.locality(), ContextProof.instance()}
+    Reasoning.reasoning_boundary(), FeatureLaws.features(), LocalityProof.locality(), TrackedContextProof.instance()}
 
 # The native product bridge carries all trusted interface decisions unchanged.
 

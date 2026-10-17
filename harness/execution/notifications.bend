@@ -182,8 +182,6 @@ def model_settled(event: Protocol.ResolvedEvent, ticket: Nat) -> +List<D.Notice>
   match event:
     case Protocol.ModelResult{task, outcome, allowed}:
       task_event(D.ModelSettled{}, None{}, J.Object{[J.Field{"ticket", J.nat(ticket)}, J.Field{"kind", J.Text{"model"}}, J.Field{"outcome", model_outcome(outcome)}]}, task)
-    case Protocol.SummaryResult{task, outcome, resume}:
-      task_event(D.ModelSettled{}, None{}, J.Object{[J.Field{"ticket", J.nat(ticket)}, J.Field{"kind", J.Text{"summary"}}, J.Field{"outcome", model_outcome(outcome)}]}, task)
     case _: Nil{}
 
 def input(source: M.Input, +before: M.World(), +after: M.World()) -> +List<D.Notice>:
@@ -206,10 +204,8 @@ def model_started(id: Nat, ticket: Nat, model: D.Model, kind: String, tasks: +Li
 def dispatched(effects: +List<M.Effect()>, +tasks: +List<D.Task>) -> +List<D.Notice>:
   match effects:
     case Nil{}: Nil{}
-    case Con{Effects.RequestModel{id, ticket, model, history, tools, callable, context}, rest}:
+    case Con{Effects.RequestModel{id, ticket, model, history, tools, callable, context, scope, reserve}, rest}:
       List.append(&2, D.Notice, model_started(id, ticket, model, "model", tasks), dispatched(rest, tasks))
-    case Con{Effects.RequestSummary{id, ticket, model, history, context}, rest}:
-      List.append(&2, D.Notice, model_started(id, ticket, model, "summary", tasks), dispatched(rest, tasks))
     case Con{Effects.ExecuteTool{id, ticket, tool, call, context, access}, rest}:
       List.append(&2, D.Notice, found_event(T.find(tasks, id), D.ToolDispatched{}, J.Object{[J.Field{"ticket", J.nat(ticket)},
         J.Field{"tool", D.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}), dispatched(rest, tasks))

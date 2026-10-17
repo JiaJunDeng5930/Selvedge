@@ -1,4 +1,7 @@
 import Base
+import ../experience/MODEL.bend as Experience
+import ../experience/ACTIVITY.bend as Activity
+import ./INFORMATION.bend as Information
 import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
 import ../../features/board/MODEL.bend as B
@@ -16,6 +19,9 @@ import ../TYPES.bend as InteractionTypes
 type Role is Data:
   Navigation{}
   NavigationHeader{}
+  NavigationEntry{selected: Bool}
+  NavigationCollection{}
+  NavigationSection{}
   Main{}
   Heading{}
   PrimaryButton{}
@@ -56,7 +62,31 @@ type ChoiceKind is Data:
   SingleChoice{}
   MultipleChoice{}
 
+# A physical row preserves the meanings and actions of its actual descendants.
+type ActivityRowRole is Data:
+  ChoiceRow{}
+  DependencyRow{}
+  InspectionRow{}
+  SupportingRow{}
+  MemberRow{}
+  TerminalRow{}
+  ObjectHeading{}
+  NavigationRow{}
+
 type Meaning is Data:
+  SettingEntry{subject: Experience.Subject, value: String, input: InteractionTypes.Input, availability: V.Availability}
+  ActivityRow{role: ActivityRowRole}
+  ActivityGroup{activity: Activity.Activity, dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
+  DecisionGroup{decision: Experience.Decision}
+  WorkspaceCollection{collection: Experience.Collection}
+  WorkspaceMember{collection: Experience.Collection, path: String}
+  ActionUnit{action: Experience.ActionUnit}
+  ActionFeedback{feedback: Experience.Feedback}
+  ActionExplanation{assessment: Experience.Assessment}
+  ActionCommit{assessment: Experience.Assessment, input: InteractionTypes.Input, availability: V.Availability}
+  ObjectGroup{object: Experience.Object}
+  SupportingControl{support: Experience.Support, property: Experience.Property, input: InteractionTypes.Input, availability: V.Availability}
+  InformationText{role: Information.TextRole}
   LayerRegion{dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
   DirectoryBrowserLocation{value: String}
   PanelToggle{expanded: Bool, input: InteractionTypes.Input, availability: V.Availability}
@@ -83,7 +113,6 @@ type Meaning is Data:
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
   Activate{input: InteractionTypes.Input, availability: V.Availability}
-  ComposerAction{subject: V.ComposerSubject, input: InteractionTypes.Input, availability: V.Availability}
   Edit{editor: U.Editor, field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, choices: +List<OperationParameters.ChoiceValue>}
   SearchChoices{query: String}
   ReceiveFile{editor: U.Editor, enabled: Bool}
@@ -109,3 +138,30 @@ type Gesture is Data:
 
 type PersistentTrigger is Data:
   PersistentTrigger{task: Nat, trigger: String}
+
+# A layer's interaction is independent of the activity organizing its content.
+type LayerBehavior is Data:
+  LayerBehavior{dismiss: InteractionTypes.Input, outside: Bool, escape: Bool}
+
+def layer_region(meaning: Meaning) -> Maybe<&2, LayerBehavior>:
+  match meaning:
+    case LayerRegion{dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case ActivityGroup{activity, dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case _: None{}
+
+def layer_region_meaning(meaning: Meaning) -> Maybe<&2, LayerBehavior>:
+  match meaning:
+    case LayerRegion{dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case ActivityGroup{activity, dismiss, outside, escape}: Some{LayerBehavior{dismiss, outside, escape}}
+    case _: None{}
+
+type LayerRegionRequirements is Type:
+  LayerRegionRequirements{
+    complete: @+meaning:Meaning -> {layer_region(meaning) == layer_region_meaning(meaning) : Maybe<&2, LayerBehavior>},
+    layer: @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool ->
+      {layer_region(LayerRegion{dismiss, outside, escape}) == Some{LayerBehavior{dismiss, outside, escape}} : Maybe<&2, LayerBehavior>},
+    activity: @activity:Activity.Activity -> @+dismiss:InteractionTypes.Input -> @+outside:Bool -> @+escape:Bool ->
+      {layer_region(ActivityGroup{activity, dismiss, outside, escape}) == Some{LayerBehavior{dismiss, outside, escape}} : Maybe<&2, LayerBehavior>}}
+
+law layer_region_evidence:
+  LayerRegionRequirements

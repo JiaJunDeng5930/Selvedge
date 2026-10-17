@@ -81,7 +81,7 @@ test('obsolete schemas and journal formats fail without changing saved data', as
   await current.execute(environment);
   await current.close();
   const database = new DatabaseSync(currentFile);
-  for (const format of ['selvedge-bend-journal-4', 'unknown-format']) {
+  for (const format of ['selvedge-bend-journal-5', 'unknown-format']) {
     database.prepare("UPDATE meta SET value = ? WHERE key='format'").run(format);
     const metadata = database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     const saved = database.prepare('SELECT * FROM journal ORDER BY seq').all();
@@ -117,7 +117,7 @@ test('the journal stores task workspaces rather than a service-wide cwd identity
   assert.deepEqual((await reopened.execute(command({ op: 'read', task_id: 0 }))).reply, original.reply);
   const database = new DatabaseSync(filename, { readOnly: true });
   try {
-    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-5' }]);
+    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-6' }]);
   } finally { database.close(); }
   await reopened.close();
 });

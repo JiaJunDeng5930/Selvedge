@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { readFile, writeFile, rm, stat, realpath } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
@@ -9,7 +9,8 @@ import { accountModels, discoverAccount, withAccountModels, modelCacheFile, logi
 import { defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { startServer } from '../host/server.mjs';
-import { taskIdle, home } from './support.mjs';
+import { taskIdle, home, browserUI, surfaceNodes } from './support.mjs';
+import { bendValue, bendTag } from '../host/public/bend-value.mjs';
 import browserModel from '../host/public/generated/browser-model.mjs';
 import { chatgptFixture, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
 
@@ -172,11 +173,210 @@ test('login CLI hot-refresh selects the discovered model in the browser draft wi
   const created = await server.service.command({ op: 'create', profile: key, message: 'Use the discovered model.' });
   assert.equal(created.reply.ok, true);
   const finished = await taskIdle(server.service);
-  assert.ok(finished.messages.some(message => message.role === 'model_context' && message.content.content?.[0]?.text === 'Discovered model answered.'));
+  assert.ok(finished.messages.some(message => message.role === 'model_context' && message.content.type === 'provider_receipt' &&
+    message.content.item.content?.[0]?.text === 'Discovered model answered.'));
   await server.close();
   server = await startServer({ home: upstream.directory, config, cwd: upstream.directory });
   assert.ok(Object.hasOwn(server.service.config.profiles, key));
   const response = await fetch(`${server.address}/api/accounts/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.equal(response.status, 401);
   assert.deepEqual(upstream.failures, []);
+});
+
+function runtimeSession(state) {
+  return state.legacy.web.application.core.application.session;
+}
+
+function creationDraft(state) {
+  for (let drafts = runtimeSession(state).drafts; bendTag(drafts) === 'Con'; drafts = drafts.tail) {
+    if (bendTag(drafts.head.body) === 'NewTask') return drafts.head.body;
+  }
+  throw new Error('The production runtime did not expose a new-task draft');
+}
+
+function applicationEvent(input) {
+  return bendValue('browser/runtime/SEMANTICS.Native', { input:
+    bendValue('browser/MODEL.PlatformInput', { input:
+      bendValue('browser/runtime/PLATFORM.ProductInput', { input:
+        bendValue('interaction/MODEL.InterfaceInput', { input:
+          bendValue('interaction/TYPES.ApplicationInput', { input }) }) }) }) });
+}
+
+function actualUIInput(value, tag) {
+  if (!value || typeof value !== 'object') return undefined;
+  if (bendTag(value) === tag) return value;
+  for (const child of Object.values(value)) {
+    const found = actualUIInput(child, tag);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function preferenceEffects(decision) {
+  const effects = [];
+  for (let rest = decision.effects; bendTag(rest) === 'Con'; rest = rest.tail) {
+    if (bendTag(rest.head) === 'PersistModelPreference') effects.push(rest.head);
+  }
+  return effects;
+}
+
+test('the browser reasoning choice reaches the authenticated server with each current approval policy', { timeout: 180_000 }, async t => {
+  const ui = await browserUI(t);
+  const upstream = await chatgptFixture(t, (request, response) => {
+    if (request.method === 'GET') jsonResponse(response, { models: [model('task-edit')] });
+    else modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Task settled.' }] }]);
+  });
+  const config = validateConfig({ ...defaultConfig, port: 0, profiles: {}, chatgpt: upstream.profile });
+  const workspace = await realpath(upstream.directory);
+  const server = await startServer({ home: upstream.directory, cwd: workspace, config });
+  t.after(() => server.close());
+  const profile = server.service.browserSnapshot().program.local.environment.profiles.head.key;
+  const project = await server.service.command({ op: 'create_project', name: 'Browser configuration project',
+    workspace: { roots: [workspace], primary_root: workspace } });
+  assert.equal(project.reply.ok, true, JSON.stringify(project.reply));
+  const policies = [
+    { mode: 'ask-for-approval' },
+    { mode: 'full-access' },
+    { mode: 'approval-for-me', reviewer_profile: profile },
+  ];
+  for (const [task, approval] of policies.entries()) {
+    const created = await server.service.command({ op: 'create', profile, reasoning: 'medium', message: 'Existing task.',
+      settings: { project_id: project.reply.result.project_id, approval } });
+    assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+    const before = await taskIdle(server.service, task);
+    assert.equal(before.task.settings.approval.mode, approval.mode);
+    assert.equal(before.task.settings.project_id, project.reply.result.project_id);
+    assert.deepEqual(before.task.settings.workspace, { roots: [workspace], primary_root: workspace });
+    const snapshot = server.service.browserSnapshot();
+    const authenticated = ui.authenticated(snapshot.program, BigInt(task));
+    assert.equal(bendTag(authenticated), 'Done');
+    const selected = authenticated.value;
+    const modelControl = surfaceNodes(ui.surface_state(selected))
+      .find(node => node.semantic === `composer/model/message/${task}`);
+    assert.ok(modelControl, 'The selected task must expose its actual model control');
+    const opened = ui.activate_state(selected, ui.key(modelControl));
+    const entrances = surfaceNodes(ui.surface_state(opened)).filter(node =>
+      bendTag(node.meaning) === 'SettingEntry'
+      && bendTag(node.meaning.subject.field) === 'ReasoningEffort'
+      && actualUIInput(node.meaning.input, 'EnterDecision')?.field_key === 'reasoning-effort');
+    assert.equal(entrances.length, 1, 'The actual model menu must expose one reasoning parameter entrance');
+    assert.equal(bendTag(entrances[0].meaning.subject.editor), 'MessageEditor');
+    assert.equal(Number(entrances[0].meaning.subject.editor.task), task);
+    const expanded = ui.activate_state(opened, ui.key(entrances[0]));
+    const options = surfaceNodes(ui.surface_state(expanded)).filter(node =>
+      bendTag(node.meaning) === 'Choice' && node.semantic.startsWith('effort/'));
+    assert.deepEqual(options.map(node => actualUIInput(node.meaning.input, 'ChooseModel')?.reasoning).sort(),
+      ['high', 'medium'], "The expanded parameter must expose precisely the model's declared reasoning alternatives");
+    for (const option of options) {
+      const edit = actualUIInput(option.meaning.input, 'EditDraft');
+      assert.equal(bendTag(edit?.editor), 'MessageEditor');
+      assert.equal(Number(edit.editor.task), task);
+      assert.equal(actualUIInput(option.meaning.input, 'ChooseModel').profile, profile);
+    }
+    assert.equal(options.find(node => node.semantic === 'effort/medium').meaning.selected, true);
+    const high = options.find(node => node.semantic === 'effort/high');
+    assert.ok(high, 'The actual reasoning parameter must expose the permitted high option');
+    assert.equal(bendTag(high.meaning), 'Choice');
+    assert.equal(bendTag(high.meaning.kind), 'SingleChoice');
+    assert.equal(bendTag(high.meaning.availability), 'Available');
+    assert.equal(high.meaning.selected, false);
+    const pressed = ui.press_state(expanded, ui.key(high));
+    assert.equal(bendTag(pressed), 'Done');
+    const commands = JSON.parse(pressed.value);
+    assert.equal(commands.length, 1, `Task ${task} reasoning choice must emit one actual server command`);
+    const generatedBody = commands[0];
+    assert.equal(generatedBody.op, 'configure_task_execution');
+    assert.equal(generatedBody.task_id, task);
+    assert.equal(generatedBody.approval.mode, approval.mode);
+    assert.equal(Object.hasOwn(generatedBody.approval, 'reviewer'), false);
+    if (approval.reviewer_profile) assert.equal(generatedBody.approval.reviewer_profile, approval.reviewer_profile);
+    const response = await fetch(`${server.address}/api/browser/command`, { method: 'POST',
+      headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ command: generatedBody }) });
+    const result = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(result));
+    assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
+    const after = await server.service.command({ op: 'read', task_id: task });
+    assert.equal(after.reply.ok, true, JSON.stringify(after.reply));
+    const settingsRecord = { role: 'task_context', type: 'settings', content: before.task.settings,
+      profile: before.task.profile, reasoning: 'high' };
+    assert.deepEqual(after.reply.result, { ...before,
+      cursor: before.cursor + 1,
+      task: { ...before.task, reasoning: 'high', cursor: before.task.cursor + 1 },
+      messages: [...before.messages, settingsRecord],
+    }, 'A browser reasoning change must preserve every unrelated field and the complete history prefix, appending only its settings record');
+  }
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('catalog observation resolves the boot draft and a persisted user model choice survives a fresh runtime', { timeout: 20_000 }, async t => {
+  const upstream = await chatgptFixture(t, (request, response) => {
+    if (request.method === 'GET') jsonResponse(response, { models: [model('preference-a'), model('preference-b', 1)] });
+    else modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Selected model answered.' }] }]);
+  });
+  const config = validateConfig({ ...defaultConfig, port: 0, profiles: {}, chatgpt: upstream.profile });
+  const server = await startServer({ home: upstream.directory, cwd: upstream.directory, config });
+  t.after(() => server.close());
+  const snapshot = server.service.browserSnapshot();
+  const firstProfile = snapshot.program.local.environment.profiles.head;
+  const profiles = [];
+  for (let rest = snapshot.program.local.environment.profiles; bendTag(rest) === 'Con'; rest = rest.tail) profiles.push(rest.head);
+  assert.ok(profiles.length >= 2);
+  const selected = profiles.find(profile => profile.key !== firstProfile.key);
+  let state = browserModel.initial(browserModel.empty(), 0n);
+  assert.equal(creationDraft(state).profile, '');
+  state = browserModel.step(bendValue('browser/runtime/SEMANTICS.Snapshot', {
+    sequence: BigInt(snapshot.sequence), program: snapshot.program }), state).state;
+  assert.equal(creationDraft(state).profile, firstProfile.key);
+  assert.equal(creationDraft(state).reasoning, 'medium');
+  assert.equal((await server.service.command({ op: 'create', profile: firstProfile.key, reasoning: 'medium', message: 'Existing task.' })).reply.ok, true);
+  const existing = await taskIdle(server.service, 0);
+  const populated = server.service.browserSnapshot();
+  state = browserModel.step(bendValue('browser/runtime/SEMANTICS.Snapshot', {
+    sequence: BigInt(populated.sequence), program: populated.program }), state).state;
+  const changed = browserModel.step(applicationEvent(bendValue('interaction/session/MODEL.UserInput', { input:
+    bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.NewTaskEditor'),
+      edit: bendValue('interaction/INPUT.ChooseModel', { profile: selected.key, reasoning: 'high' }) }) })), state);
+  assert.equal(creationDraft(changed.state).profile, selected.key);
+  assert.equal(creationDraft(changed.state).reasoning, 'high');
+  const persisted = preferenceEffects(changed);
+  assert.equal(persisted.length, 1, 'A valid manual choice must request preference persistence');
+  assert.equal(persisted[0].profile, selected.key);
+  assert.equal(persisted[0].reasoning, 'high');
+
+  let restored = browserModel.initial(browserModel.empty(), 0n);
+  restored = browserModel.step(applicationEvent(bendValue('interaction/session/MODEL.ModelPreferenceRestored', {
+    profile: persisted[0].profile, reasoning: persisted[0].reasoning })), restored).state;
+  restored = browserModel.step(bendValue('browser/runtime/SEMANTICS.Snapshot', {
+    sequence: BigInt(populated.sequence), program: populated.program }), restored).state;
+  const restoredDraft = creationDraft(restored);
+  assert.equal(restoredDraft.profile, selected.key);
+  assert.equal(restoredDraft.reasoning, 'high');
+  assert.deepEqual((await server.service.command({ op: 'read', task_id: 0 })).reply.result, existing);
+  assert.equal((await server.service.command({ op: 'create', profile: restoredDraft.profile,
+    reasoning: restoredDraft.reasoning, message: 'Restored preference task.' })).reply.ok, true);
+  const created = await taskIdle(server.service, 1);
+  assert.equal(created.task.profile, selected.key);
+  assert.equal(created.task.reasoning, 'high');
+  const modelRequests = upstream.requests.filter(request => request.method === 'POST' && request.url === '/v1/responses');
+  assert.equal(modelRequests.length, 2);
+  assert.equal(modelRequests[1].body.model, selected.name);
+  assert.equal((await server.service.command({ op: 'read', task_id: 0 })).reply.result.task.profile, firstProfile.key);
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('an empty catalog leaves the runtime model selection unavailable', { timeout: 180_000 }, async t => {
+  const state = browserModel.initial(browserModel.empty(), 0n);
+  assert.equal(creationDraft(state).profile, '');
+  assert.equal(creationDraft(state).reasoning, '');
+  const ui = await browserUI(t);
+  const surface = ui.surface_state(state.legacy.web.application.core);
+  const modelControl = surfaceNodes(surface).find(node => node.semantic === 'composer/model');
+  assert.ok(modelControl, 'The empty-catalog composer must still expose its model control');
+  assert.equal(bendTag(modelControl.meaning.availability), 'Unavailable');
+  const invalid = browserModel.step(applicationEvent(bendValue('interaction/session/MODEL.UserInput', { input:
+    bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.NewTaskEditor'),
+      edit: bendValue('interaction/INPUT.ChooseModel', { profile: 'absent', reasoning: 'high' }) }) })), state);
+  assert.equal(creationDraft(invalid.state).profile, '');
+  assert.deepEqual(preferenceEffects(invalid), []);
 });

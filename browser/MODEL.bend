@@ -1,4 +1,7 @@
+import ./layout/natural-size.bend as NaturalSize
+import ./controls/NAVIGATION.bend as Navigation
 import Base
+import ./controls/PROGRAM.bend as Controls
 import ../interaction/MODEL.bend as Product
 import ../harness/MODEL.bend as Program
 import ../interaction/presentation/PROGRAM.bend as InterfaceView
@@ -151,9 +154,9 @@ def production_platform_input(input: Platform.Input, application: Platform.State
     case other: other
 
 def production_typography_owned(owned: Bool, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, environment: Design.Environment, font: F.State, observation: F.Observation) -> Decision:
+  realization: Rendered.State, environment: Design.Environment, +font: F.State, observation: F.Observation) -> Decision:
   match owned:
-    case True{}: idle(application, generation, realization, environment, F.accept(font, Nil{}, observation))
+    case True{}: idle(application, generation, realization, environment, F.accept(font, F.activity_specifications(NaturalSize.limit(), F.scale(font)), observation))
     case False{}: idle(application, generation, realization, environment, font)
 
 def production_typography(+state: State, +observation: F.Observation) -> Decision:
@@ -202,6 +205,16 @@ def observe_frame(+received: Nat, +surface: SurfaceTypes.Surface, +frame: Render
   Decision{State{application, generation, Rendered.observe(generation, received, surface, frame, realization), environment, font},
     Platform.unchanged(core), frame_recovery_effects(Nat.is_eq(generation, received), ticket, generation,
       frame_focus_recovery(surface, frame, scope))}
+def observe_frame_with(+received: Nat, +surface: SurfaceTypes.Surface, +frame: Rendered.Frame, +state: State, +expectations: Rendered.FrameExpectations) -> Decision:
+  State{+application, +generation, realization, environment, font} = state
+  +core = Platform.core(application)
+  +observed_platform_1 = Platform.platform(application)
+  editors = Platform.editors(observed_platform_1)
+  +ticket = Platform.focus_ticket(observed_platform_1)
+  +scope = Platform.scope(observed_platform_1)
+  Decision{State{application, generation, Rendered.observe_with(generation, received, surface, frame, realization, expectations), environment, font},
+    Platform.unchanged(core), frame_recovery_effects(Nat.is_eq(generation, received), ticket, generation,
+      frame_focus_recovery(surface, frame, scope))}
 
 def decision_realization(decision: Decision) -> Rendered.State:
   Decision{State{application, generation, realization, environment, font}, product, effects} = decision
@@ -239,3 +252,12 @@ def product(decision: Decision) -> InteractionTypes.Decision:
 
 def platform_product(decision: Platform.Decision) -> InteractionTypes.Decision:
   Platform.decision_product(decision)
+
+
+def appearance_surface_supporting(surface: SurfaceTypes.Surface, environment: Design.Environment, font: F.State, form: Controls.SupportingForm) -> Design.Surface:
+  Design.Environment{viewport, dark, root} = environment
+  Appearance.present_supporting(surface, dark, F.scale(font), form)
+
+def appearance_surface_supporting_navigation(surface: SurfaceTypes.Surface, environment: Design.Environment, font: F.State, form: Controls.SupportingForm, attention: Navigation.Attention) -> Design.Surface:
+  Design.Environment{viewport, dark, root} = environment
+  Appearance.present_supporting_navigation(surface, dark, F.scale(font), form, attention)

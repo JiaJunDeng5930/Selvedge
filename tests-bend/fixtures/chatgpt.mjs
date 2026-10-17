@@ -102,12 +102,24 @@ export async function chatgptFixture(t, handler = (_, response) => jsonResponse(
       assert.equal(request.headers.session_id, undefined);
       assert.equal(url.searchParams.has('client_version'), false);
       assert.equal(request.headers.authorization, `Bearer opaque-access-${options.marker}`);
-      assert.ok(['/v1/responses', '/v1/models'].includes(url.pathname));
+      assert.ok(['/v1/responses', '/v1/responses/compact', '/v1/responses/input_tokens', '/v1/models'].includes(url.pathname));
       if (body) {
-        assert.equal(body.store, false); assert.equal(body.stream, true); assert.ok(Array.isArray(body.input));
-        for (const key of ['previous_response_id', 'prompt_cache_key', 'background', 'conversation', 'max_output_tokens', 'max_tool_calls',
+        if (url.pathname === '/v1/responses') {
+          assert.equal(body.store, false); assert.equal(body.stream, true);
+        } else if (url.pathname === '/v1/responses/compact') {
+          assert.equal(Object.hasOwn(body, 'stream'), false);
+          assert.equal(Object.hasOwn(body, 'tools'), false);
+        } else {
+          assert.equal(Object.hasOwn(body, 'stream'), false);
+        }
+        assert.ok(Array.isArray(body.input));
+        for (const key of ['previous_response_id', 'prompt_cache_key', 'background', 'conversation', 'max_tool_calls',
           'metadata', 'moderation', 'multi_agent', 'prompt', 'prompt_cache_retention', 'safety_identifier', 'temperature',
           'top_logprobs', 'top_p', 'truncation', 'user', 'programmatic_tool_calling']) assert.equal(Object.hasOwn(body, key), false);
+        if (Object.hasOwn(body, 'max_output_tokens')) {
+          assert.equal(url.pathname, '/v1/responses');
+          assert.ok(Number.isSafeInteger(body.max_output_tokens) && body.max_output_tokens > 0);
+        }
         assert.equal(body.input.some(item => ['compaction_trigger', 'configuration_update'].includes(item.type)), false);
         for (const tool of body.tools ?? []) { assert.equal(tool.type, 'namespace'); assert.equal(tool.name, 'selvedge'); }
       }
@@ -146,11 +158,21 @@ export function jsonResponse(response, value, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(value));
 }
 
-export function modelResponse(response, output, deltas = []) {
+export function modelResponse(response, output, deltas = [], usage = undefined) {
   response.writeHead(200, { 'content-type': 'text/event-stream' });
   for (const delta of deltas) response.write(`data: ${JSON.stringify(delta)}\n\n`);
   for (const [output_index, item] of output.entries()) response.write(`data: ${JSON.stringify({ type: 'response.output_item.done', output_index, item })}\n\n`);
-  response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`);
+  response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [],
+    ...(usage === undefined ? {} : { usage }) } })}\n\n`);
+}
+
+export function compactResponse(response, output) {
+  jsonResponse(response, { id: 'cmp_fixture', object: 'response.compaction', output,
+    usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } });
+}
+
+export function inputTokensResponse(response, inputTokens) {
+  jsonResponse(response, { object: 'response.input_tokens', input_tokens: inputTokens });
 }
 
 export const modelEffect = () => ({

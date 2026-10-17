@@ -4,6 +4,7 @@ import ../transport/schema.bend as Schema
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
+import ../conversation/CODEC.bend as Conversation
 import ../approval/HOOKS.bend as Hooks
 import ../../bendlib/stdlib.bend as Std
 import ../../bendlib/json.bend as J
@@ -124,56 +125,13 @@ def call_arguments(call: D.Call) -> J.Json:
   arguments
 
 def call_json(call: D.Call) -> J.Json:
-  D.Call{id, name, arguments} = call
-  J.Object{[J.Field{"id", J.Text{id}}, J.Field{"name", J.Text{name}}, J.Field{"arguments", arguments}]}
+  Conversation.call_json(call)
 
 def message_json(message: D.Message) -> J.Json:
-  match message:
-    case D.ForkResult{owner, call_id, branch}:
-      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{call_id}},
-        J.Field{"content", J.nat(branch)}, J.Field{"is_error", J.Boolean{False{}}}]}
-    case D.HookRecord{owner, call_id, plugin, outcome}:
-      J.Object{[J.Field{"role", J.Text{"hook_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"call_id", J.Text{call_id}},
-        J.Field{"plugin", D.plugin_json(plugin)}, J.Field{"content", D.hook_json(outcome)}]}
-    case D.ToolReceipt{owner, operation, call, value, error}:
-      J.Object{[J.Field{"role", J.Text{"tool_receipt"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
-        J.Field{"call", call_json(call)}, J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
-    case D.AfterRecord{owner, operation, plugin, outcome}:
-      J.Object{[J.Field{"role", J.Text{"after_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
-        J.Field{"plugin", D.plugin_json(plugin)}, J.Field{"content", D.after_json(outcome)}]}
-    case D.ApprovalRecord{owner, operation, call, reviewer, outcome}:
-      J.Object{[J.Field{"role", J.Text{"approval_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
-        J.Field{"call", call_json(call)}, J.Field{"reviewer", D.approval_reviewer_json(reviewer)},
-        J.Field{"content", D.approval_outcome_json(outcome)}]}
-    case D.UserMessage{text}:
-      J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]}
-    case D.AssistantMessage{text}:
-      J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]}
-    case D.FunctionCall{call}:
-      J.Object{[J.Field{"role", J.Text{"function_call"}}, J.Field{"content", call_json(call)}]}
-    case D.FunctionOutput{call_id, value, error}:
-      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{call_id}},
-        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
-    case D.OperationResult{ticket, call_id, tool, value, error}:
-      J.Object{[J.Field{"role", J.Text{"operation_result"}}, J.Field{"operation_id", J.nat(ticket)},
-        J.Field{"call_id", J.Text{call_id}}, J.Field{"tool", J.Text{tool}},
-        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
-    case D.FailureMessage{text}:
-      J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]}
-    case D.ModelContext{value}:
-      J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", value}]}
-    case D.ContextCheckpoint{summary}:
-      J.Object{[J.Field{"role", J.Text{"context_summary"}}, J.Field{"content", J.Text{summary}}]}
-    case D.ReasoningRecord{owner, effort, remaining, sampling}:
-      J.Object{[J.Field{"role", J.Text{"reasoning_record"}}, J.Field{"task_id", J.nat(owner)},
-        J.Field{"content", J.Object{[J.Field{"effort", J.Text{effort}}, J.Field{"remaining", J.nat(remaining)},
-          J.Field{"sampling", J.Boolean{sampling}}]}}]}
-    case D.ContextMessage{context}: D.context_json(context)
+  Conversation.message_json(message)
 
 def messages_json(messages: +List<D.Message>) -> +List<J.Json>:
-  match messages:
-    case Nil{}: Nil{}
-    case Con{message, rest}: message_json(message) <> messages_json(rest)
+  Conversation.messages_json(messages)
 
 def phase_name(phase: D.Phase) -> String:
   match phase:
@@ -183,21 +141,24 @@ def phase_name(phase: D.Phase) -> String:
     case D.ContextPending{ticket, revision, purpose}: "context_pending"
     case D.ModelPending{ticket, callable}: "model_pending"
     case D.ReasoningPending{ticket, revision}: "reasoning_pending"
-    case D.SummaryPending{ticket, resume}: "summary_pending"
 
-def summary(task: D.Task) -> J.Json:
-  D.Task{id, lineage, D.Contract{D.Model{D.Profile{profile, provider, model, policy, options}, reasoning}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
-  J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
-    J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
-    J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
-    J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(D.history_length(history))},
-    J.Field{"queued", J.nat(List.length(&2, String, queued))},
-    J.Field{"operations", J.Array{Ops.summaries(operations)}},
-    J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"settings", D.task_context_json(context)},
-    J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
+def execution_summary(task: D.Task, model_value: D.Model, context: D.TaskContext) -> J.Json:
+  match task model_value:
+    case D.Task{id, lineage, D.Contract{creation_model, tools, max_fork, max_descendants, plugins, creation_context}, current, +status, history, queued, phase, operations, notified} D.Model{D.Profile{profile, provider, model, policy, options}, reasoning}:
+      J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
+        J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
+        J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
+        J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(D.history_length(history))},
+        J.Field{"queued", J.nat(List.length(&2, String, queued))},
+        J.Field{"operations", J.Array{Ops.summaries(operations)}},
+        J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"settings", D.task_context_json(context)},
+        J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
+
+def summary(+task: D.Task) -> J.Json:
+  execution_summary(task, D.task_model(task), D.task_context(task))
 
 def summaries(tasks: +List<D.Task>) -> +List<J.Json>:
-  Std.map(~D.Task, ~J.Json, ~summary, tasks)
+  Std.map(~D.Task, ~J.Json, ~(task => summary(task)), tasks)
 
 def page(+task: D.Task, +after: Nat, +limit: Nat) -> J.Json:
   +history = D.task_history(task)
@@ -214,10 +175,10 @@ def user_messages(inputs: +List<String>) -> +List<D.Message>:
 
 def drain(task: D.Task) -> D.Task:
   match task:
-    case D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}:
-      D.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}
-    case D.Task{id, lineage, contract, status, history, Con{text, rest}, phase, operations, notified}:
-      D.Task{id, lineage, contract, status, D.history_append(user_messages(text <> rest), history), Nil{}, D.Ready{Nil{}}, operations, True{}}
+    case D.Task{id, lineage, contract, current, status, history, Nil{}, phase, operations, notified}:
+      D.Task{id, lineage, contract, current, status, history, Nil{}, phase, operations, notified}
+    case D.Task{id, lineage, contract, current, status, history, Con{text, rest}, phase, operations, notified}:
+      D.Task{id, lineage, contract, current, status, D.history_append(user_messages(text <> rest), history), Nil{}, D.Ready{Nil{}}, operations, True{}}
 
 def promote_when(status: D.Status, phase: D.Phase, task: D.Task) -> D.Task:
   match status phase:
@@ -278,6 +239,31 @@ def item_messages(items: +List<D.ModelItem>) -> +List<D.Message>:
     case Con{D.Invoke{call}, rest}: D.FunctionCall{call} <> item_messages(rest)
     case Con{D.Context{value}, rest}: D.ModelContext{value} <> item_messages(rest)
 
+def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<String>:
+  match nonempty:
+    case True{}: text <> rest
+    case False{}: rest
+
+def output_items(items: +List<D.ModelItem>) -> +List<String>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{D.Say{+text}, rest}:
+      output_text(Bool.not(String.is_empty(text)), text, output_items(rest))
+    case Con{other, rest}: output_items(rest)
+
+def normal_output_items(calls: +List<D.Call>, items: +List<D.ModelItem>) -> +List<String>:
+  match calls:
+    case Nil{}: output_items(items)
+    case Con{call, rest}: Nil{}
+
+# A reply with tool calls is still a continuation, even when it also has text.
+# Output hooks observe accepted reply text rather than the resulting Idle phase.
+def reply_outputs(outcome: D.Outcome) -> +List<String>:
+  match outcome:
+    case D.ModelReply{+items}:
+      normal_output_items(item_calls(items), items)
+    case _: Nil{}
+
 def settled_model(notified: Bool, task: D.Task) -> D.Task:
   match notified:
     case True{}: promote(D.with_phase(D.Ready{Nil{}}, task))
@@ -333,100 +319,6 @@ def complete_hook(outcome: D.HookOutcome, +task: D.Task) -> D.Task:
 def complete_operation(operation: D.Operation(), value: J.Json, error: Bool, task: D.Task) -> D.Task:
   promote(Ops.completed(operation, value, error, task))
 
-def summary_parts(parts: +List<J.Json>) -> String:
-  match parts:
-    case Nil{}: ""
-    case Con{part, rest}: J.text(J.get(part, "text")) ++ summary_parts(rest)
-
-def summary_context(value: J.Json) -> String:
-  summary_parts(J.items(J.get(value, "content")))
-
-def summary_text(items: +List<D.ModelItem>) -> String:
-  match items:
-    case Nil{}: ""
-    case Con{D.Say{text}, rest}: text ++ summary_text(rest)
-    case Con{D.Context{value}, rest}: summary_context(value) ++ summary_text(rest)
-    case Con{D.Invoke{call}, rest}: summary_text(rest)
-
-def has_invocation(items: +List<D.ModelItem>) -> Bool:
-  match items:
-    case Nil{}: False{}
-    case Con{D.Invoke{call}, rest}: True{}
-    case Con{other, rest}: has_invocation(rest)
-
-def has_provider_checkpoint(items: +List<D.ModelItem>) -> Bool:
-  match items:
-    case Nil{}: False{}
-    case Con{D.Context{value}, rest}: D.is_provider_checkpoint(value) || has_provider_checkpoint(rest)
-    case Con{other, rest}: has_provider_checkpoint(rest)
-
-def after_summary(resume: Bool) -> D.Phase:
-  D.Idle{}
-
-# Failure ends this summary attempt, not independently queued user requests.
-# With no new input the task stays idle; frozen input stays queued. This never
-# installs a partial checkpoint or an invocation from the rejected summary.
-
-def summary_failure(message: String, task: D.Task) -> D.Task:
-  promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task)))
-
-type SummaryCandidate is Data:
-  SummaryCandidate{items: +List<D.ModelItem>, summary: String}
-
-def summary_permitted(candidate: SummaryCandidate) -> Bool:
-  SummaryCandidate{+items, summary} = candidate
-  Bool.not(has_invocation(items)) && Bool.not(has_provider_checkpoint(items)) && D.valid_summary(summary)
-
-def summary_calculation(summary: String, resume: Bool, task: D.Task) -> D.Task:
-  promote(D.with_phase(after_summary(resume), D.append_message(D.ContextCheckpoint{summary}, task)))
-
-def summary_checked(member: Categories.Membership<SummaryCandidate, Categories.holds(SummaryCandidate, summary_permitted)>, resume: Bool, task: D.Task) -> D.Task:
-  Categories.Membership{candidate, evidence} = member
-  SummaryCandidate{items, summary} = candidate
-  summary_calculation(summary, resume, task)
-
-def summary_admission(result: Maybe<&1, Categories.Membership<SummaryCandidate, Categories.holds(SummaryCandidate, summary_permitted)>>, resume: Bool, task: D.Task) -> D.Task:
-  match result:
-    case Some{member}: summary_checked(member, resume, task)
-    case None{}:
-      summary_failure("Compaction failed: expected a nonempty bounded summary without tool calls; original history retained", task)
-
-def provider_checkpoint_permitted(value: J.Json) -> Bool:
-  D.valid_provider_checkpoint(value)
-
-def provider_summary_calculation(value: J.Json, resume: Bool, task: D.Task) -> D.Task:
-  promote(D.with_phase(after_summary(resume), D.append_message(D.ModelContext{value}, task)))
-
-def provider_summary_checked(member: Categories.Membership<J.Json, Categories.holds(J.Json, provider_checkpoint_permitted)>, resume: Bool, task: D.Task) -> D.Task:
-  Categories.Membership{value, evidence} = member
-  provider_summary_calculation(value, resume, task)
-
-def provider_summary_admission(result: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, provider_checkpoint_permitted)>>, resume: Bool, task: D.Task) -> D.Task:
-  match result:
-    case Some{member}: provider_summary_checked(member, resume, task)
-    case None{}:
-      summary_failure("Compaction failed: expected one nonempty bounded provider checkpoint; original history retained", task)
-
-def summary_context_result(checkpoint: Bool, +value: J.Json, resume: Bool, task: D.Task) -> D.Task:
-  match checkpoint:
-    case True{}: provider_summary_admission(Categories.admit(J.Json, provider_checkpoint_permitted, value), resume, task)
-    case False{}:
-      summary_admission(Categories.admit(SummaryCandidate, summary_permitted, SummaryCandidate{Nil{}, summary_context(value)}), resume, task)
-
-def summary_reply(items: +List<D.ModelItem>, resume: Bool, task: D.Task) -> D.Task:
-  match items:
-    case Con{D.Context{+value}, Nil{}}:
-      summary_context_result(D.is_provider_checkpoint(value), value, resume, task)
-    case +other:
-      summary_admission(Categories.admit(SummaryCandidate, summary_permitted, SummaryCandidate{other, summary_text(other)}), resume, task)
-
-def summary_outcome(outcome: D.Outcome, resume: Bool, task: D.Task) -> D.Task:
-  match outcome:
-    case D.ContextLimit{}:
-      summary_failure("The summary request exceeded the model context limit; supply a bounded checkpoint with compact", task)
-    case D.ModelFailure{message}: summary_failure(message, task)
-    case D.ModelReply{items}: summary_reply(items, resume, task)
-
 def interrupted_outcome(attempt: D.Attempt) -> J.Json:
   match attempt:
     case D.CheckedAttempt{call, pending}: D.failure("cancelled_before_execution", "This tool was cancelled during its authorization protocol, before dispatch")
@@ -452,13 +344,11 @@ def interrupted_history(phase: D.Phase, history: D.History) -> D.History:
       D.HistoryNode{history, D.FailureMessage{"Model request interrupted by the user"}}
     case D.ReasoningPending{ticket, revision}:
       D.HistoryNode{history, D.FailureMessage{"Reasoning evaluation interrupted by the user; no model request was sent"}}
-    case D.SummaryPending{ticket, resume}:
-      D.HistoryNode{history, D.FailureMessage{"Context summary interrupted; original history retained"}}
     case D.Ready{attempts}: interrupt_attempts(attempts, history)
 
 def interrupted_task(task: D.Task) -> D.Task:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
-  D.Task{id, lineage, contract, D.Stopped{}, interrupted_history(phase, history), queued, D.Idle{}, Nil{}, False{}}
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, D.Stopped{}, interrupted_history(phase, history), queued, D.Idle{}, Nil{}, False{}}
 
 def interrupt(task: D.Task) -> D.Task:
   interrupted_task(Ops.abandoned(task))
@@ -478,8 +368,8 @@ def steering_status(status: D.Status) -> D.Status:
     case other: other
 
 def steer(text: String, task: D.Task) -> D.Task:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
-  D.Task{id, lineage, contract, steering_status(status),
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, steering_status(status),
     D.HistoryNode{interrupted_history(phase, history), D.UserMessage{text}}, queued,
     D.Ready{Nil{}}, operations, True{}}
 
@@ -489,16 +379,14 @@ def steering_effects(-EffectRest: Data, phase: D.Phase, id: Nat) -> +List<Effect
     case D.ContextPending{ticket, revision, purpose}: [Effects.CancelTicket{id, ticket}]
     case D.ModelPending{ticket, allowed}: [Effects.CancelTicket{id, ticket}]
     case D.ReasoningPending{ticket, revision}: [Effects.CancelTicket{id, ticket}]
-    case D.SummaryPending{ticket, resume}: [Effects.CancelTicket{id, ticket}]
     case _: Nil{}
 
 def recover_phase(phase: D.Phase) -> D.Phase:
   match phase:
     case D.ContextPending{ticket, revision, D.GenerateContext{}}: D.Ready{Nil{}}
-    case D.ContextPending{ticket, revision, D.SummaryContext{resume}}: D.Idle{}
+    case D.ContextPending{ticket, revision, D.SummaryContext{}}: D.Idle{}
     case D.ModelPending{ticket, callable}: D.Ready{Nil{}}
     case D.ReasoningPending{ticket, revision}: D.Ready{Nil{}}
-    case D.SummaryPending{ticket, resume}: D.Idle{}
     case other: other
 
 def recovered_operations(pending: Bool, task: D.Task) -> D.Task:

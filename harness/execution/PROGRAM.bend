@@ -1,4 +1,6 @@
 import Base
+import ../../features/compaction/SPEC.bend as Compaction
+import ../../features/compaction/STATE.bend as CompactionState
 import ../tools/SYNTAX.bend as Native
 import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as F
@@ -44,9 +46,9 @@ def catalog(+world: M.World()) -> +List<D.Tool>:
   catalog_environment(world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def context(+task: D.Task) -> J.Json:
-  J.Object{[J.Field{"model", View.model_json(T.task_model(D.task_contract(task)))},
+  J.Object{[J.Field{"model", View.model_json(D.task_model(task))},
     J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}},
-    J.Field{"history", J.Array{T.messages_json(D.history_messages(D.context_history(D.task_history(task)), Nil{}))}}]}
+    J.Field{"history", J.Array{T.messages_json(D.history_messages(D.task_history(task), Nil{}))}}]}
 
 def model(+task: D.Task, world: M.World()) -> Action:
   Model{task}
@@ -349,7 +351,7 @@ def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
       C.Decision{world, D.success(J.Null{}), Nil{}}
     case Idle{task} _:
       C.Decision{Commands.replace(D.with_phase(D.Idle{}, task), world), D.success(J.Null{}), Nil{}}
-    case Model{task} _: Reasoning.start(F.State(), F.Effect, task, world)
+    case Model{task} _: Compaction.attach(Reasoning.start(F.State(), F.Effect, task, world))
     case External{+tool, +call, remaining, +task} C.Frame{+task_state_2, +board}:
       tasks = D.state_tasks(task_state_2)
       next_task = D.state_next_task(task_state_2)
@@ -420,7 +422,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
       +next = combine(decision, work_calculation(D.task_work(task), task, world(decision)))
-      schedule(p, T.runnable(Commands.entries(world(next))), next)
+      schedule(p, Compaction.runnable(Commands.entries(world(next)), CompactionState.registry(world(next))), next)
 
 def budget_limits(world: M.World(), limits_value: D.ExecutionLimits) -> Nat:
   match world limits_value:
@@ -431,12 +433,12 @@ def budget(+world: M.World()) -> Nat:
   budget_limits(world, D.state_limits(C.local(D.State, F.State(), world)))
 
 def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
-  BoardScheduling.finish(schedule(budget(world(decision)), T.runnable(Commands.entries(world(decision))), decision))
+  BoardScheduling.finish(schedule(budget(world(decision)), Compaction.runnable(Commands.entries(world(decision)), CompactionState.registry(world(decision))), decision))
 
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
-    case True{}: scheduled_prepared(BoardScheduling.required_prepare(decision))
+    case True{}: scheduled_prepared(Compaction.required_prepare(BoardScheduling.required_prepare(decision)))
 
 
 type WorkRequest is Data:

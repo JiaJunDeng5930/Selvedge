@@ -23,7 +23,7 @@ def provider_speech(+assistant: Bool, +index: Nat, +value: J.Json, +tail: +List<
 def provider_group(+kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>) ->
   {Spec.sources(Actual.provider_group(kind, index, value, tail)) == D.ModelContext{value} <> Spec.sources(tail) : +List<D.Message>}:
   match kind:
-    case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
+    case Content.SpeechContext{}: provider_speech(Content.provider_assistant(value), index, value, tail)
     case Content.ReasoningContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
     case Content.CompactionContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
     case Content.OtherContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
@@ -33,7 +33,7 @@ def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
   match message:
     case D.UserMessage{text}: {==}
     case D.AssistantMessage{text}: {==}
-    case D.ModelContext{value}: provider_group(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail)
+    case D.ModelContext{value}: provider_group(Content.provider_kind(value), index, value, tail)
     case D.FunctionCall{call}:
       +audit_message: D.Message = D.FunctionCall{call}
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
@@ -46,8 +46,8 @@ def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
     case D.FailureMessage{text}:
       +audit_message: D.Message = D.FailureMessage{text}
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
-    case D.ContextCheckpoint{summary}:
-      +audit_message: D.Message = D.ContextCheckpoint{summary}
+    case D.ContextReplacement{summary}:
+      +audit_message: D.Message = D.ContextReplacement{summary}
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
     case D.ReasoningRecord{owner, effort, remaining, sampling}:
       +audit_message: D.Message = D.ReasoningRecord{owner, effort, remaining, sampling}
@@ -118,7 +118,7 @@ def provider_speech_text(+assistant: Bool, +index: Nat, +value: J.Json, +tail: +
 def provider_group_text(+kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
   Spec.text_agreement(Actual.provider_group(kind, index, value, tail)):
   match kind:
-    case Content.SpeechContext{}: provider_speech_text(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail, evidence)
+    case Content.SpeechContext{}: provider_speech_text(Content.provider_assistant(value), index, value, tail, evidence)
     case Content.ReasoningContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
     case Content.CompactionContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
     case Content.OtherContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
@@ -128,7 +128,7 @@ def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, e
   match message:
     case D.UserMessage{text}: ({==}, evidence)
     case D.AssistantMessage{text}: ({==}, evidence)
-    case D.ModelContext{value}: provider_group_text(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail, evidence)
+    case D.ModelContext{value}: provider_group_text(Content.provider_kind(value), index, value, tail, evidence)
     case D.FunctionCall{call}:
       +audit_message: D.Message = D.FunctionCall{call}
       audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
@@ -141,8 +141,8 @@ def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, e
     case D.FailureMessage{text}:
       +audit_message: D.Message = D.FailureMessage{text}
       audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
-    case D.ContextCheckpoint{summary}:
-      +audit_message: D.Message = D.ContextCheckpoint{summary}
+    case D.ContextReplacement{summary}:
+      +audit_message: D.Message = D.ContextReplacement{summary}
       audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)
     case D.ReasoningRecord{owner, effort, remaining, sampling}:
       +audit_message: D.Message = D.ReasoningRecord{owner, effort, remaining, sampling}

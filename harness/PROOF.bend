@@ -4,6 +4,7 @@ import ./features/PROOF.bend as FrameProof
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
 import ./reasoning/PROOF.bend as ReasoningProof
+import ./reasoning/PROGRAM.bend as Reasoning
 import ./features/MODEL.bend as F
 import ../features/board/MODEL.bend as Board
 import ./MODEL.bend as M
@@ -14,6 +15,7 @@ import ./LAWS.bend as Laws
 import ../bendlib/json.bend as J
 import ./transport/presentation.bend as View
 import ./INVARIANTS.bend as I
+import ../features/compaction/SPEC.bend as CompactionSpec
 import ./protocol/COMMIT.bend as Commit
 import ../bendlib/categories.bend as Categories
 import ./execution/notifications.bend as Notifications
@@ -28,6 +30,23 @@ def board_core_frame(value: Board.State, world: M.World()) ->
   match world:
     case C.Frame{core, state}: {==}
 
+# Target encoding changes effects only; the reasoning component still preserves
+# the assembled feature state for every input world.
+def attached_remaining(+decision: M.Decision()) ->
+  {C.remaining(D.State, F.State(), M.Effect(), CompactionSpec.attach(decision)) ==
+    C.remaining(D.State, F.State(), M.Effect(), decision) : F.State()}:
+  match decision:
+    case C.Decision{C.Frame{core, features}, reply, effects}: {==}
+
+def production_reasoning_frame(+task: D.Task, +world: M.World()) ->
+  {C.remaining(D.State, F.State(), M.Effect(), P.model_request_direct(task, world)) == C.rest(D.State, F.State(), world) : F.State()}:
+  Equal.trans(F.State(),
+    C.remaining(D.State, F.State(), M.Effect(), P.model_request_direct(task, world)),
+    C.remaining(D.State, F.State(), M.Effect(), Reasoning.start(F.State(), F.Effect, task, world)),
+    C.rest(D.State, F.State(), world),
+    attached_remaining(Reasoning.start(F.State(), F.Effect, task, world)),
+    ReasoningProof.start_frame(F.State(), F.Effect, task, world))
+
 def locality() -> Rule.Locality:
   Rule.Locality{
     Rule.TaskStorage{
@@ -37,7 +56,7 @@ def locality() -> Rule.Locality:
     Rule.ReasoningComponent{
       R => X => +task => +world => ReasoningProof.start_meaning(R, X, task, world),
       R => X => task => world => ReasoningProof.start_frame(R, X, task, world),
-      task => world => ReasoningProof.start_frame(F.State(), F.Effect, task, world)},
+      task => world => production_reasoning_frame(task, world)},
     Rule.BoardStorage{
       +value => state => FrameProof.board_written(value, state),
       value => world => board_frame(value, world),
@@ -194,7 +213,7 @@ def deliver_certificate(+durable: Bool, +decision: M.Decision(), +previous: M.Wo
 
 def update_certificate(+input: M.Input, +world: M.World()) -> Laws.Admitted(world, P.update(input, world)):
   +raw = P.apply(input, world)
-  +candidate = Notifications.decorate(input, world, P.scheduled(Commit.schedules(input, raw), raw))
+  +candidate = Commit.configuration_checked(input, Notifications.decorate(input, world, P.scheduled(Commit.schedules(input, raw), raw)), world)
   deliver_certificate(M.durable(input), P.checked(candidate, world), world, checked_certificate(candidate, world))
 
 def observe_certificate(query: M.Query, +world: M.World()) ->
@@ -207,6 +226,8 @@ def transition_calculation_certificate(input: M.Input, +world: M.World()) ->
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
     case M.UserCommand{M.FeatureCommand{command}}:
       update_certificate(M.UserCommand{M.FeatureCommand{command}}, world)
+    case M.UserCommand{M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}}:
+      update_certificate(M.UserCommand{M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}}, world)
     case M.UserCommand{M.Create{profile, reasoning, message, options}}:
       update_certificate(M.UserCommand{M.Create{profile, reasoning, message, options}}, world)
     case M.UserCommand{M.Send{id, message}}:

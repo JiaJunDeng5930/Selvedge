@@ -28,7 +28,7 @@ def B.independent_board_wire_tools():
   body => effect => {==}
 def B.independent_approval_wire_tools():
   body => effect => {==}
-def B.summary_wire_tools():
+def B.compaction_wire_tools():
   body => effect => {==}
 
 def B.retry_notice_attempt():
@@ -53,7 +53,7 @@ def B.accepted_prepare_history():
   effect => {==}
 def B.model_independent_history():
   effect => {==}
-def B.summary_independent_history():
+def B.compaction_independent_history():
   effect => {==}
 
 def B.tool_receipt_input_success():

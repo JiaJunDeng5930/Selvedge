@@ -91,6 +91,18 @@ def observed_approval(value: ApprovalValue) -> ApprovalChoice:
     case InheritedApproval{policy}: approval_choice(policy)
     case ChosenApproval{choice}: choice
 
+# This view projection is bound to the execution resolver for every actual policy.
+def approval_access(choice: ApprovalChoice) -> D.ExecutionAccess:
+  match choice:
+    case Unrestricted{}: D.Unrestricted{}
+    case _: D.Sandboxed{}
+
+def preview_access(preview: Preview) -> Maybe<&2, D.ExecutionAccess>:
+  match preview:
+    case ContextUnavailable{reason}: None{}
+    case ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}:
+      Some{approval_access(observed_approval(approval))}
+
 def approval_option(choice: ApprovalChoice) -> String:
   match choice:
     case Ask{}: "ask"
@@ -229,7 +241,7 @@ def preview(+config: Configuration, world: M.World()) -> Preview:
   Configuration{origin, workspace, sandbox, approval} = config
   preview_selected(inherited(origin, world), config)
 
-# A task's observation uses its contract, never the project's current defaults.
+# Task observations combine immutable workspace ownership with current execution policy.
 
 def modify_workspace(+config: Configuration, change: WorkspaceEdit, world: M.World()) -> Result<&2, &2, String, Configuration>:
   edit_preview(preview(config, world), change, config)
@@ -278,7 +290,8 @@ def effective_contract(contract: D.Contract, task: Nat, guidance: D.ProjectConte
   EffectiveContext{task, context, guidance, W.default_access(context)}
 
 def effective(+task: D.Task) -> EffectiveContext:
-  effective_contract(D.task_contract(task), D.task_id(task), D.task_guidance(task))
+  +context = D.task_context(task)
+  EffectiveContext{D.task_id(task), context, D.task_guidance(task), W.default_access(context)}
 
 def observation_valid(observation: DirectoryObservation) -> Bool:
   DirectoryObservation{+workspace, +guidance} = observation

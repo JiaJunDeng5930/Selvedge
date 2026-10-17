@@ -5,17 +5,18 @@ import ../features/CODEC.bend as FeatureCodec
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as Component
 import ../DOMAIN.bend as D
-import ../reasoning/MODEL.bend as Reasoning
 import ../MODEL.bend as M
 import ../approval/MODEL.bend as Approvals
 import ../../bendlib/json.bend as J
 import ../tasks/PROGRAM.bend as T
 import ../reasoning/context.bend as ReasoningContext
+import ../reasoning/view.bend as ReasoningView
+import ../context/PROGRAM.bend as Selection
+import ../context/selection.bend as SelectionModel
+import ./model-json.bend as ModelJSON
 
 def model_json(model: D.Model) -> J.Json:
-  D.Model{D.Profile{profile, provider, name, policy, options}, reasoning} = model
-  J.Object{[J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}},
-    J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"adaptive_reasoning", Reasoning.json(policy)}]}
+  ModelJSON.encode(model)
 
 def references(values: +List<D.PluginRef>) -> +List<J.Json>:
   match values:
@@ -40,6 +41,18 @@ def notices(items: +List<D.Notice>) -> +List<J.Json>:
         J.Field{"cursor", J.optional_nat(cursor)}, J.Field{"payload", payload(value)}, J.Field{"payload_omitted", J.Boolean{omitted(value)}},
         J.Field{"recipients", J.Array{references(recipients)}}]} <> notices(rest)
 
+# A positive reserve comes from a measured target. Otherwise adopt portable
+# windows before encoding, while retaining suffix receipts for authorization.
+def model_history(selected: Bool, +history: D.History, scope: String) -> +List<J.Json>:
+  match selected:
+    case True{}: Selection.target_messages(Selection.history_json(history), scope)
+    case False{}: Selection.portable_messages(Selection.history_json(history))
+
+def model_replacement_source(selected: Bool, history: D.History, scope: String) -> Maybe<&2, Nat>:
+  match selected:
+    case True{}: Selection.replacement_source(Selection.latest(Selection.history_json(history), scope, 0n, SelectionModel.Original{}))
+    case False{}: Selection.replacement_source(Selection.latest(Selection.history_json(history), "", 0n, SelectionModel.Original{}))
+
 def effect(effect: M.Effect()) -> J.Json:
   match effect:
     case Effects.NotifyPlugins{events}: J.Object{[J.Field{"kind", J.Text{"plugin_events"}}, J.Field{"events", J.Array{notices(events)}}]}
@@ -53,15 +66,19 @@ def effect(effect: M.Effect()) -> J.Json:
     case Effects.ObserveContext{task_id, ticket, history, context}:
       J.Object{[J.Field{"kind", J.Text{"observe_context"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"settings", D.task_context_json(context)}, J.Field{"definitions", Context.definitions_json(ContextKinds.definitions())}, J.Field{"bindings", Context.snapshots_json(D.context_bindings(history))}]}
-    case Effects.RequestModel{+task_id, ticket, +model, +history, tools, callable, context}:
+    case Effects.RequestModel{+task_id, ticket, +model, +history, tools, callable, context, +scope, +reserve}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"sampling", ReasoningContext.sampling(task_id, model, history)},
-        J.Field{"history", J.Array{T.messages_json(D.history_messages(history, Nil{}))}},
+        J.Field{"history", J.Array{model_history(Nat.is_lt(0n, reserve), history, scope)}},
+        J.Field{"context_selected", J.Boolean{Nat.is_lt(0n, reserve)}}, J.Field{"context_scope", J.Text{scope}},
+        J.Field{"context_replacement_source", J.optional_nat(model_replacement_source(Nat.is_lt(0n, reserve), history, scope))},
+        J.Field{"output_reserve_tokens", J.nat(reserve)}, J.Field{"source_length", J.nat(D.history_length(history))},
         J.Field{"tools", J.Array{D.tools_json(tools)}}, J.Field{"callable", J.Array{J.text_items(callable)}}]}
     case Effects.RequestReasoning{task_id, ticket, model, history}:
       J.Object{[J.Field{"kind", J.Text{"reasoning"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"model", model_json(model)}, J.Field{"history", J.Array{ReasoningContext.public_history(history, Nil{})}}]}
+        J.Field{"model", model_json(model)}, J.Field{"history", J.Array{ReasoningView.history(history)}},
+        J.Field{"history_preview", J.Boolean{True{}}}, J.Field{"history_preview_bytes", J.nat(ReasoningView.maximum_bytes())}]}
     case Effects.FeatureEffect{effect}: FeatureCodec.effect_json(model_json, effect)
     case Effects.ExecuteTool{task_id, ticket, tool, call, context, access}:
       J.Object{[J.Field{"kind", J.Text{"tool"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
@@ -72,16 +89,12 @@ def effect(effect: M.Effect()) -> J.Json:
           J.Field{"reasoning", J.Text{D.profile_default(D.Profile{key, provider, name, policy, options})}}]}},
         J.Field{"instructions", J.Text{Approvals.instructions()}}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"call", T.call_json(call)}, J.Field{"user_requests", J.Array{Approvals.user_requests(4n, history)}}]}
+    case Effects.ResetModelSession{task_id}:
+      J.Object{[J.Field{"kind", J.Text{"reset_model_session"}}, J.Field{"task_id", J.nat(task_id)}]}
     case Effects.CancelTask{task_id}:
       J.Object{[J.Field{"kind", J.Text{"cancel"}}, J.Field{"task_id", J.nat(task_id)}]}
     case Effects.CancelTicket{task_id, ticket}:
       J.Object{[J.Field{"kind", J.Text{"cancel_ticket"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)}]}
-    case Effects.RequestSummary{+task_id, ticket, +model, +history, context}:
-      J.Object{[J.Field{"kind", J.Text{"summary"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},
-        J.Field{"sampling", ReasoningContext.sampling(task_id, model, history)},
-        J.Field{"history", J.Array{T.messages_json(D.history_messages(history, Nil{}))}},
-        J.Field{"tools", J.Array{Nil{}}}, J.Field{"callable", J.Array{Nil{}}}]}
     case Effects.ContinueScheduling{}:
       J.Object{[J.Field{"kind", J.Text{"continue"}}]}
 

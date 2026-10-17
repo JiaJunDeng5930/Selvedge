@@ -33,6 +33,7 @@ export async function extendCounter(directory) {
   await modify(directory, 'components.json', source => {
     const manifest = JSON.parse(source);
     for (const [owner, dependencies] of Object.entries({
+      'harness/features/MODEL.bend': ['COUNTER.bend'],
       'harness/features/CODEC.bend': ['COUNTER.bend'],
       'harness/features/execution.bend': ['bendlib/counter-execution.bend', 'bendlib/counter-assembly.bend', 'COUNTER.bend'],
       'harness/features/laws.bend': ['bendlib/counter-laws.bend'],
@@ -129,11 +130,12 @@ def full_meaning(+value: Nat, +world: M.World()) ->
       ['CommandKind', '  CounterSetKind{}\n  CounterReadKind{}'],
       ['Completion', '  CounterObserved{}'],
     ]) result = replaceOnce(result, `type ${type} is Data:\n`, `type ${type} is Data:\n${constructors}\n`);
-    result = replaceDefinition(result, 'specs', `def specs(settings_schema: J.Json) -> +List<CommandSpec>:
-  List.append(&2, CommandSpec, List.append(&2, CommandSpec, board_specs(BoardCodec.specs(settings_schema)), chatgpt_specs(ChatGPTCodec.specs())),
+    result = replaceOnce(result, 'def specs(', 'def specs_before_counter(');
+    result += `\ndef specs(settings_schema: J.Json) -> +List<CommandSpec>:
+  List.append(&2, CommandSpec, specs_before_counter(settings_schema),
     [CommandSpec{"counter_set", "Store the independent counter.", CounterSetKind{},
        D.command_schema([J.Field{"value", BoardCodec.integer_schema()}], [J.Text{"value"}])},
-     CommandSpec{"counter_read", "Read the independent counter.", CounterReadKind{}, D.command_schema(Nil{}, Nil{})}])`);
+     CommandSpec{"counter_read", "Read the independent counter.", CounterReadKind{}, D.command_schema(Nil{}, Nil{})}])\n`;
     return result;
   });
 
@@ -199,6 +201,12 @@ export async function counterProbe(module) {
   const command = body => send({ kind: 'command', command: body });
   try {
     await kernel.initialize();
+    const listed = await command({ op: 'list_task_graphs' });
+    assert.deepEqual(listed.reply, { ok: true, result: { graphs: [] } });
+    const installed = await command({ op: 'create_task_graph', name: 'Existing graph', nodes: [], rules: [] });
+    assert.equal(installed.reply.ok, true);
+    const graph = installed.reply.result;
+    assert.equal(graph.name, 'Existing graph');
     const malformed = await command({ op: 'counter_set', value: -1 });
     assert.equal(malformed.reply.ok, false);
     assert.deepEqual(malformed.effects, []);
@@ -210,6 +218,15 @@ export async function counterProbe(module) {
     assert.deepEqual(read.reply, { ok: true, result: 7 });
     assert.deepEqual(read.effects, []);
     assert.equal(read.durable, false);
+    const retained = await command({ op: 'read_task_graph', graph_id: graph.graph_id });
+    assert.deepEqual(retained.reply, { ok: true, result: graph });
+    const updated = await command({ op: 'update_task_graph', graph_id: graph.graph_id,
+      name: 'Updated graph', nodes: [], rules: [] });
+    assert.equal(updated.reply.ok, true);
+    const graphs = await command({ op: 'list_task_graphs' });
+    assert.deepEqual(graphs.reply, { ok: true, result: { graphs: [updated.reply.result] } });
+    assert.equal((await command({ op: 'delete_task_graph', graph_id: graph.graph_id })).reply.ok, true);
+    assert.deepEqual((await command({ op: 'list_task_graphs' })).reply, { ok: true, result: { graphs: [] } });
     const completed = await send({ kind: 'counter_observed' });
     assert.deepEqual(completed.reply, { ok: true, result: 7 });
     assert.deepEqual(completed.effects, []);

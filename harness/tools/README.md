@@ -6,7 +6,8 @@ input schema and checks the actual descriptor before constructing typed membersh
 in the intersection of correspondence and admissibility. Correspondence binds
 the declaration, arguments, capability and execution; admissibility requires
 nonempty names and descriptions and a supported schema.
-The default six tools are definitions in `catalog`.
+The default seven task and process tools are definitions in `catalog`.
+The feature assembly appends its own constructed tools from its command specifications.
 
 For example, a new tool over the existing task observation needs only:
 
@@ -22,6 +23,26 @@ definition and carries no authored evidence. This definition adds no tool
 identity enum, dispatch case or instance proof. Constants, argument names and defaults can vary within the
 same capability syntax. `journal_authored` and `external_authored` expose family
 inclusions; `Categories.extend_instance` adds independent instance membership.
+
+`Create` uses the ordinary Task creation settings schema and command resolver.
+Model-created Tasks must remain within the caller's workspace and permissions,
+as model-created forks do. An explicit workspace can use exact directory roots
+already observed in the caller, current environment or registered projects.
+Observe a new directory through the public command's host entry before selecting
+it from a model tool; model arguments cannot supply root guidance. Omitted
+settings retain ordinary creation defaults, including registered project
+selection. Creation keeps the ordinary independent Task identity; it does not
+acquire fork ancestry or branching limits.
+
+`Feature{operation, schema}` freezes an assembled command specification. Its tool
+schema derives from that same command schema with the fixed `op` binding removed;
+the caller cannot select another command through an argument. Invocation requires
+the installed specification to have the frozen schema, checks the original
+command codec and delegated Task settings, then uses the ordinary command
+resolver. Queries use the same capability. Unsupported, changed or refused
+feature operations settle an already accepted tool call with its error result.
+This capability introduces no dependency from the core tool grammar to concrete
+features and requires no interpreter branch for an authored workflow.
 
 Construction certifies the declared bindings and checks supported schema shapes,
 unique argument names, required declarations and numeric bounds. It rejects

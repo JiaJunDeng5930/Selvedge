@@ -78,8 +78,8 @@ type Evidence is Type:
   Evidence{
     append: @+context:D.HistoryContext -> @+task:D.Task ->
       {D.task_history(D.append_context(context, task)) == D.HistoryNode{D.task_history(task), D.ContextMessage{context}} : D.History},
-    checkpoint_bindings: @+history:D.History -> @summary:String ->
-      {D.context_bindings(D.HistoryNode{history, D.ContextCheckpoint{summary}}) == D.context_bindings(history) : +List<C.Snapshot>},
+    replacement_bindings: @+history:D.History -> @value:J.Json ->
+      {D.context_bindings(D.HistoryNode{history, D.ContextReplacement{value}}) == D.context_bindings(history) : +List<C.Snapshot>},
     context_reconstruction: @+history:D.History -> @+change:C.Change ->
       {D.context_bindings(D.HistoryNode{history, D.ContextMessage{D.ContextChange{change}}}) == C.apply_change(change, D.context_bindings(history)) : +List<C.Snapshot>},
     unchanged_observation: @+key:C.Key -> @+base:String -> @+value:C.Value -> @+observed:C.Snapshot -> @+patch:C.Patch ->

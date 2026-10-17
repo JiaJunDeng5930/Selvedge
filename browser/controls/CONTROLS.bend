@@ -1,3 +1,8 @@
+import ../layout/natural-size.bend as NaturalSize
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/experience/MODEL.bend as UXTypes
+import ../../interaction/presentation/INFORMATION.bend as Information
+import ./SURFACES.bend as Surfaces
 import Base
 import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -9,6 +14,7 @@ import ../appearance/DESIGN.bend as Design
 import ../layout/physical-space.bend as Model
 import ../layout/GEOMETRY.bend as Spatial
 import ../layout/enclosure.bend as Enclosure
+import ../layout/ACTIVITY.bend as Activity
 import ../appearance/TYPOGRAPHY.bend as T
 import ../document/MODEL.bend as Doc
 import ../editor/MODEL.bend as EditorLayout
@@ -20,6 +26,22 @@ import ../../interaction/services/CONTEXT.bend as Context
 import ../../harness/DOMAIN.bend as Domain
 import ../../features/board/MODEL.bend as Board
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+
+type FocusOwnership is Data:
+  IndependentFocus{}
+  AggregateFocus{}
+  EmbeddedFocus{}
+
+def focus_attributes(ownership: FocusOwnership) -> +List<Source.Attribute>:
+  match ownership:
+    case IndependentFocus{}: Nil{}
+    case AggregateFocus{}: [Source.DataAttribute{"focus-owner", "aggregate"}]
+    case EmbeddedFocus{}: [Source.DataAttribute{"focus-owner", "embedded"}]
+
+def widget_focus(widget: Controls.Widget) -> FocusOwnership:
+  match widget:
+    case Controls.MessageInput{}: EmbeddedFocus{}
+    case _: IndependentFocus{}
 
 def filter_search(value: Board.Filter) -> String:
   match value:
@@ -58,12 +80,19 @@ def context_field_text(field: Forms.Field, origin: Context.Origin, workspace: Co
     case Forms.SandboxMode{}: FieldOptions.sandbox_text(sandbox)
     case Forms.NetworkAccess{}: network_text(sandbox)
     case Forms.ApprovalPolicy{}: approval_text(approval)
+    case Forms.ApprovalReviewer{}: approval_text(approval)
     case _: ""
+
+def model_field_text(field: Forms.Field, profile: String, reasoning: String) -> String:
+  match field:
+    case Forms.ReasoningEffort{}: reasoning
+    case _: profile
 
 def field_text(field: Forms.Field, value: Forms.Observed) -> String:
   match value:
-    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}: context_field_text(field, origin, workspace, sandbox, approval)
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}: context_field_text(field, origin, workspace, sandbox, approval)
     case Forms.WorkspaceValue{Domain.Workspace{roots, primary}}: workspace_field_text(field, roots, primary)
+    case Forms.ModelValue{profile, reasoning}: model_field_text(field, profile, reasoning)
     case other: FieldOptions.observed(other)
 
 type CreationParts is Data:
@@ -93,15 +122,62 @@ def glyph(key: UIIdentity.Key, icon: Controls.Icon, parent: Design.Style, +size:
 def caption(key: UIIdentity.Key, text: String, parent: Design.Style, wrapping: T.Wrapping) -> Source.Node:
   Factory.text(key, text, Source.ExplicitFont{parent_font(parent)}, wrapping)
 
+def information_key(owner: UIIdentity.Key, role: Information.TextRole) -> UIIdentity.Key:
+  UIIdentity.part(owner, "@information/" ++ Information.name(role))
+
+def information_secondary(role: Information.TextRole) -> Bool:
+  match role:
+    case Information.Description{}: True{}
+    case Information.Status{}: True{}
+    case Information.NavigationCaption{}: True{}
+    case _: False{}
+
+def information_foreground(secondary: Bool, style: Source.Style) -> Source.Style:
+  match secondary:
+    case True{}:
+      Source.Style{layout, font, Design.Chrome{foreground, background, border, width, radius, shadow}, states} = style
+      Source.Style{layout, font, Design.Chrome{Design.TextForeground{Surfaces.SecondaryText{}}, background, border, width, radius, shadow}, states}
+    case False{}: style
+
+def information_chrome_style(+role: Information.TextRole, +parent: Design.Style) -> Source.Style:
+  information_foreground(information_secondary(role), Factory.with_font(Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Source.ExplicitFont{T.information(role, parent_font(parent))}))
+
+def information_alignment(role: Information.TextRole) -> Spatial.Alignment:
+  match role:
+    case Information.IntroductionTitle{}: Spatial.Centered{}
+    case _: Spatial.Leading{}
+
+def information_style(+role: Information.TextRole, parent: Design.Style) -> Source.Style:
+  Factory.with_alignments(information_chrome_style(role, parent), information_alignment(role), Spatial.Leading{})
+
+def owned_text(+owner: UIIdentity.Key, +role: Information.TextRole, value: String, +visual: Design.Style) -> Source.Node:
+  +key = information_key(owner, role)
+  Source.Box{key, Source.Span{}, information_style(role, visual), [Source.IdAttribute{UIIdentity.encode(key)}, Source.DataAttribute{"information-owner", UIIdentity.encode(owner)}, Source.DataAttribute{"information-role", Information.name(role)}], [Factory.text(UIIdentity.part(key, "text"), value, Source.ExplicitFont{T.information(role, parent_font(visual))}, T.NormalWords{})]}
+
+def choice_association(face: Controls.Face, +key: UIIdentity.Key) -> +List<Source.Attribute>:
+  match face:
+    case Controls.ChoiceFace{text, None{}, icon, selected}: [Source.AriaAttribute{"labelledby", UIIdentity.encode(information_key(key, Information.OptionLabel{}))}]
+    case Controls.ChoiceFace{text, Some{description}, icon, selected}: [Source.AriaAttribute{"labelledby", UIIdentity.encode(information_key(key, Information.OptionLabel{}))}, Source.AriaAttribute{"describedby", UIIdentity.encode(information_key(key, Information.Description{}))}]
+    case _: Nil{}
+
 def leading_icon(value: Maybe<&2, Controls.Icon>, key: UIIdentity.Key, parent: Design.Style, size: Nat) -> +List<Source.Node>:
   match value:
     case None{}: Nil{}
     case Some{icon}: [glyph(UIIdentity.part(key, "leading"), icon, parent, size)]
 
-def face_description(value: Maybe<&2, String>, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
+def description_style_fields(style: Source.Style, parameters: Design.LayoutParameters) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  Source.Style{Source.Layout{direction, main, cross, frame, Activity.description_width(Design.activity_support_advance(parameters)), height, minimum, scroll, position}, font, chrome, states}
+
+def description_style(parent: Design.Style, parameters: Design.LayoutParameters) -> Source.Style:
+  description_style_fields(information_style(Information.Description{}, parent), parameters)
+
+def face_description(value: Maybe<&2, String>, +key: UIIdentity.Key, +parent: Design.Style, parameters: Design.LayoutParameters) -> +List<Source.Node>:
   match value:
     case None{}: Nil{}
-    case Some{text}: [Factory.text(UIIdentity.part(key, "description"), text, Source.ExplicitFont{T.supporting(parent_font(parent))}, Controls.description_wrapping())]
+    case Some{text}:
+      +owned_key = information_key(key, Information.Description{})
+      [Source.Box{owned_key, Source.Span{}, description_style(parent, parameters), [Source.IdAttribute{UIIdentity.encode(owned_key)}, Source.DataAttribute{"information-owner", UIIdentity.encode(key)}, Source.DataAttribute{"information-role", "description"}], [Factory.text(UIIdentity.part(owned_key, "text"), text, Source.ExplicitFont{T.information(Information.Description{}, parent_font(parent))}, T.NormalWords{})]}]
 
 def selection(checked: Bool, key: UIIdentity.Key, parent: Design.Style, size: Nat) -> +List<Source.Node>:
   match checked:
@@ -121,7 +197,81 @@ def face_leading_slot(value: Controls.Geometry) -> Nat:
   Controls.Geometry{demand, size, radius, slot} = value
   slot
 
-def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+def choice_leading_activity(enabled: Bool, value: Maybe<&2, Controls.Icon>, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+  match enabled value:
+    case True{} Some{icon}:
+      [Source.Box{UIIdentity.part(key, "leading-slot"), Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Spatial.Centered{}, Spatial.Centered{}), Nil{}, [glyph(UIIdentity.part(key, "leading"), icon, parent, face_icon_size(geometry))]}]
+    case _ other: leading_icon(other, key, parent, face_icon_size(geometry))
+
+
+def choice_text_gap_activity(enabled: Bool, parent: Design.Style) -> Nat:
+  match enabled:
+    case True{}: Activity.length(NaturalSize.limit(), parent_font(parent), 2n)
+    case False{}: 2n
+
+def choice_text_gap(+parent: Design.Style) -> Nat:
+  choice_text_gap_activity(T.is_activity(parent_font(parent)), parent)
+
+def summary_role_name(secondary: Bool) -> String:
+  match secondary:
+    case False{}: "principal"
+    case True{}: "secondary"
+
+# Inline roles share a font and line box, so the measured text baselines coincide.
+# Supporting colour expresses dependency without introducing another text row.
+def summary_value_style(secondary: Bool, parent: Design.Style) -> Source.Style:
+  information_foreground(secondary, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Spatial.Leading{}, Spatial.Centered{}))
+
+def summary_value_node(+secondary: Bool, value: UXTypes.SummaryValue, +key: UIIdentity.Key, +parent: Design.Style) -> Source.Node:
+  UXTypes.SummaryValue{+subject, value} = value
+  Source.Box{key, Source.Span{}, summary_value_style(secondary, parent),
+    [Source.DataAttribute{"summary-role", summary_role_name(secondary)}, Source.DataAttribute{"summary-subject", UX.subject_key(subject)}],
+    [caption(UIIdentity.part(key, "text"), value, parent, T.UnbrokenLine{})]}
+
+def summary_secondary_nodes(value: Maybe<&2, UXTypes.SummaryValue>, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  match value:
+    case None{}: Nil{}
+    case Some{UXTypes.SummaryValue{subject, value}}:
+      [summary_value_node(True{}, UXTypes.SummaryValue{subject, "· " ++ value}, UIIdentity.part(key, "secondary"), parent)]
+
+def summary_members(summary: UXTypes.RecognitionSummary, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  UXTypes.RecognitionSummary{property, principal, secondary} = summary
+  summary_value_node(False{}, principal, UIIdentity.part(key, "principal"), parent) <> summary_secondary_nodes(secondary, key, parent)
+
+def summary_style(+parent: Design.Style) -> Source.Style:
+  Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, Nat.div(parent_gap(parent), 2n)), Spatial.Leading{}, Spatial.Centered{})
+
+def property_summary_text(full: Bool, +property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style) -> +List<Source.Node>:
+  +summary_key = UIIdentity.part(key, "property-value")
+  [Source.Box{summary_key, Source.Span{}, summary_style(parent),
+    [Source.DataAttribute{"summary-owner", UX.object_key(UX.property_owner(property))}],
+    summary_members(UX.summary_projection(full, UX.property_recognition_summary(property)), summary_key, parent)}]
+
+def property_text(property: UXTypes.Property, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
+  property_summary_text(True{}, property, key, parent)
+
+def compact_property_text(property: UXTypes.Property, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
+  property_summary_text(False{}, property, key, parent)
+
+def compact_property_members(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
+  List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
+    [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{}, compact_property_text(property, key, parent)},
+      glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+
+def choice_members(enabled: Bool, text: String, details: Maybe<&2, String>, icon: Maybe<&2, Controls.Icon>, checked: Bool, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> +List<Source.Node>:
+  List.append(&2, Source.Node, choice_leading_activity(enabled, icon, key, parent, geometry),
+  [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, choice_text_gap(parent)), Nil{}, List.append(&2, Source.Node, [owned_text(key, Information.OptionLabel{}, text, parent)], face_description(details, key, parent, parameters))},
+   Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
+
+
+def setting_members(+subject: UXTypes.Subject, title: String, value: String, +key: UIIdentity.Key, +parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
+  [Source.Box{UIIdentity.part(key, "setting-label"), Source.Span{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Spatial.Leading{}, Spatial.Centered{}),
+     [Source.DataAttribute{"setting-role", "label"}, Source.DataAttribute{"setting-subject", UX.subject_key(subject)}], [caption(UIIdentity.part(key, "setting-label/text"), title, parent, T.SingleLine{})]},
+   Source.Box{UIIdentity.part(key, "setting-value"), Source.Span{}, information_foreground(True{}, Factory.with_alignments(Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Spatial.Trailing{}, Spatial.Centered{})),
+     [Source.DataAttribute{"setting-role", "value"}, Source.DataAttribute{"setting-subject", UX.subject_key(subject)}], [caption(UIIdentity.part(key, "setting-value/text"), value, parent, T.SingleLine{})]},
+   glyph(UIIdentity.part(key, "chevron"), Controls.ChevronRight{}, parent, face_icon_size(geometry))]
+
+def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> +List<Source.Node>:
   match value:
     case Controls.TextFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.UnbrokenFace{text}: [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
@@ -129,6 +279,13 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.IconFace{icon}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry))]
     case Controls.IconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
     case Controls.UnbrokenIconTextFace{icon, text}: [glyph(UIIdentity.part(key, "icon"), icon, parent, face_icon_size(geometry)), caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]
+    case Controls.CompactPropertyFace{+property}: compact_property_members(property, key, parent, geometry)
+    case Controls.PropertyFace{+property}:
+      List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),
+      [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), Nil{},
+        property_text(property, key, parent)},
+       glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
+    case Controls.SettingFace{subject, title, current}: setting_members(subject, title, current, key, parent, geometry)
     case Controls.PickerFace{leading, text}:
       List.append(&2, Source.Node, leading_icon(leading, key, parent, face_icon_size(geometry)),
       [Source.Box{UIIdentity.part(key, "value"), Source.Span{}, Factory.content_style(parent, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))]}, glyph(UIIdentity.part(key, "chevron"), Controls.ChevronDown{}, parent, face_icon_size(geometry))])
@@ -137,12 +294,10 @@ def face_members(+value: Controls.Face, +key: UIIdentity.Key, +parent: Design.St
     case Controls.PermissionFace{filesystem, network, approval}:
       [glyph(UIIdentity.part(key, "filesystem"), filesystem, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "network"), network, parent, face_icon_size(geometry)), glyph(UIIdentity.part(key, "approval"), approval, parent, face_icon_size(geometry))]
     case Controls.ChoiceFace{text, details, icon, checked}:
-      List.append(&2, Source.Node, leading_icon(icon, key, parent, face_icon_size(geometry)),
-      [Source.Box{UIIdentity.part(key, "text"), Source.Span{}, Factory.content_style(parent, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, parent_gap(parent)), Nil{}, List.append(&2, Source.Node, [caption(UIIdentity.part(key, "caption"), text, parent, Controls.caption_wrapping(value))], face_description(details, key, parent))},
-       Source.Box{UIIdentity.part(key, "selection"), Source.Span{}, Factory.with_alignments(Factory.with_minimum(Factory.content_style(parent, Model.Horizontal{}, Model.ExactSize{face_leading_slot(geometry)}, Model.ExactSize{face_leading_slot(geometry)}, 0n), Enclosure.Extent{face_leading_slot(geometry), face_leading_slot(geometry)}), Spatial.Centered{}, Spatial.Centered{}), Nil{}, selection(checked, key, parent, face_icon_size(geometry))}])
+      choice_members(T.is_activity(parent_font(parent)), text, details, icon, checked, key, parent, geometry, parameters)
 
-def face(key: UIIdentity.Key, value: Controls.Face, parent: Design.Style, geometry: Controls.Geometry) -> +List<Source.Node>:
-  face_members(value, key, parent, geometry)
+def face(key: UIIdentity.Key, value: Controls.Face, +parent: Design.Style, geometry: Controls.Geometry, +parameters: Design.LayoutParameters) -> +List<Source.Node>:
+  face_members(value, key, parent, Controls.geometry_at(parent_font(parent), geometry), parameters)
 
 def enabled(value: View.Availability) -> Bool:
   InterfaceView.available(value)
@@ -179,14 +334,26 @@ def feedback(value: Controls.Feedback) -> +List<Source.Attribute>:
 
 def action_width(value: Controls.Face, visual: Design.Style) -> Model.AxisSize:
   match value:
+    case Controls.SettingFace{subject, title, current}: Model.StretchSize{}
     case Controls.ChoiceFace{text, description, icon, checked}: Model.StretchSize{}
     case _: Factory.natural_width(visual)
 
 def action_alignment(value: Controls.Face) -> Spatial.Alignment:
   match value:
     case Controls.ChoiceFace{text, description, icon, checked}: Spatial.Leading{}
+    case Controls.SettingFace{subject, title, current}: Spatial.Leading{}
+    case Controls.PropertyFace{property}: Spatial.Leading{}
+    case Controls.CompactPropertyFace{property}: Spatial.Leading{}
     case Controls.PickerFace{leading, text}: Spatial.Leading{}
     case _: Spatial.Centered{}
+
+def action_cross_activity(value: Controls.Face, enabled: Bool) -> Spatial.Alignment:
+  match value enabled:
+    case Controls.ChoiceFace{text, description, icon, checked} True{}: Spatial.Leading{}
+    case _ _: Spatial.Centered{}
+
+def action_cross_alignment(value: Controls.Face, visual: Design.Style) -> Spatial.Alignment:
+  action_cross_activity(value, T.is_activity(parent_font(visual)))
 
 def invalid(+key: UIIdentity.Key, +visual: Design.Style, +diagnostic: String) -> Source.Node:
   Source.Box{key, Source.Output{}, Factory.content_style(visual, Model.Horizontal{}, Model.NaturalSize{}, Model.NaturalSize{}, 0n), [Source.DataAttribute{"invalid-source", diagnostic}], [caption(UIIdentity.part(key, "diagnostic"), diagnostic, visual, T.NormalAnywhere{})]}
@@ -195,8 +362,8 @@ def field_checked(value: SurfaceTypes.Meaning) -> Bool:
   match value:
     case SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: enabled
     case SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: enabled
-    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
-    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
     case _: False{}
 
 def checked_attributes(checked: Bool) -> +List<Source.Attribute>:
@@ -224,6 +391,7 @@ def field_placeholder(kind: EditorLayout.FieldKind, name: String) -> String:
 def semantic_placeholder(value: SurfaceTypes.Meaning, name: String) -> String:
   match value:
     case SurfaceTypes.BoardSearch{filter}: "搜索任务"
+    case SurfaceTypes.SearchChoices{query}: name
     case SurfaceTypes.Edit{editor, Forms.CardLabels{}, entry, observed, choices}: "每行一个标签"
     case other: field_placeholder(EditorLayout.field_kind(other), name)
 
@@ -232,10 +400,15 @@ def placeholder(widget: Controls.Widget, meaning: SurfaceTypes.Meaning, name: St
     case Controls.MessageInput{}: "Ask anything, or describe a task"
     case _: semantic_placeholder(meaning, name)
 
+def message_binding(field: Forms.Field, key: UIIdentity.Key) -> +List<Source.Attribute>:
+  match field:
+    case Forms.MessageText{}: [Source.EditorBindingAttribute{key}]
+    case _: Nil{}
+
 def field_metadata(key: UIIdentity.Key, value: SurfaceTypes.Meaning) -> +List<Source.Attribute>:
   match value:
-    case SurfaceTypes.Edit{editor, Forms.MessageText{}, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.EditorBindingAttribute{key}]
-    case SurfaceTypes.Edit{editor, field, entry, observed, choices}: [Source.DataAttribute{"field", Forms.key(field)}]
+    case SurfaceTypes.Edit{+editor, +field, entry, observed, choices}:
+      List.append(&2, Source.Attribute, [Source.DataAttribute{"field", Forms.key(field)}, Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}], message_binding(field, key))
     case _: Nil{}
 
 def field_kind(value: Controls.Widget) -> Source.NativeFieldKind:
@@ -262,6 +435,11 @@ def field_first_event(value: Controls.Widget, key: UIIdentity.Key) -> Doc.DOMEve
     case Controls.AttachmentList{}: Doc.SelectFiles{UIIdentity.encode(key)}
     case _: Doc.EditText{UIIdentity.encode(key)}
 
+def field_input_event(meaning: SurfaceTypes.Meaning, value: Controls.Widget, key: UIIdentity.Key) -> Doc.DOMEvent:
+  match meaning:
+    case SurfaceTypes.Edit{editor, field, Forms.StructuredText{}, observed, choices}: Doc.EditStructuredText{UIIdentity.encode(key)}
+    case _: field_first_event(value, key)
+
 def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
   match value:
     case Controls.DirectoryChooser{face}: [Doc.ConfirmText{UIIdentity.encode(key)}]
@@ -274,10 +452,23 @@ def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Desi
     case Controls.DirectoryList{}: Nat.max(1n, Nat.div(Design.input_maximum_height(parameters), Nat.max(1n, T.resolved_line_height(T.resolved(parent_font(visual))))))
     case _: 1n
 
+def native_minimum_lines(widget: Controls.Widget) -> Nat:
+  match widget:
+    case Controls.MessageInput{}: Activity.writing_lines(Activity.initial())
+    case _: 1n
+
+def native_field_policy(widget: Controls.Widget, maximum_lines: Nat) -> Source.FieldPolicy:
+  +minimum = native_minimum_lines(widget)
+  Source.field_policy(0n, Nat.sub(minimum, 1n), Nat.sub(Nat.max(minimum, maximum_lines), minimum))
+
+def policy_minimum_lines(policy: Source.FieldPolicy) -> Nat:
+  Source.FieldPolicy{columns, minimum, maximum} = policy
+  minimum
+
 def label_attributes(value: Controls.LabelPlacement, key: UIIdentity.Key) -> +List<Source.Attribute>:
   match value:
     case Controls.AccessibleOnly{}: Nil{}
-    case _: [Source.AriaAttribute{"labelledby", UIIdentity.encode(UIIdentity.part(key, "label"))}]
+    case _: [Source.AriaAttribute{"labelledby", UIIdentity.encode(information_key(key, Information.FieldLabel{}))}]
 
 def label_direction(value: Controls.LabelPlacement) -> Model.Direction:
   match value:
@@ -294,10 +485,16 @@ def label_width(value: Controls.LabelPlacement) -> Model.AxisSize:
     case Controls.BesideInput{}: Model.StretchSize{}
     case _: Model.NaturalSize{}
 
-def input_width(value: Controls.Widget) -> Model.AxisSize:
+def activity_input_width(active: Bool, parameters: Design.LayoutParameters) -> Model.AxisSize:
+  match active:
+    case True{}: Activity.field_width(Design.activity_primary_advance(parameters))
+    case False{}: Model.StretchSize{}
+
+def input_width(value: Controls.Widget, visual: Design.Style, parameters: Design.LayoutParameters) -> Model.AxisSize:
   match value:
     case Controls.ToggleInput{}: Model.ExactSize{Source.toggle_target_size(Source.native_toggle_geometry())}
-    case _: Model.StretchSize{}
+    case Controls.MessageInput{}: Model.StretchSize{}
+    case _: activity_input_width(T.is_activity(parent_font(visual)), parameters)
 
 def input_height(value: Controls.Widget) -> Model.AxisSize:
   match value:
@@ -309,7 +506,7 @@ def label_field(+value: Controls.LabelPlacement, +key: UIIdentity.Key, name: Str
     case Controls.AccessibleOnly{}: field
     case +other:
       Source.Box{UIIdentity.part(key, "field-wrapper"), label_tag(other), Factory.content_style(visual, label_direction(other), Model.StretchSize{}, Model.NaturalSize{}, parent_gap(visual)), Nil{},
-        [Source.Box{UIIdentity.part(key, "label"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, label_width(other), Model.NaturalSize{}, 0n), Nil{}, [caption(UIIdentity.part(UIIdentity.part(key, "label"), "text"), name, visual, T.NormalAnywhere{})]}, field]}
+        [owned_text(key, Information.FieldLabel{}, name, visual), field]}
 
 type FieldBinding is Data:
   FieldBinding{key: UIIdentity.Key, attributes: +List<Source.Attribute>}
@@ -332,19 +529,23 @@ def request_content(request: InputFieldRequest) -> FieldContent:
   InputFieldRequest{binding, content, protocol} = request
   content
 
+def request_policy(request: InputFieldRequest) -> Source.FieldPolicy:
+  InputFieldRequest{binding, FieldContent{kind, style, value, placeholder, options, policy, name}, protocol} = request
+  policy
+
 def request_protocol(request: InputFieldRequest) -> FieldProtocol:
   InputFieldRequest{binding, content, protocol} = request
   protocol
 
 def expected_input_attributes(+key: UIIdentity.Key, input: Controls.FormInput) -> +List<Source.Attribute>:
   Controls.FormInput{+meaning, name, widget, label, availability} = input
-  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(label, key), availability_attributes(availability)))))
+  List.append(&2, Source.Attribute, Factory.binding_attributes(key), List.append(&2, Source.Attribute, field_metadata(key, meaning), List.append(&2, Source.Attribute, checked_attributes(field_checked(meaning)), List.append(&2, Source.Attribute, label_attributes(label, key), List.append(&2, Source.Attribute, focus_attributes(widget_focus(widget)), availability_attributes(availability))))))
 
-def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, parameters: Design.LayoutParameters) -> InputFieldRequest:
+def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, +parameters: Design.LayoutParameters) -> InputFieldRequest:
   Controls.FormInput{+meaning, +name, +widget, label, availability} = input
   InputFieldRequest{FieldBinding{key, expected_input_attributes(key, input)},
-    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), Source.field_policy(0n, 0n, Nat.sub(maximum_lines(widget, visual, parameters), 1n)), name},
-    FieldProtocol{enabled(availability), field_first_event(widget, key), field_remaining_events(widget, key)}}
+    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget, visual, parameters), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), native_field_policy(widget, maximum_lines(widget, visual, parameters)), name},
+    FieldProtocol{enabled(availability), field_input_event(meaning, widget, key), field_remaining_events(widget, key)}}
 
 def interpret_input_field(label: Controls.LabelPlacement, key: UIIdentity.Key, name: String, visual: Design.Style, request: InputFieldRequest) -> Source.Node:
   InputFieldRequest{binding, content, protocol} = request
@@ -391,7 +592,6 @@ def movable_choices(+key: UIIdentity.Key, control: Controls.MovableControl, +vis
     Factory.binding_attributes(key), "", "Move to…",
     Source.Choice{"", "Move to…", True{}} <> placement_choices(destinations),
     Source.FieldPolicy{1n, 1n, 1n}, name, has_available_destination(destinations), Doc.SelectDestination{UIIdentity.encode(key)}, Nil{}}
-
 
 type InputObservation is Data:
   InputObservation{key: UIIdentity.Key, input: Controls.FormInput, visual: Design.Style,

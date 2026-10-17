@@ -1,4 +1,5 @@
 import Base
+import ./view-proof.bend as ViewProof
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
@@ -58,15 +59,15 @@ def context_active_meaning(-StateRest: Data, -EffectRest: Data, +status: D.Statu
   {Actual.context_active(StateRest, EffectRest, status, purpose, task, world) == Spec.context_active(StateRest, EffectRest, status, purpose, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
   match status purpose:
     case D.Active{} D.GenerateContext{}: prepared_meaning(StateRest, EffectRest, task, world)
-    case D.Active{} D.SummaryContext{resume}:
+    case D.Active{} D.SummaryContext{}:
       match world:
         case C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, rest}: {==}
     case D.Frozen{} D.GenerateContext{}: {==}
-    case D.Frozen{} D.SummaryContext{resume}: {==}
+    case D.Frozen{} D.SummaryContext{}: {==}
     case D.Stopped{} D.GenerateContext{}: {==}
-    case D.Stopped{} D.SummaryContext{resume}: {==}
+    case D.Stopped{} D.SummaryContext{}: {==}
     case D.Archived{} D.GenerateContext{}: {==}
-    case D.Archived{} D.SummaryContext{resume}: {==}
+    case D.Archived{} D.SummaryContext{}: {==}
 
 def context_retry_meaning(-StateRest: Data, -EffectRest: Data, +status: D.Status, purpose: D.ContextPurpose,
   task: D.Task, world: C.Frame<D.State, StateRest>) ->
@@ -76,15 +77,15 @@ def context_retry_meaning(-StateRest: Data, -EffectRest: Data, +status: D.Status
     case D.Frozen{}:
       match purpose:
         case D.GenerateContext{}: {==}
-        case D.SummaryContext{resume}: {==}
+        case D.SummaryContext{}: {==}
     case D.Stopped{}:
       match purpose:
         case D.GenerateContext{}: {==}
-        case D.SummaryContext{resume}: {==}
+        case D.SummaryContext{}: {==}
     case D.Archived{}:
       match purpose:
         case D.GenerateContext{}: {==}
-        case D.SummaryContext{resume}: {==}
+        case D.SummaryContext{}: {==}
 
 def context_fresh_meaning(-StateRest: Data, -EffectRest: Data, +current: Bool, +purpose: D.ContextPurpose,
   +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
@@ -185,7 +186,7 @@ def A.completion_meaning(revision, outcome, task):
 def contract_frame(effort: String, remaining: Nat, +task: D.Task) ->
   {D.task_contract(Context.generation(effort, remaining, task)) == D.task_contract(task) : D.Contract}:
   match task:
-    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def A.reasoning_boundary():
   A.ReasoningBoundary{

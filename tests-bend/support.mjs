@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -8,7 +8,7 @@ import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
-let productionUI;
+const productionUI = new Map();
 
 // Kernel-only fixtures keep their accepted bindings while exercising the real
 // observation completion before handling the next externally owned effect.
@@ -31,21 +31,37 @@ export async function settleContextObservations(send, decision) {
 }
 
 // A checked facade invokes the production UI against the HTTP-visible program.
-export async function browserUI(t) {
-  return productionUI ??= (async () => {
+export async function browserUI(t, { sourceAdmission = false } = {}) {
+  const variant = sourceAdmission ? 'source' : 'runtime';
+  if (!sourceAdmission && productionUI.has('source')) return productionUI.get('source');
+  if (productionUI.has(variant)) return productionUI.get(variant);
+  const ready = (async () => {
     await mkdir(path.join(repository, '.workpad'), { recursive: true });
     const directory = await mkdtemp(path.join(repository, '.workpad', 'ui-boundary-'));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const entry = path.join(directory, 'fixture.bend');
     const output = path.join(directory, 'fixture.mjs');
     const modules = {
+      ...(sourceAdmission ? {
+        Controls: 'browser/controls/PROGRAM.bend', Web: 'browser/MODEL.bend', Shell: 'browser/controls/SHELL.bend', Design: 'browser/appearance/DESIGN.bend',
+        Font: 'browser/appearance/FONT.bend', Typography: 'browser/appearance/TYPOGRAPHY.bend', Limit: 'browser/layout/natural-size.bend',
+      } : {}),
+      ...(sourceAdmission ? {} : { SurfaceProof: 'interaction/presentation/surface-proof.bend' }),
       ProductUI: 'interaction/MODEL.bend', Core: 'interaction/STATE.bend', CoreTypes: 'interaction/TYPES.bend', Services: 'interaction/services/MODEL.bend', E: 'interaction/session/MODEL.bend',
       U: 'interaction/INPUT.bend', View: 'interaction/presentation/MODEL.bend', InterfaceView: 'interaction/presentation/SURFACE.bend',
+      ...(sourceAdmission ? { SurfaceProof: 'interaction/presentation/surface-proof.bend' } : {}),
       Identity: 'interaction/IDENTITY.bend', Cmd: 'harness/transport/command-codec.bend', J: 'bendlib/json.bend', M: 'harness/MODEL.bend',
     };
+    // Ordinary UI clients need the surface provider; source authorship also needs the browser providers.
+    const verificationImports = (sourceAdmission ? await readFile(path.join(repository, '.build/ui-verification.bend'), 'utf8') : '')
+      .split('\n').filter(line => line.startsWith('import ../')).map(line => {
+        const [, file, alias] = /^import \.\.\/(\S+) as (\S+)$/.exec(line);
+        return `import ${path.relative(directory, path.join(repository, file))} as ${alias}`;
+      }).join('\n');
     const imports = Object.entries(modules).map(([name, file]) =>
       `import ${path.relative(directory, path.join(repository, file))} as ${name}`).join('\n');
     await writeFile(entry, `import Base
+${verificationImports}
 ${imports}
 
 def state_of(decision: CoreTypes.Decision) -> CoreTypes.State:
@@ -73,6 +89,56 @@ def authenticated(program: M.World(), task: Nat) -> Result<&2, &2, String, CoreT
 def surface_state(state: CoreTypes.State) -> InterfaceView.Surface:
   ProductUI.observe(View.Capacity{True{}, False{}}, state)
 
+${sourceAdmission ? `# Fixture measurements answer each requested role independently; they do not bypass font admission.
+def fixture_reference_advance(key: String) -> Nat:
+  match key:
+    case "@font/body": 8n
+    case "@font/activity-primary": 7n
+    case "@font/activity-support": 6n
+    case _: 0n
+
+def fixture_metric(specification: Typography.MeasurementSpec) -> Typography.Metric:
+  Typography.MeasurementSpec{+key, text, family, size, height, weight, space, wrap, word_break, width, reference} = specification
+  +advance: Nat = fixture_reference_advance(key)
+  Typography.Metric{key, advance, advance, height, advance}
+
+def fixture_metrics(specifications: +List<Typography.MeasurementSpec>) -> +List<Typography.Metric>:
+  match specifications:
+    case Nil{}: Nil{}
+    case Con{specification, rest}: fixture_metric(specification) <> fixture_metrics(rest)
+
+def fixture_font_received(plan: Font.Plan, specifications: +List<Typography.MeasurementSpec>, initial: Font.State) -> Font.State:
+  Font.Plan{generation, requested} = plan
+  Font.accept(initial, specifications, Font.Observation{generation, fixture_metrics(requested)})
+
+def fixture_font() -> Font.State:
+  +initial: Font.State = Font.begin(0n, 16000n)
+  +specifications: +List<Typography.MeasurementSpec> = Font.activity_specifications(Limit.limit(), Font.scale(initial))
+  fixture_font_received(Font.request(initial, specifications), specifications, initial)
+
+def source_admission_parameters(parameters: Maybe<&2, Design.LayoutParameters>, surface: InterfaceView.Surface, capacity: View.Capacity, layers: +List<View.Layer>, +font: Font.State) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  match parameters:
+    case None{}: Fail{"Fixture font metrics exceed production layout size"}
+    case Some{parameters}:
+      +environment: Design.Environment = Design.Environment{Design.Viewport{602n, 664n}, False{}, 16000n}
+      Done{Shell.source_supporting(Limit.limit(), Web.appearance_surface(surface, environment, font), parameters, capacity, layers, Nil{}, Typography.Presentation{Typography.Body{}, Typography.Regular{}, Font.scale(font)}, Controls.FullSupporting{})}
+
+def source_admission_metrics(body: Maybe<&2, Typography.Metric>, activity: Maybe<&2, Font.ActivityMetrics>, +font: Font.State, surface: InterfaceView.Surface, capacity: View.Capacity, layers: +List<View.Layer>) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  match body activity:
+    case Some{body} Some{Font.ActivityMetrics{primary, support}}:
+      source_admission_parameters(Design.parameters(Limit.limit(), Font.scale(font), body, primary, support), surface, capacity, layers, font)
+    case _ _: Fail{"Fixture did not complete the requested production font measurements"}
+
+def source_admission_surface(+surface: InterfaceView.Surface, capacity: View.Capacity) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  InterfaceView.Surface{CoreTypes.Scene{View.Scene{navigation, main, +layers, arrangement, attention}, settings, transfers, preview, code, directory_picker}, base, overlays, scope} = surface
+  +font: Font.State = fixture_font()
+  source_admission_metrics(Font.body(font), Font.activity_metrics(font), font, surface, capacity, layers)
+
+def source_admission(state: CoreTypes.State) -> Result<&2, &2, String, Shell.ShellAuthorship>:
+  +capacity: View.Capacity = View.Capacity{True{}, False{}}
+  source_admission_surface(ProductUI.observe(capacity, state), capacity)
+
+` : ''}
 def key(node: InterfaceView.Node) -> String:
   InterfaceView.Node{key, semantic, label, role, meaning, children} = node
   Identity.encode(key)
@@ -87,6 +153,9 @@ def commands_of(decision: CoreTypes.Decision) -> Result<&2, &2, String, String>:
   match decision:
     case CoreTypes.Decision{state, reply, runtime_effects, interaction_effects, service_effects, durable}: J.show(J.Array{requests(interaction_effects)})
 
+def activate_state(state: CoreTypes.State, key: String) -> CoreTypes.State:
+  state_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, state))
+
 def press_state(state: CoreTypes.State, key: String) -> Result<&2, &2, String, String>:
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, state))
 
@@ -94,9 +163,11 @@ def press(program: M.World(), task: Nat, key: String) -> Result<&2, &2, String, 
   commands_of(ProductUI.step(ProductUI.Element{View.Capacity{True{}, False{}}, key, InterfaceView.Press{}}, selected(program, task)))
 `);
     await compileJavaScript({ entry, output, sourceRoot: repository,
-      exports: { surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', press_state: 'press_state' } });
+      exports: { ...(sourceAdmission ? { source_admission: 'source_admission' } : {}), surface: 'surface', key: 'key', press: 'press', authenticated: 'authenticated', surface_state: 'surface_state', activate_state: 'activate_state', press_state: 'press_state' } });
     return import(pathToFileURL(output).href);
   })();
+  productionUI.set(variant, ready);
+  return ready;
 }
 
 function linkedNodes(list) {
@@ -133,7 +204,7 @@ export async function taskIdle(service, taskId = 0) {
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);
 }
 
-export async function responsesServer(t, respond) {
+export async function responsesServer(t, respond, { measure } = {}) {
   const requests = [];
   const failures = [];
   const server = http.createServer((request, response) => {
@@ -141,6 +212,12 @@ export async function responsesServer(t, respond) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (measure && request.url.endsWith('/input_tokens')) {
+        const input_tokens = await measure(body, request);
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ input_tokens }));
+        return;
+      }
       requests.push(body);
       const output = await respond(body, requests.length - 1, request);
       response.writeHead(200, { 'content-type': 'text/event-stream' });

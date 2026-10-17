@@ -521,11 +521,25 @@ def valid_draft(draft: Draft) -> Bool:
     Nat.is_le(List.length(&2, String, labels), 32n) && valid_labels(labels) &&
     Nat.is_le(List.length(&2, Attachment, attachments), 4n) && valid_attachments(attachments)
 
+def agent_name_valid(+name: String) -> Bool:
+  D.nonempty(name) && limited(name, 160n)
+
+def agent_profile_valid(+profile: String) -> Bool:
+  D.nonempty(profile) && limited(profile, 1024n)
+
+def agent_reasoning_valid(+reasoning: String) -> Bool:
+  D.nonempty(reasoning) && limited(reasoning, 64n)
+
+def agent_instructions_valid(instructions: String) -> Bool:
+  limited(instructions, 100000n)
+
+def agent_concurrency_valid(+concurrency: Nat) -> Bool:
+  Nat.is_le(1n, concurrency) && Nat.is_le(concurrency, 64n)
+
 def valid_agent(agent: AgentProfile) -> Bool:
   AgentProfile{revision, +name, +profile, +reasoning, instructions, settings, +concurrency} = agent
-  D.nonempty(name) && limited(name, 160n) && D.nonempty(profile) && limited(profile, 1024n) &&
-    D.nonempty(reasoning) && limited(reasoning, 64n) && limited(instructions, 100000n) &&
-    Nat.is_le(1n, concurrency) && Nat.is_le(concurrency, 64n)
+  agent_name_valid(name) && agent_profile_valid(profile) && agent_reasoning_valid(reasoning) &&
+    agent_instructions_valid(instructions) && agent_concurrency_valid(concurrency)
 
 def unlinked(task: Maybe<&2, Nat>) -> Bool:
   match task:

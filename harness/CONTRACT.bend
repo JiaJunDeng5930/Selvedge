@@ -89,10 +89,6 @@ type ResultBoundary is Type:
       @pending: +List<D.PluginRef> -> @value: J.Json -> @error: Bool -> @task: D.Task -> @duplicate: J.Json -> @duplicate_error: Bool ->
       {Protocol.tool_operation(Some{(id, D.OperationBody{call, announced, D.ResultPending{ticket, plugin, pending, value, error}})},
         task, duplicate, duplicate_error) == Protocol.Ignore{} : Protocol.ResolvedEvent},
-    audit: @+history: D.History -> @+owner: Nat -> @+operation: Nat -> @call: D.Call -> @value: J.Json -> @error: Bool ->
-      @plugin: D.PluginRef -> @outcome: D.AfterOutcome ->
-      ({D.context_history(D.HistoryNode{history, D.ToolReceipt{owner, operation, call, value, error}}) == D.HistoryNode{history, D.ToolReceipt{owner, operation, call, value, error}} : D.History} &
-       {D.context_history(D.HistoryNode{history, D.AfterRecord{owner, operation, plugin, outcome}}) == D.HistoryNode{history, D.AfterRecord{owner, operation, plugin, outcome}} : D.History}),
     control_frame: @+task: D.Task -> @operation: D.Operation() ->
       {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase},
     completion_record: @+outcome: D.AfterOutcome -> @+plugin: D.PluginRef -> @+pending: +List<D.PluginRef> ->
@@ -206,14 +202,7 @@ def DecisionComposition() -> Type:
 law decisions:
   DecisionComposition()
 
-# A context cut, recovery normalization, and interruption are three different
-# idempotent projections. Idempotence does not assert summary fidelity or undo.
-
-def ContextProjection() -> Type:
-  @+history:D.History -> {D.context_history(D.context_history(history)) == D.context_history(history) : D.History}
-
-law context:
-  ContextProjection()
+# Recovery normalization and interruption are idempotent projections.
 
 def RecoveryProjection() -> Type:
   @+phase:D.Phase -> {T.recover_phase(T.recover_phase(phase)) == T.recover_phase(phase) : D.Phase}
@@ -245,7 +234,7 @@ law recovery_batches:
   RecoveryBatches()
 
 def TaskViews() -> Type:
-  @+tasks:+List<D.Task> -> {T.summaries(tasks) == Std.map(~D.Task, ~J.Json, ~T.summary, tasks) : +List<J.Json>}
+  @+tasks:+List<D.Task> -> {T.summaries(tasks) == Std.map(~D.Task, ~J.Json, ~(task => T.summary(task)), tasks) : +List<J.Json>}
 
 law task_views:
   TaskViews()
@@ -351,11 +340,11 @@ type Coordination is Type:
     later_output: @operation:D.Operation() -> @value:J.Json -> @error:Bool ->
       {Ops.result(Ops.announce(operation), value, error) ==
         D.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : D.Message},
-    pending_model: @id:Nat -> @lineage:+List<Nat> -> @contract:D.Contract -> @status:D.Status ->
+    pending_model: @id:Nat -> @lineage:+List<Nat> -> @contract:D.Contract -> @current:D.ExecutionConfiguration -> @status:D.Status ->
       @history:D.History -> @queued:+List<String> -> @ticket:Nat -> @allowed:+List<String> ->
       @operations:+List<D.Operation()> -> @notified:Bool -> @operation:D.Operation() -> @value:J.Json -> @error:Bool ->
       {D.task_phase(T.complete_operation(operation, value, error,
-        D.Task{id, lineage, contract, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
+        D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
         D.ModelPending{ticket, allowed} : D.Phase}}
 
 law coordination:

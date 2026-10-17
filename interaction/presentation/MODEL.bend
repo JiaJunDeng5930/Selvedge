@@ -1,7 +1,9 @@
+import ../experience/MODEL.bend as Experience
 import Base
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
 import ../../features/board/MODEL.bend as B
+import ../../features/task_graph/MODEL.bend as G
 import ../../harness/DOMAIN.bend as D
 import ../INPUT.bend as U
 import ../services/CONTEXT.bend as Context
@@ -43,23 +45,23 @@ type InputGroup is Data:
   AgentIdentityInput{name: String, instructions: String, concurrency: Nat}
   ForkInput{count: Nat, messages: +List<String>}
   SummaryInput{summary: Maybe<&2, String>}
+  TaskGraphInput{declaration: String}
 
 type EditorScene is Data:
   EditorScene{identity: U.Editor, revision: Nat, groups: +List<InputGroup>, sections: +List<Forms.Section>,
-    submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
-
-type ComposerSubject is Data:
-  ModelSubject{}
-  WorkspaceSubject{}
-  PermissionsSubject{}
-  DeliverySubject{delivery: U.Delivery}
+    assessment: Experience.Assessment, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
 type ComposerControl is Data:
-  ComposerControl{subject: ComposerSubject, declaration: ControlDeclaration}
+  ComposerControl{property: Experience.Property, declaration: ControlDeclaration}
+
+type ComposerPhase is Data:
+  Creation{}
+  Conversation{task: Nat}
 
 type ComposerScene is Data:
-  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, footer: +List<ComposerControl>,
-    context: Maybe<&2, Context.Observation>, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
+  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, phase: ComposerPhase,
+    creation_context: +List<ComposerControl>, execution_controls: +List<ComposerControl>,
+    context: Maybe<&2, Context.Observation>, assessment: Experience.Assessment, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
 # Derived from the current composer; this is not another mutable draft.
 
@@ -113,6 +115,12 @@ type BoardColumn is Data:
 type AgentScene is Data:
   AgentScene{id: Nat, value: B.AgentProfile, edit: ControlDeclaration, remove: ControlDeclaration}
 
+type TaskGraphNode is Data:
+  TaskGraphNode{key: String, task: Nat, entry: Maybe<&2, TaskEntry>}
+
+type TaskGraphScene is Data:
+  TaskGraphScene{id: Nat, value: G.Graph, nodes: +List<TaskGraphNode>, edit: ControlDeclaration, remove: ControlDeclaration}
+
 type Page is Data:
   StartPage{composer: Maybe<&2, ComposerScene>}
   TaskPage{task: TaskScene}
@@ -121,9 +129,11 @@ type Page is Data:
   BoardPage{filter: B.Filter, columns: +List<BoardColumn>, create: ControlDeclaration, working: Nat,
     settings: ControlDeclaration, filters: ControlDeclaration, archive: ControlDeclaration}
   AgentsPage{agents: +List<AgentScene>, create: ControlDeclaration}
+  TaskGraphsPage{graphs: +List<TaskGraphScene>, create: ControlDeclaration}
   MissingObject{message: String}
 
 type LayerContent is Data:
+  PropertySource{origin: LayerContent}
   ProjectSelection{query: String, selected: Maybe<&2, Nat>, projects: +List<ProjectChoice>}
   ObjectActions{actions: +List<ControlDeclaration>}
   ArchivedCards{cards: +List<CardScene>}

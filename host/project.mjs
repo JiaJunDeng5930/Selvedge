@@ -68,20 +68,51 @@ export function configuredInstructions(config, limits) {
  * Observe only directories explicitly selected by the user. Project default
  * selection and fork inheritance remain in the native command resolver.
  */
-export async function observeWorkspaceCommand(command, limits) {
+export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
   if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
   const settingCommand = ['create', 'fork', 'save_board_agent'].includes(command.op);
   const projectCommand = ['create_project', 'update_project'].includes(command.op);
-  if (!settingCommand && !projectCommand) return command;
-  const selected = settingCommand ? command.settings : command;
-  if (!selected || typeof selected !== 'object' || Array.isArray(selected)) return command;
+  if (graphCommand(command) && Array.isArray(command.nodes)) {
+    const nodes = await Promise.all(command.nodes.map(async node => {
+      if (!newGraphNode(node)) return node;
+      const settings = await observeWorkspaceSettings(node.settings, limits, projectWorkspace);
+      return settings === node.settings ? node : { ...node, settings };
+    }));
+    return { ...command, nodes };
+  }
+  if (settingCommand) {
+    const settings = await observeWorkspaceSettings(command.settings, limits, projectWorkspace);
+    return settings === command.settings ? command : { ...command, settings };
+  }
+  return projectCommand ? observeWorkspaceSettings(command, limits) : command;
+}
+
+function graphCommand(command) {
+  return ['create_task_graph', 'update_task_graph'].includes(command.op);
+}
+
+function newGraphNode(node) {
+  return node !== null && typeof node === 'object' && !Array.isArray(node) && node.task_id === undefined;
+}
+
+export function hasRootTaskCreation(command) {
+  return command?.op === 'create' || (command !== null && typeof command === 'object' &&
+    graphCommand(command) && Array.isArray(command.nodes) && command.nodes.some(newGraphNode));
+}
+
+async function observeWorkspaceSettings(selected, limits, projectWorkspace) {
+  if (!selected || typeof selected !== 'object' || Array.isArray(selected)) return selected;
   if (selected.guidance !== undefined) throw new TypeError('Root guidance is observed by the service, not supplied by a client');
-  if (selected.workspace === undefined) return command;
+  if (selected.workspace === undefined && projectWorkspace && Number.isSafeInteger(selected.project_id)) {
+    const workspace = await projectWorkspace(selected.project_id);
+    if (workspace !== undefined) selected = { ...selected, workspace };
+  }
+  if (selected.workspace === undefined) return selected;
   const canonical = await canonicalWorkspace(selected.workspace);
   const observed = { ...selected, workspace: { roots: canonical.roots } };
   if (canonical.primary_root !== null) {
     observed.workspace.primary_root = canonical.primary_root;
     observed.guidance = await snapshotProject(canonical.primary_root, limits);
   }
-  return settingCommand ? { ...command, settings: observed } : observed;
+  return observed;
 }

@@ -9,6 +9,7 @@ import { Kernel } from '../host/kernel.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { home, responsesServer, taskIdle } from './support.mjs';
+import { contextReplaced } from './fixtures/compaction.mjs';
 import { webServer, answer } from './fixtures/chatgpt-web.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -52,9 +53,16 @@ test('changed AGENTS sources append patches, reversals and removal without repla
     let effect;
     try {
       const committed = JSON.parse(db.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get().decision);
-      effect = committed.effects.find(item => ['model', 'summary'].includes(item.kind));
+      effect = committed.effects.find(item => ['model', 'context_compaction'].includes(item.kind));
     } finally { db.close(); }
     assert.ok(effect, 'HTTP dispatch must follow the decision containing its model effect');
+    if (effect.kind === 'context_compaction') {
+      assert.equal(body.tool_choice, 'none');
+      assert.ok(body.input.some(item => item.content.includes(effect.plan.chunk)));
+      assert.equal(JSON.stringify(body.input).includes('base_revision'), false,
+        'Tracked context remains fixed outside the summarized dialogue');
+      return answer('Continue using the retained task context and the recorded work.');
+    }
     const developer = body.input.filter(item => item.role === 'developer').map(item => item.content).join('\n');
     for (const change of changes(effect.history)) {
       const key = change.type === 'introduce' ? change.snapshot.key : change.key;
@@ -64,12 +72,13 @@ test('changed AGENTS sources append patches, reversals and removal without repla
       }
     }
     effects.push(effect);
-    return answer(effect.kind === 'summary' ? 'Continue using the recorded context revisions.' : 'done');
-  });
+    return answer('done');
+  }, { measure: () => 100 });
   const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: { fixture: {
     provider: 'responses', model: 'fixture', endpoint: model.endpoint,
     api_key_env: credentials(t, 'SELVEDGE_DELTA_CONTEXT_FIXTURE_KEY'), timeout_ms: 5000,
-  } } });
+  } }, compaction: { enabled: false, background_percent: 65, blocking_percent: 90, idle_lead_ms: 0,
+    targets: [{ profile: 'fixture', window_tokens: 65_536, output_reserve_tokens: 2048, cache_ttl_ms: null, method: 'summary' }] } });
   let service = await Service.open({ home: state, cwd: workspace, config });
   t.after(() => service.close());
   assert.equal((await service.command({ op: 'create', profile: 'fixture', message: 'start' })).reply.ok, true);
@@ -129,12 +138,18 @@ test('changed AGENTS sources append patches, reversals and removal without repla
   assert.equal(restored[0].base_revision, reversed.find(change => change.key.type === 'global_agents').revision);
   assert.equal(restored[0].revision, amended.find(change => change.key.type === 'global_agents').revision);
 
-  const beforeSummary = page.messages;
+  const beforeCompaction = page.messages;
+  const globalC = globalB + 'Preserve context changes across compaction.\n';
+  await writeFile(globalPath, globalC);
   assert.equal((await service.command({ op: 'compact', task_id: 0 })).reply.ok, true);
+  await contextReplaced(service);
   page = await taskIdle(service);
-  assert.deepEqual(page.messages.slice(0, beforeSummary.length), beforeSummary);
-  assert.ok(page.messages.some(item => item.role === 'context_summary'));
-  assert.deepEqual(changes(page.messages), changes(beforeSummary));
+  assert.deepEqual(page.messages.slice(0, beforeCompaction.length), beforeCompaction);
+  const refreshed = changes(page.messages.slice(beforeCompaction.length));
+  assert.equal(refreshed.length, 1, 'Manual compaction refreshes sources before selecting its committed snapshot');
+  assert.equal(refreshed[0].base_revision, restored[0].revision);
+  assert.equal(textFromPatch(globalB, edits(refreshed[0].patch)), globalC);
+  assert.ok(page.messages.some(item => item.role === 'context_replacement'));
   const parent = page.messages;
   assert.equal((await service.command({ op: 'fork', task_id: 0, child_count: 1, messages: ['child'] })).reply.ok, true);
   const child = await taskIdle(service, 1); await taskIdle(service);
@@ -147,8 +162,10 @@ test('changed AGENTS sources append patches, reversals and removal without repla
   assert.deepEqual(changes((await taskIdle(service, 1)).messages), changes(child.messages));
   for (const effect of effects) {
     const recorded = (await service.command({ op: 'read', task_id: effect.task_id })).reply.result.messages;
-    const history = effect.kind === 'summary' ? effect.history.slice(0, -1) : effect.history;
-    assert.deepEqual(recorded.slice(0, history.length), history);
+    assert.deepEqual(changes(recorded).slice(0, changes(effect.history).length), changes(effect.history));
+    if (effect.context_replacement_source === null) {
+      assert.deepEqual(recorded.slice(0, effect.history.length), effect.history);
+    }
   }
   assert.deepEqual(model.failures, []);
 });

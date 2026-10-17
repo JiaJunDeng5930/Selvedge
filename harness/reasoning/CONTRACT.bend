@@ -67,10 +67,10 @@ type ReasoningBoundary is Type:
       {Context.lease(D.HistoryNode{history, D.FunctionOutput{call, value, True{}}}, owner) == R.NoLease{} : R.Lease},
     failure: @history:D.History -> @text:String -> @owner:Nat ->
       {Context.lease(D.HistoryNode{history, D.FailureMessage{text}}, owner) == R.NoLease{} : R.Lease},
-    checkpoint: @history:D.History -> @summary:String -> @owner:Nat ->
-      {Context.lease(D.HistoryNode{history, D.ContextCheckpoint{summary}}, owner) == R.NoLease{} : R.Lease},
-    checkpoint_update: @history:D.History -> @summary:String ->
-      {Context.last_update(D.HistoryNode{history, D.ContextCheckpoint{summary}}) == Context.last_update(history) : Maybe<&2, String>},
+    checkpoint: @history:D.History -> @summary:J.Json -> @owner:Nat ->
+      {Context.lease(D.HistoryNode{history, D.ContextReplacement{summary}}, owner) == R.NoLease{} : R.Lease},
+    checkpoint_update: @history:D.History -> @summary:J.Json ->
+      {Context.last_update(D.HistoryNode{history, D.ContextReplacement{summary}}) == Context.last_update(history) : Maybe<&2, String>},
     baseline: @evaluator:String -> @efforts:+List<String> -> @+baseline:String -> @maximum:Nat -> @effective:String ->
       {R.request_effort(R.Adaptive{evaluator, efforts, baseline, R.ConfigurationUpdates{}, maximum}, effective) == baseline : String},
     sample_frame: @+effort:String -> @+remaining:Nat -> @+owner:Nat -> @+history:D.History ->

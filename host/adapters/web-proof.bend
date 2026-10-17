@@ -479,9 +479,26 @@ def route_0_dispatch(selected: Bool, +operation: String, +source: J.Json) ->
     case True{}: Web.messages_correspondence()(source)
     case False{}: route_1_dispatch(String.eq(operation, "web.tools"), operation, source)
 
-def complete_dispatch(+operation: String, +source: J.Json) ->
-    {Web.run(operation, source) == Web.meaning(operation, source) : J.Json}:
+def legacy_dispatch(+operation: String, +source: J.Json) ->
+    {Web.route_0(String.eq(operation, "web.messages"), operation, source) == Web.meaning_route_0(String.eq(operation, "web.messages"), operation, source) : J.Json}:
   route_0_dispatch(String.eq(operation, "web.messages"), operation, source)
+
+def Web.reset_session_correspondence():
+  source => {==}
+def Web.reset_write_scope():
+  record => rest => {==}
+def Web.reset_write_reason():
+  record => rest => {==}
+
+def reset_dispatch(selected: Bool, +operation: String, +source: J.Json) ->
+  {Web.route_reset(selected, operation, source) == Web.meaning_route_reset(selected, operation, source) : J.Json}:
+  match selected:
+    case True{}: Web.reset_session_correspondence()(source)
+    case False{}: legacy_dispatch(operation, source)
+
+def complete_dispatch(+operation: String, +source: J.Json) ->
+  {Web.run(operation, source) == Web.meaning(operation, source) : J.Json}:
+  reset_dispatch(String.eq(operation, "web.reset_session"), operation, source)
 
 def Web.complete_correspondence():
   operation => source => complete_dispatch(operation, source)
@@ -501,7 +518,7 @@ def Web.retirement_metadata_rejection():
 def Web.retirement_admitted_metadata_writes():
   metadata => source => {==}
 
-def Web.summary_preserves_page_reset_policy():
+def Web.continuation_preserves_page_reset_policy():
   body => deferred => source => {==}
 def Web.context_change_encoding():
   item => {==}

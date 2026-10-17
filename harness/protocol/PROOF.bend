@@ -1,7 +1,11 @@
 import Base
+import ../../features/compaction/PROOF.bend as CompactionProof
+import ../../features/compaction/SPEC.bend as CompactionSpec
 import ../../bendlib/categories.bend as Categories
 import ../features/laws.bend as FeatureLaws
 import ../features/MODEL.bend as Features
+import ../features/execution.bend as FeatureExec
+import ../features/SPEC.bend as FeatureSpec
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
 import ../reasoning/CONTRACT.bend as Reasoning
@@ -12,6 +16,8 @@ import ../MODEL.bend as M
 import ../PROGRAM.bend as P
 import ../LAWS.bend as Laws
 import ../tasks/PROGRAM.bend as T
+import ../tasks/CONTRACT.bend as TaskRequirements
+import ../tasks/PROOF.bend as TaskProof
 import ../../bendlib/json.bend as J
 import ../COMMANDS.bend as Commands
 import ./PROGRAM.bend as Protocol
@@ -19,8 +25,15 @@ import ../workspace/WORKSPACE.bend as Workspace
 import ../approval/MODEL.bend as Approvals
 import ../CONTRACT.bend as A
 import ../execution/OPERATIONS.bend as Ops
+import ../transport/command-contract.bend as CodecContract
 
 # Local proof obligations for the protocol boundary. No runtime policy lives here.
+def CodecContract.approval_input_closed_shape(policy):
+  {==}
+
+def CodecContract.configure_approval_input(id, profile, reasoning, sandbox, policy):
+  {==}
+
 def delegated_calculation_checked(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext,
   accepted: Bool, observed: {Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}) == accepted : Bool}) ->
   {Protocol.delegated_admitted(Categories.admit_checked(Protocol.DelegatedRequest, Protocol.delegated_accepts,
@@ -96,8 +109,9 @@ def spawn_semantics(+profile: D.Profile, +reasoning: String, +message: String, +
 def Laws.operation_semantics(operation, world):
   match operation world:
     case Commands.FeatureOperation{operation} _:
-      FeatureLaws.meaning(P.execute_start, Commands.start,
-        +profile => +reasoning => +message => +selection => +state => spawn_semantics(profile, reasoning, message, selection, state), operation, world)
+      FeatureLaws.meaning(~P.execute_start, ~Commands.start,
+        ~(+profile => +reasoning => +message => +selection => +state => spawn_semantics(profile, reasoning, message, selection, state)), operation, world)
+    case Commands.ConfigureExecution{task, configuration} _: {==}
     case Commands.Refuse{code, reason} _: {==}
     case Commands.Start{profile, reasoning, message, Workspace.Selection{context, guidance}}
          C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}, limits, projects}, +board}: {==}
@@ -110,8 +124,8 @@ def Laws.operation_semantics(operation, world):
       +parent = D.append_message(D.FunctionCall{call}, task)
       branch_commit_semantics(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages),
         call, parent, C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board})
-    case Commands.Summarize{task} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
-    case Commands.Checkpoint{task, summary} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+    case Commands.Summarize{task} _: ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{}, world)
+    case Commands.Checkpoint{task, summary} _: CompactionProof.meaning(CompactionSpec.supplied(summary, task, world), world)
     case Commands.Observe{+query} _:
       Equal.cong(J.Json, M.Decision(), (reply => C.Decision{world, reply, Nil{}}),
         P.query(query, world), Commands.query(query, world), query_semantics(query, world))
@@ -122,20 +136,51 @@ def Laws.operation_semantics(operation, world):
 def Laws.command_semantics(command, world):
   Laws.operation_semantics(Commands.resolve(command, world), world)
 
+def model_result_semantics(+task: D.Task, +outcome: D.Outcome, +allowed: +List<String>, +world: M.World()) ->
+  {P.model_matched(True{}, outcome, allowed, task, world) == Protocol.model_result(task, outcome, allowed, world) : M.Decision()}:
+  match world:
+    case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +rest}:
+      +source = D.task_id(task)
+      +stored = P.store(T.model_outcome(outcome, allowed, task),
+        C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, rest})
+      +actual = FeatureExec.react_outputs(~P.output_send, source, T.reply_outputs(outcome), stored)
+      +middle = FeatureSpec.react_outputs(~Commands.output_send, source, T.reply_outputs(outcome), stored)
+      +required = FeatureSpec.react_outputs(~Commands.output_send, source, TaskRequirements.reply_outputs(outcome), stored)
+      Equal.cong(M.Decision(), M.Decision(), Protocol.accepted_reaction, actual, required,
+        Equal.trans(M.Decision(), actual, middle, required,
+          FeatureLaws.react_outputs(~P.output_send, ~Commands.output_send,
+            ~(+target => +message => +state => Laws.command_semantics(M.Send{target, message}, state)),
+            source, T.reply_outputs(outcome), stored),
+          Equal.cong(+List<String>, M.Decision(),
+            (outputs => FeatureSpec.react_outputs(~Commands.output_send, source, outputs, stored)),
+            T.reply_outputs(outcome), TaskRequirements.reply_outputs(outcome), TaskProof.reply_outputs_meaning(outcome))))
+
+def context_result_semantics(waiting: Bool, +task: D.Task, +revision: Nat, +purpose: D.ContextPurpose,
+  +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +world: M.World()) ->
+  {P.context_result_calculation(waiting, task, revision, purpose, outcome, world) ==
+    Protocol.context_result_calculation(waiting, task, revision, purpose, outcome, world) : M.Decision()}:
+  match waiting:
+    case True{}: {==}
+    case False{}:
+      Equal.cong(M.Decision(), M.Decision(),
+        (decision => Protocol.context_followup(Protocol.context_compaction(purpose, revision, task), D.task_id(task), decision)),
+        ActualReasoning.context_completed(Features.State(), Features.Effect, revision, purpose, outcome, task, world),
+        RequiredReasoning.context_completed(Features.State(), Features.Effect, revision, purpose, outcome, task, world),
+        ReasoningProof.context_completed_meaning(Features.State(), Features.Effect, revision, purpose, outcome, task, world))
+
 def Laws.event_semantics(event, world):
   match event world:
     case Protocol.FeatureEvent{event} _: FeatureLaws.event(event, world)
     case Protocol.User{operation} _: Laws.operation_semantics(operation, world)
     case Protocol.Ignore{} _: {==}
     case Protocol.Review{resolution} _: Laws.review_semantics(resolution, world)
-    case Protocol.ContextResult{task, revision, purpose, outcome} _:
-      ReasoningProof.context_completed_meaning(Features.State(), Features.Effect, revision, purpose, outcome, task, world)
-    case Protocol.ModelResult{task, outcome, allowed} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+    case Protocol.ContextResult{+task, +revision, +purpose, +outcome} _:
+      context_result_semantics(Protocol.context_waits(revision, purpose, outcome, task, world), task, revision, purpose, outcome, world)
+    case Protocol.ModelResult{task, outcome, allowed} _: model_result_semantics(task, outcome, allowed, world)
     case Protocol.ReasoningResult{+task, +revision, +outcome} _:
       Equal.cong(D.Task, M.Decision(), (next => C.Decision{
         P.store(next, world), Protocol.acknowledgement(True{}), Nil{}}),
         ActualReasoning.complete(revision, outcome, task), RequiredReasoning.complete(revision, outcome, task), Reasoning.completion_meaning(revision, outcome, task))
-    case Protocol.SummaryResult{task, outcome, resume} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.ToolResult{task, operation, value, error} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.HookResult{task, outcome} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Protocol.AfterResult{task, operation, outcome} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
@@ -182,20 +227,16 @@ def Laws.builtin_semantics(tool, arguments, call, remaining, task, world):
   Laws.invocation_semantics(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)
 
 def Laws.accepted_model_settlement(outcome, allowed, task, world):
-  match world:
-    case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+  model_result_semantics(task, outcome, allowed, world)
 
 def Laws.accepted_tool_settlement(operation, value, error, task, world):
   match world:
     case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
 
-def Laws.accepted_summary_settlement(outcome, resume, task, world):
-  match world:
-    case C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
 
 def control_frame(+task: D.Task, operation: D.Operation()) ->
   {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def A.result_boundary():
@@ -213,7 +254,6 @@ def A.result_boundary():
         Equal.cong(Bool, Protocol.ResolvedEvent, (same => Protocol.matching_calculation(same, Protocol.AfterResult{task, operation, outcome})),
           Nat.is_eq(ticket, expected), False{}, different))),
     (id => call => announced => ticket => plugin => pending => value => error => task => duplicate => duplicate_error => {==}),
-    (history => owner => operation => call => value => error => plugin => outcome => ({==}, {==})),
     (task => operation => control_frame(task, operation)),
     (outcome => plugin => pending => operation => value => error => task => world => {==}),
     (value => error => pending => operation => task => world => {==}),

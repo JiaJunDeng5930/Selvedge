@@ -126,3 +126,26 @@ def auto_preset_production(+source: J.Json) ->
 
 def Configuration.initial_instruction_default():
   source => {==}
+
+# Threshold and target authority are checked on the original complete source.
+def compaction_threshold_inclusion() -> Categories.Inclusion<J.Json,
+  (source => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),
+    Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate))), source)),
+  Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate)))>:
+  Categories.intersection_first(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),
+    Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate))))
+
+def compaction_target_inclusion() -> Categories.Inclusion<J.Json,
+  (source => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),
+    Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate))), source)),
+  Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate)))>:
+  Categories.intersection_second(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),
+    Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate))))
+
+def compaction_admitted_projection(+source: J.Json,
+  evidence: Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),
+    Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate))), source)) ->
+  {Configuration.compact_admitted(Some{Categories.Membership{source, evidence}}) == Configuration.compact_projection(source) : J.Json}:
+  Equal.cong(J.Json, J.Json, (candidate => Configuration.compact_projection(candidate)),
+    Categories.value(J.Json, (candidate => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),
+      Categories.holds(J.Json, (candidate => Configuration.compact_target_requirements(candidate))), candidate)), Categories.Membership{source, evidence}), source, {==})

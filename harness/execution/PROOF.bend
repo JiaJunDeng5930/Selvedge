@@ -1,4 +1,10 @@
 import Base
+import ../../features/compaction/PROOF.bend as CompactionProof
+import ../../features/compaction/SPEC.bend as CompactionSpec
+import ../../features/compaction/PROGRAM.bend as CompactionActual
+import ../../features/compaction/STATE.bend as CompactionState
+import ../reasoning/PROGRAM.bend as ActualReasoning
+import ../reasoning/SPEC.bend as RequiredReasoning
 import ../../bendlib/categories.bend as Categories
 import ../features/MODEL.bend as Features
 import ../../bendlib/component.bend as C
@@ -26,7 +32,10 @@ def Laws.execution_semantics(action, world):
   match action world:
     case Execution.Rest{} _: {==}
     case Execution.Idle{task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
-    case Execution.Model{task} _: Reasoning.start_meaning(task, world)
+    case Execution.Model{task} _:
+      Equal.cong(M.Decision(), M.Decision(), CompactionSpec.attach,
+        ActualReasoning.start(Features.State(), Features.Effect, task, world), RequiredReasoning.start(Features.State(), Features.Effect, task, world),
+        Reasoning.start_meaning(task, world))
     case Execution.External{tool, call, remaining, task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
     case Execution.Review{reviewer, call, remaining, task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
     case Execution.Granted{reviewer, tool, operation, task} C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board}: {==}
@@ -74,11 +83,11 @@ def scheduling_successor(+fuel: Nat, induction: Scheduling(fuel), +candidate: Ma
       +world = P.decision_world(decision)
       +actual = P.combine(decision, P.work_calculation(work, task, world))
       +expected = Execution.combine(decision, Execution.work_calculation(work, task, world))
-      +following = T.runnable(P.tasks(P.decision_world(actual)))
+      +following = CompactionSpec.runnable(P.tasks(P.decision_world(actual)), CompactionState.registry(P.decision_world(actual)))
       Equal.trans(M.Decision(), P.schedule(fuel, following, actual), Execution.schedule(fuel, following, actual),
-        Execution.schedule(fuel, T.runnable(P.tasks(P.decision_world(expected))), expected), induction(following, actual),
+        Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(expected)), CompactionState.registry(P.decision_world(expected))), expected), induction(following, actual),
         Equal.cong(M.Decision(), M.Decision(),
-          (+value => Execution.schedule(fuel, T.runnable(P.tasks(P.decision_world(value))), value)),
+          (+value => Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(value)), CompactionState.registry(P.decision_world(value))), value)),
           actual, expected, combined_work_semantics(task, decision)))
 
 def Laws.schedule_semantics(fuel, candidate, decision):
@@ -148,7 +157,7 @@ def board_preparation(+decision: M.Decision()) ->
 def prepared_scheduling(+decision: M.Decision()) ->
   {P.scheduled_prepared(decision) == Execution.scheduled_prepared(decision) : M.Decision()}:
   +fuel = P.scheduling_budget(P.decision_world(decision))
-  +candidate = T.runnable(P.tasks(P.decision_world(decision)))
+  +candidate = CompactionSpec.runnable(P.tasks(P.decision_world(decision)), CompactionState.registry(P.decision_world(decision)))
   Equal.cong(M.Decision(), M.Decision(), (value => BoardSchedulingSpec.finish(value)),
     P.schedule(fuel, candidate, decision), Execution.schedule(fuel, candidate, decision),
     Laws.schedule_semantics(fuel, candidate, decision))
@@ -157,12 +166,17 @@ def Laws.scheduling_semantics(enabled, decision):
   match enabled:
     case False{}: {==}
     case True{}:
-      +prepared = BoardScheduling.prepare(~P.board_dispatch, decision)
-      +required = BoardSchedulingSpec.required_prepare(decision)
-      Equal.trans(M.Decision(), P.scheduled(True{}, decision), Execution.scheduled_prepared(prepared),
-        Execution.scheduled(True{}, decision), prepared_scheduling(prepared),
-        Equal.cong(M.Decision(), M.Decision(), (value => Execution.scheduled_prepared(value)),
-          prepared, required, board_preparation(decision)))
+      +board_actual = BoardScheduling.prepare(~P.board_dispatch, decision)
+      +board_required = BoardSchedulingSpec.required_prepare(decision)
+      +actual = CompactionActual.prepare(board_actual)
+      +required = CompactionSpec.required_prepare(board_required)
+      Equal.trans(M.Decision(), P.scheduled(True{}, decision), Execution.scheduled_prepared(actual),
+        Execution.scheduled(True{}, decision), prepared_scheduling(actual),
+        Equal.cong(M.Decision(), M.Decision(), (value => Execution.scheduled_prepared(value)), actual, required,
+          Equal.trans(M.Decision(), actual, CompactionSpec.required_prepare(board_actual), required,
+            CompactionProof.preparation(board_actual),
+            Equal.cong(M.Decision(), M.Decision(), (value => CompactionSpec.required_prepare(value)),
+              board_actual, board_required, board_preparation(decision)))))
 
 def Laws.scheduling_disabled(decision):
   {==}
@@ -207,12 +221,8 @@ def Laws.full_history_dispatch(task, world):
 def Laws.model_has_no_context_preflight(task, world):
   {==}
 
-def Laws.summary_context_observation(task, resume, world):
-  ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{resume}, world)
-
-def Laws.summary_request_full_history(task, resume, state, board):
-  match task state:
-    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} D.State{tasks, next_task, ticket, environment, limits, projects}: {==}
+def Laws.summary_context_observation(task, world):
+  ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{}, world)
 
 # Stable operation identity is the association-list key. The project proves
 # only the value adapter; deletion absence is the original ExtLib theorem.
@@ -249,7 +259,7 @@ def A.announcement():
 
 def notification_join(+task: D.Task) ->
   {D.task_notified(D.notify(task)) == Bool.or(D.task_notified(task), True{}) : Bool}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def notification_sticky(+task: D.Task) -> {D.task_notified(D.notify(task)) == True{} : Bool}:
@@ -257,7 +267,7 @@ def notification_sticky(+task: D.Task) -> {D.task_notified(D.notify(task)) == Tr
     notification_join(task), Std.orb_true_r(D.task_notified(task)))
 
 def notification_consumed(task: D.Task) -> {D.task_notified(Ops.publish(task)) == False{} : Bool}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def A.notifications():
@@ -266,12 +276,12 @@ def A.notifications():
 
 def settlement_phase(operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
   {D.task_phase(Ops.completed(operation, value, error, task)) == D.wake_phase(D.task_phase(task)) : D.Phase}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def settlement_rights(+operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
   {D.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(D.task_operations(task), Ops.ticket(operation)) : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def settlement_notifies(+operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
@@ -281,21 +291,21 @@ def settlement_notifies(+operation: D.Operation(), value: J.Json, error: Bool, +
 
 def steering_rights(message: String, +task: D.Task) ->
   {D.task_operations(T.steer(message, task)) == D.task_operations(task) : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def steering_queue(message: String, +task: D.Task) ->
   {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<String>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def abandonment(task: D.Task) -> {D.task_operations(Ops.abandoned(task)) == Nil{} : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def publication(+task: D.Task) ->
   {D.task_operations(Ops.publish(task)) == Std.map(~D.Operation(), ~D.Operation(), ~Ops.announce, D.task_operations(task)) : +List<D.Operation()>}:
-  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
 def final_output(ticket: Nat, +call: D.Call, +value: J.Json, +error: Bool) ->
@@ -309,11 +319,11 @@ def later_output(+operation: D.Operation(), +value: J.Json, +error: Bool) ->
   (ticket, D.OperationBody{D.Call{id, name, arguments}, announced, stage}) = operation
   {==}
 
-def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, status: D.Status,
+def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, current: D.ExecutionConfiguration, status: D.Status,
   history: D.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<D.Operation()>,
   notified: Bool, operation: D.Operation(), value: J.Json, error: Bool) ->
   {D.task_phase(T.complete_operation(operation, value, error,
-    D.Task{id, lineage, contract, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
+    D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
     D.ModelPending{ticket, allowed} : D.Phase}:
   match status:
     case D.Active{}: {==}
@@ -329,8 +339,8 @@ def A.coordination():
     (task => abandonment(task)), (task => publication(task)),
     (ticket => call => value => error => final_output(ticket, call, value, error)),
     (operation => value => error => later_output(operation, value, error)),
-    (id => lineage => contract => status => history => queued => ticket => allowed => operations => notified => operation => value => error =>
-      pending_model(id, lineage, contract, status, history, queued, ticket, allowed, operations, notified, operation, value, error))}
+    (id => lineage => contract => current => status => history => queued => ticket => allowed => operations => notified => operation => value => error =>
+      pending_model(id, lineage, contract, current, status, history, queued, ticket, allowed, operations, notified, operation, value, error))}
 
 
 law work_construction_meaning:

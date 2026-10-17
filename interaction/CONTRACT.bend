@@ -1,3 +1,4 @@
+import ../bendlib/association-map.bend as Finite
 import Base
 import ../harness/MODEL.bend as M
 import ../harness/PROGRAM.bend as Program
@@ -37,6 +38,11 @@ type Drafts is Type:
     reopened_submissions: SubmissionLaws.ReopenRequirements,
     draft_identity: @+task:Nat -> @+text:U.Text -> @previous:U.Delivery -> @+selected:U.Delivery -> @world:M.World() ->
       {U.apply_edit(U.ChooseDelivery{selected}, U.Message{task, text, previous}, world) == Done{U.Message{task, text, selected}} : Result<&2, &2, String, U.Body>},
+    graph_parse_failure: @+graph:Maybe<&2, Nat> -> @+source:String -> @previous_source:String -> @previous:Maybe<&2, J.Json> -> @world:M.World() ->
+      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, previous_source, previous}, world) ==
+       Done{U.TaskGraph{graph, source, None{}}} : Result<&2, &2, String, U.Body>},
+    graph_parse_required: @graph:Maybe<&2, Nat> -> @source:String ->
+      {U.graph_declaration_valid(U.TaskGraph{graph, source, None{}}) == False{} : Bool},
     failed_draft: @directory_entry:String -> @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @submitted:Nat -> @reply:J.Json ->
       {U.contents(E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted, reply)) == body : U.Body},
     continued_capture: @+revision:Nat -> @title:String -> @description:String -> @+stage:B.Stage -> @+priority:B.Priority ->
@@ -74,3 +80,27 @@ type Requirements is Type:
     observation: @+capacity:View.Capacity -> @+state:InteractionTypes.State ->
       {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : InteractionTypes.Scene}
   }
+
+def original_submission_blocked_access(access: Services.Access, transfers: +List<Finite.Entry(Services.Transfer)>, input: E.Input) -> Bool:
+  match input:
+    case E.UserInput{U.Activate{U.Submit{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{U.RetryWorkspace{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{U.ConfirmAction{}}}: Bool.not(Services.connected(access))
+    case E.UserInput{U.Activate{action}}: Core.command_offline(U.direct_command(action), access)
+    case _: False{}
+
+law service_submit_obstruction:
+  @+connected:Bool -> @+blocked:Bool ->
+  {Core.obstruction_present(Core.submit_obstruction(connected, blocked)) == blocked || Bool.not(connected) : Bool}
+
+law service_action_obstruction:
+  @+blocked:Bool -> {Core.obstruction_present(Core.action_obstruction(blocked)) == blocked : Bool}
+
+law submission_obstruction_preserves_admission:
+  @+access:Services.Access -> @+transfers:+List<Finite.Entry(Services.Transfer)> -> @+input:E.Input ->
+  {Core.submission_blocked_access(access, transfers, input) == original_submission_blocked_access(access, transfers, input) : Bool}
+
+law actual_control_observation:
+  @+state:InteractionTypes.State -> @+identity:String -> @+label:String -> @+prominence:View.Prominence -> @+input:U.Input -> @availability:View.Availability ->
+  {Core.control(state, View.ControlDeclaration{identity, label, prominence, input, availability}) ==
+    InteractionTypes.Control{identity, label, prominence, InteractionTypes.ApplicationInput{E.UserInput{input}}, Core.control_availability(Core.submission_obstruction_access(Services.access(Core.services(state)), Services.transfers(Core.services(state)), E.UserInput{input}), availability)} : InteractionTypes.Control}

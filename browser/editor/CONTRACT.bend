@@ -1,3 +1,5 @@
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
 import ../../interaction/INPUT.bend as U
 import ./MODEL.bend as Model
@@ -25,7 +27,7 @@ type BindingRequirements is Type:
     message_owner: @+key:Identity.Key -> @+editor:U.Editor -> @+entry:Forms.Entry ->
       @+value:Forms.Observed -> @+choices:+List<Forms.ChoiceValue> ->
       {Controls.field_metadata(key, SurfaceTypes.Edit{editor, Forms.MessageText{}, entry, value, choices}) ==
-        [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.EditorBindingAttribute{key}] : +List<Source.Attribute>},
+        [Source.DataAttribute{"field", Forms.key(Forms.MessageText{})}, Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, Forms.MessageText{}})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, Forms.MessageText{}}))}, Source.EditorBindingAttribute{key}] : +List<Source.Attribute>},
     native_owner: @+key:Identity.Key ->
       {Source.attribute_properties(Source.EditorBindingAttribute{key}) ==
         [Doc.Property{"data-native-editor-key", Identity.encode(key)}] : +List<Doc.Property>}}

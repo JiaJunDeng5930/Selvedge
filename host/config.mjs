@@ -97,6 +97,7 @@ export function validateConfig(value) {
     if (backend.auth === 'account') Object.assign(profile, accountConnection(profile));
     return [key, Object.freeze(profile)];
   }));
+  config.compaction = profileBoundary('config.compaction', { config: { compaction: value.compaction }, profiles: compactionProfiles(config.profiles) });
   observer.execute('config.configuration_extensions', {
     mcp: observer.observe(config.mcp), plugins: observer.observe(config.plugins),
   });
@@ -126,4 +127,17 @@ export async function loadConfig({ home, filename } = {}) {
 
 export function profileCatalog(config) {
   return boundary('backend.profile_catalog', { config });
+}
+
+function compactionProfiles(profiles) {
+  return Object.fromEntries(Object.entries(profiles).map(([key, profile]) => [key, {
+    provider: profile.provider, model_info: profile.model_info,
+  }]));
+}
+
+/** Resolve maintenance budgets only after account model discovery has completed. */
+export function compactionSettings(config) {
+  return boundary('config.compaction_runtime', { config: {
+    compaction: config.compaction, profiles: compactionProfiles(config.profiles),
+  } });
 }

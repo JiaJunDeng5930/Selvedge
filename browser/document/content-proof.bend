@@ -21,6 +21,8 @@ def panel_header_matches_specification(representation: Controls.Representation) 
   {Controls.panel_header(representation) == Rule.specified_header_representation(representation) : Bool}:
   match representation:
     case Controls.NoControl{}: {==}
+    case Controls.NavigationGroup{depth}: {==}
+    case Controls.NavigationRow{owner, depth, visible, feedback_active}: {==}
     case Controls.Action{Controls.Button{input, availability, name, face, behavior, geometry, placement, feedback}}:
       match placement:
         case Controls.InFlow{}: {==}
@@ -136,6 +138,9 @@ def ordered_children_matches_specification(+values: +List<SurfaceTypes.Node>, ro
       Equal.cong(Order.DialogParts, +List<SurfaceTypes.Node>, (parts => Order.ordered_dialog_children(parts)),
         Order.partition_dialog_children(values, context), Rule.specified_parts(values, context), parts_evidence)
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.Main{}: {==}
     case SurfaceTypes.Heading{}: {==}
@@ -167,6 +172,9 @@ def non_dialog_order(role: SurfaceTypes.Role, +values: +List<SurfaceTypes.Node>,
   match role:
     case SurfaceTypes.Dialog{}: {==}
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.Main{}: {==}
     case SurfaceTypes.Heading{}: {==}
@@ -640,6 +648,9 @@ def Rule.ordered_surface_base(content, base, overlays, scope): {==}
 def Rule.remaining_role_classification(key, role, belongs):
   match role:
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.NavigationEntry{selected}: {==}
+    case SurfaceTypes.NavigationCollection{}: {==}
+    case SurfaceTypes.NavigationSection{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.Main{}: Logic.impossible({Order.base_region_role(key, SurfaceTypes.Main{}) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}, belongs)
     case SurfaceTypes.Heading{}: {==}
@@ -682,15 +693,15 @@ def chooser_draft_observation(+id: Nat, +fallback: Design.Style) -> Rule.chooser
   {==}
 
 def project_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +children: +List<SurfaceTypes.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> Rule.project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def task_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +children: +List<SurfaceTypes.Node>, +context: Controls.Context, +task: Nat, +status: View.TaskStatus, +selected: Bool) -> Rule.task_reference_law(key, semantic, label, role, children, context, task, status, selected):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def chooser_reference(+key: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +children: +List<SurfaceTypes.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> Rule.chooser_reference_law(key, semantic, label, role, children, context, selected):
-  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  Controls.Context{area, selection, code, appearance, access, open, layers, execution, family, supporting_form, attention, navigation_depth} = context
   {==}
 
 def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +project: Nat, +selected: Bool, +expanded: Bool, +children: +List<SurfaceTypes.Node>, +input: InteractionTypes.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
@@ -710,6 +721,7 @@ def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +sem
     case Controls.CardArea{}: {==}
     case Controls.BoardViewArea{}: {==}
     case Controls.BoardLaneArea{}: {==}
+    case Controls.ChoiceGroupArea{}: {==}
 
 def unscoped_projection(+area: Controls.Area, +input: InteractionTypes.Input, +name: String, +face: Controls.Face, +behavior: Controls.Behavior, +geometry: Controls.Geometry) ->
   {Controls.contextual_source_presentation(area, Controls.Unscoped{}, input, name, face, behavior, geometry) == Controls.ActionPresentation{face, behavior, geometry} : Controls.ActionPresentation}:
@@ -727,6 +739,7 @@ def unscoped_projection(+area: Controls.Area, +input: InteractionTypes.Input, +n
     case Controls.CardArea{}: {==}
     case Controls.BoardViewArea{}: {==}
     case Controls.BoardLaneArea{}: {==}
+    case Controls.ChoiceGroupArea{}: {==}
 
 def status_indicator_extent(+key: UIIdentity.Key, status: View.TaskStatus, visual: Design.Style) ->
   {Rule.status_extent(Authored.task_status_indicator(key, status, visual)) == (Model.ExactSize{16n}, (Model.ExactSize{16n}, Enclosure.Extent{16n, 16n})) : Model.AxisSize & (Model.AxisSize & Enclosure.Extent)}:

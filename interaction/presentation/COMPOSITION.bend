@@ -8,6 +8,7 @@ type Page is Data:
   ProjectCollection{}
   TaskBoard{}
   AgentCollection{}
+  TaskGraphCollection{}
   Unavailable{}
 
 type Measure is Data:
@@ -27,6 +28,7 @@ type Body is Data:
   ProjectRows{}
   StageColumns{}
   AgentRows{}
+  TaskGraphRows{}
   UnavailableNotice{}
 
 type Composer is Data:
@@ -53,7 +55,6 @@ type Region is Data:
   LatestAction{}
   ApprovalDecisions{}
   CreationIntroduction{}
-  CreationContext{}
   ComposerInput{}
   ProjectTitle{}
   ProjectActions{}
@@ -67,6 +68,7 @@ type Region is Data:
   BoardControls{}
   BoardStages{}
   AgentEntries{}
+  TaskGraphEntries{}
   UnavailableMessage{}
 
 type Structure is Data:
@@ -85,7 +87,6 @@ def region_name(region: Region) -> String:
     case LatestAction{}: "latest-action"
     case ApprovalDecisions{}: "approval-decisions"
     case CreationIntroduction{}: "creation-introduction"
-    case CreationContext{}: "creation-context"
     case ComposerInput{}: "composer-input"
     case ProjectTitle{}: "project-title"
     case ProjectActions{}: "project-actions"
@@ -99,6 +100,7 @@ def region_name(region: Region) -> String:
     case BoardControls{}: "board-controls"
     case BoardStages{}: "board-stages"
     case AgentEntries{}: "agent-entries"
+    case TaskGraphEntries{}: "task-graph-entries"
     case UnavailableMessage{}: "unavailable-message"
 
 def centered_composer(present: Bool) -> Composer:
@@ -125,6 +127,7 @@ type OverviewContent is Data:
   Sections{}
   Rows{}
   Agents{}
+  TaskGraphs{}
 
 type Intent is Data:
   Centered{composer: Bool}
@@ -165,6 +168,7 @@ def overview_body(content: OverviewContent) -> Body:
     case Sections{}: ProjectSections{}
     case Rows{}: ProjectRows{}
     case Agents{}: AgentRows{}
+    case TaskGraphs{}: TaskGraphRows{}
 
 def intent_measure(intent: Intent) -> Measure:
   match intent:
@@ -380,6 +384,7 @@ def page_intent(page: Page) -> Intent:
     case ProjectCollection{}: Overview{Rows{}}
     case TaskBoard{}: BoardContent{}
     case AgentCollection{}: Overview{Agents{}}
+    case TaskGraphCollection{}: Overview{TaskGraphs{}}
     case Unavailable{}: UnavailableContent{}
 
 def recipe(page: Page) -> Recipe:
@@ -408,7 +413,7 @@ def bottom_composer_region(composer: Composer) -> +List<Region>:
 def structure(recipe: Recipe) -> Structure:
   match recipe:
     case Recipe{measure, heading, CenteredCreation{}, composer, decisions, latest}:
-      Structure{Nil{}, CreationIntroduction{} <> CreationContext{} <> centered_composer_region(composer), Nil{}}
+      Structure{Nil{}, CreationIntroduction{} <> centered_composer_region(composer), Nil{}}
     case Recipe{measure, heading, ChronologicalReading{}, composer, decisions, latest}:
       Structure{[ConversationTitle{}, TaskActions{}], [TimelineContent{}],
         List.append(&2, Region, latest_region(latest),
@@ -421,6 +426,8 @@ def structure(recipe: Recipe) -> Structure:
       Structure{[BoardTitle{}, BoardControls{}], [BoardStages{}], Nil{}}
     case Recipe{measure, heading, AgentRows{}, composer, decisions, latest}:
       Structure{[CollectionTitle{}, CollectionActions{}], [AgentEntries{}], Nil{}}
+    case Recipe{measure, heading, TaskGraphRows{}, composer, decisions, latest}:
+      Structure{[CollectionTitle{}, CollectionActions{}], [TaskGraphEntries{}], Nil{}}
     case Recipe{measure, heading, UnavailableNotice{}, composer, decisions, latest}:
       Structure{Nil{}, [UnavailableMessage{}], Nil{}}
 

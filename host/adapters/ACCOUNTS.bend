@@ -392,20 +392,27 @@ def effort_items(items: +List<J.Json>) -> Bool:
   match items:
     case Nil{}: True{}
     case Con{+level, rest}: J.is_object(level) && bounded_text(J.get(level, "effort")) && effort_items(rest)
+def descriptor_window(+model: J.Json, +name: String, maximum: String) -> Bool:
+  Bool.not(has(model, name)) || (safe_integer(J.get(model, name)) && number_between(J.get(model, name), "1", maximum))
 def descriptor_valid(+model: J.Json, seen: +List<String>) -> Bool:
   J.is_object(model) && bounded_text(J.get(model, "slug")) && bounded_text(J.get(model, "display_name")) && slug(J.text(J.get(model, "slug"))) && Bool.not(contains(seen, J.text(J.get(model, "slug")))) &&
     contains(Con{"list", Con{"hide", Con{"none", Nil{}}}}, J.text(J.get(model, "visibility"))) &&
     (Bool.not(has(model, "priority")) || safe_integer(J.get(model, "priority"))) &&
     (Bool.not(has(model, "supported_reasoning_levels")) || (is_array(J.get(model, "supported_reasoning_levels")) && Nat.is_le(List.length(&2, J.Json, J.items(J.get(model, "supported_reasoning_levels"))), 32n) && effort_items(J.items(J.get(model, "supported_reasoning_levels"))))) &&
-    (J.same(J.get(model, "default_reasoning_level"), J.Null{}) || bounded_text(J.get(model, "default_reasoning_level")))
+    (J.same(J.get(model, "default_reasoning_level"), J.Null{}) || bounded_text(J.get(model, "default_reasoning_level"))) &&
+    descriptor_window(model, "context_window", "4294967295") && descriptor_window(model, "effective_context_window_percent", "100")
 def effort_projection(items: +List<J.Json>) -> +List<J.Json>:
   match items:
     case Nil{}: Nil{}
     case Con{level, rest}: Con{J.Object{Con{J.Field{"effort", J.get(level, "effort")}, Nil{}}}, effort_projection(rest)}
 def optional_field(+model: J.Json, +name: String, rest: +List<J.Field>) -> +List<J.Field>:
   project_step(has(model, name), name, J.get(model, name), rest)
+def descriptor_options(+model: J.Json) -> +List<J.Field>:
+  optional_field(model, "priority", optional_field(model, "default_reasoning_level",
+    project_step(has(model, "supported_reasoning_levels"), "supported_reasoning_levels", J.Array{effort_projection(J.items(J.get(model, "supported_reasoning_levels")))},
+      optional_field(model, "context_window", optional_field(model, "effective_context_window_percent", Nil{})))))
 def descriptor(+model: J.Json) -> J.Json:
-  J.Object{Con{J.Field{"slug", J.get(model, "slug")}, Con{J.Field{"display_name", J.get(model, "display_name")}, Con{J.Field{"visibility", J.get(model, "visibility")}, optional_field(model, "priority", optional_field(model, "default_reasoning_level", project_step(has(model, "supported_reasoning_levels"), "supported_reasoning_levels", J.Array{effort_projection(J.items(J.get(model, "supported_reasoning_levels")))}, Nil{})))}}}}
+  J.Object{List.append(&2, J.Field, [J.Field{"slug", J.get(model, "slug")}, J.Field{"display_name", J.get(model, "display_name")}, J.Field{"visibility", J.get(model, "visibility")}], descriptor_options(model))}
 def catalog_cons_result(valid: Bool, model: J.Json, +rest: J.Json) -> J.Json:
   match valid:
     case False{}: rest

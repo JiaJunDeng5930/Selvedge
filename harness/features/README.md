@@ -11,6 +11,13 @@ For completions, follow `construct_event` in [protocol.bend](protocol.bend) to
 at interpretation and consumes the construction immediately. Board launches
 use ordinary task creation through this assembly and the core harness.
 
+Task graph installation and reply reactions are assembled in
+[graph-execution.bend](graph-execution.bend), against the independent requirements
+in [graph-spec.bend](graph-spec.bend). [graph-proof.bend](graph-proof.bend) binds
+the complete decisions to ordinary task creation and message delivery.
+[graph-state.bend](graph-state.bend) owns the graph-to-task reference checks and
+the graph registry's position in the assembled world.
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;

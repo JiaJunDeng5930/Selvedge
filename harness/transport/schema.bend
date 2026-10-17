@@ -5,6 +5,45 @@ def object(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json:
   J.Object{[J.Field{"type", J.Text{"object"}}, J.Field{"properties", J.Object{properties}},
     J.Field{"required", J.Array{required}}, J.Field{"additionalProperties", J.Boolean{False{}}}]}
 
+def retained_field(remove: Bool, field: J.Field, rest: +List<J.Field>) -> +List<J.Field>:
+  match remove:
+    case True{}: rest
+    case False{}: field <> rest
+
+def without_field(fields: +List<J.Field>, +name: String) -> +List<J.Field>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{+key, value}, rest}:
+      retained_field(String.eq(key, name), J.Field{key, value}, without_field(rest, name))
+
+def retained_required(remove: Bool, value: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  match remove:
+    case True{}: rest
+    case False{}: value <> rest
+
+def without_required(values: +List<J.Json>, +name: String) -> +List<J.Json>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{J.Text{+key}, rest}:
+      retained_required(String.eq(key, name), J.Text{key}, without_required(rest, name))
+    case Con{value, rest}: value <> without_required(rest, name)
+
+# A frozen feature declaration owns its command name; callers bind only its
+# ordinary parameters, and cannot replace that name through their arguments.
+def command_arguments_fields(properties: J.Json, required: +List<J.Json>, fallback: J.Json) -> J.Json:
+  match properties:
+    case J.Object{properties}:
+      object(without_field(properties, "op"), without_required(required, "op"))
+    case _: fallback
+
+def command_arguments(+schema: J.Json) -> J.Json:
+  command_arguments_fields(J.get(schema, "properties"), J.items(J.get(schema, "required")), schema)
+
+def command_body(operation: String, arguments: J.Json) -> J.Json:
+  match arguments:
+    case J.Object{fields}: J.Object{J.Field{"op", J.Text{operation}} <> without_field(fields, "op")}
+    case _: arguments
+
 # The schema fragment used by built-in commands and tools. MCP schemas are
 # preserved verbatim and validated by their server, not misrepresented here.
 
@@ -216,3 +255,8 @@ def definition(fuel: Nat, jobs: Maybe<&2, +List<Definition>>) -> Bool:
 
 def supported(schema: J.Json) -> Bool:
   definition(256n, Some{[SchemaDefinition{schema}]})
+
+def command_supported(+schema: J.Json) -> Bool:
+  supported(schema) && allowed_type(schema, "object") &&
+    allowed_type(J.get(J.get(schema, "properties"), "op"), "string") &&
+    contains(J.text_values(J.items(J.get(schema, "required"))), "op")

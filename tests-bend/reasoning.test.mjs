@@ -10,6 +10,7 @@ import { evaluatorConnections, adaptivePolicy, accountAutoPreset } from '../host
 import { accountConnection, defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
 import { budgetOutputs, outputTokens, decisionContext, decisionRequest, validateDecision, requestReasoning, evaluatorLimits } from '../host/jev.mjs';
 import { home, taskIdle, responsesServer } from './support.mjs';
+import { until } from './fixtures/compaction.mjs';
 
 const automatic = { evaluator: 'jev', efforts: ['low', 'medium', 'high'], baseline: 'medium', transport: 'configuration_update', max_lease: 10 };
 const limits = { frame_bytes: 16_777_216 };
@@ -218,7 +219,7 @@ test('the complete native/service flow commits evaluation first, bypasses it und
   const created = await service.command({ op: 'create', profile: 'automatic', message: 'Do the task with a bounded follow-up.' });
   assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
   const page = await taskIdle(service);
-  assert.equal(page.messages.findLast(message => message.role === 'model_context')?.content?.content?.[0]?.text,
+  assert.equal(page.messages.findLast(message => message.role === 'model_context')?.content?.item?.content?.[0]?.text,
     'Completed the native task.', JSON.stringify(page));
   assert.equal(upstream.requests.length, 1);
   assert.equal(primary.requests.length, 2);
@@ -233,6 +234,57 @@ test('the complete native/service flow commits evaluation first, bypasses it und
   await service.command({ op: 'create', profile: 'ordinary', message: 'An ordinary endpoint never invokes Jev.' });
   await taskIdle(service, 1);
   assert.equal(upstream.requests.length, 1);
+  assert.deepEqual(upstream.failures, []);
+  assert.deepEqual(primary.failures, []);
+});
+
+test('adaptive evaluation remains bounded after compacted original history grows beyond a kernel frame', { timeout: 60_000 }, async t => {
+  key(t);
+  const directory = await home(t);
+  const upstream = await evaluator(t, () => chosen('low', '1'));
+  const primary = await responsesServer(t, () => [{ type: 'message', role: 'assistant',
+    content: [{ type: 'output_text', text: 'Completed the current requirement.' }] }]);
+  const service = await Service.open({ home: path.join(directory, 'state'),
+    config: configFor(upstream.endpoint, primary.endpoint), cwd: directory });
+  t.after(() => service.close());
+  const evaluations = [];
+  service.journal.on('commit', decision => evaluations.push(...decision.effects.filter(effect => effect.kind === 'reasoning')));
+  const originals = Array.from({ length: 4 }, (_, index) => `Original requirement ${index}: ` + 'retained original detail '.repeat(46_000));
+  assert.ok(originals.reduce((total, value) => total + Buffer.byteLength(value), 0) > service.limits.frame_bytes);
+  for (const [index, message] of originals.entries()) {
+    if (index > 0) {
+      const compacted = await service.command({ op: 'compact', task_id: 0, summary: `Completed requirement ${index - 1}; retain the original history for inspection.` });
+      assert.equal(compacted.reply.ok, true);
+    }
+    const sent = await service.command(index === 0
+      ? { op: 'create', profile: 'automatic', message } : { op: 'send', task_id: 0, message });
+    assert.equal(sent.reply.ok, true, JSON.stringify(sent.reply));
+    await until(`bounded adaptive generation ${index + 1}`, async () => {
+      const result = await service.command({ op: 'read', task_id: 0, after: 0, limit: 1 });
+      assert.equal(result.reply.ok, true);
+      return primary.requests.length === index + 1 && result.reply.result.task.phase === 'idle';
+    }, 10_000);
+  }
+  assert.equal(evaluations.length, 4);
+  assert.equal(upstream.requests.length, 4);
+  for (const effect of evaluations) {
+    assert.ok(Buffer.byteLength(JSON.stringify(effect.history)) <= 16_384,
+      'The committed evaluator history obeys its encoded preview budget before crossing the kernel frame');
+    assert.ok(Buffer.byteLength(JSON.stringify(effect)) < service.limits.frame_bytes);
+    assert.equal(effect.history_preview, true);
+  }
+  const recovered = [];
+  let after = 0;
+  do {
+    const result = await service.command({ op: 'read', task_id: 0, after, limit: 1 });
+    assert.equal(result.reply.ok, true);
+    const page = result.reply.result;
+    recovered.push(...page.messages.filter(message => message.role === 'user').map(message => message.content));
+    if (!page.has_more) break;
+    assert.ok(page.cursor > after);
+    after += page.messages.length;
+  } while (true);
+  assert.deepEqual(recovered, originals, 'Bounding evaluator input must preserve every original record');
   assert.deepEqual(upstream.failures, []);
   assert.deepEqual(primary.failures, []);
 });

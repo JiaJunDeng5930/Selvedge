@@ -390,8 +390,8 @@ def system_appearance_follows_os(system_dark: Bool) ->
     case True{}: {==}
     case False{}: {==}
 
-def regular_heading_role(inherited: T.Presentation, text: String, in_main: Bool) ->
-  {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,in_main,False{}) == T.Presentation{Rule.primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
+def regular_heading_role(+inherited: T.Presentation, text: String, in_main: Bool) ->
+  {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,in_main,False{}) == T.inherit_activity(inherited, T.Presentation{Rule.primary_heading_tier(in_main),T.Medium{},T.presentation_scale(inherited)}) : T.Presentation}:
   match in_main:
     case True{}: {==}
     case False{}: {==}
@@ -404,8 +404,8 @@ def heading_tier_total(in_main: Bool, start: Bool) ->
     case False{} True{}: {==}
     case False{} False{}: {==}
 
-def secondary_heading_role(inherited: T.Presentation, text: String, start: Bool) ->
-  {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,False{},start) == T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)} : T.Presentation}:
+def secondary_heading_role(+inherited: T.Presentation, text: String, start: Bool) ->
+  {Appearance.information_role(SurfaceTypes.Heading{},SurfaceTypes.ReadOnly{text},inherited,False{},start) == T.inherit_activity(inherited, T.Presentation{T.Section{},T.Medium{},T.presentation_scale(inherited)}) : T.Presentation}:
   match start:
     case True{}: {==}
     case False{}: {==}
@@ -459,6 +459,20 @@ def field_minimum_fits_content(+capacity: Nat, +value: Design.Style, +border: Na
     case Design.Style{+text, Design.Chrome{foreground, background, paint, old_border, old_radius, shadow}, alignment, flow, overflow, +frame, old_minimum, maximum, states}:
       Nat.max_ge_r(minimum, Enclosure.extent_height(Appearance.field_required_extent(capacity, value, border)))
 
+def activity_inherits_identity(+inherited: T.Presentation) ->
+  {T.inherit_activity(inherited, inherited) == inherited : T.Presentation}:
+  T.Presentation{tier, emphasis, scale} = inherited
+  match tier:
+    case T.ActivityPrimary{}: {==}
+    case T.ActivitySupport{}: {==}
+    case T.Display{}: {==}
+    case T.Title{}: {==}
+    case T.Section{}: {==}
+    case T.Body{}: {==}
+    case T.Support{}: {==}
+    case T.CodeBody{}: {==}
+    case T.CodeSupport{}: {==}
+
 def Rule.evidence():
   Rule.Requirements{action_minimum_retains_geometry, action_minimum_fits_content, field_minimum_fits_content,
     +key => +semantic => +label => +role => +meaning => +context => +inherited => +in_main => +start => {==},
@@ -468,7 +482,7 @@ def Rule.evidence():
     inherited => text => start => secondary_heading_role(inherited,text,start),
     value => lane_output(value),
     key => stage => count => context => representation => value => typography => lane_output(value),
-    inherited => text => in_main => start => {==},
+    inherited => text => in_main => start => activity_inherits_identity(inherited),
     +typography => +in_main => +start => values => context => nodes_preserve_semantics_at(values, context, typography, in_main, start),
     +scale => surface => system_dark => present_uses_configured_appearance(surface, system_dark, scale),
     system_dark => light_appearance_wins(system_dark),
@@ -479,3 +493,61 @@ def Rule.evidence():
     +typography => meaning => {==},
     +typography => meaning => {==},
     +typography => meaning => {==}}
+
+def Rule.property_glyph_minimum(property, text, geometry): {==}
+
+
+def Rule.navigation_caption_typography(scale): {==}
+
+def Rule.navigation_caption_assignment(inherited, in_main, start):
+  T.Presentation{tier, emphasis, scale} = inherited
+  {==}
+
+def Rule.navigation_entry_style(selected, meaning, typography): {==}
+
+
+def Rule.project_feedback_preserves_fields(text, foreground, old_background, border, border_width, radius, shadow, alignment, flow, overflow, frame, minimum, maximum, states, background): {==}
+
+def resolved_feedback_background(+value:Design.Style, +background:Design.Paint) ->
+  {Appearance.style_background(Appearance.resolved_feedback_chrome(value, background)) == background : Design.Paint}:
+  Design.Style{text, Design.Chrome{foreground, old_background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+  {==}
+
+def Rule.project_feedback_final_background(key, context, owner, depth, visible, active, value, typography):
+  resolved_feedback_background(
+    Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography),
+    Appearance.phase_background(Appearance.family_style(key, SurfaceTypes.Region{}, Controls.source_reference(context), Controls.NavigationRow{owner, depth, visible, active}, value, typography), Appearance.feedback_phase(active)))
+
+
+def Rule.activity_calibration_specifications(capacity, scale):
+  {==}
+
+def Rule.activity_primary_calibration(capacity, scale):
+  {==}
+
+def Rule.activity_support_calibration(capacity, scale):
+  {==}
+
+def Rule.calibrated_parameter_source(capacity, scale, body, primary, support):
+  T.Metric{body_key, body_minimum, body_preferred, body_height, body_advance} = body
+  T.Metric{primary_key, primary_minimum, primary_preferred, primary_height, primary_advance} = primary
+  T.Metric{support_key, support_minimum, support_preferred, support_height, support_advance} = support
+  {==}
+
+
+def F.activity_request_value_correspondence(capacity, font, constructed):
+  F.ActivityRequest{plan, correspondence} = constructed
+  correspondence
+
+def F.activity_request_correspondence(capacity, font):
+  F.activity_request_value_correspondence(capacity, font, F.activity_request(capacity, font))
+
+def Rule.activity_request_protocol(capacity, font):
+  F.activity_request_correspondence(capacity, font)
+
+
+def Rule.supporting_row_information_role(role, inherited, inside, start):
+  {==}
+
+def Rule.supporting_content_chrome(emphasis, scale):
+  {==}

@@ -2,18 +2,19 @@ import Base
 import ./MODEL.bend as C
 import ./CONTRACT.bend as Spec
 import ../DOMAIN.bend as D
+import ../../bendlib/json.bend as J
 import ./patch-proof.bend as Patch
 import ./constructor-proof.bend as Constructor
 
-# Production history is retained verbatim. Checkpoints are additional records and
-# cannot change the source values reconstructed from that history.
+# Production history is retained verbatim. Replacement windows are additional
+# records and cannot change source values reconstructed from that history.
 def append(+context: D.HistoryContext, +task: D.Task) ->
   {D.task_history(D.append_context(context, task)) == D.HistoryNode{D.task_history(task), D.ContextMessage{context}} : D.History}:
   match task:
-    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
-def checkpoint_bindings(+history: D.History, summary: String) ->
-  {D.context_bindings(D.HistoryNode{history, D.ContextCheckpoint{summary}}) == D.context_bindings(history) : +List<C.Snapshot>}:
+def replacement_bindings(+history: D.History, value: J.Json) ->
+  {D.context_bindings(D.HistoryNode{history, D.ContextReplacement{value}}) == D.context_bindings(history) : +List<C.Snapshot>}:
   {==}
 
 def context_reconstruction(+history: D.History, +change: C.Change) ->
@@ -23,8 +24,8 @@ def context_reconstruction(+history: D.History, +change: C.Change) ->
 def diagnostic_contract(known: Bool, message: String, +task: D.Task) ->
   {D.task_contract(D.context_diagnostic(known, message, task)) == D.task_contract(task) : D.Contract}:
   match known task:
-    case True{} D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
-    case False{} D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case True{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case False{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
 
 def diagnose_contract(+message: String, +task: D.Task) ->
   {D.task_contract(D.diagnose_context(message, task)) == D.task_contract(task) : D.Contract}:
@@ -33,8 +34,8 @@ def diagnose_contract(+message: String, +task: D.Task) ->
 def changed_contract(change: Maybe<&2, C.Change>, unchanged: Bool, +task: D.Task) ->
   {D.task_contract(D.append_context_change(change, unchanged, task)) == D.task_contract(task) : D.Contract}:
   match change unchanged task:
-    case Some{change} _ D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
-    case None{} True{} D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case Some{change} _ D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
+    case None{} True{} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
     case None{} False{} other: diagnose_contract("Context update rejected: invalid revision or patch for tracked source.", other)
 
 def observation_contract(observation: C.Observation, +task: D.Task) ->
@@ -61,6 +62,6 @@ def preserved_contract(+task: D.Task, observations: +List<C.Observation>) ->
   observations_contract(observations, task)
 
 def instance() -> Spec.Evidence:
-  Spec.Evidence{append, checkpoint_bindings, context_reconstruction,
+  Spec.Evidence{append, replacement_bindings, context_reconstruction,
     Patch.unchanged_observation, preserved_contract, Patch.observed_amendment_origin,
     Patch.apply_amendment, Patch.observed_amendment_patch, Patch.accepted_snapshot, Constructor.family}

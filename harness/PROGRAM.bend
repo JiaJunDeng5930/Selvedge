@@ -1,4 +1,7 @@
 import Base
+import ../features/compaction/PROGRAM.bend as Compaction
+import ../features/compaction/SPEC.bend as CompactionSpec
+import ../features/compaction/STATE.bend as CompactionState
 import ./tools/SYNTAX.bend as Native
 import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
@@ -64,7 +67,8 @@ def execute_start_environment(profile: D.Profile, reasoning: String, message: St
     case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
       +next_task = D.state_next_task(task_state)
-      task : D.Task = D.Task{next_task, Nil{}, D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context},
+      +contract : D.Contract = D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context}
+      task : D.Task = D.Task{next_task, Nil{}, contract, D.execution_configuration(contract),
         D.Active{}, D.EmptyHistory{}, Nil{}, D.Ready{Nil{}}, Nil{}, True{}}
       task = D.initialize_history(instructions, guidance, message, task)
       respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
@@ -78,7 +82,7 @@ def execute_delivery(text: String, +task: D.Task, world: M.World()) -> M.Decisio
 def change_to(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match next:
     case D.Archived{}:
-      C.Decision{store(T.archive(task), world),
+      C.Decision{CompactionSpec.cancelled_world(task, store(T.archive(task), world)),
         D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
     case other:
       respond(store(T.promote(D.with_status(other, task)), world), id_result(D.task_id(task)))
@@ -86,7 +90,7 @@ def change_to(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
 def change_requested(control: D.Control, next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match control:
     case D.Interrupt{}:
-      C.Decision{store(T.interrupt(task), world), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
+      C.Decision{CompactionSpec.cancelled_world(task, store(T.interrupt(task), world)), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
     case _: change_to(next, task, world)
 
 def query(request: M.Query, world: M.World()) -> J.Json:
@@ -113,11 +117,11 @@ def commit_fork(built: Commands.Children, call: D.Call, remaining: +List<D.Attem
       respond(C.Frame{D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, T.replace(tasks, caller), new_tasks), task_state)), board},
         J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]})
 
-def summary_request(task: D.Task, resume: Bool, world: M.World()) -> M.Decision():
-  Reasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{resume}, world)
+def summary_request(task: D.Task, world: M.World()) -> M.Decision():
+  Reasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world)
 
-def execute_checkpoint(summary: String, +task: D.Task, world: M.World()) -> M.Decision():
-  respond(store(D.append_message(D.ContextCheckpoint{summary}, task), world), id_result(D.task_id(task)))
+def execute_checkpoint(summary: String, task: D.Task, world: M.World()) -> M.Decision():
+  Compaction.supplied(summary, task, world)
 
 def execute_branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
@@ -145,10 +149,11 @@ def review_result(resolution: Approvals.Resolution, world: M.World()) -> M.Decis
 
 def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case Commands.ConfigureExecution{task, configuration}: Commands.configured_task(task, configuration, world)
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Review{resolution}: review_result(resolution, world)
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
-    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(execute_start, operation, world)
+    case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(~execute_start, operation, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)
     case Commands.Steer{+task, message}:
       C.Decision{store(T.steer(message, task), world), D.success(id_result(D.task_id(task))),
@@ -159,7 +164,7 @@ def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.D
         [Effects.CancelTicket{D.task_id(task), Ops.callback(operation)}]}
     case Commands.Control{task, request, next}: change_requested(request, next, task, world)
     case Commands.Branch{task, count, messages, selection}: execute_branch(task, count, messages, selection, world)
-    case Commands.Summarize{task}: summary_request(task, False{}, world)
+    case Commands.Summarize{task}: summary_request(task, world)
     case Commands.Checkpoint{task, summary}: execute_checkpoint(summary, task, world)
     case Commands.Observe{query}: observe(query, world)
     case Commands.StoreProject{+id, project, next_id}:
@@ -174,18 +179,18 @@ def realize(member: Commands.ConstructedCommand()) -> M.Decision():
 def apply_command(command: M.Command, +world: M.World()) -> M.Decision():
   realize(Commands.construct_command(command, world))
 
+def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision():
+  apply_command(M.Send{target, message}, world)
+
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
 
-def model_matched(same: Bool, outcome: D.Outcome, allowed: +List<String>, task: D.Task, world: M.World()) -> M.Decision():
+def model_matched(same: Bool, +outcome: D.Outcome, allowed: +List<String>, +task: D.Task, world: M.World()) -> M.Decision():
   match same:
     case False{}: respond(world, accepted(False{}))
-    case True{}: respond(store(T.model_outcome(outcome, allowed, task), world), accepted(True{}))
-
-def summary_matched(same: Bool, outcome: D.Outcome, resume: Bool, task: D.Task, world: M.World()) -> M.Decision():
-  match same:
-    case False{}: respond(world, accepted(False{}))
-    case True{}: respond(store(T.summary_outcome(outcome, resume, task), world), accepted(True{}))
+    case True{}:
+      Protocol.accepted_reaction(FeatureExec.react_outputs(~output_send, D.task_id(task), T.reply_outputs(outcome),
+        store(T.model_outcome(outcome, allowed, task), world)))
 
 def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Bool, task: D.Task, world: M.World()) -> M.Decision():
   match same:
@@ -195,17 +200,24 @@ def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Boo
 def recover_tasks(tasks: +List<D.Task>) -> +List<D.Task>:
   Protocol.recovery(tasks)
 
-def realize_event_calculation(event: Protocol.ResolvedEvent, world: M.World()) -> M.Decision():
+def context_result_calculation(waiting: Bool, +task: D.Task, +revision: Nat, +purpose: D.ContextPurpose,
+  outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, world: M.World()) -> M.Decision():
+  match waiting:
+    case True{}: Protocol.context_wait(outcome, task, world)
+    case False{}:
+      Protocol.context_followup(Protocol.context_compaction(purpose, revision, task), D.task_id(task),
+        Reasoning.context_completed(F.State(), F.Effect, revision, purpose, outcome, task, world))
+
+def realize_event_calculation(event: Protocol.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
     case Protocol.User{operation}: realize_calculation(operation, world)
     case Protocol.Ignore{}: respond(world, accepted(False{}))
-    case Protocol.ContextResult{task, revision, purpose, outcome}:
-      Reasoning.context_completed(F.State(), F.Effect, revision, purpose, outcome, task, world)
+    case Protocol.ContextResult{+task, +revision, +purpose, +outcome}:
+      context_result_calculation(Protocol.context_waits(revision, purpose, outcome, task, world), task, revision, purpose, outcome, world)
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
     case Protocol.ReasoningResult{task, revision, outcome}:
       respond(store(Reasoning.complete(revision, outcome, task), world), accepted(True{}))
     case Protocol.FeatureEvent{event}: FeatureExec.event_calculation(event, world)
-    case Protocol.SummaryResult{task, outcome, resume}: summary_matched(True{}, outcome, resume, task, world)
     case Protocol.ToolResult{task, operation, value, error}: tool_matched(True{}, operation, value, error, task, world)
     case Protocol.HookResult{task, outcome}: respond(store(T.complete_hook(outcome, task), world), accepted(True{}))
     case Protocol.AfterResult{task, +operation, outcome}: Results.complete(F.State(), F.Effect, Ops.stage(operation), outcome, operation, task, world)
@@ -216,7 +228,7 @@ def realize_event_calculation(event: Protocol.ResolvedEvent, world: M.World()) -
       next_ticket = D.state_next_ticket(task_state)
       limits = D.state_limits(task_state)
       projects = D.state_projects(task_state)
-      respond(C.Frame{D.with_state_environment(environment, task_state), board}, J.Null{})
+      respond(C.Frame{D.with_state_environment(environment, task_state), FeatureState.reconfigure(board)}, J.Null{})
     case Protocol.Restart{}:
       C.Frame{+task_state_2, +board} = world
       tasks = D.state_tasks(task_state_2)
@@ -248,7 +260,7 @@ def decision_effects(decision: M.Decision()) -> +List<M.Effect()>:
   effects
 
 def model_request_direct(task: D.Task, world: M.World()) -> M.Decision():
-  Reasoning.start(F.State(), F.Effect, task, world)
+  CompactionSpec.attach(Reasoning.start(F.State(), F.Effect, task, world))
 
 def rendering_budget(world: M.World()) -> Nat:
   D.state_render_budget(C.local(D.State, F.State(), world))
@@ -363,7 +375,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
       +next = combine(decision, work_calculation(D.task_work(task), task, decision_world(decision)))
-      schedule(p, T.runnable(tasks(decision_world(next))), next)
+      schedule(p, CompactionSpec.runnable(tasks(decision_world(next)), CompactionState.registry(decision_world(next))), next)
 
 def scheduling_budget(world: M.World()) -> Nat:
   Execution.budget(world)
@@ -375,12 +387,12 @@ def board_dispatch(command: M.Command, world: M.World()) -> M.Decision():
   apply_command(command, world)
 
 def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
-  BoardSchedulingSpec.finish(schedule(scheduling_budget(decision_world(decision)), T.runnable(tasks(decision_world(decision))), decision))
+  BoardSchedulingSpec.finish(schedule(scheduling_budget(decision_world(decision)), CompactionSpec.runnable(tasks(decision_world(decision)), CompactionState.registry(decision_world(decision))), decision))
 
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
-    case True{}: scheduled_prepared(BoardScheduling.prepare(~board_dispatch, decision))
+    case True{}: scheduled_prepared(Compaction.prepare(BoardScheduling.prepare(~board_dispatch, decision)))
 
 def output_admitted(fits: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
   match fits:
@@ -417,7 +429,7 @@ def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   Commit.checked(decision, previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
-  deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
+  deliver(M.durable(input), checked(Commit.configuration_checked(input, Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world), world)
 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)
