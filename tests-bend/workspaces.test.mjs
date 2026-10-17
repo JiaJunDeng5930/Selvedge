@@ -93,7 +93,7 @@ test('workspace observations reject nonexistent roots and forged guidance withou
     return true;
   });
   await assert.rejects(service.command({ op: 'create', profile: 'demo', message: 'forged', settings: {
-    guidance: { workspace: base, revision: 'absent', instructions: '' },
+    guidance: { workspace: base, path: '', revision: 'absent', instructions: '' },
   } }), error => {
     assert.ok(error instanceof CommandNotSubmitted);
     assert.ok(error.cause instanceof TypeError);

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { configurationFilename, contextConfiguration, defaultConfig } from './config.mjs';
 import { snapshotContextFile } from './project.mjs';
 import { proposeContextPatch } from './context-patches.mjs';
+import { createContextDiscovery, isContextDiscovery } from './context-discovery.mjs';
 
 const configFileLimit = 1024 * 1024;
 
@@ -64,6 +65,7 @@ async function snapshotSource(definition, environment, key, limits, options) {
       case 'body': value = content; break;
       case 'metadata': value = metadata[field.source.field]; break;
       case 'identity': value = key.identity[field.source.field]; break;
+      case 'observation_field': value = environment.observations[field.source.field]; break;
       default: throw new TypeError('Unknown context field source');
     }
     return [field.name, boundedText(value, field.name, limits.project_context_bytes, field.required)];
@@ -95,6 +97,8 @@ export async function observeContextSources(effect, { home, config, limits, sign
   // An unreadable configuration must preserve its previous bindings while
   // independent file observations can still proceed.
   const configurationResult = configuration.then(value => ({ value }), error => ({ error }));
+  const discover = createContextDiscovery({ home: installation, settings: effect.settings, signal });
+  const sourceObservations = new Map();
 
   function failure(key, error) {
     signal?.throwIfAborted();
@@ -103,21 +107,73 @@ export async function observeContextSources(effect, { home, config, limits, sign
     return { type: 'failure', key, message };
   }
 
-  async function observe(definition, environment, key) {
+  function observe(definition, environment, key) {
+    const identity = JSON.stringify(key);
+    if (!sourceObservations.has(identity)) sourceObservations.set(identity, (async () => {
+      try {
+        const snapshot = await snapshotSource(definition, environment, key, limits, options);
+        if (snapshot === null) return { type: 'absent', key };
+        const previous = bindings.find(binding => isDeepStrictEqual(binding.key, key));
+        return { type: 'present', snapshot, patch: proposeContextPatch(previous, snapshot) };
+      } catch (error) { return failure(key, error); }
+    })());
+    return sourceObservations.get(identity);
+  }
+
+  async function observeDiscovery(definition, previous) {
+    const source = definition.observer;
+    const skills = source.type === 'home_skills' || source.type === 'workspace_skills';
+    let entries;
+    let configuration;
     try {
-      const snapshot = await snapshotSource(definition, environment, key, limits, options);
-      if (snapshot === null) return { type: 'absent', key };
-      const previous = bindings.find(binding => isDeepStrictEqual(binding.key, key));
-      return { type: 'present', snapshot, patch: proposeContextPatch(previous, snapshot) };
-    } catch (error) { return failure(key, error); }
+      if (skills) {
+        configuration = await configurationResult;
+        if (configuration.error) throw configuration.error;
+      }
+      entries = await discover(source);
+      if (skills) {
+        const explicitDefinition = definitions.find(definition => definition.observer.type === 'config_files' && definition.observer.setting === 'skills');
+        const explicit = new Set();
+        if (explicitDefinition) for (const filename of configuration.value.skills ?? []) {
+          const environment = { home: installation, workspace, filename: path.resolve(installation, filename) };
+          const observed = await observe(explicitDefinition, environment, contextKey(explicitDefinition, environment));
+          if (observed.type === 'present') explicit.add(environment.filename);
+        }
+        entries = entries.filter(entry => !explicit.has(entry.filename));
+      }
+      const snapshots = [];
+      let bytes = 0;
+      for (const entry of entries) {
+        const environment = { home: installation, ...entry };
+        const key = contextKey(definition, environment);
+        const snapshot = await snapshotSource(definition, environment, key, limits, options);
+        // A candidate disappearing during a scan is not a complete collection
+        // observation. Retry at the next request without withdrawing its peers.
+        if (snapshot === null) throw new Error(`Context discovery source changed while being observed: ${entry.filename}`);
+        bytes += Buffer.byteLength(JSON.stringify(snapshot.value), 'utf8');
+        if (bytes > source.policy.max_bytes) throw new Error('Context discovery content budget exceeded');
+        const baseline = bindings.find(binding => isDeepStrictEqual(binding.key, key));
+        snapshots.push({ type: 'present', snapshot, patch: proposeContextPatch(baseline, snapshot) });
+      }
+      return [...snapshots, ...previous.filter(binding => !snapshots.some(item => isDeepStrictEqual(item.snapshot.key, binding.key)))
+        .map(binding => ({ type: 'absent', key: binding.key }))];
+    } catch (error) {
+      if (previous.length) return previous.map(binding => failure(binding.key, error));
+      // A collection with no accepted members still needs a valid source key
+      // so a failed first scan is visible in the committed task history.
+      const environment = { home: installation, workspace,
+        filename: skills ? installation : path.join(workspace ?? installation, source.policy.files[0]) };
+      return [failure(contextKey(definition, environment), error)];
+    }
   }
 
   return (await Promise.all(definitions.map(async definition => {
     const source = definition.observer;
     const previous = bindings.filter(binding => isDeepStrictEqual(binding.key.definition, definition));
-    if (definition.scope === 'workspace' && workspace === null) {
+    if (['workspace', 'primary_workspace'].includes(definition.scope) && workspace === null) {
       return previous.map(binding => ({ type: 'absent', key: binding.key }));
     }
+    if (isContextDiscovery(source)) return observeDiscovery(definition, previous);
     const needsConfiguration = source.type === 'config_text' || source.type === 'config_files';
     const configured = needsConfiguration ? await configurationResult : {};
     const environment = { home: installation, workspace, config: configured.value ?? {} };

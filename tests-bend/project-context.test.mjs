@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile, symlink, realpath } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, symlink, realpath, unlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
@@ -18,14 +18,24 @@ test('project snapshots are bounded, versioned UTF-8 observations and never foll
   assert.equal(limits.project_context_bytes, 32768);
   assert.equal(await snapshotGlobalInstructions(directory, limits), null);
   assert.deepEqual(await snapshotProject(directory, limits), {
-    workspace: await realpath(directory), revision: 'absent', instructions: '',
+    workspace: await realpath(directory), path: '', revision: 'absent', instructions: '',
   });
   const text = 'Run the checked tests. 保留约束。\n';
   await writeFile(path.join(directory, 'AGENTS.md'), text);
   assert.deepEqual(await snapshotProject(directory, limits), {
-    workspace: await realpath(directory), instructions: text,
+    workspace: await realpath(directory), path: path.join(await realpath(directory), 'AGENTS.md'), instructions: text,
     revision: createHash('sha256').update(text).digest('hex'),
   });
+  const override = path.join(directory, 'AGENTS.override.md');
+  const overridingText = 'Root override guidance.\n';
+  await writeFile(override, overridingText);
+  assert.deepEqual(await snapshotProject(directory, limits), {
+    workspace: await realpath(directory), path: override, instructions: overridingText,
+    revision: createHash('sha256').update(overridingText).digest('hex'),
+  });
+  assert.equal((await snapshotGlobalInstructions(directory, limits)).path, override);
+  await unlink(override);
+  assert.equal((await snapshotProject(directory, limits)).instructions, text);
   for (const [name, content, error] of [
     ['large', Buffer.alloc(limits.project_context_bytes + 1, 65), /exceeds/],
     ['invalid-utf8', Buffer.from([0xff, 0xfe]), /UTF-8/],
@@ -55,7 +65,7 @@ test('Bend-generated JavaScript rejects an invalid project revision', async t =>
   const input = async value => (await kernel.request(value)).value;
   const configure = project => input({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture', reasoning_options: null }],
     tools: [], max_fork: 4, max_descendants: 8, project });
-  const project = { workspace: '/project', instructions: 'Original project instructions', revision: 'a'.repeat(64) };
+  const project = { workspace: '/project', path: '/project/AGENTS.md', instructions: 'Original project instructions', revision: 'a'.repeat(64) };
   assert.equal((await configure(project)).reply.ok, true);
   const rejected = await configure({ ...project, revision: 'absent' });
   assert.equal(rejected.reply.ok, false, 'An absent source cannot carry invented guidance');
@@ -121,6 +131,8 @@ test('instruction changes append committed deltas across file changes, forks and
   assert.equal(global.revision, createHash('sha256').update(globalFirst).digest('hex'));
   assert.deepEqual(global.value, { type: 'global_agents', fields: { content: globalFirst } });
   assert.equal(initial[2].change.snapshot.value.fields.content, projectFirst);
+  assert.deepEqual(initial[2].change.snapshot.value.fields, { content: projectFirst,
+    path: path.join(await realpath(workspace), 'AGENTS.md'), applies_to: await realpath(workspace), precedence: await realpath(workspace) });
   assert.equal(initial[2].change.snapshot.key.type, 'project_guidance');
   assert.deepEqual(initial[2].change.snapshot.key.identity, { workspace: await realpath(workspace) });
   assert.deepEqual(original.messages.slice(0, initial.length), initial);

@@ -216,12 +216,12 @@ def Laws.initial_history_order(instructions, project, message, id, lineage, prof
   match instructions project:
     case D.InitialInstructions{configured, None{}} D.NoProject{}:
       initial_history_meaning(D.configured_context(configured), None{}, None{}, context, profile, reasoning, message, history)
-    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, project_revision, project_content}:
-      initial_history_meaning(D.configured_context(configured), None{}, D.project_guidance_context(root, project_revision, project_content), context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, project_path, project_revision, project_content}:
+      initial_history_meaning(D.configured_context(configured), None{}, D.project_guidance_context(root, project_path, project_revision, project_content), context, profile, reasoning, message, history)
     case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.NoProject{}:
       initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), None{}, context, profile, reasoning, message, history)
-    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_revision, project_content}:
-      initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), D.project_guidance_context(root, project_revision, project_content), context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_path, project_revision, project_content}:
+      initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), D.project_guidance_context(root, project_path, project_revision, project_content), context, profile, reasoning, message, history)
 
 def Laws.context_append_preserves_prefix(context, task):
   match task:
