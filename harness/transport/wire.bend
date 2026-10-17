@@ -415,14 +415,14 @@ def valid_plugins(value: J.Json) -> Bool:
 def project(+value: J.Json) -> D.ProjectContext:
   match value:
     case J.Null{}: D.NoProject{}
-    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
+    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "path")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
 
 def valid_project(+value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
     case J.Object{fields}:
       +body : J.Json = J.Object{fields}
-      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
+      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "path")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
         I.project_context(project(body))
     case _: False{}
 

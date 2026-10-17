@@ -71,20 +71,21 @@ def valid_context(context: D.TaskContext) -> Bool:
 def valid_guidance(guidance: D.ProjectContext) -> Bool:
   match guidance:
     case D.NoProject{}: True{}
-    case D.ProjectContext{+workspace, +revision, +instructions}:
+    case D.ProjectContext{+workspace, +path, +revision, +instructions}:
       valid_path(workspace) && Nat.is_le(J.utf8_length(instructions), D.project_limit()) &&
-        ((String.eq(revision, "absent") && String.eq(instructions, "")) || Nat.is_eq(J.utf8_length(revision), 64n))
+        ((String.eq(revision, "absent") && String.eq(instructions, "") && String.eq(path, "")) ||
+          (D.project_source_path(workspace, path) && Nat.is_eq(J.utf8_length(revision), 64n)))
 
 def guidance_member(primary: Maybe<&2, String>, guidance: D.ProjectContext) -> Bool:
   match primary guidance:
     case _ D.NoProject{}: True{}
-    case Some{primary} D.ProjectContext{root, revision, text}: String.eq(primary, root)
+    case Some{primary} D.ProjectContext{root, path, revision, text}: String.eq(primary, root)
     case _ _: False{}
 
 def default_workspace(guidance: D.ProjectContext) -> D.Workspace:
   match guidance:
     case D.NoProject{}: D.Workspace{Nil{}, None{}}
-    case D.ProjectContext{+root, revision, text}: D.Workspace{[root], Some{root}}
+    case D.ProjectContext{+root, path, revision, text}: D.Workspace{[root], Some{root}}
 
 def defaults(guidance: D.ProjectContext) -> D.TaskContext:
   D.TaskContext{default_workspace(guidance), D.Sandbox{D.WorkspaceWrite{}, False{}}, D.AskForApproval{}, None{}}
@@ -159,7 +160,7 @@ def read_guidance(value: J.Json, workspace: D.Workspace, +fallback: D.ProjectCon
   match value:
     case J.Null{}: retained_guidance(guidance_member(primary(workspace), fallback), fallback)
     case +value:
-      D.ProjectContext{J.text(J.get(value, "workspace")), J.text(J.get(value, "revision")), J.text(J.get(value, "instructions"))}
+      D.ProjectContext{J.text(J.get(value, "workspace")), J.text(J.get(value, "path")), J.text(J.get(value, "revision")), J.text(J.get(value, "instructions"))}
 
 type Selection is Data:
   Selection{context: D.TaskContext, guidance: D.ProjectContext}

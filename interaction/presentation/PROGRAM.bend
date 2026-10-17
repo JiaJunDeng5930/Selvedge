@@ -1115,7 +1115,7 @@ def workspace_primary(value: Maybe<&2, String>) -> String:
 def guidance_text(value: D.ProjectContext) -> String:
   match value:
     case D.NoProject{}: "No project guidance"
-    case D.ProjectContext{workspace, revision, instructions}: instructions
+    case D.ProjectContext{workspace, path, revision, instructions}: instructions
 
 def project_page(value: V.ProjectScene, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   V.ProjectScene{id, +name, D.Workspace{roots, primary}, guidance, tasks, actions} = value

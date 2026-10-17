@@ -71,8 +71,8 @@ def json(budget: Nat, left: J.Json, right: J.Json) -> Bool:
 def project(left: D.ProjectContext, right: D.ProjectContext) -> Bool:
   match left right:
     case D.NoProject{} D.NoProject{}: True{}
-    case D.ProjectContext{root_a, revision_a, text_a} D.ProjectContext{root_b, revision_b, text_b}:
-      string_equal(root_a, root_b) && string_equal(revision_a, revision_b) && string_equal(text_a, text_b)
+    case D.ProjectContext{root_a, path_a, revision_a, text_a} D.ProjectContext{root_b, path_b, revision_b, text_b}:
+      string_equal(root_a, root_b) && string_equal(path_a, path_b) && string_equal(revision_a, revision_b) && string_equal(text_a, text_b)
     case _ _: False{}
 
 def optional_string(left: Maybe<&2, String>, right: Maybe<&2, String>) -> Bool:
