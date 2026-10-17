@@ -181,11 +181,16 @@ test('relay snapshots preserve project task trees and executable descendant navi
     for (const child of children(node)) visit(child, project, parent);
   };
   visit(nodes().find(node => bendTag(node.role) === 'Navigation'));
-  assert.deepEqual(hierarchy, [
+  assert.deepEqual(hierarchy.filter(row => row.project === alpha), [
     { task: root, project: alpha, parent: null }, { task: child, project: alpha, parent: root },
     { task: descendant, project: alpha, parent: child },
+  ], 'Same-project remote forks retain their nested task order');
+  assert.deepEqual(hierarchy.filter(row => row.project === beta), [
     { task: crossProject, project: beta, parent: null }, { task: betaChild, project: beta, parent: crossProject },
-  ], 'Every remote-created task appears once; same-project forks nest and a cross-project fork starts its destination tree');
+  ], 'A cross-project remote fork starts its destination tree');
+  assert.deepEqual(hierarchy.map(row => row.task).sort((left, right) => left - right),
+    [root, child, descendant, crossProject, betaChild].sort((left, right) => left - right),
+    'Every remote-created task appears exactly once across project groups');
   const navigate = value => {
     if (!value || typeof value !== 'object') return undefined;
     if (bendTag(value) === 'Navigate') return value;

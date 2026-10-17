@@ -105,7 +105,8 @@ test('remote connector authenticates outbound, resyncs grants on reconnect and k
   const f = await fixture(t);
   assert.throws(() => new RemoteConnector({ relayUrl: 'http://127.0.0.1:1234' }), /HTTPS origin/);
   f.connector.start();
-  await until(() => f.connector.status().connected);
+  await until(() => f.connector.status().connected
+    && f.frames.some(frame => frame.socket === f.sockets[0] && frame.type === 'grants'));
   assert.ok(f.requests.length >= 2);
   assert.deepEqual(f.frames.filter(frame => frame.type !== 'ping').map(({ type }) => type), ['hello', 'grants']);
   f.connector.pair('a-secure-one-time-pairing-code', Date.now() + 1000);
@@ -118,7 +119,8 @@ test('remote connector authenticates outbound, resyncs grants on reconnect and k
   f.connector.pair('another-one-time-pairing-code', Date.now() + 1000);
   await until(() => f.frames.filter(frame => frame.type === 'pairing').length === 2);
   f.sockets[0].close(1012, 'Restart');
-  await until(() => f.sockets.length === 2 && f.connector.status().connected);
+  await until(() => f.sockets.length === 2 && f.connector.status().connected
+    && f.frames.some(frame => frame.socket === f.sockets[1] && frame.type === 'grants'));
   const second = f.frames.filter(frame => frame.socket === f.sockets[1]);
   assert.deepEqual(second.filter(frame => frame.type !== 'ping').map(frame => frame.type), ['hello', 'grants']);
   assert.deepEqual(second.find(frame => frame.type === 'grants').grants, [grant]);
