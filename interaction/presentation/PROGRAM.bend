@@ -274,24 +274,24 @@ def attachment_nodes(files: +List<B.Attachment>, +editor: U.Editor, +parent: Ide
       SurfaceTypes.Node{Identity.Entity{parent, "attachment", id}, id, name, SurfaceTypes.Section{}, SurfaceTypes.Region{}, [product_action(Identity.Entity{parent, "attachment", id}, "preview", "Preview " ++ name, InteractionTypes.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, Identity.encode(Identity.Part{Identity.Entity{parent, "attachment", id}, "preview"})}}, True{}),
          product_action(Identity.Entity{parent, "attachment", id}, "remove", "Remove " ++ name, InteractionTypes.RemoveAttachment{editor, id}, True{})]} <> attachment_nodes(rest, editor, parent)
 
-def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: Identity.Key, connected: Bool) -> +List<SurfaceTypes.Node>:
   match value:
     case Services.Uploading{editor, file}:
       [product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Cancel upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
     case Services.UploadFailed{editor, file, reason}:
-      [product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", InteractionTypes.ServiceInput{Services.RetryUpload{ticket}}, True{}),
+      [product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", InteractionTypes.ServiceInput{Services.RetryUpload{ticket}}, connected),
        product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Remove failed upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
 
-def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: Identity.Key, connected: Bool) -> +List<SurfaceTypes.Node>:
   match owned:
     case False{}: Nil{}
-    case True{}: transfer_controls(ticket, value, parent)
+    case True{}: transfer_controls(ticket, value, parent, connected)
 
-def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Editor, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Editor, +parent: Identity.Key, +connected: Bool) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{(ticket, +value), rest}:
-      List.append(&2, SurfaceTypes.Node, transfer_node(U.same_editor(Services.transfer_editor(value), editor), ticket, value, parent), transfer_nodes(rest, editor, parent))
+      List.append(&2, SurfaceTypes.Node, transfer_node(U.same_editor(Services.transfer_editor(value), editor), ticket, value, parent, connected), transfer_nodes(rest, editor, parent, connected))
 
 def files_observed(value: OperationParameters.Observed) -> +List<B.Attachment>:
   match value:
@@ -303,7 +303,7 @@ def file_field(+editor: U.Editor, +parent: Identity.Key, +state: InteractionType
   +access = Services.access(observed_services)
   +transfers = Services.transfers(observed_services)
   SurfaceTypes.Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", SurfaceTypes.Field{}, SurfaceTypes.ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
-    List.append(&2, SurfaceTypes.Node, attachment_nodes(files_observed(field_value(state, editor, OperationParameters.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
+    List.append(&2, SurfaceTypes.Node, attachment_nodes(files_observed(field_value(state, editor, OperationParameters.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent, Services.connected(access)))
 
 def workspace_value(value: Context.WorkspaceValue) -> D.Workspace:
   match value:

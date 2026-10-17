@@ -356,7 +356,7 @@ def command(body: Body, now: U32) -> M.Command:
     case Project{id, name, workspace, create_worktree}: project_command(id, name, D.workspace_json(workspace), J.Null{}, create_worktree)
     case Card{id, revision, value, assist, profile, keep_open}: M.FeatureCommand{F.BoardCommand{card_command(id, revision, value, assist, profile, now)}}
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
-      M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.settings(context), concurrency}}}}
+      M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.settings(context), concurrency}}}}
     case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.settings(context)}
     case Compact{task, summary}: M.Compact{task, summary}
     case TaskGraph{graph, declaration, parsed}: graph_command(graph, parsed)
@@ -384,7 +384,7 @@ def prepared_command(body: Body, observation: Context.DirectoryObservation, now:
       Context.DirectoryObservation{workspace, guidance} = observation
       project_command(id, name, D.workspace_json(workspace), D.project_json(guidance), create_worktree)
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
-      M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.observed_settings(context, observation), concurrency}}}}
+      M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.observed_settings(context, observation), concurrency}}}}
     case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.observed_settings(context, observation)}
     case other: command(other, now)
 

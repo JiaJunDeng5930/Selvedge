@@ -44,7 +44,7 @@ def replay(same: Bool, reply: J.Json) -> R.Authorization:
 def deduplicate(found: Maybe<&2, R.Receipt>, intent: J.Json, available: Bool) -> R.Authorization:
   match found:
     case None{}: fresh(available)
-    case Some{R.Receipt{controller, epoch, key, stored, reply}}: replay(J.same(intent, stored), reply)
+    case Some{R.Receipt{controller, epoch, key, stored, reply}}: replay(J.same_unordered(intent, stored), reply)
 
 def permission_checked(allowed: Bool, +request: R.Request, +state: R.State) -> R.Authorization:
   match allowed:

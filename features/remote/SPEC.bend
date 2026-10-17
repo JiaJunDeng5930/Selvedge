@@ -80,7 +80,7 @@ def prior_intent(same: Bool, reply: J.Json) -> R.Authorization:
 def prior_request(found: Maybe<&2, R.Receipt>, intent: J.Json, available: Bool) -> R.Authorization:
   match found:
     case None{}: new_request(available)
-    case Some{R.Receipt{controller, epoch, key, stored, reply}}: prior_intent(J.same(intent, stored), reply)
+    case Some{R.Receipt{controller, epoch, key, stored, reply}}: prior_intent(J.same_unordered(intent, stored), reply)
 
 def request_permissions(allowed: Bool, +request: R.Request, +state: R.State) -> R.Authorization:
   match allowed:

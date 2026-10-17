@@ -318,6 +318,8 @@ type CallbackKind is Data:
   CallbackHook{}
   CallbackAfterHook{}
   CallbackContext{}
+  CallbackCompaction{completed: Bool}
+  CallbackWorktree{created: Bool}
   CallbackReasoning{}
   CallbackModel{}
   CallbackDefaultTool{}
@@ -330,9 +332,40 @@ def classify_callback_kind(+kind: String) -> CallbackKind:
     case "hook": CallbackHook{}
     case "after_hook": CallbackAfterHook{}
     case "observe_context": CallbackContext{}
+    case "context_scope": CallbackCompaction{False{}}
+    case "context_measure": CallbackCompaction{False{}}
+    case "context_compaction": CallbackCompaction{True{}}
+    case "worktree_create": CallbackWorktree{True{}}
+    case "worktree_archive": CallbackWorktree{False{}}
     case "reasoning": CallbackReasoning{}
     case "model": CallbackModel{}
     case _: CallbackDefaultTool{}
+
+def compaction_callback_kind(completed: Bool) -> String:
+  match completed:
+    case True{}: "compaction_completed"
+    case False{}: "compaction_measured"
+
+def compaction_callback(completed: Bool, +effect: J.Json, result: J.Json, error: Bool) -> J.Json:
+  J.Object{List.append(&2, J.Field, callback_base(effect, compaction_callback_kind(completed)),
+    [field("result", result), field("error", J.Boolean{error})])}
+
+def worktree_callback_kind(created: Bool) -> String:
+  match created:
+    case True{}: "worktree_created"
+    case False{}: "worktree_archived"
+
+def worktree_callback_fields(created: Bool, ok: Bool, +result: J.Json) -> +List<J.Field>:
+  match created ok:
+    case True{} True{}: [field("root", J.get(result, "root")), field("workspace", J.get(result, "workspace")), field("guidance", J.get(result, "guidance"))]
+    case True{} False{}: [field("root", J.get(result, "root")), field("message", J.Text{take(J.text(J.get(result, "message")), 1024n)})]
+    case False{} True{}: [field("root", J.get(result, "root"))]
+    case False{} False{}: [field("message", J.Text{take(J.text(J.get(result, "message")), 1024n)})]
+
+def worktree_callback(+created: Bool, +effect: J.Json, +result: J.Json) -> J.Json:
+  J.Object{List.append(&2, J.Field, [field("kind", J.Text{worktree_callback_kind(created)}),
+    field("task_id", J.get(effect, "task_id")), field("ok", J.Boolean{J.boolean(J.get(result, "ok"))})],
+    worktree_callback_fields(created, J.boolean(J.get(result, "ok")), result))}
 
 def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -> J.Json:
   match kind:
@@ -342,6 +375,8 @@ def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -
     case CallbackHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "hook"), Con{field("outcome", result), Nil{}})}
     case CallbackAfterHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "after_hook"), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("outcome", result), Nil{}}})}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{True{}}), Con{field("observations", J.get(result, "observations")), Nil{}}})}
+    case CallbackCompaction{completed}: compaction_callback(completed, effect, result, False{})
+    case CallbackWorktree{created}: worktree_callback(created, effect, result)
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{True{}}), callback_result_fields(fields(result), ["kind", "task_id", "ticket", "ok"])})}
     case CallbackModel{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
     case CallbackDefaultTool{}: J.Object{List.append(&2, J.Field, callback_base(effect, "tool"), callback_result_fields(fields(result), ["kind", "task_id", "ticket"]))}
@@ -371,6 +406,8 @@ def failure_classified(+kind: CallbackKind, +effect: J.Json, +message: String) -
     case CallbackChatgptExec{}: J.Object{Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("error", J.Boolean{True{}}), Con{field("value", error_value(message)), Nil{}}}}}}
     case CallbackBoardText{}: J.Object{Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}}}}}}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
+    case CallbackCompaction{completed}: compaction_callback(completed, effect, J.Object{[field("message", J.Text{message})]}, True{})
+    case CallbackWorktree{created}: worktree_callback(created, effect, J.Object{[field("ok", J.Boolean{False{}}), field("root", J.Null{}), field("message", J.Text{message})]})
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
     case CallbackHook{}: failed_outcome(effect, "hook", message)
     case CallbackApproval{}: failed_outcome(effect, "approval", take(message, 400n))
@@ -829,6 +866,82 @@ def workspace_selected(+source: J.Json) -> J.Json:
   +primary = J.get(source, "primary")
   type_outcome_value(J.same(primary, J.Null{}) || names(J.text_values(J.items(J.get(source, "roots"))), J.text(primary)), J.Object{Con{field("roots", J.get(source, "roots")), Con{field("primary_root", primary), Nil{}}}}, "The primary root must be one of the workspace roots")
 
+# Worktree paths and receipt meaning are derived once from the observed home
+# and the committed task coordinates. Git and filesystem calls observe facts.
+def worktree_select(accepted: Bool, yes: J.Json, no: J.Json) -> J.Json:
+  match accepted:
+    case True{}: yes
+    case False{}: no
+
+def worktree_child(+parent: String, +leaf: String) -> String:
+  J.text(worktree_select(String.ends_with(parent, "/"), J.Text{parent ++ leaf}, J.Text{parent ++ "/" ++ leaf}))
+
+def worktree_contains(+root: String, +parent: String) -> Bool:
+  String.eq(root, parent) || String.starts_with(root, worktree_child(parent, ""))
+
+def worktree_locations_value(+source: J.Json) -> J.Json:
+  +home = J.text(J.get(source, "home"))
+  +storage = worktree_child(home, "worktrees")
+  +name = "task-" ++ Nat.show(J.natural_or(J.natural(J.get(source, "task_id")), 0n))
+  J.Object{[field("home", J.Text{home}), field("storage", J.Text{storage}),
+    field("active", J.Text{worktree_child(storage, name)}),
+    field("archived", J.Text{worktree_child(worktree_child(storage, "archived"), name)}),
+    field("receipt", J.Text{worktree_child(worktree_child(storage, "receipts"), name ++ ".json")})]}
+
+def worktree_locations(+source: J.Json) -> J.Json:
+  type_outcome_value(J.is_text(J.get(source, "home")) && String.starts_with(J.text(J.get(source, "home")), "/") &&
+    Model.nonnegative_le(J.get(source, "task_id"), "9007199254740991"), worktree_locations_value(source), "Invalid managed worktree task identity or service home")
+
+def worktree_path_admission(+source: J.Json) -> J.Json:
+  +operation = J.text(J.get(source, "operation"))
+  +root = J.get(source, "root")
+  outcome_value((String.eq(operation, "source") &&
+      worktree_contains(J.text(J.get(source, "primary")), J.text(J.get(source, "repository"))) &&
+      Bool.not(worktree_contains(J.text(J.get(source, "home")), J.text(J.get(source, "repository"))))) ||
+    (String.eq(operation, "archive") && (J.same(root, J.get(J.get(source, "files"), "active")) || J.same(root, J.get(J.get(source, "files"), "archived")))) ||
+    (String.eq(operation, "copy") && worktree_contains(J.text(J.get(source, "source")), J.text(J.get(source, "repository"))) &&
+      worktree_contains(J.text(J.get(source, "destination")), J.text(root)) && Bool.not(J.same(J.get(source, "destination"), root))),
+    J.Null{}, "Managed worktree path must remain in its admitted repository or owned storage; service home must stay outside the source repository")
+
+def worktree_receipt(+source: J.Json) -> J.Json:
+  +value = J.get(source, "value")
+  +workspace = J.get(value, "workspace")
+  +root = J.get(value, "root")
+  +files = J.get(source, "files")
+  type_outcome_value(J.is_object(value) && allowed(fields(value), ["task_id", "source_root", "root", "workspace", "status"]) &&
+    J.same(J.get(value, "task_id"), J.get(source, "task_id")) && J.same(J.get(value, "source_root"), J.get(source, "source_root")) &&
+    ((J.same(J.get(value, "status"), J.Text{"ready"}) && J.same(root, J.get(files, "active"))) ||
+      (J.same(J.get(value, "status"), J.Text{"archived"}) && J.same(root, J.get(files, "archived")))) &&
+    J.boolean(J.get(workspace_admit(workspace), "ok")) && paths_valid(J.items(J.get(workspace, "roots"))) &&
+    names(J.text_values(J.items(J.get(workspace, "roots"))), J.text(J.get(workspace, "primary_root"))) &&
+    worktree_contains(J.text(J.get(workspace, "primary_root")), J.text(root)), value, "Invalid managed worktree receipt")
+
+def worktree_relocated_path(selected: Bool, +value: String, +previous: String, next: String) -> String:
+  match selected:
+    case False{}: value
+    case True{}: next ++ String.drop(value, String.length(previous))
+
+def worktree_map_path(+value: J.Json, +previous: String, +next: String, descendants: Bool) -> J.Json:
+  J.Text{worktree_relocated_path(String.eq(J.text(value), previous) || (descendants && worktree_contains(J.text(value), previous)), J.text(value), previous, next)}
+
+def worktree_map_roots(roots: +List<J.Json>, +previous: String, +next: String, +descendants: Bool) -> +List<J.Json>:
+  match roots:
+    case Nil{}: Nil{}
+    case Con{root, rest}: Con{worktree_map_path(root, previous, next, descendants), worktree_map_roots(rest, previous, next, descendants)}
+
+def worktree_workspace(+source: J.Json) -> J.Json:
+  +workspace = J.get(source, "workspace")
+  +previous = J.text(J.get(source, "previous"))
+  +next = J.text(J.get(source, "next"))
+  +descendants = J.boolean(J.get(source, "descendants"))
+  Model.success(J.Object{[field("roots", J.Array{worktree_map_roots(J.items(J.get(workspace, "roots")), previous, next, descendants)}),
+    field("primary_root", worktree_map_path(J.get(workspace, "primary_root"), previous, next, descendants))]})
+
+def worktree_recovery_effect(+source: J.Json) -> J.Json:
+  +entry = J.get(source, "entry")
+  Model.success(J.Object{[field("kind", worktree_select(names(["creating", "creating_archived"], J.text(J.get(entry, "status"))), J.Text{"worktree_create"}, J.Text{"worktree_archive"})),
+    field("task_id", J.get(entry, "task_id")), field("source_root", J.get(entry, "source_root")), field("root", J.get(entry, "root"))]})
+
 def board_command_operation(+observe: Bool, +command: J.Json) -> J.Json:
   Model.success(J.Object{[field("observe", J.Boolean{observe}), field("attachments", J.Boolean{observe && has(command, "attachments") && names(["create_card", "update_card"], J.text(J.get(command, "op")))})]})
 
@@ -1196,6 +1309,7 @@ def task_coordinate(+kind: String, +value: J.Json) -> J.Json:
 def ticket_coordinate_classified(+kind: CallbackKind, +value: J.Json) -> J.Json:
   match kind:
     case CallbackChatgptExec{}: J.Null{}
+    case CallbackWorktree{created}: J.Null{}
     case _: J.get(value, "ticket")
 
 def ticket_coordinate(+kind: String, +value: J.Json) -> J.Json:
@@ -1415,7 +1529,13 @@ def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
     case False{}: meaning_route_1(String.eq(operation, "effect.board_text_text"), operation, source)
 
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  meaning_route_0(String.eq(operation, "effect.approval_text"), operation, source)
+  match operation:
+    case "effect.worktree_locations": worktree_locations(source)
+    case "effect.worktree_path": worktree_path_admission(source)
+    case "effect.worktree_receipt": worktree_receipt(source)
+    case "effect.worktree_workspace": worktree_workspace(source)
+    case "effect.worktree_recovery_effect": worktree_recovery_effect(source)
+    case +operation: meaning_route_0(String.eq(operation, "effect.approval_text"), operation, source)
 
 def family(+operation: String) -> Model.Adapter(source => meaning(operation, source)):
   Model.adapter(source => meaning(operation, source), source => meaning(operation, source), source => {==})
@@ -1573,3 +1693,20 @@ law context_callback_kind:
 law context_failure_kind:
   @effect:J.Json -> @message:String ->
   {J.get(failure_classified(CallbackContext{}, effect, message), "kind") == J.Text{"context_observed"} : J.Json}
+
+law compaction_callback_result:
+  @completed:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackCompaction{completed}, effect, result), "result") == result : J.Json}
+law compaction_callback_error:
+  @completed:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackCompaction{completed}, effect, result), "error") == J.Boolean{False{}} : J.Json}
+law compaction_failure_error:
+  @completed:Bool -> @effect:J.Json -> @message:String ->
+  {J.get(failure_classified(CallbackCompaction{completed}, effect, message), "error") == J.Boolean{True{}} : J.Json}
+
+law worktree_callback_coordinates:
+  @created:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(worktree_callback(created, effect, result), "task_id") == J.get(effect, "task_id") : J.Json}
+law worktree_callback_operation:
+  @created:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(worktree_callback(created, effect, result), "kind") == J.Text{worktree_callback_kind(created)} : J.Json}

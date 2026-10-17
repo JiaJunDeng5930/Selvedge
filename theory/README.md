@@ -100,8 +100,9 @@ This is a deliberately small proof bridge, not a general Rocq-to-Bend compiler,
 an automatic theorem search engine, or a claim that all Rocq libraries can be
 imported. The translator, exporter, digest and source label are not proof oracles:
 the application-specific proposition must still type-check in Bend. Its kernel,
-termination check and compilation/runtime remain trusted. Negative tests corrupt
-an imported proof and mutate the actual command interpreter to check these gates.
+termination check and compilation/runtime remain trusted. The production proof
+gate checks the imported evidence; translator tests reject unsupported source
+terms and changed reflection premises before generating Bend.
 
 Consumers instantiate the existing List, Bool and Nat theorems directly.
 `../harness/CONTRACT.bend` binds the domain interpretations and theorem premises
@@ -162,8 +163,9 @@ meaning, one-step safety, authorization ownership, context projection and concre
 association-map representation. The bridge supports a declared source subset,
 not all Rocq libraries or automatic theorem discovery. Reachability does not
 establish external-effect commutation, fairness, liveness or process termination.
-Tests break both imported evidence and type-correct production correspondence,
-including deleting old receipts from an otherwise safe run.
+The production proof gate checks domain correspondence. Translator tests exercise
+the supported source subset, while runtime tests exercise compiled execution and
+external boundaries.
 
 Source: https://github.com/rocq-prover/stdlib and Rocq Corelib, copyright INRIA,
 CNRS and contributors. The quoted terms and their generated translation retain

@@ -1,5 +1,4 @@
 import Base
-import ./features/remote.bend as RemoteState
 import ../features/compaction/PROGRAM.bend as Compaction
 import ../features/compaction/SPEC.bend as CompactionSpec
 import ../features/compaction/STATE.bend as CompactionState
@@ -263,9 +262,6 @@ def decision_effects(decision: M.Decision()) -> +List<M.Effect()>:
 def model_request_direct(task: D.Task, world: M.World()) -> M.Decision():
   CompactionSpec.attach(Reasoning.start(F.State(), F.Effect, task, world))
 
-def rendering_budget(world: M.World()) -> Nat:
-  D.state_render_budget(C.local(D.State, F.State(), world))
-
 def external_tool(tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
   tasks = D.state_tasks(task_state)
@@ -381,9 +377,6 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
 def scheduling_budget(world: M.World()) -> Nat:
   Execution.budget(world)
 
-def frame_limit(world: M.World()) -> U32:
-  Commit.frame_bytes(world)
-
 def board_dispatch(command: M.Command, world: M.World()) -> M.Decision():
   apply_command(command, world)
 
@@ -395,53 +388,26 @@ def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
     case False{}: decision
     case True{}: scheduled_prepared(Compaction.prepare(BoardScheduling.prepare(~board_dispatch, decision)))
 
-def output_admitted(fits: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
-  match fits:
-    case True{}: decision
-    case False{}: reject(previous, "output_limit", "The complete decision exceeds the native output bound; no state change or effect was committed")
-
-def admission(rendered: Result<&2, &2, String, String>, decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  match rendered:
-    case Fail{error}: reject(previous, "output_limit", error)
-    case Done{text}:
-      output_admitted(Nat.is_le(J.utf8_length(text), U32.to_nat(frame_limit(previous))), decision, previous)
-
-def deliver(durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  Commit.deliver(durable, decision, previous)
-
-def live_decision(decision: M.Decision()) -> M.Decision():
-  C.Decision{+world, reply, effects} = decision
-  C.Decision{world, reply, I.live_effects(effects, tasks(world))}
-
-def valid_world(decision: M.Decision()) -> Bool:
-  I.world(decision_world(decision))
-
-def admitted(state_valid: Bool, change_valid: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
-  Theory.admit(~M.Decision(), state_valid, change_valid, decision,
-    reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority"))
-
-def check_live(+decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  admitted(valid_world(decision), I.decision(previous, decision), decision, previous)
-
-# Reflection checks the declared predicates on the actual candidate. Rejection
-# retains the old state and emits no effects; output admission has the same rule.
-
-def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
-  Commit.checked(decision, previous)
+def construct_after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> Commit.Committed<world>:
+  Commit.construct_update(~scheduled, input, decision, world)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
-  deliver(M.durable(input), checked(Commit.configuration_checked(input, Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world), world)
+  Commit.value(world, construct_after_apply(input, decision, world))
 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)
 
-def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():
+def construct_transition(+input: M.Input, +world: M.World()) -> Commit.Committed<world>:
   match input:
-    case M.UserCommand{M.Observe{request}}: deliver(False{}, observe(request, world), world)
-    case M.RemoteCommand{request, command, environment}: Commit.remote_command(~Execution.scheduled, request, command, environment, world)
-    case M.RemoteProbe{request, command}: deliver(False{}, RemoteState.probe(command, request, world), world)
-    case M.RemoteCheck{controller, epoch}: deliver(False{}, RemoteState.check(controller, epoch, world), world)
-    case other: update(other, world)
+    case M.UserCommand{M.Observe{request}}:
+      Commit.construct_delivery(False{}, world, Commit.Committed{observe(request, world), Fail{({==}, {==})}})
+    case M.RemoteCommand{request, command, environment}: Commit.construct_remote(~Execution.scheduled, request, command, environment, world)
+    case M.RemoteProbe{request, command}: Commit.construct_probe(command, request, world)
+    case M.RemoteCheck{controller, epoch}: Commit.construct_remote_check(controller, epoch, world)
+    case +other: construct_after_apply(other, apply(other, world), world)
+
+def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():
+  Commit.value(world, construct_transition(input, world))
 
 def transition(input: M.Input, +world: M.World()) -> M.Decision():
   transition_calculation(input, world)

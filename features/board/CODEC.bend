@@ -251,7 +251,7 @@ def construct_fields(kind: WriteKind, +body: J.Json, +id: Nat, +revision: Nat, +
     case RegenerateKind{}: B.Regenerate{id, revision, J.text(J.get(body, "draft_profile")), now}
     case PinKind{}: B.Pin{id, revision, J.boolean(J.get(body, "pinned")), now}
     case SettingsKind{}: B.Settings{J.boolean(J.get(body, "automatic")), J.text(J.get(body, "draft_profile"))}
-    case SaveAgentKind{}: B.SaveAgent{optional_id(J.text(J.get(body, "agent"))), revision, agent(body)}
+    case SaveAgentKind{}: B.SaveAgent{optional_id(J.text(J.get(body, "agent"))), agent(body)}
     case DeleteAgentKind{}: B.DeleteAgent{number(J.get(body, "agent_id")), revision}
 
 def construct(kind: WriteKind, +body: J.Json) -> B.Command:
@@ -296,7 +296,7 @@ def command_json(input: B.Command) -> J.Json:
     case B.Regenerate{id, revision, profile, now}: command("regenerate_card_title", J.Field{"draft_profile", J.Text{profile}} <> identity_fields(id, revision, now))
     case B.Pin{id, revision, pinned, now}: command("pin_card", J.Field{"pinned", J.Boolean{pinned}} <> identity_fields(id, revision, now))
     case B.Settings{automatic, profile}: command("board_settings", [J.Field{"automatic", J.Boolean{automatic}}, J.Field{"draft_profile", J.Text{profile}}])
-    case B.SaveAgent{id, revision, agent}: command("save_board_agent", J.Field{"agent", J.Text{id_text(id)}} <> agent_fields(agent))
+    case B.SaveAgent{id, agent}: command("save_board_agent", J.Field{"agent", J.Text{id_text(id)}} <> agent_fields(agent))
     case B.DeleteAgent{id, revision}: command("delete_board_agent", [J.Field{"agent_id", J.nat(id)}, J.Field{"revision", J.nat(revision)}])
 
 def query_json(query: B.Query) -> J.Json:

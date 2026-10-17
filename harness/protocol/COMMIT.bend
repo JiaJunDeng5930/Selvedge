@@ -63,23 +63,45 @@ def effect_authority(+previous: M.World()) -> M.Decision() -> Type:
 def committable(+previous: M.World()) -> M.Decision() -> Type:
   decision => Categories.intersection(M.Decision(), state_safety(), effect_authority(previous), decision)
 
-def state_and_authority(+previous: M.World()) -> M.Decision() -> Type:
-  committable(previous)
-
 def committable_state(+previous: M.World()) -> Categories.Inclusion<M.Decision(), committable(previous), state_safety()>:
   Categories.intersection_first(M.Decision(), state_safety(), effect_authority(previous))
 
 def committable_authority(+previous: M.World()) -> Categories.Inclusion<M.Decision(), committable(previous), effect_authority(previous)>:
   Categories.intersection_second(M.Decision(), state_safety(), effect_authority(previous))
 
-def commit_candidate(-previous: M.World(), member: Categories.Membership<M.Decision(), committable(previous)>) -> M.Decision():
-  Categories.Membership{decision, evidence} = member
+# A committed decision retains the domain certificate established at admission.
+# Rejections retain the previous world and own no effect authority.
+def effect_list(decision: M.Decision()) -> +List<M.Effect()>:
+  C.Decision{world, reply, effects} = decision
+  effects
+
+def admitted(+previous: M.World(), +decision: M.Decision()) -> Type:
+  Result<&1, &1,
+    {state(decision) == previous : M.World()} & {effect_list(decision) == Nil{} : +List<M.Effect()>},
+    {state_safe(decision) == True{} : Bool} & {effect_authorized(previous, decision) == True{} : Bool}>
+
+type Committed<-previous: M.World()> is Type:
+  Committed{decision: M.Decision(), evidence: admitted(previous, decision)}
+
+def value(-previous: M.World(), member: Committed<previous>) -> M.Decision():
+  Committed{decision, evidence} = member
   decision
 
-def validate_admitted(previous: M.World(), admitted: Maybe<&1, Categories.Membership<M.Decision(), committable(previous)>>) -> M.Decision():
-  match admitted:
+def evidence(-previous: M.World(), member: Committed<previous>) -> admitted(previous, value(previous, member)):
+  Committed{decision, certificate} = member
+  certificate
+
+def refused(+previous: M.World(), code: String, reason: String) -> Committed<previous>:
+  Committed{reject(previous, code, reason), Fail{({==}, {==})}}
+
+def commit_candidate(-previous: M.World(), member: Categories.Membership<M.Decision(), committable(previous)>) -> Committed<previous>:
+  Categories.Membership{decision, Categories.Intersection{state_evidence, authority_evidence}} = member
+  Committed{decision, Done{(state_evidence, authority_evidence)}}
+
+def validate_admitted(+previous: M.World(), admission: Maybe<&1, Categories.Membership<M.Decision(), committable(previous)>>) -> Committed<previous>:
+  match admission:
     case Some{member}: commit_candidate(previous, member)
-    case None{}: reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")
+    case None{}: refused(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")
 
 def live(decision: M.Decision()) -> M.Decision():
   C.Decision{+world, reply, effects} = decision
@@ -87,10 +109,10 @@ def live(decision: M.Decision()) -> M.Decision():
   tasks = D.state_tasks(task_state)
   C.Decision{world, reply, I.live_effects(effects, tasks)}
 
-def validate(+decision: M.Decision(), +previous: M.World()) -> M.Decision():
+def validate(+decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
   validate_admitted(previous, Categories.admit_intersection(M.Decision(), state_safe, candidate => effect_authorized(previous, candidate), decision))
 
-def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
+def construct_checked(decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
   validate(live(decision), previous)
 
 def envelope_fits(+previous: M.World(), text: String) -> Bool:
@@ -116,8 +138,27 @@ def rendered(result: Result<&2, &2, String, String>, decision: M.Decision(), +pr
 def deliver(+durable: Bool, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
   rendered(J.render(D.state_render_budget(C.local(D.State, F.State(), previous)), J.One{View.envelope(durable, decision)}), decision, previous)
 
+def construct_sized(+previous: M.World(), admission: Maybe<&1, Categories.Membership<String, bounded_envelope(previous)>>,
+  member: Committed<previous>) -> Committed<previous>:
+  match admission:
+    case Some{bounded}: member
+    case None{}: refused(previous, "output_limit", "The complete decision exceeds the native output bound; no state change or effect was committed")
+
+def construct_rendered(result: Result<&2, &2, String, String>, +previous: M.World(), member: Committed<previous>) -> Committed<previous>:
+  match result:
+    case Fail{error}: refused(previous, "output_limit", error)
+    case Done{text}: construct_sized(previous, Categories.admit(String, value => envelope_fits(previous, value), text), member)
+
+def construct_delivery(+durable: Bool, +previous: M.World(), member: Committed<previous>) -> Committed<previous>:
+  Committed{+decision, certificate} = member
+  construct_rendered(J.render(D.state_render_budget(C.local(D.State, F.State(), previous)), J.One{View.envelope(durable, decision)}),
+    previous, Committed{decision, certificate})
+
+def construct_finish(durable: Bool, decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
+  construct_delivery(durable, previous, construct_checked(decision, previous))
+
 def finish(durable: Bool, decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  deliver(durable, checked(decision, previous), previous)
+  value(previous, construct_finish(durable, decision, previous))
 
 def configuration_admitted(allowed: Bool, decision: M.Decision(), previous: M.World()) -> M.Decision():
   match allowed:
@@ -127,8 +168,11 @@ def configuration_admitted(allowed: Bool, decision: M.Decision(), previous: M.Wo
 def configuration_checked(input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
   configuration_admitted(Commands.configuration_allowed(input, previous, decision), decision, previous)
 
+def construct_update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M.Input, +decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
+  construct_finish(M.durable(input), configuration_checked(input, Notifications.decorate(input, previous, schedule(schedules(input, decision), decision)), previous), previous)
+
 def update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  finish(M.durable(input), configuration_checked(input, Notifications.decorate(input, previous, schedule(schedules(input, decision), decision)), previous), previous)
+  value(previous, construct_update(~schedule, input, decision, previous))
 
 # Scheduling is a supplied deterministic transducer, constrained by the exact
 # zero/idle/successor equations in LAWS, not a fairness or termination assumption.
@@ -220,9 +264,28 @@ def remote_candidate(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(),
         J.text(J.get(CommandCodec.command_json(M.Observe{query}), "op"))), request, world), query, world)
     case other: remote_update_candidate(~schedule, request, other, environment, world)
 
-def remote_command(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request: Remote.Request,
-  +request_command: M.Command, +environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
-  finish(M.durable(M.RemoteCommand{request, request_command, environment}), remote_candidate(~schedule, request, request_command, environment, world), world)
+def construct_remote(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request: Remote.Request,
+  +request_command: M.Command, +environment: Maybe<&2, D.Environment>, +world: M.World()) -> Committed<world>:
+  construct_finish(M.durable(M.RemoteCommand{request, request_command, environment}), remote_candidate(~schedule, request, request_command, environment, world), world)
+
+def remote_command(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), request: Remote.Request,
+  request_command: M.Command, environment: Maybe<&2, D.Environment>, +world: M.World()) -> M.Decision():
+  value(world, construct_remote(~schedule, request, request_command, environment, world))
+
+def construct_remote_observation(authorization: Remote.Authorization, +world: M.World()) -> Committed<world>:
+  match authorization:
+    case Remote.Denied{code, reason}:
+      construct_delivery(False{}, world, Committed{RemoteState.probe_reply(Remote.Denied{code, reason}, world), Fail{({==}, {==})}})
+    case Remote.Admitted{}:
+      construct_delivery(False{}, world, Committed{RemoteState.probe_reply(Remote.Admitted{}, world), Fail{({==}, {==})}})
+    case Remote.Replay{reply}:
+      construct_delivery(False{}, world, Committed{RemoteState.probe_reply(Remote.Replay{reply}, world), Fail{({==}, {==})}})
+
+def construct_probe(command: M.Command, request: Remote.Request, +world: M.World()) -> Committed<world>:
+  construct_remote_observation(RemoteState.probe_authorization(command, request, RemoteState.registry(world)), world)
+
+def construct_remote_check(controller: String, epoch: Nat, +world: M.World()) -> Committed<world>:
+  construct_remote_observation(RemoteProgram.check(Remote.Rights{True{}, False{}, False{}, False{}}, controller, epoch, RemoteState.registry(world)), world)
 
 def input(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +event: M.Input, +world: M.World()) -> M.Decision():
   match event:

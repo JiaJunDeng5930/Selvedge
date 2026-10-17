@@ -859,7 +859,8 @@
       "interaction/presentation/SURFACE.bend"
     ],
     "browser/editor/PROOF.bend": [
-      "browser/editor/CONTRACT.bend"
+      "browser/editor/CONTRACT.bend",
+      "browser/editor/MODEL.bend"
     ],
     "browser/focus/CONTRACT.bend": [
       "interaction/experience/ACTIVITY.bend",
@@ -1671,6 +1672,7 @@
       "harness/protocol/COMMIT.bend",
       "bendlib/categories.bend",
       "harness/execution/notifications.bend",
+      "harness/protocol/commit-proof.bend",
       "features/remote/MODEL.bend",
       "features/remote/PROGRAM.bend",
       "harness/features/remote.bend",
@@ -2009,7 +2011,10 @@
       "harness/protocol/PROGRAM.bend",
       "harness/execution/PROOF.bend",
       "harness/protocol/PROOF.bend",
-      "harness/execution/notifications.bend"
+      "harness/execution/notifications.bend",
+      "features/remote/MODEL.bend",
+      "features/remote/PROGRAM.bend",
+      "harness/features/remote.bend"
     ],
     "harness/reasoning/CONTRACT.bend": [
       "harness/features/MODEL.bend",
@@ -2073,7 +2078,8 @@
       "harness/LAWS.bend",
       "bendlib/theory.bend",
       "harness/CONTRACT.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "bendlib/stdlib.bend"
     ],
     "harness/transport/CONTRACT.bend": [
       "harness/DOMAIN.bend",
@@ -2588,7 +2594,8 @@
       "interaction/presentation/PROGRAM.bend",
       "interaction/presentation/VIEW.bend",
       "interaction/TYPES.bend",
-      "interaction/presentation/SURFACE.bend"
+      "interaction/presentation/SURFACE.bend",
+      "interaction/services/connection-proof.bend"
     ],
     "interaction/session/CONTRACT.bend": [
       "interaction/experience/PROGRAM.bend",
@@ -2811,7 +2818,9 @@
       "bendlib/json.bend",
       "bendlib/categories.bend",
       "host/adapters/MODEL.bend",
-      "features/chatgpt/CODEC.bend"
+      "features/chatgpt/CODEC.bend",
+      "features/chatgpt/MODEL.bend",
+      "harness/transport/schema.bend"
     ],
     "host/adapters/RPC.bend": [
       "bendlib/categories.bend",
@@ -2844,7 +2853,8 @@
     ],
     "host/adapters/plugins-proof.bend": [
       "bendlib/json.bend",
-      "host/adapters/PLUGINS.bend"
+      "host/adapters/PLUGINS.bend",
+      "bendlib/categories.bend"
     ],
     "host/adapters/rpc-proof.bend": [
       "bendlib/categories.bend",
@@ -2888,8 +2898,7 @@
       "harness/approval/MODEL.bend",
       "harness/reasoning/PROGRAM.bend",
       "features/board/scheduling.bend",
-      "features/board/scheduling-spec.bend",
-      "harness/features/remote.bend"
+      "features/board/scheduling-spec.bend"
     ],
     "harness/execution/PROOF.bend": [
       "features/compaction/PROOF.bend",
@@ -3284,7 +3293,8 @@
     "harness/context/MODEL.bend": [
       "bendlib/json.bend",
       "bendlib/stdlib.bend",
-      "bendlib/string-equality.bend"
+      "bendlib/string-equality.bend",
+      "bendlib/categories.bend"
     ],
     "harness/context/PROOF.bend": [
       "harness/context/MODEL.bend",
@@ -3302,7 +3312,8 @@
     ],
     "harness/context/patch-proof.bend": [
       "harness/context/MODEL.bend",
-      "harness/context/CONTRACT.bend"
+      "harness/context/CONTRACT.bend",
+      "bendlib/logic-proof.bend"
     ],
     "bendlib/equality.bend": [
       "bendlib/string-equality.bend",
@@ -3364,8 +3375,7 @@
     ],
     "features/remote/CODEC.bend": [
       "features/remote/MODEL.bend",
-      "bendlib/json.bend",
-      "bendlib/string-equality.bend"
+      "bendlib/json.bend"
     ],
     "features/remote/PROGRAM.bend": [
       "features/remote/MODEL.bend",
@@ -3406,7 +3416,6 @@
       "harness/workspace/WORKSPACE.bend",
       "bendlib/json.bend",
       "bendlib/association-map.bend",
-      "harness/transport/schema.bend",
       "harness/transport/wire-shape.bend"
     ],
     "features/worktree/MODEL.bend": [
@@ -3606,7 +3615,9 @@
         "interaction/PROOF.bend",
         "browser/focus/PROOF.bend",
         "interaction/presentation/scene-proof.bend",
-        "interaction/presentation/interaction-proof.bend"
+        "interaction/presentation/interaction-proof.bend",
+        "interaction/services/connection-contract.bend",
+        "interaction/services/connection-proof.bend"
       ]
     },
     {

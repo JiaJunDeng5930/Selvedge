@@ -73,7 +73,7 @@ def prior_request(+found: Maybe<&2, R.Receipt>, +intent: J.Json, +available: Boo
   {Actual.deduplicate(found, intent, available) == Spec.prior_request(found, intent, available) : R.Authorization}:
   match found:
     case None{}: new_request(available)
-    case Some{R.Receipt{controller, epoch, key, stored, reply}}: prior_intent(J.same(intent, stored), reply)
+    case Some{R.Receipt{controller, epoch, key, stored, reply}}: prior_intent(J.same_unordered(intent, stored), reply)
 
 def request_permissions(+allowed: Bool, +request: R.Request, +state: R.State) ->
   {Actual.permission_checked(allowed, request, state) == Spec.request_permissions(allowed, request, state) : R.Authorization}:

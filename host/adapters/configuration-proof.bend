@@ -136,6 +136,19 @@ def auto_preset_production(+source: J.Json) ->
 def Configuration.initial_instruction_default():
   source => {==}
 
+def context_field_admitted_projection(+source: J.Json,
+  evidence: {Configuration.config_context_field_requirements(source) == True{} : Bool}) ->
+  {Configuration.config_context_field_admitted(Some{Categories.Membership{source, evidence}}) == Model.success(J.get(source, "value")) : J.Json}:
+  {==}
+
+def context_transport_production(+source: J.Json) ->
+  {Configuration.run("config.context_transport", source) == Model.success(Configuration.config_configuration_context(source)) : J.Json}:
+  {==}
+
+def context_field_production(+source: J.Json) ->
+  {Configuration.run("config.context_field", source) == Configuration.config_context_field(source) : J.Json}:
+  {==}
+
 # Threshold and target authority are checked on the original complete source.
 def compaction_threshold_inclusion() -> Categories.Inclusion<J.Json,
   (source => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => Configuration.compact_threshold_requirements(candidate))),

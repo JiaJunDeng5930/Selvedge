@@ -89,7 +89,9 @@ node plugins/selvedge-chatgpt/bin/setup.mjs package plugin_asdk_app_REPLACE_WITH
 
 The generated package binds the real ID through `.app.json` and
 `extensions.com.openai.apps`. It omits the local `mcp.json` to avoid offering a
-second tool route. Install through a supported local marketplace or workspace
+second tool route. Publication copies an explicit list of shipped files; local
+connection files and other source-directory contents are excluded. Install
+through a supported local marketplace or workspace
 flow in the [OpenAI packaging guide](https://developers.openai.com/plugins/build/plugins).
 Registered IDs are deployment data, not source-code placeholders.
 
@@ -111,9 +113,16 @@ node plugins/selvedge-chatgpt/bin/setup.mjs connection /absolute/path/to/plugin-
 This creates `connection.json` with mode `0600` and refuses to overwrite it.
 For rotation, remove it, recreate it with the new settings and restart the MCP
 process. The server rejects symlinks, foreign-owned files and group/world-readable
-files. The manifest references the private file without embedding credentials.
+files. Connection files and HTTP replies use strict UTF-8 decoding; malformed
+bytes fail instead of being replaced. The manifest references the private file
+without embedding credentials.
 Direct stdio/Tunnel launches use the environment unless `SELVEDGE_CONNECTION_FILE`
 explicitly selects a private file.
+
+The native `plugin.http_response` boundary parses and admits each HTTP reply once
+and constructs its MCP result from that admitted value. Success and failure
+payloads have separate requirements; failed replies carry an error code and
+message. The SDK forwards the constructed result without a second JSON admission.
 
 ## Filesystem behavior
 
@@ -138,8 +147,8 @@ connection and read that receipt. Check rejection for an unshared project and fo
 the connection after revocation and service restart. The bundled skill explains
 retry, cancellation and physically uncertain outcomes.
 
-`npm run test:chatgpt-plugin` checks local MCP/HTTP/native journal/real-shell
-boundaries and independent proof mutations. `npm run test:locality` checks feature
-extension and replacement. OS tests need Seatbelt on macOS or bubblewrap/seccomp
+`bun run test` includes focused MCP transport and deployment-credential checks.
+Feature contracts and replacement properties belong to the production proof gate.
+OS tests need Seatbelt on macOS or bubblewrap/seccomp
 on Linux and must run outside another restrictive sandbox. These fixtures do not
 establish a live commercial ChatGPT or Tunnel connection.

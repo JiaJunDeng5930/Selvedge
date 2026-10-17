@@ -6,7 +6,7 @@ import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
-import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
+import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
 import { observeContextSources } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
@@ -20,16 +20,6 @@ import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
 import { RemoteControl } from './remote-control.mjs';
 import { observeWorkspaceGit, createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
-
-// NOTE: Object field order is a wire representation choice, not a new command
-// intent. Arrays retain their order; native receipts compare this canonical JSON.
-function canonicalRemoteIntent(value) {
-  if (Array.isArray(value)) return value.map(canonicalRemoteIntent);
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalRemoteIntent(value[key])]));
-  }
-  return value;
-}
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class CommandNotSubmitted extends Error {
@@ -63,7 +53,7 @@ export class Service extends EventEmitter {
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
-      service.instructions = { configured: configuredInstructions(config, service.limits),
+      service.instructions = { configured: config.instructions,
         global: await snapshotGlobalInstructions(home, service.limits) };
       const discovered = await withAccountModels(config, home, {
         onDiagnostic: message => service.notify({ type: 'diagnostic', message }),
@@ -255,9 +245,8 @@ export class Service extends EventEmitter {
       const completion = await (effect.kind === 'worktree_create' ? createManagedWorktree : archiveManagedWorktree)(effect,
         { home: this.home, limits: this.limits, signal });
       if (!this.#closing && !this.#failure) {
-        const failed = { kind: completion.kind, task_id: effect.task_id, ok: false,
-          ...(effect.kind === 'worktree_create' ? { root: completion.root ?? null } : {}),
-          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' };
+        const failed = boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
+          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
         let result;
         try { result = await this.journal.execute(completion); }
         catch (error) {
@@ -298,8 +287,7 @@ export class Service extends EventEmitter {
         const result = effect.kind === 'context_measure' || effect.kind === 'context_scope'
           ? await observeModelRequest(effect, this.config, this.home, this.limits, { signal })
           : await requestCompaction(effect, this.config, this.home, this.limits, { signal });
-        input = { kind: effect.kind === 'context_measure' || effect.kind === 'context_scope' ? 'compaction_measured' : 'compaction_completed',
-          task_id: effect.task_id, ticket: effect.ticket, result, error: false };
+        input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'model') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onObservation: value => { observation = value; }, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
@@ -365,11 +353,6 @@ export class Service extends EventEmitter {
   }
 
   #failureInput(effect, message, context_limit = false) {
-    if (effect.kind === 'context_scope' || effect.kind === 'context_measure' || effect.kind === 'context_compaction') {
-      return { kind: effect.kind === 'context_measure' || effect.kind === 'context_scope' ? 'compaction_measured' : 'compaction_completed',
-        task_id: effect.task_id, ticket: effect.ticket,
-        result: { message: String(message || 'External execution failed').toWellFormed() }, error: true };
-    }
     return boundary('effect.failure', { effect, message: String(message || 'External execution failed').toWellFormed(), context_limit });
   }
 
@@ -411,7 +394,7 @@ export class Service extends EventEmitter {
 
   /** Remote intent, authorization and receipt share the ordinary native commit. */
   remoteCommand(controller_id, grant_epoch, request) {
-    const intent = canonicalRemoteIntent(structuredClone(request?.command));
+    const intent = structuredClone(request?.command);
     const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
     const submit = () => this.#remoteSubmit(envelope);
     if (hasRootTaskCreation(intent)) {
@@ -436,7 +419,7 @@ export class Service extends EventEmitter {
       command = await this.#observeCommandWorkspace(command);
       if (hasRootTaskCreation(envelope.intent)) {
         rootFacts = { project: await snapshotProject(this.cwd, this.limits), instructions: {
-          configured: configuredInstructions(this.config, this.limits),
+          configured: this.config.instructions,
           global: await snapshotGlobalInstructions(this.home, this.limits),
         } };
         configuration = this.#configuration(rootFacts);
@@ -478,7 +461,7 @@ export class Service extends EventEmitter {
     try {
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
-      const instructions = { configured: configuredInstructions(this.config, this.limits),
+      const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
       const observed = await this.#observeCommandWorkspace(command);

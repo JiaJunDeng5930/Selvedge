@@ -1,7 +1,6 @@
 import Base
 import ./MODEL.bend as R
 import ../../bendlib/json.bend as J
-import ../../bendlib/string-equality.bend as Text
 
 type AdminKind is Data:
   EnableKind{}
@@ -42,67 +41,17 @@ def specs() -> +List<Spec>:
    Spec{"remote_revoke", "Revoke one remote controller and remove its retained command receipts; administrative access only.", RevokeKind{}, schema(RevokeKind{})},
    Spec{"remote_status", "Read local remote-control status and granted controllers; administrative access only.", StatusKind{}, schema(StatusKind{})}]
 
-def field_count(fields: +List<J.Field>) -> Nat:
-  match fields:
-    case Nil{}: 0n
-    case Con{field, rest}: 1n+field_count(rest)
-
-def counted(same: Bool, rest: Nat) -> Nat:
-  match same:
-    case True{}: 1n+rest
-    case False{}: rest
-
-def name_count(fields: +List<J.Field>, +name: String) -> Nat:
-  match fields:
-    case Nil{}: 0n
-    case Con{J.Field{key, value}, rest}: counted(Text.string_equal(key, name), name_count(rest, name))
-
-def names_count(names: +List<String>) -> Nat:
-  match names:
-    case Nil{}: 0n
-    case Con{name, rest}: 1n+names_count(rest)
-
-def names_once(names: +List<String>, +fields: +List<J.Field>) -> Bool:
-  match names:
-    case Nil{}: True{}
-    case Con{name, rest}: Nat.is_eq(name_count(fields, name), 1n) && names_once(rest, fields)
-
-def exact_keys(value: J.Json, +names: +List<String>) -> Bool:
-  match value:
-    case J.Object{+fields}: Nat.is_eq(field_count(fields), names_count(names)) && names_once(names, fields)
-    case _: False{}
-
-def is_bool(value: J.Json) -> Bool:
-  match value:
-    case J.Boolean{boolean}: True{}
-    case _: False{}
-
-def is_natural(value: Maybe<&2, Nat>) -> Bool:
-  match value:
-    case Some{number}: True{}
-    case None{}: False{}
-
-def is_array(value: J.Json) -> Bool:
-  match value:
-    case J.Array{items}: True{}
-    case _: False{}
-
-def rights_valid(+value: J.Json) -> Bool:
-  exact_keys(value, ["read", "control", "configure", "approve"]) &&
-    is_bool(J.get(value, "read")) && is_bool(J.get(value, "control")) &&
-    is_bool(J.get(value, "configure")) && is_bool(J.get(value, "approve"))
-
 def rights(+value: J.Json) -> R.Rights:
   R.Rights{J.boolean(J.get(value, "read")), J.boolean(J.get(value, "control")),
     J.boolean(J.get(value, "configure")), J.boolean(J.get(value, "approve"))}
 
-def valid(kind: AdminKind, +body: J.Json) -> Bool:
+# Structural fields and permission Booleans are admitted by the shared wire schema.
+# Controller identifiers additionally obey the domain's UTF-8 byte limit.
+def additional_constraints(kind: AdminKind, body: J.Json) -> Bool:
   match kind:
-    case GrantKind{}: exact_keys(body, ["op", "controller_id", "permissions"]) && J.is_text(J.get(body, "op")) &&
-      J.is_text(J.get(body, "controller_id")) && R.identifier_valid(J.text(J.get(body, "controller_id"))) && rights_valid(J.get(body, "permissions"))
-    case RevokeKind{}: exact_keys(body, ["op", "controller_id"]) && J.is_text(J.get(body, "op")) &&
-      J.is_text(J.get(body, "controller_id")) && R.identifier_valid(J.text(J.get(body, "controller_id")))
-    case _: exact_keys(body, ["op"]) && J.is_text(J.get(body, "op"))
+    case GrantKind{}: R.identifier_valid(J.text(J.get(body, "controller_id")))
+    case RevokeKind{}: R.identifier_valid(J.text(J.get(body, "controller_id")))
+    case _: True{}
 
 def construct(kind: AdminKind, +body: J.Json) -> R.Admin:
   match kind:
@@ -120,74 +69,3 @@ def command_json(command: R.Admin) -> J.Json:
       J.Field{"controller_id", J.Text{controller}}, J.Field{"permissions", R.rights_json(permissions)}]}
     case R.RevokeDevice{controller}: J.Object{[J.Field{"op", J.Text{"remote_revoke"}}, J.Field{"controller_id", J.Text{controller}}]}
     case R.Status{}: J.Object{[J.Field{"op", J.Text{"remote_status"}}]}
-
-def number(value: J.Json) -> Nat:
-  J.natural_or(J.natural(value), 0n)
-
-def grant(+value: J.Json) -> R.Grant:
-  R.Grant{J.text(J.get(value, "controller_id")), number(J.get(value, "grant_epoch")), rights(J.get(value, "permissions"))}
-
-def grants(values: +List<J.Json>) -> +List<R.Grant>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: grant(value) <> grants(rest)
-
-def grant_shape(+value: J.Json) -> Bool:
-  exact_keys(value, ["controller_id", "grant_epoch", "permissions"]) && J.is_text(J.get(value, "controller_id")) &&
-    is_natural(J.natural(J.get(value, "grant_epoch"))) && rights_valid(J.get(value, "permissions"))
-
-def grants_shape(values: +List<J.Json>) -> Bool:
-  match values:
-    case Nil{}: True{}
-    case Con{value, rest}: grant_shape(value) && grants_shape(rest)
-
-def receipt(+value: J.Json) -> R.Receipt:
-  R.Receipt{J.text(J.get(value, "controller_id")), number(J.get(value, "grant_epoch")),
-    J.text(J.get(value, "request_id")), J.get(value, "intent"), J.get(value, "reply")}
-
-def receipts(values: +List<J.Json>) -> +List<R.Receipt>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: receipt(value) <> receipts(rest)
-
-def receipt_shape(+value: J.Json) -> Bool:
-  exact_keys(value, ["controller_id", "grant_epoch", "request_id", "intent", "reply"]) &&
-    J.is_text(J.get(value, "controller_id")) && is_natural(J.natural(J.get(value, "grant_epoch"))) && J.is_text(J.get(value, "request_id"))
-
-def receipts_shape(values: +List<J.Json>) -> Bool:
-  match values:
-    case Nil{}: True{}
-    case Con{value, rest}: receipt_shape(value) && receipts_shape(rest)
-
-def receipt_json(value: R.Receipt) -> J.Json:
-  R.Receipt{controller, epoch, key, intent, reply} = value
-  J.Object{[J.Field{"controller_id", J.Text{controller}}, J.Field{"grant_epoch", J.nat(epoch)},
-    J.Field{"request_id", J.Text{key}}, J.Field{"intent", intent}, J.Field{"reply", reply}]}
-
-def receipts_json(values: +List<R.Receipt>) -> +List<J.Json>:
-  match values:
-    case Nil{}: Nil{}
-    case Con{value, rest}: receipt_json(value) <> receipts_json(rest)
-
-def state_json(value: R.State) -> J.Json:
-  R.State{enabled, grants, next, receipts} = value
-  J.Object{[J.Field{"enabled", J.Boolean{enabled}}, J.Field{"grants", J.Array{R.grants_json(grants)}},
-    J.Field{"next_epoch", J.nat(next)}, J.Field{"receipts", J.Array{receipts_json(receipts)}}]}
-
-def state(+value: J.Json) -> R.State:
-  R.State{J.boolean(J.get(value, "enabled")), grants(J.items(J.get(value, "grants"))),
-    number(J.get(value, "next_epoch")), receipts(J.items(J.get(value, "receipts")))}
-
-def state_valid(+value: J.Json) -> Bool:
-  exact_keys(value, ["enabled", "grants", "next_epoch", "receipts"]) && is_bool(J.get(value, "enabled")) &&
-    is_array(J.get(value, "grants")) && grants_shape(J.items(J.get(value, "grants"))) &&
-    is_natural(J.natural(J.get(value, "next_epoch"))) && is_array(J.get(value, "receipts")) &&
-    receipts_shape(J.items(J.get(value, "receipts"))) && R.valid(state(value))
-
-def request(+value: J.Json) -> R.Request:
-  R.Request{J.text(J.get(value, "controller_id")), number(J.get(value, "grant_epoch")),
-    J.text(J.get(value, "request_id")), J.get(value, "intent")}
-
-def request_valid(+value: J.Json) -> Bool:
-  exact_keys(value, ["controller_id", "grant_epoch", "request_id", "intent"]) && J.is_text(J.get(value, "controller_id")) &&
-    is_natural(J.natural(J.get(value, "grant_epoch"))) && J.is_text(J.get(value, "request_id")) && R.request_valid(request(value))

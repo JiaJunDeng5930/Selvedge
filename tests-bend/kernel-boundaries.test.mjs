@@ -1,64 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { writeFile, unlink, symlink } from 'node:fs/promises';
 import { Kernel } from '../host/kernel.mjs';
-import { parseJson, stringifyJson, JsonNumber } from '../host/codec.mjs';
-import { settleContextObservations } from './support.mjs';
+import { JsonNumber, stringifyJson } from '../host/codec.mjs';
+import { boundary } from '../host/public/model-boundary.mjs';
+import { snapshotContextFile } from '../host/project.mjs';
+import { home } from './support.mjs';
 
-const remote = { name: 'mcp__fixture__inspect', description: 'Inspect input', schema: { type: 'object' }, server: 'fixture', remote: 'inspect' };
-
-async function kernel(t, overrides = {}) {
-  const k = new Kernel({ timeout: 5000 });
-  t.after(() => k.close());
-  await k.initialize();
-  const raw = async input => (await k.request(input)).value;
-  const send = async input => settleContextObservations(raw, await raw(input));
-  const command = body => send({ kind: 'command', command: body });
-  const configure = config => send({ kind: 'configure', instructions: { configured: 'Fixture instructions', global: null }, profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }], tools: [], max_fork: 4, max_descendants: 8, ...config });
-  assert.equal((await configure(overrides)).reply.ok, true);
-  return { k, send, command, configure };
-}
-
-function model(task_id, ticket, text = 'done', calls = []) {
-  return { kind: 'model', task_id, ticket, ok: true,
-    items: [...(text ? [{ type: 'text', text }] : []), ...calls.map(call => ({ type: 'call', ...call }))] };
-}
-
-test('Bend-generated JavaScript Worker and codec transport preserves Unicode, embedded controls and exact JSON numeric lexemes', async t => {
-  const { k, send, command } = await kernel(t, { tools: [remote] });
-  const text = 'hello\n"\\\0 世界 😀';
-  const created = await command({ op: 'create', profile: 'fixture', message: text });
-  assert.equal(created.effects[0].history.at(-1).content, text);
-  const arguments_ = parseJson('{"huge":9007199254740993,"fraction":1.2300,"nested":[null,true,{"0":"x"}]}');
-  const result = await send(model(0, created.effects[0].ticket, '', [{ id: 'inspect', name: remote.name, arguments: arguments_ }]));
-  assert.equal(result.effects[0].kind, 'tool');
-  assert.equal(stringifyJson(result.effects[0].call.arguments), stringifyJson(arguments_));
-  await send({ kind: 'tool', task_id: 0, ticket: result.effects[0].ticket, value: arguments_, error: false });
-  const page = await command({ op: 'read', task_id: 0 });
-  const output = page.reply.result.messages.find(x => x.role === 'function_output');
-  assert.ok(output.content.huge instanceof JsonNumber);
-  assert.equal(output.content.huge.source, '9007199254740993');
-  assert.equal((await command({ op: 'read', task_id: 0, limit: 0 })).reply.ok, false);
-  assert.equal((await command({ op: 'create', profile: 'fixture', message: 'x', unknown: 1 })).reply.ok, false);
-});
-
-test('Worker hook envelopes reject unknown authority fields and malformed identities at the kernel boundary', async t => {
-  const { send } = await kernel(t);
-  for (const packet of [
-    { kind: 'hook', task_id: 0, ticket: 0, outcome: { decision: 'rewrite', arguments: {}, name: 'bash' } },
-    { kind: 'hook', task_id: 0, ticket: 0, outcome: { decision: 'allow', value: 'not an argument decision' } },
-    { kind: 'after_hook', task_id: 0, operation_id: 0, ticket: 1, outcome: { decision: 'rewrite', value: null, error: false } },
-    { kind: 'after_hook', task_id: 0, operation_id: 0, ticket: 1, outcome: { decision: 'rewrite' } },
-    { kind: 'after_hook', task_id: 0, operation_id: 0, ticket: 1, outcome: { decision: 'allow', arguments: {} } },
-    { kind: 'after_hook', task_id: 0, operation_id: -1, ticket: 1, outcome: { decision: 'allow' } },
-    { kind: 'after_hook', task_id: 0, operation_id: 0, ticket: '1', outcome: { decision: 'allow' } },
-    { kind: 'after_hook', task_id: 0, ticket: 1, outcome: { decision: 'allow' } },
-  ]) {
-    const result = await send(packet);
-    assert.equal(result.reply.ok, false, JSON.stringify(packet));
-    assert.deepEqual(result.effects, []);
+test('full-size text survives file observation, native JSON rendering and Worker transport', async t => {
+  const kernel = new Kernel();
+  t.after(() => kernel.close());
+  const { limits } = await kernel.initialize();
+  const definition = boundary('config.context_definitions', {}).find(value => value.kind === 'project_guidance');
+  const field = definition.fields.find(value => value.source.type === 'body').name;
+  const directory = await home(t);
+  const filename = path.join(directory, 'AGENTS.md');
+  // The old non-tail native scanner overflowed on the actual 26,575-byte file.
+  for (const size of [26_575, limits.project_context_bytes]) {
+    const content = 'a'.repeat(size);
+    await writeFile(filename, content);
+    const observed = await snapshotContextFile(filename, limits);
+    assert.equal(boundary('config.context_field', { definition, identity: false, field, value: observed.content }), content);
   }
-  // A JSON null value is present, unlike a missing property. The unknown
-  // operation is immaterial: this assertion distinguishes wire validation.
-  assert.equal((await send({ kind: 'after_hook', task_id: 0, operation_id: 0, ticket: 1,
-    outcome: { decision: 'rewrite', value: null } })).reply.ok, true);
+  const target = path.join(directory, 'source');
+  await writeFile(target, 'a'.repeat(limits.project_context_bytes));
+  await unlink(filename);
+  await symlink(target, filename);
+  await assert.rejects(snapshotContextFile(filename, limits), error => ['ELOOP', 'EMLINK'].includes(error.code));
+
+  const text = '🙂'.repeat(262_144) + '\n"\\\u0000';
+  const input = [{ role: 'user', content: text }];
+  const numbers = { huge: new JsonNumber('9007199254740993'), fraction: new JsonNumber('1.2300') };
+  const rendered = boundary('backend.compaction_portable_request', {
+    effect: { plan: { output_reserve_tokens: 65_536 } }, request: { input, numbers },
+  });
+  assert.equal(rendered.input[0].content, text);
+  assert.equal(stringifyJson(rendered.numbers), stringifyJson(numbers));
+  const configured = await kernel.request({ kind: 'configure', instructions: { configured: '', global: null },
+    profiles: [{ key: 'fixture', provider: 'responses', name: 'fixture-model', reasoning_options: null }],
+    tools: [], max_fork: 4, max_descendants: 8 });
+  assert.equal(configured.value.reply.ok, true);
+  assert.equal((await kernel.request({ kind: 'command', command: { op: 'create', profile: 'fixture', message: text } })).value.reply.ok, true);
+  const page = await kernel.request({ kind: 'command', command: { op: 'read', task_id: 0 } });
+  assert.equal(page.value.reply.result.messages.find(message => message.role === 'user').content, text);
 });

@@ -177,6 +177,14 @@ def user_message_width(+visual: Design.Style) -> RuleSourceRules.user_message_wi
     Factory.adaptive_natural_width(visual), RuleSourceRules.adaptive_user_width(visual), user_width_policy(visual))
 
 
+def RuleSourceRules.placement_choices_empty(): {==}
+
+def RuleSourceRules.placement_choices_available(target, label, input, rest): {==}
+
+def RuleSourceRules.placement_choices_needs_directory_observation(target, label, input, rest): {==}
+
+def RuleSourceRules.placement_choices_unavailable(target, label, input, reason, rest): {==}
+
 def RuleSourceRules.movement_field_has_own_identity(key, destinations, face, name, handle, geometry, visual, parameters): {==}
 
 def RuleSourceRules.movement_child_is_authored(key, role, destinations, face, control, nodes, rest): {==}

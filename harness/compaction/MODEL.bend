@@ -1,13 +1,13 @@
 import Base
 import ../../bendlib/json.bend as J
 
-type Method is Data:
-  NativeCompaction{}
-  PortableSummary{}
+type Source is Data:
+  NativeSource{history: J.Json, raw: J.Json}
+  PortableSource{readable: String}
 
 type State is Data:
-  State{source: J.Json, readable: String, cursor: Nat, carry: String,
-    chunk_chars: Nat, method: Method, window_tokens: Nat, output_reserve_tokens: Nat}
+  State{source: Source, cursor: Nat, carry: String,
+    chunk_chars: Nat, window_tokens: Nat, output_reserve_tokens: Nat}
 
 type Step is Data:
   Next{state: State}

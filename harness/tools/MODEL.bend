@@ -32,8 +32,10 @@ def join(left: Bindings, right: Bindings) -> Bindings:
 
 def natural_binding(term: Native.Natural) -> Bindings:
   match term:
-    case Native.NumberArgument{key, description, minimum, maximum, required, fallback}:
-      argument_binding(key, D.integer_schema(description, minimum, maximum), required)
+    case Native.RequiredNumber{key, description, minimum, maximum}:
+      argument_binding(key, D.integer_schema(description, minimum, maximum), True{})
+    case Native.OptionalNumber{key, description, minimum, maximum, fallback}:
+      argument_binding(key, D.integer_schema(description, minimum, maximum), False{})
     case _: empty_bindings()
 
 def text_binding(term: Native.Text) -> Bindings:
@@ -132,6 +134,7 @@ def valid_source(source: D.Source) -> Bool:
     case D.Harness{Native.Feature{+operation, +schema}}:
       D.nonempty(operation) && Schema.command_supported(schema) &&
         Schema.valid(J.get(J.get(schema, "properties"), "op"), J.Text{operation})
+    case D.Harness{program}: Native.defaults_valid(program)
     case _: True{}
 
 def valid_tool(+tool: D.Tool) -> Bool:
@@ -229,14 +232,14 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
       Native.TextArgument{"reasoning", "Reasoning effort; defaults to the selected profile", False{}, "default"},
       Native.TextArgument{"message", "Initial nonempty user request", True{}, ""}, Native.SettingsArgument{"settings", False{}}}}),
   List.append(&2, D.Tool, catalog_entry(Request{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
-    Native.Fork{Native.NumberArgument{"child_count", "Number of children", 1, U32.from_nat(max_fork), True{}, Native.ConstantDefault{0n}}, Native.TextsArgument{"messages", "Initial child message", False{}}, Native.SettingsArgument{"settings", False{}}}}),
+    Native.Fork{Native.RequiredNumber{"child_count", "Number of children", 1, U32.from_nat(max_fork)}, Native.TextsArgument{"messages", "Initial child message", False{}}, Native.SettingsArgument{"settings", False{}}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
-    Native.Observe{Native.Read{Native.NumberArgument{"task_id", "Task identity", 0, 4294967295, True{}, Native.ConstantDefault{0n}}, Native.NumberArgument{"after", "Exclusive history offset", 0, 4294967295, False{}, Native.ConstantDefault{0n}}, Native.NumberArgument{"limit", "Maximum messages", 1, 100, False{}, Native.ConstantDefault{100n}}}}}),
+    Native.Observe{Native.Read{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.OptionalNumber{"after", "Exclusive history offset", 0, 4294967295, Native.ConstantDefault{0n}}, Native.OptionalNumber{"limit", "Maximum messages", 1, 100, Native.ConstantDefault{100n}}}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
-    Native.Send{Native.NumberArgument{"task_id", "Task identity", 0, 4294967295, True{}, Native.ConstantDefault{0n}}, Native.TextArgument{"message", "Nonempty message", True{}, ""}}}),
+    Native.Send{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.TextArgument{"message", "Nonempty message", True{}, ""}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
-    Native.Archive{Native.NumberArgument{"task_id", "Task identity", 0, 4294967295, True{}, Native.ConstantDefault{0n}}}}),
+    Native.Archive{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
     Native.Process{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.NumberArgument{"task_id", "Task identity; defaults to this task", 0, 4294967295, False{}, Native.CallerDefault{}}, Native.NumberArgument{"operation_id", "Task identity", 0, 4294967295, True{}, Native.ConstantDefault{0n}}}})))))))
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))

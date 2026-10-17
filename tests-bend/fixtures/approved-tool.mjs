@@ -18,15 +18,13 @@ const { seq, effect } = executions[0];
 assert.equal(effect.execution.access, 'unrestricted');
 const reviews = rows.flatMap(row => {
   const command = row.input.command ?? row.input.event?.command;
-  const review = row.input.kind === 'approval' ? {
-    task: row.input.task_id, request: row.input.ticket, decision: row.input.outcome.decision,
-  } : command?.op === 'review_approval' ? {
+  const review = command?.op === 'review_approval' ? {
     task: command.task_id, request: command.operation_id, decision: command.decision,
   } : null;
   return review ? [{ seq: row.seq, ...review }] : [];
 });
 assert.ok(reviews.some(review => review.seq <= seq && review.task === effect.task_id &&
   review.request < effect.ticket && review.decision === 'allow'), 'The grant must be durable before this process starts');
-assert.equal(process.cwd(), effect.execution.workspace.primary_root ?? '/');
+assert.equal(process.cwd(), effect.execution.workspace.primary_root);
 appendFileSync(marker, 'ran\n');
 process.stdout.write(JSON.stringify({ cwd: process.cwd(), ticket: effect.ticket }));

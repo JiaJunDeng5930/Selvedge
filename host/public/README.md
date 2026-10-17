@@ -21,6 +21,12 @@ which facts have a presentation. Rendering and encoding failures have Bend-owned
 screens. The static HTML loading/error text only covers loading the compiled
 program itself.
 
+`connection.mjs` observes one authenticated HTTP/SSE connection. Services own
+connection tickets and recovery timers; the adapter does not maintain a retry
+loop. `appearance.mjs` passes stored preferences back into that same service
+model, and `keyboard.mjs` preserves native key observations for the compiled
+editor's normalization and default-handling decision.
+
 ## Incremental Markdown
 
 `markdown.mjs` retains its paced text buffer, bounded streaming parser and worker

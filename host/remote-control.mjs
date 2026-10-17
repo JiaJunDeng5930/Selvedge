@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { mkdir, open } from 'node:fs/promises';
+import { link, mkdir, open, unlink } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requestJson } from './network.mjs';
@@ -18,14 +18,32 @@ function remoteError(code, message) {
 async function readIdentity(home, relayUrl) {
   let file;
   try {
-    file = await open(path.join(home, identityName), constants.O_RDONLY | constants.O_NOFOLLOW);
+    file = await open(path.join(home, identityName), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
     const stat = await file.stat();
     if (!stat.isFile() || stat.size > 4096 || (stat.mode & 0o077) !== 0 ||
         (process.getuid && stat.uid !== process.getuid())) {
       throw remoteError('remote_identity_permissions', 'Remote identity must be a private regular file owned by this user');
     }
     let value;
-    try { value = JSON.parse(await file.readFile('utf8')); }
+    try {
+      const buffer = Buffer.alloc(stat.size + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
+        if (!bytesRead) break;
+        length += bytesRead;
+      }
+      const after = await file.stat();
+      // Atomic publication removes its temporary hard link after exposing the
+      // complete identity; that cleanup changes ctime without changing content.
+      const publicationCleanup = stat.nlink === 2 && after.nlink === 1;
+      if (length !== stat.size || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs ||
+          (after.ctimeMs !== stat.ctimeMs && !publicationCleanup) ||
+          after.mode !== stat.mode || after.uid !== stat.uid) {
+        throw new Error('Remote identity changed while being read');
+      }
+      value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length)));
+    }
     catch { throw remoteError('remote_identity_invalid', 'Remote identity has an invalid current format'); }
     if (value?.format !== identityFormat || !hostShape.test(value.host_id) || !tokenShape.test(value.host_token) ||
         value.relay_url !== relayUrl || Object.keys(value).sort().join(',') !== 'format,host_id,host_token,relay_url') {
@@ -52,16 +70,24 @@ export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLo
   catch (error) {
     if (error.code !== 'remote_identity_missing') throw error;
     const proposed = { format: identityFormat, host_id: randomUUID(), host_token: randomBytes(32).toString('base64url'), relay_url };
+    const filename = path.join(home, identityName);
+    const temporary = `${filename}.${randomUUID()}.tmp`;
     let file;
     try {
-      file = await open(path.join(home, identityName), 'wx', 0o600);
+      file = await open(temporary, 'wx', 0o600);
       await file.writeFile(JSON.stringify(proposed) + '\n');
       await file.sync();
+      await file.close();
+      file = undefined;
+      try { await link(temporary, filename); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      await unlink(temporary);
       const directory = await open(home, 'r');
       try { await directory.sync(); } finally { await directory.close(); }
-    } catch (failure) {
-      if (failure.code !== 'EEXIST') throw failure;
-    } finally { await file?.close(); }
+    } finally {
+      await file?.close();
+      await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    }
     identity = await readIdentity(home, relay_url);
   }
   let registered;

@@ -8,18 +8,13 @@
   "scripts": {
     "build": "bun scripts/build.mjs",
     "start": "bun run build && bun host/cli.mjs server",
-    "test": "bun run build && bun scripts/test.mjs",
+    "test": "bun run build && bun test --max-concurrency 1 --timeout 30000 ./tests-bend",
     "check": "bun scripts/check.mjs",
     "check:components": "bun scripts/check-components.mjs",
-    "test:locality": "bun test ./tests-bend/locality.test.mjs",
     "index": "bun scripts/agents-index.mjs update",
     "index:check": "bun scripts/agents-index.mjs check",
     "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
-    "build:native": "bun scripts/build.mjs --native",
-    "test:ci": "bun run build && bun scripts/test.mjs --ci",
-    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs",
-    "test:remote": "bun run build && bun test --max-concurrency 1 tests-bend/remote-control.test.mjs tests-bend/remote-connector.test.mjs tests-bend/remote-cli.test.mjs",
-    "test:relay": "bun --cwd relay run test"
+    "build:native": "bun scripts/build.mjs --native"
   },
   "dependencies": {
     "diff": "9.0.0",

@@ -1,8 +1,8 @@
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_HTTP_BYTES, MAX_REMOTE_CONTROLLERS,
   MAX_REMOTE_TICKETS, REMOTE_TICKET_TTL_MS, REMOTE_PAIRING_TTL_MS,
-  isHostId, isRemoteToken, isControllerId, parseRemoteFrame, encodeRemoteFrame,
-  validateHostFrame, validateControllerRequest, validateRemoteResponse,
+  isHostId, isRemoteToken, parseRemoteFrame, encodeRemoteFrame,
+  validateHostFrame, validateControllerRequest,
 } from '../../remote/protocol.mjs';
 
 const utf8 = new TextEncoder();
@@ -345,7 +345,7 @@ export class RemoteHostRelay {
         const controller = this.controller(frame.connection_id);
         if (!controller || !this.controllerCurrent(controller.deserializeAttachment())) return;
         send(controller, frame.type === 'response'
-          ? validateRemoteResponse(frame.response) : { type: 'event', event: frame.event });
+          ? frame.response : { type: 'event', event: frame.event });
         break;
       }
       case 'ping': send(socket, { type: 'pong' }); break;

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { requirePackagedModel } from '../scripts/build-model.mjs';
 
 await requirePackagedModel();
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** Installed clients supply PLUGIN_DATA instead of inheriting arbitrary credentials. */
 export async function loadSettings(env = process.env) {
@@ -21,7 +22,7 @@ export async function loadSettings(env = process.env) {
       regular: stat.isFile(), bytes: stat.size, mode: stat.mode,
       owner_uid: stat.uid, current_uid: process.getuid() });
     let value;
-    try { value = parseJson(await file.readFile('utf8')); }
+    try { value = parseJson(utf8Decoder.decode(await file.readFile())); }
     catch { throw new Error('Invalid connection file JSON'); }
     boundary('plugin.settings_file', { phase: 'keys', absolute,
       object: value !== null && typeof value === 'object' && !Array.isArray(value),
@@ -69,9 +70,8 @@ export function callTool(config, tool, arguments_, { signal } = {}) {
       response.on('error', reject);
       response.on('end', () => {
         try {
-          boundary('plugin.reply_type', { content_type: response.headers['content-type'] ?? '' });
-          const text = Buffer.concat(chunks).toString('utf8');
-          const reply = boundary('plugin.reply', { tool, text, observation: observeJson(text), status: response.statusCode,
+          const text = utf8Decoder.decode(Buffer.concat(chunks));
+          const reply = boundary('plugin.http_response', { tool, text, observation: observeJson(text), status: response.statusCode,
             status_text: String(response.statusCode), content_type: response.headers['content-type'] ?? '' });
           resolve(reply);
         } catch (error) { reject(error); }

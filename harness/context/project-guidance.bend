@@ -22,22 +22,8 @@ def directory_definition() -> C.Definition:
      C.TextField{"applies_to", C.ObservationField{"applies_to"}, True{}},
      C.TextField{"precedence", C.ObservationField{"precedence"}, True{}}])
 
-def directory_entry(directory: String, name: String) -> String:
-  match directory:
-    case "/": "/" ++ name
-    case other: other ++ "/" ++ name
-
-def source_path_member(files: +List<String>, +workspace: String, +path: String) -> Bool:
-  match files:
-    case Nil{}: False{}
-    case Con{file, rest}: String.eq(directory_entry(workspace, file), path) || source_path_member(rest, workspace, path)
-
-def policy_source_path(policy: C.DiscoveryPolicy, workspace: String, path: String) -> Bool:
-  C.DiscoveryPolicy{files, directories, repository_markers, excluded, max_directories, max_entries, max_sources, max_bytes} = policy
-  source_path_member(files, workspace, path)
-
 def source_path(workspace: String, path: String) -> Bool:
-  policy_source_path(C.guidance_policy(), workspace, path)
+  C.policy_source_path(C.guidance_policy(), workspace, path)
 
 def key(workspace: String) -> C.Key:
   C.ContextKey{definition(), [C.FieldValue{"workspace", workspace}]}

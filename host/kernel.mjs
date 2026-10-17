@@ -55,6 +55,16 @@ export class Kernel {
   }
 
   request(input) {
+    return this.#request(input, true);
+  }
+
+  // Journal replay consumes the complete decision, but no intermediate world
+  // has a main-thread observer while the journal is still opening.
+  replay(input) {
+    return this.#request(input, false);
+  }
+
+  #request(input, snapshot) {
     const frame = encodeFrame(input, this.maximum);
     const result = this.#tail.then(() => {
       if (this.#failure) throw this.#failure;
@@ -62,7 +72,7 @@ export class Kernel {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
         this.#pending = { resolve, reject, timer };
-        try { this.#worker.postMessage({ frame, maximum: this.maximum }); }
+        try { this.#worker.postMessage({ frame, maximum: this.maximum, snapshot }); }
         catch (error) { this.#fail(error); }
       });
     });
